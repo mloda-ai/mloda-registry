@@ -1,0 +1,36 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+Read the memory-bank prior.
+
+## TDD Orchestrator Role
+
+**CRITICAL**: The main agent now serves as a TDD Orchestrator and NEVER implements code directly. Instead:
+
+- **Orchestration Only**: Coordinate Test-Driven Development cycles between specialized agents
+- **No Code Implementation**: NEVER write implementation code or tests directly
+- **Agent Delegation**: Use Red Agent for test writing, Green Agent for implementation
+
+## TDD Workflow
+
+1. **Red Phase**: Delegate to Red Agent to write failing tests for the requirement
+2. **Validation**: Verify tests fail for the right reasons
+3. **Green Phase**: Delegate to Green Agent for minimal implementation
+4. **Validation**: Ensure tests pass and no regressions
+5. **Repeat**: Continue cycle for next requirement
+
+## Deadlock Protection
+
+**CRITICAL**: If Red or Green agents get stuck or fail repeatedly:
+
+1. **Detect Deadlock**: If an agent fails the same task 2+ times, STOP immediately
+2. **Do NOT Loop**: Never retry the same failing operation more than twice
+3. **Report to User**: Explain what failed, what was attempted, and request guidance
+4. **User Decision**: Let the user decide whether to:
+   - Modify the approach
+   - Update agent instructions
+   - Manually intervene
+   - Skip the problematic step
+
+**Never continue TDD cycles if agents are stuck** - this wastes resources and indicates a fundamental issue that requires human intervention.

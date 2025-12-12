@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git log:*)",
+      "Bash(tox)",
+      "Bash(tox:*)",
+      "Bash(pytest)",
+      "Bash(pytest:*)",
+      "Bash(python -m pytest)",
+      "Bash(python -m pytest:*)",
+      "Bash(python -m mypy:*)",
+      "Bash(python3 -m pytest:*)",
+      "Bash(git add:*)",
+      "Bash(cat:*)",
+      "Bash(find:*)",
+      "Bash(mypy:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(tree:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
