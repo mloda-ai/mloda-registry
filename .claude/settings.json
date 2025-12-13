@@ -4,6 +4,8 @@
       "Bash(git log:*)",
       "Bash(tox)",
       "Bash(tox:*)",
+      "Bash(uv run tox)",
+      "Bash(uv run tox:*)",
       "Bash(pytest)",
       "Bash(pytest:*)",
       "Bash(python -m pytest)",

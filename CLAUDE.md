@@ -34,3 +34,8 @@ Read the memory-bank prior.
    - Skip the problematic step
 
 **Never continue TDD cycles if agents are stuck** - this wastes resources and indicates a fundamental issue that requires human intervention.
+
+## Devcontainer Tox Usage
+
+- Use `tox` when running tests without dependency changes (uses pre-built environment)
+- Use `uv run tox` when dependencies have changed (rebuilds environment with new deps)

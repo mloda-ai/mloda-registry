@@ -1,0 +1,152 @@
+x-agent-common: &agent-common
+  image: mloda-registry-devcontainer:latest
+  pull_policy: never
+  deploy:
+    resources:
+      limits:
+        memory: 8G
+        pids: 2048
+  cap_drop:
+    - ALL
+  cap_add:
+    - CHOWN
+    - DAC_OVERRIDE
+    - FOWNER
+    - SETGID
+    - SETUID
+    - KILL
+  environment:
+    - USE_TOX_LOCK=1
+  depends_on:
+    mloda-registry-base:
+      condition: service_completed_successfully
+  stdin_open: true
+  tty: true
+  command: >
+    bash -c "
+      if [ -f /tmp/host-gitconfig ] && [ ! -d /tmp/host-gitconfig ]; then
+        cp /tmp/host-gitconfig /home/vscode/.gitconfig;
+        echo 'Copied .gitconfig from host';
+      fi;
+      if [ \"$(stat -c '%U' /workspace)\" != 'vscode' ]; then
+        echo 'Fixing /workspace ownership (was root)...';
+        sudo chown -R vscode:vscode /workspace;
+      fi;
+      if [ -d /shared ] && [ \"$(stat -c '%U' /shared)\" != 'vscode' ]; then
+        sudo chown vscode:vscode /shared;
+      fi;
+      cd /workspace;
+      exec bash"
+
+services:
+  mloda-registry-base:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    image: mloda-registry-devcontainer:latest
+    command: "true"
+    networks:
+      - shared-network
+
+  reg-agent-1:
+    <<: *agent-common
+    container_name: reg-agent-1
+    volumes:
+      - reg_agent_1_data:/workspace
+      - shared_locks:/shared
+      - ~/.gitconfig:/tmp/host-gitconfig:ro
+    ports:
+      - "8010:8000"
+    networks:
+      - reg-agent-1-network
+
+  reg-agent-2:
+    <<: *agent-common
+    container_name: reg-agent-2
+    volumes:
+      - reg_agent_2_data:/workspace
+      - shared_locks:/shared
+      - ~/.gitconfig:/tmp/host-gitconfig:ro
+    ports:
+      - "8011:8000"
+    networks:
+      - reg-agent-2-network
+
+  reg-agent-3:
+    <<: *agent-common
+    container_name: reg-agent-3
+    volumes:
+      - reg_agent_3_data:/workspace
+      - shared_locks:/shared
+      - ~/.gitconfig:/tmp/host-gitconfig:ro
+    ports:
+      - "8012:8000"
+    networks:
+      - reg-agent-3-network
+
+  reg-agent-4:
+    <<: *agent-common
+    container_name: reg-agent-4
+    volumes:
+      - reg_agent_4_data:/workspace
+      - shared_locks:/shared
+      - ~/.gitconfig:/tmp/host-gitconfig:ro
+    ports:
+      - "8013:8000"
+    networks:
+      - reg-agent-4-network
+
+  reg-agent-5:
+    <<: *agent-common
+    container_name: reg-agent-5
+    volumes:
+      - reg_agent_5_data:/workspace
+      - shared_locks:/shared
+      - ~/.gitconfig:/tmp/host-gitconfig:ro
+    ports:
+      - "8014:8000"
+    networks:
+      - reg-agent-5-network
+
+  reg-agent-6:
+    <<: *agent-common
+    container_name: reg-agent-6
+    volumes:
+      - reg_agent_6_data:/workspace
+      - shared_locks:/shared
+      - ~/.gitconfig:/tmp/host-gitconfig:ro
+    ports:
+      - "8015:8000"
+    networks:
+      - reg-agent-6-network
+
+  context7:
+    # claude mcp add --transport http context7 http://localhost:8765/mcp
+    image: mcp/context7
+    ports:
+      - "8765:8080"
+
+volumes:
+  shared_locks:
+  reg_agent_1_data:
+  reg_agent_2_data:
+  reg_agent_3_data:
+  reg_agent_4_data:
+  reg_agent_5_data:
+  reg_agent_6_data:
+
+networks:
+  reg-agent-1-network:
+    driver: bridge
+  reg-agent-2-network:
+    driver: bridge
+  reg-agent-3-network:
+    driver: bridge
+  reg-agent-4-network:
+    driver: bridge
+  reg-agent-5-network:
+    driver: bridge
+  reg-agent-6-network:
+    driver: bridge
+  shared-network:
+    driver: bridge
