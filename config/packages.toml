@@ -1,0 +1,52 @@
+# Package-specific configuration for mloda-registry packages
+# Edit this file and run: python scripts/generate_pyproject.py
+
+[packages.mloda-registry]
+description = "Plugin discovery and search for mloda"
+license = "Apache-2.0"
+dependencies = ["mloda>=0.4.2"]
+path = "mloda/registry"
+include = ["mloda.registry", "mloda.registry.*"]
+has_readme = true
+
+[packages.mloda-testing]
+description = "Test utilities for mloda plugin development"
+license = "Apache-2.0"
+dependencies = ["mloda>=0.4.2", "pytest"]
+path = "mloda/testing"
+include = ["mloda.testing", "mloda.testing.*"]
+has_readme = true
+
+[packages.mloda-community]
+description = "All community plugins for mloda (meta-package)"
+license = "Apache-2.0"
+dependencies = ["mloda-community-example>=0.2.0"]
+path = "mloda/community"
+is_meta_package = true
+workspace_deps = ["mloda-community-example"]
+
+[packages.mloda-enterprise]
+description = "All enterprise plugins for mloda (meta-package)"
+license = "LicenseRef-Proprietary"
+dependencies = ["mloda-enterprise-example>=0.2.0"]
+path = "mloda/enterprise"
+is_meta_package = true
+workspace_deps = ["mloda-enterprise-example"]
+
+[packages.mloda-community-example]
+description = "Example community FeatureGroup plugin for mloda"
+license = "Apache-2.0"
+dependencies = ["mloda>=0.4.2"]
+path = "mloda/community/feature_groups/example"
+include = ["mloda.community.feature_groups.example", "mloda.community.feature_groups.example.*"]
+has_readme = true
+optional_dependencies = { dev = ["mloda-testing", "pytest"] }
+
+[packages.mloda-enterprise-example]
+description = "Example enterprise FeatureGroup plugin for mloda"
+license = "LicenseRef-Proprietary"
+dependencies = ["mloda>=0.4.2"]
+path = "mloda/enterprise/feature_groups/example"
+include = ["mloda.enterprise.feature_groups.example", "mloda.enterprise.feature_groups.example.*"]
+has_readme = true
+optional_dependencies = { dev = ["mloda-testing", "pytest"] }

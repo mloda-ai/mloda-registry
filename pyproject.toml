@@ -1,11 +1,11 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mloda-registry"
+name = "mloda-registry-workspace"
 version = "0.2.0"
-description = "Registry for mloda"
+description = "Development workspace for mloda registry packages"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10,<3.14"
 dependencies = [
@@ -32,6 +32,16 @@ line-length = 120
 where = ["."]
 include = ["mloda*"]
 namespaces = true
+
+[tool.uv.workspace]
+members = [
+    "mloda/registry",
+    "mloda/testing",
+    "mloda/community",
+    "mloda/enterprise",
+    "mloda/community/feature_groups/*",
+    "mloda/enterprise/feature_groups/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "mloda/**/tests"]
