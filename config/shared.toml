@@ -1,0 +1,15 @@
+# Shared configuration for all mloda-registry packages
+# Edit this file and run: python scripts/generate_pyproject.py
+
+[project]
+version = "0.2.0"
+requires-python = ">=3.10"
+authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
+
+[project.urls]
+Homepage = "https://mloda.ai"
+Repository = "https://github.com/mloda-ai/mloda-registry"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

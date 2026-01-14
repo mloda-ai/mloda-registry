@@ -64,3 +64,13 @@ uv sync --all-extras
 
 - Use `tox` when running tests without dependency changes (uses pre-built environment)
 - Use `uv run tox` when dependencies have changed (rebuilds environment with new deps)
+
+## Package Management
+
+All `pyproject.toml` files are **auto-generated** from config files. See `memory-bank/pyproject-generation.md` for full documentation.
+
+**Quick reference:**
+- Edit `config/shared.toml` for version/authors/urls
+- Edit `config/packages.toml` for per-package config
+- Run `python scripts/generate_pyproject.py` to regenerate
+- **Never edit pyproject.toml files directly**
