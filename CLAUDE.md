@@ -35,6 +35,31 @@ Read the memory-bank prior.
 
 **Never continue TDD cycles if agents are stuck** - this wastes resources and indicates a fundamental issue that requires human intervention.
 
+## Virtual Environment Setup
+
+If not in a devcontainer, set up the environment:
+
+```bash
+# 1. Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2. Create virtual environment
+uv venv
+
+# 3. Activate the environment
+source .venv/bin/activate
+
+# 4. Install dependencies
+uv sync --all-extras
+```
+
+For subsequent sessions, just activate and sync:
+
+```bash
+source .venv/bin/activate
+uv sync --all-extras
+```
+
 ## Devcontainer Tox Usage
 
 - Use `tox` when running tests without dependency changes (uses pre-built environment)

@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mloda-enterprise"
+version = "0.2.0"
+description = "All enterprise plugins for mloda (meta-package)"
+license = { text = "Proprietary" }
+authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
+dependencies = [
+    "mloda-enterprise-example>=0.2.0",
+    # Add more as created
+]
+requires-python = ">=3.10"
+
+[project.urls]
+Homepage = "https://mloda.ai"
+Repository = "https://github.com/mloda-ai/mloda-registry"
+
+[tool.setuptools]
+packages = []
