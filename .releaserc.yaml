@@ -56,9 +56,10 @@ plugins:
   - [
       "@semantic-release/github",
       {
-        "releasedLabels": ["released"],
         "releaseNameTemplate": "🚀 Version ${nextRelease.version}",
         "successComment": false,
+        "releasedLabels": false,
+        "failComment": false,
       },
     ]
   - [
