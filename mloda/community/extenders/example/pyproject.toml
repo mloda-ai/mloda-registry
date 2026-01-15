@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community-extenders-example"
-version = "0.2.1"
+version = "0.2.2"
 description = "Example community Extender plugin for mloda"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
