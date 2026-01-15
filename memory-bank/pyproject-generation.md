@@ -1,65 +1,36 @@
 # pyproject.toml Generation System
 
-## Overview
+All `pyproject.toml` files are auto-generated from config.
 
-This monorepo uses a **config-driven generation system** to manage `pyproject.toml` files across all packages. Instead of manually maintaining duplicate metadata in each package, shared fields are defined once and pyproject.toml files are generated automatically.
+## Quick Reference
 
-### Why This Exists
-
-With 100+ packages, duplicating `version`, `authors`, `urls`, `requires-python`, and `build-system` in each pyproject.toml is:
-- Error-prone (easy to miss a file during version bumps)
-- Time-consuming (manual updates across many files)
-- Inconsistent (drift between packages over time)
-
-### Key Benefits
-
-- **Single source of truth**: Version bump = edit 1 file, regenerate all
-- **Consistency**: All packages share identical metadata where appropriate
-- **Scalability**: Adding new packages is a 5-line config entry
-- **CI validation**: Automated checks ensure files stay in sync
-
----
+```bash
+python scripts/generate_pyproject.py          # Generate all
+python scripts/generate_pyproject.py --check  # CI validation
+```
 
 ## Architecture
 
 ```
 config/
-├── shared.toml           # Metadata shared by ALL packages
-└── packages.toml         # Per-package configuration
-
-scripts/
-├── generate_pyproject.py # Generates pyproject.toml from config
-└── verify_builds.py      # Builds all packages, verifies versions
-
-Generated files (DO NOT EDIT DIRECTLY):
-├── mloda/registry/pyproject.toml
-├── mloda/testing/pyproject.toml
-├── mloda/community/pyproject.toml
-├── mloda/enterprise/pyproject.toml
-├── mloda/community/feature_groups/example/pyproject.toml
-└── mloda/enterprise/feature_groups/example/pyproject.toml
+├── shared.toml       # version, authors, urls, defaults
+└── packages.toml     # per-package: description, deps, path
+         │
+         ▼
+scripts/generate_pyproject.py
+         │
+         ├──► mloda/*/pyproject.toml
+         └──► pyproject.toml (workspace members)
 ```
 
-### Data Flow
+## Config Files
 
-```
-config/shared.toml  ─┐
-                     ├─► generate_pyproject.py ─► pyproject.toml (per package)
-config/packages.toml ┘
-```
-
----
-
-## Config File Reference
-
-### config/shared.toml
-
-Contains fields applied to **all packages**:
+### shared.toml
 
 ```toml
 [project]
-version = "0.2.0"                                        # Version for all packages
-requires-python = ">=3.10"                               # Python version constraint
+version = "0.2.0"
+requires-python = ">=3.10"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
 
 [project.urls]
@@ -69,202 +40,72 @@ Repository = "https://github.com/mloda-ai/mloda-registry"
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[defaults]
+license = "Apache-2.0"
+optional_dependencies = { dev = ["mloda-testing", "pytest"] }
 ```
 
-### config/packages.toml
-
-Contains **per-package configuration**:
-
-```toml
-[packages.mloda-registry]
-description = "Plugin discovery and search for mloda"   # Required
-license = "Apache-2.0"                                  # Required
-dependencies = ["mloda>=0.4.2"]                         # Required (can be empty [])
-path = "mloda/registry"                                 # Required: location of package
-include = ["mloda.registry", "mloda.registry.*"]        # For namespace packages
-has_readme = true                                       # Optional: include readme field
-```
-
-#### Package Configuration Fields
+### packages.toml
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `description` | Yes | Package description for PyPI |
-| `license` | Yes | SPDX license identifier |
-| `dependencies` | Yes | Runtime dependencies list |
-| `path` | Yes | Directory containing the package |
-| `include` | No | Namespace package patterns (setuptools.packages.find) |
-| `has_readme` | No | Whether to include `readme = "README.md"` |
-| `is_meta_package` | No | If true, sets `packages = []` (no code, just deps) |
-| `workspace_deps` | No | List of workspace deps for `[tool.uv.sources]` |
-| `optional_dependencies` | No | Dict of optional dep groups, e.g., `{ dev = ["pytest"] }` |
+| `description` | Yes | PyPI description |
+| `dependencies` | Yes | Runtime deps |
+| `path` | Yes | Package directory |
+| `workspace_deps` | No | For meta-packages only |
+| `optional_dependencies` | No | Merged with defaults |
 
-#### Example: Regular Package
+**Generator infers:**
+- `license` from path (`mloda/enterprise/*` → proprietary, else default)
+- `include` from path (`mloda/foo` → `["mloda.foo", "mloda.foo.*"]`)
+- Meta-package status from `workspace_deps` presence
 
+**Default dev deps skipped for:** `mloda-testing`, `mloda-community`, `mloda-enterprise`
+
+**Example - Regular package:**
 ```toml
 [packages.mloda-registry]
-description = "Plugin discovery and search for mloda"
-license = "Apache-2.0"
-dependencies = ["mloda>=0.4.2"]
+description = "Plugin discovery for mloda"
+dependencies = ["mloda>=X.Y.Z"]
 path = "mloda/registry"
-include = ["mloda.registry", "mloda.registry.*"]
-has_readme = true
 ```
 
-#### Example: Meta-Package (aggregates other packages)
-
+**Example - Meta-package:**
 ```toml
 [packages.mloda-community]
-description = "All community plugins for mloda (meta-package)"
-license = "Apache-2.0"
-dependencies = ["mloda-community-example>=0.2.0"]
+description = "All community plugins (meta-package)"
+dependencies = ["mloda-community-example[all]>=0.2.0"]
 path = "mloda/community"
-is_meta_package = true
 workspace_deps = ["mloda-community-example"]
 ```
 
----
+**Example - With extra optional deps:**
+```toml
+[packages.mloda-community-example]
+description = "Example community plugin"
+dependencies = ["mloda>=X.Y.Z"]
+path = "mloda/community/feature_groups/example"
+optional_dependencies = { all = ["mloda-community-example-a", "mloda-community-example-b"] }
+# dev = ["mloda-testing", "pytest"] added from defaults
+```
+
+## UV Workspace Sources
+
+The generator adds `mloda-testing = { workspace = true }` only for top-level packages (depth ≤ 2) that receive default dev deps. Nested packages can't use workspace sources due to uv resolution limitations.
 
 ## Common Workflows
 
-### Bump Version Across All Packages
-
+### Bump version
 ```bash
-# 1. Edit the single source of truth
-vim config/shared.toml   # Change: version = "0.3.0"
+vim config/shared.toml                  # Change version
+python scripts/generate_pyproject.py    # Regenerate
+```
 
-# 2. Regenerate all pyproject.toml files
+### Add new package
+```bash
+# 1. Add to config/packages.toml (just description, deps, path)
+# 2. Generate
 python scripts/generate_pyproject.py
-
-# 3. Verify builds work
-python scripts/verify_builds.py
-
-# 4. Commit changes
-git add -A && git commit -m "chore: bump version to 0.3.0"
+uv sync --all-extras
 ```
-
-### Add a New Package
-
-```bash
-# 1. Add entry to packages.toml
-cat >> config/packages.toml << 'EOF'
-
-[packages.mloda-my-new-package]
-description = "My new feature group"
-license = "Apache-2.0"
-dependencies = ["mloda>=0.4.2"]
-path = "mloda/community/feature_groups/my_new"
-include = ["mloda.community.feature_groups.my_new", "mloda.community.feature_groups.my_new.*"]
-has_readme = true
-optional_dependencies = { dev = ["mloda-testing", "pytest"] }
-EOF
-
-# 2. Generate the pyproject.toml
-python scripts/generate_pyproject.py
-
-# 3. Verify it builds
-python scripts/verify_builds.py
-```
-
-### Check Files Are Up-to-Date (CI)
-
-```bash
-python scripts/generate_pyproject.py --check
-```
-
-Returns exit code 0 if all files match config, exit code 1 if any are out of date.
-
-### Verify All Packages Build Correctly
-
-```bash
-python scripts/verify_builds.py
-```
-
-This script:
-1. Checks version consistency across all pyproject.toml files
-2. Builds each package with `uv build`
-3. Verifies wheel metadata contains correct version
-4. Cleans up egg-info directories on success
-
----
-
-## CI/Tox Integration
-
-Two tox environments are available for CI:
-
-```bash
-# Check generated files are up-to-date
-tox -e check-generated
-
-# Verify all packages build with correct versions
-tox -e verify-builds
-```
-
-### tox.ini Configuration
-
-```ini
-[testenv:verify-builds]
-description = Verify all packages build with correct versions
-usedevelop = true
-allowlist_externals = uv
-commands =
-    python scripts/verify_builds.py
-
-[testenv:check-generated]
-description = Check pyproject.toml files are up-to-date with config
-usedevelop = true
-commands =
-    python scripts/generate_pyproject.py --check
-```
-
----
-
-## Troubleshooting / FAQ
-
-### Q: Generated files are out of sync - what do I do?
-
-```bash
-python scripts/generate_pyproject.py   # Regenerate all
-git diff                                # Review changes
-```
-
-### Q: How do I add a meta-package vs a regular package?
-
-**Regular package** (contains code):
-- Set `include = [...]` with namespace patterns
-- Set `has_readme = true` if README exists
-
-**Meta-package** (no code, just aggregates dependencies):
-- Set `is_meta_package = true`
-- Set `workspace_deps = [...]` if dependencies are workspace packages
-- Don't set `include` (no code to include)
-
-### Q: Why setuptools instead of hatchling?
-
-Hatchling doesn't allow paths outside the package directory (e.g., `../..`). Since namespace packages need to reference the repo root, setuptools is required.
-
-### Q: Why are pyproject.toml files in the repo if they're generated?
-
-The generated files are committed to:
-1. Allow `pip install` from GitHub without running the generator
-2. Enable IDE tooling to work immediately after clone
-3. Maintain compatibility with standard Python packaging workflows
-
-The `--check` flag in CI ensures they stay in sync with config.
-
-### Q: How does the version consistency check work?
-
-`verify_builds.py` reads the version from all pyproject.toml files and fails if they differ. This catches cases where someone manually edited a file instead of using the generator.
-
----
-
-## Files Reference
-
-| File | Purpose |
-|------|---------|
-| `config/shared.toml` | Shared metadata (version, authors, urls) |
-| `config/packages.toml` | Per-package configuration |
-| `scripts/generate_pyproject.py` | Generates pyproject.toml files |
-| `scripts/verify_builds.py` | Builds packages, verifies versions, cleans artifacts |
-| `tox.ini` (verify-builds) | CI environment for build verification |
-| `tox.ini` (check-generated) | CI environment for generation check |

@@ -8,19 +8,13 @@ Step-by-step implementation guide for building the mloda registry ecosystem.
 
 ## mloda Core Status
 
-**mloda v0.4.2** released with full PEP 420 namespace package support:
-- [x] `namespaces = true` in pyproject.toml
-- [x] `namespace_packages = true` in mypy config
-- [x] Deleted `mloda/__init__.py` (namespace root has no __init__)
-- [x] Added `mloda` alias in `mloda/user/__init__.py`:
-  ```python
-  from mloda.core.api.request import mlodaAPI
-  mloda = mlodaAPI
-  ```
+**mloda v0.4.3** - current version with:
+- [x] PEP 420 namespace package support (since v0.4.2)
+- [x] `py.typed` markers for full mypy support (since v0.4.3)
 
-**New import pattern:**
+**Import pattern:**
 ```python
-from mloda.user import mloda, Feature, Options  # or mlodaAPI
+from mloda.user import mloda, Feature, Options
 result = mloda.run_all(["feature_a", "feature_b"])
 ```
 
@@ -46,14 +40,9 @@ result = mloda.run_all(["feature_a", "feature_b"])
 ### 1.1 mloda-registry Monorepo Structure
 
 - [x] Set up PEP 420 namespace package structure
-  ```
-  mloda/                    # No __init__.py (namespace root)
-  ├── community/
-  ├── enterprise/
-  ├── registry/
-  └── testing/
-  ```
 - [x] Configure pytest for `mloda/**/tests`
+- [x] Auto-generate pyproject.toml from config (see [pyproject-generation.md](memory-bank/pyproject-generation.md))
+- [x] Auto-generate UV workspace members
 - [ ] Update CI/CD workflows for namespace packages
 
 ### 1.2 mloda-template Repo
@@ -70,11 +59,10 @@ result = mloda.run_all(["feature_a", "feature_b"])
 
 **Reference:** [02_pyproject_spec.md](/home/tom/project/marketing-assets/pivot/analysis/registry/02_pyproject_spec.md)
 
-- [ ] Define pyproject.toml template for plugins
-- [x] Set up meta-packages:
-  - [x] `mloda-community` (depends on all community plugins)
-  - [x] `mloda-enterprise` (depends on all enterprise plugins)
+- [x] Define pyproject.toml generation from config
+- [x] Set up meta-packages with optional dependencies pattern (see [package-hierarchy.md](memory-bank/package-hierarchy.md))
 - [x] Configure individual plugin package structure
+- [x] Implement "meta of meta" pattern for nested plugins
 
 ### 2.2 Access Model
 
@@ -123,9 +111,7 @@ from mloda.testing import FeatureGroupTestBase
 ### 4.2 Example Community Plugin
 
 - [ ] Create `mloda-community-timeseries` as reference implementation
-- [ ] Include compute framework variants:
-  - [ ] Pandas variant
-  - [ ] PyArrow variant
+- [ ] Include compute framework variants (Pandas, PyArrow)
 - [ ] Full test coverage
 
 ### 4.3 Example Enterprise Plugin

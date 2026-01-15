@@ -17,7 +17,7 @@ def test_mloda_is_namespace_package() -> None:
 
 
 def test_mloda_user_imports() -> None:
-    """Verify mloda.user module imports work (new v0.4.2 pattern)."""
+    """Verify mloda.user module imports work (v0.4.2+ pattern)."""
     from mloda.user import mloda, mlodaAPI, Feature, Options
 
     assert mloda is mlodaAPI  # mloda is alias for mlodaAPI

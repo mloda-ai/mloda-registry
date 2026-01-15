@@ -11,7 +11,7 @@ version = "0.2.0"
 description = "All community plugins for mloda (meta-package)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda-community-example>=0.2.0"]
+dependencies = ["mloda-community-example[all]>=0.2.0"]
 requires-python = ">=3.10"
 
 [project.urls]

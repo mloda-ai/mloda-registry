@@ -5,7 +5,7 @@ from typing import Any
 from mloda.provider import FeatureGroup
 
 
-class EnterpriseExampleFeatureGroup(FeatureGroup):  # type: ignore[misc]  # TODO: remove when mloda has py.typed
+class EnterpriseExampleFeatureGroup(FeatureGroup):
     """Enterprise Example FeatureGroup for demonstrating plugin structure."""
 
     @classmethod

@@ -9,14 +9,14 @@ build-backend = "setuptools.build_meta"
 name = "mloda-community-example"
 version = "0.2.0"
 description = "Example community FeatureGroup plugin for mloda"
-readme = "README.md"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda>=0.4.2"]
+dependencies = ["mloda>=0.4.3"]
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
 dev = ["mloda-testing", "pytest"]
+all = ["mloda-community-example-a", "mloda-community-example-b"]
 
 [project.urls]
 Homepage = "https://mloda.ai"

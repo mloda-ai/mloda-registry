@@ -3,50 +3,44 @@
 
 [packages.mloda-registry]
 description = "Plugin discovery and search for mloda"
-license = "Apache-2.0"
-dependencies = ["mloda>=0.4.2"]
+dependencies = ["mloda>=0.4.3"]
 path = "mloda/registry"
-include = ["mloda.registry", "mloda.registry.*"]
-has_readme = true
 
 [packages.mloda-testing]
 description = "Test utilities for mloda plugin development"
-license = "Apache-2.0"
-dependencies = ["mloda>=0.4.2", "pytest"]
+dependencies = ["mloda>=0.4.3", "pytest"]
 path = "mloda/testing"
-include = ["mloda.testing", "mloda.testing.*"]
-has_readme = true
+optional_dependencies = { dev = ["pytest"] }
 
 [packages.mloda-community]
 description = "All community plugins for mloda (meta-package)"
-license = "Apache-2.0"
-dependencies = ["mloda-community-example>=0.2.0"]
+dependencies = ["mloda-community-example[all]>=0.2.0"]
 path = "mloda/community"
-is_meta_package = true
 workspace_deps = ["mloda-community-example"]
 
 [packages.mloda-enterprise]
 description = "All enterprise plugins for mloda (meta-package)"
-license = "LicenseRef-Proprietary"
 dependencies = ["mloda-enterprise-example>=0.2.0"]
 path = "mloda/enterprise"
-is_meta_package = true
 workspace_deps = ["mloda-enterprise-example"]
 
 [packages.mloda-community-example]
 description = "Example community FeatureGroup plugin for mloda"
-license = "Apache-2.0"
-dependencies = ["mloda>=0.4.2"]
+dependencies = ["mloda>=0.4.3"]
 path = "mloda/community/feature_groups/example"
-include = ["mloda.community.feature_groups.example", "mloda.community.feature_groups.example.*"]
-has_readme = true
-optional_dependencies = { dev = ["mloda-testing", "pytest"] }
+optional_dependencies = { all = ["mloda-community-example-a", "mloda-community-example-b"] }
 
 [packages.mloda-enterprise-example]
 description = "Example enterprise FeatureGroup plugin for mloda"
-license = "LicenseRef-Proprietary"
-dependencies = ["mloda>=0.4.2"]
+dependencies = ["mloda>=0.4.3"]
 path = "mloda/enterprise/feature_groups/example"
-include = ["mloda.enterprise.feature_groups.example", "mloda.enterprise.feature_groups.example.*"]
-has_readme = true
-optional_dependencies = { dev = ["mloda-testing", "pytest"] }
+
+[packages.mloda-community-example-a]
+description = "Example A FeatureGroup extending community example base"
+dependencies = ["mloda-community-example>=0.2.0"]
+path = "mloda/community/feature_groups/example/example_a"
+
+[packages.mloda-community-example-b]
+description = "Example B FeatureGroup extending community example base"
+dependencies = ["mloda-community-example>=0.2.0"]
+path = "mloda/community/feature_groups/example/example_b"

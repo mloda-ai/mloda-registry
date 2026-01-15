@@ -9,7 +9,7 @@ description = "Development workspace for mloda registry packages"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10,<3.14"
 dependencies = [
-    "mloda==0.4.2",
+    "mloda==0.4.3",
 ]
 authors = [
     { name = "Tom Kaltofen", email = "info@mloda.ai" }
@@ -32,16 +32,6 @@ line-length = 120
 where = ["."]
 include = ["mloda*"]
 namespaces = true
-
-[tool.uv.workspace]
-members = [
-    "mloda/registry",
-    "mloda/testing",
-    "mloda/community",
-    "mloda/enterprise",
-    "mloda/community/feature_groups/*",
-    "mloda/enterprise/feature_groups/*",
-]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "mloda/**/tests"]
@@ -70,4 +60,18 @@ exclude_dirs = [
 skips = [
     "B101", # Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
     "B104"  # Possible binding to all interfaces detected.
+]
+
+# AUTO-GENERATED workspace members from config/packages.toml
+# Do not edit manually - run: python scripts/generate_pyproject.py
+[tool.uv.workspace]
+members = [
+    "mloda/community",
+    "mloda/community/feature_groups/example",
+    "mloda/community/feature_groups/example/example_a",
+    "mloda/community/feature_groups/example/example_b",
+    "mloda/enterprise",
+    "mloda/enterprise/feature_groups/example",
+    "mloda/registry",
+    "mloda/testing",
 ]

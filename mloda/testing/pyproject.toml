@@ -9,11 +9,13 @@ build-backend = "setuptools.build_meta"
 name = "mloda-testing"
 version = "0.2.0"
 description = "Test utilities for mloda plugin development"
-readme = "README.md"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda>=0.4.2", "pytest"]
+dependencies = ["mloda>=0.4.3", "pytest"]
 requires-python = ">=3.10"
+
+[project.optional-dependencies]
+dev = ["pytest"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
