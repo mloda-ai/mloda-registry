@@ -69,20 +69,17 @@ def verify_wheel_version(wheel_path: Path, expected: str) -> bool:
 
 
 def verify_dependency_relationships(wheels: dict[str, Path]) -> list[str]:
-    """Verify meta-of-meta dependency relationships in built wheels.
+    """Verify dependency relationships in built wheels.
 
     Checks:
-    - mloda-community depends on mloda-community-example[all]
     - mloda-community-example has 'all' extra with example-a and example-b
     - mloda-community-example-a depends on mloda-community-example
+    - mloda-community-example-b depends on mloda-community-example
+
+    Note: mloda-community and mloda-enterprise are bundled packages that include
+    all sub-package code directly, so they don't have dependencies on sub-packages.
     """
     errors = []
-
-    # Check mloda-community -> mloda-community-example[all]
-    if "mloda-community" in wheels:
-        metadata = get_wheel_metadata(wheels["mloda-community"])
-        if "mloda-community-example[all]" not in metadata:
-            errors.append("mloda-community: missing dependency on mloda-community-example[all]")
 
     # Check mloda-community-example has 'all' extra
     if "mloda-community-example" in wheels:
@@ -169,7 +166,7 @@ def main() -> int:
         if dep_errors:
             errors.extend(dep_errors)
         else:
-            print("  ✓ meta-of-meta dependencies correct")
+            print("  ✓ package dependencies correct")
 
     if errors:
         print("\n❌ Errors:")

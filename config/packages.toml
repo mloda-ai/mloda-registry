@@ -13,16 +13,14 @@ path = "mloda/testing"
 optional_dependencies = { dev = ["pytest"] }
 
 [packages.mloda-community]
-description = "All community plugins for mloda (meta-package)"
-dependencies = ["mloda-community-example[all]>=0.2.0", "mloda-community-compute-frameworks-example>=0.2.0", "mloda-community-extenders-example>=0.2.0"]
+description = "All community plugins for mloda"
+dependencies = ["mloda>=0.4.3"]
 path = "mloda/community"
-workspace_deps = ["mloda-community-example", "mloda-community-compute-frameworks-example", "mloda-community-extenders-example"]
 
 [packages.mloda-enterprise]
-description = "All enterprise plugins for mloda (meta-package)"
-dependencies = ["mloda-enterprise-example>=0.2.0", "mloda-enterprise-compute-frameworks-example>=0.2.0", "mloda-enterprise-extenders-example>=0.2.0"]
+description = "All enterprise plugins for mloda"
+dependencies = ["mloda>=0.4.3"]
 path = "mloda/enterprise"
-workspace_deps = ["mloda-enterprise-example", "mloda-enterprise-compute-frameworks-example", "mloda-enterprise-extenders-example"]
 
 [packages.mloda-community-example]
 description = "Example community FeatureGroup plugin for mloda"

@@ -53,15 +53,22 @@ optional_dependencies = { dev = ["mloda-testing", "pytest"] }
 | `description` | Yes | PyPI description |
 | `dependencies` | Yes | Runtime deps |
 | `path` | Yes | Package directory |
-| `workspace_deps` | No | For meta-packages only |
 | `optional_dependencies` | No | Merged with defaults |
 
 **Generator infers:**
 - `license` from path (`mloda/enterprise/*` → proprietary, else default)
 - `include` from path (`mloda/foo` → `["mloda.foo", "mloda.foo.*"]`)
-- Meta-package status from `workspace_deps` presence
 
 **Default dev deps skipped for:** `mloda-testing`, `mloda-community`, `mloda-enterprise`
+
+**Example - Bundled package:**
+```toml
+[packages.mloda-community]
+description = "All community plugins for mloda"
+dependencies = ["mloda>=0.4.3"]
+path = "mloda/community"
+# Generates: include = ["mloda.community", "mloda.community.*"]
+```
 
 **Example - Regular package:**
 ```toml
@@ -69,15 +76,6 @@ optional_dependencies = { dev = ["mloda-testing", "pytest"] }
 description = "Plugin discovery for mloda"
 dependencies = ["mloda>=X.Y.Z"]
 path = "mloda/registry"
-```
-
-**Example - Meta-package:**
-```toml
-[packages.mloda-community]
-description = "All community plugins (meta-package)"
-dependencies = ["mloda-community-example[all]>=0.2.0"]
-path = "mloda/community"
-workspace_deps = ["mloda-community-example"]
 ```
 
 **Example - With extra optional deps:**
