@@ -58,6 +58,7 @@ plugins:
       {
         "releasedLabels": ["released"],
         "releaseNameTemplate": "🚀 Version ${nextRelease.version}",
+        "successComment": false,
       },
     ]
   - [
