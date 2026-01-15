@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-testing"
-version = "0.2.5"
+version = "0.2.6"
 description = "Test utilities for mloda plugin development"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
