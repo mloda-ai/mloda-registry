@@ -14,15 +14,15 @@ optional_dependencies = { dev = ["pytest"] }
 
 [packages.mloda-community]
 description = "All community plugins for mloda (meta-package)"
-dependencies = ["mloda-community-example[all]>=0.2.0"]
+dependencies = ["mloda-community-example[all]>=0.2.0", "mloda-community-compute-frameworks-example>=0.2.0", "mloda-community-extenders-example>=0.2.0"]
 path = "mloda/community"
-workspace_deps = ["mloda-community-example"]
+workspace_deps = ["mloda-community-example", "mloda-community-compute-frameworks-example", "mloda-community-extenders-example"]
 
 [packages.mloda-enterprise]
 description = "All enterprise plugins for mloda (meta-package)"
-dependencies = ["mloda-enterprise-example>=0.2.0"]
+dependencies = ["mloda-enterprise-example>=0.2.0", "mloda-enterprise-compute-frameworks-example>=0.2.0", "mloda-enterprise-extenders-example>=0.2.0"]
 path = "mloda/enterprise"
-workspace_deps = ["mloda-enterprise-example"]
+workspace_deps = ["mloda-enterprise-example", "mloda-enterprise-compute-frameworks-example", "mloda-enterprise-extenders-example"]
 
 [packages.mloda-community-example]
 description = "Example community FeatureGroup plugin for mloda"
@@ -44,3 +44,23 @@ path = "mloda/community/feature_groups/example/example_a"
 description = "Example B FeatureGroup extending community example base"
 dependencies = ["mloda-community-example>=0.2.0"]
 path = "mloda/community/feature_groups/example/example_b"
+
+[packages.mloda-community-compute-frameworks-example]
+description = "Example community ComputeFramework plugin for mloda"
+dependencies = ["mloda>=0.4.3"]
+path = "mloda/community/compute_frameworks/example"
+
+[packages.mloda-community-extenders-example]
+description = "Example community Extender plugin for mloda"
+dependencies = ["mloda>=0.4.3"]
+path = "mloda/community/extenders/example"
+
+[packages.mloda-enterprise-compute-frameworks-example]
+description = "Example enterprise ComputeFramework plugin for mloda"
+dependencies = ["mloda>=0.4.3"]
+path = "mloda/enterprise/compute_frameworks/example"
+
+[packages.mloda-enterprise-extenders-example]
+description = "Example enterprise Extender plugin for mloda"
+dependencies = ["mloda>=0.4.3"]
+path = "mloda/enterprise/extenders/example"

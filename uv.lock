@@ -5,11 +5,15 @@ requires-python = ">=3.10, <3.14"
 [manifest]
 members = [
     "mloda-community",
+    "mloda-community-compute-frameworks-example",
     "mloda-community-example",
     "mloda-community-example-a",
     "mloda-community-example-b",
+    "mloda-community-extenders-example",
     "mloda-enterprise",
+    "mloda-enterprise-compute-frameworks-example",
     "mloda-enterprise-example",
+    "mloda-enterprise-extenders-example",
     "mloda-registry",
     "mloda-registry-workspace",
     "mloda-testing",
@@ -185,11 +189,39 @@ name = "mloda-community"
 version = "0.2.0"
 source = { editable = "mloda/community" }
 dependencies = [
+    { name = "mloda-community-compute-frameworks-example" },
     { name = "mloda-community-example", extra = ["all"] },
+    { name = "mloda-community-extenders-example" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mloda-community-example", extras = ["all"], editable = "mloda/community/feature_groups/example" }]
+requires-dist = [
+    { name = "mloda-community-compute-frameworks-example", editable = "mloda/community/compute_frameworks/example" },
+    { name = "mloda-community-example", extras = ["all"], editable = "mloda/community/feature_groups/example" },
+    { name = "mloda-community-extenders-example", editable = "mloda/community/extenders/example" },
+]
+
+[[package]]
+name = "mloda-community-compute-frameworks-example"
+version = "0.2.0"
+source = { editable = "mloda/community/compute_frameworks/example" }
+dependencies = [
+    { name = "mloda" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "mloda-testing" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mloda", specifier = ">=0.4.3" },
+    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "pytest", marker = "extra == 'dev'" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-community-example"
@@ -264,20 +296,92 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
+name = "mloda-community-extenders-example"
+version = "0.2.0"
+source = { editable = "mloda/community/extenders/example" }
+dependencies = [
+    { name = "mloda" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "mloda-testing" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mloda", specifier = ">=0.4.3" },
+    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "pytest", marker = "extra == 'dev'" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "mloda-enterprise"
 version = "0.2.0"
 source = { editable = "mloda/enterprise" }
 dependencies = [
+    { name = "mloda-enterprise-compute-frameworks-example" },
     { name = "mloda-enterprise-example" },
+    { name = "mloda-enterprise-extenders-example" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mloda-enterprise-example", editable = "mloda/enterprise/feature_groups/example" }]
+requires-dist = [
+    { name = "mloda-enterprise-compute-frameworks-example", editable = "mloda/enterprise/compute_frameworks/example" },
+    { name = "mloda-enterprise-example", editable = "mloda/enterprise/feature_groups/example" },
+    { name = "mloda-enterprise-extenders-example", editable = "mloda/enterprise/extenders/example" },
+]
+
+[[package]]
+name = "mloda-enterprise-compute-frameworks-example"
+version = "0.2.0"
+source = { editable = "mloda/enterprise/compute_frameworks/example" }
+dependencies = [
+    { name = "mloda" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "mloda-testing" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mloda", specifier = ">=0.4.3" },
+    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "pytest", marker = "extra == 'dev'" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-enterprise-example"
 version = "0.2.0"
 source = { editable = "mloda/enterprise/feature_groups/example" }
+dependencies = [
+    { name = "mloda" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "mloda-testing" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mloda", specifier = ">=0.4.3" },
+    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "pytest", marker = "extra == 'dev'" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "mloda-enterprise-extenders-example"
+version = "0.2.0"
+source = { editable = "mloda/enterprise/extenders/example" }
 dependencies = [
     { name = "mloda" },
 ]
