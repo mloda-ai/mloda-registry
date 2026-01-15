@@ -21,7 +21,6 @@ dev = ["mloda-testing", "pytest"]
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
-[tool.setuptools.packages.find]
-where = ["../../../.."]
-include = ["mloda.enterprise.extenders.example", "mloda.enterprise.extenders.example.*"]
-namespaces = true
+[tool.setuptools]
+package-dir = {"" = "../../../.."}
+packages = ["mloda.enterprise.extenders.example"]

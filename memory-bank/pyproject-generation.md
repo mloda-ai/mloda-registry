@@ -57,7 +57,7 @@ optional_dependencies = { dev = ["mloda-testing", "pytest"] }
 
 **Generator infers:**
 - `license` from path (`mloda/enterprise/*` → proprietary, else default)
-- `include` from path (`mloda/foo` → `["mloda.foo", "mloda.foo.*"]`)
+- `packages` from filesystem (scans for `__init__.py`, excludes `tests/`, `build/`, etc.)
 
 **Default dev deps skipped for:** `mloda-testing`, `mloda-community`, `mloda-enterprise`
 
@@ -67,7 +67,7 @@ optional_dependencies = { dev = ["mloda-testing", "pytest"] }
 description = "All community plugins for mloda"
 dependencies = ["mloda>=0.4.3"]
 path = "mloda/community"
-# Generates: include = ["mloda.community", "mloda.community.*"]
+# Generates: package-dir = {"" = "../.."}, packages = ["mloda.community.*"]
 ```
 
 **Example - Regular package:**

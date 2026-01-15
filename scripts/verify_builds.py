@@ -140,7 +140,7 @@ def main() -> int:
         for pkg_name, _ in PACKAGES:
             print(f"\nBuilding {pkg_name}...")
             result = subprocess.run(
-                ["uv", "build", "--package", pkg_name, "--out-dir", tmpdir],
+                ["uv", "build", "--package", pkg_name, "--out-dir", tmpdir, "--wheel", "--no-build-isolation"],
                 capture_output=True,
                 text=True,
             )

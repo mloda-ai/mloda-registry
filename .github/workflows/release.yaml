@@ -100,11 +100,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install uv twine
+          python -m pip install uv twine setuptools
 
       - name: Build packages
         run: |
           # Build bundle packages + example packages for regression testing
+          # Using --wheel --no-build-isolation because the monorepo layout
+          # requires access to parent directories during build
           packages=(
             "mloda-registry"
             "mloda-testing"
@@ -117,7 +119,7 @@ jobs:
           mkdir -p dist
           for pkg in "${packages[@]}"; do
             echo "Building $pkg..."
-            uv build --package "$pkg" --out-dir dist
+            uv build --package "$pkg" --out-dir dist --wheel --no-build-isolation
           done
 
           echo "Built packages:"

@@ -21,10 +21,9 @@ dev = ["mloda-testing", "pytest"]
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
-[tool.setuptools.packages.find]
-where = ["../.."]
-include = ["mloda.registry", "mloda.registry.*"]
-namespaces = true
+[tool.setuptools]
+package-dir = {"" = "../.."}
+packages = ["mloda.registry"]
 
 [tool.uv.sources]
 mloda-testing = { workspace = true }

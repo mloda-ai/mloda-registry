@@ -19,7 +19,7 @@ workflow_dispatch → semantic-release → PyPI publish
 2. **Regenerate**: `generate_pyproject.py` updates all pyproject.toml files
 3. **Commit**: Version changes committed to main
 4. **GitHub Release**: Tag created (e.g., `0.3.0`)
-5. **PyPI Publish**: 6 packages built and uploaded
+5. **PyPI Publish**: 6 packages built with `--wheel --no-build-isolation` and uploaded
 
 ## Packages Published
 
@@ -47,6 +47,10 @@ Uses conventional commits to determine version bump:
 |--------|---------|
 | `SEMANTIC_RELEASE_TOKEN` | GitHub PAT with `repo` scope |
 | `PYPI_API_TOKEN` | PyPI token (account-wide or project-scoped) |
+
+## Build Flags
+
+`--wheel --no-build-isolation` required because monorepo uses `package-dir = {"" = "../.."}` which needs access to parent directories during build.
 
 ## Files
 

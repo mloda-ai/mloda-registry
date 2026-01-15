@@ -36,6 +36,34 @@ def to_toml_list(items: list[str]) -> str:
     return f"[{', '.join(quoted)}]"
 
 
+def discover_packages(pkg_path: str) -> list[str]:
+    """Discover all Python packages under a path.
+
+    Finds all directories containing __init__.py and returns them
+    as dotted package names (e.g., 'mloda.registry', 'mloda.registry.tests').
+    Excludes build artifacts and common non-package directories.
+    """
+    packages = []
+    base_path = Path(pkg_path)
+    exclude_dirs = {"build", "dist", ".tox", ".venv", "__pycache__", ".egg-info", "tests"}
+
+    if not base_path.exists():
+        return packages
+
+    # Walk directory tree looking for __init__.py files
+    for init_file in base_path.rglob("__init__.py"):
+        pkg_dir = init_file.parent
+        # Skip excluded directories
+        if any(excluded in pkg_dir.parts for excluded in exclude_dirs):
+            continue
+        # Convert path to dotted package name (relative to repo root, not package root)
+        # pkg_path like "mloda/community/feature_groups/example" -> start from "mloda"
+        pkg_name = str(pkg_dir).replace("/", ".").replace("\\", ".")
+        packages.append(pkg_name)
+
+    return sorted(packages)
+
+
 def load_configs() -> tuple[dict[str, Any], dict[str, Any]]:
     """Load shared and packages configuration."""
     with open(SHARED_CONFIG, "rb") as f:
@@ -112,14 +140,12 @@ def generate_pyproject(pkg_name: str, pkg_config: dict[str, Any], shared: dict[s
         depth = len(pkg_path.parts)
         rel_path = "/".join([".."] * depth)
 
-        # Infer namespace from path: mloda/registry -> mloda.registry
-        namespace = pkg_config["path"].replace("/", ".")
-        include = [namespace, f"{namespace}.*"]
+        # Discover packages from filesystem
+        packages = discover_packages(pkg_config["path"])
 
-        lines.append("[tool.setuptools.packages.find]")
-        lines.append(f'where = ["{rel_path}"]')
-        lines.append(f"include = {to_toml_list(include)}")
-        lines.append("namespaces = true")
+        lines.append("[tool.setuptools]")
+        lines.append(f'package-dir = {{"" = "{rel_path}"}}')
+        lines.append(f"packages = {to_toml_list(packages)}")
     lines.append("")
 
     # UV sources for workspace deps
