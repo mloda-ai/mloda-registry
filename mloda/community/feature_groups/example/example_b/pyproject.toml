@@ -6,12 +6,12 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mloda-registry"
+name = "mloda-community-example-b"
 version = "0.2.0"
-description = "Plugin discovery and search for mloda"
+description = "Example B FeatureGroup extending community example base"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda>=0.4.3"]
+dependencies = ["mloda-community-example>=0.2.0"]
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
@@ -22,9 +22,6 @@ Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
 [tool.setuptools.packages.find]
-where = ["../.."]
-include = ["mloda.registry", "mloda.registry.*"]
+where = ["../../../../.."]
+include = ["mloda.community.feature_groups.example.example_b", "mloda.community.feature_groups.example.example_b.*"]
 namespaces = true
-
-[tool.uv.sources]
-mloda-testing = { workspace = true }

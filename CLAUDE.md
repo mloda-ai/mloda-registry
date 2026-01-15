@@ -67,7 +67,11 @@ uv sync --all-extras
 
 ## Package Management
 
-All `pyproject.toml` files are **auto-generated** from config files. See `memory-bank/pyproject-generation.md` for full documentation.
+All `pyproject.toml` files are **auto-generated** from config files.
+
+**Documentation:**
+- `memory-bank/pyproject-generation.md` - Config and generation system
+- `memory-bank/package-hierarchy.md` - Meta-of-meta pattern with optional deps
 
 **Quick reference:**
 - Edit `config/shared.toml` for version/authors/urls

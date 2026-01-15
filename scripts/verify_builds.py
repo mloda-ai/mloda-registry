@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Verify all workspace packages build correctly with consistent versions."""
+
 from __future__ import annotations
 
 import shutil
@@ -12,7 +13,7 @@ from pathlib import Path
 if sys.version_info >= (3, 11):
     import tomllib
 else:
-    import tomli as tomllib  # type: ignore[import-not-found]
+    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 PACKAGES = [
     ("mloda-registry", "mloda/registry/pyproject.toml"),
@@ -21,6 +22,8 @@ PACKAGES = [
     ("mloda-enterprise", "mloda/enterprise/pyproject.toml"),
     ("mloda-community-example", "mloda/community/feature_groups/example/pyproject.toml"),
     ("mloda-enterprise-example", "mloda/enterprise/feature_groups/example/pyproject.toml"),
+    ("mloda-community-example-a", "mloda/community/feature_groups/example/example_a/pyproject.toml"),
+    ("mloda-community-example-b", "mloda/community/feature_groups/example/example_b/pyproject.toml"),
 ]
 
 
@@ -50,14 +53,60 @@ def check_version_consistency() -> tuple[bool, str]:
     return False, ""
 
 
-def verify_wheel_version(wheel_path: Path, expected: str) -> bool:
-    """Check wheel metadata contains expected version."""
+def get_wheel_metadata(wheel_path: Path) -> str:
+    """Extract METADATA content from wheel."""
     with zipfile.ZipFile(wheel_path) as zf:
         for name in zf.namelist():
             if name.endswith("METADATA"):
-                metadata = zf.read(name).decode()
-                return f"Version: {expected}" in metadata
-    return False
+                return zf.read(name).decode()
+    return ""
+
+
+def verify_wheel_version(wheel_path: Path, expected: str) -> bool:
+    """Check wheel metadata contains expected version."""
+    metadata = get_wheel_metadata(wheel_path)
+    return f"Version: {expected}" in metadata
+
+
+def verify_dependency_relationships(wheels: dict[str, Path]) -> list[str]:
+    """Verify meta-of-meta dependency relationships in built wheels.
+
+    Checks:
+    - mloda-community depends on mloda-community-example[all]
+    - mloda-community-example has 'all' extra with example-a and example-b
+    - mloda-community-example-a depends on mloda-community-example
+    """
+    errors = []
+
+    # Check mloda-community -> mloda-community-example[all]
+    if "mloda-community" in wheels:
+        metadata = get_wheel_metadata(wheels["mloda-community"])
+        if "mloda-community-example[all]" not in metadata:
+            errors.append("mloda-community: missing dependency on mloda-community-example[all]")
+
+    # Check mloda-community-example has 'all' extra
+    if "mloda-community-example" in wheels:
+        metadata = get_wheel_metadata(wheels["mloda-community-example"])
+        if "Provides-Extra: all" not in metadata:
+            errors.append("mloda-community-example: missing 'all' extra")
+        if 'mloda-community-example-a; extra == "all"' not in metadata:
+            errors.append("mloda-community-example: 'all' extra missing example-a")
+        if 'mloda-community-example-b; extra == "all"' not in metadata:
+            errors.append("mloda-community-example: 'all' extra missing example-b")
+
+    # Check example-a depends on base
+    if "mloda-community-example-a" in wheels:
+        metadata = get_wheel_metadata(wheels["mloda-community-example-a"])
+        if "mloda-community-example" not in metadata:
+            errors.append("mloda-community-example-a: missing dependency on mloda-community-example")
+
+    # Check example-b depends on base
+    if "mloda-community-example-b" in wheels:
+        metadata = get_wheel_metadata(wheels["mloda-community-example-b"])
+        if "mloda-community-example" not in metadata:
+            errors.append("mloda-community-example-b: missing dependency on mloda-community-example")
+
+    return errors
 
 
 def cleanup_egg_info() -> int:
@@ -89,6 +138,8 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         errors = []
+        built_wheels: dict[str, Path] = {}
+
         for pkg_name, _ in PACKAGES:
             print(f"\nBuilding {pkg_name}...")
             result = subprocess.run(
@@ -110,6 +161,15 @@ def main() -> int:
                 errors.append(f"{pkg_name}: version mismatch in wheel (expected {expected_version})")
             else:
                 print(f"  ✓ {wheels[0].name}")
+                built_wheels[pkg_name] = wheels[0]
+
+        # Verify dependency relationships
+        print("\nVerifying dependency relationships...")
+        dep_errors = verify_dependency_relationships(built_wheels)
+        if dep_errors:
+            errors.extend(dep_errors)
+        else:
+            print("  ✓ meta-of-meta dependencies correct")
 
     if errors:
         print("\n❌ Errors:")
