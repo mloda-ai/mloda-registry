@@ -6,22 +6,22 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mloda-enterprise"
+name = "mloda-enterprise-extenders-example"
 version = "0.2.0"
-description = "All enterprise plugins for mloda (meta-package)"
+description = "Example enterprise Extender plugin for mloda"
 license = "LicenseRef-Proprietary"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda-enterprise-example>=0.2.0", "mloda-enterprise-compute-frameworks-example>=0.2.0", "mloda-enterprise-extenders-example>=0.2.0"]
+dependencies = ["mloda>=0.4.3"]
 requires-python = ">=3.10"
+
+[project.optional-dependencies]
+dev = ["mloda-testing", "pytest"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
-[tool.setuptools]
-packages = []
-
-[tool.uv.sources]
-mloda-enterprise-example = { workspace = true }
-mloda-enterprise-compute-frameworks-example = { workspace = true }
-mloda-enterprise-extenders-example = { workspace = true }
+[tool.setuptools.packages.find]
+where = ["../../../.."]
+include = ["mloda.enterprise.extenders.example", "mloda.enterprise.extenders.example.*"]
+namespaces = true
