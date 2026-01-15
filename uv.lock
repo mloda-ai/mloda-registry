@@ -186,24 +186,18 @@ wheels = [
 
 [[package]]
 name = "mloda-community"
-version = "0.2.0"
+version = "0.2.5"
 source = { editable = "mloda/community" }
 dependencies = [
-    { name = "mloda-community-compute-frameworks-example" },
-    { name = "mloda-community-example", extra = ["all"] },
-    { name = "mloda-community-extenders-example" },
+    { name = "mloda" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "mloda-community-compute-frameworks-example", editable = "mloda/community/compute_frameworks/example" },
-    { name = "mloda-community-example", extras = ["all"], editable = "mloda/community/feature_groups/example" },
-    { name = "mloda-community-extenders-example", editable = "mloda/community/extenders/example" },
-]
+requires-dist = [{ name = "mloda", specifier = ">=0.4.3" }]
 
 [[package]]
 name = "mloda-community-compute-frameworks-example"
-version = "0.2.0"
+version = "0.2.5"
 source = { editable = "mloda/community/compute_frameworks/example" }
 dependencies = [
     { name = "mloda" },
@@ -225,7 +219,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-community-example"
-version = "0.2.0"
+version = "0.2.5"
 source = { editable = "mloda/community/feature_groups/example" }
 dependencies = [
     { name = "mloda" },
@@ -253,7 +247,7 @@ provides-extras = ["dev", "all"]
 
 [[package]]
 name = "mloda-community-example-a"
-version = "0.2.0"
+version = "0.2.5"
 source = { editable = "mloda/community/feature_groups/example/example_a" }
 dependencies = [
     { name = "mloda-community-example" },
@@ -275,7 +269,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-community-example-b"
-version = "0.2.0"
+version = "0.2.5"
 source = { editable = "mloda/community/feature_groups/example/example_b" }
 dependencies = [
     { name = "mloda-community-example" },
@@ -297,7 +291,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-community-extenders-example"
-version = "0.2.0"
+version = "0.2.5"
 source = { editable = "mloda/community/extenders/example" }
 dependencies = [
     { name = "mloda" },
@@ -319,24 +313,18 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-enterprise"
-version = "0.2.0"
+version = "0.2.5"
 source = { editable = "mloda/enterprise" }
 dependencies = [
-    { name = "mloda-enterprise-compute-frameworks-example" },
-    { name = "mloda-enterprise-example" },
-    { name = "mloda-enterprise-extenders-example" },
+    { name = "mloda" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "mloda-enterprise-compute-frameworks-example", editable = "mloda/enterprise/compute_frameworks/example" },
-    { name = "mloda-enterprise-example", editable = "mloda/enterprise/feature_groups/example" },
-    { name = "mloda-enterprise-extenders-example", editable = "mloda/enterprise/extenders/example" },
-]
+requires-dist = [{ name = "mloda", specifier = ">=0.4.3" }]
 
 [[package]]
 name = "mloda-enterprise-compute-frameworks-example"
-version = "0.2.0"
+version = "0.2.5"
 source = { editable = "mloda/enterprise/compute_frameworks/example" }
 dependencies = [
     { name = "mloda" },
@@ -358,7 +346,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-enterprise-example"
-version = "0.2.0"
+version = "0.2.5"
 source = { editable = "mloda/enterprise/feature_groups/example" }
 dependencies = [
     { name = "mloda" },
@@ -380,7 +368,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-enterprise-extenders-example"
-version = "0.2.0"
+version = "0.2.5"
 source = { editable = "mloda/enterprise/extenders/example" }
 dependencies = [
     { name = "mloda" },
@@ -402,7 +390,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-registry"
-version = "0.2.0"
+version = "0.2.5"
 source = { editable = "mloda/registry" }
 dependencies = [
     { name = "mloda" },
@@ -456,7 +444,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-testing"
-version = "0.2.0"
+version = "0.2.5"
 source = { editable = "mloda/testing" }
 dependencies = [
     { name = "mloda" },

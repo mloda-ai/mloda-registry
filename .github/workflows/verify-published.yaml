@@ -1,16 +1,16 @@
-name: Weekly Security Scan
+name: Weekly Package Verification
 
 on:
   schedule:
-    # Run every Monday at 9:00 AM UTC
-    - cron: '0 9 * * 1'
+    # Run every Monday at 10:00 AM UTC (after security scan)
+    - cron: '0 10 * * 1'
   workflow_dispatch:  # Allow manual triggering
 
 permissions:
   contents: read
 
 jobs:
-  security-scan:
+  verify-published:
     runs-on: ubuntu-latest
 
     steps:
@@ -36,8 +36,8 @@ jobs:
         echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
         echo "Latest mloda-registry version: $LATEST_VERSION"
 
-    - name: Run security scan with tox
+    - name: Verify published packages
       env:
         MLODA_REGISTRY_VERSION: ${{ steps.get_version.outputs.version }}
-      run: tox -e security
+      run: tox -e verify-published
       timeout-minutes: 10

@@ -20,6 +20,7 @@ workflow_dispatch → semantic-release → PyPI publish
 3. **Commit**: Version changes committed to main
 4. **GitHub Release**: Tag created (e.g., `0.3.0`)
 5. **PyPI Publish**: 6 packages built with `--wheel --no-build-isolation` and uploaded
+6. **Verify**: Run `tox -e verify-published` to confirm packages install correctly
 
 ## Packages Published
 

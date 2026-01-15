@@ -43,7 +43,7 @@ def discover_packages(pkg_path: str) -> list[str]:
     as dotted package names (e.g., 'mloda.registry', 'mloda.registry.tests').
     Excludes build artifacts and common non-package directories.
     """
-    packages = []
+    packages: list[str] = []
     base_path = Path(pkg_path)
     exclude_dirs = {"build", "dist", ".tox", ".venv", "__pycache__", ".egg-info", "tests"}
 
