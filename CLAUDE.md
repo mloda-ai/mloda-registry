@@ -72,6 +72,7 @@ All `pyproject.toml` files are **auto-generated** from config files.
 **Documentation:**
 - `memory-bank/pyproject-generation.md` - Config and generation system
 - `memory-bank/package-hierarchy.md` - Meta-of-meta pattern with optional deps
+- `memory-bank/release-pypi.md` - Release workflow and PyPI publishing
 
 **Quick reference:**
 - Edit `config/shared.toml` for version/authors/urls
