@@ -50,19 +50,23 @@ plugins:
   - [
       "@semantic-release/exec",
       {
-        "prepareCmd": 'sed -i ''s/^version = .*$/version = "${nextRelease.version}"/'' pyproject.toml',
+        "prepareCmd": "sed -i 's/^version = .*$/version = \"${nextRelease.version}\"/' config/shared.toml && python scripts/generate_pyproject.py",
       },
     ]
   - [
       "@semantic-release/github",
       {
-        "assets": ["attribution/*.md"],
         "releasedLabels": ["released"],
         "releaseNameTemplate": "🚀 Version ${nextRelease.version}",
       },
     ]
   - [
       "@semantic-release/git",
-      { "assets": ["pyproject.toml"] },
+      {
+        "assets": [
+          "config/shared.toml",
+          "**/pyproject.toml"
+        ]
+      },
     ]
 repositoryUrl: "https://github.com/mloda-ai/mloda-registry"
