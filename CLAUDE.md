@@ -79,3 +79,7 @@ All `pyproject.toml` files are **auto-generated** from config files.
 - Edit `config/packages.toml` for per-package config
 - Run `python scripts/generate_pyproject.py` to regenerate
 - **Never edit pyproject.toml files directly**
+
+## User Guides
+
+See `docs/guides/index.md` for plugin creation and usage guides.
