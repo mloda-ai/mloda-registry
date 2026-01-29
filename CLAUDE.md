@@ -80,6 +80,12 @@ All `pyproject.toml` files are **auto-generated** from config files.
 - Run `python scripts/generate_pyproject.py` to regenerate
 - **Never edit pyproject.toml files directly**
 
-## User Guides
+## Plugin Development Guides
 
-See `docs/guides/index.md` for plugin creation and usage guides.
+`docs/guides/` contains step-by-step guides for mloda plugin development:
+- **Using plugins**: Discover and use existing FeatureGroups
+- **Creating plugins**: Build FeatureGroups in-project or as packages
+- **Sharing plugins**: Distribute via git, PyPI, or the community registry
+- **Advanced**: Create ComputeFrameworks and Extenders
+
+Start at `docs/guides/index.md` for the full learning path.

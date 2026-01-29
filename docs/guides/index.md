@@ -38,6 +38,6 @@ Share your work with others - from your team to the world.
 Extend mloda's capabilities with custom plugins.
 
 - [Create a feature group](09-create-feature-group.md) - Detailed feature group creation
-- Create a compute framework plugin *(coming soon)*
-- Create an extender plugin *(coming soon)*
+- [Create a compute framework plugin](10-create-compute-framework.md) - Add support for new data libraries
+- [Create an extender plugin](11-create-extender.md) - Add logging, tracing, and metrics
 

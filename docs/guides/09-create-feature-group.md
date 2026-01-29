@@ -1,226 +1,99 @@
 # Create a Feature Group
 
-A detailed guide to creating feature groups - the core building blocks of mloda plugins.
+Use this guide to find the right pattern for your feature group.
 
-## What is a Feature Group?
+## Decision Tree
 
-A Feature Group defines:
-- How to calculate one or more features
-- What input features it depends on (if any)
-- Which compute frameworks it supports
-- How to match feature names to this group
+```
+Q1: Does it load external data (file, DB, external API)?
+    YES → Pattern 1: Root Feature (if data passed at runtime, also see Q18)
+    NO  → Continue
 
-## Basic Structure
+Q2: How many input features?
+    0 → Pattern 1: Root Feature (or DataCreator, see 01-root-features)
+    1+ → Pattern 2: Derived (see Q3)
 
-```python
-from mloda.provider import FeatureGroup
+Q3: Should it be reusable via naming pattern (input__operation)?
+    YES → Add Pattern 3: FeatureChainParserMixin (if 2+ inputs, use Pattern 4)
+    NO  → Continue
 
-class MyFeatureGroup(FeatureGroup):
-    """Description of what this feature group does."""
+Q4: How many output columns?
+    1 → Standard
+    N → Pattern 5: Multi-output (feature~0, feature~1)
 
-    @classmethod
-    def calculate_feature(cls, data, features):
-        """Calculate the feature value."""
-        # Your calculation logic here
-        return result
+Q5: Does it need fitted/trained state between runs?
+    YES → Add Pattern 6: Artifact
+
+Q6: Does it need time ordering or group-by?
+    YES → Add Pattern 7: Index
+
+Q7: Does it join data from multiple feature groups?
+    YES → Add Pattern 8: Links/Joins
+
+Q8: Framework-specific API needed?
+    YES → Pattern 9: Framework-specific
+
+Q9: Does the feature name come from configuration vs naming pattern?
+    Configuration → Pattern 3 with PROPERTY_MAPPING
+
+Q10: Does it need custom matching logic beyond class name?
+    YES → See 14-feature-matching
+
+Q11: Does it need to filter data (time ranges, categories)?
+    YES → See 15-filter-concepts
+
+Q12: Does it need input/output validation?
+    YES → See 16-validators
+
+Q13: Does it need to match against a data connection?
+    YES → See 17-data-connection-matching
+
+Q14: Does it need explicit data type declaration?
+    YES → See 18-datatypes
+
+Q15: Could multiple FeatureGroups handle the same feature name?
+    YES → See 19-domain
+
+Q16: Do you need to track changes or ensure reproducibility?
+    YES → See 20-versioning
+
+Q17: Need to understand calculate_feature() and runtime context?
+    YES → See 12-calculate-feature
+
+Q18: Does it receive data programmatically at runtime (e.g. via API call)?
+    YES → See ApiInputData docs: https://mloda-ai.github.io/mloda/in_depth/api-input-data/
+
+Q19: Need to create feature groups dynamically or simplify complex input sources?
+    YES → See 21-experimental-shortcuts
 ```
 
-## Key Methods
+## Pattern Guides
 
-### Required Methods
+| Pattern | When to Use |
+|---------|-------------|
+| [01-root-features](feature-group-patterns/01-root-features.md) | Loading data from files, APIs, databases, or generating synthetic data |
+| [02-derived-features](feature-group-patterns/02-derived-features.md) | Simple transformation with static output name |
+| [03-chained-features](feature-group-patterns/03-chained-features.md) | Reusable transforms via naming pattern (`price__scaled`) |
+| [04-multi-input-features](feature-group-patterns/04-multi-input-features.md) | Combining multiple inputs (`a&b__distance`) |
+| [05-multi-output-features](feature-group-patterns/05-multi-output-features.md) | Multiple output columns (`emb~0`, `emb~1`) |
+| [06-artifact-features](feature-group-patterns/06-artifact-features.md) | Fitted models, cached computations |
+| [07-index-features](feature-group-patterns/07-index-features.md) | Time series, group-by, window functions |
+| [08-links-joins](feature-group-patterns/08-links-joins.md) | Joining data from multiple feature groups |
+| [09-framework-specific](feature-group-patterns/09-framework-specific.md) | Pandas-only, Polars-only features |
+| [10-testing-guide](feature-group-patterns/10-testing-guide.md) | 3-level testing approach |
 
-#### `calculate_feature(data, features)`
+## Concepts
 
-The core calculation logic. Receives input data and returns computed features.
-
-```python
-@classmethod
-def calculate_feature(cls, data, features):
-    # Access input data
-    input_col = data["input_column"]
-
-    # Calculate
-    result = input_col * 2
-
-    # Return result
-    return {"my_feature": result}
-```
-
-### Optional Methods
-
-#### `description()`
-
-Human-readable description. Defaults to class docstring or class name.
-
-```python
-@classmethod
-def description(cls) -> str:
-    return "Calculates customer risk scores based on transaction history"
-```
-
-#### `input_features(options, feature_name)`
-
-Define dependencies on other features. Return `None` for root features (no dependencies).
-
-```python
-from mloda.user import Feature
-
-def input_features(self, options, feature_name):
-    # This feature depends on "amount" and "timestamp"
-    return {Feature("amount"), Feature("timestamp")}
-```
-
-#### `match_feature_group_criteria(feature_name, options, data_access_collection)`
-
-Control which feature names this group handles. Default matching:
-- Class name equals feature name
-- Feature name starts with class prefix (e.g., `MyFeatureGroup_something`)
-- Feature name in `feature_names_supported()`
-
-```python
-@classmethod
-def match_feature_group_criteria(cls, feature_name, options, data_access_collection=None):
-    # Only handle features starting with "risk_"
-    if isinstance(feature_name, str):
-        return feature_name.startswith("risk_")
-    return feature_name.name.startswith("risk_")
-```
-
-#### `feature_names_supported()`
-
-Explicitly list supported feature names.
-
-```python
-@classmethod
-def feature_names_supported(cls):
-    return {"customer_score", "risk_level", "fraud_probability"}
-```
-
-#### `compute_framework_rule()`
-
-Limit which compute frameworks this group supports.
-
-```python
-from mloda.provider import ComputeFramework, get_all_subclasses
-
-@classmethod
-def compute_framework_rule(cls):
-    # Support all frameworks (default)
-    return True
-
-    # Or limit to specific frameworks
-    # from mloda_plugins.compute_framework.pandas import PandasDataframe
-    # return {PandasDataframe}
-```
-
-#### `index_columns()`
-
-Define index columns for data merging.
-
-```python
-from mloda.user import Index
-
-@classmethod
-def index_columns(cls):
-    return [Index("customer_id"), Index("date")]
-```
-
-## Feature Chaining Pattern
-
-For features that transform other features, use `FeatureChainParserMixin`:
-
-```python
-from mloda.provider import FeatureGroup, FeatureChainParserMixin
-
-class ScaledFeatureGroup(FeatureChainParserMixin, FeatureGroup):
-    """Scale features using min-max normalization."""
-
-    # Pattern: {input_feature}__scaled
-    PREFIX_PATTERN = r".*__scaled$"
-
-    # Expect exactly 1 input feature
-    MIN_IN_FEATURES = 1
-    MAX_IN_FEATURES = 1
-
-    @classmethod
-    def calculate_feature(cls, data, features):
-        # Input feature name parsed automatically
-        input_feature = features.get_options().get("in_features")
-        col = data[input_feature]
-
-        # Scale to 0-1
-        scaled = (col - col.min()) / (col.max() - col.min())
-        return {features.get_feature_name(): scaled}
-```
-
-Usage:
-```python
-Feature("price__scaled")  # Scales the "price" feature
-Feature("amount__scaled")  # Scales the "amount" feature
-```
-
-## Testing
-
-Use `FeatureGroupTestBase` for consistent testing:
-
-```python
-from mloda.testing.base import FeatureGroupTestBase
-from my_plugin import MyFeatureGroup
-
-class TestMyFeatureGroup(FeatureGroupTestBase):
-    feature_group_class = MyFeatureGroup
-
-    def test_calculation(self):
-        # Test your feature calculation
-        result = self.feature_group_class.calculate_feature(
-            {"input": [1, 2, 3]},
-            mock_features
-        )
-        assert "my_feature" in result
-```
-
-## Complete Example
-
-```python
-"""Customer scoring feature group."""
-
-from typing import Any, Set
-from mloda.provider import FeatureGroup
-from mloda.user import Feature, Options, FeatureName
-
-class CustomerScoring(FeatureGroup):
-    """Calculate customer risk scores based on transaction patterns."""
-
-    @classmethod
-    def description(cls) -> str:
-        return "Customer risk scoring based on transaction history"
-
-    @classmethod
-    def feature_names_supported(cls) -> Set[str]:
-        return {"customer_risk_score", "customer_fraud_score"}
-
-    def input_features(self, options: Options, feature_name: FeatureName) -> Set[Feature]:
-        return {
-            Feature("transaction_count"),
-            Feature("avg_transaction_amount"),
-            Feature("days_since_last_transaction"),
-        }
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: Any) -> Any:
-        # Simple risk calculation
-        tx_count = data["transaction_count"]
-        avg_amount = data["avg_transaction_amount"]
-        days_inactive = data["days_since_last_transaction"]
-
-        risk_score = (avg_amount / 1000) + (days_inactive / 30) - (tx_count / 10)
-
-        return {"customer_risk_score": risk_score}
-```
-
-## Next Steps
-
-- [Create a plugin package](04-create-plugin-package.md) - Package your feature group
-- [Share with your team](05-share-with-team.md) - Distribute via private git repo
-- [Create a compute framework](10-create-compute-framework.md) - Custom data processing
-- [Create an extender](11-create-extender.md) - Add cross-cutting behavior
+| Guide | What It Covers |
+|-------|----------------|
+| [11-options](feature-group-patterns/11-options.md) | Group vs context options for feature configuration |
+| [12-calculate-feature](feature-group-patterns/12-calculate-feature.md) | Implementing the core computation method |
+| [13-feature-naming](feature-group-patterns/13-feature-naming.md) | How to define feature names |
+| [14-feature-matching](feature-group-patterns/14-feature-matching.md) | How mloda finds the right FeatureGroup |
+| [15-filter-concepts](feature-group-patterns/15-filter-concepts.md) | Filtering data during computation |
+| [16-validators](feature-group-patterns/16-validators.md) | Input/output validation |
+| [17-data-connection-matching](feature-group-patterns/17-data-connection-matching.md) | Matching against data connections |
+| [18-datatypes](feature-group-patterns/18-datatypes.md) | Data type declaration and validation |
+| [19-domain](feature-group-patterns/19-domain.md) | Disambiguate feature-to-FeatureGroup matching |
+| [20-versioning](feature-group-patterns/20-versioning.md) | Version tracking and reproducibility |
+| [21-experimental-shortcuts](feature-group-patterns/21-experimental-shortcuts.md) | Dynamic creation and input source helpers |

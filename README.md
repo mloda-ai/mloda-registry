@@ -15,7 +15,13 @@ Browse community-contributed FeatureGroups, find integration guides, and publish
 
 ## Documentation
 
-Guides for plugin development: [Plugin Creation Guides](docs/guides/index.md)
+See `docs/guides/` for the complete plugin development journey:
+- Using and discovering existing plugins
+- Creating FeatureGroups (in-project or as packages)
+- Sharing plugins with teams or the community
+- Advanced: ComputeFrameworks and Extenders
+
+Start here: [Plugin Development Guides](docs/guides/index.md)
 
 ## PyPI Packages
 
