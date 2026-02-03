@@ -33,7 +33,7 @@ jobs:
         python -m pip install uv
         uv tool install tox --with tox-uv
         tox -e python310 --notest
-        . .tox/python310/bin/activate && uv pip install -e ".[dev]"
+        . .tox/python310/bin/activate && uv sync --all-extras
     - name: Run tox ${{ matrix.toxenv }}
       env:
         PYTEST_WORKERS: 2

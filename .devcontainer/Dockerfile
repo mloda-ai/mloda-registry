@@ -52,7 +52,7 @@ RUN mkdir -p $TOX_WORK_DIR && chown -R vscode:vscode $TOX_WORK_DIR
 # Pre-build the tox environment and install dev deps
 RUN tox --workdir $TOX_WORK_DIR -e python310 --notest -vv || true && \
     . $TOX_WORK_DIR/python310/bin/activate && \
-    uv pip install -e ".[dev]"
+    uv sync --all-extras
 
 # Auto-activate the tox test environment in interactive shells
 RUN echo '[ -f /home/vscode/.tox-cache/python310/bin/activate ] && source /home/vscode/.tox-cache/python310/bin/activate' \

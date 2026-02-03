@@ -3,9 +3,15 @@
 
 # mloda-registry
 
-> **The central hub for discovering and sharing mloda plugins.** Part of the [mloda](https://github.com/mloda-ai/mloda) ecosystem for open data access. Visit [mloda.ai](https://mloda.ai) for an overview and business context, the [GitHub repository](https://github.com/mloda-ai/mloda) for technical context, or the [documentation](https://mloda-ai.github.io/mloda/) for detailed guides.
+Community plugins, registry tooling, and development guides for [mloda](https://github.com/mloda-ai/mloda).
 
-Browse community-contributed FeatureGroups, find integration guides, and publish your own plugins for others to use.
+> **New to mloda?** Visit [mloda.ai](https://mloda.ai) for business context or the [core repository](https://github.com/mloda-ai/mloda) for technical details.
+
+- Ready-to-use FeatureGroups (`pip install mloda-community`)
+- Enterprise FeatureGroups (`pip install mloda-enterprise`)
+- Plugin discovery tools (`pip install mloda-registry`)
+- Test utilities for plugin development (`pip install mloda-testing`)
+- Step-by-step [plugin development guides](docs/guides/index.md)
 
 ## Related Repositories
 
@@ -27,19 +33,14 @@ Start here: [Plugin Development Guides](docs/guides/index.md)
 
 This repository publishes the following packages to PyPI:
 
-| Package | Description | Install |
-|---------|-------------|---------|
-| `mloda-registry` | Plugin discovery and search | `pip install mloda-registry` |
-| `mloda-testing` | Test utilities for plugin development | `pip install mloda-testing` |
-| `mloda-community` | All community plugins (bundle) | `pip install mloda-community` |
-| `mloda-enterprise` | All enterprise plugins (bundle) | `pip install mloda-enterprise` |
+| Package | Description | License | Install |
+|---------|-------------|---------|---------|
+| `mloda-registry` | Plugin discovery and search | Apache 2.0 | `pip install mloda-registry` |
+| `mloda-testing` | Test utilities for plugin development | Apache 2.0 | `pip install mloda-testing` |
+| `mloda-community` | All community plugins (bundle) | Apache 2.0 | `pip install mloda-community` |
+| `mloda-enterprise` | All enterprise plugins (bundle) | [Source-available](mloda/enterprise/LICENSE) | `pip install mloda-enterprise` |
 
-Example packages (for regression testing):
-
-| Package | Install |
-|---------|---------|
-| `mloda-community-example` | `pip install mloda-community-example` |
-| `mloda-community-example-a` | `pip install mloda-community-example-a` |
+> **Note:** Only `mloda/enterprise/` and its PyPI package require a license. Everything else in this repository is Apache 2.0.
 
 ### Installing Individual Packages from Git
 
@@ -58,7 +59,7 @@ Replace the subdirectory path with the package location (see `config/packages.to
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Create virtual environment and install dependencies
-uv venv && source .venv/bin/activate && uv pip install -e ".[dev]"
+uv venv && source .venv/bin/activate && uv sync --all-extras
 
 # Run all checks via tox
 uv run tox
