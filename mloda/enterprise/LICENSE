@@ -1,0 +1,31 @@
+mloda Enterprise License
+
+Copyright (c) 2026-present mloda-ai
+
+SOURCE-AVAILABLE LICENSE
+
+The source code in the mloda/enterprise/ directory is made available for viewing
+and evaluation purposes only. This code is NOT open source.
+
+USAGE REQUIRES A VALID LICENSE
+
+You may:
+- View and read the source code
+- Evaluate the functionality before purchasing
+- Clone this repository and work on other parts of the codebase
+- Run the test suite (including enterprise plugin tests)
+- Run automated security scans
+
+You may NOT without a valid license:
+- Use enterprise plugins in any application (development, testing, or production)
+- Distribute enterprise plugins as part of your own product
+
+To obtain a license: https://mloda.ai/enterprise
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

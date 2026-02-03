@@ -18,7 +18,7 @@ dependencies = ["mloda>=0.4.3"]
 path = "mloda/community"
 
 [packages.mloda-enterprise]
-description = "All enterprise plugins for mloda"
+description = "All enterprise plugins for mloda (License required: https://mloda.ai/enterprise)"
 dependencies = ["mloda>=0.4.3"]
 path = "mloda/enterprise"
 
