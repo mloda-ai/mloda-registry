@@ -62,10 +62,53 @@ def get_wheel_metadata(wheel_path: Path) -> str:
     return ""
 
 
+def get_wheel_top_level(wheel_path: Path) -> list[str]:
+    """Extract top_level.txt content from wheel."""
+    with zipfile.ZipFile(wheel_path) as zf:
+        for name in zf.namelist():
+            if name.endswith("top_level.txt"):
+                return zf.read(name).decode().strip().split("\n")
+    return []
+
+
+def get_wheel_files(wheel_path: Path) -> list[str]:
+    """Get list of files in wheel."""
+    with zipfile.ZipFile(wheel_path) as zf:
+        return zf.namelist()
+
+
 def verify_wheel_version(wheel_path: Path, expected: str) -> bool:
     """Check wheel metadata contains expected version."""
     metadata = get_wheel_metadata(wheel_path)
     return f"Version: {expected}" in metadata
+
+
+def verify_wheel_metadata(wheels: dict[str, Path]) -> list[str]:
+    """Verify wheel metadata for namespace package compliance.
+
+    Checks:
+    - top_level.txt contains 'mloda'
+    - No __init__.py in namespace directories (mloda/, mloda/community/, mloda/enterprise/)
+    """
+    errors = []
+    namespace_dirs = ["mloda/", "mloda/community/", "mloda/enterprise/"]
+
+    for pkg_name, wheel_path in wheels.items():
+        # Check top_level.txt
+        top_level = get_wheel_top_level(wheel_path)
+        if not top_level:
+            errors.append(f"{pkg_name}: missing top_level.txt")
+        elif "mloda" not in top_level:
+            errors.append(f"{pkg_name}: top_level.txt should contain 'mloda', found: {top_level}")
+
+        # Check no __init__.py in namespace directories (PEP 420 compliance)
+        files = get_wheel_files(wheel_path)
+        for ns_dir in namespace_dirs:
+            init_file = f"{ns_dir}__init__.py"
+            if init_file in files:
+                errors.append(f"{pkg_name}: contains {init_file} (breaks PEP 420 namespace package)")
+
+    return errors
 
 
 def verify_dependency_relationships(wheels: dict[str, Path]) -> list[str]:
@@ -102,6 +145,26 @@ def verify_dependency_relationships(wheels: dict[str, Path]) -> list[str]:
         metadata = get_wheel_metadata(wheels["mloda-community-example-b"])
         if "mloda-community-example" not in metadata:
             errors.append("mloda-community-example-b: missing dependency on mloda-community-example")
+
+    return errors
+
+
+def verify_pep420_source_compliance() -> list[str]:
+    """Verify PEP 420 compliance in source tree.
+
+    Checks that no __init__.py exists in namespace directories.
+    """
+    errors = []
+    namespace_dirs = [
+        Path("mloda"),
+        Path("mloda/community"),
+        Path("mloda/enterprise"),
+    ]
+
+    for ns_dir in namespace_dirs:
+        init_file = ns_dir / "__init__.py"
+        if init_file.exists():
+            errors.append(f"Source tree contains {init_file} (breaks PEP 420 namespace package)")
 
     return errors
 
@@ -167,6 +230,22 @@ def main() -> int:
             errors.extend(dep_errors)
         else:
             print("  ✓ package dependencies correct")
+
+        # Verify wheel metadata (top_level.txt, namespace compliance)
+        print("\nVerifying wheel metadata...")
+        metadata_errors = verify_wheel_metadata(built_wheels)
+        if metadata_errors:
+            errors.extend(metadata_errors)
+        else:
+            print("  ✓ wheel metadata correct")
+
+    # Verify PEP 420 source compliance (outside temp dir context)
+    print("\nVerifying PEP 420 source compliance...")
+    pep420_errors = verify_pep420_source_compliance()
+    if pep420_errors:
+        errors.extend(pep420_errors)
+    else:
+        print("  ✓ PEP 420 namespace package structure correct")
 
     if errors:
         print("\n❌ Errors:")

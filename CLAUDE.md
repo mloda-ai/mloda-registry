@@ -2,7 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Read the memory-bank prior.
+**Core mloda project:** https://github.com/mloda-ai/mloda | **Docs:** https://mloda-ai.github.io/mloda/
+
+**Skills available:**
+- `/mloda-plugins` - Plugin development guides with decision trees for FeatureGroups, ComputeFrameworks, and Extenders
+- `/mloda-core` - Core library source code and docs (uses `MLODA_PATH` env var or online fallback)
+
+**IMPORTANT:** See [Plugin Development Guides](#plugin-development-guides) - these are practical how-to guides for development, whereas the docs describe mloda conceptually. Read `docs/guides/` frequently when working on plugin code.
 
 ## TDD Orchestrator Role
 
@@ -69,13 +75,17 @@ uv sync --all-extras
 
 All `pyproject.toml` files are **auto-generated** from config files.
 
-**Documentation:**
-- `memory-bank/pyproject-generation.md` - Config and generation system
-- `memory-bank/package-hierarchy.md` - Meta-of-meta pattern with optional deps
-- `memory-bank/release-pypi.md` - Release workflow and PyPI publishing
+**Documentation (read on-demand):**
+- `memory-bank/pyproject-generation.md` - Read when modifying config files or troubleshooting generation
+- `memory-bank/package-hierarchy.md` - Read when understanding bundled vs individual package structure
+- `memory-bank/release-pypi.md` - Read when preparing releases or debugging PyPI publishing
 
 **Quick reference:**
 - Edit `config/shared.toml` for version/authors/urls
 - Edit `config/packages.toml` for per-package config
 - Run `python scripts/generate_pyproject.py` to regenerate
 - **Never edit pyproject.toml files directly**
+
+## Plugin Development Guides
+
+`docs/guides/` contains step-by-step guides for mloda plugin development. Use `/mloda-plugins` skill for decision trees and full guide index.

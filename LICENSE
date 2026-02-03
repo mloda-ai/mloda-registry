@@ -1,0 +1,18 @@
+mloda-registry Licensing
+
+This repository contains code under two different licenses:
+
+APACHE 2.0 (everything except mloda/enterprise/)
+================================================
+Licensed under the Apache License, Version 2.0.
+You may freely use, modify, and distribute this code.
+See: LICENSE-APACHE
+
+SOURCE-AVAILABLE (mloda/enterprise/ only)
+=========================================
+Usage requires a valid license.
+See: mloda/enterprise/LICENSE
+
+---
+
+Copyright 2026-present mloda-ai

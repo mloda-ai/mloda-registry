@@ -36,8 +36,20 @@ jobs:
         echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
         echo "Latest mloda-registry version: $LATEST_VERSION"
 
-    - name: Verify published packages
+    - name: Verify published packages (all together)
       env:
         MLODA_REGISTRY_VERSION: ${{ steps.get_version.outputs.version }}
       run: tox -e verify-published
+      timeout-minutes: 10
+
+    - name: Verify packages install independently
+      env:
+        MLODA_REGISTRY_VERSION: ${{ steps.get_version.outputs.version }}
+      run: tox -e verify-published-independent
+      timeout-minutes: 10
+
+    - name: Verify optional dependencies
+      env:
+        MLODA_REGISTRY_VERSION: ${{ steps.get_version.outputs.version }}
+      run: tox -e verify-extras
       timeout-minutes: 10
