@@ -15,12 +15,12 @@ Manual release workflow using semantic-release for versioning and PyPI for distr
 workflow_dispatch → semantic-release → PyPI publish
 ```
 
-1. **Version bump**: semantic-release analyzes commits, updates `config/shared.toml`
+1. **Version bump**: semantic-release analyzes commits, updates `config/shared.toml` and `tox.ini`
 2. **Regenerate**: `generate_pyproject.py` updates all pyproject.toml files
 3. **Commit**: Version changes committed to main
 4. **GitHub Release**: Tag created (e.g., `0.3.0`)
 5. **PyPI Publish**: 6 packages built with `--wheel --no-build-isolation` and uploaded
-6. **Verify**: Run `tox -e verify-published` to confirm packages install correctly
+6. **Verify**: Run `tox -e verify-published` and `tox -e verify-extras` to confirm packages install correctly
 
 ## Packages Published
 
@@ -32,12 +32,6 @@ workflow_dispatch → semantic-release → PyPI publish
 | `mloda-enterprise` | Bundle (all enterprise plugins) |
 | `mloda-community-example` | Example (regression testing) |
 | `mloda-community-example-a` | Example (regression testing) |
-| `mloda-community-example-b` | Example (regression testing) |
-| `mloda-enterprise-example` | Example (regression testing) |
-| `mloda-community-compute-frameworks-example` | Example (regression testing) |
-| `mloda-community-extenders-example` | Example (regression testing) |
-| `mloda-enterprise-compute-frameworks-example` | Example (regression testing) |
-| `mloda-enterprise-extenders-example` | Example (regression testing) |
 
 ## Commit Message Format
 

@@ -50,7 +50,7 @@ plugins:
   - [
       "@semantic-release/exec",
       {
-        "prepareCmd": "sed -i 's/^version = .*$/version = \"${nextRelease.version}\"/' config/shared.toml && python scripts/generate_pyproject.py",
+        "prepareCmd": "sed -i 's/^version = .*$/version = \"${nextRelease.version}\"/' config/shared.toml && sed -i 's/MLODA_REGISTRY_VERSION:[0-9.]\\+}/MLODA_REGISTRY_VERSION:${nextRelease.version}}/g' tox.ini && python scripts/generate_pyproject.py",
       },
     ]
   - [
@@ -67,7 +67,8 @@ plugins:
       {
         "assets": [
           "config/shared.toml",
-          "**/pyproject.toml"
+          "**/pyproject.toml",
+          "tox.ini"
         ]
       },
     ]
