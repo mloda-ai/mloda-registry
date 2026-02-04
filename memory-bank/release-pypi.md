@@ -32,6 +32,12 @@ workflow_dispatch → semantic-release → PyPI publish
 | `mloda-enterprise` | Bundle (all enterprise plugins) |
 | `mloda-community-example` | Example (regression testing) |
 | `mloda-community-example-a` | Example (regression testing) |
+| `mloda-community-example-b` | Example (regression testing) |
+| `mloda-enterprise-example` | Example (regression testing) |
+| `mloda-community-compute-frameworks-example` | Example (regression testing) |
+| `mloda-community-extenders-example` | Example (regression testing) |
+| `mloda-enterprise-compute-frameworks-example` | Example (regression testing) |
+| `mloda-enterprise-extenders-example` | Example (regression testing) |
 
 ## Commit Message Format
 

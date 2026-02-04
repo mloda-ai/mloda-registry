@@ -36,16 +36,18 @@ def to_toml_list(items: list[str]) -> str:
     return f"[{', '.join(quoted)}]"
 
 
-def discover_packages(pkg_path: str) -> list[str]:
+def discover_packages(pkg_path: str, exclude_paths: list[str] | None = None) -> list[str]:
     """Discover all Python packages under a path.
 
     Finds all directories containing __init__.py and returns them
     as dotted package names (e.g., 'mloda.registry', 'mloda.registry.tests').
-    Excludes build artifacts and common non-package directories.
+    Excludes build artifacts, common non-package directories, and paths
+    that are configured as separate packages.
     """
     packages: list[str] = []
     base_path = Path(pkg_path)
     exclude_dirs = {"build", "dist", ".tox", ".venv", "__pycache__", ".egg-info", "tests"}
+    exclude_paths = exclude_paths or []
 
     if not base_path.exists():
         return packages
@@ -53,12 +55,16 @@ def discover_packages(pkg_path: str) -> list[str]:
     # Walk directory tree looking for __init__.py files
     for init_file in base_path.rglob("__init__.py"):
         pkg_dir = init_file.parent
+        pkg_dir_str = str(pkg_dir)
         # Skip excluded directories
         if any(excluded in pkg_dir.parts for excluded in exclude_dirs):
             continue
+        # Skip paths that are configured as separate packages
+        if any(pkg_dir_str == excl or pkg_dir_str.startswith(excl + "/") for excl in exclude_paths):
+            continue
         # Convert path to dotted package name (relative to repo root, not package root)
         # pkg_path like "mloda/community/feature_groups/example" -> start from "mloda"
-        pkg_name = str(pkg_dir).replace("/", ".").replace("\\", ".")
+        pkg_name = pkg_dir_str.replace("/", ".").replace("\\", ".")
         packages.append(pkg_name)
 
     return sorted(packages)
@@ -73,7 +79,12 @@ def load_configs() -> tuple[dict[str, Any], dict[str, Any]]:
     return shared, packages
 
 
-def generate_pyproject(pkg_name: str, pkg_config: dict[str, Any], shared: dict[str, Any]) -> str:
+def generate_pyproject(
+    pkg_name: str,
+    pkg_config: dict[str, Any],
+    shared: dict[str, Any],
+    all_packages: dict[str, dict[str, Any]],
+) -> str:
     """Generate pyproject.toml content for a package."""
     lines = [HEADER]
 
@@ -140,8 +151,22 @@ def generate_pyproject(pkg_name: str, pkg_config: dict[str, Any], shared: dict[s
         depth = len(pkg_path.parts)
         rel_path = "/".join([".."] * depth)
 
-        # Discover packages from filesystem
-        packages = discover_packages(pkg_config["path"])
+        # Only exclude sub-packages that are listed in optional_dependencies
+        # Bundle packages (like mloda-community) don't have optional deps, so they include everything
+        opt_deps = pkg_config.get("optional_dependencies", {})
+        optional_pkg_names = set()
+        for deps in opt_deps.values():
+            optional_pkg_names.update(deps)
+
+        # Map optional dependency names to their paths
+        exclude_paths = [
+            all_packages[dep_name]["path"]
+            for dep_name in optional_pkg_names
+            if dep_name in all_packages
+        ]
+
+        # Discover packages from filesystem, excluding optional sub-packages
+        packages = discover_packages(pkg_config["path"], exclude_paths)
 
         lines.append("[tool.setuptools]")
         lines.append(f'package-dir = {{"" = "{rel_path}"}}')
@@ -247,7 +272,7 @@ def main() -> int:
 
     for pkg_name, pkg_config in packages.items():
         pyproject_path = get_pyproject_path(pkg_config)
-        expected_content = generate_pyproject(pkg_name, pkg_config, shared)
+        expected_content = generate_pyproject(pkg_name, pkg_config, shared, packages)
 
         if args.check:
             if pyproject_path.exists():

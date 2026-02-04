@@ -114,6 +114,12 @@ jobs:
             "mloda-enterprise"
             "mloda-community-example"
             "mloda-community-example-a"
+            "mloda-community-example-b"
+            "mloda-enterprise-example"
+            "mloda-community-compute-frameworks-example"
+            "mloda-community-extenders-example"
+            "mloda-enterprise-compute-frameworks-example"
+            "mloda-enterprise-extenders-example"
           )
 
           mkdir -p dist
