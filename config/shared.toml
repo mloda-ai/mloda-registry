@@ -2,7 +2,7 @@
 # Edit this file and run: python scripts/generate_pyproject.py
 
 [project]
-version = "0.2.6"
+version = "0.2.7"
 requires-python = ">=3.10"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
 
