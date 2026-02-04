@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-enterprise"
-version = "0.2.7"
+version = "0.2.8"
 description = "All enterprise plugins for mloda (License required: https://mloda.ai/enterprise)"
 license = "LicenseRef-Proprietary"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
