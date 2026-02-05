@@ -48,6 +48,70 @@ def match_feature_group_criteria(
 
 ---
 
+## Discriminator Keys for Configuration-Based Matching
+
+When multiple method variants exist for a feature group type (e.g., different scaling algorithms), use a **unique discriminator key** to distinguish them. The `FeatureChainParserMixin` handles matching automatically via `PREFIX_PATTERN` and `PROPERTY_MAPPING`.
+
+### Existing mloda Examples
+
+| Feature Group | Discriminator Key | PREFIX_PATTERN |
+|--------------|------------------|----------------|
+| `AggregatedFeatureGroup` | `aggregation_type` | `r".*__([\w]+)_aggr$"` |
+| `ScalingFeatureGroup` | `scaler_type` | `r".*__(standard|minmax|robust|normalizer)_scaled$"` |
+| `EncodingFeatureGroup` | `encoder_type` | `r".*__(onehot|label|ordinal)_encoded(~\d+)?$"` |
+
+### Pattern
+
+The base class defines `PREFIX_PATTERN` and `PROPERTY_MAPPING`. The mixin's `match_feature_group_criteria()` handles both string-based and config-based matching automatically:
+
+```python
+class BaseMyTransform(FeatureChainParserMixin, FeatureGroup):
+    # String-based matching: extracts method from feature name
+    PREFIX_PATTERN = r".*__(algo_a|algo_b)_transformed$"
+
+    # Discriminator key for config-based matching
+    MY_METHOD = "my_method"
+    MY_METHODS = {
+        "algo_a": "Algorithm A description",
+        "algo_b": "Algorithm B description",
+    }
+
+    PROPERTY_MAPPING = {
+        MY_METHOD: {
+            **MY_METHODS,
+            DefaultOptionKeys.context: True,
+            DefaultOptionKeys.strict_validation: True,
+        },
+        DefaultOptionKeys.in_features: {
+            "explanation": "Source feature",
+            DefaultOptionKeys.context: True,
+        },
+    }
+
+    # No need to override match_feature_group_criteria() - mixin handles it
+```
+
+**Usage** - both approaches route to the same FeatureGroup:
+
+```python
+# String-based: method extracted from name
+Feature("input__algo_b_transformed")
+
+# Config-based: method specified in options
+Feature("my_output", Options(context={"my_method": "algo_b", "in_features": "input"}))
+```
+
+**Note:** Subclasses typically only override `compute_framework_rule()` to specify which framework they support (Pandas, Polars, etc.), not matching logic.
+
+### Why Unique Keys?
+
+- **Semantic clarity**: `scaler_type` is clearer than generic `operation_type`
+- **No collisions**: Different feature group types can have overlapping method names
+- **Self-documenting**: The key name indicates which base class handles it
+- **Follows mloda patterns**: Consistent with AggregatedFeatureGroup, ScalingFeatureGroup, etc.
+
+---
+
 ## Matching vs Naming
 
 | Concept | Method | Purpose |
