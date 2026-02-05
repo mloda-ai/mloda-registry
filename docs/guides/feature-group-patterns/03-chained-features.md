@@ -82,6 +82,18 @@ Feature("income__mean_imputed")
 Feature("imputed_income", Options(context={"imputation_method": "mean", "in_features": "income"}))
 ```
 
+### Discriminator Keys
+
+When your feature group supports multiple method variants (e.g., different scaling algorithms), use a **unique discriminator key** in `PROPERTY_MAPPING`. The mixin handles matching automatically for both string-based and config-based creation.
+
+| Feature Group | Discriminator Key | Example Values |
+|--------------|------------------|----------------|
+| `ScalingFeatureGroup` | `scaler_type` | standard, minmax, robust |
+| `EncodingFeatureGroup` | `encoder_type` | onehot, label, ordinal |
+| `AggregatedFeatureGroup` | `aggregation_type` | sum, avg, min, max |
+
+Use specific keys (not generic `operation_type`) to avoid collisions between feature group types. See [Feature Matching](14-feature-matching.md#discriminator-keys-for-configuration-based-matching) for the full pattern.
+
 ## Test
 
 ```python
