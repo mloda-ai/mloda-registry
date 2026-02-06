@@ -2,23 +2,21 @@
 
 How to match feature groups against data connections.
 
-**What**: Match features to specific data sources via `MatchData` mixin.
+**What**: Match features to specific data sources via `ConnectionMatcherMixin`.
 **When**: Feature availability depends on the data connection (database, API, file).
 **Why**: Same feature name can have different implementations per data source.
 **Where**: Database connectors, API clients, file readers with specific schemas.
 
 ## How It Works
 
-`MatchData` checks if a feature group can handle a request based on the available data connection.
+`ConnectionMatcherMixin` checks if a feature group can handle a request based on the available data connection.
 
 ```python
 from typing import Any, Optional
-from mloda.provider import FeatureGroup
-from mloda.core.abstract_plugins.components.match_data.match_data import MatchData
-from mloda.core.abstract_plugins.components.data_access_collection import DataAccessCollection
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.provider import FeatureGroup, ConnectionMatcherMixin
+from mloda.user import DataAccessCollection, Options
 
-class DatabaseFeature(MatchData, FeatureGroup):
+class DatabaseFeature(ConnectionMatcherMixin, FeatureGroup):
     @classmethod
     def match_data_access(
         cls,

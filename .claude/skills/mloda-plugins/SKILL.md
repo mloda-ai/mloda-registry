@@ -85,6 +85,9 @@ Q18: Does it receive data programmatically at runtime (e.g. via API call)?
 
 Q19: Need to create feature groups dynamically or simplify complex input sources?
     YES → See 21-experimental-shortcuts
+
+Q20: Need to define features via JSON config (e.g., for AI agents or config-driven pipelines)?
+    YES → See 22-feature-config
 ```
 
 ### Feature Group Pattern Guides
@@ -114,6 +117,7 @@ Location: `docs/guides/feature-group-patterns/`
 | 19 | `19-domain.md` | Disambiguate matching |
 | 20 | `20-versioning.md` | Version tracking |
 | 21 | `21-experimental-shortcuts.md` | Dynamic creation helpers |
+| 22 | `22-feature-config.md` | JSON-based feature definition |
 
 ---
 

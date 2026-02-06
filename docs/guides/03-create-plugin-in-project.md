@@ -46,20 +46,20 @@ class CustomerScoring(FeatureGroup):
 ### Option A: Direct Import
 
 ```python
-from mloda import mlodaAPI, Feature
+from mloda.user import mloda, Feature
 from my_features.scoring import CustomerScoring
 
-result = mlodaAPI.run_all([Feature("CustomerScoring")])
+result = mloda.run_all([Feature("CustomerScoring")])
 ```
 
 ### Option B: Via PluginLoader
 
 ```python
-from mloda.user import PluginLoader
+from mloda.user import PluginLoader, mloda, Feature
 
-PluginLoader.load()
+PluginLoader.all()
 
-result = mlodaAPI.run_all([Feature("CustomerScoring")])
+result = mloda.run_all([Feature("CustomerScoring")])
 ```
 
 ## Next Steps

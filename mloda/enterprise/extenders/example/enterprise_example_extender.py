@@ -2,7 +2,7 @@
 
 from typing import Any, Set
 
-from mloda.core.abstract_plugins.function_extender import Extender, ExtenderHook
+from mloda.steward import Extender, ExtenderHook
 
 
 class EnterpriseExampleExtender(Extender):

@@ -6,7 +6,7 @@ Join feature groups to combine data from different sources.
 **When**: Combining data from different sources, cross-source feature combinations, self-joins.
 **Why**: Real-world features often require data from multiple tables/sources.
 **Where**: Order + Customer joins, user + activity joins, enrichment lookups.
-**How**: Attach `Link` to features via `input_features()`, Feature parameter, or `mlodaAPI.run_all()`.
+**How**: Attach `Link` to features via `input_features()`, Feature parameter, or `mloda.run_all()`.
 
 ## Key Characteristic
 
@@ -14,16 +14,14 @@ Join feature groups to combine data from different sources.
 |--------|-------|
 | Class | `Link` for defining joins |
 | Class | `JoinSpec` for specifying join sides |
-| Usage | Attach to Feature objects or pass to `mlodaAPI.run_all(links=...)` |
+| Usage | Attach to Feature objects or pass to `mloda.run_all(links=...)` |
 
 ## Complete Example
 
 ```python
 from typing import Any, Optional, Set
-from mloda.user import Link, JoinSpec, Index, Feature
+from mloda.user import Link, JoinSpec, Index, Feature, FeatureName, Options
 from mloda.provider import FeatureGroup, FeatureSet
-from mloda.core.abstract_plugins.components.feature_name import FeatureName
-from mloda.core.abstract_plugins.components.options import Options
 
 
 class OrderWithCustomer(FeatureGroup):
@@ -130,7 +128,7 @@ def input_features(self, options: Options, feature_name: FeatureName) -> Optiona
 |----------|----------|
 | `input_features()` with link | Joins for derived feature dependencies |
 | Feature `link` parameter | Dynamic joins at feature creation |
-| `mlodaAPI.run_all(links=...)` | Global joins for entire computation |
+| `mloda.run_all(links=...)` | Global joins for entire computation |
 
 ## Real Implementations
 
