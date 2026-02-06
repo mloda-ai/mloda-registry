@@ -174,14 +174,14 @@ wheels = [
 
 [[package]]
 name = "mloda"
-version = "0.4.3"
+version = "0.4.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyarrow" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9c/85/124829a1248f02a219d5dfd6acc5f657d438b5ddae958f7b38bf68acdbee/mloda-0.4.3.tar.gz", hash = "sha256:2ed997e9475967bbccf6f9ab3664bf8ec0d23b0acf4c634b9c992e86df9c90d1", size = 241977, upload-time = "2026-01-14T16:19:14.07Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/86/00/d7f1aa5c9ac4352d1400a100c25ccccdfa26012c3a2569d8990dd4d7a856/mloda-0.4.4.tar.gz", hash = "sha256:5ff9e5e994772ffaaf98a9ee4353c0765113db2e0553c383165284a386cd00d6", size = 242332, upload-time = "2026-02-04T20:12:10.333Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/16/a7/8bfacf4b5a0f5949f17bf47259b5a913ec78fb1ac336e18cb4a08961bdcd/mloda-0.4.3-py3-none-any.whl", hash = "sha256:d49c4e9fc140373ce52787a945d085486422908ced8d8fa66533a05f630ccb41", size = 359287, upload-time = "2026-01-14T16:19:11.933Z" },
+    { url = "https://files.pythonhosted.org/packages/19/f8/99d04a338e16cc5ee6280b2f9cc31ab5a0e19d758ac24149eab292df049e/mloda-0.4.4-py3-none-any.whl", hash = "sha256:c04511cafb6ac070482f17f9c0c26cb7ec53cc37dafe28b46ecbc3720d3b8c9a", size = 359468, upload-time = "2026-02-04T20:12:08.884Z" },
 ]
 
 [[package]]
@@ -432,7 +432,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bandit", marker = "extra == 'dev'" },
-    { name = "mloda", specifier = "==0.4.3" },
+    { name = "mloda", specifier = "==0.4.4" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
