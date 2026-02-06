@@ -3,8 +3,8 @@
 from typing import Optional, Set
 from uuid import UUID, uuid4
 
-from mloda.core.abstract_plugins.components.parallelization_modes import ParallelizationMode
-from mloda.core.abstract_plugins.function_extender import Extender
+from mloda.user import ParallelizationMode
+from mloda.steward import Extender
 from mloda.provider import ComputeFramework
 
 

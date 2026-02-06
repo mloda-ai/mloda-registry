@@ -6,7 +6,7 @@ A 3-level approach to testing feature groups comprehensively.
 **When**: Always test feature groups; use appropriate level for each concern.
 **Why**: Catch bugs early (unit), verify computation (framework), ensure end-to-end works (integration).
 **Where**: `tests/` directory alongside your feature group code.
-**How**: pytest with mock FeatureSets for unit/framework; `mlodaAPI.run_all()` for integration.
+**How**: pytest with mock FeatureSets for unit/framework; `mloda.run_all()` for integration.
 
 ## Testing Levels
 
@@ -14,7 +14,7 @@ A 3-level approach to testing feature groups comprehensively.
 |-------|-------|-------|--------------|
 | 1: Unit | Matching logic | Fast | `match_feature_group_criteria()`, patterns, config methods |
 | 2: Framework | Calculation | Medium | `calculate_feature()` with real DataFrames |
-| 3: Integration | Full pipeline | Slow | `mlodaAPI.run_all()` end-to-end |
+| 3: Integration | Full pipeline | Slow | `mloda.run_all()` end-to-end |
 
 ## Level 1: Unit Test Example
 
@@ -52,10 +52,10 @@ def test_calculate_feature():
 ## Level 3: Integration Test Example
 
 ```python
-from mloda.user import mlodaAPI, Feature
+from mloda.user import mloda, Feature
 
 def test_full_pipeline():
-    result = mlodaAPI.run_all([Feature.not_typed("my_feature")])
+    result = mloda.run_all([Feature.not_typed("my_feature")])
     assert "my_feature" in result.columns
 ```
 

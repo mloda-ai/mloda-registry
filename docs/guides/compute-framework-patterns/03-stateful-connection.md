@@ -52,7 +52,7 @@ Pass connections via `data_connections`:
 conn = duckdb.connect()
 result = mloda.run_all(
     features=[...],
-    compute_frameworks={MyStatefulFramework},
+    compute_frameworks=["MyStatefulFramework"],
     data_connections=[conn],
 )
 ```

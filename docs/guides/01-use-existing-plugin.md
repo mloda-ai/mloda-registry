@@ -11,14 +11,13 @@ pip install mloda-community
 ## Use
 
 ```python
-from mloda.user import PluginLoader
+from mloda.user import PluginLoader, mloda, Feature
 
 # Auto-discover installed plugins
-PluginLoader.load()
+PluginLoader.all()
 
 # Use features from the plugin
-from mloda import mlodaAPI, Feature
-result = mlodaAPI.run_all([Feature("example_feature")])
+result = mloda.run_all([Feature("example_feature")])
 ```
 
 ## Direct Import

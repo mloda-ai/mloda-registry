@@ -24,13 +24,13 @@ How to use filters when computing features.
 ## Basic Usage
 
 ```python
-from mloda.user import mlodaAPI, Feature, GlobalFilter
+from mloda.user import mloda, Feature, GlobalFilter
 
 global_filter = GlobalFilter()
 global_filter.add_filter("age", "range", {"min": 18, "max": 65})
 global_filter.add_filter("region", "categorical_inclusion", {"values": ["EU", "NA"]})
 
-result = mlodaAPI.run_all(
+result = mloda.run_all(
     [Feature.not_typed("my_feature")],
     global_filter=global_filter
 )

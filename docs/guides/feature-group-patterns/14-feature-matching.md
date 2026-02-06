@@ -19,7 +19,7 @@ The default `match_feature_group_criteria()` checks in order:
 
 ```
 1. Input data match     → Root features with matching input_data()
-2. Data access match    → MatchData mixin with data connection
+2. Data access match    → ConnectionMatcherMixin with data connection
 3. Exact class name     → "MyFeature" == class MyFeature
 4. Prefix match         → "MyFeature_x".startswith("MyFeature_")
 5. Explicit names       → name in feature_names_supported()

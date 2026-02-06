@@ -61,9 +61,9 @@ Only needed with `ParallelizationMode.MULTIPROCESSING`. Avoid unpicklable instan
 ## Usage
 
 ```python
-from mloda import API as mlodaAPI
+from mloda.user import mloda
 
-results = mlodaAPI.run_all(
+results = mloda.run_all(
     features=["my_feature"],
     function_extender={MyExtender(), OtherExtender()}
 )
