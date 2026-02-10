@@ -82,6 +82,8 @@ Feature("income__mean_imputed")
 Feature("imputed_income", Options(context={"imputation_method": "mean", "in_features": "income"}))
 ```
 
+> **Note on Context**: Context options are local by default—they don't flow to input features. If you need context to propagate through the chain (e.g., a trace ID), use `propagate_context_keys`. See [Options](11-options.md#context-propagation) for details.
+
 ### Discriminator Keys
 
 When your feature group supports multiple method variants (e.g., different scaling algorithms), use a **unique discriminator key** in `PROPERTY_MAPPING`. The mixin handles matching automatically for both string-based and config-based creation.
