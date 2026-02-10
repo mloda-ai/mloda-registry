@@ -120,3 +120,34 @@ Feature("my_output", Options(context={"my_method": "algo_b", "in_features": "inp
 | **Matching** | `match_feature_group_criteria()` | Check if a requested name is handled |
 
 See [Feature Naming](13-feature-naming.md) for defining names.
+
+---
+
+## Debugging Matching
+
+Use `resolve_feature()` to verify your FeatureGroup matches correctly:
+
+```python
+from mloda.user import PluginLoader
+from mloda.steward import resolve_feature
+
+PluginLoader.all()
+
+# Verify your pattern matches
+result = resolve_feature("price__standard_scaled")
+print(f"Resolved to: {result.feature_group.__name__}")
+print(f"Candidates: {[fg.__name__ for fg in result.candidates]}")
+
+# Debug a failing match
+result = resolve_feature("my_custom_feature")
+if result.error:
+    print(f"Failed: {result.error}")
+```
+
+This is especially useful when:
+
+- Your custom `match_feature_group_criteria()` isn't matching as expected
+- Multiple FeatureGroups compete for the same pattern
+- You want to verify subclass filtering works correctly
+
+See [Discover Plugins](../02-discover-plugins.md#debugging-feature-resolution) for the full API reference.

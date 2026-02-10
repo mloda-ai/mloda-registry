@@ -83,6 +83,40 @@ for ext in get_extender_docs():
 docs = get_extender_docs(wraps="feature_group")
 ```
 
+## Debugging Feature Resolution
+
+When a feature doesn't resolve as expected, use `resolve_feature()` to understand which FeatureGroup handles it:
+
+```python
+from mloda.steward import resolve_feature
+
+# Check which FeatureGroup handles a feature name
+result = resolve_feature("my_feature_name")
+
+if result.feature_group:
+    print(f"Resolved to: {result.feature_group.__name__}")
+else:
+    print(f"Error: {result.error}")
+
+# See all candidates before subclass filtering
+print(f"Candidates: {[fg.__name__ for fg in result.candidates]}")
+```
+
+### ResolvedFeature Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `feature_name` | `str` | The input feature name |
+| `feature_group` | `Type[FeatureGroup] \| None` | The resolved FeatureGroup class |
+| `candidates` | `List[Type[FeatureGroup]]` | All matching FeatureGroups before filtering |
+| `error` | `str \| None` | Error message if resolution failed |
+
+### Common Issues
+
+**Multiple candidates**: When `candidates` has multiple entries but `feature_group` is `None`, you likely have conflicting FeatureGroups. The most specific subclass should win.
+
+**No candidates**: No FeatureGroup's `match_feature_group_criteria()` returned `True` for the name. Check your naming pattern.
+
 ## Next Steps
 
 - [Create a plugin in your project](03-create-plugin-in-project.md) - Build your own feature group
