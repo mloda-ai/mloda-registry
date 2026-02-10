@@ -32,6 +32,32 @@ feature = Feature("imputed_income", Options(
 ))
 ```
 
+## Context Propagation
+
+By default, context options stay local to each feature and are **not** propagated to input features in a dependency chain. This prevents unintended side effects when chaining features.
+
+To selectively propagate specific context keys to dependent features, use `propagate_context_keys`:
+
+```python
+from mloda.user import Feature, Options
+
+# Propagate specific context keys through the dependency chain
+feature = Feature("price__scaled", Options(
+    context={
+        "debug": True,
+        "trace_id": "abc123"
+    },
+    propagate_context_keys=frozenset({"trace_id"})  # Only trace_id flows to input features
+))
+```
+
+| Behavior | Description |
+|----------|-------------|
+| Default (no propagation) | Context stays local to the feature where it's defined |
+| With `propagate_context_keys` | Listed keys are passed to all input features in the chain |
+
+Use propagation sparingly—most context should remain local. Common use cases include trace IDs for debugging, tenant identifiers, or configuration that genuinely needs to flow through the entire pipeline.
+
 ## Full Documentation
 
 See [Options API](https://mloda-ai.github.io/mloda/in_depth/options/) for detailed patterns.
