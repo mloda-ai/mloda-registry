@@ -59,6 +59,25 @@ def test_full_pipeline():
     assert "my_feature" in result.columns
 ```
 
+## Mocking Feature Dependencies
+
+Isolate derived features from expensive upstream computations by disabling dependencies and injecting mock data.
+
+```python
+from mloda.user import mloda, Feature, PluginCollector
+
+def test_derived_feature_isolated():
+    result = mloda.run_all(
+        [Feature.not_typed("my_derived_feature")],
+        api_data={"MockData": {"upstream_feature": [100, 200, 300]}},
+        plugin_collector=PluginCollector.disabled_feature_groups({ExpensiveUpstreamFeature}),
+    )
+
+    assert len(result) > 0
+```
+
+Use when upstream features are slow (API calls, ML inference) or you need controlled test data.
+
 ## Testing by Pattern
 
 | Pattern | Level 1 Focus | Level 2 Focus |

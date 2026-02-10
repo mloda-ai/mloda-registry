@@ -82,6 +82,48 @@ result = cls.apply_naming_convention(embedding, "emb")
 | [dimensionality_reduction/base.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/experimental/dimensionality_reduction/base.py) | PCA output |
 | [encoding/base.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/experimental/sklearn/encoding/base.py) | One-hot encoding |
 
+## Consuming Sub-Columns
+
+Consumers can depend on all columns or specific sub-columns:
+
+| Dependency | Columns Available |
+|------------|-------------------|
+| `Feature("embedding")` | All: `embedding~0`, `embedding~1`, etc. |
+| `Feature("embedding~1")` | Only: `embedding~1` |
+
+### Example
+
+```python
+class SpecificSubColumnConsumer(FeatureGroup):
+    """Consume only embedding~1 from a multi-column feature."""
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
+        return {Feature("embedding~1")}  # Only this sub-column
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        embedding_values = data["embedding~1"]
+        feature_name = features.get_name_of_one_feature().name
+        return {feature_name: embedding_values * 2}
+```
+
+### How It Works
+
+1. Framework strips the `~N` suffix to find the base feature
+2. Locates and computes the parent FeatureGroup
+3. Extracts only the requested sub-column for the consumer
+4. Parent is computed once even if multiple consumers request different sub-columns
+
+### Best Practices
+
+| Use | When |
+|-----|------|
+| `Feature("base")` | Need all sub-columns |
+| `Feature("base~N")` | Need one specific sub-column |
+| `resolve_multi_column_feature()` | Need to discover sub-columns at runtime |
+
+Prefer specific sub-column dependencies - they make dependencies explicit and reduce data transfer.
+
 ## Combines With
 
 - **Pattern 3 (Chained)**: `text__embedded~0`
