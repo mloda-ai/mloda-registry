@@ -11,7 +11,7 @@ version = "0.2.8"
 description = "Example enterprise FeatureGroup plugin for mloda"
 license = "LicenseRef-Proprietary"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda>=0.4.3"]
+dependencies = ["mloda>=0.4.6"]
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
