@@ -59,6 +59,20 @@ def test_full_pipeline():
     assert "my_feature" in result.columns
 ```
 
+**Tip**: Use `column_ordering="request_order"` for predictable test assertions:
+
+```python
+def test_multiple_features():
+    result = mloda.run_all(
+        [Feature("feature_a"), Feature("feature_b")],
+        column_ordering="request_order"
+    )
+    # Columns guaranteed to be in request order
+    assert list(result.columns) == ["feature_a", "feature_b"]
+```
+
+Without `column_ordering`, column order is non-deterministic and tests comparing column lists may be flaky.
+
 ## Mocking Feature Dependencies
 
 Isolate derived features from expensive upstream computations by disabling dependencies and injecting mock data.
