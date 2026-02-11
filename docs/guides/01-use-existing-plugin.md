@@ -20,6 +20,35 @@ PluginLoader.all()
 result = mloda.run_all([Feature("example_feature")])
 ```
 
+## Column Ordering
+
+Control result column arrangement with the `column_ordering` parameter:
+
+```python
+# Preserve feature request order
+result = mloda.run_all(
+    [Feature("price"), Feature("quantity"), Feature("total")],
+    column_ordering="request_order"
+)
+# Columns: price, quantity, total (in request order)
+
+# Sort columns alphabetically
+result = mloda.run_all(
+    [Feature("price"), Feature("quantity"), Feature("total")],
+    column_ordering="alphabetical"
+)
+# Columns: price, quantity, total (A-Z sorted)
+
+# Default: no guaranteed ordering
+result = mloda.run_all([Feature("price"), Feature("quantity")])
+```
+
+| Option | Behavior |
+|--------|----------|
+| `"request_order"` | Columns match feature request sequence |
+| `"alphabetical"` | Columns sorted A-Z |
+| `None` (default) | No guaranteed ordering |
+
 ## Direct Import
 
 You can also import plugin classes directly:
