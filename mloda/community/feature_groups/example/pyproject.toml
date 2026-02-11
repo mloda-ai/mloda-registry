@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community-example"
-version = "0.2.8"
+version = "0.2.9"
 description = "Example community FeatureGroup plugin for mloda"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
