@@ -88,6 +88,15 @@ Q19: Need to create feature groups dynamically or simplify complex input sources
 
 Q20: Need to define features via JSON config (e.g., for AI agents or config-driven pipelines)?
     YES → See 22-feature-config
+
+Q21: Need to consume results incrementally as each feature group completes?
+    YES → See 23-streaming
+
+Q22: Need to build the execution plan once at startup and reuse it for repeated calls with fresh data?
+    YES → See 24-realtime
+
+Q23: Need both plan reuse and incremental per-group delivery?
+    YES → Use session.stream_run() — see 23-streaming and 24-realtime
 ```
 
 ### Feature Group Pattern Guides
@@ -118,6 +127,8 @@ Location: `docs/guides/feature-group-patterns/`
 | 20 | `20-versioning.md` | Version tracking |
 | 21 | `21-experimental-shortcuts.md` | Dynamic creation helpers |
 | 22 | `22-feature-config.md` | JSON-based feature definition |
+| 23 | `23-streaming.md` | Incremental results with `stream_all` |
+| 24 | `24-realtime.md` | Reuse execution plans with `prepare` + `run` |
 
 ---
 
