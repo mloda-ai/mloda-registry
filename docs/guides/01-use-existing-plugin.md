@@ -49,6 +49,36 @@ result = mloda.run_all([Feature("price"), Feature("quantity")])
 | `"alphabetical"` | Columns sorted A-Z |
 | `None` (default) | No guaranteed ordering |
 
+## Streaming
+
+Process results incrementally as each feature group completes:
+
+```python
+from mloda.user import PluginLoader, stream_all, Feature
+
+PluginLoader.all()
+
+for result in stream_all([Feature("feature_a"), Feature("feature_b")]):
+    print(result)
+```
+
+See [Streaming Results](feature-group-patterns/23-streaming.md) for details.
+
+## Realtime
+
+Build the execution plan once and reuse it for repeated calls with fresh data:
+
+```python
+from mloda.user import PluginLoader, mloda, Feature
+
+PluginLoader.all()
+
+session = mloda.prepare([Feature("my_feature")], compute_frameworks=["PandasDataFrame"])
+result = session.run(api_data={"MyKey": {"col": [1, 2]}})
+```
+
+See [Realtime Execution](feature-group-patterns/24-realtime.md) for details.
+
 ## Direct Import
 
 You can also import plugin classes directly:

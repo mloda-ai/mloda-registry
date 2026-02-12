@@ -73,6 +73,8 @@ def test_multiple_features():
 
 Without `column_ordering`, column order is non-deterministic and tests comparing column lists may be flaky.
 
+**Note**: You can also use `stream_all` for integration tests when testing streaming behavior. See [Streaming Results](23-streaming.md).
+
 ## Mocking Feature Dependencies
 
 Isolate derived features from expensive upstream computations by disabling dependencies and injecting mock data.

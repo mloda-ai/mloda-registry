@@ -62,6 +62,8 @@ PluginLoader.all()
 result = mloda.run_all([Feature("CustomerScoring")])
 ```
 
+**Tip**: For incremental results when requesting multiple features, use [`stream_all`](feature-group-patterns/23-streaming.md) instead of `run_all`.
+
 ## Next Steps
 
 - [Create a feature group](09-create-feature-group.md) - Detailed feature group guide
