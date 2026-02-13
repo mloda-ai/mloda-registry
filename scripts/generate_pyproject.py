@@ -159,11 +159,7 @@ def generate_pyproject(
             optional_pkg_names.update(deps)
 
         # Map optional dependency names to their paths
-        exclude_paths = [
-            all_packages[dep_name]["path"]
-            for dep_name in optional_pkg_names
-            if dep_name in all_packages
-        ]
+        exclude_paths = [all_packages[dep_name]["path"] for dep_name in optional_pkg_names if dep_name in all_packages]
 
         # Discover packages from filesystem, excluding optional sub-packages
         packages = discover_packages(pkg_config["path"], exclude_paths)
