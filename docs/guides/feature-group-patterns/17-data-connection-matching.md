@@ -41,6 +41,31 @@ In `match_feature_group_criteria()`, data access matching is checked early:
 ...
 ```
 
+## Folder-Based Matching
+
+```python
+class CsvFeature(FeatureGroup):
+    @classmethod
+    def match_feature_group_criteria(
+        cls, feature_name: str, options: Options,
+        data_access_collection: Optional[DataAccessCollection] = None,
+    ) -> bool:
+        if data_access_collection is None or not data_access_collection.folders:
+            return False
+        options.set("_data_folder", next(iter(data_access_collection.folders)))
+        return True
+```
+
+## Subclass Data Access Matching
+
+```python
+@classmethod
+def match_subclass_data_access(cls, data_access: Any, feature_names: List[str], options: Options) -> Any:
+    ...
+```
+
+The `options` parameter is required.
+
 ## Full Documentation
 
 See [Data Access Patterns](https://mloda-ai.github.io/mloda/in_depth/data-access-patterns/) for detailed patterns.

@@ -63,6 +63,8 @@ def test_input_features_with_link():
 
 ## Using JoinSpec (Explicit Control)
 
+Specifies join columns directly. No `index_columns()` needed on the feature group.
+
 ```python
 link = Link.inner(
     left=JoinSpec(FeatureGroupA, "id"),
@@ -72,8 +74,9 @@ link = Link.inner(
 
 ## Using _on Methods (Convenience)
 
+Auto-derives join columns from `index_columns()`.
+
 ```python
-# Auto-derives index from index_columns()
 link = Link.inner_on(UserFeatureGroup, OrderFeatureGroup)
 
 # Select specific index position
@@ -120,6 +123,34 @@ def input_features(self, options: Options, feature_name: FeatureName) -> Optiona
         Feature(name="order_value", link=link, index=Index(("order_id",))),
         Feature(name="customer_name", index=Index(("customer_id",))),
     }
+```
+
+## Multi-Table Join (Aggregate + Left-Join)
+
+```python
+link = Link.left(
+    left=JoinSpec(CustomerFeatures, Index(("customer_id",))),
+    right=JoinSpec(OrderAggregation, Index(("customer_id",))),
+)
+
+features = [
+    Feature("customer_name"),
+    Feature("total_orders", link=link),
+]
+```
+
+
+## Same-Class Joins with Discriminators
+
+When both sides use the same FeatureGroup class, use discriminators to distinguish them:
+
+```python
+link = Link.inner(
+    JoinSpec(ReadFileFeature, "id"),
+    JoinSpec(ReadFileFeature, "id"),
+    left_discriminator={"CsvReader": "customers.csv"},
+    right_discriminator={"CsvReader": "orders.csv"},
+)
 ```
 
 ## When to Use Each Approach

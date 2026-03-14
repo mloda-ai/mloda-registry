@@ -99,6 +99,18 @@ def index_columns(cls) -> List[Index]:
 | [time_window/base.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/experimental/time_window/base.py) | Time window aggregations |
 | [aggregated_feature_group/base.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/experimental/aggregated_feature_group/base.py) | Group-by aggregations |
 
+## Indexes as Join Keys
+
+```python
+from mloda.user import Link
+
+# Both sides must define index_columns()
+link = Link.left_on(UserFeatures, OrderFeatures)
+
+# Select specific index position
+link = Link.inner_on(UserFeatures, OrderFeatures, left_index=0, right_index=1)
+```
+
 ## Combines With
 
 - **Chained** (Pattern 3): `price__rolling_mean_7d`

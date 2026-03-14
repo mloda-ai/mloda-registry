@@ -17,7 +17,8 @@
       "Bash(find:*)",
       "Bash(mypy:*)",
       "Bash(python -m py_compile:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []
