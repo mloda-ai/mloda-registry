@@ -71,6 +71,15 @@ class OrderSyntheticData(FeatureGroup):
         return {"order_id": [1, 2, 3], "product_id": [101, 102, 103], "quantity": [5, 3, 7]}
 ```
 
+## CsvReader (File-Based Data)
+
+```python
+from mloda.user import DataAccessCollection, Feature
+
+data_access = DataAccessCollection(folders={"/path/to/data/"})
+features = [Feature("customer_id"), Feature("name")]
+```
+
 ## Real Implementations
 
 | File | Description |

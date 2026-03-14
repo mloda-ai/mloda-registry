@@ -36,6 +36,17 @@ for result in stream_all([Feature("feature_a"), Feature("feature_b")]):
 
 If you only request one feature group, `stream_all` behaves identically to `run_all` since there is only one result to yield.
 
+## Per-Group Streaming with `session.stream_run()`
+
+Combines streaming with [realtime execution](24-realtime.md). Same parameters as `session.run()`.
+
+```python
+session = mloda.prepare([Feature("feature_a"), Feature("feature_b")])
+
+for result in session.stream_run(api_data={"MyKey": {"col": [1, 2]}}):
+    print(result)
+```
+
 ## What Streaming Does NOT Do
 
 - **Row-by-row streaming** — individual rows are not yielded as they are computed.
