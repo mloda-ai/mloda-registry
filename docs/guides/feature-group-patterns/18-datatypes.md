@@ -77,6 +77,18 @@ class UserCount(FeatureGroup):
 Feature.int32_of("exact_count", options={"strict_type_enforcement": True})
 ```
 
+## Python Type Inference (0.5.1+)
+
+Python-native types are automatically mapped to DataTypes:
+
+| Python Type | DataType |
+|-------------|----------|
+| `datetime.date` | `DATE` |
+| `datetime.datetime` | `TIMESTAMP_MICROS` |
+| `decimal.Decimal` | `DECIMAL` |
+
+This means features returning these Python types will have their DataType inferred correctly without explicit declaration.
+
 ## Full Documentation
 
 See [Data Type Enforcement](https://mloda-ai.github.io/mloda/in_depth/data-type-enforcement/) for detailed patterns.
