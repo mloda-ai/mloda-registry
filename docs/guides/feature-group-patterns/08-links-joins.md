@@ -64,6 +64,7 @@ def test_input_features_with_link():
 ## Using JoinSpec (Explicit Control)
 
 Specifies join columns directly. No `index_columns()` needed on the feature group.
+The engine automatically injects the specified join columns into the feature group's feature set.
 
 ```python
 link = Link.inner(
@@ -169,5 +170,5 @@ link = Link.inner(
 
 ## Combines With
 
-- **Index Features** (Pattern 7): Links require `index_columns()` defined on joined feature groups
+- **Index Features** (Pattern 7): `_on` convenience methods require `index_columns()` defined on joined feature groups; `JoinSpec` works regardless
 - **Framework-specific** (Pattern 9): Different merge engines per framework
