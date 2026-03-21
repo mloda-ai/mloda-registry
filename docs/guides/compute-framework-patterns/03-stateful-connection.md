@@ -5,7 +5,7 @@ Stateful frameworks require a connection or session object to operate.
 **What**: Frameworks requiring a connection/session to process data.
 **When**: Database connections, distributed compute engines, SQL-based queries.
 **Why**: External engine handles computation; enables distributed processing.
-**Where**: DuckDB, Spark, Trino, Dask distributed.
+**Where**: DuckDB, SQLite, Spark, Trino, Dask distributed.
 **How**: Same as Category 1, plus implement `set_framework_connection_object()`.
 
 ## Key Difference from Stateless
@@ -62,6 +62,7 @@ result = mloda.run_all(
 | File | Description |
 |------|-------------|
 | [duckdb/duckdb_framework.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/compute_framework/base_implementations/duckdb/duckdb_framework.py) | DuckDB |
+| [sqlite/sqlite_framework.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/compute_framework/base_implementations/sqlite/sqlite_framework.py) | SQLite (0.5.4+) |
 | [spark/spark_framework.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/compute_framework/base_implementations/spark/spark_framework.py) | Spark |
 
 ## Combines With

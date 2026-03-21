@@ -41,6 +41,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Never continue TDD cycles if agents are stuck** - this wastes resources and indicates a fundamental issue that requires human intervention.
 
+## Git Commits
+
+- No agent should add `Co-Authored-By` lines or any other commit authorship attribution.
+
 ## Virtual Environment Setup
 
 If not in a devcontainer, set up the environment:
