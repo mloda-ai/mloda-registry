@@ -24,7 +24,7 @@ _DUCKDB_AGG_FUNCS: dict[str, str] = {
     "var": "VAR_SAMP",
     "median": "MEDIAN",
     "mode": "MODE",
-    "nunique": "COUNT(DISTINCT {col})",
+    "nunique": "COUNT_DISTINCT",  # handled specially: COUNT(DISTINCT col) syntax
     "first": "FIRST_VALUE",
     "last": "LAST_VALUE",
 }
@@ -50,6 +50,9 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         partition_by: list[str],
         agg_type: str,
     ) -> DuckdbRelation:
+        # Safety: _raw_sql is composed entirely from quote_ident()-quoted identifiers
+        # and hardcoded SQL function names from _DUCKDB_AGG_FUNCS. No user-controlled
+        # strings are interpolated without quoting.
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)

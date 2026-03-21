@@ -70,9 +70,14 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         """Check if the given aggregation type is supported, including dynamic types."""
         if aggregation_type in cls.AGGREGATION_TYPES:
             return True
-        for prefix in _DYNAMIC_PREFIXES:
-            if aggregation_type.startswith(prefix):
+        if aggregation_type.startswith("percentile_"):
+            suffix = aggregation_type[len("percentile_") :]
+            if suffix.isdigit() and 0 <= int(suffix) <= 100:
                 return True
+            return False
+        if aggregation_type.startswith("ratio_to_"):
+            target = aggregation_type[len("ratio_to_") :]
+            return target in cls.AGGREGATION_TYPES
         return False
 
     @classmethod
@@ -116,16 +121,46 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
         return True
 
+    @staticmethod
+    def _get_column_names(data: Any) -> set[str]:
+        """Extract column names from any supported data type."""
+        if hasattr(data, "column_names"):
+            return set(data.column_names)  # pa.Table
+        if hasattr(data, "columns"):
+            cols = data.columns
+            if isinstance(cols, list):
+                return set(cols)  # DuckdbRelation, SqliteRelation, pd.DataFrame
+            return set(cols)
+        return set()
+
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         """Shared loop: extract params from each feature, delegate to _compute_window."""
         table = data
 
+        _MAX_IDENTIFIER_LENGTH = 1024
+
         for feature in features.features:
             feature_name = feature.get_name()
+
+            if len(feature_name) > _MAX_IDENTIFIER_LENGTH:
+                raise ValueError(f"Feature name exceeds maximum length of {_MAX_IDENTIFIER_LENGTH} characters")
+
             agg_type = cls.get_aggregation_type(feature_name)
             source_col = feature_name.rsplit("__", 1)[0]
             partition_by = feature.options.get("partition_by")
+
+            available = cls._get_column_names(table)
+            if available:
+                if source_col not in available:
+                    raise ValueError(
+                        f"Source column '{source_col}' not found in data. Available columns: {sorted(available)}"
+                    )
+                for col in partition_by:
+                    if col not in available:
+                        raise ValueError(
+                            f"Partition column '{col}' not found in data. Available columns: {sorted(available)}"
+                        )
 
             table = cls._compute_window(table, feature_name, source_col, partition_by, agg_type)
 
@@ -204,5 +239,7 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     @classmethod
     def _mode(cls, values: list[Any]) -> Any:
+        if not values:
+            return None
         counts = Counter(values)
         return counts.most_common(1)[0][0]
