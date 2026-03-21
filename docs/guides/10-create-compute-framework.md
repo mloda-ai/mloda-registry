@@ -51,7 +51,7 @@ Q11: Ready to test your implementation?
 |----------|-------------|
 | [01-stateless-eager](compute-framework-patterns/01-stateless-eager.md) | Simple in-memory frameworks (Pandas, PyArrow, Polars DataFrame) |
 | [02-stateless-lazy](compute-framework-patterns/02-stateless-lazy.md) | Lazy evaluation frameworks (Polars LazyFrame, Ibis) |
-| [03-stateful-connection](compute-framework-patterns/03-stateful-connection.md) | Connection/session required (DuckDB, Spark) |
+| [03-stateful-connection](compute-framework-patterns/03-stateful-connection.md) | Connection/session required (DuckDB, SQLite, Spark) |
 | [04-zero-dependency](compute-framework-patterns/04-zero-dependency.md) | Pure Python, no external libs (Python dict) |
 | [05-data-lake](compute-framework-patterns/05-data-lake.md) | Catalog-based table formats (Iceberg, Delta) |
 

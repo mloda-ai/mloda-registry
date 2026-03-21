@@ -5,7 +5,7 @@ Framework-specific features restrict computation to certain frameworks.
 **What**: Features that use framework-specific APIs (Pandas groupby, Polars expressions, Spark).
 **When**: You need framework-specific optimizations or APIs not available cross-framework.
 **Why**: Leverage native performance; some operations only exist in specific frameworks.
-**Where**: Pandas groupby/transform, Polars lazy evaluation, DuckDB SQL, Spark distributed ops.
+**Where**: Pandas groupby/transform, Polars lazy evaluation, DuckDB SQL, SQLite SQL, Spark distributed ops.
 **How**: Return allowed frameworks from `compute_framework_rule()`.
 
 ## Key Characteristic
@@ -64,6 +64,7 @@ def test_pandas_group_mean():
 | Polars Lazy | `mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe.PolarsLazyDataFrame` |
 | PyArrow | `mloda_plugins.compute_framework.base_implementations.pyarrow.table.PyArrowTable` |
 | DuckDB | `mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework.DuckDBFramework` |
+| SQLite | `mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework.SqliteFramework` |
 | Spark | `mloda_plugins.compute_framework.base_implementations.spark.spark_framework.SparkFramework` |
 
 ## Real Implementations
