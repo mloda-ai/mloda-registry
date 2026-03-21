@@ -62,3 +62,17 @@ path = "mloda/enterprise/compute_frameworks/example"
 description = "Example enterprise Extender plugin for mloda"
 dependencies = ["mloda>=0.5.4"]
 path = "mloda/enterprise/extenders/example"
+
+# --- Data Operations ---
+
+[packages.mloda-community-data-operations]
+description = "Shared base classes for data operation feature groups"
+dependencies = ["mloda>=0.5.4"]
+path = "mloda/community/feature_groups/data_operations"
+optional_dependencies = { all = ["mloda-community-window-aggregation"] }
+
+[packages.mloda-community-window-aggregation]
+description = "Window aggregation feature group (broadcast, partition_by, row-preserving)"
+dependencies = ["mloda-community-data-operations>=0.2.0"]
+path = "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation"
+optional_dependencies = { pyarrow = ["pyarrow"], sql = [], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas"] }
