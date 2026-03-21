@@ -75,4 +75,4 @@ optional_dependencies = { all = ["mloda-community-window-aggregation"] }
 description = "Window aggregation feature group (broadcast, partition_by, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.2.0"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation"
-optional_dependencies = { pyarrow = ["pyarrow"], sql = [], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas"] }
+optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
