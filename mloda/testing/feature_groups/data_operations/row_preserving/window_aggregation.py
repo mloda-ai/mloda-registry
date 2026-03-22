@@ -13,7 +13,8 @@ that any framework implementation inherits by subclassing and implementing
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Callable
 
 import pyarrow as pa
 import pytest
@@ -229,3 +230,116 @@ class WindowAggregationTestBase(ABC):
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
+
+
+# ---------------------------------------------------------------------------
+# Cross-framework comparison base class
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FrameworkConfig:
+    """Configuration for a framework in cross-framework comparison tests.
+
+    Attributes:
+        name: Human-readable name (e.g. "pandas", "duckdb").
+        implementation_class: The WindowAggregation subclass to test.
+        create_data: Callable that converts a PyArrow table to framework-native data.
+    """
+
+    name: str
+    implementation_class: Any
+    create_data: Callable[..., Any] = field(default=lambda t: t)
+
+
+class CrossFrameworkComparisonBase(ABC):
+    """Abstract base class for cross-framework comparison tests.
+
+    Subclasses implement ``get_frameworks()`` to register frameworks,
+    then inherit 5 test methods that compare every framework against
+    the PyArrow reference implementation.
+
+    Connection-based frameworks (DuckDB, SQLite) should create connections
+    in ``setup_method()`` and close them in ``teardown_method()``.
+    """
+
+    @abstractmethod
+    def get_frameworks(self) -> list[FrameworkConfig]:
+        """Return the list of non-PyArrow frameworks to compare."""
+
+    @classmethod
+    @abstractmethod
+    def pyarrow_implementation_class(cls) -> Any:
+        """Return the PyArrow implementation class (the reference)."""
+
+    def setup_method(self) -> None:
+        """Create the shared arrow table for all frameworks."""
+        self.arrow_table: pa.Table = PyArrowDataOpsTestDataCreator.create()
+
+    def _run_all_frameworks(
+        self,
+        feature_name: str,
+        partition_by: list[str],
+    ) -> dict[str, list[Any]]:
+        """Run the feature through PyArrow + all registered frameworks."""
+        fs = make_feature_set(feature_name, partition_by)
+        results: dict[str, list[Any]] = {}
+
+        # PyArrow (reference)
+        result = self.pyarrow_implementation_class().calculate_feature(self.arrow_table, fs)
+        results["pyarrow"] = extract_column(result, feature_name)
+
+        # All other frameworks
+        for fw in self.get_frameworks():
+            data = fw.create_data(self.arrow_table)
+            result = fw.implementation_class.calculate_feature(data, fs)
+            results[fw.name] = extract_column(result, feature_name)
+
+        return results
+
+    @staticmethod
+    def _assert_matches_reference(
+        results: dict[str, list[Any]],
+        use_approx: bool = False,
+    ) -> None:
+        """Assert every framework result matches the PyArrow reference."""
+        reference = results["pyarrow"]
+        for name, values in results.items():
+            if name == "pyarrow":
+                continue
+            assert len(values) == len(reference), f"{name}: row count {len(values)} != reference {len(reference)}"
+            if use_approx:
+                for i, (ref_val, fw_val) in enumerate(zip(reference, values)):
+                    if ref_val is None:
+                        assert fw_val is None, f"{name} row {i}: expected None, got {fw_val}"
+                    else:
+                        assert fw_val == pytest.approx(ref_val, rel=1e-6), (
+                            f"{name} row {i}: {fw_val} != reference {ref_val}"
+                        )
+            else:
+                assert values == reference, f"{name} produced {values}, expected {reference}"
+
+    def test_sum_cross_framework(self) -> None:
+        """Sum of value_int partitioned by region: all frameworks must match PyArrow."""
+        results = self._run_all_frameworks("value_int__sum_groupby", ["region"])
+        self._assert_matches_reference(results)
+
+    def test_avg_cross_framework(self) -> None:
+        """Average of value_int partitioned by region: all frameworks must match PyArrow."""
+        results = self._run_all_frameworks("value_int__avg_groupby", ["region"])
+        self._assert_matches_reference(results, use_approx=True)
+
+    def test_count_cross_framework(self) -> None:
+        """Count of value_int partitioned by region: all frameworks must match PyArrow."""
+        results = self._run_all_frameworks("value_int__count_groupby", ["region"])
+        self._assert_matches_reference(results)
+
+    def test_min_cross_framework(self) -> None:
+        """Minimum of value_int partitioned by region: all frameworks must match PyArrow."""
+        results = self._run_all_frameworks("value_int__min_groupby", ["region"])
+        self._assert_matches_reference(results)
+
+    def test_max_cross_framework(self) -> None:
+        """Maximum of value_int partitioned by region: all frameworks must match PyArrow."""
+        results = self._run_all_frameworks("value_int__max_groupby", ["region"])
+        self._assert_matches_reference(results)
