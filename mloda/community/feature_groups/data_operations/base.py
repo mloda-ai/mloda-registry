@@ -140,12 +140,74 @@ class ColumnTypeCategory(str, Enum):
 # ---------------------------------------------------------------------------
 # Type-check helper (ticket 238)
 # ---------------------------------------------------------------------------
-# Framework-specific type mappings. Each maps ColumnTypeCategory to a
-# callable that returns True when the column type matches.
+# Registry of framework-specific type checkers. Each framework implementation
+# registers its own checker via ``register_type_checker()``. This keeps
+# framework-specific imports out of this shared base module.
+
+_TYPE_CHECKER_REGISTRY: dict[str, dict[ColumnTypeCategory, Any]] = {}
+
+
+def register_type_checker(framework_name: str, checkers: dict[ColumnTypeCategory, Any]) -> None:
+    """Register type-checking predicates for a framework.
+
+    Called by framework-specific modules at import time. Each checker
+    maps a ``ColumnTypeCategory`` to a callable that returns True when
+    the column type matches.
+    """
+    _TYPE_CHECKER_REGISTRY[framework_name] = checkers
+
+
+def _get_column_type_info(data: Any, column_name: str) -> tuple[str, Any, str]:
+    """Extract the column type and framework name from a data object.
+
+    Uses PyArrow as the default (always available). For other frameworks,
+    checks if they are installed and if the data matches.
+
+    Returns:
+        Tuple of (framework_name, column_type, type_string).
+
+    Raises:
+        TypeError: If the data type is not recognized.
+    """
+    import pyarrow as pa
+
+    if isinstance(data, pa.Table):
+        col_type = data.schema.field(column_name).type
+        return "pyarrow", col_type, str(col_type)
+
+    # Check registered frameworks
+    for name in _TYPE_CHECKER_REGISTRY:
+        if name == "pyarrow":
+            continue
+        if name == "pandas":
+            pd = _try_import("pandas")
+            if pd is not None and isinstance(data, pd.DataFrame):
+                col_type = data[column_name].dtype
+                return "pandas", col_type, str(col_type)
+        elif name == "polars":
+            pl = _try_import("polars")
+            if pl is not None and isinstance(data, (pl.DataFrame, pl.LazyFrame)):
+                col_type = data.schema[column_name]
+                return "polars", col_type, str(col_type)
+
+    raise TypeError(
+        f"Unsupported data type for column type checking: {type(data).__name__}. "
+        f"No type checker registered for this framework."
+    )
+
+
+def _try_import(module_name: str) -> Any:
+    """Import a module, returning None if not installed."""
+    import importlib
+
+    try:  # noqa: SIM105 (intentional: import fallback is a valid use of try/except)
+        return importlib.import_module(module_name)
+    except ImportError:
+        return None
 
 
 def _pyarrow_type_checkers() -> dict[ColumnTypeCategory, Any]:
-    """Return PyArrow type-checking predicates, imported lazily."""
+    """Return PyArrow type-checking predicates."""
     import pyarrow as pa
 
     return {
@@ -158,68 +220,8 @@ def _pyarrow_type_checkers() -> dict[ColumnTypeCategory, Any]:
     }
 
 
-def _pandas_type_checkers() -> dict[ColumnTypeCategory, Any]:
-    """Return pandas dtype-checking predicates, imported lazily."""
-    import pandas as pd
-
-    def is_numeric(dtype: Any) -> bool:
-        return bool(pd.api.types.is_numeric_dtype(dtype))
-
-    def is_string(dtype: Any) -> bool:
-        return bool(pd.api.types.is_string_dtype(dtype) or pd.api.types.is_object_dtype(dtype))
-
-    def is_datetime(dtype: Any) -> bool:
-        return bool(pd.api.types.is_datetime64_any_dtype(dtype))
-
-    return {
-        ColumnTypeCategory.NUMERIC: is_numeric,
-        ColumnTypeCategory.STRING: is_string,
-        ColumnTypeCategory.DATETIME: is_datetime,
-        ColumnTypeCategory.ANY: lambda dtype: True,
-    }
-
-
-def _get_column_type_info(data: Any, column_name: str) -> tuple[str, Any, str]:
-    """Extract the column type and framework name from a data object.
-
-    Returns:
-        Tuple of (framework_name, column_type, type_string).
-
-    Raises:
-        TypeError: If the data type is not recognized.
-    """
-    # PyArrow Table
-    pa = _try_import("pyarrow")
-    if pa is not None and isinstance(data, pa.Table):
-        col_type = data.schema.field(column_name).type
-        return "pyarrow", col_type, str(col_type)
-
-    # pandas DataFrame
-    pd = _try_import("pandas")
-    if pd is not None and isinstance(data, pd.DataFrame):
-        col_type = data[column_name].dtype
-        return "pandas", col_type, str(col_type)
-
-    # Polars LazyFrame / DataFrame
-    pl = _try_import("polars")
-    if pl is not None and isinstance(data, (pl.DataFrame, pl.LazyFrame)):
-        col_type = data.schema[column_name]
-        return "polars", col_type, str(col_type)
-
-    raise TypeError(
-        f"Unsupported data type for column type checking: {type(data).__name__}. "
-        f"Expected PyArrow Table, pandas DataFrame, or Polars DataFrame/LazyFrame."
-    )
-
-
-def _try_import(module_name: str) -> Any:
-    """Import a module, returning None if not installed."""
-    import importlib
-
-    try:  # noqa: SIM105 (intentional: import fallback is a valid use of try/except)
-        return importlib.import_module(module_name)
-    except ImportError:
-        return None
+# Register PyArrow by default (always available as the reference framework)
+register_type_checker("pyarrow", _pyarrow_type_checkers())
 
 
 def check_column_type(
@@ -250,41 +252,15 @@ def check_column_type(
 
     framework, col_type, type_str = _get_column_type_info(data, column_name)
 
-    checkers: dict[ColumnTypeCategory, Any]
-    if framework == "pyarrow":
-        checkers = _pyarrow_type_checkers()
-    elif framework == "pandas":
-        checkers = _pandas_type_checkers()
-    else:
-        # Polars: use string-based matching for portability
-        checkers = _polars_type_checkers()
+    checkers = _TYPE_CHECKER_REGISTRY.get(framework)
+    if checkers is None:
+        return  # No checker registered for this framework, skip validation
 
     checker = checkers[expected]
     if not checker(col_type):
         raise TypeError(
             f"{expected.value} operation '{operation_name}' requires a {expected.value} column, got {type_str}"
         )
-
-
-def _polars_type_checkers() -> dict[ColumnTypeCategory, Any]:
-    """Return Polars type-checking predicates, imported lazily."""
-    import polars as pl
-
-    def is_numeric(dtype: Any) -> bool:
-        return bool(dtype.is_numeric())
-
-    def is_string(dtype: Any) -> bool:
-        return bool(dtype == pl.Utf8 or dtype == pl.String)
-
-    def is_datetime(dtype: Any) -> bool:
-        return bool(dtype == pl.Datetime or dtype == pl.Date)
-
-    return {
-        ColumnTypeCategory.NUMERIC: is_numeric,
-        ColumnTypeCategory.STRING: is_string,
-        ColumnTypeCategory.DATETIME: is_datetime,
-        ColumnTypeCategory.ANY: lambda dtype: True,
-    }
 
 
 def check_column_types(

@@ -10,8 +10,20 @@ import pyarrow as pa
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.base import ColumnTypeCategory, register_type_checker
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
+)
+
+# Register Polars type checkers with the shared registry.
+register_type_checker(
+    "polars",
+    {
+        ColumnTypeCategory.NUMERIC: lambda dtype: bool(dtype.is_numeric()),
+        ColumnTypeCategory.STRING: lambda dtype: bool(dtype == pl.Utf8 or dtype == pl.String),
+        ColumnTypeCategory.DATETIME: lambda dtype: bool(dtype == pl.Datetime or dtype == pl.Date),
+        ColumnTypeCategory.ANY: lambda dtype: True,
+    },
 )
 
 # Mapping from aggregation type to a Polars expression builder.
