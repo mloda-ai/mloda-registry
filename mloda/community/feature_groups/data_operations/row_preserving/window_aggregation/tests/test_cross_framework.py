@@ -17,6 +17,10 @@ pytest.importorskip("polars")
 duckdb = pytest.importorskip("duckdb")
 
 from mloda.testing.data_creator import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation import (
+    extract_column,
+    make_feature_set,
+)
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
@@ -35,24 +39,12 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.sqlite_window_aggregation import (
     SqliteWindowAggregation,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.tests.conftest import (
-    make_feature_set,
-)
 
 
 @pytest.fixture
 def arrow_table() -> pa.Table:
     """Return the shared 12-row test dataset as a PyArrow Table."""
     return PyArrowDataOpsTestDataCreator.create()
-
-
-def _to_pylist(result: Any, column_name: str) -> list[Any]:
-    """Extract a column as a Python list, handling both pa.Table and relation types."""
-    if isinstance(result, pa.Table):
-        return list(result.column(column_name).to_pylist())
-    # DuckdbRelation or SqliteRelation
-    arrow = result.to_arrow_table()
-    return list(arrow.column(column_name).to_pylist())
 
 
 class TestCrossFrameworkComparison:
@@ -70,28 +62,28 @@ class TestCrossFrameworkComparison:
 
         # PyArrow (reference)
         result = PyArrowWindowAggregation.calculate_feature(arrow_table, fs)
-        results["pyarrow"] = _to_pylist(result, feature_name)
+        results["pyarrow"] = extract_column(result, feature_name)
 
         # Pandas (accepts pa.Table)
         result = PandasWindowAggregation.calculate_feature(arrow_table, fs)
-        results["pandas"] = _to_pylist(result, feature_name)
+        results["pandas"] = extract_column(result, feature_name)
 
         # Polars Lazy (accepts pa.Table)
         result = PolarsLazyWindowAggregation.calculate_feature(arrow_table, fs)
-        results["polars_lazy"] = _to_pylist(result, feature_name)
+        results["polars_lazy"] = extract_column(result, feature_name)
 
         # SQLite (accepts SqliteRelation)
         conn_sqlite = sqlite3.connect(":memory:")
         sqlite_data = SqliteRelation.from_arrow(conn_sqlite, arrow_table)
         result = SqliteWindowAggregation.calculate_feature(sqlite_data, fs)
-        results["sqlite"] = _to_pylist(result, feature_name)
+        results["sqlite"] = extract_column(result, feature_name)
         conn_sqlite.close()
 
         # DuckDB (accepts DuckdbRelation)
         conn_duckdb = duckdb.connect()
         duckdb_data = DuckdbRelation.from_arrow(conn_duckdb, arrow_table)
         result = DuckdbWindowAggregation.calculate_feature(duckdb_data, fs)
-        results["duckdb"] = _to_pylist(result, feature_name)
+        results["duckdb"] = extract_column(result, feature_name)
         conn_duckdb.close()
 
         return results

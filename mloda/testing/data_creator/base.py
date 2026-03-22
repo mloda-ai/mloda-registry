@@ -1,9 +1,8 @@
-"""Test data creators for data operations plugins.
+"""Base test data creator for data operations plugins.
 
 Provides a fixed 12-row dataset with deliberate edge cases (nulls, duplicates,
 gaps, empty strings, all-null columns) that data-operations plugins can use as
-a shared test fixture.  Framework-specific subclasses convert the raw dict into
-the appropriate table type.
+a shared test fixture.
 """
 
 from __future__ import annotations
@@ -84,7 +83,7 @@ class DataOperationsTestDataCreator:
                 "alice",
                 "  ",
                 "Bob",
-                "héllo",
+                "h\u00e9llo",
                 None,
             ],
             # Boolean column
@@ -100,39 +99,3 @@ class DataOperationsTestDataCreator:
         Subclasses must override this method.
         """
         raise NotImplementedError
-
-
-class PandasDataOpsTestDataCreator(DataOperationsTestDataCreator):
-    """Converts the raw test data to a pandas DataFrame."""
-
-    @classmethod
-    def create(cls) -> Any:
-        import pandas as pd
-
-        return pd.DataFrame(cls.get_raw_data())
-
-
-class PyArrowDataOpsTestDataCreator(DataOperationsTestDataCreator):
-    """Converts the raw test data to a PyArrow Table."""
-
-    @classmethod
-    def create(cls) -> Any:
-        import pyarrow as pa
-
-        raw = cls.get_raw_data()
-        arrays: list[pa.Array] = []
-        names: list[str] = []
-        for col_name, values in raw.items():
-            names.append(col_name)
-            arrays.append(pa.array(values))
-        return pa.table(dict(zip(names, arrays)))
-
-
-class PolarsLazyDataOpsTestDataCreator(DataOperationsTestDataCreator):
-    """Converts the raw test data to a Polars LazyFrame."""
-
-    @classmethod
-    def create(cls) -> Any:
-        import polars as pl
-
-        return pl.LazyFrame(cls.get_raw_data())
