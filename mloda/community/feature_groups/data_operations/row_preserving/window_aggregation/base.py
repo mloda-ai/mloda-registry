@@ -126,6 +126,8 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         """Extract column names from any supported data type."""
         if hasattr(data, "column_names"):
             return set(data.column_names)  # pa.Table
+        if hasattr(data, "collect_schema"):
+            return set(data.collect_schema().names())  # pl.LazyFrame
         if hasattr(data, "columns"):
             cols = data.columns
             if isinstance(cols, list):
