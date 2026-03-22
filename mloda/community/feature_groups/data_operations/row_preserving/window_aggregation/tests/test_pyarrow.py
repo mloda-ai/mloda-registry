@@ -5,31 +5,12 @@ from __future__ import annotations
 import pyarrow as pa
 import pytest
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.data_creator import PyArrowDataOpsTestDataCreator
-from mloda.user import Feature
-
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
     PyArrowWindowAggregation,
 )
-
-
-@pytest.fixture
-def sample_data() -> pa.Table:
-    """Return the shared 12-row test dataset as a PyArrow Table."""
-    return PyArrowDataOpsTestDataCreator.create()
-
-
-def _make_feature_set(feature_name: str, partition_by: list[str]) -> FeatureSet:
-    """Helper to build a FeatureSet with partition_by options."""
-    feature = Feature(
-        feature_name,
-        options=Options(context={"partition_by": partition_by}),
-    )
-    fs = FeatureSet()
-    fs.add(feature)
-    return fs
+from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.tests.conftest import (
+    make_feature_set,
+)
 
 
 class TestPyArrowBasicAggregations:
@@ -37,7 +18,7 @@ class TestPyArrowBasicAggregations:
 
     def test_sum_groupby_region(self, sample_data: pa.Table) -> None:
         """Sum of value_int partitioned by region, broadcast back to every row."""
-        feature_set = _make_feature_set("value_int__sum_groupby", ["region"])
+        feature_set = make_feature_set("value_int__sum_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -49,7 +30,7 @@ class TestPyArrowBasicAggregations:
 
     def test_avg_groupby_region(self, sample_data: pa.Table) -> None:
         """Average of value_int partitioned by region, broadcast back to every row."""
-        feature_set = _make_feature_set("value_int__avg_groupby", ["region"])
+        feature_set = make_feature_set("value_int__avg_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -61,7 +42,7 @@ class TestPyArrowBasicAggregations:
 
     def test_count_groupby_region(self, sample_data: pa.Table) -> None:
         """Count of non-null value_int partitioned by region."""
-        feature_set = _make_feature_set("value_int__count_groupby", ["region"])
+        feature_set = make_feature_set("value_int__count_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -73,7 +54,7 @@ class TestPyArrowBasicAggregations:
 
     def test_min_groupby_region(self, sample_data: pa.Table) -> None:
         """Minimum of value_int partitioned by region."""
-        feature_set = _make_feature_set("value_int__min_groupby", ["region"])
+        feature_set = make_feature_set("value_int__min_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -85,7 +66,7 @@ class TestPyArrowBasicAggregations:
 
     def test_max_groupby_region(self, sample_data: pa.Table) -> None:
         """Maximum of value_int partitioned by region."""
-        feature_set = _make_feature_set("value_int__max_groupby", ["region"])
+        feature_set = make_feature_set("value_int__max_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -101,7 +82,7 @@ class TestPyArrowStatisticalAggregations:
 
     def test_std_groupby_region(self, sample_data: pa.Table) -> None:
         """Standard deviation of value_int partitioned by region."""
-        feature_set = _make_feature_set("value_int__std_groupby", ["region"])
+        feature_set = make_feature_set("value_int__std_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -120,7 +101,7 @@ class TestPyArrowStatisticalAggregations:
 
     def test_var_groupby_region(self, sample_data: pa.Table) -> None:
         """Variance of value_int partitioned by region."""
-        feature_set = _make_feature_set("value_int__var_groupby", ["region"])
+        feature_set = make_feature_set("value_int__var_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -136,7 +117,7 @@ class TestPyArrowStatisticalAggregations:
 
     def test_median_groupby_region(self, sample_data: pa.Table) -> None:
         """Median of value_int partitioned by region."""
-        feature_set = _make_feature_set("value_int__median_groupby", ["region"])
+        feature_set = make_feature_set("value_int__median_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -160,7 +141,7 @@ class TestPyArrowAdvancedAggregations:
 
     def test_mode_groupby_region(self, sample_data: pa.Table) -> None:
         """Mode of value_int partitioned by region."""
-        feature_set = _make_feature_set("value_int__mode_groupby", ["region"])
+        feature_set = make_feature_set("value_int__mode_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -177,7 +158,7 @@ class TestPyArrowAdvancedAggregations:
 
     def test_nunique_groupby_region(self, sample_data: pa.Table) -> None:
         """Count of unique non-null value_int values partitioned by region."""
-        feature_set = _make_feature_set("value_int__nunique_groupby", ["region"])
+        feature_set = make_feature_set("value_int__nunique_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -196,7 +177,7 @@ class TestPyArrowAdvancedAggregations:
 
     def test_first_groupby_region(self, sample_data: pa.Table) -> None:
         """First value of value_int partitioned by region (first non-null or first row)."""
-        feature_set = _make_feature_set("value_int__first_groupby", ["region"])
+        feature_set = make_feature_set("value_int__first_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -214,7 +195,7 @@ class TestPyArrowAdvancedAggregations:
 
     def test_last_groupby_region(self, sample_data: pa.Table) -> None:
         """Last value of value_int partitioned by region."""
-        feature_set = _make_feature_set("value_int__last_groupby", ["region"])
+        feature_set = make_feature_set("value_int__last_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -240,7 +221,7 @@ class TestPyArrowNullHandling:
 
     def test_ec016_avg_with_null_values_in_group(self, sample_data: pa.Table) -> None:
         """EC-016: Group B has a null value_int at row 4. Avg should skip it."""
-        feature_set = _make_feature_set("value_int__avg_groupby", ["region"])
+        feature_set = make_feature_set("value_int__avg_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         result_col = result.column("value_int__avg_groupby").to_pylist()
@@ -253,7 +234,7 @@ class TestPyArrowNullHandling:
 
     def test_ec019_null_group_key_forms_own_group(self, sample_data: pa.Table) -> None:
         """EC-019: Row 11 has region=None. It should form its own group."""
-        feature_set = _make_feature_set("value_int__sum_groupby", ["region"])
+        feature_set = make_feature_set("value_int__sum_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         result_col = result.column("value_int__sum_groupby").to_pylist()
@@ -262,7 +243,7 @@ class TestPyArrowNullHandling:
 
     def test_ec021_all_null_column_aggregation(self, sample_data: pa.Table) -> None:
         """EC-021: score column is all null. Aggregation should produce all nulls."""
-        feature_set = _make_feature_set("score__sum_groupby", ["region"])
+        feature_set = make_feature_set("score__sum_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -278,7 +259,7 @@ class TestPyArrowRowPreservation:
 
     def test_output_rows_equal_input_rows(self, sample_data: pa.Table) -> None:
         """Output must have exactly 12 rows, same as input."""
-        feature_set = _make_feature_set("value_int__sum_groupby", ["region"])
+        feature_set = make_feature_set("value_int__sum_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert result.num_rows == sample_data.num_rows
@@ -286,7 +267,7 @@ class TestPyArrowRowPreservation:
 
     def test_original_columns_preserved(self, sample_data: pa.Table) -> None:
         """All original columns should still be present in the result."""
-        feature_set = _make_feature_set("value_int__sum_groupby", ["region"])
+        feature_set = make_feature_set("value_int__sum_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         for col_name in sample_data.column_names:
@@ -294,14 +275,14 @@ class TestPyArrowRowPreservation:
 
     def test_new_column_added(self, sample_data: pa.Table) -> None:
         """The aggregation result column should be added to the table."""
-        feature_set = _make_feature_set("value_int__max_groupby", ["region"])
+        feature_set = make_feature_set("value_int__max_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert "value_int__max_groupby" in result.column_names
 
     def test_result_is_pyarrow_table(self, sample_data: pa.Table) -> None:
         """The result of calculate_feature must be a PyArrow Table."""
-        feature_set = _make_feature_set("value_int__min_groupby", ["region"])
+        feature_set = make_feature_set("value_int__min_groupby", ["region"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -312,7 +293,7 @@ class TestPyArrowMultiKeyPartition:
 
     def test_multi_key_partition_sum(self, sample_data: pa.Table) -> None:
         """Sum of value_int partitioned by [region, category]."""
-        feature_set = _make_feature_set("value_int__sum_groupby", ["region", "category"])
+        feature_set = make_feature_set("value_int__sum_groupby", ["region", "category"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -335,7 +316,7 @@ class TestPyArrowMultiKeyPartition:
 
     def test_multi_key_partition_count(self, sample_data: pa.Table) -> None:
         """Count of non-null value_int partitioned by [region, category]."""
-        feature_set = _make_feature_set("value_int__count_groupby", ["region", "category"])
+        feature_set = make_feature_set("value_int__count_groupby", ["region", "category"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -354,7 +335,7 @@ class TestPyArrowMultiKeyPartition:
 
     def test_multi_key_float_column(self, sample_data: pa.Table) -> None:
         """Avg of value_float partitioned by [region, category] on float data."""
-        feature_set = _make_feature_set("value_float__avg_groupby", ["region", "category"])
+        feature_set = make_feature_set("value_float__avg_groupby", ["region", "category"])
         result = PyArrowWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)

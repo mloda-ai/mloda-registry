@@ -7,31 +7,12 @@ import pytest
 
 pytest.importorskip("pandas")
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.data_creator import PyArrowDataOpsTestDataCreator
-from mloda.user import Feature
-
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pandas_window_aggregation import (
     PandasWindowAggregation,
 )
-
-
-@pytest.fixture
-def sample_data() -> pa.Table:
-    """Return the shared 12-row test dataset as a PyArrow Table."""
-    return PyArrowDataOpsTestDataCreator.create()
-
-
-def _make_feature_set(feature_name: str, partition_by: list[str]) -> FeatureSet:
-    """Helper to build a FeatureSet with partition_by options."""
-    feature = Feature(
-        feature_name,
-        options=Options(context={"partition_by": partition_by}),
-    )
-    fs = FeatureSet()
-    fs.add(feature)
-    return fs
+from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.tests.conftest import (
+    make_feature_set,
+)
 
 
 class TestPandasBasicAggregations:
@@ -39,7 +20,7 @@ class TestPandasBasicAggregations:
 
     def test_sum_groupby_region(self, sample_data: pa.Table) -> None:
         """Sum of value_int partitioned by region, broadcast back to every row."""
-        feature_set = _make_feature_set("value_int__sum_groupby", ["region"])
+        feature_set = make_feature_set("value_int__sum_groupby", ["region"])
         result = PandasWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -51,7 +32,7 @@ class TestPandasBasicAggregations:
 
     def test_avg_groupby_region(self, sample_data: pa.Table) -> None:
         """Average of value_int partitioned by region, broadcast back to every row."""
-        feature_set = _make_feature_set("value_int__avg_groupby", ["region"])
+        feature_set = make_feature_set("value_int__avg_groupby", ["region"])
         result = PandasWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -63,7 +44,7 @@ class TestPandasBasicAggregations:
 
     def test_count_groupby_region(self, sample_data: pa.Table) -> None:
         """Count of non-null value_int partitioned by region."""
-        feature_set = _make_feature_set("value_int__count_groupby", ["region"])
+        feature_set = make_feature_set("value_int__count_groupby", ["region"])
         result = PandasWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -75,7 +56,7 @@ class TestPandasBasicAggregations:
 
     def test_min_groupby_region(self, sample_data: pa.Table) -> None:
         """Minimum of value_int partitioned by region."""
-        feature_set = _make_feature_set("value_int__min_groupby", ["region"])
+        feature_set = make_feature_set("value_int__min_groupby", ["region"])
         result = PandasWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -87,7 +68,7 @@ class TestPandasBasicAggregations:
 
     def test_max_groupby_region(self, sample_data: pa.Table) -> None:
         """Maximum of value_int partitioned by region."""
-        feature_set = _make_feature_set("value_int__max_groupby", ["region"])
+        feature_set = make_feature_set("value_int__max_groupby", ["region"])
         result = PandasWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)
@@ -103,7 +84,7 @@ class TestPandasNullHandling:
 
     def test_ec016_avg_with_null_values_in_group(self, sample_data: pa.Table) -> None:
         """EC-016: Group B has a null value_int at row 4. Avg should skip it."""
-        feature_set = _make_feature_set("value_int__avg_groupby", ["region"])
+        feature_set = make_feature_set("value_int__avg_groupby", ["region"])
         result = PandasWindowAggregation.calculate_feature(sample_data, feature_set)
 
         result_col = result.column("value_int__avg_groupby").to_pylist()
@@ -120,7 +101,7 @@ class TestPandasNullHandling:
         Pandas groupby uses dropna=True by default, which would DROP null keys.
         The implementation must use dropna=False to treat null as a valid group key.
         """
-        feature_set = _make_feature_set("value_int__sum_groupby", ["region"])
+        feature_set = make_feature_set("value_int__sum_groupby", ["region"])
         result = PandasWindowAggregation.calculate_feature(sample_data, feature_set)
 
         result_col = result.column("value_int__sum_groupby").to_pylist()
@@ -133,7 +114,7 @@ class TestPandasRowPreservation:
 
     def test_output_rows_equal_input_rows(self, sample_data: pa.Table) -> None:
         """Output must have exactly 12 rows, same as input."""
-        feature_set = _make_feature_set("value_int__sum_groupby", ["region"])
+        feature_set = make_feature_set("value_int__sum_groupby", ["region"])
         result = PandasWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert result.num_rows == sample_data.num_rows
@@ -141,7 +122,7 @@ class TestPandasRowPreservation:
 
     def test_original_columns_preserved(self, sample_data: pa.Table) -> None:
         """All original columns should still be present in the result."""
-        feature_set = _make_feature_set("value_int__sum_groupby", ["region"])
+        feature_set = make_feature_set("value_int__sum_groupby", ["region"])
         result = PandasWindowAggregation.calculate_feature(sample_data, feature_set)
 
         for col_name in sample_data.column_names:
@@ -149,7 +130,7 @@ class TestPandasRowPreservation:
 
     def test_result_is_pyarrow_table(self, sample_data: pa.Table) -> None:
         """The result of calculate_feature must be a PyArrow Table."""
-        feature_set = _make_feature_set("value_int__min_groupby", ["region"])
+        feature_set = make_feature_set("value_int__min_groupby", ["region"])
         result = PandasWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, pa.Table)

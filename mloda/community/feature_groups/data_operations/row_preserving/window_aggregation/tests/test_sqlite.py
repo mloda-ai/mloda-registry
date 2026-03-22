@@ -7,14 +7,14 @@ from typing import Any, Generator
 
 import pytest
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.data_creator import PyArrowDataOpsTestDataCreator
-from mloda.user import Feature
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.sqlite_window_aggregation import (
     SqliteWindowAggregation,
+)
+from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.tests.conftest import (
+    make_feature_set,
 )
 
 
@@ -33,17 +33,6 @@ def sample_data(conn: sqlite3.Connection) -> SqliteRelation:
     return SqliteRelation.from_arrow(conn, arrow_table)
 
 
-def _make_feature_set(feature_name: str, partition_by: list[str]) -> FeatureSet:
-    """Helper to build a FeatureSet with partition_by options."""
-    feature = Feature(
-        feature_name,
-        options=Options(context={"partition_by": partition_by}),
-    )
-    fs = FeatureSet()
-    fs.add(feature)
-    return fs
-
-
 def _extract_column(result: SqliteRelation, column_name: str) -> list[Any]:
     """Extract a column from a SqliteRelation as a Python list."""
     return list(result.to_arrow_table().column(column_name).to_pylist())
@@ -54,7 +43,7 @@ class TestSqliteBasicAggregations:
 
     def test_sum_groupby_region(self, sample_data: SqliteRelation) -> None:
         """Sum of value_int partitioned by region, broadcast back to every row."""
-        feature_set = _make_feature_set("value_int__sum_groupby", ["region"])
+        feature_set = make_feature_set("value_int__sum_groupby", ["region"])
         result = SqliteWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, SqliteRelation)
@@ -66,7 +55,7 @@ class TestSqliteBasicAggregations:
 
     def test_avg_groupby_region(self, sample_data: SqliteRelation) -> None:
         """Average of value_int partitioned by region, broadcast back to every row."""
-        feature_set = _make_feature_set("value_int__avg_groupby", ["region"])
+        feature_set = make_feature_set("value_int__avg_groupby", ["region"])
         result = SqliteWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, SqliteRelation)
@@ -78,7 +67,7 @@ class TestSqliteBasicAggregations:
 
     def test_count_groupby_region(self, sample_data: SqliteRelation) -> None:
         """Count of non-null value_int partitioned by region."""
-        feature_set = _make_feature_set("value_int__count_groupby", ["region"])
+        feature_set = make_feature_set("value_int__count_groupby", ["region"])
         result = SqliteWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, SqliteRelation)
@@ -90,7 +79,7 @@ class TestSqliteBasicAggregations:
 
     def test_min_groupby_region(self, sample_data: SqliteRelation) -> None:
         """Minimum of value_int partitioned by region."""
-        feature_set = _make_feature_set("value_int__min_groupby", ["region"])
+        feature_set = make_feature_set("value_int__min_groupby", ["region"])
         result = SqliteWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, SqliteRelation)
@@ -102,7 +91,7 @@ class TestSqliteBasicAggregations:
 
     def test_max_groupby_region(self, sample_data: SqliteRelation) -> None:
         """Maximum of value_int partitioned by region."""
-        feature_set = _make_feature_set("value_int__max_groupby", ["region"])
+        feature_set = make_feature_set("value_int__max_groupby", ["region"])
         result = SqliteWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, SqliteRelation)
@@ -118,7 +107,7 @@ class TestSqliteNullHandling:
 
     def test_ec016_avg_with_null_values_in_group(self, sample_data: SqliteRelation) -> None:
         """EC-016: Group B has a null value_int at row 4. Avg should skip it."""
-        feature_set = _make_feature_set("value_int__avg_groupby", ["region"])
+        feature_set = make_feature_set("value_int__avg_groupby", ["region"])
         result = SqliteWindowAggregation.calculate_feature(sample_data, feature_set)
 
         result_col = _extract_column(result, "value_int__avg_groupby")
@@ -131,7 +120,7 @@ class TestSqliteNullHandling:
 
     def test_ec019_null_group_key_forms_own_group(self, sample_data: SqliteRelation) -> None:
         """EC-019: Row 11 has region=None. It should form its own group."""
-        feature_set = _make_feature_set("value_int__sum_groupby", ["region"])
+        feature_set = make_feature_set("value_int__sum_groupby", ["region"])
         result = SqliteWindowAggregation.calculate_feature(sample_data, feature_set)
 
         result_col = _extract_column(result, "value_int__sum_groupby")
@@ -144,14 +133,14 @@ class TestSqliteRowPreservation:
 
     def test_output_rows_equal_input_rows(self, sample_data: SqliteRelation) -> None:
         """Output must have exactly 12 rows, same as input."""
-        feature_set = _make_feature_set("value_int__sum_groupby", ["region"])
+        feature_set = make_feature_set("value_int__sum_groupby", ["region"])
         result = SqliteWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert len(result) == 12
 
     def test_result_is_sqlite_relation(self, sample_data: SqliteRelation) -> None:
         """The result of calculate_feature must be a SqliteRelation."""
-        feature_set = _make_feature_set("value_int__min_groupby", ["region"])
+        feature_set = make_feature_set("value_int__min_groupby", ["region"])
         result = SqliteWindowAggregation.calculate_feature(sample_data, feature_set)
 
         assert isinstance(result, SqliteRelation)
