@@ -96,6 +96,10 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         "last": "Last value in partition",
     }
 
+    # partition_by is intentionally excluded from PROPERTY_MAPPING because the
+    # mixin's _process_found_property_value cannot handle list-valued options.
+    # Validation happens in match_feature_group_criteria override instead.
+    # See https://github.com/mloda-ai/mloda/issues/228
     PROPERTY_MAPPING = {
         AGGREGATION_TYPE: {
             **AGGREGATION_TYPES,
