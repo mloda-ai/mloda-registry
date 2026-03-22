@@ -132,16 +132,22 @@ class WindowAggregationTestBase(ABC):
     def get_expected_type(self) -> Any:
         """Return the expected type of the result (for isinstance checks)."""
 
-    # -- Setup ---------------------------------------------------------------
+    # -- Setup / teardown ----------------------------------------------------
 
     def setup_method(self) -> None:
         """Create test data from the canonical 12-row dataset.
 
-        Connection-based subclasses should create their connection first,
-        then call ``super().setup_method()``.
+        Connection-based subclasses should create their connection as
+        ``self.conn`` first, then call ``super().setup_method()``.
         """
         self._arrow_table = PyArrowDataOpsTestDataCreator.create()
         self.test_data = self.create_test_data(self._arrow_table)
+
+    def teardown_method(self) -> None:
+        """Close self.conn if it was set by a connection-based subclass."""
+        conn = getattr(self, "conn", None)
+        if conn is not None:
+            conn.close()
 
     # -- Concrete test methods (inherited for free) --------------------------
 

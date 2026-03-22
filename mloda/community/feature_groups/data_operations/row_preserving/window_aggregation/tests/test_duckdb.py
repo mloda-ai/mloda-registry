@@ -26,9 +26,6 @@ class TestDuckdbWindowAggregation(WindowAggregationTestBase):
         self.conn = duckdb.connect()
         super().setup_method()
 
-    def teardown_method(self) -> None:
-        self.conn.close()
-
     @classmethod
     def implementation_class(cls) -> Any:
         return DuckdbWindowAggregation

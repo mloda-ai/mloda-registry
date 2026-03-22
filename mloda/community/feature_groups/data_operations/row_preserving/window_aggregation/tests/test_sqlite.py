@@ -24,9 +24,6 @@ class TestSqliteWindowAggregation(WindowAggregationTestBase):
         self.conn = sqlite3.connect(":memory:")
         super().setup_method()
 
-    def teardown_method(self) -> None:
-        self.conn.close()
-
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteWindowAggregation
