@@ -193,3 +193,64 @@ class TestConfigValidation:
         options = Options(context={"partition_by": "region"})
         result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_groupby", options, None)
         assert result is False
+
+
+class TestConfigBasedFeatures:
+    """Tests for configuration-based feature matching (non-string features)."""
+
+    def test_config_based_match(self) -> None:
+        """A feature with aggregation_type and in_features in options should match."""
+        options = Options(
+            context={
+                "aggregation_type": "sum",
+                "in_features": "value_int",
+                "partition_by": ["region"],
+            }
+        )
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is True
+
+    def test_config_based_match_rejects_missing_partition_by(self) -> None:
+        """Config-based feature without partition_by should not match."""
+        options = Options(
+            context={
+                "aggregation_type": "sum",
+                "in_features": "value_int",
+            }
+        )
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False
+
+    def test_config_based_calculate_feature(self) -> None:
+        """Config-based feature should compute correctly via calculate_feature."""
+        import pyarrow as pa
+
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
+            PyArrowWindowAggregation,
+        )
+        from mloda.testing.data_creator import PyArrowDataOpsTestDataCreator
+        from mloda.user import Feature
+
+        table = PyArrowDataOpsTestDataCreator.create()
+
+        feature = Feature(
+            "my_sum_result",
+            options=Options(
+                context={
+                    "aggregation_type": "sum",
+                    "in_features": "value_int",
+                    "partition_by": ["region"],
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+
+        result = PyArrowWindowAggregation.calculate_feature(table, fs)
+        assert isinstance(result, pa.Table)
+        assert "my_sum_result" in result.column_names
+
+        result_col = result.column("my_sum_result").to_pylist()
+        expected = [25, 25, 25, 25, 140, 140, 140, 140, 70, 70, 70, -10]
+        assert result_col == expected
