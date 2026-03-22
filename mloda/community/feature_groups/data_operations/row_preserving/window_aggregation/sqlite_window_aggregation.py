@@ -47,7 +47,10 @@ class SqliteWindowAggregation(WindowAggregationFeatureGroup):
         quoted_feature = quote_ident(feature_name)
         qrn = quote_ident("__mloda_rn__")
 
-        # Compute window aggregate with row ordering in a single query.
+        # No PEP 249 qmark parametrization here: this query contains only SQL
+        # identifiers (column/table names) and keywords (SUM, AVG, etc.), no
+        # user-supplied values. Identifiers use quote_ident(), agg_func comes
+        # from the _SQLITE_AGG_FUNCS whitelist.
         sql = (
             f"SELECT {agg_func}({quoted_source}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}, "  # nosec B608
             f"ROW_NUMBER() OVER () AS {qrn} "

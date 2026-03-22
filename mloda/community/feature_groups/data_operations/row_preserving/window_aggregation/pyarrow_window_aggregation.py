@@ -57,7 +57,10 @@ class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
         new_col = pa.array(result_values)
         return table.append_column(feature_name, new_col)
 
-    # -- Aggregation helpers (Python-based, used by this framework only) --
+    # -- Aggregation helpers --
+    # PyArrow has no native window functions, so this implementation uses
+    # Python dict-based grouping with these helper methods. Other frameworks
+    # (DuckDB, Polars, Pandas, SQLite) use their native aggregation APIs.
 
     @classmethod
     def _aggregate(cls, values: list[Any], agg_type: str) -> Any:
