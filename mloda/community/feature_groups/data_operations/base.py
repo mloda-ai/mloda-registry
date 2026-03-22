@@ -40,7 +40,7 @@ Valid values: second, minute, hour, day, week, month, year.
 
 
 # ---------------------------------------------------------------------------
-# Null handling policy constants (ticket 239)
+# Null handling policy constants
 # ---------------------------------------------------------------------------
 # These document the data operations null handling contract.
 # Implementations must match these defaults. PyArrow behavior is the reference.
