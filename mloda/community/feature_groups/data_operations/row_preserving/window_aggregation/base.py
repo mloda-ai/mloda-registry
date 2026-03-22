@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any, Optional
+from typing import Any
 
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
-from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import FeatureGroup
 from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
 
@@ -55,14 +53,6 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
         },
-        PARTITION_BY: {
-            "explanation": "List of columns to partition by",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.validation_function: lambda v: (
-                isinstance(v, list) and all(isinstance(item, str) for item in v)
-            ),
-        },
     }
 
     @classmethod
@@ -81,36 +71,26 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return False
 
     @classmethod
-    def get_aggregation_type(cls, feature_name: str) -> str:
-        """Extract the aggregation type from the feature name."""
-        prefix_part, _ = FeatureChainParser.parse_feature_name(feature_name, [cls.PREFIX_PATTERN])
-        if prefix_part is None:
-            raise ValueError(f"Could not extract aggregation type from feature name: {feature_name}")
-        return prefix_part
+    def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
+        """Validate that the aggregation type is supported (including dynamic types)."""
+        return cls._supports_aggregation_type(operation_config)
 
     @classmethod
     def match_feature_group_criteria(
         cls,
-        feature_name: str | FeatureName,
-        options: Options,
+        feature_name: Any,
+        options: Any,
         _data_access_collection: Any = None,
     ) -> bool:
-        """Match feature name and validate partition_by and aggregation type."""
-        _feature_name = feature_name.name if isinstance(feature_name, FeatureName) else feature_name
+        """Extend mixin matching with partition_by validation.
 
-        prefix_patterns = cls._get_prefix_patterns()
-
-        # Check if the feature name matches the pattern
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(_feature_name, prefix_patterns)
-
-        if operation_config is None or source_feature is None:
+        The mixin handles pattern and config matching. We add partition_by
+        validation here because list-valued options are not supported by
+        the mixin's PROPERTY_MAPPING.
+        """
+        if not super().match_feature_group_criteria(feature_name, options, _data_access_collection):
             return False
 
-        # Validate the aggregation type
-        if not cls._supports_aggregation_type(operation_config):
-            return False
-
-        # Validate partition_by is present and is a list of strings
         partition_by = options.get(cls.PARTITION_BY)
         if partition_by is None:
             return False
@@ -120,6 +100,28 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             return False
 
         return True
+
+    @classmethod
+    def get_aggregation_type(cls, feature_name: str) -> str:
+        """Extract the aggregation type from a feature name string."""
+        prefix_patterns = cls._get_prefix_patterns()
+        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
+        if operation_config is not None:
+            return operation_config
+        raise ValueError(f"Could not extract aggregation type from feature name: {feature_name}")
+
+    @classmethod
+    def _extract_aggregation_type(cls, feature: Any) -> str:
+        """Extract aggregation type from feature (string-based or config-based)."""
+        feature_name = feature.get_name()
+        prefix_patterns = cls._get_prefix_patterns()
+        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
+        if operation_config is not None:
+            return operation_config
+        agg_type = feature.options.get(cls.AGGREGATION_TYPE)
+        if agg_type is None:
+            raise ValueError(f"Could not extract aggregation type for {feature_name}")
+        return str(agg_type)
 
     @staticmethod
     def _get_column_names(data: Any) -> set[str]:
@@ -137,7 +139,12 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        """Shared loop: extract params from each feature, delegate to _compute_window."""
+        """Shared loop: extract params from each feature, delegate to _compute_window.
+
+        Supports both string-based features (e.g. "value_int__sum_groupby") and
+        configuration-based features (via Options with aggregation_type, in_features,
+        partition_by).
+        """
         table = data
 
         _MAX_IDENTIFIER_LENGTH = 1024
@@ -148,9 +155,10 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             if len(feature_name) > _MAX_IDENTIFIER_LENGTH:
                 raise ValueError(f"Feature name exceeds maximum length of {_MAX_IDENTIFIER_LENGTH} characters")
 
-            agg_type = cls.get_aggregation_type(feature_name)
-            source_col = feature_name.rsplit("__", 1)[0]
-            partition_by = feature.options.get("partition_by")
+            source_features = cls._extract_source_features(feature)
+            source_col = source_features[0]
+            agg_type = cls._extract_aggregation_type(feature)
+            partition_by = feature.options.get(cls.PARTITION_BY)
 
             available = cls._get_column_names(table)
             if available:
