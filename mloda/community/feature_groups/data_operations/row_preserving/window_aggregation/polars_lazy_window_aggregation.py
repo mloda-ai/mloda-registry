@@ -31,8 +31,6 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
 
 
 class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
-    """Fully lazy implementation using Polars .over() window expressions on LazyFrame."""
-
     @classmethod
     def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
         return {PolarsLazyDataFrame}

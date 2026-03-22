@@ -31,10 +31,6 @@ _SQLITE_AGG_FUNCS: dict[str, str] = {
 
 
 class SqliteWindowAggregation(WindowAggregationFeatureGroup):
-    """Accepts and returns SqliteRelation objects. Uses SQL window functions for
-    natively supported aggregations and falls back to Python for the rest.
-    """
-
     @classmethod
     def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
         return {SqliteFramework}

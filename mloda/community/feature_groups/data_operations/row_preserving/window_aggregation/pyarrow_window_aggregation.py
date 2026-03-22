@@ -15,8 +15,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 
 
 class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
-    """Reference implementation using dict-based grouping on PyArrow tables."""
-
     @classmethod
     def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
         return {PyArrowTable}

@@ -31,10 +31,6 @@ _DUCKDB_AGG_FUNCS: dict[str, str] = {
 
 
 class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
-    """All operations are fully lazy, composing SQL window functions via
-    DuckdbRelation.select(_raw_sql=...) without materializing intermediate results.
-    """
-
     @classmethod
     def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
         return {DuckDBFramework}

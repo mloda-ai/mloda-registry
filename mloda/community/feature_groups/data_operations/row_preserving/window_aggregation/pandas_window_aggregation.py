@@ -24,8 +24,6 @@ _PANDAS_AGG_FUNCS: dict[str, str] = {
 
 
 class PandasWindowAggregation(WindowAggregationFeatureGroup):
-    """Uses pandas groupby().transform() for efficient window computation."""
-
     @classmethod
     def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
         return {PandasDataFrame}
