@@ -23,4 +23,4 @@ Repository = "https://github.com/mloda-ai/mloda-registry"
 
 [tool.setuptools]
 package-dir = {"" = "../.."}
-packages = ["mloda.testing", "mloda.testing.data_creator", "mloda.testing.feature_groups", "mloda.testing.feature_groups.data_operations", "mloda.testing.feature_groups.data_operations.group_aggregation", "mloda.testing.feature_groups.data_operations.row_preserving", "mloda.testing.feature_groups.data_operations.row_preserving.rank"]
+packages = ["mloda.testing", "mloda.testing.data_creator", "mloda.testing.feature_groups", "mloda.testing.feature_groups.data_operations", "mloda.testing.feature_groups.data_operations.row_preserving", "mloda.testing.feature_groups.data_operations.row_preserving.offset"]
