@@ -100,6 +100,15 @@ class WindowAggregationTestBase(ABC):
     (add setup_method/teardown_method for connection lifecycle).
     """
 
+    # -- Overridable methods --------------------------------------------------
+
+    ALL_AGG_TYPES = {"sum", "avg", "count", "min", "max", "std", "var", "median", "mode", "nunique", "first", "last"}
+
+    @classmethod
+    def supported_agg_types(cls) -> set[str]:
+        """Aggregation types this framework supports. Override to restrict."""
+        return cls.ALL_AGG_TYPES
+
     # -- Abstract methods subclasses must implement --------------------------
 
     @classmethod
@@ -287,3 +296,179 @@ class WindowAggregationTestBase(ABC):
     def test_cross_framework_max(self) -> None:
         """Max must match PyArrow reference."""
         self._compare_with_pyarrow("value_int__max_groupby", ["region"])
+
+    # -- Statistical aggregation tests (skipped if unsupported) --------------
+
+    def _skip_if_unsupported(self, agg_type: str) -> None:
+        if agg_type not in self.supported_agg_types():
+            pytest.skip(f"{agg_type} not supported by this framework")
+
+    def test_std_groupby_region(self) -> None:
+        """Standard deviation of value_int partitioned by region."""
+        self._skip_if_unsupported("std")
+        fs = make_feature_set("value_int__std_groupby", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__std_groupby")
+        # Group A values: [10, -5, 0, 20] -> sample std
+        a_vals = [10, -5, 0, 20]
+        a_std = (sum((x - 6.25) ** 2 for x in a_vals) / (len(a_vals) - 1)) ** 0.5
+        assert result_col[0] == pytest.approx(a_std, rel=1e-6)
+        assert result_col[1] == pytest.approx(a_std, rel=1e-6)
+        assert result_col[2] == pytest.approx(a_std, rel=1e-6)
+        assert result_col[3] == pytest.approx(a_std, rel=1e-6)
+
+    def test_var_groupby_region(self) -> None:
+        """Variance of value_int partitioned by region."""
+        self._skip_if_unsupported("var")
+        fs = make_feature_set("value_int__var_groupby", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__var_groupby")
+        a_vals = [10, -5, 0, 20]
+        a_var = sum((x - 6.25) ** 2 for x in a_vals) / (len(a_vals) - 1)
+        assert result_col[0] == pytest.approx(a_var, rel=1e-6)
+        assert result_col[1] == pytest.approx(a_var, rel=1e-6)
+
+    def test_median_groupby_region(self) -> None:
+        """Median of value_int partitioned by region."""
+        self._skip_if_unsupported("median")
+        fs = make_feature_set("value_int__median_groupby", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__median_groupby")
+        # Group A sorted: [-5, 0, 10, 20] -> median = 5.0
+        assert result_col[0] == pytest.approx(5.0, rel=1e-6)
+        # Group B sorted (non-null): [30, 50, 60] -> median = 50
+        assert result_col[4] == pytest.approx(50.0, rel=1e-6)
+        # Group C sorted: [15, 15, 40] -> median = 15
+        assert result_col[8] == pytest.approx(15.0, rel=1e-6)
+        # None group: [-10] -> median = -10
+        assert result_col[11] == pytest.approx(-10.0, rel=1e-6)
+
+    # -- Advanced aggregation tests (skipped if unsupported) -----------------
+
+    def test_mode_groupby_region(self) -> None:
+        """Mode of value_int partitioned by region."""
+        self._skip_if_unsupported("mode")
+        fs = make_feature_set("value_int__mode_groupby", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__mode_groupby")
+        # Group C has 15 appearing twice, so mode = 15
+        assert result_col[8] == 15
+        assert result_col[9] == 15
+        assert result_col[10] == 15
+        # None group: single value -10
+        assert result_col[11] == -10
+
+    def test_nunique_groupby_region(self) -> None:
+        """Count of unique value_int values partitioned by region.
+
+        Some frameworks (Polars) count null as a unique value, others
+        (PyArrow, DuckDB) skip nulls. Group B has {None, 50, 30, 60}:
+        3 unique without null, 4 unique with null.
+        """
+        self._skip_if_unsupported("nunique")
+        fs = make_feature_set("value_int__nunique_groupby", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__nunique_groupby")
+        assert result_col[0] == 4  # Group A: {10, -5, 0, 20} (no nulls)
+        assert result_col[4] in {3, 4}  # Group B: 3 without null, 4 with null
+        assert result_col[8] == 2  # Group C: {15, 40} (no nulls in non-null values)
+        assert result_col[11] == 1  # None group: {-10}
+
+    def test_first_groupby_region(self) -> None:
+        """First value of value_int partitioned by region.
+
+        Without ORDER BY, first/last are order-dependent and row order may
+        differ across frameworks (e.g. SQL backends). We verify the result
+        has 12 rows and all non-null values come from the source column.
+        """
+        self._skip_if_unsupported("first")
+        fs = make_feature_set("value_int__first_groupby", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__first_groupby")
+        assert len(result_col) == 12
+        # All non-null results must be valid value_int values from the dataset
+        valid_values = {10, -5, 0, 20, 50, 30, 60, 15, 40, -10}
+        for v in result_col:
+            if v is not None:
+                assert v in valid_values
+
+    def test_last_groupby_region(self) -> None:
+        """Last value of value_int partitioned by region.
+
+        Without ORDER BY, first/last are order-dependent and row order may
+        differ across frameworks. We verify structural correctness.
+        """
+        self._skip_if_unsupported("last")
+        fs = make_feature_set("value_int__last_groupby", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__last_groupby")
+        assert len(result_col) == 12
+        valid_values = {10, -5, 0, 20, 50, 30, 60, 15, 40, -10}
+        for v in result_col:
+            if v is not None:
+                assert v in valid_values
+
+    # -- Null edge case tests ------------------------------------------------
+
+    def test_ec021_all_null_column_aggregation(self) -> None:
+        """EC-021: score column is all null. Aggregation should produce all nulls or zeros.
+
+        PyArrow/Polars/DuckDB/SQLite return null for sum of all-null group.
+        Pandas returns 0 (groupby.transform("sum") treats all-null as 0).
+        """
+        fs = make_feature_set("score__sum_groupby", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__sum_groupby")
+        # All values should be None (most frameworks) or 0 (pandas)
+        assert all(v is None or v == 0 for v in result_col)
+
+    # -- Multi-key partition tests -------------------------------------------
+
+    def test_multi_key_partition_sum(self) -> None:
+        """Sum of value_int partitioned by [region, category]."""
+        fs = make_feature_set("value_int__sum_groupby", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__sum_groupby")
+        assert result_col[0] == 10  # A/X: [10, 0]
+        assert result_col[2] == 10
+        assert result_col[1] == 15  # A/Y: [-5, 20]
+        assert result_col[3] == 15
+        assert result_col[4] == 60  # B/X: [None, 60]
+        assert result_col[7] == 60
+        assert result_col[5] == 50  # B/Y: [50]
+        assert result_col[6] == 30  # B/None: [30]
+
+    def test_multi_key_partition_count(self) -> None:
+        """Count of non-null value_int partitioned by [region, category]."""
+        fs = make_feature_set("value_int__count_groupby", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__count_groupby")
+        assert result_col[0] == 2  # A/X: 2 non-null
+        assert result_col[2] == 2
+        assert result_col[1] == 2  # A/Y: 2 non-null
+        assert result_col[3] == 2
+        assert result_col[4] == 1  # B/X: 1 non-null (row 4 is null)
+        assert result_col[7] == 1
+
+    def test_multi_key_float_avg(self) -> None:
+        """Avg of value_float partitioned by [region, category]."""
+        fs = make_feature_set("value_float__avg_groupby", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_float__avg_groupby")
+        # A/X: [1.5, None] -> avg = 1.5
+        assert result_col[0] == pytest.approx(1.5, rel=1e-6)
+        assert result_col[2] == pytest.approx(1.5, rel=1e-6)
+        # A/Y: [2.5, 0.0] -> avg = 1.25
+        assert result_col[1] == pytest.approx(1.25, rel=1e-6)
+        assert result_col[3] == pytest.approx(1.25, rel=1e-6)

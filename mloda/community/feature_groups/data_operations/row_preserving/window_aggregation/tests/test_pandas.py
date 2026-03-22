@@ -18,7 +18,11 @@ from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregat
 
 
 class TestPandasWindowAggregation(WindowAggregationTestBase):
-    """Standard tests inherited from the base class."""
+    """All tests inherited from the base class."""
+
+    @classmethod
+    def supported_agg_types(cls) -> set[str]:
+        return {"sum", "avg", "count", "min", "max"}
 
     @classmethod
     def implementation_class(cls) -> Any:
