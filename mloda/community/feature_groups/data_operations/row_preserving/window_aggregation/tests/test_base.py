@@ -210,6 +210,20 @@ class TestConfigBasedFeatures:
         result = WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is True
 
+    def test_config_based_match_rejects_multiple_in_features(self) -> None:
+        """Config-based feature with multiple in_features should not match (MAX_IN_FEATURES=1)."""
+        from mloda.user import Feature as UserFeature
+
+        options = Options(
+            context={
+                "aggregation_type": "sum",
+                "in_features": frozenset({UserFeature("value_int"), UserFeature("value_float")}),
+                "partition_by": ["region"],
+            }
+        )
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False
+
     def test_config_based_match_rejects_missing_partition_by(self) -> None:
         """Config-based feature without partition_by should not match."""
         options = Options(

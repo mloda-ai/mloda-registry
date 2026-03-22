@@ -82,11 +82,11 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         options: Any,
         _data_access_collection: Any = None,
     ) -> bool:
-        """Extend mixin matching with partition_by validation.
+        """Extend mixin matching with partition_by and in_features validation.
 
-        The mixin handles pattern and config matching. We add partition_by
-        validation here because list-valued options are not supported by
-        the mixin's PROPERTY_MAPPING.
+        The mixin handles pattern and config matching. We add:
+        - partition_by validation (list-valued options not supported by PROPERTY_MAPPING)
+        - in_features count validation (MIN/MAX_IN_FEATURES not enforced by mixin)
         """
         if not super().match_feature_group_criteria(feature_name, options, _data_access_collection):
             return False
@@ -98,6 +98,12 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             return False
         if not all(isinstance(item, str) for item in partition_by):
             return False
+
+        in_features_raw = options.get(DefaultOptionKeys.in_features)
+        if in_features_raw is not None:
+            in_features = options.get_in_features()
+            if len(in_features) > cls.MAX_IN_FEATURES:
+                return False
 
         return True
 
