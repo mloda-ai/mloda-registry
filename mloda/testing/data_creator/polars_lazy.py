@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
+
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 
 
 class PolarsLazyDataOpsTestDataCreator(DataOperationsTestDataCreator):
-    """Converts the raw test data to a Polars LazyFrame."""
+    compute_framework = PolarsLazyDataFrame
 
     @classmethod
     def create(cls) -> Any:

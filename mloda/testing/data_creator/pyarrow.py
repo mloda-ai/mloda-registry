@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 
 
 class PyArrowDataOpsTestDataCreator(DataOperationsTestDataCreator):
-    """Converts the raw test data to a PyArrow Table."""
+    compute_framework = PyArrowTable
 
     @classmethod
     def create(cls) -> Any:

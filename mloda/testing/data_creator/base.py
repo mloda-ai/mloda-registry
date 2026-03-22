@@ -1,22 +1,32 @@
-"""Base test data creator for data operations plugins.
+"""Base test data creator FeatureGroup for data operations plugins.
 
 Provides a fixed 12-row dataset with deliberate edge cases (nulls, duplicates,
 gaps, empty strings, all-null columns) that data-operations plugins can use as
-a shared test fixture.
+a shared test fixture. Follows the ATestDataCreator pattern from mloda core:
+a FeatureGroup with input_data() -> DataCreator(...) that serves as a root
+data source in mloda's pipeline.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import Any, Optional, Set, Type, Union
+
+from mloda.core.abstract_plugins.components.input_data.base_input_data import BaseInputData
+from mloda.core.abstract_plugins.components.input_data.creator.data_creator import DataCreator
+from mloda.provider import ComputeFramework, FeatureGroup, FeatureSet
+from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 
-class DataOperationsTestDataCreator:
-    """Base test-data provider for data-operations plugins.
+class DataOperationsTestDataCreator(FeatureGroup):
+    """Test data source FeatureGroup for data-operations plugins.
 
     Call ``get_raw_data()`` for a plain dict of lists (12 rows).
-    Subclasses override ``create()`` to return a framework-native table.
+    Call ``create()`` on framework subclasses for framework-native data.
+    Use directly in PluginCollector sets for integration tests.
     """
+
+    compute_framework: Type[ComputeFramework] = PyArrowTable
 
     NULL_POSITIONS: dict[str, set[int]] = {
         "region": {11},
@@ -30,6 +40,10 @@ class DataOperationsTestDataCreator:
         "is_active": {3, 9},
         "score": set(range(12)),
     }
+
+    @classmethod
+    def input_data(cls) -> Optional[BaseInputData]:
+        return DataCreator(set(cls.get_raw_data().keys()))
 
     @classmethod
     def get_raw_data(cls) -> dict[str, list[Any]]:
@@ -93,9 +107,14 @@ class DataOperationsTestDataCreator:
         }
 
     @classmethod
-    def create(cls) -> Any:
-        """Return the test dataset in the framework-native format.
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return cls.get_raw_data()
 
-        Subclasses must override this method.
-        """
+    @classmethod
+    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+        return {cls.compute_framework}
+
+    @classmethod
+    def create(cls) -> Any:
+        """Return the test dataset in framework-native format. Subclasses must override."""
         raise NotImplementedError

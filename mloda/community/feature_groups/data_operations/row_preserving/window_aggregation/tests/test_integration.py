@@ -7,16 +7,11 @@ and the PluginCollector mechanism.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Set, Type, Union
-
 import pyarrow as pa
 import pytest
 
-from mloda.core.abstract_plugins.components.input_data.base_input_data import BaseInputData
-from mloda.core.abstract_plugins.components.input_data.creator.data_creator import DataCreator
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import ComputeFramework, FeatureGroup, FeatureSet
-from mloda.testing.data_creator import DataOperationsTestDataCreator
+from mloda.testing.data_creator import PyArrowDataOpsTestDataCreator
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -25,35 +20,13 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 )
 
 
-class WindowAggregationTestDataCreator(FeatureGroup):
-    """Data source FeatureGroup that provides test data for integration tests.
-
-    This mirrors the ATestDataCreator pattern from mloda core: a FeatureGroup
-    whose calculate_feature returns the raw test dataset, making it available
-    as input data for downstream feature groups in the pipeline.
-    """
-
-    @classmethod
-    def input_data(cls) -> Optional[BaseInputData]:
-        raw = DataOperationsTestDataCreator.get_raw_data()
-        return DataCreator(set(raw.keys()))
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return DataOperationsTestDataCreator.get_raw_data()
-
-    @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
-        return {PyArrowTable}
-
-
 class TestIntegrationBasic:
     """Test a single window aggregation feature through the full mloda pipeline."""
 
     def test_sum_groupby_through_pipeline(self) -> None:
         """Run value_int__sum_groupby through run_all and verify the result."""
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {WindowAggregationTestDataCreator, PyArrowWindowAggregation}
+            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
         )
 
         feature = Feature(
@@ -80,17 +53,13 @@ class TestIntegrationBasic:
         assert result_table.num_rows == 12
 
         result_col = result_table.column("value_int__sum_groupby").to_pylist()
-        # Region A (rows 0-3): 10 + (-5) + 0 + 20 = 25
-        # Region B (rows 4-7): None + 50 + 30 + 60 = 140
-        # Region C (rows 8-10): 15 + 15 + 40 = 70
-        # None group (row 11): -10
         expected = [25, 25, 25, 25, 140, 140, 140, 140, 70, 70, 70, -10]
         assert result_col == expected
 
     def test_avg_groupby_through_pipeline(self) -> None:
         """Run value_int__avg_groupby through run_all and verify the result."""
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {WindowAggregationTestDataCreator, PyArrowWindowAggregation}
+            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
         )
 
         feature = Feature(
@@ -126,7 +95,7 @@ class TestIntegrationMultipleFeatures:
     def test_sum_and_avg_together(self) -> None:
         """Request both sum and avg features in one pipeline run."""
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {WindowAggregationTestDataCreator, PyArrowWindowAggregation}
+            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
         )
 
         f_sum = Feature(
@@ -146,7 +115,6 @@ class TestIntegrationMultipleFeatures:
 
         assert len(results) >= 1
 
-        # Find a table that has both columns (they may be in the same or separate tables)
         sum_found = False
         avg_found = False
         for table in results:
@@ -182,7 +150,7 @@ class TestIntegrationMultipleFeatures:
     def test_different_aggregation_types(self) -> None:
         """Request min and max features in one pipeline run."""
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {WindowAggregationTestDataCreator, PyArrowWindowAggregation}
+            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
         )
 
         f_min = Feature(
@@ -228,16 +196,15 @@ class TestIntegrationPluginDiscovery:
     def test_feature_group_is_discoverable(self) -> None:
         """Verify PyArrowWindowAggregation can be enabled via PluginCollector."""
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {WindowAggregationTestDataCreator, PyArrowWindowAggregation}
+            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
         )
 
         assert plugin_collector.applicable_feature_group_class(PyArrowWindowAggregation)
-        assert plugin_collector.applicable_feature_group_class(WindowAggregationTestDataCreator)
+        assert plugin_collector.applicable_feature_group_class(PyArrowDataOpsTestDataCreator)
 
     def test_disabled_feature_group_blocks_execution(self) -> None:
         """When PyArrowWindowAggregation is not in the enabled set, pipeline should fail."""
-        # Only enable the data creator, not the window aggregation feature group
-        plugin_collector = PluginCollector.enabled_feature_groups({WindowAggregationTestDataCreator})
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator})
 
         feature = Feature(
             "value_int__sum_groupby",
@@ -261,9 +228,7 @@ class TestIntegrationPluginDiscovery:
     def test_match_rejects_invalid_feature_names(self) -> None:
         """Verify that match_feature_group_criteria rejects non-matching feature names."""
         options = Options(context={"partition_by": ["region"]})
-        # No aggregation suffix
         assert not PyArrowWindowAggregation.match_feature_group_criteria("value_int", options)
-        # Wrong suffix pattern
         assert not PyArrowWindowAggregation.match_feature_group_criteria("value_int__sum", options)
 
     def test_match_rejects_missing_partition_by(self) -> None:

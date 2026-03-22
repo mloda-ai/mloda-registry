@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
 from mloda.testing.data_creator.base import DataOperationsTestDataCreator
 
 
 class PandasDataOpsTestDataCreator(DataOperationsTestDataCreator):
-    """Converts the raw test data to a pandas DataFrame."""
+    compute_framework = PandasDataFrame
 
     @classmethod
     def create(cls) -> Any:
