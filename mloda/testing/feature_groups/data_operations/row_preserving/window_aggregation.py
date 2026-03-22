@@ -215,8 +215,8 @@ class WindowAggregationTestBase(ABC):
         result_col = self.extract_column(result, "value_int__max_groupby")
         assert result_col == EXPECTED_MAX_BY_REGION
 
-    def test_ec016_avg_with_null_values_in_group(self) -> None:
-        """EC-016: Group B has a null value_int at row 4. Avg should skip it."""
+    def test_null_policy_skip_avg_with_null_values(self) -> None:
+        """NullPolicy.SKIP: Group B has a null value_int at row 4. Avg should skip it."""
         fs = make_feature_set("value_int__avg_groupby", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -226,8 +226,8 @@ class WindowAggregationTestBase(ABC):
         assert result_col[6] == pytest.approx(GROUP_B_AVG_EXPECTED, rel=1e-6)
         assert result_col[7] == pytest.approx(GROUP_B_AVG_EXPECTED, rel=1e-6)
 
-    def test_ec019_null_group_key_forms_own_group(self) -> None:
-        """EC-019: Row 11 has region=None. It should form its own group."""
+    def test_null_policy_null_is_group(self) -> None:
+        """NullPolicy.NULL_IS_GROUP: Row 11 has region=None. It should form its own group."""
         fs = make_feature_set("value_int__sum_groupby", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -417,8 +417,8 @@ class WindowAggregationTestBase(ABC):
 
     # -- Null edge case tests ------------------------------------------------
 
-    def test_ec021_all_null_column_aggregation(self) -> None:
-        """EC-021: score column is all null. Aggregation should produce all nulls or zeros.
+    def test_null_policy_skip_all_null_column(self) -> None:
+        """NullPolicy.SKIP: score column is all null. Aggregation should produce all nulls or zeros.
 
         PyArrow/Polars/DuckDB/SQLite return null for sum of all-null group.
         Pandas returns 0 (groupby.transform("sum") treats all-null as 0).
