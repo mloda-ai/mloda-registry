@@ -14,6 +14,9 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.duckdb_window_aggregation import (
     DuckdbWindowAggregation,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
+    PyArrowWindowAggregation,
+)
 from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation import (
     WindowAggregationTestBase,
 )
@@ -32,6 +35,10 @@ class TestDuckdbWindowAggregation(WindowAggregationTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return DuckdbWindowAggregation
+
+    @classmethod
+    def pyarrow_implementation_class(cls) -> Any:
+        return PyArrowWindowAggregation
 
     def create_test_data(self, arrow_table: pa.Table) -> Any:
         return DuckdbRelation.from_arrow(self.conn, arrow_table)
