@@ -12,9 +12,6 @@ pytest.importorskip("polars")
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.polars_lazy_window_aggregation import (
     PolarsLazyWindowAggregation,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
-    PyArrowWindowAggregation,
-)
 from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation import (
     WindowAggregationTestBase,
 )
@@ -26,10 +23,6 @@ class TestPolarsLazyWindowAggregation(WindowAggregationTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PolarsLazyWindowAggregation
-
-    @classmethod
-    def pyarrow_implementation_class(cls) -> Any:
-        return PyArrowWindowAggregation
 
     def create_test_data(self, arrow_table: pa.Table) -> Any:
         return arrow_table

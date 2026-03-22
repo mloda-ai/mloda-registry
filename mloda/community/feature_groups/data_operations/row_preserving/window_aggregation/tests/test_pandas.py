@@ -12,9 +12,6 @@ pytest.importorskip("pandas")
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pandas_window_aggregation import (
     PandasWindowAggregation,
 )
-from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
-    PyArrowWindowAggregation,
-)
 from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation import (
     WindowAggregationTestBase,
 )
@@ -26,10 +23,6 @@ class TestPandasWindowAggregation(WindowAggregationTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PandasWindowAggregation
-
-    @classmethod
-    def pyarrow_implementation_class(cls) -> Any:
-        return PyArrowWindowAggregation
 
     def create_test_data(self, arrow_table: pa.Table) -> Any:
         return arrow_table

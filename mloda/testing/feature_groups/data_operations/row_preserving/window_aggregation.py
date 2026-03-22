@@ -7,7 +7,7 @@ DataOperationsTestDataCreator, partitioned by the 'region' column
 The ``WindowAggregationTestBase`` class provides 16 concrete test methods
 (10 per-framework + 5 cross-framework comparison + 1 column check) that
 any framework implementation inherits by subclassing and implementing
-6 abstract methods. This follows the same pattern as mloda core's
+5 abstract methods. This follows the same pattern as mloda core's
 ``DataFrameTestBase`` in ``tests/test_plugins/compute_framework/test_tooling/``.
 """
 
@@ -91,12 +91,12 @@ def make_feature_set(feature_name: str, partition_by: list[str]) -> FeatureSet:
 class WindowAggregationTestBase(ABC):
     """Abstract base class for window aggregation framework tests.
 
-    Subclasses implement 6 abstract methods to wire up their framework,
+    Subclasses implement 5 abstract methods to wire up their framework,
     then inherit 16 concrete test methods for free (10 per-framework +
     5 cross-framework comparison against PyArrow + 1 column check).
 
-    Simple frameworks (PyArrow, Pandas, Polars) need ~18 lines.
-    Connection-based frameworks (DuckDB, SQLite) need ~28 lines
+    Simple frameworks (PyArrow, Pandas, Polars) need ~15 lines.
+    Connection-based frameworks (DuckDB, SQLite) need ~25 lines
     (add setup_method/teardown_method for connection lifecycle).
     """
 
@@ -108,9 +108,13 @@ class WindowAggregationTestBase(ABC):
         """Return the WindowAggregation implementation class to test."""
 
     @classmethod
-    @abstractmethod
     def pyarrow_implementation_class(cls) -> Any:
         """Return the PyArrow implementation class (reference for cross-framework comparison)."""
+        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
+            PyArrowWindowAggregation,
+        )
+
+        return PyArrowWindowAggregation
 
     @abstractmethod
     def create_test_data(self, arrow_table: pa.Table) -> Any:

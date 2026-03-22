@@ -9,9 +9,6 @@ import pyarrow as pa
 
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
-from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
-    PyArrowWindowAggregation,
-)
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.sqlite_window_aggregation import (
     SqliteWindowAggregation,
 )
@@ -33,10 +30,6 @@ class TestSqliteWindowAggregation(WindowAggregationTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteWindowAggregation
-
-    @classmethod
-    def pyarrow_implementation_class(cls) -> Any:
-        return PyArrowWindowAggregation
 
     def create_test_data(self, arrow_table: pa.Table) -> Any:
         return SqliteRelation.from_arrow(self.conn, arrow_table)

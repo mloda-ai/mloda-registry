@@ -23,10 +23,6 @@ class TestPyArrowWindowAggregation(WindowAggregationTestBase):
     def implementation_class(cls) -> Any:
         return PyArrowWindowAggregation
 
-    @classmethod
-    def pyarrow_implementation_class(cls) -> Any:
-        return PyArrowWindowAggregation
-
     def create_test_data(self, arrow_table: pa.Table) -> Any:
         return arrow_table
 
