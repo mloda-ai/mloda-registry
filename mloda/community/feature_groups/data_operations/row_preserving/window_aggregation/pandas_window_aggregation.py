@@ -10,22 +10,8 @@ import pyarrow as pa
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.data_operations.base import ColumnTypeCategory, register_type_checker
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
-)
-
-# Register pandas type checkers with the shared registry.
-register_type_checker(
-    "pandas",
-    {
-        ColumnTypeCategory.NUMERIC: lambda dtype: bool(pd.api.types.is_numeric_dtype(dtype)),
-        ColumnTypeCategory.STRING: lambda dtype: bool(
-            pd.api.types.is_string_dtype(dtype) or pd.api.types.is_object_dtype(dtype)
-        ),
-        ColumnTypeCategory.DATETIME: lambda dtype: bool(pd.api.types.is_datetime64_any_dtype(dtype)),
-        ColumnTypeCategory.ANY: lambda dtype: True,
-    },
 )
 
 # Mapping from aggregation type to the pandas GroupBy.transform function name.
@@ -39,11 +25,8 @@ _PANDAS_AGG_FUNCS: dict[str, str] = {
 
 
 class PandasWindowAggregation(WindowAggregationFeatureGroup):
-    """Pandas-based implementation of window aggregation (group-by with broadcast).
-
-    Uses pandas groupby().transform() for efficient window computation.
-    Accepts and returns PyArrow tables (workaround until a dedicated Pandas
-    compute framework exists in mloda-registry).
+    """Uses pandas groupby().transform() for efficient window computation.
+    Accepts and returns PyArrow tables.
     """
 
     @classmethod

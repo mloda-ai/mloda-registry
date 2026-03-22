@@ -29,14 +29,9 @@ _SQLITE_AGG_FUNCS: dict[str, str] = {
     "max": "MAX",
 }
 
-# Aggregation types that require a Python fallback (no native SQLite window support).
-_PYTHON_FALLBACK_AGGS = {"std", "var", "median", "mode", "nunique", "first", "last"}
-
 
 class SqliteWindowAggregation(WindowAggregationFeatureGroup):
-    """SQLite implementation of window aggregation (group-by with broadcast).
-
-    Accepts and returns SqliteRelation objects. Uses SQL window functions for
+    """Accepts and returns SqliteRelation objects. Uses SQL window functions for
     natively supported aggregations and falls back to Python for the rest.
     """
 

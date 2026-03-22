@@ -31,9 +31,7 @@ _DUCKDB_AGG_FUNCS: dict[str, str] = {
 
 
 class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
-    """DuckDB implementation of window aggregation (group-by with broadcast).
-
-    All operations are fully lazy, composing SQL window functions via
+    """All operations are fully lazy, composing SQL window functions via
     DuckdbRelation.select(_raw_sql=...) without materializing intermediate results.
     """
 
