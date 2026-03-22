@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from typing import Any
 
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
@@ -17,7 +16,62 @@ _DYNAMIC_PREFIXES = ("percentile_", "ratio_to_")
 
 
 class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
-    """Base class for window aggregation operations that preserve row count."""
+    """Base class for window aggregation operations that preserve row count.
+
+    Window aggregation computes an aggregate over a partitioned group and
+    broadcasts the result back to every row in that group. The output always
+    has the same number of rows as the input.
+
+    ## Supported Aggregation Types
+
+    - ``sum``: Sum of values
+    - ``avg``: Average of values
+    - ``count``: Count of non-null values
+    - ``min``: Minimum value
+    - ``max``: Maximum value
+    - ``std``: Standard deviation
+    - ``var``: Variance
+    - ``median``: Median value
+    - ``mode``: Most frequent value
+    - ``nunique``: Count of unique values
+    - ``first``: First value in partition
+    - ``last``: Last value in partition
+
+    ## Feature Creation Methods
+
+    ### 1. String-Based Creation
+
+    Features follow the naming pattern: ``{source_column}__{aggregation_type}_groupby``
+
+    Examples::
+
+        features = [
+            Feature("sales__sum_groupby", options=Options(context={"partition_by": ["region"]})),
+            Feature("temperature__avg_groupby", options=Options(context={"partition_by": ["city"]})),
+        ]
+
+    ### 2. Configuration-Based Creation
+
+    Uses Options with proper context parameter separation::
+
+        feature = Feature(
+            name="my_result",
+            options=Options(
+                context={
+                    "aggregation_type": "sum",
+                    "in_features": "sales",
+                    "partition_by": ["region"],
+                }
+            ),
+        )
+
+    ## Parameter Classification
+
+    ### Context Parameters
+    - ``aggregation_type``: The type of aggregation to perform
+    - ``in_features``: The source feature to aggregate
+    - ``partition_by``: List of columns to partition by
+    """
 
     PREFIX_PATTERN = r".*__([\w]+)_groupby$"
 
@@ -129,20 +183,6 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             raise ValueError(f"Could not extract aggregation type for {feature_name}")
         return str(agg_type)
 
-    @staticmethod
-    def _get_column_names(data: Any) -> set[str]:
-        """Extract column names from any supported data type."""
-        if hasattr(data, "column_names"):
-            return set(data.column_names)  # pa.Table
-        if hasattr(data, "collect_schema"):
-            return set(data.collect_schema().names())  # pl.LazyFrame
-        if hasattr(data, "columns"):
-            cols = data.columns
-            if isinstance(cols, list):
-                return set(cols)  # DuckdbRelation, SqliteRelation, pd.DataFrame
-            return set(cols)
-        return set()
-
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         """Shared loop: extract params from each feature, delegate to _compute_window.
@@ -153,30 +193,13 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         """
         table = data
 
-        _MAX_IDENTIFIER_LENGTH = 1024
-
         for feature in features.features:
             feature_name = feature.get_name()
-
-            if len(feature_name) > _MAX_IDENTIFIER_LENGTH:
-                raise ValueError(f"Feature name exceeds maximum length of {_MAX_IDENTIFIER_LENGTH} characters")
 
             source_features = cls._extract_source_features(feature)
             source_col = source_features[0]
             agg_type = cls._extract_aggregation_type(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
-
-            available = cls._get_column_names(table)
-            if available:
-                if source_col not in available:
-                    raise ValueError(
-                        f"Source column '{source_col}' not found in data. Available columns: {sorted(available)}"
-                    )
-                for col in partition_by:
-                    if col not in available:
-                        raise ValueError(
-                            f"Partition column '{col}' not found in data. Available columns: {sorted(available)}"
-                        )
 
             table = cls._compute_window(table, feature_name, source_col, partition_by, agg_type)
 
@@ -193,69 +216,3 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     ) -> Any:
         """Subclasses must implement the actual window computation."""
         raise NotImplementedError
-
-    # -- Shared aggregation helpers --
-
-    @classmethod
-    def _aggregate(cls, values: list[Any], agg_type: str) -> Any:
-        """Compute a single aggregate over a list of values (may contain None)."""
-        non_null = [v for v in values if v is not None]
-
-        if not non_null:
-            return None
-
-        if agg_type == "sum":
-            return sum(non_null)
-        if agg_type == "avg":
-            return sum(non_null) / len(non_null)
-        if agg_type == "count":
-            return len(non_null)
-        if agg_type == "min":
-            return min(non_null)
-        if agg_type == "max":
-            return max(non_null)
-        if agg_type == "std":
-            return cls._std(non_null)
-        if agg_type == "var":
-            return cls._var(non_null)
-        if agg_type == "median":
-            return cls._median(non_null)
-        if agg_type == "mode":
-            return cls._mode(non_null)
-        if agg_type == "nunique":
-            return len(set(non_null))
-        if agg_type == "first":
-            return non_null[0]
-        if agg_type == "last":
-            return non_null[-1]
-
-        raise ValueError(f"Unsupported aggregation type: {agg_type}")
-
-    @classmethod
-    def _std(cls, values: list[Any]) -> Any:
-        if len(values) < 2:
-            return None
-        return cls._var(values) ** 0.5
-
-    @classmethod
-    def _var(cls, values: list[Any]) -> Any:
-        if len(values) < 2:
-            return None
-        mean = sum(values) / len(values)
-        return sum((x - mean) ** 2 for x in values) / (len(values) - 1)
-
-    @classmethod
-    def _median(cls, values: list[Any]) -> Any:
-        s = sorted(values)
-        n = len(s)
-        mid = n // 2
-        if n % 2 == 0:
-            return (s[mid - 1] + s[mid]) / 2.0
-        return float(s[mid])
-
-    @classmethod
-    def _mode(cls, values: list[Any]) -> Any:
-        if not values:
-            return None
-        counts = Counter(values)
-        return counts.most_common(1)[0][0]

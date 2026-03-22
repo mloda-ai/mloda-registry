@@ -7,7 +7,8 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-from mloda.testing.data_creator import DataOperationsTestDataCreator, PyArrowDataOpsTestDataCreator
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation import (
     make_feature_set,
 )

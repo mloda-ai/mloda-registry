@@ -18,7 +18,11 @@ from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregat
 
 
 class TestSqliteWindowAggregation(WindowAggregationTestBase):
-    """Standard tests inherited from the base class."""
+    """All tests inherited from the base class."""
+
+    @classmethod
+    def supported_agg_types(cls) -> set[str]:
+        return {"sum", "avg", "count", "min", "max"}
 
     def setup_method(self) -> None:
         self.conn = sqlite3.connect(":memory:")

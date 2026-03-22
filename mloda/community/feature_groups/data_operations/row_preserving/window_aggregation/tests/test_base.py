@@ -243,7 +243,7 @@ class TestConfigBasedFeatures:
         from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
             PyArrowWindowAggregation,
         )
-        from mloda.testing.data_creator import PyArrowDataOpsTestDataCreator
+        from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
         from mloda.user import Feature
 
         table = PyArrowDataOpsTestDataCreator.create()
