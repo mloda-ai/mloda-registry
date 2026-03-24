@@ -55,7 +55,7 @@ class SqliteOffset(OffsetFeatureGroup):
             )
             sql = (
                 f"SELECT {offset_expr} AS {quoted_feature}, "  # nosec B608
-                f"ROW_NUMBER() OVER () AS {qrn} "
+                f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn} "
                 f"FROM {quote_ident(data.table_name)} t1 ORDER BY {qrn}"
             )
             cursor = data.connection.execute(sql)
@@ -71,7 +71,7 @@ class SqliteOffset(OffsetFeatureGroup):
             )
             sql = (
                 f"SELECT {offset_expr} AS {quoted_feature}, "  # nosec B608
-                f"ROW_NUMBER() OVER () AS {qrn} "
+                f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn} "
                 f"FROM {quote_ident(data.table_name)} t1 ORDER BY {qrn}"
             )
             cursor = data.connection.execute(sql)
@@ -83,7 +83,7 @@ class SqliteOffset(OffsetFeatureGroup):
 
         sql = (
             f"SELECT {offset_expr} OVER ({window_clause}) AS {quoted_feature}, "  # nosec B608
-            f"ROW_NUMBER() OVER () AS {qrn} "
+            f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn} "
             f"FROM {quote_ident(data.table_name)} ORDER BY {qrn}"
         )
         cursor = data.connection.execute(sql)

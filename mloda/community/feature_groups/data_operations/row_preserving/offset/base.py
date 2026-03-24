@@ -182,9 +182,6 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             partition_by = feature.options.get(cls.PARTITION_BY)
             order_by = feature.options.get(cls.ORDER_BY)
 
-            if order_by is None:
-                order_by = source_col
-
             table = cls._compute_offset(table, feature_name, source_col, partition_by, order_by, offset_type)
 
         return table
