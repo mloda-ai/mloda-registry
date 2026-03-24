@@ -54,7 +54,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)
 
         if agg_type == "nunique":
-            raw_sql = f"*, COUNT(DISTINCT {quoted_source}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}"  # nosec B608
+            raw_sql = f"*, COUNT(DISTINCT {quoted_source}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}"
             result: DuckdbRelation = data.select(_raw_sql=raw_sql)
             return result
 
@@ -62,7 +62,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
             return cls._compute_first_last(data, feature_name, source_col, partition_by, agg_type)
 
         agg_func = _DUCKDB_AGG_FUNCS[agg_type]
-        raw_sql = f"*, {agg_func}({quoted_source}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}"  # nosec B608
+        raw_sql = f"*, {agg_func}({quoted_source}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}"
         result = data.select(_raw_sql=raw_sql)
         return result
 
@@ -94,10 +94,10 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         agg_func = _DUCKDB_AGG_FUNCS[agg_type]
 
         # Step 1: tag rows with their original position
-        rel = data._relation.project(f"*, ROW_NUMBER() OVER () AS {qrn}")  # nosec B608
+        rel = data._relation.project(f"*, ROW_NUMBER() OVER () AS {qrn}")
 
         # Step 2: compute with full frame (may reorder rows)
-        rel = rel.project(  # nosec B608
+        rel = rel.project(
             f"*, {agg_func}({quoted_source} IGNORE NULLS) "
             f"OVER (PARTITION BY {partition_clause} "
             f"ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS {quoted_feature}"

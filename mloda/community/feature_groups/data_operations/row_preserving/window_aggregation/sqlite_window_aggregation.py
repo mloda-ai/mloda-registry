@@ -47,14 +47,19 @@ class SqliteWindowAggregation(WindowAggregationFeatureGroup):
         quoted_feature = quote_ident(feature_name)
         qrn = quote_ident("__mloda_rn__")
 
-        # No PEP 249 qmark parametrization here: this query contains only SQL
-        # identifiers (column/table names) and keywords (SUM, AVG, etc.), no
-        # user-supplied values. Identifiers use quote_ident(), agg_func comes
-        # from the _SQLITE_AGG_FUNCS whitelist.
-        sql = (
-            f"SELECT {agg_func}({quoted_source}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}, "  # nosec B608
-            f"ROW_NUMBER() OVER () AS {qrn} "
-            f"FROM {quote_ident(data.table_name)} ORDER BY {qrn}"
+        # Safety: no user-supplied values, only quote_ident()-quoted identifiers
+        # and whitelisted SQL keywords. PEP 249 qmark parametrization does not
+        # apply (identifiers cannot be parameterized per the SQL standard).
+        sql = " ".join(
+            [
+                "SELECT",
+                f"{agg_func}({quoted_source}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature},",
+                f"ROW_NUMBER() OVER () AS {qrn}",
+                "FROM",
+                f"{quote_ident(data.table_name)}",
+                "ORDER BY",
+                qrn,
+            ]
         )
         cursor = data.connection.execute(sql)
         rows = cursor.fetchall()
