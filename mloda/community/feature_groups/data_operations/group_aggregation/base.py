@@ -11,10 +11,6 @@ from mloda.provider import FeatureGroup
 from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
 
 
-# Dynamic aggregation type prefixes that support parameterized variants
-_DYNAMIC_PREFIXES = ("percentile_", "ratio_to_")
-
-
 class GroupAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for group aggregation operations that reduce rows.
 
@@ -110,24 +106,9 @@ class GroupAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     }
 
     @classmethod
-    def _supports_aggregation_type(cls, aggregation_type: str) -> bool:
-        """Check if the given aggregation type is supported, including dynamic types."""
-        if aggregation_type in cls.AGGREGATION_TYPES:
-            return True
-        if aggregation_type.startswith("percentile_"):
-            suffix = aggregation_type[len("percentile_") :]
-            if suffix.isdigit() and 0 <= int(suffix) <= 100:
-                return True
-            return False
-        if aggregation_type.startswith("ratio_to_"):
-            target = aggregation_type[len("ratio_to_") :]
-            return target in cls.AGGREGATION_TYPES
-        return False
-
-    @classmethod
     def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
-        """Validate that the aggregation type is supported (including dynamic types)."""
-        return cls._supports_aggregation_type(operation_config)
+        """Validate that the aggregation type is supported."""
+        return operation_config in cls.AGGREGATION_TYPES
 
     @classmethod
     def match_feature_group_criteria(

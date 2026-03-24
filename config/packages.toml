@@ -73,7 +73,7 @@ optional_dependencies = { all = ["mloda-community-window-aggregation", "mloda-co
 
 [packages.mloda-community-group-aggregation]
 description = "Group aggregation feature group (reduce, partition_by, one row per group)"
-dependencies = ["mloda-community-data-operations>=0.2.0"]
+dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/group_aggregation"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
 

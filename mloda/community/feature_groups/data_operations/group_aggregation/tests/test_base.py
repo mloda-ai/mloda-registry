@@ -35,14 +35,6 @@ class TestClassAttributes:
         for op in expected_ops:
             assert op in GroupAggregationFeatureGroup.AGGREGATION_TYPES, f"Missing advanced operation: {op}"
 
-    def test_aggregation_types_contains_percentile(self) -> None:
-        """AGGREGATION_TYPES should support percentile operations via validation function."""
-        assert GroupAggregationFeatureGroup._supports_aggregation_type("percentile_75")
-
-    def test_aggregation_types_contains_ratio_to_avg(self) -> None:
-        """AGGREGATION_TYPES should support ratio_to_avg operations."""
-        assert GroupAggregationFeatureGroup._supports_aggregation_type("ratio_to_avg")
-
     def test_min_in_features_is_one(self) -> None:
         """MIN_IN_FEATURES should be 1 (single source column)."""
         assert GroupAggregationFeatureGroup.MIN_IN_FEATURES == 1
@@ -89,21 +81,13 @@ class TestPatternMatching:
         result = GroupAggregationFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
 
-    def test_matches_percentile_operation(self) -> None:
-        """Percentile operations like percentile_75 should match."""
+    def test_rejects_unimplemented_dynamic_type(self) -> None:
+        """Unimplemented dynamic types like percentile_75 should not match."""
         options = Options(context={"partition_by": ["region"]})
         result = GroupAggregationFeatureGroup.match_feature_group_criteria(
             "value_int__percentile_75_grouped", options, None
         )
-        assert result is True
-
-    def test_matches_ratio_to_avg_operation(self) -> None:
-        """Ratio-to-average operations should match."""
-        options = Options(context={"partition_by": ["region"]})
-        result = GroupAggregationFeatureGroup.match_feature_group_criteria(
-            "value_int__ratio_to_avg_grouped", options, None
-        )
-        assert result is True
+        assert result is False
 
     def test_no_match_wrong_suffix(self) -> None:
         """Feature with wrong suffix (groupby instead of grouped) should not match."""
