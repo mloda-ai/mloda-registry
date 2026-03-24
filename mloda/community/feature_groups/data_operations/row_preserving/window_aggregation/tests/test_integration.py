@@ -3,15 +3,20 @@
 These tests verify that window aggregation feature groups work end-to-end
 through mloda's runtime, including plugin discovery, feature resolution,
 and the PluginCollector mechanism.
+
+Uses the shared DataOpsIntegrationTestBase from the testing library.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 import pyarrow as pa
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -20,73 +25,60 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 )
 
 
-class TestIntegrationBasic:
-    """Test a single window aggregation feature through the full mloda pipeline."""
+class TestWindowAggregationIntegration(DataOpsIntegrationTestBase):
+    """Standard integration tests inherited from the base class."""
 
-    def test_sum_groupby_through_pipeline(self) -> None:
-        """Run value_int__sum_groupby through run_all and verify the result."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
-        )
+    @classmethod
+    def feature_group_class(cls) -> type:
+        return PyArrowWindowAggregation
 
-        feature = Feature(
-            "value_int__sum_groupby",
-            options=Options(context={"partition_by": ["region"]}),
-        )
+    @classmethod
+    def data_creator_class(cls) -> type:
+        return PyArrowDataOpsTestDataCreator
 
-        results = mloda.run_all(
-            [feature],
-            compute_frameworks={PyArrowTable},
-            plugin_collector=plugin_collector,
-        )
+    @classmethod
+    def compute_framework_class(cls) -> type:
+        return PyArrowTable
 
-        assert len(results) >= 1
+    @classmethod
+    def primary_feature_name(cls) -> str:
+        return "value_int__sum_groupby"
 
-        # Find the table containing the aggregation result
-        result_table = None
-        for table in results:
-            if isinstance(table, pa.Table) and "value_int__sum_groupby" in table.column_names:
-                result_table = table
-                break
+    @classmethod
+    def primary_feature_options(cls) -> dict[str, Any]:
+        return {"partition_by": ["region"]}
 
-        assert result_table is not None, "No result table with value_int__sum_groupby found"
-        assert result_table.num_rows == 12
+    @classmethod
+    def primary_expected_values(cls) -> list[Any]:
+        return [25, 25, 25, 25, 140, 140, 140, 140, 70, 70, 70, -10]
 
-        result_col = result_table.column("value_int__sum_groupby").to_pylist()
-        expected = [25, 25, 25, 25, 140, 140, 140, 140, 70, 70, 70, -10]
-        assert result_col == expected
+    @classmethod
+    def secondary_feature_name(cls) -> str:
+        return "value_int__avg_groupby"
 
-    def test_avg_groupby_through_pipeline(self) -> None:
-        """Run value_int__avg_groupby through run_all and verify the result."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
-        )
+    @classmethod
+    def secondary_feature_options(cls) -> dict[str, Any]:
+        return {"partition_by": ["region"]}
 
-        feature = Feature(
-            "value_int__avg_groupby",
-            options=Options(context={"partition_by": ["region"]}),
-        )
+    @classmethod
+    def secondary_expected_values(cls) -> list[Any]:
+        return [6.25, 6.25, 6.25, 6.25, 46.667, 46.667, 46.667, 46.667, 23.333, 23.333, 23.333, -10.0]
 
-        results = mloda.run_all(
-            [feature],
-            compute_frameworks={PyArrowTable},
-            plugin_collector=plugin_collector,
-        )
+    @classmethod
+    def valid_feature_names(cls) -> list[str]:
+        return ["value_int__sum_groupby", "value_int__avg_groupby", "value_int__count_groupby"]
 
-        assert len(results) >= 1
+    @classmethod
+    def invalid_feature_names(cls) -> list[str]:
+        return ["value_int", "value_int__sum"]
 
-        result_table = None
-        for table in results:
-            if isinstance(table, pa.Table) and "value_int__avg_groupby" in table.column_names:
-                result_table = table
-                break
+    @classmethod
+    def match_options(cls) -> Options:
+        return Options(context={"partition_by": ["region"]})
 
-        assert result_table is not None, "No result table with value_int__avg_groupby found"
-        assert result_table.num_rows == 12
-
-        result_col = result_table.column("value_int__avg_groupby").to_pylist()
-        expected = [6.25, 6.25, 6.25, 6.25, 46.667, 46.667, 46.667, 46.667, 23.333, 23.333, 23.333, -10.0]
-        assert result_col == pytest.approx(expected, rel=1e-3)
+    @classmethod
+    def use_approx(cls) -> bool:
+        return True
 
 
 class TestIntegrationMultipleFeatures:
@@ -188,50 +180,3 @@ class TestIntegrationMultipleFeatures:
 
         assert min_found, "min_groupby result not found in any result table"
         assert max_found, "max_groupby result not found in any result table"
-
-
-class TestIntegrationPluginDiscovery:
-    """Test that PluginCollector correctly discovers and filters window aggregation plugins."""
-
-    def test_feature_group_is_discoverable(self) -> None:
-        """Verify PyArrowWindowAggregation can be enabled via PluginCollector."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
-        )
-
-        assert plugin_collector.applicable_feature_group_class(PyArrowWindowAggregation)
-        assert plugin_collector.applicable_feature_group_class(PyArrowDataOpsTestDataCreator)
-
-    def test_disabled_feature_group_blocks_execution(self) -> None:
-        """When PyArrowWindowAggregation is not in the enabled set, pipeline should fail."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator})
-
-        feature = Feature(
-            "value_int__sum_groupby",
-            options=Options(context={"partition_by": ["region"]}),
-        )
-
-        with pytest.raises(ValueError):
-            mloda.run_all(
-                [feature],
-                compute_frameworks={PyArrowTable},
-                plugin_collector=plugin_collector,
-            )
-
-    def test_match_feature_group_criteria(self) -> None:
-        """Verify that match_feature_group_criteria works for valid window aggregation features."""
-        options = Options(context={"partition_by": ["region"]})
-        assert PyArrowWindowAggregation.match_feature_group_criteria("value_int__sum_groupby", options)
-        assert PyArrowWindowAggregation.match_feature_group_criteria("value_int__avg_groupby", options)
-        assert PyArrowWindowAggregation.match_feature_group_criteria("value_int__count_groupby", options)
-
-    def test_match_rejects_invalid_feature_names(self) -> None:
-        """Verify that match_feature_group_criteria rejects non-matching feature names."""
-        options = Options(context={"partition_by": ["region"]})
-        assert not PyArrowWindowAggregation.match_feature_group_criteria("value_int", options)
-        assert not PyArrowWindowAggregation.match_feature_group_criteria("value_int__sum", options)
-
-    def test_match_rejects_missing_partition_by(self) -> None:
-        """Verify that match_feature_group_criteria rejects when partition_by is missing."""
-        options = Options()
-        assert not PyArrowWindowAggregation.match_feature_group_criteria("value_int__sum_groupby", options)
