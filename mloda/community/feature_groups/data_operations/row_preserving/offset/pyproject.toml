@@ -11,7 +11,7 @@ version = "0.2.12"
 description = "Offset feature group (lag, lead, diff, pct_change, first_value, last_value, row-preserving)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda-community-data-operations>=0.2.0"]
+dependencies = ["mloda-community-data-operations>=0.2.12"]
 requires-python = ">=3.10"
 
 [project.optional-dependencies]

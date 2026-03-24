@@ -73,7 +73,7 @@ optional_dependencies = { all = ["mloda-community-window-aggregation", "mloda-co
 
 [packages.mloda-community-offset]
 description = "Offset feature group (lag, lead, diff, pct_change, first_value, last_value, row-preserving)"
-dependencies = ["mloda-community-data-operations>=0.2.0"]
+dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/offset"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
 
