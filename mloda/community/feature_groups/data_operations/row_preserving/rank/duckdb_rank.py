@@ -41,7 +41,7 @@ class DuckdbRank(RankFeatureGroup):
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)
 
         if rank_type.startswith("ntile_"):
-            ntile_n = rank_type[len("ntile_") :]
+            ntile_n = int(rank_type[len("ntile_") :])
             rank_expr = f"NTILE({ntile_n})"
         else:
             rank_func = _DUCKDB_RANK_FUNCS.get(rank_type)
