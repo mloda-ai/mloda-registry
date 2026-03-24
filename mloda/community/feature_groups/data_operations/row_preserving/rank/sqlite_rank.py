@@ -60,7 +60,7 @@ class SqliteRank(RankFeatureGroup):
         sql = (
             f"SELECT {rank_expr} OVER "  # nosec B608
             f"(PARTITION BY {partition_clause} ORDER BY {order_clause}) AS {quoted_feature}, "
-            f"ROW_NUMBER() OVER () AS {qrn} "
+            f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn} "
             f"FROM {quote_ident(data.table_name)} ORDER BY {qrn}"
         )
         cursor = data.connection.execute(sql)
