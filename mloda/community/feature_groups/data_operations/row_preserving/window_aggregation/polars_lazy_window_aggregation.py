@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
+from typing import Any, Optional, Set, Type, Union
 
 import polars as pl
 
@@ -25,8 +25,6 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
     "var": lambda col: pl.col(col).var(),
     "median": lambda col: pl.col(col).median(),
     "nunique": lambda col: pl.col(col).drop_nulls().n_unique(),
-    "first": lambda col: pl.col(col).drop_nulls().first(),
-    "last": lambda col: pl.col(col).drop_nulls().last(),
 }
 
 
@@ -43,13 +41,34 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
+        order_by: Optional[str] = None,
     ) -> pl.LazyFrame:
         """Compute a window aggregation using Polars .over() expressions (fully lazy)."""
         if agg_type == "mode":
             expr = pl.col(source_col).mode().first().over(partition_by).alias(feature_name)
+        elif agg_type in ("first", "last"):
+            expr = cls._build_first_last_expr(source_col, partition_by, agg_type, order_by, feature_name)
         elif agg_type in _POLARS_AGG_EXPRS:
             expr = _POLARS_AGG_EXPRS[agg_type](source_col).over(partition_by).alias(feature_name)
         else:
             raise ValueError(f"Unsupported aggregation type: {agg_type}")
 
         return data.with_columns(expr)
+
+    @classmethod
+    def _build_first_last_expr(
+        cls,
+        source_col: str,
+        partition_by: list[str],
+        agg_type: str,
+        order_by: Optional[str],
+        feature_name: str,
+    ) -> pl.Expr:
+        """Build a Polars expression for first/last with deterministic ordering."""
+        base = pl.col(source_col)
+        if order_by:
+            base = base.sort_by(order_by)
+        base = base.drop_nulls()
+        if agg_type == "first":
+            return base.first().over(partition_by).alias(feature_name)
+        return base.last().over(partition_by).alias(feature_name)

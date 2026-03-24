@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any, Set, Type, Union
+from typing import Any, Optional, Set, Type, Union
 
 import pyarrow as pa
 
@@ -28,6 +28,7 @@ class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
+        order_by: Optional[str] = None,
     ) -> pa.Table:
         num_rows = table.num_rows
 
@@ -37,19 +38,25 @@ class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
             key = tuple(table.column(col)[i].as_py() for col in partition_by)
             keys.append(key)
 
-        # Collect source values per group, preserving order
-        groups: dict[tuple[Any, ...], list[Any]] = {}
+        # Collect source values per group, preserving row indices
+        groups: dict[tuple[Any, ...], list[tuple[Any, Any]]] = {}
         for i in range(num_rows):
             key = keys[i]
             val = table.column(source_col)[i].as_py()
+            order_val = table.column(order_by)[i].as_py() if order_by else i
             if key not in groups:
                 groups[key] = []
-            groups[key].append(val)
+            groups[key].append((order_val, val))
 
         # Compute aggregate per group
         agg_results: dict[tuple[Any, ...], Any] = {}
-        for key, values in groups.items():
-            agg_results[key] = cls._aggregate(values, agg_type)
+        for key, pairs in groups.items():
+            values = [v for _, v in pairs]
+            if agg_type in ("first", "last") and order_by:
+                sorted_vals = [v for _, v in sorted(pairs, key=lambda p: (p[0] is None, p[0]))]
+                agg_results[key] = cls._aggregate(sorted_vals, agg_type)
+            else:
+                agg_results[key] = cls._aggregate(values, agg_type)
 
         # Broadcast back to every row
         result_values = [agg_results[keys[i]] for i in range(num_rows)]

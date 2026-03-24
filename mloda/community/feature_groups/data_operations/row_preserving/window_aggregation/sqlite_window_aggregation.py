@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
+from typing import Any, Optional, Set, Type, Union
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
@@ -36,6 +36,7 @@ class SqliteWindowAggregation(WindowAggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
+        order_by: Optional[str] = None,
     ) -> SqliteRelation:
         """Execute the aggregation as a SQL window function."""
         agg_func = _SQLITE_AGG_FUNCS.get(agg_type)

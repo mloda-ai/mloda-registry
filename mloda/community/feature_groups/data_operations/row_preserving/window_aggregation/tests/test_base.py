@@ -71,8 +71,6 @@ class TestPatternMatching:
         [
             "value_int__mode_groupby",
             "value_int__nunique_groupby",
-            "value_int__first_groupby",
-            "value_int__last_groupby",
         ],
     )
     def test_matches_advanced_operations(self, feature_name: str) -> None:
@@ -162,6 +160,30 @@ class TestConfigValidation:
         options = Options(context={"partition_by": "region"})
         result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_groupby", options, None)
         assert result is False
+
+    def test_first_requires_order_by(self) -> None:
+        """first_groupby without order_by should not match."""
+        options = Options(context={"partition_by": ["region"]})
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__first_groupby", options, None)
+        assert result is False
+
+    def test_last_requires_order_by(self) -> None:
+        """last_groupby without order_by should not match."""
+        options = Options(context={"partition_by": ["region"]})
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__last_groupby", options, None)
+        assert result is False
+
+    def test_first_matches_with_order_by(self) -> None:
+        """first_groupby with order_by should match."""
+        options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__first_groupby", options, None)
+        assert result is True
+
+    def test_sum_does_not_require_order_by(self) -> None:
+        """sum_groupby should match without order_by (order-independent)."""
+        options = Options(context={"partition_by": ["region"]})
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_groupby", options, None)
+        assert result is True
 
 
 class TestConfigBasedFeatures:

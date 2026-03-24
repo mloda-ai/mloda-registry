@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
+from typing import Any, Optional, Set, Type, Union
 
 import pandas as pd
 
@@ -36,6 +36,7 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
+        order_by: Optional[str] = None,
     ) -> pd.DataFrame:
         """Compute a window aggregation using pandas groupby().transform()."""
         pandas_func = _PANDAS_AGG_FUNCS.get(agg_type)

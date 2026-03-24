@@ -48,12 +48,12 @@ EXPECTED_COUNT_BY_REGION: list[int] = [4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 1]
 EXPECTED_MIN_BY_REGION: list[int] = [-5, -5, -5, -5, 30, 30, 30, 30, 15, 15, 15, -10]
 EXPECTED_MAX_BY_REGION: list[int] = [20, 20, 20, 20, 60, 60, 60, 60, 40, 40, 40, -10]
 
-# First/last non-null value_int per region (insertion order, nulls skipped).
-# Group A: [10, -5, 0, 20] -> first=10, last=20
-# Group B: [None, 50, 30, 60] -> first=50, last=60
-# Group C: [15, 15, 40] -> first=15, last=40
-# None:    [-10] -> first=-10, last=-10
-EXPECTED_FIRST_BY_REGION: list[int] = [10, 10, 10, 10, 50, 50, 50, 50, 15, 15, 15, -10]
+# First/last non-null value_int per region, ordered by value_int (ascending).
+# Group A: sorted non-null = [-5, 0, 10, 20] -> first=-5, last=20
+# Group B: sorted non-null = [30, 50, 60] -> first=30, last=60
+# Group C: sorted non-null = [15, 15, 40] -> first=15, last=40
+# None:    sorted non-null = [-10] -> first=-10, last=-10
+EXPECTED_FIRST_BY_REGION: list[int] = [-5, -5, -5, -5, 30, 30, 30, 30, 15, 15, 15, -10]
 EXPECTED_LAST_BY_REGION: list[int] = [20, 20, 20, 20, 60, 60, 60, 60, 40, 40, 40, -10]
 
 # EC-016: Group B avg when one member (row 4) is null.
@@ -80,11 +80,14 @@ def extract_column(result: Any, column_name: str) -> list[Any]:
     return list(arrow_table.column(column_name).to_pylist())
 
 
-def make_feature_set(feature_name: str, partition_by: list[str]) -> FeatureSet:
-    """Build a FeatureSet with partition_by options."""
+def make_feature_set(feature_name: str, partition_by: list[str], order_by: str | None = None) -> FeatureSet:
+    """Build a FeatureSet with partition_by and optional order_by options."""
+    context: dict[str, Any] = {"partition_by": partition_by}
+    if order_by is not None:
+        context["order_by"] = order_by
     feature = Feature(
         feature_name,
-        options=Options(context={"partition_by": partition_by}),
+        options=Options(context=context),
     )
     fs = FeatureSet()
     fs.add(feature)
@@ -388,32 +391,30 @@ class WindowAggregationTestBase(ABC):
         assert result_col[11] == 1  # None group: {-10}
 
     def test_first_groupby_region(self) -> None:
-        """First non-null value_int per region partition, broadcast to all rows.
+        """First non-null value_int per region, ordered by value_int ascending.
 
-        Uses insertion order (no ORDER BY). Nulls are skipped.
-        Group A: [10, -5, 0, 20] -> first=10
-        Group B: [None, 50, 30, 60] -> first=50 (null skipped)
-        Group C: [15, 15, 40] -> first=15
-        None:    [-10] -> first=-10
+        Group A: sorted non-null = [-5, 0, 10, 20] -> first=-5
+        Group B: sorted non-null = [30, 50, 60] -> first=30
+        Group C: sorted non-null = [15, 15, 40] -> first=15
+        None:    sorted non-null = [-10] -> first=-10
         """
         self._skip_if_unsupported("first")
-        fs = make_feature_set("value_int__first_groupby", ["region"])
+        fs = make_feature_set("value_int__first_groupby", ["region"], order_by="value_int")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__first_groupby")
         assert result_col == EXPECTED_FIRST_BY_REGION
 
     def test_last_groupby_region(self) -> None:
-        """Last non-null value_int per region partition, broadcast to all rows.
+        """Last non-null value_int per region, ordered by value_int ascending.
 
-        Uses insertion order (no ORDER BY). Nulls are skipped.
-        Group A: [10, -5, 0, 20] -> last=20
-        Group B: [None, 50, 30, 60] -> last=60
-        Group C: [15, 15, 40] -> last=40
-        None:    [-10] -> last=-10
+        Group A: sorted non-null = [-5, 0, 10, 20] -> last=20
+        Group B: sorted non-null = [30, 50, 60] -> last=60
+        Group C: sorted non-null = [15, 15, 40] -> last=40
+        None:    sorted non-null = [-10] -> last=-10
         """
         self._skip_if_unsupported("last")
-        fs = make_feature_set("value_int__last_groupby", ["region"])
+        fs = make_feature_set("value_int__last_groupby", ["region"], order_by="value_int")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__last_groupby")
