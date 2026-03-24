@@ -96,10 +96,6 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         "last": "Last value in partition",
     }
 
-    # partition_by is intentionally excluded from PROPERTY_MAPPING because the
-    # mixin's _process_found_property_value cannot handle list-valued options.
-    # Validation happens in match_feature_group_criteria override instead.
-    # See https://github.com/mloda-ai/mloda/issues/228
     PROPERTY_MAPPING = {
         AGGREGATION_TYPE: {
             **AGGREGATION_TYPES,
@@ -108,6 +104,11 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Source feature for window aggregation",
+            DefaultOptionKeys.context: True,
+            DefaultOptionKeys.strict_validation: False,
+        },
+        PARTITION_BY: {
+            "explanation": "List of columns to partition by",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
         },
@@ -140,28 +141,23 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         options: Any,
         _data_access_collection: Any = None,
     ) -> bool:
-        """Extend mixin matching with partition_by and in_features validation.
+        """Extend mixin matching with partition_by type validation.
 
-        The mixin handles pattern and config matching. We add:
-        - partition_by validation (list-valued options not supported by PROPERTY_MAPPING)
-        - in_features count validation (MIN/MAX_IN_FEATURES not enforced by mixin)
+        The mixin (mloda >= 0.5.5) handles:
+        - Pattern and config matching via PROPERTY_MAPPING
+        - List-valued options (partition_by) via tuple conversion (#228)
+        - MIN/MAX_IN_FEATURES enforcement (#231)
+
+        We add partition_by type validation (must be a list of strings).
         """
         if not super().match_feature_group_criteria(feature_name, options, _data_access_collection):
             return False
 
         partition_by = options.get(cls.PARTITION_BY)
-        if partition_by is None:
-            return False
-        if not isinstance(partition_by, list):
+        if not isinstance(partition_by, (list, tuple)):
             return False
         if not all(isinstance(item, str) for item in partition_by):
             return False
-
-        in_features_raw = options.get(DefaultOptionKeys.in_features)
-        if in_features_raw is not None:
-            in_features = options.get_in_features()
-            if len(in_features) > cls.MAX_IN_FEATURES:
-                return False
 
         return True
 
