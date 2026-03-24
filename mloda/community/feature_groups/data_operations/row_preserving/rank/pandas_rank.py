@@ -50,9 +50,6 @@ class PandasRank(RankFeatureGroup):
             rank_col = data.groupby(partition_by, dropna=False)[order_by].rank(
                 method="min", ascending=True, na_option="bottom"
             )
-            count_col = data.groupby(partition_by, dropna=False)[order_by].transform("count")
-            # For all-non-null groups, count = group size. For groups with nulls,
-            # we need the actual group size including nulls.
             group_size = data.groupby(partition_by, dropna=False)[order_by].transform("size")
             data[feature_name] = ((rank_col - 1) / (group_size - 1)).fillna(0.0)
         elif rank_type.startswith("ntile_"):

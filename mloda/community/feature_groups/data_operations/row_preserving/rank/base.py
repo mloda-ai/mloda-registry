@@ -99,6 +99,16 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
         },
+        PARTITION_BY: {
+            "explanation": "List of columns to partition by",
+            DefaultOptionKeys.context: True,
+            DefaultOptionKeys.strict_validation: False,
+        },
+        ORDER_BY: {
+            "explanation": "Column to order by within each partition",
+            DefaultOptionKeys.context: True,
+            DefaultOptionKeys.strict_validation: False,
+        },
     }
 
     @classmethod

@@ -48,7 +48,7 @@ class SqliteRank(RankFeatureGroup):
         order_clause = f"{null_sort}, {quoted_order}"
 
         if rank_type.startswith("ntile_"):
-            ntile_n = rank_type[len("ntile_") :]
+            ntile_n = int(rank_type[len("ntile_") :])
             rank_expr = f"NTILE({ntile_n})"
         else:
             rank_func = _SQLITE_RANK_FUNCS.get(rank_type)
