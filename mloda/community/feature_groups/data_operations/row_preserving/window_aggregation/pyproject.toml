@@ -11,7 +11,7 @@ version = "0.2.12"
 description = "Window aggregation feature group (broadcast, partition_by, row-preserving)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda-community-data-operations>=0.2.0"]
+dependencies = ["mloda-community-data-operations>=0.2.12"]
 requires-python = ">=3.10"
 
 [project.optional-dependencies]

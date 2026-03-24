@@ -101,8 +101,8 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         "median": "Median value",
         "mode": "Most frequent value",
         "nunique": "Count of unique values",
-        "first": "First non-null value in ordered partition",
-        "last": "Last non-null value in ordered partition",
+        "first": "First non-null value in ordered partition (requires order_by)",
+        "last": "Last non-null value in ordered partition (requires order_by)",
     }
 
     PROPERTY_MAPPING = {

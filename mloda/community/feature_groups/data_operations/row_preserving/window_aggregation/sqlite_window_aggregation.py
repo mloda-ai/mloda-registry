@@ -55,7 +55,7 @@ class SqliteWindowAggregation(WindowAggregationFeatureGroup):
             [
                 "SELECT",
                 f"{agg_func}({quoted_source}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature},",
-                f"ROW_NUMBER() OVER () AS {qrn}",
+                f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn}",
                 "FROM",
                 f"{quote_ident(data.table_name)}",
                 "ORDER BY",
