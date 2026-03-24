@@ -48,6 +48,14 @@ EXPECTED_COUNT_BY_REGION: list[int] = [4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 1]
 EXPECTED_MIN_BY_REGION: list[int] = [-5, -5, -5, -5, 30, 30, 30, 30, 15, 15, 15, -10]
 EXPECTED_MAX_BY_REGION: list[int] = [20, 20, 20, 20, 60, 60, 60, 60, 40, 40, 40, -10]
 
+# First/last non-null value_int per region (insertion order, nulls skipped).
+# Group A: [10, -5, 0, 20] -> first=10, last=20
+# Group B: [None, 50, 30, 60] -> first=50, last=60
+# Group C: [15, 15, 40] -> first=15, last=40
+# None:    [-10] -> first=-10, last=-10
+EXPECTED_FIRST_BY_REGION: list[int] = [10, 10, 10, 10, 50, 50, 50, 50, 15, 15, 15, -10]
+EXPECTED_LAST_BY_REGION: list[int] = [20, 20, 20, 20, 60, 60, 60, 60, 40, 40, 40, -10]
+
 # EC-016: Group B avg when one member (row 4) is null.
 GROUP_B_AVG_EXPECTED: float = 140.0 / 3.0
 
@@ -380,40 +388,36 @@ class WindowAggregationTestBase(ABC):
         assert result_col[11] == 1  # None group: {-10}
 
     def test_first_groupby_region(self) -> None:
-        """First value of value_int partitioned by region.
+        """First non-null value_int per region partition, broadcast to all rows.
 
-        Without ORDER BY, first/last are order-dependent and row order may
-        differ across frameworks (e.g. SQL backends). We verify the result
-        has 12 rows and all non-null values come from the source column.
+        Uses insertion order (no ORDER BY). Nulls are skipped.
+        Group A: [10, -5, 0, 20] -> first=10
+        Group B: [None, 50, 30, 60] -> first=50 (null skipped)
+        Group C: [15, 15, 40] -> first=15
+        None:    [-10] -> first=-10
         """
         self._skip_if_unsupported("first")
         fs = make_feature_set("value_int__first_groupby", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__first_groupby")
-        assert len(result_col) == 12
-        # All non-null results must be valid value_int values from the dataset
-        valid_values = {10, -5, 0, 20, 50, 30, 60, 15, 40, -10}
-        for v in result_col:
-            if v is not None:
-                assert v in valid_values
+        assert result_col == EXPECTED_FIRST_BY_REGION
 
     def test_last_groupby_region(self) -> None:
-        """Last value of value_int partitioned by region.
+        """Last non-null value_int per region partition, broadcast to all rows.
 
-        Without ORDER BY, first/last are order-dependent and row order may
-        differ across frameworks. We verify structural correctness.
+        Uses insertion order (no ORDER BY). Nulls are skipped.
+        Group A: [10, -5, 0, 20] -> last=20
+        Group B: [None, 50, 30, 60] -> last=60
+        Group C: [15, 15, 40] -> last=40
+        None:    [-10] -> last=-10
         """
         self._skip_if_unsupported("last")
         fs = make_feature_set("value_int__last_groupby", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__last_groupby")
-        assert len(result_col) == 12
-        valid_values = {10, -5, 0, 20, 50, 30, 60, 15, 40, -10}
-        for v in result_col:
-            if v is not None:
-                assert v in valid_values
+        assert result_col == EXPECTED_LAST_BY_REGION
 
     # -- Null edge case tests ------------------------------------------------
 

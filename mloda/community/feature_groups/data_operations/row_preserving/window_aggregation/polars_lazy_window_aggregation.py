@@ -25,8 +25,8 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
     "var": lambda col: pl.col(col).var(),
     "median": lambda col: pl.col(col).median(),
     "nunique": lambda col: pl.col(col).n_unique(),
-    "first": lambda col: pl.col(col).first(),
-    "last": lambda col: pl.col(col).last(),
+    "first": lambda col: pl.col(col).drop_nulls().first(),
+    "last": lambda col: pl.col(col).drop_nulls().last(),
 }
 
 
