@@ -6,21 +6,22 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mloda-testing"
+name = "mloda-community-data-operations"
 version = "0.2.12"
-description = "Test utilities for mloda plugin development"
+description = "Shared base classes for data operation feature groups"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda>=0.5.5", "pytest"]
+dependencies = ["mloda>=0.5.5"]
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["mloda-testing", "pytest"]
+all = ["mloda-community-window-aggregation"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
 [tool.setuptools]
-package-dir = {"" = "../.."}
-packages = ["mloda.testing", "mloda.testing.data_creator", "mloda.testing.feature_groups", "mloda.testing.feature_groups.data_operations", "mloda.testing.feature_groups.data_operations.row_preserving"]
+package-dir = {"" = "../../../.."}
+packages = ["mloda.community.feature_groups.data_operations", "mloda.community.feature_groups.data_operations.row_preserving"]
