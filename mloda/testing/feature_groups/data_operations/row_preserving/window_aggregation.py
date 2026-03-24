@@ -383,7 +383,7 @@ class WindowAggregationTestBase(ABC):
 
         result_col = self.extract_column(result, "value_int__nunique_groupby")
         assert result_col[0] == 4  # Group A: {10, -5, 0, 20} (no nulls)
-        assert result_col[4] in {3, 4}  # Group B: 3 without null, 4 with null
+        assert result_col[4] == 3  # Group B: 3 non-null unique values (null skipped)
         assert result_col[8] == 2  # Group C: {15, 40} (no nulls in non-null values)
         assert result_col[11] == 1  # None group: {-10}
 
@@ -431,8 +431,7 @@ class WindowAggregationTestBase(ABC):
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "score__sum_groupby")
-        # All values should be None (most frameworks) or 0 (pandas)
-        assert all(v is None or v == 0 for v in result_col)
+        assert all(v is None for v in result_col)
 
     # -- Multi-key partition tests -------------------------------------------
 

@@ -44,7 +44,11 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
 
         # CRITICAL: dropna=False ensures null group keys form their own group,
         # matching PyArrow behavior. Without this, pandas drops null keys entirely.
-        result_series = data.groupby(partition_by, dropna=False)[source_col].transform(pandas_func)
+        # min_count=1 for sum ensures all-null groups return NaN (not 0), matching PyArrow.
+        if agg_type == "sum":
+            result_series = data.groupby(partition_by, dropna=False)[source_col].transform(pandas_func, min_count=1)
+        else:
+            result_series = data.groupby(partition_by, dropna=False)[source_col].transform(pandas_func)
 
         data = data.copy()
         data[feature_name] = result_series
