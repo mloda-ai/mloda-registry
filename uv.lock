@@ -11,19 +11,13 @@ resolution-markers = [
 [manifest]
 members = [
     "mloda-community",
-    "mloda-community-aggregation",
+    "mloda-community-binning",
     "mloda-community-compute-frameworks-example",
     "mloda-community-data-operations",
-    "mloda-community-datetime",
     "mloda-community-example",
     "mloda-community-example-a",
     "mloda-community-example-b",
     "mloda-community-extenders-example",
-    "mloda-community-frame-aggregate",
-    "mloda-community-group-aggregation",
-    "mloda-community-offset",
-    "mloda-community-rank",
-    "mloda-community-string",
     "mloda-community-window-aggregation",
     "mloda-enterprise",
     "mloda-enterprise-compute-frameworks-example",
@@ -236,9 +230,9 @@ dependencies = [
 requires-dist = [{ name = "mloda", specifier = ">=0.5.5" }]
 
 [[package]]
-name = "mloda-community-aggregation"
+name = "mloda-community-binning"
 version = "0.2.12"
-source = { editable = "mloda/community/feature_groups/data_operations/aggregation" }
+source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/binning" }
 dependencies = [
     { name = "mloda-community-data-operations" },
 ]
@@ -317,13 +311,7 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
-    { name = "mloda-community-aggregation" },
-    { name = "mloda-community-datetime" },
-    { name = "mloda-community-frame-aggregate" },
-    { name = "mloda-community-group-aggregation" },
-    { name = "mloda-community-offset" },
-    { name = "mloda-community-rank" },
-    { name = "mloda-community-string" },
+    { name = "mloda-community-binning" },
     { name = "mloda-community-window-aggregation" },
 ]
 dev = [
@@ -334,40 +322,12 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "mloda", specifier = ">=0.5.5" },
-    { name = "mloda-community-aggregation", marker = "extra == 'all'" },
-    { name = "mloda-community-datetime", marker = "extra == 'all'" },
-    { name = "mloda-community-frame-aggregate", marker = "extra == 'all'" },
-    { name = "mloda-community-group-aggregation", marker = "extra == 'all'" },
-    { name = "mloda-community-offset", marker = "extra == 'all'" },
-    { name = "mloda-community-rank", marker = "extra == 'all'" },
-    { name = "mloda-community-string", marker = "extra == 'all'" },
+    { name = "mloda-community-binning", marker = "extra == 'all'" },
     { name = "mloda-community-window-aggregation", marker = "extra == 'all'" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
 ]
 provides-extras = ["dev", "all"]
-
-[[package]]
-name = "mloda-community-datetime"
-version = "0.2.12"
-source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/datetime" }
-dependencies = [
-    { name = "mloda-community-data-operations" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "mloda-testing" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
-    { name = "pytest", marker = "extra == 'dev'" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-community-example"
@@ -462,172 +422,6 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'" },
 ]
 provides-extras = ["dev"]
-
-[[package]]
-name = "mloda-community-frame-aggregate"
-version = "0.2.12"
-source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate" }
-dependencies = [
-    { name = "mloda-community-data-operations" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "mloda-testing" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
-    { name = "pytest", marker = "extra == 'dev'" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "mloda-community-group-aggregation"
-version = "0.2.12"
-source = { editable = "mloda/community/feature_groups/data_operations/group_aggregation" }
-dependencies = [
-    { name = "mloda-community-data-operations" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "mloda-testing" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
-    { name = "pytest", marker = "extra == 'dev'" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "mloda-community-offset"
-version = "0.2.12"
-source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/offset" }
-dependencies = [
-    { name = "mloda-community-data-operations" },
-]
-
-[package.optional-dependencies]
-all = [
-    { name = "duckdb" },
-    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "pandas", version = "3.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "polars" },
-    { name = "pyarrow" },
-]
-dev = [
-    { name = "mloda-testing" },
-    { name = "pytest" },
-]
-duckdb = [
-    { name = "duckdb" },
-]
-pandas = [
-    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "pandas", version = "3.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-]
-polars = [
-    { name = "polars" },
-]
-pyarrow = [
-    { name = "pyarrow" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
-    { name = "pandas", marker = "extra == 'all'" },
-    { name = "pandas", marker = "extra == 'pandas'" },
-    { name = "polars", marker = "extra == 'all'" },
-    { name = "polars", marker = "extra == 'polars'" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
-    { name = "pytest", marker = "extra == 'dev'" },
-]
-provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
-
-[[package]]
-name = "mloda-community-rank"
-version = "0.2.12"
-source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/rank" }
-dependencies = [
-    { name = "mloda-community-data-operations" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "mloda-testing" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
-    { name = "pytest", marker = "extra == 'dev'" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "mloda-community-string"
-version = "0.2.12"
-source = { editable = "mloda/community/feature_groups/data_operations/string" }
-dependencies = [
-    { name = "mloda-community-data-operations" },
-]
-
-[package.optional-dependencies]
-all = [
-    { name = "duckdb" },
-    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "pandas", version = "3.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "polars" },
-    { name = "pyarrow" },
-]
-dev = [
-    { name = "mloda-testing" },
-    { name = "pytest" },
-]
-duckdb = [
-    { name = "duckdb" },
-]
-pandas = [
-    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "pandas", version = "3.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-]
-polars = [
-    { name = "polars" },
-]
-pyarrow = [
-    { name = "pyarrow" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
-    { name = "pandas", marker = "extra == 'all'" },
-    { name = "pandas", marker = "extra == 'pandas'" },
-    { name = "polars", marker = "extra == 'all'" },
-    { name = "polars", marker = "extra == 'polars'" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
-    { name = "pytest", marker = "extra == 'dev'" },
-]
-provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-window-aggregation"
