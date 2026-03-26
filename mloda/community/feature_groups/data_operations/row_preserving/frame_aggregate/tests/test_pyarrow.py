@@ -148,6 +148,124 @@ class TestConfigBased:
         assert col[1] == 30
 
 
+class TestNullHandling:
+    def test_rolling_sum_skips_nulls(self) -> None:
+        """Null values in the source column should be skipped by the aggregation."""
+        table = pa.table(
+            {
+                "region": ["A", "A", "A", "A"],
+                "ts": [1, 2, 3, 4],
+                "value": [10, None, 30, 40],
+            }
+        )
+        feature = Feature(
+            "value__sum_rolling_3",
+            options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+
+        result = PyArrowFrameAggregate.calculate_feature(table, fs)
+        col = result.column("value__sum_rolling_3").to_pylist()
+
+        # pos 0: window=[10] => 10
+        # pos 1: window=[10, None] => 10
+        # pos 2: window=[10, None, 30] => 40
+        # pos 3: window=[None, 30, 40] => 70
+        assert col == [10, 10, 40, 70]
+
+    def test_cumsum_with_null_order_by(self) -> None:
+        """Rows with null order_by values should be sorted last."""
+        table = pa.table(
+            {
+                "region": ["A", "A", "A"],
+                "ts": [None, 1, 2],
+                "value": [100, 10, 20],
+            }
+        )
+        feature = Feature(
+            "value__cumsum",
+            options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+
+        result = PyArrowFrameAggregate.calculate_feature(table, fs)
+        col = result.column("value__cumsum").to_pylist()
+
+        # Sorted by ts: (1, 10), (2, 20), (None, 100) -- None goes last
+        # idx 1 (ts=1): cumsum=10
+        # idx 2 (ts=2): cumsum=30
+        # idx 0 (ts=None): cumsum=130
+        assert col == [130, 10, 30]
+
+    def test_all_null_values_returns_none(self) -> None:
+        """When all values in the window are null, the result should be None."""
+        table = pa.table(
+            {
+                "region": ["A", "A"],
+                "ts": [1, 2],
+                "value": [None, None],
+            }
+        )
+        feature = Feature(
+            "value__cumsum",
+            options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+
+        result = PyArrowFrameAggregate.calculate_feature(table, fs)
+        col = result.column("value__cumsum").to_pylist()
+
+        assert col == [None, None]
+
+
+class TestTimeWindow:
+    def test_time_window_via_config(self) -> None:
+        """Time-based window using config-based feature creation."""
+        from datetime import datetime, timezone
+
+        table = pa.table(
+            {
+                "region": ["A", "A", "A", "A"],
+                "ts": [
+                    datetime(2023, 1, 1, tzinfo=timezone.utc),
+                    datetime(2023, 1, 2, tzinfo=timezone.utc),
+                    datetime(2023, 1, 4, tzinfo=timezone.utc),
+                    datetime(2023, 1, 5, tzinfo=timezone.utc),
+                ],
+                "value": [10, 20, 30, 40],
+            }
+        )
+        feature = Feature(
+            "my_time_sum",
+            options=Options(
+                context={
+                    "aggregation_type": "sum",
+                    "frame_type": "time",
+                    "frame_size": 2,
+                    "frame_unit": "day",
+                    "in_features": "value",
+                    "partition_by": ["region"],
+                    "order_by": "ts",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+
+        result = PyArrowFrameAggregate.calculate_feature(table, fs)
+        col = result.column("my_time_sum").to_pylist()
+
+        # 2-day window:
+        # Jan 1: window includes Jan 1 (within 2 days back) => [10] => 10
+        # Jan 2: window includes Jan 1, Jan 2 => [10, 20] => 30
+        # Jan 4: window includes Jan 2, Jan 4 (Jan 1 is >2 days before Jan 4) => [20, 30] => 50
+        # Jan 5: window includes Jan 4, Jan 5 (Jan 2 is >2 days before Jan 5) => [30, 40] => 70
+        assert col == [10, 30, 50, 70]
+
+
 class TestRowPreserving:
     def test_output_row_count_equals_input(self, sample_table: pa.Table) -> None:
         feature = Feature(
