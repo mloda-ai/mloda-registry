@@ -42,6 +42,12 @@ result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
 
 Items can be plain strings (`"feature_name"`) or feature objects. `options` and `group_options`/`context_options` are mutually exclusive.
 
+## How Plugins Resolve Config Values
+
+When a JSON config specifies `context_options` like `{"aggregation_type": "sum"}`, the receiving FeatureGroup needs to extract that value at compute time. Plugins using `FeatureChainParserMixin` call `_resolve_operation(feature, config_key)` to handle both string-based names (where the operation is embedded in the feature name) and config-based creation (where the operation comes from options) in one call. See [Chained Features](03-chained-features.md) for the full pattern.
+
+---
+
 ## Full Documentation
 
 See [Feature Configuration](https://mloda-ai.github.io/mloda/in_depth/feature-config/) for additional details.

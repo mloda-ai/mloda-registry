@@ -41,10 +41,34 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     return data
 ```
 
+## Extracting the Operation Type
+
+Chained feature groups (using `FeatureChainParserMixin`) often need to extract an operation type inside `calculate_feature`. The operation can come from the feature name string or from a config key in options. Use `_resolve_operation()` to handle both paths in one call:
+
+```python
+@classmethod
+def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+    for feature in features.features:
+        name = feature.get_name()
+
+        # Resolves from PREFIX_PATTERN match or options["imputation_method"]
+        method = cls._resolve_operation(feature, "imputation_method")
+        source = next(iter(feature.options.get_in_features())).get_name()
+
+        col = data[source]
+        data[name] = col.fillna(col.mean() if method == "mean" else col.median())
+    return data
+```
+
+`_resolve_operation(feature, config_key)` tries string-based parsing via `PREFIX_PATTERN` first, then falls back to `options.get(config_key)`. See [Chained Features](03-chained-features.md) for the full pattern.
+
+---
+
 ## Related
 
 - [Options](11-options.md) - Accessing feature options
 - [Filter Concepts](15-filter-concepts.md) - Using filters in data sources
+- [Chained Features](03-chained-features.md) - FeatureChainParserMixin and `_resolve_operation()`
 
 ## Full Documentation
 

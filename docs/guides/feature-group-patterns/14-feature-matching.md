@@ -103,6 +103,21 @@ Feature("my_output", Options(context={"my_method": "algo_b", "in_features": "inp
 
 **Note:** Subclasses typically only override `compute_framework_rule()` to specify which framework they support (Pandas, Polars, etc.), not matching logic.
 
+### Extracting the Discriminator at Compute Time
+
+At matching time, the mixin resolves string-based and config-based features automatically. At compute time (inside `calculate_feature`), use `_resolve_operation()` to extract the discriminator value without calling `FeatureChainParser` directly:
+
+```python
+@classmethod
+def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+    for feature in features.features:
+        # Resolves from PREFIX_PATTERN or options["my_method"]
+        method = cls._resolve_operation(feature, cls.MY_METHOD)
+        source = next(iter(feature.options.get_in_features())).get_name()
+        data[feature.get_name()] = apply_transform(data[source], method)
+    return data
+```
+
 ### Why Unique Keys?
 
 - **Semantic clarity**: `scaler_type` is clearer than generic `operation_type`
