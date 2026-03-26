@@ -1,12 +1,17 @@
-"""Integration tests for frame aggregate feature group."""
+"""Integration tests for frame aggregate feature group.
+
+Uses the shared DataOpsIntegrationTestBase from the testing library.
+"""
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 import pyarrow as pa
+import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
@@ -14,10 +19,16 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pyarrow_frame_aggregate import (
     PyArrowFrameAggregate,
 )
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
 
 class TestFrameAggregateIntegration(DataOpsIntegrationTestBase):
+    """Standard integration tests inherited from the base class.
+
+    Uses the unified DataOpsIntegrationTestBase framework with real expected
+    values so base-class test methods (primary/secondary pipeline, discovery,
+    pattern matching) run without overrides.
+    """
+
     @classmethod
     def feature_group_class(cls) -> type:
         return PyArrowFrameAggregate
@@ -40,9 +51,12 @@ class TestFrameAggregateIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def primary_expected_values(cls) -> list[Any]:
-        # Rolling sum of window 3 on value_int partitioned by region, ordered by value_int
-        # This depends on the test data, use approximate matching
-        return None  # type: ignore[return-value]
+        # Rolling sum (window 3) on value_int, partitioned by region, ordered by value_int.
+        # Region A sorted: -5, 0, 10, 20
+        # Region B sorted: 30, 50, 60, None
+        # Region C sorted: 15, 15, 40
+        # Region None: -10
+        return [5, -5, -5, 30, 110, 80, 30, 140, 15, 30, 70, -10]
 
     @classmethod
     def secondary_feature_name(cls) -> str:
@@ -54,7 +68,8 @@ class TestFrameAggregateIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def secondary_expected_values(cls) -> list[Any]:
-        return None  # type: ignore[return-value]
+        # Cumulative sum on value_int, partitioned by region, ordered by value_int.
+        return [5, -5, -5, 25, 140, 80, 30, 140, 15, 30, 70, -10]
 
     @classmethod
     def valid_feature_names(cls) -> list[str]:
@@ -82,37 +97,6 @@ class TestFrameAggregateIntegration(DataOpsIntegrationTestBase):
     def expected_row_count(cls) -> int:
         return 12
 
-    @classmethod
-    def use_approx(cls) -> bool:
-        return True
-
-    def test_primary_feature_through_pipeline(self) -> None:
-        """Override: just verify the feature runs without error."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {self.data_creator_class(), self.feature_group_class()}
-        )
-        results = mloda.run_all(
-            [Feature(self.primary_feature_name(), Options(context=self.primary_feature_options()))],
-            compute_frameworks={self.compute_framework_class()},
-            plugin_collector=plugin_collector,
-        )
-        assert len(results) == 1
-        assert self.primary_feature_name() in results[0].column_names
-        assert results[0].num_rows == self.expected_row_count()
-
-    def test_secondary_feature_through_pipeline(self) -> None:
-        """Override: just verify the feature runs without error."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {self.data_creator_class(), self.feature_group_class()}
-        )
-        results = mloda.run_all(
-            [Feature(self.secondary_feature_name(), Options(context=self.secondary_feature_options()))],
-            compute_frameworks={self.compute_framework_class()},
-            plugin_collector=plugin_collector,
-        )
-        assert len(results) == 1
-        assert self.secondary_feature_name() in results[0].column_names
-
 
 class TestFrameAggregateMultiFeature:
     """Test multiple frame aggregate features in a single pipeline run."""
@@ -133,8 +117,59 @@ class TestFrameAggregateMultiFeature:
             plugin_collector=plugin_collector,
         )
 
-        assert len(results) == 1
-        result = results[0]
-        assert "value_int__sum_rolling_3" in result.column_names
-        assert "value_int__cumsum" in result.column_names
-        assert result.num_rows == 12
+        assert len(results) >= 1
+
+        rolling_found = False
+        cumsum_found = False
+        for table in results:
+            if not isinstance(table, pa.Table):
+                continue
+            if "value_int__sum_rolling_3" in table.column_names:
+                col = table.column("value_int__sum_rolling_3").to_pylist()
+                assert col == [5, -5, -5, 30, 110, 80, 30, 140, 15, 30, 70, -10]
+                rolling_found = True
+            if "value_int__cumsum" in table.column_names:
+                col = table.column("value_int__cumsum").to_pylist()
+                assert col == [5, -5, -5, 25, 140, 80, 30, 140, 15, 30, 70, -10]
+                cumsum_found = True
+
+        assert rolling_found, "sum_rolling_3 result not found in any result table"
+        assert cumsum_found, "cumsum result not found in any result table"
+
+    def test_expanding_and_rolling_different_aggs(self) -> None:
+        """Request expanding avg and rolling min in one pipeline run."""
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, PyArrowFrameAggregate}
+        )
+
+        features: list[Feature | str] = [
+            Feature(
+                "value_int__expanding_avg",
+                Options(context={"partition_by": ["region"], "order_by": "value_int"}),
+            ),
+            Feature(
+                "value_int__min_rolling_2",
+                Options(context={"partition_by": ["region"], "order_by": "value_int"}),
+            ),
+        ]
+
+        results = mloda.run_all(
+            features,
+            compute_frameworks={PyArrowTable},
+            plugin_collector=plugin_collector,
+        )
+
+        assert len(results) >= 1
+
+        expanding_found = False
+        rolling_min_found = False
+        for table in results:
+            if not isinstance(table, pa.Table):
+                continue
+            if "value_int__expanding_avg" in table.column_names:
+                expanding_found = True
+            if "value_int__min_rolling_2" in table.column_names:
+                rolling_min_found = True
+
+        assert expanding_found, "expanding_avg result not found in any result table"
+        assert rolling_min_found, "min_rolling_2 result not found in any result table"
