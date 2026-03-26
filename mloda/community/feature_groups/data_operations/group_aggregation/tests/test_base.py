@@ -155,6 +155,34 @@ class TestPatternParsing:
         assert source_features == ["my_col"]
 
 
+class TestPropertyMapping:
+    """Tests for PROPERTY_MAPPING consistency."""
+
+    def test_partition_by_in_property_mapping(self) -> None:
+        """PARTITION_BY should be declared in PROPERTY_MAPPING for consistency with window aggregation."""
+        assert GroupAggregationFeatureGroup.PARTITION_BY in GroupAggregationFeatureGroup.PROPERTY_MAPPING
+
+    def test_partition_by_is_context_parameter(self) -> None:
+        """PARTITION_BY should be declared as a context parameter."""
+        from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+
+        mapping = GroupAggregationFeatureGroup.PROPERTY_MAPPING[GroupAggregationFeatureGroup.PARTITION_BY]
+        assert mapping[DefaultOptionKeys.context] is True
+
+    def test_property_mapping_has_aggregation_type(self) -> None:
+        """AGGREGATION_TYPE should be in PROPERTY_MAPPING with strict validation."""
+        from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+
+        mapping = GroupAggregationFeatureGroup.PROPERTY_MAPPING[GroupAggregationFeatureGroup.AGGREGATION_TYPE]
+        assert mapping[DefaultOptionKeys.strict_validation] is True
+
+    def test_property_mapping_has_in_features(self) -> None:
+        """in_features should be in PROPERTY_MAPPING."""
+        from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+
+        assert DefaultOptionKeys.in_features in GroupAggregationFeatureGroup.PROPERTY_MAPPING
+
+
 class TestConfigValidation:
     """Tests for partition_by configuration validation."""
 
@@ -170,9 +198,21 @@ class TestConfigValidation:
         result = GroupAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_grouped", options, None)
         assert result is True
 
-    def test_partition_by_must_be_list(self) -> None:
-        """partition_by as a plain string (not a list) should fail validation."""
+    def test_partition_by_accepts_tuple_of_strings(self) -> None:
+        """partition_by should accept a tuple of strings (converted from list by mixin)."""
+        options = Options(context={"partition_by": ("region", "country")})
+        result = GroupAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_grouped", options, None)
+        assert result is True
+
+    def test_partition_by_must_be_list_or_tuple(self) -> None:
+        """partition_by as a plain string (not a list or tuple) should fail validation."""
         options = Options(context={"partition_by": "region"})
+        result = GroupAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_grouped", options, None)
+        assert result is False
+
+    def test_partition_by_rejects_non_string_items(self) -> None:
+        """partition_by containing non-string items should fail validation."""
+        options = Options(context={"partition_by": [123, "region"]})
         result = GroupAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_grouped", options, None)
         assert result is False
 
