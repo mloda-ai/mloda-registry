@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
+from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
@@ -39,6 +41,34 @@ class TestClassAttributes:
 
     def test_max_in_features_is_one(self) -> None:
         assert RankFeatureGroup.MAX_IN_FEATURES == 1
+
+
+class TestPropertyMapping:
+    """Tests for PROPERTY_MAPPING consistency with context parameter discovery."""
+
+    def test_property_mapping_contains_partition_by(self) -> None:
+        mapping = RankFeatureGroup.PROPERTY_MAPPING
+        assert RankFeatureGroup.PARTITION_BY in mapping
+        entry = mapping[RankFeatureGroup.PARTITION_BY]
+        assert entry[DefaultOptionKeys.context] is True
+
+    def test_property_mapping_contains_order_by(self) -> None:
+        mapping = RankFeatureGroup.PROPERTY_MAPPING
+        assert RankFeatureGroup.ORDER_BY in mapping
+        entry = mapping[RankFeatureGroup.ORDER_BY]
+        assert entry[DefaultOptionKeys.context] is True
+
+    def test_property_mapping_contains_rank_type(self) -> None:
+        mapping = RankFeatureGroup.PROPERTY_MAPPING
+        assert RankFeatureGroup.RANK_TYPE in mapping
+        entry = mapping[RankFeatureGroup.RANK_TYPE]
+        assert entry[DefaultOptionKeys.context] is True
+
+    def test_property_mapping_contains_in_features(self) -> None:
+        mapping = RankFeatureGroup.PROPERTY_MAPPING
+        assert DefaultOptionKeys.in_features in mapping
+        entry = mapping[DefaultOptionKeys.in_features]
+        assert entry[DefaultOptionKeys.context] is True
 
 
 class TestPatternMatching:
