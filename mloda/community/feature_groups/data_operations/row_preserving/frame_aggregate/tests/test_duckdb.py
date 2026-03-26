@@ -22,11 +22,13 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 @pytest.fixture()
 def duckdb_data() -> DuckdbRelation:
     conn = duckdb.connect(":memory:")
-    arrow_table = pa.table({
-        "region": ["A", "A", "A", "A", "B", "B", "B"],
-        "timestamp": [1, 2, 3, 4, 1, 2, 3],
-        "value": [10, 20, 30, 40, 100, 200, 300],
-    })
+    arrow_table = pa.table(
+        {
+            "region": ["A", "A", "A", "A", "B", "B", "B"],
+            "timestamp": [1, 2, 3, 4, 1, 2, 3],
+            "value": [10, 20, 30, 40, 100, 200, 300],
+        }
+    )
     rel = conn.from_arrow(arrow_table)
     return DuckdbRelation(conn, rel)
 

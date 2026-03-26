@@ -69,7 +69,7 @@ path = "mloda/enterprise/extenders/example"
 description = "Shared base classes for data operation feature groups"
 dependencies = ["mloda>=0.5.5"]
 path = "mloda/community/feature_groups/data_operations"
-optional_dependencies = { all = ["mloda-community-window-aggregation", "mloda-community-group-aggregation", "mloda-community-rank", "mloda-community-offset"] }
+optional_dependencies = { all = ["mloda-community-window-aggregation", "mloda-community-group-aggregation", "mloda-community-rank", "mloda-community-offset", "mloda-community-frame-aggregate"] }
 
 [packages.mloda-community-group-aggregation]
 description = "Group aggregation feature group (reduce, partition_by, one row per group)"
@@ -91,4 +91,10 @@ optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"
 description = "Window aggregation feature group (broadcast, partition_by, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation"
+optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+
+[packages.mloda-community-frame-aggregate]
+description = "Frame aggregate feature group (rolling, cumulative, expanding, time window, row-preserving)"
+dependencies = ["mloda-community-data-operations>=0.2.12"]
+path = "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }

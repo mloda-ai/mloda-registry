@@ -17,7 +17,7 @@ members = [
     "mloda-community-example-a",
     "mloda-community-example-b",
     "mloda-community-extenders-example",
-    "mloda-community-offset",
+    "mloda-community-frame-aggregate",
     "mloda-community-window-aggregation",
     "mloda-enterprise",
     "mloda-enterprise-compute-frameworks-example",
@@ -261,7 +261,7 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
-    { name = "mloda-community-offset" },
+    { name = "mloda-community-frame-aggregate" },
     { name = "mloda-community-window-aggregation" },
 ]
 dev = [
@@ -272,7 +272,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "mloda", specifier = ">=0.5.5" },
-    { name = "mloda-community-offset", marker = "extra == 'all'" },
+    { name = "mloda-community-frame-aggregate", marker = "extra == 'all'" },
     { name = "mloda-community-window-aggregation", marker = "extra == 'all'" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
@@ -374,9 +374,9 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "mloda-community-offset"
+name = "mloda-community-frame-aggregate"
 version = "0.2.12"
-source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/offset" }
+source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate" }
 dependencies = [
     { name = "mloda-community-data-operations" },
 ]

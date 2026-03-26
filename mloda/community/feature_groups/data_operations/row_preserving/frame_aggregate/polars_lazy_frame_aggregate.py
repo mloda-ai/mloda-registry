@@ -75,7 +75,13 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
             elif agg_type == "median":
                 expr = col.rolling_median(window_size=window, min_samples=1).over(partition_by).alias(feature_name)
             elif agg_type == "count":
-                expr = col.is_not_null().cast(pl.Int64).rolling_sum(window_size=window, min_samples=1).over(partition_by).alias(feature_name)
+                expr = (
+                    col.is_not_null()
+                    .cast(pl.Int64)
+                    .rolling_sum(window_size=window, min_samples=1)
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
             else:
                 raise ValueError(f"Unsupported rolling agg for Polars: {agg_type}")
         else:

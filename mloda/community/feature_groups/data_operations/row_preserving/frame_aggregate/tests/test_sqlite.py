@@ -21,11 +21,13 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 @pytest.fixture()
 def sqlite_data() -> SqliteRelation:
     conn = sqlite3.connect(":memory:")
-    table = pa.table({
-        "region": ["A", "A", "A", "A", "B", "B", "B"],
-        "timestamp": [1, 2, 3, 4, 1, 2, 3],
-        "value": [10, 20, 30, 40, 100, 200, 300],
-    })
+    table = pa.table(
+        {
+            "region": ["A", "A", "A", "A", "B", "B", "B"],
+            "timestamp": [1, 2, 3, 4, 1, 2, 3],
+            "value": [10, 20, 30, 40, 100, 200, 300],
+        }
+    )
     return SqliteRelation.from_arrow(conn, table)
 
 

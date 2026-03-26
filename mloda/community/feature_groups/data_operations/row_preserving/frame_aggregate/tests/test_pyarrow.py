@@ -16,11 +16,13 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 
 @pytest.fixture()
 def sample_table() -> pa.Table:
-    return pa.table({
-        "region": ["A", "A", "A", "A", "B", "B", "B"],
-        "timestamp": [1, 2, 3, 4, 1, 2, 3],
-        "value": [10, 20, 30, 40, 100, 200, 300],
-    })
+    return pa.table(
+        {
+            "region": ["A", "A", "A", "A", "B", "B", "B"],
+            "timestamp": [1, 2, 3, 4, 1, 2, 3],
+            "value": [10, 20, 30, 40, 100, 200, 300],
+        }
+    )
 
 
 class TestRollingWindow:
@@ -125,14 +127,16 @@ class TestConfigBased:
     def test_config_rolling(self, sample_table: pa.Table) -> None:
         feature = Feature(
             "my_rolling_sum",
-            options=Options(context={
-                "aggregation_type": "sum",
-                "frame_type": "rolling",
-                "frame_size": 2,
-                "in_features": "value",
-                "partition_by": ["region"],
-                "order_by": "timestamp",
-            }),
+            options=Options(
+                context={
+                    "aggregation_type": "sum",
+                    "frame_type": "rolling",
+                    "frame_size": 2,
+                    "in_features": "value",
+                    "partition_by": ["region"],
+                    "order_by": "timestamp",
+                }
+            ),
         )
         fs = FeatureSet()
         fs.add(feature)

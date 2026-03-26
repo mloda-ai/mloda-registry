@@ -90,80 +90,58 @@ class TestPatternMatching:
 
     def test_matches_rolling_string(self) -> None:
         options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "sales__sum_rolling_3", options, None
-        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
         assert result is True
 
     def test_matches_time_window_string(self) -> None:
         options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "sales__avg_7_day_window", options, None
-        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__avg_7_day_window", options, None)
         assert result is True
 
     def test_matches_cumulative_string(self) -> None:
         options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "sales__cumsum", options, None
-        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__cumsum", options, None)
         assert result is True
 
     def test_matches_expanding_string(self) -> None:
         options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "sales__expanding_avg", options, None
-        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__expanding_avg", options, None)
         assert result is True
 
     def test_rejects_no_partition_by(self) -> None:
         options = Options(context={"order_by": "timestamp"})
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "sales__sum_rolling_3", options, None
-        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
         assert result is False
 
     def test_rejects_no_order_by(self) -> None:
         options = Options(context={"partition_by": ["region"]})
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "sales__sum_rolling_3", options, None
-        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
         assert result is False
 
     def test_rejects_invalid_agg_type(self) -> None:
         options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "sales__unknown_rolling_3", options, None
-        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__unknown_rolling_3", options, None)
         assert result is False
 
     def test_rejects_invalid_cumulative_op(self) -> None:
         """cumavg is not a valid cumulative operation."""
         options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "sales__cumavg", options, None
-        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__cumavg", options, None)
         assert result is False
 
     def test_rejects_invalid_time_unit(self) -> None:
         options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "sales__avg_7_banana_window", options, None
-        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__avg_7_banana_window", options, None)
         assert result is False
 
     def test_rejects_partition_by_as_string(self) -> None:
         options = Options(context={"partition_by": "region", "order_by": "timestamp"})
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "sales__sum_rolling_3", options, None
-        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
         assert result is False
 
     def test_rejects_plain_feature_without_config(self) -> None:
         options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "plain_feature", options, None
-        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("plain_feature", options, None)
         assert result is False
 
 
@@ -171,53 +149,63 @@ class TestConfigBasedMatching:
     """Tests for configuration-based feature matching."""
 
     def test_config_rolling(self) -> None:
-        options = Options(context={
-            "aggregation_type": "sum",
-            "frame_type": "rolling",
-            "frame_size": 3,
-            "in_features": "sales",
-            "partition_by": ["region"],
-            "order_by": "timestamp",
-        })
+        options = Options(
+            context={
+                "aggregation_type": "sum",
+                "frame_type": "rolling",
+                "frame_size": 3,
+                "in_features": "sales",
+                "partition_by": ["region"],
+                "order_by": "timestamp",
+            }
+        )
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is True
 
     def test_config_cumulative(self) -> None:
-        options = Options(context={
-            "aggregation_type": "sum",
-            "frame_type": "cumulative",
-            "in_features": "sales",
-            "partition_by": ["region"],
-            "order_by": "timestamp",
-        })
+        options = Options(
+            context={
+                "aggregation_type": "sum",
+                "frame_type": "cumulative",
+                "in_features": "sales",
+                "partition_by": ["region"],
+                "order_by": "timestamp",
+            }
+        )
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is True
 
     def test_config_rejects_missing_agg_type(self) -> None:
-        options = Options(context={
-            "frame_type": "rolling",
-            "partition_by": ["region"],
-            "order_by": "timestamp",
-        })
+        options = Options(
+            context={
+                "frame_type": "rolling",
+                "partition_by": ["region"],
+                "order_by": "timestamp",
+            }
+        )
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is False
 
     def test_config_rejects_missing_frame_type(self) -> None:
-        options = Options(context={
-            "aggregation_type": "sum",
-            "partition_by": ["region"],
-            "order_by": "timestamp",
-        })
+        options = Options(
+            context={
+                "aggregation_type": "sum",
+                "partition_by": ["region"],
+                "order_by": "timestamp",
+            }
+        )
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is False
 
     def test_config_rejects_invalid_frame_type(self) -> None:
-        options = Options(context={
-            "aggregation_type": "sum",
-            "frame_type": "invalid",
-            "partition_by": ["region"],
-            "order_by": "timestamp",
-        })
+        options = Options(
+            context={
+                "aggregation_type": "sum",
+                "frame_type": "invalid",
+                "partition_by": ["region"],
+                "order_by": "timestamp",
+            }
+        )
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is False
 
@@ -245,13 +233,15 @@ class TestExtractParams:
 
         feature = Feature(
             "my_result",
-            options=Options(context={
-                "aggregation_type": "avg",
-                "frame_type": "expanding",
-                "in_features": "sales",
-                "partition_by": ["region"],
-                "order_by": "ts",
-            }),
+            options=Options(
+                context={
+                    "aggregation_type": "avg",
+                    "frame_type": "expanding",
+                    "in_features": "sales",
+                    "partition_by": ["region"],
+                    "order_by": "ts",
+                }
+            ),
         )
         params = FrameAggregateFeatureGroup._extract_params(feature)
         assert params["source_col"] == "sales"
