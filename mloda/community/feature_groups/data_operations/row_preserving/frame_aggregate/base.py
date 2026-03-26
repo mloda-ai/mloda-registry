@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Optional
+from typing import Any, List, Optional, Set
 
+from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
+from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import FeatureGroup
 from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
 
@@ -146,6 +149,25 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             DefaultOptionKeys.strict_validation: False,
         },
     }
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
+        """Parse input features from the four frame patterns or config fallback."""
+        name = feature_name.name if isinstance(feature_name, FeatureName) else str(feature_name)
+        parsed = self._parse_frame_feature(name)
+        if parsed is not None:
+            return {Feature(parsed["source_col"])}
+        in_features_set = options.get_in_features()
+        return set(in_features_set)
+
+    @classmethod
+    def _extract_source_features(cls, feature: Feature) -> List[str]:
+        """Extract source features from the four frame patterns or config fallback."""
+        name = feature.get_name()
+        parsed = cls._parse_frame_feature(name)
+        if parsed is not None:
+            return [parsed["source_col"]]
+        in_features_set = feature.options.get_in_features()
+        return [f.get_name() for f in in_features_set]
 
     @classmethod
     def _parse_frame_feature(cls, feature_name: str) -> Optional[dict[str, Any]]:

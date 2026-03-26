@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 pl = pytest.importorskip("polars")
+
+if TYPE_CHECKING:
+    import polars
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
@@ -18,16 +21,18 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 
 
 @pytest.fixture()
-def polars_data() -> pl.LazyFrame:
-    return pl.DataFrame({
-        "region": ["A", "A", "A", "A", "B", "B", "B"],
-        "timestamp": [1, 2, 3, 4, 1, 2, 3],
-        "value": [10, 20, 30, 40, 100, 200, 300],
-    }).lazy()
+def polars_data() -> polars.LazyFrame:
+    return pl.DataFrame(
+        {
+            "region": ["A", "A", "A", "A", "B", "B", "B"],
+            "timestamp": [1, 2, 3, 4, 1, 2, 3],
+            "value": [10, 20, 30, 40, 100, 200, 300],
+        }
+    ).lazy()
 
 
 class TestPolarsRolling:
-    def test_rolling_sum_2(self, polars_data: pl.LazyFrame) -> None:
+    def test_rolling_sum_2(self, polars_data: polars.LazyFrame) -> None:
         feature = Feature(
             "value__sum_rolling_2",
             options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
@@ -46,7 +51,7 @@ class TestPolarsRolling:
 
 
 class TestPolarsCumulative:
-    def test_cumsum(self, polars_data: pl.LazyFrame) -> None:
+    def test_cumsum(self, polars_data: polars.LazyFrame) -> None:
         feature = Feature(
             "value__cumsum",
             options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),

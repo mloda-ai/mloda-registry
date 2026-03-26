@@ -61,7 +61,7 @@ class PyArrowFrameAggregate(FrameAggregateFeatureGroup):
                 elif frame_type in ("cumulative", "expanding"):
                     window = [r[2] for r in rows[: pos + 1]]
                 elif frame_type == "time":
-                    window = cls._time_window(rows, pos, order_val, int(frame_size), str(frame_unit))
+                    window = cls._time_window(rows, pos, order_val, frame_size or 1, str(frame_unit or "day"))
                 else:
                     window = [r[2] for r in rows[: pos + 1]]
 

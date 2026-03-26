@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pandas as pd
 import pytest
+
+pd = pytest.importorskip("pandas")
+
+if TYPE_CHECKING:
+    import pandas
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
@@ -19,16 +23,18 @@ pytest.importorskip("pandas")
 
 
 @pytest.fixture()
-def sample_df() -> pd.DataFrame:
-    return pd.DataFrame({
-        "region": ["A", "A", "A", "A", "B", "B", "B"],
-        "timestamp": [1, 2, 3, 4, 1, 2, 3],
-        "value": [10, 20, 30, 40, 100, 200, 300],
-    })
+def sample_df() -> pandas.DataFrame:
+    return pd.DataFrame(
+        {
+            "region": ["A", "A", "A", "A", "B", "B", "B"],
+            "timestamp": [1, 2, 3, 4, 1, 2, 3],
+            "value": [10, 20, 30, 40, 100, 200, 300],
+        }
+    )
 
 
 class TestPandasRolling:
-    def test_rolling_sum_2(self, sample_df: pd.DataFrame) -> None:
+    def test_rolling_sum_2(self, sample_df: pandas.DataFrame) -> None:
         feature = Feature(
             "value__sum_rolling_2",
             options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
@@ -46,7 +52,7 @@ class TestPandasRolling:
 
 
 class TestPandasCumulative:
-    def test_cumsum(self, sample_df: pd.DataFrame) -> None:
+    def test_cumsum(self, sample_df: pandas.DataFrame) -> None:
         feature = Feature(
             "value__cumsum",
             options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
@@ -64,7 +70,7 @@ class TestPandasCumulative:
 
 
 class TestPandasExpanding:
-    def test_expanding_avg(self, sample_df: pd.DataFrame) -> None:
+    def test_expanding_avg(self, sample_df: pandas.DataFrame) -> None:
         feature = Feature(
             "value__expanding_avg",
             options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
@@ -82,7 +88,7 @@ class TestPandasExpanding:
 
 
 class TestPandasRowPreserving:
-    def test_output_rows_equal_input(self, sample_df: pd.DataFrame) -> None:
+    def test_output_rows_equal_input(self, sample_df: pandas.DataFrame) -> None:
         feature = Feature(
             "value__sum_rolling_2",
             options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
