@@ -94,6 +94,16 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
         },
+        PARTITION_BY: {
+            "explanation": "List of columns to partition by",
+            DefaultOptionKeys.context: True,
+            DefaultOptionKeys.strict_validation: False,
+        },
+        ORDER_BY: {
+            "explanation": "Column to order by within each partition",
+            DefaultOptionKeys.context: True,
+            DefaultOptionKeys.strict_validation: False,
+        },
     }
 
     @classmethod
@@ -125,9 +135,7 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             return False
 
         partition_by = options.get(cls.PARTITION_BY)
-        if partition_by is None:
-            return False
-        if not isinstance(partition_by, list):
+        if not isinstance(partition_by, (list, tuple)):
             return False
         if not all(isinstance(item, str) for item in partition_by):
             return False

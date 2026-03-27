@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
+from typing import Set, Type, Union
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
@@ -22,7 +22,7 @@ class DuckdbOffset(OffsetFeatureGroup):
     @classmethod
     def _compute_offset(
         cls,
-        data: Any,
+        data: DuckdbRelation,
         feature_name: str,
         source_col: str,
         partition_by: list[str],
