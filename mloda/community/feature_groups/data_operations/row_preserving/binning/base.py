@@ -14,8 +14,8 @@ from mloda.provider import FeatureGroup
 from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
 
 BINNING_OPS = {
-    "bin": "Equal-width binning (pd.cut equivalent)",
-    "qbin": "Quantile-based binning (pd.qcut equivalent)",
+    "bin": "Equal-width binning (value range divided into n equal intervals)",
+    "qbin": "Quantile-based binning (rows divided into n roughly equal groups by rank)",
 }
 
 
@@ -51,11 +51,17 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return operation_config in BINNING_OPS
 
     @classmethod
+    def _validate_n_bins(cls, n_bins: int, feature_name: str) -> None:
+        if n_bins < 1:
+            raise ValueError(f"n_bins must be >= 1, got {n_bins} (feature: {feature_name})")
+
+    @classmethod
     def get_binning_params(cls, feature_name: str) -> tuple[str, int]:
         prefix_patterns = cls._get_prefix_patterns()
         operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
         if operation_config is not None and source_feature is not None:
             n_bins = int(feature_name.rsplit("_", 1)[-1])
+            cls._validate_n_bins(n_bins, feature_name)
             return operation_config, n_bins
         raise ValueError(f"Could not extract binning parameters from feature name: {feature_name}")
 
@@ -66,12 +72,15 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
         if operation_config is not None:
             n_bins = int(feature_name.rsplit("_", 1)[-1])
+            cls._validate_n_bins(n_bins, feature_name)
             return operation_config, n_bins
         op = feature.options.get(cls.BINNING_OP)
         n = feature.options.get(cls.N_BINS)
         if op is None or n is None:
             raise ValueError(f"Could not extract binning parameters for {feature_name}")
-        return str(op), int(n)
+        n_bins = int(n)
+        cls._validate_n_bins(n_bins, feature_name)
+        return str(op), n_bins
 
     def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
         _feature_name = feature_name.name if isinstance(feature_name, FeatureName) else feature_name

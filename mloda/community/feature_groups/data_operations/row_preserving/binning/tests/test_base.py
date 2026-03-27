@@ -74,6 +74,14 @@ class TestPatternParsing:
         assert op == "qbin"
         assert n_bins == 10
 
+    def test_n_bins_zero_raises(self) -> None:
+        with pytest.raises(ValueError, match="n_bins must be >= 1"):
+            BinningFeatureGroup.get_binning_params("value_int__bin_0")
+
+    def test_n_bins_zero_qbin_raises(self) -> None:
+        with pytest.raises(ValueError, match="n_bins must be >= 1"):
+            BinningFeatureGroup.get_binning_params("value_int__qbin_0")
+
     def test_parse_source_feature(self) -> None:
         from mloda.user import Feature
 

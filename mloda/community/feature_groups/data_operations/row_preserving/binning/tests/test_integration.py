@@ -10,7 +10,10 @@ import pytest
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
-from mloda.testing.feature_groups.data_operations.row_preserving.binning import EXPECTED_BIN_3
+from mloda.testing.feature_groups.data_operations.row_preserving.binning import (
+    EXPECTED_BIN_3,
+    EXPECTED_QBIN_3,
+)
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -128,3 +131,60 @@ class TestIntegrationMultipleFeatures:
 
         assert bin3_found, "value_int__bin_3 result not found"
         assert bin5_found, "value_int__bin_5 result not found"
+
+    def test_qbin_3_integration(self) -> None:
+        """Request qbin_3 feature through the full pipeline."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowBinning})
+
+        f_qbin3 = Feature("value_int__qbin_3", options=Options())
+
+        results = mloda.run_all(
+            [f_qbin3],
+            compute_frameworks={PyArrowTable},
+            plugin_collector=plugin_collector,
+        )
+
+        assert len(results) >= 1
+
+        qbin3_found = False
+        for table in results:
+            if not isinstance(table, pa.Table):
+                continue
+            if "value_int__qbin_3" in table.column_names:
+                result_col = table.column("value_int__qbin_3").to_pylist()
+                assert result_col == EXPECTED_QBIN_3
+                qbin3_found = True
+
+        assert qbin3_found, "value_int__qbin_3 result not found"
+
+    def test_bin_and_qbin_together(self) -> None:
+        """Request both bin and qbin features in one pipeline run."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowBinning})
+
+        f_bin3 = Feature("value_int__bin_3", options=Options())
+        f_qbin3 = Feature("value_int__qbin_3", options=Options())
+
+        results = mloda.run_all(
+            [f_bin3, f_qbin3],
+            compute_frameworks={PyArrowTable},
+            plugin_collector=plugin_collector,
+        )
+
+        assert len(results) >= 1
+
+        bin3_found = False
+        qbin3_found = False
+        for table in results:
+            if not isinstance(table, pa.Table):
+                continue
+            if "value_int__bin_3" in table.column_names:
+                result_col = table.column("value_int__bin_3").to_pylist()
+                assert result_col == EXPECTED_BIN_3
+                bin3_found = True
+            if "value_int__qbin_3" in table.column_names:
+                result_col = table.column("value_int__qbin_3").to_pylist()
+                assert result_col == EXPECTED_QBIN_3
+                qbin3_found = True
+
+        assert bin3_found, "value_int__bin_3 result not found"
+        assert qbin3_found, "value_int__qbin_3 result not found"

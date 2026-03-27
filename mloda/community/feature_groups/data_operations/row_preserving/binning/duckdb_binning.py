@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
+from typing import Any, List, Set, Type, Union
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
@@ -40,14 +40,38 @@ class DuckdbBinning(BinningFeatureGroup):
                 f"NULLIF((MAX({quoted_source}) OVER () - MIN({quoted_source}) OVER ()) / {n_bins}.0, 0)"
                 f") AS INTEGER), {n_bins - 1}) END"
             )
-        elif op == "qbin":
-            expr = (
-                f"CASE WHEN {quoted_source} IS NULL THEN NULL "
-                f"ELSE LEAST(NTILE({n_bins}) OVER (ORDER BY {quoted_source}) - 1, {n_bins - 1}) END"
-            )
-        else:
-            raise ValueError(f"Unsupported binning operation for DuckDB: {op}")
+            raw_sql = f"*, {expr} AS {quoted_feature}"
+            result: DuckdbRelation = data.select(_raw_sql=raw_sql)
+            return result
 
-        raw_sql = f"*, {expr} AS {quoted_feature}"
-        result: DuckdbRelation = data.select(_raw_sql=raw_sql)
-        return result
+        if op == "qbin":
+            return cls._rank_based_qbin(data, feature_name, source_col, n_bins)
+
+        raise ValueError(f"Unsupported binning operation for DuckDB: {op}")
+
+    @classmethod
+    def _rank_based_qbin(
+        cls,
+        data: DuckdbRelation,
+        feature_name: str,
+        source_col: str,
+        n_bins: int,
+    ) -> DuckdbRelation:
+        """Rank-based quantile binning matching NTILE semantics.
+
+        Computes qbin in Python to avoid DuckDB window-ORDER-BY row reordering,
+        then appends the result column back to the relation.
+        """
+        arrow_table = data.to_arrow_table()
+        values = arrow_table.column(source_col).to_pylist()
+
+        indexed: List[tuple[Any, int]] = [(v, i) for i, v in enumerate(values) if v is not None]
+        indexed.sort(key=lambda pair: pair[0])
+        n = len(indexed)
+
+        result_values: List[Any] = [None] * len(values)
+        if n > 0:
+            for rank, (_, orig_idx) in enumerate(indexed):
+                result_values[orig_idx] = rank * n_bins // n
+
+        return data.append_column(feature_name, result_values)

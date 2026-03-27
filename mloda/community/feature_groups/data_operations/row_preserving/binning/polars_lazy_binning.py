@@ -70,35 +70,18 @@ class PolarsLazyBinning(BinningFeatureGroup):
 
     @classmethod
     def _quantile_binning(cls, values: list[Any], non_null: list[Any], n_bins: int) -> list[Any]:
-        sorted_vals = sorted(non_null)
-        n = len(sorted_vals)
+        """Rank-based quantile binning matching NTILE semantics.
 
-        edges = []
-        for i in range(n_bins + 1):
-            pos = i * (n - 1) / n_bins
-            lower_idx = int(pos)
-            frac = pos - lower_idx
-            if lower_idx + 1 < n:
-                edge = sorted_vals[lower_idx] * (1 - frac) + sorted_vals[lower_idx + 1] * frac
-            else:
-                edge = sorted_vals[lower_idx]
-            edges.append(edge)
+        Rows are sorted by value and divided into n_bins roughly equal groups.
+        For N non-null values, rank r (0-based) maps to bin = r * n_bins // N.
+        Ties receive consecutive ranks (same value may span two bins at a boundary).
+        """
+        indexed = [(v, i) for i, v in enumerate(values) if v is not None]
+        indexed.sort(key=lambda pair: pair[0])
+        n = len(indexed)
 
-        result: list[Any] = []
-        for val in values:
-            if val is None:
-                result.append(None)
-                continue
-            bin_idx = 0
-            for i in range(1, len(edges)):
-                if val > edges[i]:
-                    bin_idx = i
-                else:
-                    bin_idx = i - 1
-                    break
-            else:
-                bin_idx = n_bins - 1
-            if bin_idx >= n_bins:
-                bin_idx = n_bins - 1
-            result.append(bin_idx)
+        result: list[Any] = [None] * len(values)
+        for rank, (_, orig_idx) in enumerate(indexed):
+            result[orig_idx] = rank * n_bins // n
+
         return result
