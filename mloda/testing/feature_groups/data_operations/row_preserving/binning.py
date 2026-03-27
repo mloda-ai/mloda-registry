@@ -57,6 +57,25 @@ EXPECTED_BIN_3 = [0, 0, 0, 1, None, 2, 1, 2, 1, 1, 2, 0]
 
 
 # ---------------------------------------------------------------------------
+# qbin expected values (rank-based NTILE semantics)
+# ---------------------------------------------------------------------------
+# Non-null sorted with original indices:
+#   (-10, 11), (-5, 1), (0, 2), (10, 0), (15, 8), (15, 9),
+#   (20, 3), (30, 6), (40, 10), (50, 5), (60, 7)
+# 11 values, n_bins=3: bin = rank * 3 // 11
+#   rank 0 -> 0, rank 1 -> 0, rank 2 -> 0, rank 3 -> 0,
+#   rank 4 -> 1, rank 5 -> 1, rank 6 -> 1, rank 7 -> 1,
+#   rank 8 -> 2, rank 9 -> 2, rank 10 -> 2
+EXPECTED_QBIN_3: list[Any] = [0, 0, 0, 1, None, 2, 1, 2, 1, 1, 2, 0]
+
+# 11 values, n_bins=5: bin = rank * 5 // 11
+#   rank 0 -> 0, rank 1 -> 0, rank 2 -> 0, rank 3 -> 1,
+#   rank 4 -> 1, rank 5 -> 2, rank 6 -> 2, rank 7 -> 3,
+#   rank 8 -> 3, rank 9 -> 4, rank 10 -> 4
+EXPECTED_QBIN_5: list[Any] = [1, 0, 0, 2, None, 4, 3, 4, 1, 2, 3, 0]
+
+
+# ---------------------------------------------------------------------------
 # Standalone helpers
 # ---------------------------------------------------------------------------
 
@@ -186,6 +205,48 @@ class BinningTestBase(ABC):
             if val is not None:
                 assert 0 <= val < 5, f"Bin value {val} out of range [0, 4]"
 
+    # -- qbin concrete tests -------------------------------------------------
+
+    def test_qbin_3_value_int(self) -> None:
+        """Quantile binning of value_int into 3 bins."""
+        fs = make_feature_set("value_int__qbin_3")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert isinstance(result, self.get_expected_type())
+        assert self.get_row_count(result) == 12
+
+        result_col = self.extract_column(result, "value_int__qbin_3")
+        assert result_col == EXPECTED_QBIN_3
+
+    def test_qbin_5_value_int(self) -> None:
+        """Quantile binning of value_int into 5 bins."""
+        fs = make_feature_set("value_int__qbin_5")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert isinstance(result, self.get_expected_type())
+        assert self.get_row_count(result) == 12
+
+        result_col = self.extract_column(result, "value_int__qbin_5")
+        assert result_col == EXPECTED_QBIN_5
+
+    def test_qbin_null_propagation(self) -> None:
+        """Null values produce null qbin assignments."""
+        fs = make_feature_set("value_int__qbin_3")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__qbin_3")
+        assert result_col[4] is None
+
+    def test_qbin_values_in_range(self) -> None:
+        """All non-null qbin values must be in [0, n_bins-1]."""
+        fs = make_feature_set("value_int__qbin_5")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__qbin_5")
+        for val in result_col:
+            if val is not None:
+                assert 0 <= val < 5, f"Qbin value {val} out of range [0, 4]"
+
     # -- Cross-framework comparison (matches PyArrow reference) --------------
 
     def _compare_with_pyarrow(self, feature_name: str) -> None:
@@ -207,6 +268,14 @@ class BinningTestBase(ABC):
     def test_cross_framework_bin_5(self) -> None:
         """bin_5 must match PyArrow reference."""
         self._compare_with_pyarrow("value_int__bin_5")
+
+    def test_cross_framework_qbin_3(self) -> None:
+        """qbin_3 must match PyArrow reference."""
+        self._compare_with_pyarrow("value_int__qbin_3")
+
+    def test_cross_framework_qbin_5(self) -> None:
+        """qbin_5 must match PyArrow reference."""
+        self._compare_with_pyarrow("value_int__qbin_5")
 
     # -- Edge case tests -----------------------------------------------------
 
@@ -232,4 +301,35 @@ class BinningTestBase(ABC):
         result = self.implementation_class().calculate_feature(test_data, fs)
 
         result_col = self.extract_column(result, "value_int__bin_3")
+        assert result_col == [0]
+
+    def test_qbin_all_identical_values(self) -> None:
+        """Quantile binning with all identical values should produce bin 0."""
+        identical_data = {"value_int": [5, 5, 5, 5, 5]}
+        arrow_table = pa.table(identical_data)
+        test_data = self.create_test_data(arrow_table)
+
+        fs = make_feature_set("value_int__qbin_3")
+        result = self.implementation_class().calculate_feature(test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__qbin_3")
+        for val in result_col:
+            if val is not None:
+                assert 0 <= val < 3, f"Qbin value {val} out of range [0, 2]"
+
+    def test_n_bins_zero_rejected(self) -> None:
+        """n_bins=0 must raise ValueError."""
+        with pytest.raises(ValueError, match="n_bins must be >= 1"):
+            self.implementation_class().get_binning_params("value_int__bin_0")
+
+    def test_qbin_single_value(self) -> None:
+        """Quantile binning with a single value."""
+        single_data = {"value_int": [42]}
+        arrow_table = pa.table(single_data)
+        test_data = self.create_test_data(arrow_table)
+
+        fs = make_feature_set("value_int__qbin_3")
+        result = self.implementation_class().calculate_feature(test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__qbin_3")
         assert result_col == [0]

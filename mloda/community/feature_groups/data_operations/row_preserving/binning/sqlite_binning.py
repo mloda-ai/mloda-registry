@@ -48,7 +48,9 @@ class SqliteBinning(BinningFeatureGroup):
         elif op == "qbin":
             expr = (
                 f"CASE WHEN {quoted_source} IS NULL THEN NULL "
-                f"ELSE MIN(NTILE({n_bins}) OVER (ORDER BY {quoted_source}) - 1, {n_bins - 1}) END"
+                f"ELSE MIN(NTILE({n_bins}) OVER ("
+                f"PARTITION BY CASE WHEN {quoted_source} IS NOT NULL THEN 1 END "
+                f"ORDER BY {quoted_source}) - 1, {n_bins - 1}) END"
             )
         else:
             raise ValueError(f"Unsupported binning operation for SQLite: {op}")
