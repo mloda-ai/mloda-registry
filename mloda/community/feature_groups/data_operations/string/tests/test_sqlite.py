@@ -8,80 +8,74 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.user import Feature
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 from mloda.community.feature_groups.data_operations.string.sqlite_string import (
     SqliteStringOps,
 )
+from mloda.testing.feature_groups.data_operations.string import (
+    StringTestBase,
+)
 
 
-@pytest.fixture
-def sample_relation() -> Any:
-    conn = sqlite3.connect(":memory:")
-    arrow_table = pa.table(
-        {
-            "name": ["Alice", "Bob", "Charlie", None, "Eve"],
-            "value": [1, 2, 3, 4, 5],
-        }
-    )
-    relation = SqliteRelation.from_arrow(conn, arrow_table)
-    yield relation
-    conn.close()
+class TestSqliteStringOps(StringTestBase):
+    """All tests inherited from the base class.
+
+    SQLite does not support the 'reverse' operation natively,
+    so supported_ops excludes it. SQLite's UPPER/LOWER only
+    handle ASCII characters, so unicode accented characters
+    are not transformed.
+    """
+
+    @classmethod
+    def supported_ops(cls) -> set[str]:
+        return {"upper", "lower", "trim", "length"}
+
+    @classmethod
+    def expected_upper(cls) -> list[Any]:
+        # SQLite UPPER only handles ASCII; accent e (\u00e9) stays lowercase
+        return ["ALICE", "BOB", None, "", " EVE ", "FRANK", "GRACE", "ALICE", "  ", "BOB", "H\u00e9LLO", None]
+
+    @classmethod
+    def implementation_class(cls) -> Any:
+        return SqliteStringOps
+
+    def create_test_data(self, arrow_table: pa.Table) -> Any:
+        self.conn = sqlite3.connect(":memory:")
+        return SqliteRelation.from_arrow(self.conn, arrow_table)
+
+    def extract_column(self, result: Any, column_name: str) -> list[Any]:
+        arrow_table = result.to_arrow_table()
+        return list(arrow_table.column(column_name).to_pylist())
+
+    def get_row_count(self, result: Any) -> int:
+        return int(len(result))
+
+    def get_expected_type(self) -> Any:
+        return SqliteRelation
+
+    def test_cross_framework_upper(self) -> None:
+        """Skip: SQLite UPPER differs from PyArrow for non-ASCII characters."""
+        pytest.skip("SQLite UPPER handles only ASCII; unicode results differ from PyArrow")
 
 
-def _make_feature_set(feature_name: str) -> FeatureSet:
-    feature = Feature(feature_name, options=Options())
-    fs = FeatureSet()
-    fs.add(feature)
-    return fs
+class TestSqliteReverseUnsupported:
+    """SQLite does not support the reverse operation and should raise ValueError."""
 
+    def test_reverse_raises_error(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        arrow_table = pa.table({"name": ["Alice"], "value": [1]})
+        relation = SqliteRelation.from_arrow(conn, arrow_table)
 
-class TestUpper:
-    def test_upper_values(self, sample_relation: Any) -> None:
-        fs = _make_feature_set("name__upper")
-        result = SqliteStringOps.calculate_feature(sample_relation, fs)
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
 
-        result_col = result.to_arrow_table().column("name__upper").to_pylist()
-        assert result_col == ["ALICE", "BOB", "CHARLIE", None, "EVE"]
+        feature = Feature("name__reverse", options=Options())
+        fs = FeatureSet()
+        fs.add(feature)
 
-
-class TestLength:
-    def test_length_values(self, sample_relation: Any) -> None:
-        fs = _make_feature_set("name__length")
-        result = SqliteStringOps.calculate_feature(sample_relation, fs)
-
-        result_col = result.to_arrow_table().column("name__length").to_pylist()
-        assert result_col == [5, 3, 7, None, 3]
-
-
-class TestNullPropagation:
-    def test_null_produces_null_for_upper(self, sample_relation: Any) -> None:
-        fs = _make_feature_set("name__upper")
-        result = SqliteStringOps.calculate_feature(sample_relation, fs)
-
-        result_col = result.to_arrow_table().column("name__upper").to_pylist()
-        assert result_col[3] is None
-
-
-class TestReverseUnsupported:
-    def test_reverse_raises_error(self, sample_relation: Any) -> None:
-        fs = _make_feature_set("name__reverse")
         with pytest.raises(ValueError, match="reverse"):
-            SqliteStringOps.calculate_feature(sample_relation, fs)
+            SqliteStringOps.calculate_feature(relation, fs)
 
-
-class TestRowPreserving:
-    def test_output_rows_equal_input_rows(self, sample_relation: Any) -> None:
-        fs = _make_feature_set("name__upper")
-        result = SqliteStringOps.calculate_feature(sample_relation, fs)
-
-        assert len(result) == 5
-
-    def test_result_type(self, sample_relation: Any) -> None:
-        fs = _make_feature_set("name__upper")
-        result = SqliteStringOps.calculate_feature(sample_relation, fs)
-
-        assert isinstance(result, SqliteRelation)
+        conn.close()
