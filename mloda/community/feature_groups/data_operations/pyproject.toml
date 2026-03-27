@@ -16,7 +16,7 @@ requires-python = ">=3.10"
 
 [project.optional-dependencies]
 dev = ["mloda-testing", "pytest"]
-all = ["mloda-community-window-aggregation", "mloda-community-datetime", "mloda-community-string"]
+all = ["mloda-community-window-aggregation", "mloda-community-datetime"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
