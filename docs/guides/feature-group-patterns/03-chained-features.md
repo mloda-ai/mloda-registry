@@ -25,7 +25,7 @@ from mloda.provider import FeatureGroup
 from mloda.provider import FeatureChainParserMixin
 from mloda.user import Feature, Options, FeatureName
 from mloda.provider import FeatureSet
-from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+from mloda.provider import DefaultOptionKeys
 
 
 class MeanImputedFeature(FeatureChainParserMixin, FeatureGroup):

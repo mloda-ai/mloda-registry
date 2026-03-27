@@ -209,12 +209,9 @@ wheels = [
 [[package]]
 name = "mloda"
 version = "0.5.5"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://github.com/mloda-ai/mloda.git?branch=main#580abaf87dd02a0f102de5fb24d80619460b8815" }
 dependencies = [
     { name = "pyarrow" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/99/093318ef86d735ab55462e7cf6879cd61aec679f1b873b6156a34a24c638/mloda-0.5.5-py3-none-any.whl", hash = "sha256:18df5fb02206e3a15172bd2994cebd1e6763e06833b24b153aec660f4f5eed69", size = 385404, upload-time = "2026-03-24T06:48:17.846Z" },
 ]
 
 [[package]]
@@ -226,7 +223,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mloda", specifier = ">=0.5.5" }]
+requires-dist = [{ name = "mloda", git = "https://github.com/mloda-ai/mloda.git?branch=main" }]
 
 [[package]]
 name = "mloda-community-compute-frameworks-example"
@@ -429,7 +426,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mloda", specifier = ">=0.5.5" }]
+requires-dist = [{ name = "mloda", git = "https://github.com/mloda-ai/mloda.git?branch=main" }]
 
 [[package]]
 name = "mloda-enterprise-compute-frameworks-example"
@@ -513,7 +510,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.5.5" },
+    { name = "mloda", git = "https://github.com/mloda-ai/mloda.git?branch=main" },
     { name = "mloda-testing", marker = "extra == 'dev'", editable = "mloda/testing" },
     { name = "pytest", marker = "extra == 'dev'" },
 ]
@@ -541,7 +538,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bandit", marker = "extra == 'dev'" },
-    { name = "mloda", specifier = "==0.5.5" },
+    { name = "mloda", git = "https://github.com/mloda-ai/mloda.git?branch=main" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
@@ -567,7 +564,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.5.5" },
+    { name = "mloda", git = "https://github.com/mloda-ai/mloda.git?branch=main" },
     { name = "pytest" },
     { name = "pytest", marker = "extra == 'dev'" },
 ]
