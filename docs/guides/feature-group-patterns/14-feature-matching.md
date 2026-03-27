@@ -127,6 +127,143 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
 
 ---
 
+## Conditional Requirements with `required_when`
+
+Some PROPERTY_MAPPING entries only become required under certain conditions. For example, an `order_by` column is only needed when the aggregation type is `first` or `last`, but not for `sum` or `avg`.
+
+Use `DefaultOptionKeys.required_when` to attach a predicate callable to a mapping entry. The predicate receives an effective `Options` object and returns `True` when the option is required. When the predicate returns `True` and the option value is absent, `match_feature_group_criteria` returns `False`. When the predicate returns `False`, the option is treated as optional.
+
+```python
+from mloda.core.abstract_plugins.components.options import Options
+from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+
+_ORDER_DEPENDENT = {"first", "last"}
+
+def _needs_order_by(options: Options) -> bool:
+    """order_by is required when aggregation_type is first or last."""
+    return options.get("aggregation_type") in _ORDER_DEPENDENT
+
+PROPERTY_MAPPING = {
+    "aggregation_type": {
+        "sum": "Sum", "avg": "Average", "first": "First", "last": "Last",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: True,
+    },
+    "order_by": {
+        "explanation": "Column to order by within each partition",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: False,
+        DefaultOptionKeys.required_when: _needs_order_by,
+    },
+}
+```
+
+### How It Works
+
+1. When `match_feature_group_criteria` runs, it evaluates each `required_when` predicate against the effective options.
+2. For string-based features, the operation value parsed from the feature name (e.g., `first` from `source__first_windowed`) is merged into effective options before predicate evaluation. This means predicates see values from both the feature name and explicit options.
+3. Entries with `required_when` are treated as optional by the base parser. The predicate decides at runtime whether to require them.
+
+### Before and After
+
+Without `required_when`, you must override `match_feature_group_criteria` to manually check conditions:
+
+```python
+# Before: manual override with boilerplate
+@classmethod
+def match_feature_group_criteria(cls, feature_name, options, _dac=None):
+    if not super().match_feature_group_criteria(feature_name, options, _dac):
+        return False
+    agg_type = cls._resolve_agg_type(feature_name, options)
+    if agg_type in {"first", "last"}:
+        order_by = options.get("order_by")
+        if not isinstance(order_by, str):
+            return False
+    return True
+```
+
+With `required_when`, the mixin handles this automatically:
+
+```python
+# After: declarative, no override needed
+PROPERTY_MAPPING = {
+    "aggregation_type": { ... },
+    "order_by": {
+        "explanation": "Column to order by",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: False,
+        DefaultOptionKeys.required_when: _needs_order_by,
+    },
+}
+# match_feature_group_criteria inherited from mixin - no override required
+```
+
+See [property-mapping.md](https://mloda-ai.github.io/mloda/in_depth/property-mapping/) in the core docs for the full reference.
+
+---
+
+## Custom Validation Functions
+
+Use `DefaultOptionKeys.validation_function` to validate option values with a callable instead of checking membership against a fixed set of allowed values. This is useful when valid values cannot be enumerated (numeric ranges, dynamic lookups, type checks).
+
+When `strict_validation` is `True` and a `validation_function` is present, the function is called instead of checking whether the value exists in the mapping dict. The function receives the option value and must return `True` if valid.
+
+```python
+from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+
+PROPERTY_MAPPING = {
+    "window_size": {
+        "explanation": "Number of rows in the rolling window",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: True,
+        DefaultOptionKeys.validation_function: lambda x: isinstance(x, int) and x > 0,
+    },
+    "threshold": {
+        "explanation": "Cutoff value for filtering",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: True,
+        DefaultOptionKeys.validation_function: lambda x: isinstance(x, (int, float)) and 0.0 <= x <= 1.0,
+    },
+}
+```
+
+### When to Use Each Approach
+
+| Approach | Use When | Example |
+|----------|----------|---------|
+| Enumerated values | Fixed set of valid values | `"sum"`, `"avg"`, `"min"` |
+| `validation_function` | Open-ended or numeric values | positive integers, float ranges |
+| No strict validation | Any value is acceptable | free-text, dynamic feature names |
+
+### Combining with `required_when`
+
+Both features can be used together on the same mapping entry:
+
+```python
+PROPERTY_MAPPING = {
+    "aggregation_type": {
+        "sum": "Sum", "avg": "Average", "first": "First",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: True,
+    },
+    "order_by": {
+        "explanation": "Column to order by",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: False,
+        DefaultOptionKeys.required_when: _needs_order_by,
+    },
+    "window_size": {
+        "explanation": "Rolling window size (positive integer)",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: True,
+        DefaultOptionKeys.validation_function: lambda x: isinstance(x, int) and x > 0,
+        DefaultOptionKeys.required_when: lambda opts: opts.get("aggregation_type") == "sum",
+    },
+}
+```
+
+---
+
 ## Matching vs Naming
 
 | Concept | Method | Purpose |
