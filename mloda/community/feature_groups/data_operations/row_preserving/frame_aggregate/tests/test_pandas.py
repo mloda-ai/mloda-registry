@@ -1,4 +1,7 @@
-"""Tests for Pandas frame aggregate implementation."""
+"""Tests for Pandas frame aggregate implementation.
+
+Uses the unified FrameAggregateTestBase.
+"""
 
 from __future__ import annotations
 
@@ -11,90 +14,32 @@ pd = pytest.importorskip("pandas")
 if TYPE_CHECKING:
     import pandas
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.user import Feature
+import pyarrow as pa
+
+from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate import (
+    FrameAggregateTestBase,
+)
 
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pandas_frame_aggregate import (
     PandasFrameAggregate,
 )
 
-pytest.importorskip("pandas")
 
+class TestPandasFrameAggregate(FrameAggregateTestBase):
+    """Unified tests inherited from the base class."""
 
-@pytest.fixture()
-def sample_df() -> pandas.DataFrame:
-    return pd.DataFrame(
-        {
-            "region": ["A", "A", "A", "A", "B", "B", "B"],
-            "timestamp": [1, 2, 3, 4, 1, 2, 3],
-            "value": [10, 20, 30, 40, 100, 200, 300],
-        }
-    )
+    @classmethod
+    def implementation_class(cls) -> Any:
+        return PandasFrameAggregate
 
+    def create_test_data(self, arrow_table: pa.Table) -> Any:
+        return arrow_table.to_pandas()
 
-class TestPandasRolling:
-    def test_rolling_sum_2(self, sample_df: pandas.DataFrame) -> None:
-        feature = Feature(
-            "value__sum_rolling_2",
-            options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
+    def extract_column(self, result: Any, column_name: str) -> list[Any]:
+        return list(result[column_name].tolist())
 
-        result = PandasFrameAggregate.calculate_feature(sample_df, fs)
-        col = result["value__sum_rolling_2"].tolist()
+    def get_row_count(self, result: Any) -> int:
+        return len(result)
 
-        assert col[0] == 10.0
-        assert col[1] == 30.0
-        assert col[2] == 50.0
-        assert col[3] == 70.0
-
-
-class TestPandasCumulative:
-    def test_cumsum(self, sample_df: pandas.DataFrame) -> None:
-        feature = Feature(
-            "value__cumsum",
-            options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-
-        result = PandasFrameAggregate.calculate_feature(sample_df, fs)
-        col = result["value__cumsum"].tolist()
-
-        assert col[0] == 10.0
-        assert col[1] == 30.0
-        assert col[2] == 60.0
-        assert col[3] == 100.0
-
-
-class TestPandasExpanding:
-    def test_expanding_avg(self, sample_df: pandas.DataFrame) -> None:
-        feature = Feature(
-            "value__expanding_avg",
-            options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-
-        result = PandasFrameAggregate.calculate_feature(sample_df, fs)
-        col = result["value__expanding_avg"].tolist()
-
-        assert col[0] == 10.0
-        assert col[1] == 15.0
-        assert col[2] == 20.0
-        assert col[3] == 25.0
-
-
-class TestPandasRowPreserving:
-    def test_output_rows_equal_input(self, sample_df: pandas.DataFrame) -> None:
-        feature = Feature(
-            "value__sum_rolling_2",
-            options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-
-        result = PandasFrameAggregate.calculate_feature(sample_df, fs)
-        assert len(result) == len(sample_df)
+    def get_expected_type(self) -> Any:
+        return pd.DataFrame

@@ -1,4 +1,7 @@
-"""Tests for DuckDB frame aggregate implementation."""
+"""Tests for DuckDB frame aggregate implementation.
+
+Uses the unified FrameAggregateTestBase.
+"""
 
 from __future__ import annotations
 
@@ -9,9 +12,9 @@ import pytest
 
 duckdb = pytest.importorskip("duckdb")
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.user import Feature
+from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate import (
+    FrameAggregateTestBase,
+)
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.duckdb_frame_aggregate import (
@@ -19,51 +22,27 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 )
 
 
-@pytest.fixture()
-def duckdb_data() -> DuckdbRelation:
-    conn = duckdb.connect(":memory:")
-    arrow_table = pa.table(
-        {
-            "region": ["A", "A", "A", "A", "B", "B", "B"],
-            "timestamp": [1, 2, 3, 4, 1, 2, 3],
-            "value": [10, 20, 30, 40, 100, 200, 300],
-        }
-    )
-    rel = conn.from_arrow(arrow_table)
-    return DuckdbRelation(conn, rel)
+class TestDuckDBFrameAggregate(FrameAggregateTestBase):
+    """Unified tests inherited from the base class."""
 
+    @classmethod
+    def implementation_class(cls) -> Any:
+        return DuckDBFrameAggregate
 
-class TestDuckDBRolling:
-    def test_rolling_sum_2(self, duckdb_data: DuckdbRelation) -> None:
-        feature = Feature(
-            "value__sum_rolling_2",
-            options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
+    def setup_method(self) -> None:
+        self.conn = duckdb.connect(":memory:")
+        super().setup_method()
 
-        result = DuckDBFrameAggregate.calculate_feature(duckdb_data, fs)
-        col = result.to_arrow_table().column("value__sum_rolling_2").to_pylist()
+    def create_test_data(self, arrow_table: pa.Table) -> Any:
+        rel = self.conn.from_arrow(arrow_table)
+        return DuckdbRelation(self.conn, rel)
 
-        assert col[0] == 10
-        assert col[1] == 30
-        assert col[2] == 50
-        assert col[3] == 70
+    def extract_column(self, result: Any, column_name: str) -> list[Any]:
+        arrow_table = result.to_arrow_table()
+        return list(arrow_table.column(column_name).to_pylist())
 
+    def get_row_count(self, result: Any) -> int:
+        return int(result.to_arrow_table().num_rows)
 
-class TestDuckDBCumulative:
-    def test_cumsum(self, duckdb_data: DuckdbRelation) -> None:
-        feature = Feature(
-            "value__cumsum",
-            options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-
-        result = DuckDBFrameAggregate.calculate_feature(duckdb_data, fs)
-        col = result.to_arrow_table().column("value__cumsum").to_pylist()
-
-        assert col[0] == 10
-        assert col[1] == 30
-        assert col[2] == 60
-        assert col[3] == 100
+    def get_expected_type(self) -> Any:
+        return DuckdbRelation

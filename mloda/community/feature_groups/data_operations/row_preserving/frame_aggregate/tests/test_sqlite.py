@@ -1,4 +1,7 @@
-"""Tests for SQLite frame aggregate implementation."""
+"""Tests for SQLite frame aggregate implementation.
+
+Uses the unified FrameAggregateTestBase.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +11,9 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.user import Feature
+from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate import (
+    FrameAggregateTestBase,
+)
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
@@ -18,69 +21,25 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 )
 
 
-@pytest.fixture()
-def sqlite_data() -> SqliteRelation:
-    conn = sqlite3.connect(":memory:")
-    table = pa.table(
-        {
-            "region": ["A", "A", "A", "A", "B", "B", "B"],
-            "timestamp": [1, 2, 3, 4, 1, 2, 3],
-            "value": [10, 20, 30, 40, 100, 200, 300],
-        }
-    )
-    return SqliteRelation.from_arrow(conn, table)
+class TestSqliteFrameAggregate(FrameAggregateTestBase):
+    """Unified tests inherited from the base class."""
 
+    @classmethod
+    def implementation_class(cls) -> Any:
+        return SqliteFrameAggregate
 
-class TestSqliteRolling:
-    def test_rolling_sum_2(self, sqlite_data: SqliteRelation) -> None:
-        feature = Feature(
-            "value__sum_rolling_2",
-            options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
+    def setup_method(self) -> None:
+        self.conn = sqlite3.connect(":memory:")
+        super().setup_method()
 
-        result = SqliteFrameAggregate.calculate_feature(sqlite_data, fs)
-        col = list(result.to_arrow_table().column("value__sum_rolling_2").to_pylist())
+    def create_test_data(self, arrow_table: pa.Table) -> Any:
+        return SqliteRelation.from_arrow(self.conn, arrow_table)
 
-        assert col[0] == 10
-        assert col[1] == 30
-        assert col[2] == 50
-        assert col[3] == 70
-        assert col[4] == 100
-        assert col[5] == 300
-        assert col[6] == 500
+    def extract_column(self, result: Any, column_name: str) -> list[Any]:
+        return list(result.to_arrow_table().column(column_name).to_pylist())
 
+    def get_row_count(self, result: Any) -> int:
+        return len(result)
 
-class TestSqliteCumulative:
-    def test_cumsum(self, sqlite_data: SqliteRelation) -> None:
-        feature = Feature(
-            "value__cumsum",
-            options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-
-        result = SqliteFrameAggregate.calculate_feature(sqlite_data, fs)
-        col = list(result.to_arrow_table().column("value__cumsum").to_pylist())
-
-        assert col[0] == 10
-        assert col[1] == 30
-        assert col[2] == 60
-        assert col[3] == 100
-        assert col[4] == 100
-        assert col[5] == 300
-        assert col[6] == 600
-
-
-class TestSqliteRowPreserving:
-    def test_output_rows_equal_input(self, sqlite_data: SqliteRelation) -> None:
-        feature = Feature(
-            "value__sum_rolling_2",
-            options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-
-        result = SqliteFrameAggregate.calculate_feature(sqlite_data, fs)
-        assert len(result) == 7
+    def get_expected_type(self) -> Any:
+        return SqliteRelation
