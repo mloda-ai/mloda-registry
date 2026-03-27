@@ -1,4 +1,4 @@
-"""DuckDB implementation for column aggregation feature groups."""
+"""DuckDB implementation for single-column global aggregate broadcast."""
 
 from __future__ import annotations
 

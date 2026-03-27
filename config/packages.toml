@@ -78,7 +78,7 @@ path = "mloda/community/feature_groups/data_operations/row_preserving/window_agg
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
 
 [packages.mloda-community-aggregation]
-description = "Column aggregation feature group (horizontal, across columns per row)"
+description = "Column aggregation feature group (single-column global aggregate broadcast)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/aggregation"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }

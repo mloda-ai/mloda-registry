@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AGGREGATION_TYPES,
@@ -114,3 +116,86 @@ class TestConfigBasedFeatures:
         )
         result = ColumnAggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is False
+
+
+class TestSingleColumnEnforcement:
+    """Verify that MAX_IN_FEATURES=1 enforces single-column behavior.
+
+    The aggregation package computes a scalar aggregate over one source
+    column and broadcasts it to every row. Multiple in_features are
+    rejected by input_features() validation.
+    """
+
+    def test_max_in_features_is_one(self) -> None:
+        assert ColumnAggregationFeatureGroup.MAX_IN_FEATURES == 1
+
+    def test_input_features_rejects_multiple_option_in_features(self) -> None:
+        """Option-based features with >1 in_features must be rejected."""
+        options = Options(
+            context={
+                "aggregation_type": "sum",
+                "in_features": ["col_a", "col_b"],
+            }
+        )
+        instance = ColumnAggregationFeatureGroup()
+        with pytest.raises(ValueError, match="at most 1"):
+            instance.input_features(options, FeatureName("my_result"))
+
+    def test_extract_source_features_returns_single_item_for_string_pattern(self) -> None:
+        feature = Feature("value_int__sum_aggr", options=Options())
+        source_features = ColumnAggregationFeatureGroup._extract_source_features(feature)
+        assert len(source_features) == 1
+        assert source_features == ["value_int"]
+
+    def test_input_features_returns_single_feature_for_string_pattern(self) -> None:
+        options = Options()
+        instance = ColumnAggregationFeatureGroup()
+        result = instance.input_features(options, FeatureName("value_int__sum_aggr"))
+        assert result is not None
+        assert len(result) == 1
+        names = {f.get_name() for f in result}
+        assert names == {"value_int"}
+
+    def test_input_features_returns_single_feature_for_option_config(self) -> None:
+        options = Options(
+            context={
+                "aggregation_type": "max",
+                "in_features": "revenue",
+            }
+        )
+        instance = ColumnAggregationFeatureGroup()
+        result = instance.input_features(options, FeatureName("my_max_result"))
+        assert result is not None
+        assert len(result) == 1
+        names = {f.get_name() for f in result}
+        assert names == {"revenue"}
+
+
+class TestAggregationTypeExtraction:
+    """Verify aggregation type extraction from both string and option sources."""
+
+    def test_get_aggregation_type_raises_for_non_pattern_name(self) -> None:
+        with pytest.raises(ValueError, match="Could not extract"):
+            ColumnAggregationFeatureGroup.get_aggregation_type("plain_name")
+
+    def test_extract_aggregation_type_from_options(self) -> None:
+        options = Options(
+            context={
+                "aggregation_type": "median",
+                "in_features": "value_int",
+            }
+        )
+        feature = Feature("my_result", options=options)
+        agg_type = ColumnAggregationFeatureGroup._extract_aggregation_type(feature)
+        assert agg_type == "median"
+
+    def test_extract_aggregation_type_raises_without_option(self) -> None:
+        feature = Feature("plain_name", options=Options())
+        with pytest.raises(ValueError, match="Could not extract"):
+            ColumnAggregationFeatureGroup._extract_aggregation_type(feature)
+
+    @pytest.mark.parametrize("agg_type", list(AGGREGATION_TYPES.keys()))
+    def test_get_aggregation_type_for_all_ops(self, agg_type: str) -> None:
+        feature_name = f"col__{agg_type}_aggr"
+        result = ColumnAggregationFeatureGroup.get_aggregation_type(feature_name)
+        assert result == agg_type

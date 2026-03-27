@@ -1,13 +1,13 @@
 """Base class for column aggregation feature groups.
 
-Horizontal aggregation across columns per row. Port of core's
-AggregatedFeatureGroup with added DuckDB and SQLite support.
+Computes a scalar aggregate over a single source column and broadcasts
+the result to every row (global aggregate broadcast). Supports DuckDB,
+SQLite, Pandas, Polars, and PyArrow backends.
 
 Pattern: ``{col}__{agg}_aggr``
 
-For single-column features, computes a scalar aggregate over the column
-and broadcasts it to every row. For multi-column features (discovered
-via ``resolve_multi_column_feature``), aggregates across columns per row.
+Example: ``value_int__sum_aggr`` computes the sum of the ``value_int``
+column and fills every row with that scalar result.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ class ColumnAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             DefaultOptionKeys.strict_validation: True,
         },
         DefaultOptionKeys.in_features: {
-            "explanation": "Source feature to aggregate",
+            "explanation": "Single source feature column to aggregate",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
         },

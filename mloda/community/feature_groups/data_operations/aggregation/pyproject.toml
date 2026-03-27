@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mloda-community-aggregation"
 version = "0.2.12"
-description = "Column aggregation feature group (horizontal, across columns per row)"
+description = "Column aggregation feature group (single-column global aggregate broadcast)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
 dependencies = ["mloda-community-data-operations>=0.2.12"]

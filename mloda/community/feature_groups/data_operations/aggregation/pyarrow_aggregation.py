@@ -1,4 +1,4 @@
-"""PyArrow implementation for column aggregation feature groups."""
+"""PyArrow implementation for single-column global aggregate broadcast."""
 
 from __future__ import annotations
 
