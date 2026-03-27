@@ -95,6 +95,15 @@ When your feature group supports multiple method variants (e.g., different scali
 
 Use specific keys (not generic `operation_type`) to avoid collisions between feature group types. See [Feature Matching](14-feature-matching.md#discriminator-keys-for-configuration-based-matching) for the full pattern.
 
+## Advanced PROPERTY_MAPPING Features
+
+PROPERTY_MAPPING supports two additional capabilities that reduce boilerplate in `match_feature_group_criteria` overrides:
+
+- **`required_when`**: Declare options that are only required under certain conditions via a predicate callable. For example, requiring `order_by` only when the aggregation type is `first` or `last`.
+- **`validation_function`**: Validate option values with a callable instead of checking membership against fixed values. Useful for numeric ranges or dynamic constraints.
+
+See [Feature Matching: Conditional Requirements](14-feature-matching.md#conditional-requirements-with-required_when) and [Feature Matching: Custom Validation Functions](14-feature-matching.md#custom-validation-functions) for full details and examples.
+
 ## Test
 
 ```python
