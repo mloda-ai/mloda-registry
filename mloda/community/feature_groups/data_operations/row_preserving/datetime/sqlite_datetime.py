@@ -24,7 +24,7 @@ _SQLITE_DATETIME_EXPRS: dict[str, str] = {
     "minute": "CAST(strftime('%M', {col}) AS INTEGER)",
     "second": "CAST(strftime('%S', {col}) AS INTEGER)",
     "dayofweek": "(CAST(strftime('%w', {col}) AS INTEGER) + 6) % 7",
-    "is_weekend": "CASE WHEN strftime('%w', {col}) IN ('0', '6') THEN 1 ELSE 0 END",
+    "is_weekend": "CASE WHEN {col} IS NULL THEN NULL WHEN strftime('%w', {col}) IN ('0', '6') THEN 1 ELSE 0 END",
     "quarter": "((CAST(strftime('%m', {col}) AS INTEGER) - 1) / 3 + 1)",
 }
 

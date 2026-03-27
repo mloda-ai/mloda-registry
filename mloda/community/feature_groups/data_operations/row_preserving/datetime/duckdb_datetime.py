@@ -14,9 +14,9 @@ from mloda.community.feature_groups.data_operations.row_preserving.datetime.base
 )
 
 # DuckDB native function expressions for datetime extraction.
-# dayofweek: DuckDB DAYOFWEEK returns 1=Monday..7=Sunday. Convert to 0=Monday:
-#   DAYOFWEEK(col) - 1
-# is_weekend: DuckDB DAYOFWEEK 6=Saturday, 7=Sunday
+# dayofweek: DuckDB DAYOFWEEK returns 0=Sunday, 1=Monday, ..., 6=Saturday.
+#   Convert to Python convention (0=Monday, 6=Sunday): (DAYOFWEEK(col) + 6) % 7
+# is_weekend: DuckDB DAYOFWEEK 0=Sunday, 6=Saturday
 _DUCKDB_DATETIME_EXPRS: dict[str, str] = {
     "year": "YEAR({col})",
     "month": "MONTH({col})",
@@ -24,8 +24,8 @@ _DUCKDB_DATETIME_EXPRS: dict[str, str] = {
     "hour": "HOUR({col})",
     "minute": "MINUTE({col})",
     "second": "SECOND({col})",
-    "dayofweek": "DAYOFWEEK({col}) - 1",
-    "is_weekend": "CASE WHEN DAYOFWEEK({col}) IN (6, 7) THEN 1 ELSE 0 END",
+    "dayofweek": "(DAYOFWEEK({col}) + 6) % 7",
+    "is_weekend": "CASE WHEN DAYOFWEEK({col}) IN (0, 6) THEN 1 WHEN {col} IS NULL THEN NULL ELSE 0 END",
     "quarter": "QUARTER({col})",
 }
 

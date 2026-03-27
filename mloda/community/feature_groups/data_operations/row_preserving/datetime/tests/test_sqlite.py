@@ -3,97 +3,39 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
 from typing import Any
 
 import pyarrow as pa
-import pytest
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.user import Feature
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.sqlite_datetime import (
     SqliteDateTimeExtraction,
 )
+from mloda.testing.feature_groups.data_operations.row_preserving.datetime import (
+    DateTimeTestBase,
+)
 
 
-@pytest.fixture
-def sample_relation() -> Any:
-    conn = sqlite3.connect(":memory:")
-    arrow_table = pa.table(
-        {
-            "timestamp": [
-                datetime(2024, 1, 15, 10, 30, 45).isoformat(),
-                datetime(2024, 6, 22, 14, 0, 0).isoformat(),
-                datetime(2024, 12, 25, 0, 0, 0).isoformat(),
-                datetime(2024, 3, 9, 8, 15, 30).isoformat(),
-                datetime(2024, 7, 13, 18, 45, 59).isoformat(),
-            ],
-            "value": [1, 2, 3, 4, 5],
-        }
-    )
-    relation = SqliteRelation.from_arrow(conn, arrow_table)
-    yield relation
-    conn.close()
+class TestSqliteDateTimeExtraction(DateTimeTestBase):
+    """All tests inherited from the base class."""
 
+    def setup_method(self) -> None:
+        self.conn = sqlite3.connect(":memory:")
+        super().setup_method()
 
-def _make_feature_set(feature_name: str) -> FeatureSet:
-    feature = Feature(feature_name, options=Options())
-    fs = FeatureSet()
-    fs.add(feature)
-    return fs
+    @classmethod
+    def implementation_class(cls) -> Any:
+        return SqliteDateTimeExtraction
 
+    def create_test_data(self, arrow_table: pa.Table) -> Any:
+        return SqliteRelation.from_arrow(self.conn, arrow_table)
 
-class TestYearExtraction:
-    def test_year_values(self, sample_relation: Any) -> None:
-        fs = _make_feature_set("timestamp__year")
-        result = SqliteDateTimeExtraction.calculate_feature(sample_relation, fs)
+    def extract_column(self, result: Any, column_name: str) -> list[Any]:
+        return list(result.to_arrow_table().column(column_name).to_pylist())
 
-        result_col = result.to_arrow_table().column("timestamp__year").to_pylist()
-        assert result_col == [2024, 2024, 2024, 2024, 2024]
+    def get_row_count(self, result: Any) -> int:
+        return len(result)
 
-    def test_month_values(self, sample_relation: Any) -> None:
-        fs = _make_feature_set("timestamp__month")
-        result = SqliteDateTimeExtraction.calculate_feature(sample_relation, fs)
-
-        result_col = result.to_arrow_table().column("timestamp__month").to_pylist()
-        assert result_col == [1, 6, 12, 3, 7]
-
-    def test_day_values(self, sample_relation: Any) -> None:
-        fs = _make_feature_set("timestamp__day")
-        result = SqliteDateTimeExtraction.calculate_feature(sample_relation, fs)
-
-        result_col = result.to_arrow_table().column("timestamp__day").to_pylist()
-        assert result_col == [15, 22, 25, 9, 13]
-
-
-class TestIsWeekend:
-    def test_is_weekend_values(self, sample_relation: Any) -> None:
-        fs = _make_feature_set("timestamp__is_weekend")
-        result = SqliteDateTimeExtraction.calculate_feature(sample_relation, fs)
-
-        result_col = result.to_arrow_table().column("timestamp__is_weekend").to_pylist()
-        assert result_col == [0, 1, 0, 1, 1]
-
-    def test_dayofweek_values(self, sample_relation: Any) -> None:
-        fs = _make_feature_set("timestamp__dayofweek")
-        result = SqliteDateTimeExtraction.calculate_feature(sample_relation, fs)
-
-        result_col = result.to_arrow_table().column("timestamp__dayofweek").to_pylist()
-        assert result_col == [0, 5, 2, 5, 5]
-
-
-class TestRowPreserving:
-    def test_output_rows_equal_input_rows(self, sample_relation: Any) -> None:
-        fs = _make_feature_set("timestamp__year")
-        result = SqliteDateTimeExtraction.calculate_feature(sample_relation, fs)
-
-        assert len(result) == 5
-
-    def test_result_type(self, sample_relation: Any) -> None:
-        fs = _make_feature_set("timestamp__year")
-        result = SqliteDateTimeExtraction.calculate_feature(sample_relation, fs)
-
-        assert isinstance(result, SqliteRelation)
+    def get_expected_type(self) -> type:
+        return SqliteRelation

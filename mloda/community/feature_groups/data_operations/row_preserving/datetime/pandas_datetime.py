@@ -45,7 +45,10 @@ class PandasDateTimeExtraction(DateTimeFeatureGroup):
         elif op == "dayofweek":
             data[feature_name] = col.dt.dayofweek
         elif op == "is_weekend":
-            data[feature_name] = (col.dt.dayofweek >= 5).astype(int)
+            mask = col.notna()
+            result = pd.array([pd.NA] * len(col), dtype="Int64")
+            result[mask] = (col[mask].dt.dayofweek >= 5).astype(int).values
+            data[feature_name] = result
         elif op == "quarter":
             data[feature_name] = col.dt.quarter
         else:
