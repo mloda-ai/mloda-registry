@@ -30,9 +30,22 @@ class TestClassAttributes:
     def test_supports_pct_change(self) -> None:
         assert OffsetFeatureGroup._supports_offset_type("pct_change_1")
 
+    def test_supports_first_value(self) -> None:
+        assert OffsetFeatureGroup._supports_offset_type("first_value")
+
+    def test_supports_last_value(self) -> None:
+        assert OffsetFeatureGroup._supports_offset_type("last_value")
+
     def test_rejects_invalid(self) -> None:
         assert not OffsetFeatureGroup._supports_offset_type("lag_0")
         assert not OffsetFeatureGroup._supports_offset_type("unknown")
+
+    def test_rejects_non_numeric_suffix(self) -> None:
+        assert not OffsetFeatureGroup._supports_offset_type("lag_abc")
+        assert not OffsetFeatureGroup._supports_offset_type("lead_")
+
+    def test_rejects_empty_string(self) -> None:
+        assert not OffsetFeatureGroup._supports_offset_type("")
 
     def test_min_max_in_features(self) -> None:
         assert OffsetFeatureGroup.MIN_IN_FEATURES == 1
@@ -97,6 +110,23 @@ class TestConfigValidation:
     def test_valid_config(self) -> None:
         options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
         assert OffsetFeatureGroup.match_feature_group_criteria("value_int__lag_1_offset", options, None)
+
+    def test_partition_by_as_tuple(self) -> None:
+        """partition_by should accept tuples (mloda converts lists to tuples internally)."""
+        options = Options(context={"partition_by": ("region",), "order_by": "value_int"})
+        assert OffsetFeatureGroup.match_feature_group_criteria("value_int__lag_1_offset", options, None)
+
+    def test_partition_by_rejects_string(self) -> None:
+        options = Options(context={"partition_by": "region", "order_by": "value_int"})
+        assert not OffsetFeatureGroup.match_feature_group_criteria("value_int__lag_1_offset", options, None)
+
+    def test_partition_by_rejects_non_string_items(self) -> None:
+        options = Options(context={"partition_by": [123], "order_by": "value_int"})
+        assert not OffsetFeatureGroup.match_feature_group_criteria("value_int__lag_1_offset", options, None)
+
+    def test_order_by_rejects_non_string(self) -> None:
+        options = Options(context={"partition_by": ["region"], "order_by": 123})
+        assert not OffsetFeatureGroup.match_feature_group_criteria("value_int__lag_1_offset", options, None)
 
 
 class TestConfigBasedFeatures:
