@@ -60,6 +60,12 @@ class TestPatternMatching:
         result = StringFeatureGroup.match_feature_group_criteria("upper", options, None)
         assert result is False
 
+    def test_no_match_empty_prefix(self) -> None:
+        """Empty prefix before __ must not match (requires at least one character)."""
+        options = Options()
+        result = StringFeatureGroup.match_feature_group_criteria("__upper", options, None)
+        assert result is False
+
 
 class TestPatternParsing:
     def test_parse_upper_operation(self) -> None:

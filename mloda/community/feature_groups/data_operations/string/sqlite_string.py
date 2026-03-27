@@ -29,6 +29,11 @@ class SqliteStringOps(StringFeatureGroup):
         return {SqliteFramework}
 
     @classmethod
+    def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
+        """Reject 'reverse' at match time since SQLite has no native reverse function."""
+        return operation_config in _SQLITE_STRING_EXPRS
+
+    @classmethod
     def _compute_string(
         cls,
         data: SqliteRelation,
@@ -36,8 +41,6 @@ class SqliteStringOps(StringFeatureGroup):
         source_col: str,
         op: str,
     ) -> SqliteRelation:
-        if op == "reverse":
-            raise ValueError("SQLite does not support the 'reverse' string operation natively.")
 
         expr_template = _SQLITE_STRING_EXPRS.get(op)
         if expr_template is None:

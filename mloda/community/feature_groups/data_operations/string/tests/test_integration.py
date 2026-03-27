@@ -84,7 +84,7 @@ class TestStringIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def invalid_feature_names(cls) -> list[str]:
-        return ["name", "name__split", "upper", "name__sum_groupby"]
+        return ["name", "name__split", "upper", "__upper", "name__sum_groupby"]
 
     @classmethod
     def match_options(cls) -> Options:
@@ -201,3 +201,99 @@ class TestIntegrationMultipleFeatures:
 
         assert trim_found, "name__trim result not found in any result table"
         assert length_found, "name__length result not found in any result table"
+
+
+class TestConfigBasedExecution:
+    """Test config-based (non-pattern) feature execution through the pipeline."""
+
+    def test_config_based_upper_through_pipeline(self) -> None:
+        """Run a config-based upper feature (non-pattern name) through run_all."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowStringOps})
+
+        feature = Feature(
+            "uppercased_name",
+            options=Options(
+                context={
+                    "string_op": "upper",
+                    "in_features": "name",
+                }
+            ),
+        )
+
+        results = mloda.run_all(
+            [feature],
+            compute_frameworks={PyArrowTable},
+            plugin_collector=plugin_collector,
+        )
+
+        assert len(results) >= 1
+
+        found = False
+        for table in results:
+            if not isinstance(table, pa.Table):
+                continue
+            if "uppercased_name" in table.column_names:
+                result_col = table.column("uppercased_name").to_pylist()
+                assert result_col == [
+                    "ALICE",
+                    "BOB",
+                    None,
+                    "",
+                    " EVE ",
+                    "FRANK",
+                    "GRACE",
+                    "ALICE",
+                    "  ",
+                    "BOB",
+                    "H\u00c9LLO",
+                    None,
+                ]
+                found = True
+
+        assert found, "uppercased_name result not found in any result table"
+
+    def test_config_based_lower_through_pipeline(self) -> None:
+        """Run a config-based lower feature (non-pattern name) through run_all."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowStringOps})
+
+        feature = Feature(
+            "lowered_name",
+            options=Options(
+                context={
+                    "string_op": "lower",
+                    "in_features": "name",
+                }
+            ),
+        )
+
+        results = mloda.run_all(
+            [feature],
+            compute_frameworks={PyArrowTable},
+            plugin_collector=plugin_collector,
+        )
+
+        assert len(results) >= 1
+
+        found = False
+        for table in results:
+            if not isinstance(table, pa.Table):
+                continue
+            if "lowered_name" in table.column_names:
+                result_col = table.column("lowered_name").to_pylist()
+                assert result_col == [
+                    "alice",
+                    "bob",
+                    None,
+                    "",
+                    " eve ",
+                    "frank",
+                    "grace",
+                    "alice",
+                    "  ",
+                    "bob",
+                    "h\u00e9llo",
+                    None,
+                ]
+                found = True
+
+        assert found, "lowered_name result not found in any result table"

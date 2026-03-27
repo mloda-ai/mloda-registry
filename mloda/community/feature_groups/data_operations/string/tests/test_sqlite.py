@@ -60,22 +60,19 @@ class TestSqliteStringOps(StringTestBase):
 
 
 class TestSqliteReverseUnsupported:
-    """SQLite does not support the reverse operation and should raise ValueError."""
+    """SQLite does not support 'reverse', so it should not match at all."""
 
-    def test_reverse_raises_error(self) -> None:
-        conn = sqlite3.connect(":memory:")
-        arrow_table = pa.table({"name": ["Alice"], "value": [1]})
-        relation = SqliteRelation.from_arrow(conn, arrow_table)
-
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+    def test_reverse_does_not_match(self) -> None:
         from mloda.core.abstract_plugins.components.options import Options
-        from mloda.user import Feature
 
-        feature = Feature("name__reverse", options=Options())
-        fs = FeatureSet()
-        fs.add(feature)
+        options = Options()
+        result = SqliteStringOps.match_feature_group_criteria("name__reverse", options, None)
+        assert result is False
 
-        with pytest.raises(ValueError, match="reverse"):
-            SqliteStringOps.calculate_feature(relation, fs)
+    def test_supported_ops_still_match(self) -> None:
+        from mloda.core.abstract_plugins.components.options import Options
 
-        conn.close()
+        options = Options()
+        for op in ("upper", "lower", "trim", "length"):
+            result = SqliteStringOps.match_feature_group_criteria(f"name__{op}", options, None)
+            assert result is True, f"Expected name__{op} to match SqliteStringOps"

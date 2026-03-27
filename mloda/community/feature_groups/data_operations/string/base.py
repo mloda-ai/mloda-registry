@@ -23,7 +23,7 @@ STRING_OPS = {
 
 
 class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
-    PREFIX_PATTERN = r".*__(upper|lower|trim|length|reverse)$"
+    PREFIX_PATTERN = r".+__(upper|lower|trim|length|reverse)$"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -42,10 +42,6 @@ class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             DefaultOptionKeys.strict_validation: False,
         },
     }
-
-    @classmethod
-    def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
-        return operation_config in STRING_OPS
 
     @classmethod
     def get_string_op(cls, feature_name: str) -> str:
