@@ -44,6 +44,10 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     - ``cumulative``: Running aggregate from the first row to the current row.
     - ``expanding``: Same as cumulative (alias for clarity).
 
+    Subclasses declare which frame types they support via
+    ``SUPPORTED_FRAME_TYPES``. Features requesting an unsupported frame type
+    are rejected at discovery time (match_feature_group_criteria returns False).
+
     ## Supported Aggregation Types
 
     - ``sum``, ``avg``, ``count``, ``min``, ``max``
@@ -94,6 +98,8 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     # No single PREFIX_PATTERN: we use custom matching for 4 patterns.
     PREFIX_PATTERN = r".*__([\w]+)_rolling_\d+$"
+
+    SUPPORTED_FRAME_TYPES: Set[str] = {"rolling", "time", "cumulative", "expanding"}
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -247,6 +253,8 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
                 return False
             if parsed["frame_type"] == "time" and parsed["frame_unit"] not in _TIME_UNITS:
                 return False
+            if parsed["frame_type"] not in cls.SUPPORTED_FRAME_TYPES:
+                return False
         else:
             agg_type = options.get(cls.AGGREGATION_TYPE)
             frame_type = options.get(cls.FRAME_TYPE)
@@ -255,7 +263,7 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             if str(agg_type) not in _AGGREGATION_TYPES:
                 return False
             frame_type_str = str(frame_type)
-            if frame_type_str not in {"rolling", "time", "cumulative", "expanding"}:
+            if frame_type_str not in cls.SUPPORTED_FRAME_TYPES:
                 return False
             if frame_type_str == "cumulative" and str(agg_type) not in _CUMULATIVE_OPS:
                 return False

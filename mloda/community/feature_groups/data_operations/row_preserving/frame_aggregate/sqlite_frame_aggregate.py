@@ -23,6 +23,8 @@ _SQLITE_AGG_FUNCS: dict[str, str] = {
 
 
 class SqliteFrameAggregate(FrameAggregateFeatureGroup):
+    SUPPORTED_FRAME_TYPES = {"rolling", "cumulative", "expanding"}
+
     @classmethod
     def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
         return {SqliteFramework}
