@@ -1,4 +1,7 @@
-"""Shared test base class and expected values for column aggregation tests.
+"""Shared test base class and expected values for single-column aggregate broadcast tests.
+
+Each test verifies that a scalar aggregate (sum, min, max, etc.) is computed
+over a single source column and the result is broadcast to every row.
 
 Expected values are computed from the canonical 12-row dataset in
 DataOperationsTestDataCreator, using the 'value_int' column.
@@ -215,6 +218,31 @@ class AggregationTestBase(ABC):
 
         result_col = self.extract_column(result, "value_int__sum_aggr")
         assert len(set(result_col)) == 1
+
+    def test_unsupported_aggregation_type_raises(self) -> None:
+        """An unrecognized aggregation type must raise ValueError."""
+        fs = make_feature_set("value_int__bogus_aggr")
+        with pytest.raises(ValueError, match="[Uu]nsupported|[Cc]ould not extract"):
+            self.implementation_class().calculate_feature(self.test_data, fs)
+
+    def test_option_based_single_column_sum(self) -> None:
+        """Option-based configuration (not string pattern) produces the same result."""
+        feature = Feature(
+            "my_custom_sum",
+            options=Options(
+                context={
+                    "aggregation_type": "sum",
+                    "in_features": "value_int",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "my_custom_sum")
+        assert all(v == EXPECTED_SUM for v in result_col)
+        assert len(result_col) == 12
 
     # -- Cross-framework comparison ------------------------------------------
 

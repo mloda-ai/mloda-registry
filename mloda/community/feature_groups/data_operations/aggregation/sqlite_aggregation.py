@@ -1,4 +1,4 @@
-"""SQLite implementation for column aggregation feature groups."""
+"""SQLite implementation for single-column global aggregate broadcast."""
 
 from __future__ import annotations
 

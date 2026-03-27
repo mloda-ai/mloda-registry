@@ -1,4 +1,4 @@
-"""Polars Lazy implementation for column aggregation feature groups."""
+"""Polars Lazy implementation for single-column global aggregate broadcast."""
 
 from __future__ import annotations
 

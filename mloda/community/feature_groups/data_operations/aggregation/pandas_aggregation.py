@@ -1,4 +1,4 @@
-"""Pandas implementation for column aggregation feature groups."""
+"""Pandas implementation for single-column global aggregate broadcast."""
 
 from __future__ import annotations
 
