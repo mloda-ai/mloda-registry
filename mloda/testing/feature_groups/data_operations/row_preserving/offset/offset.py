@@ -172,6 +172,43 @@ class OffsetTestBase(ABC):
         assert result_col[2] == 5  # 0 - (-5)
         assert result_col[3] == 10  # 20 - 10
 
+    def test_pct_change_1(self) -> None:
+        """Pct change 1 of value_int partitioned by region, ordered by value_int."""
+        self._skip_if_unsupported("pct_change")
+        fs = make_feature_set("value_int__pct_change_1_offset", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert isinstance(result, self.get_expected_type())
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__pct_change_1_offset")
+        # A: [-5, 0, 10, 20] => pct_change: [None, -1.0, None(zero denom), 1.0]
+        # row 0 (val 10, pos 2): prev=0 => None (zero denominator)
+        # row 1 (val -5, pos 0): None (no prev)
+        # row 2 (val 0, pos 1): (0 - (-5)) / (-5) = -1.0
+        # row 3 (val 20, pos 3): (20 - 10) / 10 = 1.0
+        assert result_col[0] is None  # zero denominator
+        assert result_col[1] is None  # first in partition
+        assert result_col[2] == pytest.approx(-1.0)
+        assert result_col[3] == pytest.approx(1.0)
+        # B: [30, 50, 60, None]
+        # row 4 (None, pos 3): None (null current)
+        # row 5 (50, pos 1): (50-30)/30 = 2/3
+        # row 6 (30, pos 0): None (first in partition)
+        # row 7 (60, pos 2): (60-50)/50 = 0.2
+        assert result_col[4] is None
+        assert result_col[5] == pytest.approx(2.0 / 3.0)
+        assert result_col[6] is None
+        assert result_col[7] == pytest.approx(0.2)
+        # C: [15, 15, 40]
+        # row 8 (15, pos 0): None (first)
+        # row 9 (15, pos 1): (15-15)/15 = 0.0
+        # row 10 (40, pos 2): (40-15)/15 = 5/3
+        assert result_col[8] is None
+        assert result_col[9] == pytest.approx(0.0)
+        assert result_col[10] == pytest.approx(25.0 / 15.0)
+        # None group: single row
+        assert result_col[11] is None
+
     def test_null_policy_edge_null(self) -> None:
         """NullPolicy.EDGE_NULL: lag at start of partition produces null."""
         fs = make_feature_set("value_int__lag_1_offset", ["region"], "value_int")
@@ -224,6 +261,32 @@ class OffsetTestBase(ABC):
 
     def test_cross_framework_first_value(self) -> None:
         self._compare_with_pyarrow("value_int__first_value_offset", ["region"], "value_int")
+
+    def test_cross_framework_last_value(self) -> None:
+        self._compare_with_pyarrow("value_int__last_value_offset", ["region"], "value_int")
+
+    def test_cross_framework_diff(self) -> None:
+        self._skip_if_unsupported("diff")
+        self._compare_with_pyarrow("value_int__diff_1_offset", ["region"], "value_int")
+
+    def test_cross_framework_pct_change(self) -> None:
+        self._skip_if_unsupported("pct_change")
+        self._compare_with_pyarrow_approx("value_int__pct_change_1_offset", ["region"], "value_int")
+
+    def _compare_with_pyarrow_approx(self, feature_name: str, partition_by: list[str], order_by: str) -> None:
+        """Compare with PyArrow reference using approximate equality for floats."""
+        fs = make_feature_set(feature_name, partition_by, order_by)
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
+
+        result_col = self.extract_column(result, feature_name)
+        ref_col = extract_column(ref, feature_name)
+        assert len(result_col) == len(ref_col)
+        for i, (r, e) in enumerate(zip(result_col, ref_col)):
+            if e is None:
+                assert r is None, f"Row {i}: expected None, got {r}"
+            else:
+                assert r == pytest.approx(e), f"Row {i}: expected {e}, got {r}"
 
     def _skip_if_unsupported(self, offset_type: str) -> None:
         if offset_type not in self.supported_offset_types():
