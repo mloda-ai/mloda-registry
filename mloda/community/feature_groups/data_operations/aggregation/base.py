@@ -96,6 +96,12 @@ class ColumnAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     @classmethod
     def _extract_source_features(cls, feature: Feature) -> List[str]:
+        """Extract and validate the single source feature for aggregation.
+
+        Returns a one-element list containing the source column name.
+        Raises ValueError if more than one source feature is found, since
+        this package only supports single-column aggregation.
+        """
         feature_name = feature.get_name()
         prefix_patterns = cls._get_prefix_patterns()
 
@@ -105,10 +111,24 @@ class ColumnAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             return [source_feature]
 
         in_features_set = feature.options.get_in_features()
-        return [f.get_name() for f in in_features_set]
+        source_names = [f.get_name() for f in in_features_set]
+
+        if len(source_names) > cls.MAX_IN_FEATURES:
+            raise ValueError(
+                f"Column aggregation supports at most {cls.MAX_IN_FEATURES} source feature, "
+                f"but got {len(source_names)}: {source_names}"
+            )
+
+        return source_names
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        """Compute a scalar aggregate per source column and broadcast to all rows.
+
+        Each feature in the feature set produces one new column containing the
+        aggregated scalar value repeated for every row. Only a single source
+        column per feature is supported (enforced by MAX_IN_FEATURES = 1).
+        """
         table = data
 
         for feature in features.features:
