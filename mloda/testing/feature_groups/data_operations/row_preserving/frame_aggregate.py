@@ -116,6 +116,27 @@ EXPECTED_EXPANDING_AVG: list[float] = [
 # ---------------------------------------------------------------------------
 
 
+def _is_null(value: Any) -> bool:
+    """Check if a value is null (None or NaN)."""
+    if value is None:
+        return True
+    import math
+
+    if isinstance(value, float) and math.isnan(value):
+        return True
+    return False
+
+
+def _assert_values_with_nulls(actual: list[Any], expected: list[Any]) -> None:
+    """Assert two lists are equal, treating None and NaN as equivalent nulls."""
+    assert len(actual) == len(expected), f"length {len(actual)} != {len(expected)}"
+    for i, (a, e) in enumerate(zip(actual, expected)):
+        if _is_null(e):
+            assert _is_null(a), f"row {i}: expected null, got {a}"
+        else:
+            assert a == pytest.approx(e, rel=1e-6), f"row {i}: {a} != {e}"
+
+
 def extract_column(result: Any, column_name: str) -> list[Any]:
     """Extract a column from a result object as a Python list."""
     if isinstance(result, pa.Table):
@@ -340,3 +361,31 @@ class FrameAggregateTestBase(ABC):
     def test_cross_framework_rolling_avg(self) -> None:
         """Rolling avg must match PyArrow reference."""
         self._compare_with_pyarrow("value_int__avg_rolling_2", ["region"], "value_int", use_approx=True)
+
+    # -- Edge case tests -----------------------------------------------------
+
+    def test_rolling_window_size_1(self) -> None:
+        """Rolling with window_size=1 should return the value itself."""
+        fs = make_feature_set("value_int__sum_rolling_1", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert self.get_row_count(result) == 12
+
+        result_col = self.extract_column(result, "value_int__sum_rolling_1")
+        # Window of 1 means each value is its own window, so the sum equals the original value.
+        # Original row order: [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
+        # Nulls in sum_rolling_1 should produce None (or NaN in Pandas).
+        expected = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
+        _assert_values_with_nulls(result_col, expected)
+
+    def test_window_larger_than_partition(self) -> None:
+        """Rolling window larger than partition should include all rows in the partition."""
+        fs = make_feature_set("value_int__sum_rolling_100", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert self.get_row_count(result) == 12
+
+        result_col = self.extract_column(result, "value_int__sum_rolling_100")
+        # With window 100, each row sees all preceding rows in its partition.
+        # This is equivalent to cumulative sum.
+        assert result_col == EXPECTED_CUMSUM

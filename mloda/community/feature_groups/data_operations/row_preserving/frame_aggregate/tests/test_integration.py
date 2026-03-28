@@ -78,6 +78,7 @@ class TestFrameAggregateIntegration(DataOpsIntegrationTestBase):
             "value_int__avg_rolling_5",
             "value_int__cumsum",
             "value_int__cummax",
+            "value_int__cumavg",
             "value_int__expanding_avg",
         ]
 
@@ -161,14 +162,37 @@ class TestFrameAggregateMultiFeature:
 
         assert len(results) >= 1
 
+        # Expected expanding avg: see FrameAggregateTestBase EXPECTED_EXPANDING_AVG
+        expected_expanding_avg = [
+            5.0 / 3.0,
+            -5.0,
+            -2.5,
+            6.25,
+            140.0 / 3.0,
+            40.0,
+            30.0,
+            140.0 / 3.0,
+            15.0,
+            15.0,
+            70.0 / 3.0,
+            -10.0,
+        ]
+        # Expected rolling min (window 2) on value_int, partitioned by region, ordered by value_int.
+        expected_rolling_min_2 = [0, -5, -5, 10, 60, 30, 30, 50, 15, 15, 15, -10]
+
         expanding_found = False
         rolling_min_found = False
         for table in results:
             if not isinstance(table, pa.Table):
                 continue
             if "value_int__expanding_avg" in table.column_names:
+                col = table.column("value_int__expanding_avg").to_pylist()
+                for i, (actual, expected) in enumerate(zip(col, expected_expanding_avg)):
+                    assert actual == pytest.approx(expected, rel=1e-3), f"expanding_avg row {i}: {actual} != {expected}"
                 expanding_found = True
             if "value_int__min_rolling_2" in table.column_names:
+                col = table.column("value_int__min_rolling_2").to_pylist()
+                assert col == expected_rolling_min_2
                 rolling_min_found = True
 
         assert expanding_found, "expanding_avg result not found in any result table"

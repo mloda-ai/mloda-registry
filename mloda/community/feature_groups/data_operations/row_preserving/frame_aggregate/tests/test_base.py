@@ -123,11 +123,11 @@ class TestPatternMatching:
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__unknown_rolling_3", options, None)
         assert result is False
 
-    def test_rejects_invalid_cumulative_op(self) -> None:
-        """cumavg is not a valid cumulative operation."""
+    def test_accepts_cumavg(self) -> None:
+        """cumavg is a valid cumulative operation (cumulative and expanding are aliases)."""
         options = self._base_options()
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__cumavg", options, None)
-        assert result is False
+        assert result is True
 
     def test_rejects_invalid_time_unit(self) -> None:
         options = self._base_options()

@@ -66,8 +66,6 @@ class DuckDBFrameAggregate(FrameAggregateFeatureGroup):
             window_size = int(frame_size) if frame_size is not None else 1
             frame_clause = f"ROWS BETWEEN {window_size - 1} PRECEDING AND CURRENT ROW"
         elif frame_type == "time":
-            size = int(frame_size) if frame_size is not None else 1
-            unit = str(frame_unit) if frame_unit else "day"
             raise ValueError("DuckDB time-based frame windows require RANGE which needs timestamp columns")
         else:
             raise ValueError(f"Unsupported frame type for DuckDB: {frame_type}")
