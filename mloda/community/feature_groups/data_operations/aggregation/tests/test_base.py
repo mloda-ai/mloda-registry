@@ -123,7 +123,9 @@ class TestSingleColumnEnforcement:
 
     The aggregation package computes a scalar aggregate over one source
     column and broadcasts it to every row. Multiple in_features are
-    rejected by input_features() validation.
+    rejected at two levels: input_features() validates the count during
+    feature resolution, and _extract_source_features() validates it
+    again during calculate_feature() to prevent silent truncation.
     """
 
     def test_max_in_features_is_one(self) -> None:
@@ -141,11 +143,41 @@ class TestSingleColumnEnforcement:
         with pytest.raises(ValueError, match="at most 1"):
             instance.input_features(options, FeatureName("my_result"))
 
+    def test_extract_source_features_rejects_multiple_in_features(self) -> None:
+        """_extract_source_features must reject multiple source features.
+
+        This guards against silent truncation to a single column if
+        calculate_feature() is invoked with multi-column options that
+        bypassed input_features() validation.
+        """
+        options = Options(
+            context={
+                "aggregation_type": "sum",
+                "in_features": ["col_a", "col_b"],
+            }
+        )
+        feature = Feature("my_result", options=options)
+        with pytest.raises(ValueError, match="at most 1"):
+            ColumnAggregationFeatureGroup._extract_source_features(feature)
+
     def test_extract_source_features_returns_single_item_for_string_pattern(self) -> None:
         feature = Feature("value_int__sum_aggr", options=Options())
         source_features = ColumnAggregationFeatureGroup._extract_source_features(feature)
         assert len(source_features) == 1
         assert source_features == ["value_int"]
+
+    def test_extract_source_features_returns_single_item_for_option_config(self) -> None:
+        """Option-based config with one in_feature returns a single-element list."""
+        options = Options(
+            context={
+                "aggregation_type": "max",
+                "in_features": "revenue",
+            }
+        )
+        feature = Feature("my_result", options=options)
+        source_features = ColumnAggregationFeatureGroup._extract_source_features(feature)
+        assert len(source_features) == 1
+        assert source_features == ["revenue"]
 
     def test_input_features_returns_single_feature_for_string_pattern(self) -> None:
         options = Options()
