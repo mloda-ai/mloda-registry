@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Set
+from typing import Any
 
-from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
-from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import FeatureGroup
 from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
 
@@ -23,6 +20,43 @@ STRING_OPS = {
 
 
 class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+    """Base class for element-wise string operations that preserve row count.
+
+    String operations transform a single string column element by element.
+    The output always has the same number of rows as the input.
+
+    Supported operations: upper, lower, trim, length, reverse.
+
+    Not every compute framework supports every operation. For example,
+    SQLite has no native ``REVERSE`` function, so ``SqliteStringOps``
+    restricts its supported set via ``_validate_string_match``.
+    SQLite's ``UPPER``/``LOWER`` only handle ASCII characters;
+    non-ASCII accented characters are not transformed.
+
+    Feature Creation Methods
+    ------------------------
+
+    1. String-based (pattern):
+        Features follow the naming pattern ``<source_column>__<operation>``.
+
+        Examples::
+
+            Feature("name__upper")
+            Feature("title__trim")
+            Feature("description__length")
+
+    2. Configuration-based:
+        Uses Options with context parameters::
+
+            Feature(
+                "uppercased_name",
+                options=Options(context={
+                    "string_op": "upper",
+                    "in_features": "name",
+                }),
+            )
+    """
+
     PREFIX_PATTERN = r".+__(upper|lower|trim|length|reverse)$"
 
     MIN_IN_FEATURES = 1
@@ -44,7 +78,17 @@ class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     }
 
     @classmethod
+    def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
+        """Validate that the parsed operation is a known string operation.
+
+        Subclasses (e.g. SqliteStringOps) can override to further restrict
+        the set of supported operations.
+        """
+        return operation_config in STRING_OPS
+
+    @classmethod
     def get_string_op(cls, feature_name: str) -> str:
+        """Extract the string operation from a pattern-based feature name."""
         prefix_patterns = cls._get_prefix_patterns()
         operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
         if operation_config is not None:
@@ -53,6 +97,7 @@ class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     @classmethod
     def _extract_string_op(cls, feature: Any) -> str:
+        """Extract string operation from feature (string-based or config-based)."""
         feature_name = feature.get_name()
         prefix_patterns = cls._get_prefix_patterns()
         operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
@@ -63,34 +108,9 @@ class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             raise ValueError(f"Could not extract string operation for {feature_name}")
         return str(op)
 
-    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
-        _feature_name = feature_name.name if isinstance(feature_name, FeatureName) else feature_name
-
-        prefix_patterns = self._get_prefix_patterns()
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(_feature_name, prefix_patterns)
-
-        if operation_config is not None and source_feature is not None and source_feature:
-            return {Feature(source_feature)}
-
-        in_features_set = options.get_in_features()
-        self._validate_in_feature_count(list(in_features_set), _feature_name)
-        return set(in_features_set)
-
-    @classmethod
-    def _extract_source_features(cls, feature: Feature) -> List[str]:
-        feature_name = feature.get_name()
-        prefix_patterns = cls._get_prefix_patterns()
-
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-
-        if operation_config is not None and source_feature is not None and source_feature:
-            return [source_feature]
-
-        in_features_set = feature.options.get_in_features()
-        return [f.get_name() for f in in_features_set]
-
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        """Shared loop: extract params from each feature, delegate to _compute_string."""
         table = data
 
         for feature in features.features:
@@ -112,4 +132,5 @@ class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         source_col: str,
         op: str,
     ) -> Any:
+        """Subclasses must implement the actual string computation."""
         raise NotImplementedError

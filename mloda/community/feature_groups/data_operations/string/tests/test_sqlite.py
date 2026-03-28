@@ -36,6 +36,12 @@ class TestSqliteStringOps(StringTestBase):
         # SQLite UPPER only handles ASCII; accent e (\u00e9) stays lowercase
         return ["ALICE", "BOB", None, "", " EVE ", "FRANK", "GRACE", "ALICE", "  ", "BOB", "H\u00e9LLO", None]
 
+    # Note: expected_lower is NOT overridden because the test data's only
+    # non-ASCII character (accent e in "hello") is already lowercase.
+    # SQLite's ASCII-only LOWER happens to produce the correct result
+    # by coincidence. If test data included uppercase accented characters,
+    # this override would be required.
+
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteStringOps

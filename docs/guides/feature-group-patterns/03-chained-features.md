@@ -1,6 +1,6 @@
 # Pattern 3: Chained Features (FeatureChainParserMixin)
 
-Chained features use naming patterns like `price__scaled` for reusable transformations. They support two creation methods: **string-based** (parameters in name) and **configuration-based** (parameters in Options). String-based is built on top of configuration-based as a convenience layer—prefer it for readability when feature complexity is low.
+Chained features use naming patterns like `price__scaled` for reusable transformations. They support two creation methods: **string-based** (parameters in name) and **configuration-based** (parameters in Options). String-based is built on top of configuration-based as a convenience layer. Prefer it for readability when feature complexity is low.
 
 **What**: Reusable transformations that work on any input via naming patterns (`input__operation`).
 **When**: The same operation applies to many different inputs (scaling, encoding, cleaning).
@@ -82,7 +82,7 @@ Feature("income__mean_imputed")
 Feature("imputed_income", Options(context={"imputation_method": "mean", "in_features": "income"}))
 ```
 
-> **Note on Context**: Context options are local by default—they don't flow to input features. If you need context to propagate through the chain (e.g., a trace ID), use `propagate_context_keys`. See [Options](11-options.md#context-propagation) for details.
+> **Note on Context**: Context options are local by default; they do not flow to input features. If you need context to propagate through the chain (e.g., a trace ID), use `propagate_context_keys`. See [Options](11-options.md#context-propagation) for details.
 
 ### Discriminator Keys
 

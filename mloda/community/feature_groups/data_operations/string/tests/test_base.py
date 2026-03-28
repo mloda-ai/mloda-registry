@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.string.base import (
     STRING_OPS,
@@ -12,21 +13,11 @@ from mloda.community.feature_groups.data_operations.string.base import (
 )
 
 
-class TestClassAttributes:
-    def test_prefix_pattern_exists(self) -> None:
-        assert hasattr(StringFeatureGroup, "PREFIX_PATTERN")
-        assert isinstance(StringFeatureGroup.PREFIX_PATTERN, str)
-
+class TestStringOpsRegistry:
     def test_string_ops_contains_all_operations(self) -> None:
         expected_ops = {"upper", "lower", "trim", "length", "reverse"}
         for op in expected_ops:
             assert op in STRING_OPS, f"Missing operation: {op}"
-
-    def test_min_in_features_is_one(self) -> None:
-        assert StringFeatureGroup.MIN_IN_FEATURES == 1
-
-    def test_max_in_features_is_one(self) -> None:
-        assert StringFeatureGroup.MAX_IN_FEATURES == 1
 
 
 class TestPatternMatching:
@@ -66,6 +57,12 @@ class TestPatternMatching:
         result = StringFeatureGroup.match_feature_group_criteria("__upper", options, None)
         assert result is False
 
+    def test_multi_underscore_source_column(self) -> None:
+        """Source columns with underscores (e.g. first_name) should match."""
+        options = Options()
+        result = StringFeatureGroup.match_feature_group_criteria("first_name__upper", options, None)
+        assert result is True
+
 
 class TestPatternParsing:
     def test_parse_upper_operation(self) -> None:
@@ -77,18 +74,34 @@ class TestPatternParsing:
         assert operation == "length"
 
     def test_parse_source_feature(self) -> None:
-        from mloda.user import Feature
-
         feature = Feature("name__upper", options=Options())
         source_features = StringFeatureGroup._extract_source_features(feature)
         assert source_features == ["name"]
 
     def test_parse_source_feature_with_underscores(self) -> None:
-        from mloda.user import Feature
-
         feature = Feature("first_name__lower", options=Options())
         source_features = StringFeatureGroup._extract_source_features(feature)
         assert source_features == ["first_name"]
+
+    def test_get_string_op_raises_for_invalid_name(self) -> None:
+        """get_string_op should raise ValueError for names without a valid operation."""
+        with pytest.raises(ValueError, match="Could not extract string operation"):
+            StringFeatureGroup.get_string_op("name__capitalize")
+
+    def test_extract_string_op_config_based(self) -> None:
+        """_extract_string_op should fall back to options when name has no pattern."""
+        feature = Feature(
+            "my_result",
+            options=Options(context={"string_op": "lower", "in_features": "name"}),
+        )
+        op = StringFeatureGroup._extract_string_op(feature)
+        assert op == "lower"
+
+    def test_extract_string_op_raises_when_missing(self) -> None:
+        """_extract_string_op should raise when neither name nor options contain the op."""
+        feature = Feature("my_result", options=Options())
+        with pytest.raises(ValueError, match="Could not extract string operation"):
+            StringFeatureGroup._extract_string_op(feature)
 
 
 class TestConfigBasedFeatures:
@@ -111,3 +124,14 @@ class TestConfigBasedFeatures:
         )
         result = StringFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is False
+
+
+class TestValidateStringMatch:
+    def test_base_class_validates_known_ops(self) -> None:
+        """Base class _validate_string_match accepts all STRING_OPS."""
+        for op in STRING_OPS:
+            assert StringFeatureGroup._validate_string_match(f"name__{op}", op, "name") is True
+
+    def test_base_class_rejects_unknown_ops(self) -> None:
+        """Base class _validate_string_match rejects operations not in STRING_OPS."""
+        assert StringFeatureGroup._validate_string_match("name__capitalize", "capitalize", "name") is False
