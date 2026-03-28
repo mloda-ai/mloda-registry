@@ -349,3 +349,10 @@ class StringTestBase(ABC):
         """Reverse must match PyArrow reference."""
         self._skip_if_unsupported("reverse")
         self._compare_with_pyarrow("name__reverse")
+
+    # -- Unsupported operation error path ------------------------------------
+
+    def test_unsupported_operation_raises(self) -> None:
+        """Calling _compute_string with an unknown operation should raise ValueError."""
+        with pytest.raises(ValueError, match="[Uu]nsupported string operation"):
+            self.implementation_class()._compute_string(self.test_data, "name__capitalize", "name", "capitalize")

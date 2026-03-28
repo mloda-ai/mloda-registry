@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
+from typing import Set, Type, Union
 
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
@@ -12,6 +13,14 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.string.base import (
     StringFeatureGroup,
 )
+
+_PYARROW_STRING_FUNCS: dict[str, str] = {
+    "upper": "utf8_upper",
+    "lower": "utf8_lower",
+    "trim": "utf8_trim_whitespace",
+    "length": "utf8_length",
+    "reverse": "utf8_reverse",
+}
 
 
 class PyArrowStringOps(StringFeatureGroup):
@@ -27,30 +36,10 @@ class PyArrowStringOps(StringFeatureGroup):
         source_col: str,
         op: str,
     ) -> pa.Table:
+        func_name = _PYARROW_STRING_FUNCS.get(op)
+        if func_name is None:
+            raise ValueError(f"Unsupported string operation: {op}")
+
         col = table.column(source_col)
-        values = col.to_pylist()
-
-        result_values: list[Any] = []
-        for val in values:
-            if val is None:
-                result_values.append(None)
-                continue
-
-            if op == "upper":
-                result_values.append(val.upper())
-            elif op == "lower":
-                result_values.append(val.lower())
-            elif op == "trim":
-                result_values.append(val.strip())
-            elif op == "length":
-                result_values.append(len(val))
-            elif op == "reverse":
-                result_values.append(val[::-1])
-            else:
-                raise ValueError(f"Unsupported string operation: {op}")
-
-        if op == "length":
-            new_col = pa.array(result_values, type=pa.int64())
-        else:
-            new_col = pa.array(result_values, type=pa.string())
+        new_col = getattr(pc, func_name)(col)
         return table.append_column(feature_name, new_col)
