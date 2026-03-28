@@ -40,15 +40,16 @@ class SqliteOffset(OffsetFeatureGroup):
         window_clause = f"PARTITION BY {partition_clause} ORDER BY {order_clause}"  # nosec B608
 
         if offset_type.startswith("lag_"):
-            offset_n = offset_type[len("lag_") :]
+            offset_n = int(offset_type[len("lag_") :])
             offset_expr = f"LAG({quoted_source}, {offset_n})"
         elif offset_type.startswith("lead_"):
-            offset_n = offset_type[len("lead_") :]
+            offset_n = int(offset_type[len("lead_") :])
             offset_expr = f"LEAD({quoted_source}, {offset_n})"
         elif offset_type in ("first_value", "last_value"):
             return cls._compute_first_last(data, feature_name, source_col, partition_by, order_by, offset_type)
         else:
-            raise ValueError(f"Unsupported offset type for SQLite: {offset_type}")
+            supported = "lag, lead, first_value, last_value"
+            raise ValueError(f"Unsupported offset type for SQLite: {offset_type}. Supported types: {supported}")
 
         sql = (
             f"SELECT {offset_expr} OVER ({window_clause}) AS {quoted_feature}, "  # nosec B608

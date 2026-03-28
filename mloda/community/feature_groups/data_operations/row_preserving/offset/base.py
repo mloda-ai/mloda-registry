@@ -60,6 +60,13 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             ),
         )
 
+    ## Null Behavior
+
+    Offset positions that fall outside the partition boundary produce null.
+    For example, ``lag_1`` on the first row of a partition returns null.
+    ``first_value`` and ``last_value`` ignore null source values; if all
+    values in a partition are null, the result is null.
+
     ## Parameter Classification
 
     ### Context Parameters
