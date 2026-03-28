@@ -30,7 +30,6 @@ class PandasRank(RankFeatureGroup):
         cls,
         data: pd.DataFrame,
         feature_name: str,
-        source_col: str,
         partition_by: list[str],
         order_by: str,
         rank_type: str,

@@ -13,6 +13,8 @@ from mloda.community.feature_groups.data_operations.row_preserving.rank.base imp
     RankFeatureGroup,
 )
 
+_RN_COL = "__mloda_orig_rn"
+
 _DUCKDB_RANK_FUNCS: dict[str, str] = {
     "row_number": "ROW_NUMBER()",
     "rank": "RANK()",
@@ -31,7 +33,6 @@ class DuckdbRank(RankFeatureGroup):
         cls,
         data: Any,
         feature_name: str,
-        source_col: str,
         partition_by: list[str],
         order_by: str,
         rank_type: str,
@@ -50,19 +51,20 @@ class DuckdbRank(RankFeatureGroup):
             rank_expr = rank_func
 
         # Use query() with ROW_NUMBER() to preserve original row order.
-        # The __mloda_orig_rn column tracks original position, then we
+        # The _RN_COL column tracks original position, then we
         # sort by it and drop it to return rows in the original order.
+        qrn = quote_ident(_RN_COL)
         sql = (
             f"SELECT *, "  # nosec B608
             f"{rank_expr} OVER "
             f"(PARTITION BY {partition_clause} ORDER BY {quoted_order} ASC NULLS LAST) "
             f"AS {quoted_feature}, "
-            f"ROW_NUMBER() OVER () AS __mloda_orig_rn "
-            f"FROM __t ORDER BY __mloda_orig_rn"
+            f"ROW_NUMBER() OVER () AS {qrn} "
+            f"FROM __t ORDER BY {qrn}"
         )
         new_rel = data._relation.query("__t", sql)
         # Drop the helper column
         result_rel = new_rel.project(
-            ", ".join(quote_ident(c) for c in [col for col in new_rel.columns if col != "__mloda_orig_rn"])
+            ", ".join(quote_ident(c) for c in [col for col in new_rel.columns if col != _RN_COL])
         )
         return DuckdbRelation(data._connection, result_rel)

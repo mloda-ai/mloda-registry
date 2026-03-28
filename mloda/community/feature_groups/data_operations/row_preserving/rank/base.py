@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
@@ -31,7 +30,7 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     ### 1. String-Based Creation
 
-    Features follow the naming pattern: ``{order_column}__{rank_type}_ranked``
+    Features follow the naming pattern: ``{source_column}__{rank_type}_ranked``
 
     Examples::
 
@@ -141,7 +140,9 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         partition_by = options.get(cls.PARTITION_BY)
         if partition_by is None:
             return False
-        if not isinstance(partition_by, list):
+        if not isinstance(partition_by, (list, tuple)):
+            return False
+        if not partition_by:
             return False
         if not all(isinstance(item, str) for item in partition_by):
             return False
@@ -195,13 +196,11 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         for feature in features.features:
             feature_name = feature.get_name()
 
-            source_features = cls._extract_source_features(feature)
-            source_col = source_features[0]
             rank_type = cls._extract_rank_type(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
             order_by = feature.options.get(cls.ORDER_BY)
 
-            table = cls._compute_rank(table, feature_name, source_col, partition_by, order_by, rank_type)
+            table = cls._compute_rank(table, feature_name, partition_by, order_by, rank_type)
 
         return table
 
@@ -210,7 +209,6 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         cls,
         data: Any,
         feature_name: str,
-        source_col: str,
         partition_by: list[str],
         order_by: str,
         rank_type: str,
