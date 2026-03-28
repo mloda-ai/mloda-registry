@@ -21,11 +21,8 @@ Chained features use naming patterns like `price__scaled` for reusable transform
 
 ```python
 from typing import Any, Optional, Set
-from mloda.provider import FeatureGroup
-from mloda.provider import FeatureChainParserMixin
+from mloda.provider import DefaultOptionKeys, FeatureChainParserMixin, FeatureGroup, FeatureSet
 from mloda.user import Feature, Options, FeatureName
-from mloda.provider import FeatureSet
-from mloda.provider import DefaultOptionKeys
 
 
 class MeanImputedFeature(FeatureChainParserMixin, FeatureGroup):

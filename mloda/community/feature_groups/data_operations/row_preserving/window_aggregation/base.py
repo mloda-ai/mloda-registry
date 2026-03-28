@@ -7,8 +7,7 @@ from typing import Any, Optional
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.provider import FeatureGroup
-from mloda.provider import DefaultOptionKeys
+from mloda.provider import DefaultOptionKeys, FeatureGroup
 
 # Aggregation types that require an order_by column to be deterministic.
 _ORDER_DEPENDENT_AGG_TYPES = {"first", "last"}
