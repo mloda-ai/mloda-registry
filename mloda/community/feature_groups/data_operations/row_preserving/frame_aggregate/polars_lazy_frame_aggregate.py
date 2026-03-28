@@ -46,16 +46,18 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
         col = pl.col(source_col)
 
         if frame_type in ("cumulative", "expanding"):
+            # forward_fill() after cumulative ops ensures null source values carry
+            # forward the last valid aggregate instead of propagating null.
             if agg_type == "sum":
-                expr = col.cum_sum().over(partition_by).alias(feature_name)
+                expr = col.cum_sum().forward_fill().over(partition_by).alias(feature_name)
             elif agg_type == "min":
-                expr = col.cum_min().over(partition_by).alias(feature_name)
+                expr = col.cum_min().forward_fill().over(partition_by).alias(feature_name)
             elif agg_type == "max":
-                expr = col.cum_max().over(partition_by).alias(feature_name)
+                expr = col.cum_max().forward_fill().over(partition_by).alias(feature_name)
             elif agg_type == "count":
                 expr = col.cum_count().over(partition_by).alias(feature_name)
             elif agg_type == "avg":
-                cum_sum = col.cum_sum().over(partition_by)
+                cum_sum = col.cum_sum().forward_fill().over(partition_by)
                 cum_count = col.cum_count().over(partition_by).cast(pl.Float64)
                 expr = (cum_sum / cum_count).alias(feature_name)
             else:

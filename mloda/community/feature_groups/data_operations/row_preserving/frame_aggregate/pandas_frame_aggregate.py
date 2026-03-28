@@ -50,106 +50,35 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
             raise ValueError(f"Unsupported aggregation type for Pandas frame aggregate: {agg_type}")
 
         data = data.copy()
+
+        # Save original row order so we can restore it after sorting
+        rn_col = "__mloda_rn__"
+        data[rn_col] = range(len(data))
+
         data = data.sort_values(by=[*partition_by, order_by], na_position="last")
 
         grouped = data.groupby(partition_by, dropna=False)[source_col]
 
+        # std/var require at least 2 observations for a meaningful result
+        min_periods = 2 if agg_type in ("std", "var") else 1
+        reset_levels = list(range(len(partition_by)))
+
         if frame_type in ("cumulative", "expanding"):
-            if agg_type == "sum":
-                result = (
-                    grouped.expanding(min_periods=1).sum().reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            elif agg_type == "count":
-                result = (
-                    grouped.expanding(min_periods=1)
-                    .count()
-                    .reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            elif agg_type == "min":
-                result = (
-                    grouped.expanding(min_periods=1).min().reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            elif agg_type == "max":
-                result = (
-                    grouped.expanding(min_periods=1).max().reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            elif agg_type == "avg":
-                result = (
-                    grouped.expanding(min_periods=1).mean().reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            elif agg_type == "std":
-                result = (
-                    grouped.expanding(min_periods=2).std().reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            elif agg_type == "var":
-                result = (
-                    grouped.expanding(min_periods=2).var().reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            elif agg_type == "median":
-                result = (
-                    grouped.expanding(min_periods=1)
-                    .median()
-                    .reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            else:
-                raise ValueError(f"Unsupported cumulative/expanding agg: {agg_type}")
+            window_obj = grouped.expanding(min_periods=min_periods)
         elif frame_type == "rolling":
             window = int(frame_size) if frame_size is not None else 1
-            if agg_type == "sum":
-                result = (
-                    grouped.rolling(window=window, min_periods=1)
-                    .sum()
-                    .reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            elif agg_type == "count":
-                result = (
-                    grouped.rolling(window=window, min_periods=1)
-                    .count()
-                    .reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            elif agg_type == "min":
-                result = (
-                    grouped.rolling(window=window, min_periods=1)
-                    .min()
-                    .reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            elif agg_type == "max":
-                result = (
-                    grouped.rolling(window=window, min_periods=1)
-                    .max()
-                    .reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            elif agg_type == "avg":
-                result = (
-                    grouped.rolling(window=window, min_periods=1)
-                    .mean()
-                    .reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            elif agg_type == "std":
-                result = (
-                    grouped.rolling(window=window, min_periods=2)
-                    .std()
-                    .reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            elif agg_type == "var":
-                result = (
-                    grouped.rolling(window=window, min_periods=2)
-                    .var()
-                    .reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            elif agg_type == "median":
-                result = (
-                    grouped.rolling(window=window, min_periods=1)
-                    .median()
-                    .reset_index(level=list(range(len(partition_by))), drop=True)
-                )
-            else:
-                raise ValueError(f"Unsupported rolling agg: {agg_type}")
+            window_obj = grouped.rolling(window=window, min_periods=min_periods)
         else:
             raise ValueError(f"Unsupported frame type for Pandas: {frame_type}")
+
+        result = getattr(window_obj, pandas_func)().reset_index(level=reset_levels, drop=True)
 
         data[feature_name] = result
         if agg_type == "count":
             data[feature_name] = data[feature_name].astype("int64")
+
+        # Restore original row order and drop helper column
+        data = data.sort_values(by=rn_col)
+        data = data.drop(columns=[rn_col])
 
         return data

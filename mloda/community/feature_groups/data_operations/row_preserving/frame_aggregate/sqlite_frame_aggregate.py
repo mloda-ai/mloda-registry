@@ -58,7 +58,7 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         if frame_type in ("cumulative", "expanding"):
             frame_clause = "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
         elif frame_type == "rolling":
-            window_size = int(frame_size) if frame_size is not None else 1  # nosec B608
+            window_size = int(frame_size) if frame_size is not None else 1
             frame_clause = f"ROWS BETWEEN {window_size - 1} PRECEDING AND CURRENT ROW"
         elif frame_type == "time":
             raise ValueError("SQLite does not support RANGE-based time windows natively")

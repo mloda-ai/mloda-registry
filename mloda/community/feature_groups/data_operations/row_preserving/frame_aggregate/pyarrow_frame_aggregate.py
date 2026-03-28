@@ -15,6 +15,14 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 
 
 class PyArrowFrameAggregate(FrameAggregateFeatureGroup):
+    """Pure-Python reference implementation of frame aggregation over PyArrow tables.
+
+    This implementation iterates row-by-row and is O(n * w) per partition (where
+    n is partition size and w is window size). It is designed for correctness
+    testing and small datasets. For production workloads with large tables,
+    prefer the Pandas, Polars, or DuckDB backends which use vectorized operations.
+    """
+
     @classmethod
     def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
         return {PyArrowTable}
@@ -56,7 +64,8 @@ class PyArrowFrameAggregate(FrameAggregateFeatureGroup):
         for key, rows in groups.items():
             for pos, (orig_idx, order_val, val) in enumerate(rows):
                 if frame_type == "rolling":
-                    window_start = max(0, pos - int(frame_size) + 1) if frame_size else 0
+                    wsize = int(frame_size) if frame_size is not None else 1
+                    window_start = max(0, pos - wsize + 1)
                     window = [r[2] for r in rows[window_start : pos + 1]]
                 elif frame_type in ("cumulative", "expanding"):
                     window = [r[2] for r in rows[: pos + 1]]
@@ -79,6 +88,12 @@ class PyArrowFrameAggregate(FrameAggregateFeatureGroup):
         size: int,
         unit: str,
     ) -> list[Any]:
+        """Collect values within a time-based window ending at the current row.
+
+        Note: month and year use fixed approximations (30 days per month,
+        365 days per year). For calendar-accurate windows, consider using
+        dateutil.relativedelta in a custom subclass.
+        """
         from datetime import timedelta
 
         unit_map = {

@@ -6,7 +6,6 @@ import re
 from typing import Any, List, Optional, Set
 
 from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
@@ -26,7 +25,7 @@ _CUMULATIVE_PATTERN = re.compile(r"^(.+)__cum(\w+)$")
 _EXPANDING_PATTERN = re.compile(r"^(.+)__expanding_(\w+)$")
 
 _AGGREGATION_TYPES = {"sum", "avg", "count", "min", "max", "std", "var", "median"}
-_CUMULATIVE_OPS = {"sum", "min", "max", "count"}
+_CUMULATIVE_OPS = _AGGREGATION_TYPES
 _TIME_UNITS = {"second", "minute", "hour", "day", "week", "month", "year"}
 
 
@@ -96,7 +95,9 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     - ``order_by``: Column to order by (required for all frame types)
     """
 
-    # No single PREFIX_PATTERN: we use custom matching for 4 patterns.
+    # Required by FeatureChainParserMixin but unused: match_feature_group_criteria
+    # is fully overridden to handle four distinct patterns (rolling, time, cumulative,
+    # expanding). This value is a placeholder to satisfy the mixin contract.
     PREFIX_PATTERN = r".*__([\w]+)_rolling_\d+$"
 
     SUPPORTED_FRAME_TYPES: Set[str] = {"rolling", "time", "cumulative", "expanding"}
@@ -238,7 +239,7 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         - partition_by is a list of strings
         - order_by is a string
         - aggregation_type is supported
-        - For cumulative: agg in _CUMULATIVE_OPS
+        - For cumulative/expanding: agg in _CUMULATIVE_OPS (same as _AGGREGATION_TYPES)
         - For time: frame_unit in _TIME_UNITS
         """
         name = str(feature_name.name if hasattr(feature_name, "name") else feature_name)
@@ -247,9 +248,8 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
         if parsed is not None:
             if parsed["agg_type"] not in _AGGREGATION_TYPES:
-                if parsed["frame_type"] != "cumulative" or parsed["agg_type"] not in _CUMULATIVE_OPS:
-                    return False
-            if parsed["frame_type"] == "cumulative" and parsed["agg_type"] not in _CUMULATIVE_OPS:
+                return False
+            if parsed["frame_type"] in ("cumulative", "expanding") and parsed["agg_type"] not in _CUMULATIVE_OPS:
                 return False
             if parsed["frame_type"] == "time" and parsed["frame_unit"] not in _TIME_UNITS:
                 return False
@@ -265,7 +265,7 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             frame_type_str = str(frame_type)
             if frame_type_str not in cls.SUPPORTED_FRAME_TYPES:
                 return False
-            if frame_type_str == "cumulative" and str(agg_type) not in _CUMULATIVE_OPS:
+            if frame_type_str in ("cumulative", "expanding") and str(agg_type) not in _CUMULATIVE_OPS:
                 return False
             if frame_type_str == "time":
                 frame_unit = options.get(cls.FRAME_UNIT)
