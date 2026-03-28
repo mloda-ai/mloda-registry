@@ -44,6 +44,10 @@ class PolarsLazyDateTimeExtraction(DateTimeFeatureGroup):
         elif op == "dayofweek":
             expr = col.dt.weekday() - 1
         elif op == "is_weekend":
+            # Null propagation: when col is null, weekday() returns null,
+            # >= 6 returns null (boolean null), and .cast(Int64) produces
+            # a Polars null that propagates to None in Python. This relies
+            # on Polars' implicit null propagation through comparison and cast.
             expr = (col.dt.weekday() >= 6).cast(pl.Int64)
         elif op == "quarter":
             expr = col.dt.quarter()

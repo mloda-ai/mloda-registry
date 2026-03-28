@@ -4,27 +4,37 @@ Expected values are computed from the canonical 12-row dataset in
 DataOperationsTestDataCreator, using the 'timestamp' column.
 
 Timestamps (UTC):
-  Row 0:  2023-01-01 (Sun)   Row 6:  2023-01-07 (Sat)
-  Row 1:  2023-01-02 (Mon)   Row 7:  2023-01-08 (Sun)
-  Row 2:  2023-01-03 (Tue)   Row 8:  2023-01-09 (Mon)
-  Row 3:  2023-01-05 (Thu)   Row 9:  2023-01-10 (Tue)
-  Row 4:  2023-01-06 (Fri)   Row 10: None (null)
-  Row 5:  2023-01-06 (Fri)   Row 11: 2023-01-12 (Thu)
+  Row 0:  2023-01-01 00:00:00 (Sun)   Row 6:  2023-01-07 00:00:00 (Sat)
+  Row 1:  2023-01-02 00:00:00 (Mon)   Row 7:  2023-01-08 00:00:00 (Sun)
+  Row 2:  2023-01-03 00:00:00 (Tue)   Row 8:  2023-01-09 00:00:00 (Mon)
+  Row 3:  2023-01-05 00:00:00 (Thu)   Row 9:  2023-01-10 00:00:00 (Tue)
+  Row 4:  2023-01-06 00:00:00 (Fri)   Row 10: None (null)
+  Row 5:  2023-01-06 00:00:00 (Fri)   Row 11: 2023-01-12 00:00:00 (Thu)
+
+A supplementary 4-row dataset (``_varied_times_arrow_table``) adds
+non-midnight timestamps to exercise non-zero hour, minute, and second
+extraction:
+
+  Row 0: 2023-06-15 14:30:45 (Thu)
+  Row 1: 2023-09-22 08:15:30 (Fri)
+  Row 2: 2023-12-31 23:59:59 (Sun)
+  Row 3: None (null)
 
 The ``DateTimeTestBase`` class provides concrete test methods for all 9
 datetime operations (year, month, day, hour, minute, second, dayofweek,
 is_weekend, quarter) plus null handling, row preservation, type checks,
-and cross-framework comparison. Framework implementations inherit all
-tests by subclassing and implementing a few abstract methods.
+cross-framework comparison, and non-midnight time extraction tests.
+Framework implementations inherit all tests by subclassing and implementing
+a few abstract methods.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from typing import Any
 
 import pyarrow as pa
-import pytest
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
@@ -33,7 +43,7 @@ from mloda.user import Feature
 
 
 # ---------------------------------------------------------------------------
-# Expected values (module-level constants)
+# Expected values (module-level constants, canonical 12-row dataset)
 # ---------------------------------------------------------------------------
 
 # All timestamps are in January 2023 => all years = 2023, months = 1, quarters = 1
@@ -55,6 +65,55 @@ EXPECTED_IS_WEEKEND: list[Any] = [1, 0, 0, 0, 0, 0, 1, 1, 0, 0, None, 0]
 
 # All in January => quarter = 1
 EXPECTED_QUARTER: list[Any] = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, None, 1]
+
+
+# ---------------------------------------------------------------------------
+# Supplementary dataset: non-midnight timestamps for hour/minute/second
+# ---------------------------------------------------------------------------
+
+_VARIED_TIMES_TIMESTAMPS = [
+    datetime(2023, 6, 15, 14, 30, 45, tzinfo=timezone.utc),  # Thu, Q2
+    datetime(2023, 9, 22, 8, 15, 30, tzinfo=timezone.utc),  # Fri, Q3
+    datetime(2023, 12, 31, 23, 59, 59, tzinfo=timezone.utc),  # Sun, Q4
+    None,  # null
+]
+
+VARIED_EXPECTED_YEAR: list[Any] = [2023, 2023, 2023, None]
+VARIED_EXPECTED_MONTH: list[Any] = [6, 9, 12, None]
+VARIED_EXPECTED_DAY: list[Any] = [15, 22, 31, None]
+VARIED_EXPECTED_HOUR: list[Any] = [14, 8, 23, None]
+VARIED_EXPECTED_MINUTE: list[Any] = [30, 15, 59, None]
+VARIED_EXPECTED_SECOND: list[Any] = [45, 30, 59, None]
+# Thu=3, Fri=4, Sun=6, None
+VARIED_EXPECTED_DAYOFWEEK: list[Any] = [3, 4, 6, None]
+# Thu=0, Fri=0, Sun=1, None
+VARIED_EXPECTED_IS_WEEKEND: list[Any] = [0, 0, 1, None]
+# Q2, Q3, Q4, None
+VARIED_EXPECTED_QUARTER: list[Any] = [2, 3, 4, None]
+
+VARIED_EXPECTED: dict[str, list[Any]] = {
+    "year": VARIED_EXPECTED_YEAR,
+    "month": VARIED_EXPECTED_MONTH,
+    "day": VARIED_EXPECTED_DAY,
+    "hour": VARIED_EXPECTED_HOUR,
+    "minute": VARIED_EXPECTED_MINUTE,
+    "second": VARIED_EXPECTED_SECOND,
+    "dayofweek": VARIED_EXPECTED_DAYOFWEEK,
+    "is_weekend": VARIED_EXPECTED_IS_WEEKEND,
+    "quarter": VARIED_EXPECTED_QUARTER,
+}
+
+
+def _create_varied_times_arrow_table() -> pa.Table:
+    """Create a 4-row PyArrow table with non-midnight UTC timestamps."""
+    return pa.table(
+        {
+            "timestamp": pa.array(
+                _VARIED_TIMES_TIMESTAMPS,
+                type=pa.timestamp("us", tz="UTC"),
+            ),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -92,8 +151,8 @@ class DateTimeTestBase(ABC):
 
     Subclasses implement abstract methods to wire up their framework,
     then inherit concrete test methods for all 9 datetime operations
-    plus null handling, row count checks, type checks, and
-    cross-framework comparison against PyArrow.
+    plus null handling, row count checks, type checks, cross-framework
+    comparison against PyArrow, and non-midnight time extraction tests.
     """
 
     # -- Abstract methods subclasses must implement --------------------------
@@ -138,6 +197,9 @@ class DateTimeTestBase(ABC):
         """
         self._arrow_table = PyArrowDataOpsTestDataCreator.create()
         self.test_data = self.create_test_data(self._arrow_table)
+
+        self._varied_arrow_table = _create_varied_times_arrow_table()
+        self._varied_test_data = self.create_test_data(self._varied_arrow_table)
 
     def teardown_method(self) -> None:
         """Close self.conn if it was set by a connection-based subclass."""
@@ -230,6 +292,43 @@ class DateTimeTestBase(ABC):
         result_col = self.extract_column(result, "timestamp__quarter")
         assert result_col == EXPECTED_QUARTER
 
+    # -- Non-midnight time extraction tests ----------------------------------
+
+    def test_varied_hour_extraction(self) -> None:
+        """Extract non-zero hours from the supplementary dataset."""
+        fs = make_feature_set("timestamp__hour")
+        result = self.implementation_class().calculate_feature(self._varied_test_data, fs)
+        result_col = self.extract_column(result, "timestamp__hour")
+        assert result_col == VARIED_EXPECTED_HOUR
+
+    def test_varied_minute_extraction(self) -> None:
+        """Extract non-zero minutes from the supplementary dataset."""
+        fs = make_feature_set("timestamp__minute")
+        result = self.implementation_class().calculate_feature(self._varied_test_data, fs)
+        result_col = self.extract_column(result, "timestamp__minute")
+        assert result_col == VARIED_EXPECTED_MINUTE
+
+    def test_varied_second_extraction(self) -> None:
+        """Extract non-zero seconds from the supplementary dataset."""
+        fs = make_feature_set("timestamp__second")
+        result = self.implementation_class().calculate_feature(self._varied_test_data, fs)
+        result_col = self.extract_column(result, "timestamp__second")
+        assert result_col == VARIED_EXPECTED_SECOND
+
+    def test_varied_quarter_extraction(self) -> None:
+        """Extract quarters 2, 3, 4 from the supplementary dataset."""
+        fs = make_feature_set("timestamp__quarter")
+        result = self.implementation_class().calculate_feature(self._varied_test_data, fs)
+        result_col = self.extract_column(result, "timestamp__quarter")
+        assert result_col == VARIED_EXPECTED_QUARTER
+
+    def test_varied_month_extraction(self) -> None:
+        """Extract months 6, 9, 12 from the supplementary dataset."""
+        fs = make_feature_set("timestamp__month")
+        result = self.implementation_class().calculate_feature(self._varied_test_data, fs)
+        result_col = self.extract_column(result, "timestamp__month")
+        assert result_col == VARIED_EXPECTED_MONTH
+
     # -- Null handling tests -------------------------------------------------
 
     def test_null_timestamp_produces_null(self) -> None:
@@ -275,6 +374,18 @@ class DateTimeTestBase(ABC):
         assert len(result_col) == len(ref_col), f"row count {len(result_col)} != reference {len(ref_col)}"
         assert result_col == ref_col
 
+    def _compare_varied_with_pyarrow(self, feature_name: str) -> None:
+        """Run the feature on the supplementary dataset, compare with PyArrow."""
+        fs = make_feature_set(feature_name)
+        result = self.implementation_class().calculate_feature(self._varied_test_data, fs)
+        ref = self.pyarrow_implementation_class().calculate_feature(self._varied_arrow_table, fs)
+
+        result_col = self.extract_column(result, feature_name)
+        ref_col = extract_column(ref, feature_name)
+
+        assert len(result_col) == len(ref_col), f"row count {len(result_col)} != reference {len(ref_col)}"
+        assert result_col == ref_col
+
     def test_cross_framework_year(self) -> None:
         """Year must match PyArrow reference."""
         self._compare_with_pyarrow("timestamp__year")
@@ -287,6 +398,18 @@ class DateTimeTestBase(ABC):
         """Day must match PyArrow reference."""
         self._compare_with_pyarrow("timestamp__day")
 
+    def test_cross_framework_hour(self) -> None:
+        """Hour must match PyArrow reference."""
+        self._compare_with_pyarrow("timestamp__hour")
+
+    def test_cross_framework_minute(self) -> None:
+        """Minute must match PyArrow reference."""
+        self._compare_with_pyarrow("timestamp__minute")
+
+    def test_cross_framework_second(self) -> None:
+        """Second must match PyArrow reference."""
+        self._compare_with_pyarrow("timestamp__second")
+
     def test_cross_framework_dayofweek(self) -> None:
         """Day of week must match PyArrow reference."""
         self._compare_with_pyarrow("timestamp__dayofweek")
@@ -298,3 +421,17 @@ class DateTimeTestBase(ABC):
     def test_cross_framework_quarter(self) -> None:
         """Quarter must match PyArrow reference."""
         self._compare_with_pyarrow("timestamp__quarter")
+
+    # -- Cross-framework comparison on varied-times dataset ------------------
+
+    def test_cross_framework_varied_hour(self) -> None:
+        """Non-zero hours must match PyArrow reference on varied dataset."""
+        self._compare_varied_with_pyarrow("timestamp__hour")
+
+    def test_cross_framework_varied_minute(self) -> None:
+        """Non-zero minutes must match PyArrow reference on varied dataset."""
+        self._compare_varied_with_pyarrow("timestamp__minute")
+
+    def test_cross_framework_varied_second(self) -> None:
+        """Non-zero seconds must match PyArrow reference on varied dataset."""
+        self._compare_varied_with_pyarrow("timestamp__second")
