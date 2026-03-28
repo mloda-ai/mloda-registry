@@ -208,13 +208,13 @@ wheels = [
 
 [[package]]
 name = "mloda"
-version = "0.5.5"
+version = "0.5.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyarrow" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/99/093318ef86d735ab55462e7cf6879cd61aec679f1b873b6156a34a24c638/mloda-0.5.5-py3-none-any.whl", hash = "sha256:18df5fb02206e3a15172bd2994cebd1e6763e06833b24b153aec660f4f5eed69", size = 385404, upload-time = "2026-03-24T06:48:17.846Z" },
+    { url = "https://files.pythonhosted.org/packages/de/6e/4fc066e2b6d9837fe768d771a00f8ccda9ed06c9deaae6f17cd66ce0ce55/mloda-0.5.6-py3-none-any.whl", hash = "sha256:0bc2a56112a8e5bfb26a825c63ded8e1bacc242524a62678b396854229efd9c7", size = 386577, upload-time = "2026-03-28T10:57:19.796Z" },
 ]
 
 [[package]]
@@ -541,7 +541,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bandit", marker = "extra == 'dev'" },
-    { name = "mloda", specifier = "==0.5.5" },
+    { name = "mloda", specifier = ">=0.5.6" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
