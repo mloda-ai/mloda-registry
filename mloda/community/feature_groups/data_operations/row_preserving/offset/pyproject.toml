@@ -6,22 +6,27 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mloda-community-data-operations"
+name = "mloda-community-offset"
 version = "0.2.12"
-description = "Shared base classes for data operation feature groups"
+description = "Offset feature group (lag, lead, diff, pct_change, first_value, last_value, row-preserving)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda>=0.5.5"]
+dependencies = ["mloda-community-data-operations>=0.2.12"]
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
 dev = ["mloda-testing", "pytest"]
-all = ["mloda-community-window-aggregation", "mloda-community-offset"]
+pyarrow = ["pyarrow"]
+sqlite = []
+duckdb = ["duckdb"]
+polars = ["polars"]
+pandas = ["pandas"]
+all = ["pyarrow", "polars", "pandas", "duckdb"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
 [tool.setuptools]
-package-dir = {"" = "../../../.."}
-packages = ["mloda.community.feature_groups.data_operations", "mloda.community.feature_groups.data_operations.row_preserving"]
+package-dir = {"" = "../../../../../.."}
+packages = ["mloda.community.feature_groups.data_operations.row_preserving.offset"]

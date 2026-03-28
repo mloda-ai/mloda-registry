@@ -69,7 +69,13 @@ path = "mloda/enterprise/extenders/example"
 description = "Shared base classes for data operation feature groups"
 dependencies = ["mloda>=0.5.5"]
 path = "mloda/community/feature_groups/data_operations"
-optional_dependencies = { all = ["mloda-community-window-aggregation"] }
+optional_dependencies = { all = ["mloda-community-window-aggregation", "mloda-community-offset"] }
+
+[packages.mloda-community-offset]
+description = "Offset feature group (lag, lead, diff, pct_change, first_value, last_value, row-preserving)"
+dependencies = ["mloda-community-data-operations>=0.2.12"]
+path = "mloda/community/feature_groups/data_operations/row_preserving/offset"
+optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
 
 [packages.mloda-community-window-aggregation]
 description = "Window aggregation feature group (broadcast, partition_by, row-preserving)"
