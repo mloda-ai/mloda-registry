@@ -44,7 +44,11 @@ class PandasGroupAggregation(GroupAggregationFeatureGroup):
 
         # CRITICAL: dropna=False ensures null group keys form their own group,
         # matching PyArrow behavior. Without this, pandas drops null keys entirely.
-        grouped = data.groupby(partition_by, dropna=False)[source_col].agg(pandas_func)
+        # min_count=1 for sum ensures all-null groups return NaN (not 0), matching PyArrow.
+        if agg_type == "sum":
+            grouped = data.groupby(partition_by, dropna=False)[source_col].agg(pandas_func, min_count=1)
+        else:
+            grouped = data.groupby(partition_by, dropna=False)[source_col].agg(pandas_func)
         result = grouped.reset_index()
         result = result.rename(columns={source_col: feature_name})
 

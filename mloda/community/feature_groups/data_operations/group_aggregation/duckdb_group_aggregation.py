@@ -24,7 +24,7 @@ _DUCKDB_AGG_FUNCS: dict[str, str] = {
     "var": "VAR_SAMP",
     "median": "MEDIAN",
     "mode": "MODE",
-    "nunique": "COUNT_DISTINCT",
+    "nunique": "COUNT_DISTINCT",  # handled specially: COUNT(DISTINCT col) syntax
     "first": "FIRST",
     "last": "LAST",
 }

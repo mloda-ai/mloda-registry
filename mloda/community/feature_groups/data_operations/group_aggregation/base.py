@@ -18,6 +18,11 @@ class GroupAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     returns one row per unique group key combination. The output has
     fewer rows than the input (one per group).
 
+    Unlike window aggregation (``_groupby`` suffix), which broadcasts
+    the aggregate back to every row (preserving the original row count),
+    group aggregation reduces the table to one row per group key
+    combination.
+
     ## Supported Aggregation Types
 
     - ``sum``: Sum of values

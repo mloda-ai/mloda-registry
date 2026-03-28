@@ -386,47 +386,61 @@ class GroupAggregationTestBase(ABC):
         result_col = self.extract_column(result, "value_int__nunique_grouped")
         result_map = _build_result_map(region_col, result_col)
         assert result_map["A"] == 4  # {10, -5, 0, 20}
-        assert result_map["B"] in {3, 4}  # 3 without null, 4 with null
+        assert result_map["B"] == 3  # {50, 30, 60} - nulls excluded
         assert result_map["C"] == 2  # {15, 40}
         assert result_map[None] == 1  # {-10}
 
     def test_first_grouped_region(self) -> None:
-        """First value of value_int grouped by region."""
+        """First value of value_int grouped by region.
+
+        Group values (insertion order): A=[10,-5,0,20], B=[None,50,30,60],
+        C=[15,15,40], None=[-10]. For groups without leading nulls, all
+        frameworks agree. For B, PyArrow returns the first non-null (50)
+        while Polars/DuckDB return None (literal first value).
+        """
         self._skip_if_unsupported("first")
         fs = make_feature_set("value_int__first_grouped", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         result_col = self.extract_column(result, "value_int__first_grouped")
-        assert len(result_col) == 4
-        valid_values = {10, -5, 0, 20, 50, 30, 60, 15, 40, -10}
-        for v in result_col:
-            if v is not None:
-                assert v in valid_values
+        result_map = _build_result_map(region_col, result_col)
+
+        assert result_map["A"] == 10
+        assert result_map["C"] == 15
+        assert result_map[None] == -10
+        # B has a leading null: PyArrow skips nulls (50), others return None
+        assert result_map["B"] in {None, 50}
 
     def test_last_grouped_region(self) -> None:
-        """Last value of value_int grouped by region."""
+        """Last value of value_int grouped by region.
+
+        Group values (insertion order): A=[10,-5,0,20], B=[None,50,30,60],
+        C=[15,15,40], None=[-10]. No group has a trailing null, so all
+        frameworks agree on the last value.
+        """
         self._skip_if_unsupported("last")
         fs = make_feature_set("value_int__last_grouped", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
         result_col = self.extract_column(result, "value_int__last_grouped")
-        assert len(result_col) == 4
-        valid_values = {10, -5, 0, 20, 50, 30, 60, 15, 40, -10}
-        for v in result_col:
-            if v is not None:
-                assert v in valid_values
+        result_map = _build_result_map(region_col, result_col)
+
+        assert result_map["A"] == 20
+        assert result_map["B"] == 60
+        assert result_map["C"] == 40
+        assert result_map[None] == -10
 
     # -- Null edge case tests ------------------------------------------------
 
     def test_null_policy_skip_all_null_column(self) -> None:
-        """NullPolicy.SKIP: score column is all null. Aggregation should produce all nulls or zeros."""
+        """NullPolicy.SKIP: score column is all null. Aggregation should produce all nulls."""
         fs = make_feature_set("score__sum_grouped", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "score__sum_grouped")
-        assert all(v is None or v == 0 for v in result_col)
+        assert all(v is None for v in result_col)
 
     # -- Multi-key partition tests -------------------------------------------
 

@@ -29,6 +29,10 @@ class PyArrowGroupAggregation(GroupAggregationFeatureGroup):
         partition_by: list[str],
         agg_type: str,
     ) -> pa.Table:
+        # PyArrow has no native group-by-and-reduce API that returns a reduced
+        # table, so this implementation uses Python dict-based grouping with
+        # row-by-row .as_py() calls. Other frameworks (DuckDB, Polars, Pandas,
+        # SQLite) use their native aggregation APIs.
         num_rows = table.num_rows
 
         # Build group keys per row (using Python objects so None is a valid key)
