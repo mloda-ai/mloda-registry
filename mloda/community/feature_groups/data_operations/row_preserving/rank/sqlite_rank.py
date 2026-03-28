@@ -7,7 +7,7 @@ from typing import Any, Set, Type, Union
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
-from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation, _next_table_name
+from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
@@ -32,7 +32,6 @@ class SqliteRank(RankFeatureGroup):
         cls,
         data: SqliteRelation,
         feature_name: str,
-        source_col: str,
         partition_by: list[str],
         order_by: str,
         rank_type: str,

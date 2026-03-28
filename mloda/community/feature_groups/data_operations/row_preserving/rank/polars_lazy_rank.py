@@ -24,7 +24,6 @@ class PolarsLazyRank(RankFeatureGroup):
         cls,
         data: pl.LazyFrame,
         feature_name: str,
-        source_col: str,
         partition_by: list[str],
         order_by: str,
         rank_type: str,

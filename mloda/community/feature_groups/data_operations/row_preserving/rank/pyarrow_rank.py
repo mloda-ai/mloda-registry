@@ -24,24 +24,29 @@ class PyArrowRank(RankFeatureGroup):
         cls,
         table: pa.Table,
         feature_name: str,
-        source_col: str,
         partition_by: list[str],
         order_by: str,
         rank_type: str,
     ) -> pa.Table:
         num_rows = table.num_rows
 
+        # Convert columns to Python lists once (O(n) per column) instead of
+        # extracting individual elements via .as_py() which is O(n) calls
+        # crossing the Python/C++ boundary.
+        partition_cols = {col: table.column(col).to_pylist() for col in partition_by}
+        order_vals = table.column(order_by).to_pylist()
+
         # Build group keys per row
         keys: list[tuple[Any, ...]] = []
         for i in range(num_rows):
-            key = tuple(table.column(col)[i].as_py() for col in partition_by)
+            key = tuple(partition_cols[col][i] for col in partition_by)
             keys.append(key)
 
         # Collect (index, order_value) per group
         groups: dict[tuple[Any, ...], list[tuple[int, Any]]] = {}
         for i in range(num_rows):
             key = keys[i]
-            val = table.column(order_by)[i].as_py()
+            val = order_vals[i]
             if key not in groups:
                 groups[key] = []
             groups[key].append((i, val))

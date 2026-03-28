@@ -271,7 +271,29 @@ class RankTestBase(ABC):
         """Dense rank must match PyArrow reference."""
         self._compare_with_pyarrow("value_int__dense_rank_ranked", ["region"], "value_int")
 
+    def test_cross_framework_percent_rank(self) -> None:
+        """Percent rank must match PyArrow reference."""
+        self._skip_if_unsupported("percent_rank")
+        self._compare_with_pyarrow_approx("value_int__percent_rank_ranked", ["region"], "value_int")
+
+    def test_cross_framework_ntile(self) -> None:
+        """Ntile must match PyArrow reference."""
+        self._compare_with_pyarrow("value_int__ntile_2_ranked", ["region"], "value_int")
+
     # -- Helper methods ------------------------------------------------------
+
+    def _compare_with_pyarrow_approx(self, feature_name: str, partition_by: list[str], order_by: str) -> None:
+        """Like _compare_with_pyarrow but uses pytest.approx for float comparison."""
+        fs = make_feature_set(feature_name, partition_by, order_by)
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
+
+        result_col = self.extract_column(result, feature_name)
+        ref_col = extract_column(ref, feature_name)
+
+        assert len(result_col) == len(ref_col), f"row count {len(result_col)} != reference {len(ref_col)}"
+        for i, (actual, expected) in enumerate(zip(result_col, ref_col)):
+            assert actual == pytest.approx(expected, rel=1e-6), f"row {i}: {actual} != {expected}"
 
     def _skip_if_unsupported(self, rank_type: str) -> None:
         if rank_type not in self.supported_rank_types():

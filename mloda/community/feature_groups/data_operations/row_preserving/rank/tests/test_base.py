@@ -36,6 +36,12 @@ class TestClassAttributes:
         assert not RankFeatureGroup._supports_rank_type("ntile_0")
         assert not RankFeatureGroup._supports_rank_type("ntile_abc")
 
+    def test_supports_ntile_1(self) -> None:
+        assert RankFeatureGroup._supports_rank_type("ntile_1")
+
+    def test_rejects_ntile_negative(self) -> None:
+        assert not RankFeatureGroup._supports_rank_type("ntile_-1")
+
     def test_min_in_features_is_one(self) -> None:
         assert RankFeatureGroup.MIN_IN_FEATURES == 1
 
@@ -148,8 +154,23 @@ class TestConfigValidation:
         result = RankFeatureGroup.match_feature_group_criteria("value_int__rank_ranked", options, None)
         assert result is False
 
-    def test_partition_by_must_be_list(self) -> None:
+    def test_partition_by_must_be_list_or_tuple(self) -> None:
         options = Options(context={"partition_by": "region", "order_by": "value_int"})
+        result = RankFeatureGroup.match_feature_group_criteria("value_int__rank_ranked", options, None)
+        assert result is False
+
+    def test_partition_by_accepts_tuple(self) -> None:
+        options = Options(context={"partition_by": ("region",), "order_by": "value_int"})
+        result = RankFeatureGroup.match_feature_group_criteria("value_int__rank_ranked", options, None)
+        assert result is True
+
+    def test_partition_by_rejects_empty_list(self) -> None:
+        options = Options(context={"partition_by": [], "order_by": "value_int"})
+        result = RankFeatureGroup.match_feature_group_criteria("value_int__rank_ranked", options, None)
+        assert result is False
+
+    def test_partition_by_rejects_empty_tuple(self) -> None:
+        options = Options(context={"partition_by": (), "order_by": "value_int"})
         result = RankFeatureGroup.match_feature_group_criteria("value_int__rank_ranked", options, None)
         assert result is False
 
