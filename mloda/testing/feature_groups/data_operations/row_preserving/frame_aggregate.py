@@ -378,6 +378,23 @@ class FrameAggregateTestBase(ABC):
         expected = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
         _assert_values_with_nulls(result_col, expected)
 
+    def test_all_null_values_returns_null(self) -> None:
+        """When all values in the source column are null, results should be null."""
+        all_null_table = pa.table(
+            {
+                "region": ["A", "A", "A"],
+                "value_int": [None, None, None],
+            }
+        )
+        data = self.create_test_data(all_null_table)
+        fs = make_feature_set("value_int__cumsum", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        assert self.get_row_count(result) == 3
+        result_col = self.extract_column(result, "value_int__cumsum")
+        for i, val in enumerate(result_col):
+            assert _is_null(val), f"row {i}: expected null, got {val}"
+
     def test_window_larger_than_partition(self) -> None:
         """Rolling window larger than partition should include all rows in the partition."""
         fs = make_feature_set("value_int__sum_rolling_100", ["region"], "value_int")
