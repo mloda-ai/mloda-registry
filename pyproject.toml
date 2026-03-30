@@ -71,6 +71,7 @@ members = [
     "mloda/community/compute_frameworks/example",
     "mloda/community/extenders/example",
     "mloda/community/feature_groups/data_operations",
+    "mloda/community/feature_groups/data_operations/group_aggregation",
     "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation",
     "mloda/community/feature_groups/example",
     "mloda/community/feature_groups/example/example_a",
