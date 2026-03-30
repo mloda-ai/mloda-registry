@@ -245,6 +245,45 @@ class RankTestBase(ABC):
 
         assert isinstance(result, self.get_expected_type())
 
+    # -- Edge case tests ------------------------------------------------------
+
+    def test_ntile_1_all_bucket_1(self) -> None:
+        """Ntile_1: every row gets bucket 1."""
+        fs = make_feature_set("value_int__ntile_1_ranked", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__ntile_1_ranked")
+        assert all(v == 1 for v in result_col)
+
+    def test_ntile_n_exceeds_group_size(self) -> None:
+        """Ntile_10 on groups smaller than 10: all buckets in 1..10, all unique per group."""
+        fs = make_feature_set("value_int__ntile_10_ranked", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        region_col = self.extract_column(result, "region")
+        result_col = self.extract_column(result, "value_int__ntile_10_ranked")
+
+        # Group by region and check bucket values
+        groups: dict[Any, list[int]] = {}
+        for region, bucket in zip(region_col, result_col):
+            groups.setdefault(region, []).append(bucket)
+
+        for region, buckets in groups.items():
+            # All buckets must be in range 1..10
+            assert all(1 <= b <= 10 for b in buckets), f"region={region}: buckets out of range: {buckets}"
+            # Each row in the group gets a distinct bucket
+            assert len(set(buckets)) == len(buckets), f"region={region}: expected unique buckets, got {buckets}"
+
+    def test_rank_all_ties(self) -> None:
+        """Group C has two tied values (15, 15). Rank and dense_rank must agree on those rows."""
+        fs = make_feature_set("value_int__rank_ranked", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__rank_ranked")
+        # Rows 8 and 9 are both value_int=15 in group C: both get rank 1
+        assert result_col[8] == 1
+        assert result_col[9] == 1
+
     # -- Cross-framework comparison (matches PyArrow reference) --------------
 
     def _compare_with_pyarrow(self, feature_name: str, partition_by: list[str], order_by: str) -> None:
