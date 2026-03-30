@@ -29,16 +29,7 @@ from mloda.user import Feature
 # ---------------------------------------------------------------------------
 
 # value_int non-null: [10, -5, 0, 20, 50, 30, 60, 15, 15, 40, -10]
-# min=-10, max=60, range=70
-# Equal-width bin_3: width=70/3=23.333...
-#   bin 0: [-10, 13.333) -> -10, -5, 0, 10
-#   bin 1: [13.333, 36.667) -> 20, 30, 15, 15
-#   bin 2: [36.667, 60] -> 50, 60, 40
-# Row mapping (value_int = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]):
-EXPECTED_BIN_3: list[Any] = [0, 0, 0, 0, None, 2, 0, 2, 0, 0, 1, 0]
-
-# Recalculate carefully:
-# bin_width = 70 / 3 = 23.333...
+# min=-10, max=60, range=70, bin_width = 70 / 3 = 23.333...
 # val=10:  (10 - (-10)) / 23.333 = 20/23.333 = 0.857 -> int(0.857) = 0
 # val=-5:  (-5 - (-10)) / 23.333 = 5/23.333 = 0.214 -> int(0.214) = 0
 # val=0:   (0 - (-10)) / 23.333 = 10/23.333 = 0.428 -> int(0.428) = 0
@@ -333,3 +324,84 @@ class BinningTestBase(ABC):
 
         result_col = self.extract_column(result, "value_int__qbin_3")
         assert result_col == [0]
+
+    def test_n_bins_1(self) -> None:
+        """n_bins=1: all non-null values should map to bin 0."""
+        fs = make_feature_set("value_int__bin_1")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__bin_1")
+        for i, val in enumerate(result_col):
+            if val is None:
+                assert i == 4, f"unexpected None at row {i}"
+            else:
+                assert val == 0, f"row {i}: expected 0, got {val}"
+
+    def test_qbin_n_bins_1(self) -> None:
+        """qbin with n_bins=1: all non-null values should map to bin 0."""
+        fs = make_feature_set("value_int__qbin_1")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__qbin_1")
+        for i, val in enumerate(result_col):
+            if val is None:
+                assert i == 4, f"unexpected None at row {i}"
+            else:
+                assert val == 0, f"row {i}: expected 0, got {val}"
+
+    def test_n_bins_greater_than_row_count(self) -> None:
+        """n_bins > row count: should not error, bins are sparse."""
+        small_data = {"value_int": [10, 20, 30, 40, 50]}
+        arrow_table = pa.table(small_data)
+        test_data = self.create_test_data(arrow_table)
+
+        fs = make_feature_set("value_int__bin_100")
+        result = self.implementation_class().calculate_feature(test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__bin_100")
+        assert len(result_col) == 5
+        for val in result_col:
+            assert 0 <= val < 100, f"bin value {val} out of range [0, 99]"
+
+    def test_all_null_column(self) -> None:
+        """All-null column should produce all-null bin assignments."""
+        all_null_data = {"value_int": [None, None, None]}
+        arrow_table = pa.table({"value_int": pa.array([None, None, None], type=pa.int64())})
+        test_data = self.create_test_data(arrow_table)
+
+        fs = make_feature_set("value_int__bin_3")
+        result = self.implementation_class().calculate_feature(test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__bin_3")
+        assert all(v is None for v in result_col), f"expected all None, got {result_col}"
+
+    def test_all_null_column_qbin(self) -> None:
+        """All-null column should produce all-null qbin assignments."""
+        arrow_table = pa.table({"value_int": pa.array([None, None, None], type=pa.int64())})
+        test_data = self.create_test_data(arrow_table)
+
+        fs = make_feature_set("value_int__qbin_3")
+        result = self.implementation_class().calculate_feature(test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__qbin_3")
+        assert all(v is None for v in result_col), f"expected all None, got {result_col}"
+
+    def test_bin_boundary_precision(self) -> None:
+        """Values exactly on bin boundaries should be consistent across frameworks.
+
+        [0.0, 10.0, 20.0, 30.0] with n_bins=3: width=10.0
+        All backends use left-closed [a, b) intervals.
+        val=0:  (0-0)/10 = 0.0 -> bin 0
+        val=10: (10-0)/10 = 1.0 -> bin 1
+        val=20: (20-0)/10 = 2.0 -> bin 2
+        val=30: (30-0)/10 = 3.0 -> clamped to bin 2
+        """
+        boundary_data = {"value_int": [0, 10, 20, 30]}
+        arrow_table = pa.table(boundary_data)
+        test_data = self.create_test_data(arrow_table)
+
+        fs = make_feature_set("value_int__bin_3")
+        result = self.implementation_class().calculate_feature(test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__bin_3")
+        assert result_col == [0, 1, 2, 2]

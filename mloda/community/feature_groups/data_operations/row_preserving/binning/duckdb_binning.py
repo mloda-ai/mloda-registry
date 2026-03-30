@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, List, Set, Type, Union
+from typing import Any, Set, Type, Union
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
@@ -45,33 +45,10 @@ class DuckdbBinning(BinningFeatureGroup):
             return result
 
         if op == "qbin":
-            return cls._rank_based_qbin(data, feature_name, source_col, n_bins)
+            arrow_table = data.to_arrow_table()
+            values = arrow_table.column(source_col).to_pylist()
+            result_values = cls._quantile_binning(values, n_bins)
+            qbin_result: DuckdbRelation = data.append_column(feature_name, result_values)
+            return qbin_result
 
         raise ValueError(f"Unsupported binning operation for DuckDB: {op}")
-
-    @classmethod
-    def _rank_based_qbin(
-        cls,
-        data: DuckdbRelation,
-        feature_name: str,
-        source_col: str,
-        n_bins: int,
-    ) -> DuckdbRelation:
-        """Rank-based quantile binning matching NTILE semantics.
-
-        Computes qbin in Python to avoid DuckDB window-ORDER-BY row reordering,
-        then appends the result column back to the relation.
-        """
-        arrow_table = data.to_arrow_table()
-        values = arrow_table.column(source_col).to_pylist()
-
-        indexed: List[tuple[Any, int]] = [(v, i) for i, v in enumerate(values) if v is not None]
-        indexed.sort(key=lambda pair: pair[0])
-        n = len(indexed)
-
-        result_values: List[Any] = [None] * len(values)
-        if n > 0:
-            for rank, (_, orig_idx) in enumerate(indexed):
-                result_values[orig_idx] = rank * n_bins // n
-
-        return data.append_column(feature_name, result_values)

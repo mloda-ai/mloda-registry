@@ -37,32 +37,13 @@ class PandasBinning(BinningFeatureGroup):
             return data
 
         if op == "bin":
-            if col[non_null_mask].nunique() <= 1:
-                data[feature_name] = col.apply(lambda v: None if pd.isna(v) else 0)
-                return data
-            binned = pd.cut(col, bins=n_bins, labels=False)
-            data[feature_name] = binned
+            non_null_vals = col[non_null_mask].tolist()
+            result = cls._equal_width_binning(col.tolist(), non_null_vals, n_bins)
+            data[feature_name] = pd.Series(result, dtype="Int64")
         elif op == "qbin":
-            data[feature_name] = cls._rank_based_qbin(col, n_bins)
+            result = cls._quantile_binning(col.tolist(), n_bins)
+            data[feature_name] = pd.Series(result, dtype="Int64")
         else:
             raise ValueError(f"Unsupported binning operation: {op}")
 
         return data
-
-    @classmethod
-    def _rank_based_qbin(cls, col: "pd.Series[Any]", n_bins: int) -> "pd.Series[Any]":
-        """Rank-based quantile binning matching NTILE semantics.
-
-        Rows are sorted by value and divided into n_bins roughly equal groups.
-        For N non-null values, rank r (0-based) maps to bin = r * n_bins // N.
-        """
-        values = col.tolist()
-        indexed = [(v, i) for i, v in enumerate(values) if not pd.isna(v)]
-        indexed.sort(key=lambda pair: pair[0])
-        n = len(indexed)
-
-        result: list[Any] = [None] * len(values)
-        for rank, (_, orig_idx) in enumerate(indexed):
-            result[orig_idx] = rank * n_bins // n
-
-        return pd.Series(result, dtype="Int64")

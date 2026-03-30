@@ -46,8 +46,9 @@ class SqliteBinning(BinningFeatureGroup):
                 f" AS INTEGER), {n_bins - 1}) END"
             )
         elif op == "qbin":
+            # Safety: all identifiers are quote_ident()-quoted, n_bins is int.
             expr = (
-                f"CASE WHEN {quoted_source} IS NULL THEN NULL "
+                f"CASE WHEN {quoted_source} IS NULL THEN NULL "  # nosec B608
                 f"ELSE MIN(NTILE({n_bins}) OVER ("
                 f"PARTITION BY CASE WHEN {quoted_source} IS NOT NULL THEN 1 END "
                 f"ORDER BY {quoted_source}) - 1, {n_bins - 1}) END"
