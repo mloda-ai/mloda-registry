@@ -18,6 +18,7 @@ members = [
     "mloda-community-example-b",
     "mloda-community-extenders-example",
     "mloda-community-group-aggregation",
+    "mloda-community-rank",
     "mloda-community-window-aggregation",
     "mloda-enterprise",
     "mloda-enterprise-compute-frameworks-example",
@@ -262,6 +263,7 @@ dependencies = [
 [package.optional-dependencies]
 all = [
     { name = "mloda-community-group-aggregation" },
+    { name = "mloda-community-rank" },
     { name = "mloda-community-window-aggregation" },
 ]
 dev = [
@@ -273,6 +275,7 @@ dev = [
 requires-dist = [
     { name = "mloda", specifier = ">=0.5.5" },
     { name = "mloda-community-group-aggregation", marker = "extra == 'all'" },
+    { name = "mloda-community-rank", marker = "extra == 'all'" },
     { name = "mloda-community-window-aggregation", marker = "extra == 'all'" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
@@ -382,6 +385,28 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+dev = [
+    { name = "mloda-testing" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "pytest", marker = "extra == 'dev'" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "mloda-community-rank"
+version = "0.2.12"
+source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/rank" }
+dependencies = [
+    { name = "mloda-community-data-operations" },
+]
+
+[package.optional-dependencies]
 all = [
     { name = "duckdb" },
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -411,7 +436,7 @@ pyarrow = [
 requires-dist = [
     { name = "duckdb", marker = "extra == 'all'" },
     { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.0" },
+    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },

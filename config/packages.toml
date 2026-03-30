@@ -69,12 +69,17 @@ path = "mloda/enterprise/extenders/example"
 description = "Shared base classes for data operation feature groups"
 dependencies = ["mloda>=0.5.5"]
 path = "mloda/community/feature_groups/data_operations"
-optional_dependencies = { all = ["mloda-community-window-aggregation", "mloda-community-group-aggregation"] }
+optional_dependencies = { all = ["mloda-community-window-aggregation", "mloda-community-group-aggregation", "mloda-community-rank"] }
 
 [packages.mloda-community-group-aggregation]
 description = "Group aggregation feature group (reduce, partition_by, one row per group)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/group_aggregation"
+
+[packages.mloda-community-rank]
+description = "Rank feature group (row_number, rank, dense_rank, percent_rank, ntile, row-preserving)"
+dependencies = ["mloda-community-data-operations>=0.2.12"]
+path = "mloda/community/feature_groups/data_operations/row_preserving/rank"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
 
 [packages.mloda-community-window-aggregation]
