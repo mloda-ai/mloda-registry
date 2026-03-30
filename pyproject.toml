@@ -72,6 +72,7 @@ members = [
     "mloda/community/extenders/example",
     "mloda/community/feature_groups/data_operations",
     "mloda/community/feature_groups/data_operations/group_aggregation",
+    "mloda/community/feature_groups/data_operations/row_preserving/offset",
     "mloda/community/feature_groups/data_operations/row_preserving/rank",
     "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation",
     "mloda/community/feature_groups/example",
