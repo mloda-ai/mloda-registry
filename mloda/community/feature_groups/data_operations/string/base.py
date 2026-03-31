@@ -7,8 +7,7 @@ from typing import Any
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.provider import FeatureGroup
-from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+from mloda.provider import DefaultOptionKeys, FeatureGroup
 
 STRING_OPS = {
     "upper": "Convert string to uppercase",
