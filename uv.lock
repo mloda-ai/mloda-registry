@@ -522,7 +522,6 @@ version = "0.2.12"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate" }
 dependencies = [
     { name = "mloda-community-data-operations" },
-    { name = "python-dateutil" },
 ]
 
 [package.optional-dependencies]
@@ -532,6 +531,7 @@ all = [
     { name = "pandas", version = "3.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "polars" },
     { name = "pyarrow" },
+    { name = "python-dateutil" },
 ]
 dev = [
     { name = "mloda-testing" },
@@ -549,6 +549,7 @@ polars = [
 ]
 pyarrow = [
     { name = "pyarrow" },
+    { name = "python-dateutil" },
 ]
 
 [package.metadata]
@@ -564,7 +565,8 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'all'" },
     { name = "pyarrow", marker = "extra == 'pyarrow'" },
     { name = "pytest", marker = "extra == 'dev'" },
-    { name = "python-dateutil" },
+    { name = "python-dateutil", marker = "extra == 'all'" },
+    { name = "python-dateutil", marker = "extra == 'pyarrow'" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
 
@@ -895,7 +897,6 @@ version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "mloda" },
-    { name = "python-dateutil" },
 ]
 
 [package.optional-dependencies]
@@ -903,6 +904,7 @@ dev = [
     { name = "bandit" },
     { name = "mypy" },
     { name = "pytest" },
+    { name = "python-dateutil" },
     { name = "ruff" },
     { name = "tomli" },
     { name = "tox" },
@@ -916,7 +918,7 @@ requires-dist = [
     { name = "mloda", specifier = "==0.5.5" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
-    { name = "python-dateutil", specifier = ">=2.9.0.post0" },
+    { name = "python-dateutil", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "tomli", marker = "extra == 'dev'" },
     { name = "tox", marker = "extra == 'dev'" },
