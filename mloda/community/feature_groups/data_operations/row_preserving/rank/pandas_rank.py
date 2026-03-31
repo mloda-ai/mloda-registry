@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
+from typing import Set, Type, Union
 
 import pandas as pd
 
@@ -12,6 +12,7 @@ from mloda_plugins.compute_framework.base_implementations.pandas.dataframe impor
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.pandas_helpers import null_safe_groupby
 
 _PANDAS_RANK_METHODS: dict[str, str] = {
     "row_number": "first",
@@ -40,23 +41,23 @@ class PandasRank(RankFeatureGroup):
         if rank_type in _PANDAS_RANK_METHODS:
             method = _PANDAS_RANK_METHODS[rank_type]
             data[feature_name] = (
-                data.groupby(partition_by, dropna=False)[order_by]
+                null_safe_groupby(data, partition_by, order_by)
                 .rank(method=method, ascending=True, na_option="bottom")
                 .astype("int64")
             )
         elif rank_type == "percent_rank":
             # percent_rank = (rank - 1) / (count - 1)
-            rank_col = data.groupby(partition_by, dropna=False)[order_by].rank(
+            rank_col = null_safe_groupby(data, partition_by, order_by).rank(
                 method="min", ascending=True, na_option="bottom"
             )
-            group_size = data.groupby(partition_by, dropna=False)[order_by].transform("size")
+            group_size = null_safe_groupby(data, partition_by, order_by).transform("size")
             data[feature_name] = ((rank_col - 1) / (group_size - 1)).fillna(0.0)
         elif rank_type.startswith("ntile_"):
             ntile_n = int(rank_type[len("ntile_") :])
-            rank_col = data.groupby(partition_by, dropna=False)[order_by].rank(
+            rank_col = null_safe_groupby(data, partition_by, order_by).rank(
                 method="first", ascending=True, na_option="bottom"
             )
-            group_size = data.groupby(partition_by, dropna=False)[order_by].transform("size")
+            group_size = null_safe_groupby(data, partition_by, order_by).transform("size")
             data[feature_name] = (((rank_col - 1) * ntile_n) // group_size + 1).astype("int64")
         else:
             raise ValueError(f"Unsupported rank type: {rank_type}")

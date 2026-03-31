@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
+from typing import Set, Type, Union
 
 import pandas as pd
 
@@ -12,6 +12,7 @@ from mloda_plugins.compute_framework.base_implementations.pandas.dataframe impor
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.pandas_helpers import null_safe_groupby
 
 
 class PandasOffset(OffsetFeatureGroup):
@@ -37,7 +38,7 @@ class PandasOffset(OffsetFeatureGroup):
         data["__mloda_null_sort"] = null_sort
         data = data.sort_values(partition_by + ["__mloda_null_sort", order_by])
 
-        grouped = data.groupby(partition_by, dropna=False)[source_col]
+        grouped = null_safe_groupby(data, partition_by, source_col)
 
         if offset_type.startswith("lag_"):
             offset_n = int(offset_type[len("lag_") :])
