@@ -464,6 +464,46 @@ class WindowAggregationTestBase(ABC):
         assert result_col[4] == 1  # B/X: 1 non-null (row 4 is null)
         assert result_col[7] == 1
 
+    def test_multiple_null_order_by_first(self) -> None:
+        """Two or more null order_by values must not crash when using first aggregation."""
+        self._skip_if_unsupported("first")
+        table = pa.table(
+            {
+                "region": ["A", "A", "A", "A"],
+                "ts": [None, 1, None, 2],
+                "value": [100, 10, 200, 20],
+            }
+        )
+        data = self.create_test_data(table)
+        fs = make_feature_set("value__first_groupby", ["region"], order_by="ts")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "value__first_groupby")
+
+        # first with order_by sorts by ts: [1->10, 2->20, None->100, None->200]
+        # first non-null = 10, broadcast to all rows
+        assert result_col == [10, 10, 10, 10]
+
+    def test_multiple_null_order_by_last(self) -> None:
+        """Two or more null order_by values must not crash when using last aggregation."""
+        self._skip_if_unsupported("last")
+        table = pa.table(
+            {
+                "region": ["A", "A", "A", "A"],
+                "ts": [None, 1, None, 2],
+                "value": [100, 10, 200, 20],
+            }
+        )
+        data = self.create_test_data(table)
+        fs = make_feature_set("value__last_groupby", ["region"], order_by="ts")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "value__last_groupby")
+
+        # last with order_by sorts by ts: [1->10, 2->20, None->100, None->200]
+        # last non-null = 200, broadcast to all rows
+        assert result_col == [200, 200, 200, 200]
+
     def test_multi_key_float_avg(self) -> None:
         """Avg of value_float partitioned by [region, category]."""
         fs = make_feature_set("value_float__avg_groupby", ["region", "category"])

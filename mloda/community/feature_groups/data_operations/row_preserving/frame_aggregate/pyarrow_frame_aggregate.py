@@ -58,7 +58,7 @@ class PyArrowFrameAggregate(FrameAggregateFeatureGroup):
             groups[key].append((i, order_val, val))
 
         for key in groups:
-            groups[key].sort(key=lambda t: (t[1] is None, t[1]))
+            groups[key].sort(key=lambda t: (t[1] is None, t[1] if t[1] is not None else 0))
 
         result_values: list[Any] = [None] * num_rows
 
