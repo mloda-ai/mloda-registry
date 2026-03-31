@@ -70,7 +70,8 @@ class DuckDBFrameAggregate(FrameAggregateFeatureGroup):
         else:
             raise ValueError(f"Unsupported frame type for DuckDB: {frame_type}")
 
-        # Step 1: tag rows with original position
+        # Step 1: tag rows with original position.
+        # DuckdbRelation does not expose project()/order() publicly.  TODO(#74)
         rel = data._relation.project(f"*, ROW_NUMBER() OVER () AS {qrn}")  # nosec B608
 
         # Step 2: compute window function with frame
@@ -86,4 +87,4 @@ class DuckDBFrameAggregate(FrameAggregateFeatureGroup):
         keep = ", ".join(quote_ident(c) for c in rel.columns if c != _RN_COL)
         rel = rel.project(keep)
 
-        return DuckdbRelation(data._connection, rel)
+        return DuckdbRelation(data.connection, rel)
