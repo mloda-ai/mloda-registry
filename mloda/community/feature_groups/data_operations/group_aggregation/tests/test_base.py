@@ -164,21 +164,21 @@ class TestPropertyMapping:
 
     def test_partition_by_is_context_parameter(self) -> None:
         """PARTITION_BY should be declared as a context parameter."""
-        from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+        from mloda.provider import DefaultOptionKeys
 
         mapping = GroupAggregationFeatureGroup.PROPERTY_MAPPING[GroupAggregationFeatureGroup.PARTITION_BY]
         assert mapping[DefaultOptionKeys.context] is True
 
     def test_property_mapping_has_aggregation_type(self) -> None:
         """AGGREGATION_TYPE should be in PROPERTY_MAPPING with strict validation."""
-        from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+        from mloda.provider import DefaultOptionKeys
 
         mapping = GroupAggregationFeatureGroup.PROPERTY_MAPPING[GroupAggregationFeatureGroup.AGGREGATION_TYPE]
         assert mapping[DefaultOptionKeys.strict_validation] is True
 
     def test_property_mapping_has_in_features(self) -> None:
         """in_features should be in PROPERTY_MAPPING."""
-        from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+        from mloda.provider import DefaultOptionKeys
 
         assert DefaultOptionKeys.in_features in GroupAggregationFeatureGroup.PROPERTY_MAPPING
 

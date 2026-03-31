@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
-from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+from mloda.provider import DefaultOptionKeys
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
