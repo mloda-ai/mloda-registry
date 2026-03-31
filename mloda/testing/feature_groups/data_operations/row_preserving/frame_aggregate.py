@@ -14,6 +14,7 @@ small set of abstract methods. This follows the same pattern as
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from typing import Any
 
 import pyarrow as pa
@@ -322,6 +323,92 @@ class FrameAggregateTestBase(ABC):
             }
         )
         assert not self.implementation_class().match_feature_group_criteria("my_time_sum", options)
+
+    # -- Calendar-accurate time window tests ----------------------------------
+
+    def test_month_window_handles_variable_length_months(self) -> None:
+        """A 1-month window should use calendar months, not a fixed 30-day offset."""
+        if not self.supports_time_frame():
+            pytest.skip("This framework does not support time frames")
+
+        table = pa.table(
+            {
+                "region": ["A", "A", "A"],
+                "ts": [
+                    datetime(2023, 1, 1, tzinfo=timezone.utc),
+                    datetime(2023, 1, 31, tzinfo=timezone.utc),
+                    datetime(2023, 3, 1, tzinfo=timezone.utc),
+                ],
+                "value": [10, 20, 30],
+            }
+        )
+        data = self.create_test_data(table)
+        feature = Feature(
+            "monthly_sum",
+            options=Options(
+                context={
+                    "aggregation_type": "sum",
+                    "frame_type": "time",
+                    "frame_size": 1,
+                    "frame_unit": "month",
+                    "in_features": "value",
+                    "partition_by": ["region"],
+                    "order_by": "ts",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+
+        result = self.implementation_class().calculate_feature(data, fs)
+        col = self.extract_column(result, "monthly_sum")
+
+        # Row 0 (Jan 1): window [Jan 1] => 10
+        # Row 1 (Jan 31): 1 month back = Dec 31. Jan 1 >= Dec 31, so window [10, 20] => 30
+        # Row 2 (Mar 1): 1 month back = Feb 1. Jan 31 < Feb 1, so window [30] => 30
+        assert col == [10, 30, 30]
+
+    def test_year_window_handles_leap_year(self) -> None:
+        """A 1-year window should use calendar years, not a fixed 365-day offset."""
+        if not self.supports_time_frame():
+            pytest.skip("This framework does not support time frames")
+
+        table = pa.table(
+            {
+                "region": ["A", "A", "A"],
+                "ts": [
+                    datetime(2024, 1, 1, tzinfo=timezone.utc),
+                    datetime(2024, 12, 31, tzinfo=timezone.utc),
+                    datetime(2025, 1, 1, tzinfo=timezone.utc),
+                ],
+                "value": [10, 20, 30],
+            }
+        )
+        data = self.create_test_data(table)
+        feature = Feature(
+            "yearly_sum",
+            options=Options(
+                context={
+                    "aggregation_type": "sum",
+                    "frame_type": "time",
+                    "frame_size": 1,
+                    "frame_unit": "year",
+                    "in_features": "value",
+                    "partition_by": ["region"],
+                    "order_by": "ts",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+
+        result = self.implementation_class().calculate_feature(data, fs)
+        col = self.extract_column(result, "yearly_sum")
+
+        # Row 0 (2024-01-01): window [10] => 10
+        # Row 1 (2024-12-31): 1 year back = 2023-12-31. 2024-01-01 >= 2023-12-31, so [10, 20] => 30
+        # Row 2 (2025-01-01): 1 year back = 2024-01-01. 2024-01-01 >= 2024-01-01, so [10, 20, 30] => 60
+        assert col == [10, 30, 60]
 
     # -- Cross-framework comparison ------------------------------------------
 
