@@ -56,8 +56,8 @@ class DuckdbGroupAggregation(GroupAggregationFeatureGroup):
                 raise ValueError(f"Unsupported aggregation type for DuckDB: {agg_type}")
             agg_expr = f"{agg_func}({quoted_source})"
 
-        # DuckdbRelation does not expose aggregate()/order() on its public API,
-        # so we access the underlying DuckDBPyRelation directly.  TODO(#74)
+        # Use lazy relation methods (aggregate + order) instead of eager query()
+        # so DuckDB defers execution until the result is consumed.
         rel = data._relation.aggregate(f"{partition_cols}, {agg_expr} AS {quoted_feature}", partition_cols)
         rel = rel.order(partition_cols)
         return DuckdbRelation(data.connection, rel)

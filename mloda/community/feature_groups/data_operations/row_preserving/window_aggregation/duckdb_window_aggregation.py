@@ -91,8 +91,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
 
         order_clause = f"ORDER BY {quote_ident(order_by)}" if order_by else ""
 
-        # Step 1: tag rows with their original position.
-        # DuckdbRelation does not expose project()/order() publicly.  TODO(#74)
+        # Step 1: tag rows with their original position
         rel = data._relation.project(f"*, ROW_NUMBER() OVER () AS {qrn}")
 
         # Step 2: compute with full frame and ORDER BY for deterministic results

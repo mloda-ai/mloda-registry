@@ -62,7 +62,6 @@ class DuckdbRank(RankFeatureGroup):
             f"ROW_NUMBER() OVER () AS {qrn} "
             f"FROM __t ORDER BY {qrn}"
         )
-        # DuckdbRelation does not expose query() publicly.  TODO(#74)
         new_rel = data._relation.query("__t", sql)
         # Drop the helper column
         result_rel = new_rel.project(
