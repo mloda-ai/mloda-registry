@@ -16,6 +16,7 @@ from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregati
 )
 from mloda.testing.feature_groups.data_operations.aggregation import (
     AggregationTestBase,
+    make_feature_set,
 )
 
 
@@ -36,3 +37,10 @@ class TestPandasColumnAggregation(AggregationTestBase):
 
     def get_expected_type(self) -> Any:
         return pd.DataFrame
+
+    def test_all_null_column_sum(self) -> None:
+        """Known divergence: Pandas sum(all-null) returns 0 (identity element convention)."""
+        fs = make_feature_set("score__sum_aggr")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_col = self.extract_column(result, "score__sum_aggr")
+        assert all(v == 0 for v in result_col)

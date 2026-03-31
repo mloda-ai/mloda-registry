@@ -336,3 +336,82 @@ class AggregationTestBase(ABC):
 
     def test_cross_framework_max(self) -> None:
         self._compare_with_pyarrow("value_int__max_aggr")
+
+    # -- Null consistency tests (all-null column: score) ---------------------
+
+    def test_all_null_column_sum(self) -> None:
+        """score is all-null. Sum should broadcast None to every row."""
+        fs = make_feature_set("score__sum_aggr")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_col = self.extract_column(result, "score__sum_aggr")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_min(self) -> None:
+        """score is all-null. Min should broadcast None."""
+        fs = make_feature_set("score__min_aggr")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_col = self.extract_column(result, "score__min_aggr")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_max(self) -> None:
+        """score is all-null. Max should broadcast None."""
+        fs = make_feature_set("score__max_aggr")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_col = self.extract_column(result, "score__max_aggr")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_avg(self) -> None:
+        """score is all-null. Avg should broadcast None."""
+        fs = make_feature_set("score__avg_aggr")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_col = self.extract_column(result, "score__avg_aggr")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_count(self) -> None:
+        """score is all-null. Count of non-nulls should broadcast 0."""
+        fs = make_feature_set("score__count_aggr")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_col = self.extract_column(result, "score__count_aggr")
+        assert all(v == 0 for v in result_col)
+
+    # -- Null consistency tests (multi-null columns) -------------------------
+
+    def test_multi_null_column_count(self) -> None:
+        """value_float has 2 nulls (rows 2, 11). Count should be 10."""
+        fs = make_feature_set("value_float__count_aggr")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_col = self.extract_column(result, "value_float__count_aggr")
+        assert all(v == 10 for v in result_col)
+
+    def test_amount_null_count(self) -> None:
+        """amount has 2 nulls (rows 1, 7). Count should be 10."""
+        fs = make_feature_set("amount__count_aggr")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_col = self.extract_column(result, "amount__count_aggr")
+        assert all(v == 10 for v in result_col)
+
+    # -- Cross-framework null comparisons ------------------------------------
+
+    def test_cross_framework_all_null_min(self) -> None:
+        self._compare_with_pyarrow("score__min_aggr")
+
+    def test_cross_framework_all_null_max(self) -> None:
+        self._compare_with_pyarrow("score__max_aggr")
+
+    def test_cross_framework_all_null_avg(self) -> None:
+        self._compare_with_pyarrow("score__avg_aggr")
+
+    def test_cross_framework_all_null_count(self) -> None:
+        self._compare_with_pyarrow("score__count_aggr")
+
+    def test_cross_framework_multi_null_sum(self) -> None:
+        self._compare_with_pyarrow("value_float__sum_aggr", use_approx=True)
+
+    def test_cross_framework_multi_null_count(self) -> None:
+        self._compare_with_pyarrow("value_float__count_aggr")
+
+    def test_cross_framework_amount_sum(self) -> None:
+        self._compare_with_pyarrow("amount__sum_aggr", use_approx=True)
+
+    def test_cross_framework_amount_count(self) -> None:
+        self._compare_with_pyarrow("amount__count_aggr")

@@ -442,6 +442,48 @@ class GroupAggregationTestBase(ABC):
         result_col = self.extract_column(result, "score__sum_grouped")
         assert all(v is None for v in result_col)
 
+    def test_all_null_column_count_per_group(self) -> None:
+        """score is all-null. Count per group should be 0."""
+        fs = make_feature_set("score__count_grouped", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__count_grouped")
+        assert all(v == 0 for v in result_col)
+
+    def test_all_null_column_min_per_group(self) -> None:
+        """score is all-null. Min per group should be None."""
+        fs = make_feature_set("score__min_grouped", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__min_grouped")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_max_per_group(self) -> None:
+        """score is all-null. Max per group should be None."""
+        fs = make_feature_set("score__max_grouped", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__max_grouped")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_avg_per_group(self) -> None:
+        """score is all-null. Avg per group should be None."""
+        fs = make_feature_set("score__avg_grouped", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__avg_grouped")
+        assert all(v is None for v in result_col)
+
+    # -- Cross-framework null comparisons ------------------------------------
+
+    def test_cross_framework_all_null_sum(self) -> None:
+        """score sum grouped must match PyArrow reference."""
+        self._compare_with_pyarrow("score__sum_grouped", ["region"])
+
+    def test_cross_framework_all_null_count(self) -> None:
+        """score count grouped must match PyArrow reference."""
+        self._compare_with_pyarrow("score__count_grouped", ["region"])
+
     # -- Multi-key partition tests -------------------------------------------
 
     def test_multi_key_partition_sum(self) -> None:
