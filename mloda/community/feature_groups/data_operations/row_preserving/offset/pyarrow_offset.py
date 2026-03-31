@@ -1,4 +1,9 @@
-"""PyArrow implementation for offset feature groups."""
+"""PyArrow implementation for offset feature groups.
+
+Uses bulk ``to_pylist()`` extraction (one C++ call per column) instead of
+per-row ``.as_py()`` calls, then performs grouping and offset computation
+in pure Python on the extracted lists.
+"""
 
 from __future__ import annotations
 
@@ -31,15 +36,18 @@ class PyArrowOffset(OffsetFeatureGroup):
     ) -> pa.Table:
         num_rows = table.num_rows
 
-        # Build group keys and collect (index, order_value, source_value) per group
+        # Bulk-extract all needed columns (one C++ call each, not N .as_py() calls)
+        partition_lists = {col: table.column(col).to_pylist() for col in partition_by}
+        order_vals = table.column(order_by).to_pylist()
+        source_vals = table.column(source_col).to_pylist()
+
+        # Build group keys from extracted Python lists (no PyArrow calls in loop)
         groups: dict[tuple[Any, ...], list[tuple[int, Any, Any]]] = {}
         for i in range(num_rows):
-            key = tuple(table.column(col)[i].as_py() for col in partition_by)
-            order_val = table.column(order_by)[i].as_py()
-            source_val = table.column(source_col)[i].as_py()
+            key = tuple(partition_lists[col][i] for col in partition_by)
             if key not in groups:
                 groups[key] = []
-            groups[key].append((i, order_val, source_val))
+            groups[key].append((i, order_vals[i], source_vals[i]))
 
         # Sort each group by order_by (nulls last)
         for key in groups:
@@ -49,48 +57,46 @@ class PyArrowOffset(OffsetFeatureGroup):
 
         for key, sorted_rows in groups.items():
             n = len(sorted_rows)
-            source_vals = [row[2] for row in sorted_rows]
+            vals = [row[2] for row in sorted_rows]
 
             if offset_type.startswith("lag_"):
                 offset_n = int(offset_type[len("lag_") :])
                 for pos in range(n):
                     idx = sorted_rows[pos][0]
                     if pos >= offset_n:
-                        result_values[idx] = source_vals[pos - offset_n]
+                        result_values[idx] = vals[pos - offset_n]
 
             elif offset_type.startswith("lead_"):
                 offset_n = int(offset_type[len("lead_") :])
                 for pos in range(n):
                     idx = sorted_rows[pos][0]
                     if pos + offset_n < n:
-                        result_values[idx] = source_vals[pos + offset_n]
+                        result_values[idx] = vals[pos + offset_n]
 
             elif offset_type.startswith("diff_"):
                 offset_n = int(offset_type[len("diff_") :])
                 for pos in range(n):
                     idx = sorted_rows[pos][0]
-                    curr = source_vals[pos]
-                    if pos >= offset_n and curr is not None and source_vals[pos - offset_n] is not None:
-                        result_values[idx] = curr - source_vals[pos - offset_n]
+                    curr = vals[pos]
+                    if pos >= offset_n and curr is not None and vals[pos - offset_n] is not None:
+                        result_values[idx] = curr - vals[pos - offset_n]
 
             elif offset_type.startswith("pct_change_"):
                 offset_n = int(offset_type[len("pct_change_") :])
                 for pos in range(n):
                     idx = sorted_rows[pos][0]
-                    curr = source_vals[pos]
-                    prev = source_vals[pos - offset_n] if pos >= offset_n else None
+                    curr = vals[pos]
+                    prev = vals[pos - offset_n] if pos >= offset_n else None
                     if curr is not None and prev is not None and prev != 0:
                         result_values[idx] = (curr - prev) / prev
 
             elif offset_type == "first_value":
-                # First non-null value in the partition
-                first = next((v for v in source_vals if v is not None), None)
+                first = next((v for v in vals if v is not None), None)
                 for pos in range(n):
                     result_values[sorted_rows[pos][0]] = first
 
             elif offset_type == "last_value":
-                # Last non-null value in the partition
-                last = next((v for v in reversed(source_vals) if v is not None), None)
+                last = next((v for v in reversed(vals) if v is not None), None)
                 for pos in range(n):
                     result_values[sorted_rows[pos][0]] = last
 

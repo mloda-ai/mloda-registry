@@ -1,4 +1,11 @@
-"""PyArrow implementation for frame aggregate feature groups."""
+"""PyArrow implementation for frame aggregate feature groups.
+
+Uses bulk ``to_pylist()`` extraction (one C++ call per column) instead of
+per-row ``.as_py()`` calls, then performs grouping, sorting, and windowed
+aggregation in pure Python on the extracted lists. The windowing logic
+(rolling, cumulative, expanding, time) is inherently sequential per group
+and cannot be further vectorized with PyArrow's current API.
+"""
 
 from __future__ import annotations
 
@@ -16,14 +23,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 
 
 class PyArrowFrameAggregate(FrameAggregateFeatureGroup):
-    """Pure-Python reference implementation of frame aggregation over PyArrow tables.
-
-    This implementation iterates row-by-row and is O(n * w) per partition (where
-    n is partition size and w is window size). It is designed for correctness
-    testing and small datasets. For production workloads with large tables,
-    prefer the Pandas, Polars, or DuckDB backends which use vectorized operations.
-    """
-
     @classmethod
     def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
         return {PyArrowTable}
@@ -43,19 +42,18 @@ class PyArrowFrameAggregate(FrameAggregateFeatureGroup):
     ) -> pa.Table:
         num_rows = table.num_rows
 
-        keys: list[tuple[Any, ...]] = []
-        for i in range(num_rows):
-            key = tuple(table.column(col)[i].as_py() for col in partition_by)
-            keys.append(key)
+        # Bulk-extract all needed columns (one C++ call each, not N .as_py() calls)
+        partition_lists = {col: table.column(col).to_pylist() for col in partition_by}
+        order_vals = table.column(order_by).to_pylist()
+        source_vals = table.column(source_col).to_pylist()
 
+        # Build group keys from extracted Python lists (no PyArrow calls in loop)
         groups: dict[tuple[Any, ...], list[tuple[int, Any, Any]]] = {}
         for i in range(num_rows):
-            key = keys[i]
-            val = table.column(source_col)[i].as_py()
-            order_val = table.column(order_by)[i].as_py()
+            key = tuple(partition_lists[col][i] for col in partition_by)
             if key not in groups:
                 groups[key] = []
-            groups[key].append((i, order_val, val))
+            groups[key].append((i, order_vals[i], source_vals[i]))
 
         for key in groups:
             groups[key].sort(key=lambda t: (t[1] is None, t[1] if t[1] is not None else 0))

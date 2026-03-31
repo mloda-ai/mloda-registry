@@ -1,9 +1,8 @@
 """Shared PyArrow aggregation helpers for data operation feature groups.
 
-PyArrow lacks native group-by / window-function APIs, so these packages use
-Python dict-based grouping with row-by-row .as_py() calls. The helper
-functions below compute scalar aggregates over plain Python lists and are
-shared by pyarrow_group_aggregation and pyarrow_window_aggregation.
+The helper functions below compute scalar aggregates over plain Python lists.
+They are used by frame_aggregate (per-window aggregation) and as a fallback
+for operations that PyArrow's native group_by API does not support directly.
 """
 
 from __future__ import annotations
