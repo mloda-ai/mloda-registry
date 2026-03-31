@@ -127,6 +127,165 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
 
 ---
 
+## Conditional Requirements with `required_when`
+
+Some PROPERTY_MAPPING entries should only be required under certain conditions. For example, an `order_by` column might only be needed when the aggregation type is `first` or `last`, but not for `sum` or `avg`.
+
+Use `DefaultOptionKeys.required_when` to attach a predicate callable to a mapping entry. The predicate receives the effective `Options` object and returns `True` when the option is required.
+
+```python
+from mloda.user import Options
+from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+
+_ORDER_DEPENDENT = {"first", "last"}
+
+def _needs_order_by(options: Options) -> bool:
+    """order_by is required when aggregation_type is first or last."""
+    return options.get("aggregation_type") in _ORDER_DEPENDENT
+
+PROPERTY_MAPPING = {
+    "aggregation_type": {
+        "sum": "Sum", "avg": "Average", "first": "First", "last": "Last",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: True,
+    },
+    "order_by": {
+        "explanation": "Column to order by within each partition",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: False,
+        DefaultOptionKeys.required_when: _needs_order_by,
+    },
+}
+```
+
+### How It Works
+
+1. The base parser treats entries with `required_when` as optional (skips the required check).
+2. After basic matching succeeds, `match_feature_group_criteria` evaluates each `required_when` predicate.
+3. For string-based features, the operation value parsed from the feature name (e.g., `first` from `source__first_aggr`) is merged into the effective options, so predicates see values from both the feature name and explicit options.
+4. If the predicate returns `True` and the option value is absent, matching returns `False`.
+
+### Before and After
+
+Without `required_when`, you must override `match_feature_group_criteria` to manually check conditions:
+
+```python
+# Before: manual override with boilerplate
+@classmethod
+def match_feature_group_criteria(cls, feature_name, options, _dac=None):
+    if not super().match_feature_group_criteria(feature_name, options, _dac):
+        return False
+    agg_type = cls._resolve_agg_type(feature_name, options)
+    if agg_type in {"first", "last"}:
+        order_by = options.get("order_by")
+        if not isinstance(order_by, str):
+            return False
+    return True
+```
+
+With `required_when`, the mixin handles this automatically:
+
+```python
+# After: declarative, no override needed
+PROPERTY_MAPPING = {
+    "aggregation_type": { ... },
+    "order_by": {
+        "explanation": "Column to order by",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: False,
+        DefaultOptionKeys.required_when: _needs_order_by,
+    },
+}
+# match_feature_group_criteria inherited from mixin, no override required
+```
+
+### Predicate Contract
+
+- Signature: `(Options) -> bool`
+- Must be callable (non-callable predicates are skipped with a warning)
+- Non-bool truthy values are treated as `True`
+- Should be pure (no side effects)
+
+---
+
+## Type Validation with `type_validator`
+
+Use `DefaultOptionKeys.type_validator` to validate the raw option value with a callable. Unlike `validation_function`, this does not require `strict_validation` and operates on the whole option value before any unpacking.
+
+After basic matching and `required_when` checks succeed, `match_feature_group_criteria` calls each `type_validator`. If the validator returns a falsy value, matching returns `False`. If the validator raises `TypeError`, `ValueError`, or `AttributeError`, the value is treated as invalid.
+
+```python
+from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+
+def _is_list_of_strings(value):
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+PROPERTY_MAPPING = {
+    "partition_by": {
+        "explanation": "Columns to partition by",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: False,
+        DefaultOptionKeys.type_validator: _is_list_of_strings,
+    },
+    "window_size": {
+        "explanation": "Number of rows in the rolling window",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: True,
+        DefaultOptionKeys.type_validator: lambda x: isinstance(x, int) and x > 0,
+    },
+}
+```
+
+### Key Differences from `validation_function`
+
+| Aspect | `type_validator` | `validation_function` |
+|--------|-----------------|----------------------|
+| Requires `strict_validation` | No | Yes |
+| Validates | Raw option value (whole) | Individual parsed elements |
+| Failure mode | Returns `False` (soft rejection) | Raises `ValueError` |
+| Runs during | `match_feature_group_criteria` (after basic match) | Base parser property validation |
+| Use case | Composite types (lists, dicts, ranges) | Membership-style checks on single values |
+
+When both are present on the same entry, `validation_function` runs first (during base parsing), then `type_validator` runs second (during mixin matching).
+
+---
+
+## Custom Validation with `validation_function`
+
+Use `DefaultOptionKeys.validation_function` to validate individual option values with a callable instead of checking membership against a fixed set of allowed values. This requires `strict_validation: True`.
+
+When the validation function is present, it is called instead of checking whether the value exists in the mapping dict. The function receives each individual parsed value and must return `True` if valid. Returning `False` raises a `ValueError`, which the mixin catches and converts to a `False` match result.
+
+```python
+from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+
+PROPERTY_MAPPING = {
+    "window_size": {
+        "explanation": "Number of rows in the rolling window",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: True,
+        DefaultOptionKeys.validation_function: lambda x: isinstance(x, int) and x > 0,
+    },
+    "threshold": {
+        "explanation": "Cutoff value for filtering",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: True,
+        DefaultOptionKeys.validation_function: lambda x: isinstance(x, (int, float)) and 0.0 <= x <= 1.0,
+    },
+}
+```
+
+### When to Use Each Validation Approach
+
+| Approach | Use When | Example |
+|----------|----------|---------|
+| Enumerated values | Fixed set of valid string values | `"sum"`, `"avg"`, `"min"` |
+| `validation_function` | Open-ended single values, `strict_validation` is `True` | positive integers, float ranges |
+| `type_validator` | Composite types, no `strict_validation` needed | list of strings, nested dicts |
+| `required_when` | Option is conditionally required | `order_by` only when aggregation is `first` |
+
+---
+
 ## Matching vs Naming
 
 | Concept | Method | Purpose |

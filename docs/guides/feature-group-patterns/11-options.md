@@ -58,6 +58,16 @@ feature = Feature("price__scaled", Options(
 
 Use propagation sparingly—most context should remain local. Common use cases include trace IDs for debugging, tenant identifiers, or configuration that genuinely needs to flow through the entire pipeline.
 
+## Validation and Conditional Requirements
+
+When using `PROPERTY_MAPPING` with `FeatureChainParserMixin`, you can declare validation rules and conditional requirements directly on option entries:
+
+- **`validation_function`**: Validate individual option values with a callable (requires `strict_validation: True`).
+- **`type_validator`**: Validate raw option values with a callable (no `strict_validation` needed). Useful for composite types like lists or dicts.
+- **`required_when`**: Make an option conditionally required based on a predicate callable.
+
+See [Feature Matching: Conditional Requirements](14-feature-matching.md#conditional-requirements-with-required_when) for full details, examples, and a comparison table.
+
 ## Full Documentation
 
 See [Options API](https://mloda-ai.github.io/mloda/in_depth/options/) for detailed patterns.
