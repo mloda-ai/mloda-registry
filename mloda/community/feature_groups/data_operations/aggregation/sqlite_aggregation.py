@@ -42,17 +42,13 @@ class SqliteColumnAggregation(ColumnAggregationFeatureGroup):
 
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
-        qrn = quote_ident("__mloda_rn__")
 
         sql = " ".join(
             [
                 "SELECT",
-                f"{agg_func}({quoted_source}) OVER () AS {quoted_feature},",
-                f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn}",
+                f"{agg_func}({quoted_source}) OVER () AS {quoted_feature}",
                 "FROM",
                 f"{quote_ident(data.table_name)}",
-                "ORDER BY",
-                qrn,
             ]
         )
         cursor = data.connection.execute(sql)
