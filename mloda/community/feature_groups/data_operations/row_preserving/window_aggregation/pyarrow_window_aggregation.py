@@ -53,7 +53,9 @@ class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
         for key, pairs in groups.items():
             values = [v for _, v in pairs]
             if agg_type in ("first", "last") and order_by:
-                sorted_vals = [v for _, v in sorted(pairs, key=lambda p: (p[0] is None, p[0]))]
+                sorted_vals = [
+                    v for _, v in sorted(pairs, key=lambda p: (p[0] is None, p[0] if p[0] is not None else 0))
+                ]
                 agg_results[key] = aggregate(sorted_vals, agg_type)
             else:
                 agg_results[key] = aggregate(values, agg_type)
