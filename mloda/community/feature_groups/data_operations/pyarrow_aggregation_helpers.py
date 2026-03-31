@@ -17,6 +17,8 @@ def aggregate(values: list[Any], agg_type: str) -> Any:
     non_null = [v for v in values if v is not None]
 
     if not non_null:
+        if agg_type in ("count", "nunique"):
+            return 0
         return None
 
     if agg_type == "sum":
