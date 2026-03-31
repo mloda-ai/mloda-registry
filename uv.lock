@@ -531,6 +531,7 @@ all = [
     { name = "pandas", version = "3.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "polars" },
     { name = "pyarrow" },
+    { name = "python-dateutil" },
 ]
 dev = [
     { name = "mloda-testing" },
@@ -548,6 +549,7 @@ polars = [
 ]
 pyarrow = [
     { name = "pyarrow" },
+    { name = "python-dateutil" },
 ]
 
 [package.metadata]
@@ -563,6 +565,8 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'all'" },
     { name = "pyarrow", marker = "extra == 'pyarrow'" },
     { name = "pytest", marker = "extra == 'dev'" },
+    { name = "python-dateutil", marker = "extra == 'all'" },
+    { name = "python-dateutil", marker = "extra == 'pyarrow'" },
 ]
 provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
 
@@ -900,10 +904,12 @@ dev = [
     { name = "bandit" },
     { name = "mypy" },
     { name = "pytest" },
+    { name = "python-dateutil" },
     { name = "ruff" },
     { name = "tomli" },
     { name = "tox" },
     { name = "tox-uv" },
+    { name = "types-python-dateutil" },
 ]
 
 [package.metadata]
@@ -912,10 +918,12 @@ requires-dist = [
     { name = "mloda", specifier = "==0.5.5" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
+    { name = "python-dateutil", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "tomli", marker = "extra == 'dev'" },
     { name = "tox", marker = "extra == 'dev'" },
     { name = "tox-uv", marker = "extra == 'dev'" },
+    { name = "types-python-dateutil", marker = "extra == 'dev'" },
 ]
 provides-extras = ["dev"]
 
@@ -1327,11 +1335,11 @@ wheels = [
 
 [[package]]
 name = "pygments"
-version = "2.19.2"
+version = "2.20.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b0/77/a5b8c569bf593b0140bde72ea885a803b82086995367bf2037de0159d924/pygments-2.19.2.tar.gz", hash = "sha256:636cb2477cec7f8952536970bc533bc43743542f70392ae026374600add5b887", size = 4968631, upload-time = "2025-06-21T13:39:12.283Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c3/b2/bc9c9196916376152d655522fdcebac55e66de6603a76a02bca1b6414f6c/pygments-2.20.0.tar.gz", hash = "sha256:6757cd03768053ff99f3039c1a36d6c0aa0b263438fcab17520b30a303a82b5f", size = 4955991, upload-time = "2026-03-29T13:29:33.898Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c7/21/705964c7812476f378728bdf590ca4b771ec72385c533964653c68e86bdc/pygments-2.19.2-py3-none-any.whl", hash = "sha256:86540386c03d588bb81d44bc3928634ff26449851e99741617ecb9037ee5ec0b", size = 1225217, upload-time = "2025-06-21T13:39:07.939Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/7e/a72dd26f3b0f4f2bf1dd8923c85f7ceb43172af56d63c7383eb62b332364/pygments-2.20.0-py3-none-any.whl", hash = "sha256:81a9e26dd42fd28a23a2d169d86d7ac03b46e2f8b59ed4698fb4785f946d0176", size = 1231151, upload-time = "2026-03-29T13:29:30.038Z" },
 ]
 
 [[package]]
@@ -1592,6 +1600,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/86/56/12f8602a3207b87825564939a4956941c6ddac2f1ac714967926ebb5c9b0/tox_uv_bare-1.33.4.tar.gz", hash = "sha256:310726bd445557f411e7b3096075378c5aac39bb9aa984651a40836f8c988703", size = 27452, upload-time = "2026-03-12T21:20:57.007Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/0d/9d47b320eec0013f7cedb3f340f965e11b8071350b01d5d6e3b301a3e558/tox_uv_bare-1.33.4-py3-none-any.whl", hash = "sha256:fab00d5b0097cdee6607ce0f79326e6c1a8828097b63ab8cb4f327cb132e5fbf", size = 19669, upload-time = "2026-03-12T21:20:55.638Z" },
+]
+
+[[package]]
+name = "types-python-dateutil"
+version = "2.9.0.20260323"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e9/02/f72df9ef5ffc4f959b83cb80c8aa03eb8718a43e563ecd99ccffe265fa89/types_python_dateutil-2.9.0.20260323.tar.gz", hash = "sha256:a107aef5841db41ace381dbbbd7e4945220fc940f7a72172a0be5a92d9ab7164", size = 16897, upload-time = "2026-03-23T04:15:14.829Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/92/c1/b661838b97453e699a215451f2e22cee750eaaf4ea4619b34bdaf01221a4/types_python_dateutil-2.9.0.20260323-py3-none-any.whl", hash = "sha256:a23a50a07f6eb87e729d4cb0c2eb511c81761eeb3f505db2c1413be94aae8335", size = 18433, upload-time = "2026-03-23T04:15:13.683Z" },
 ]
 
 [[package]]

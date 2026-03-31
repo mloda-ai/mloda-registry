@@ -24,6 +24,8 @@ dev = [
     "mypy",
     "bandit",
     "tomli",
+    "python-dateutil",
+    "types-python-dateutil",
 ]
 
 [tool.ruff]

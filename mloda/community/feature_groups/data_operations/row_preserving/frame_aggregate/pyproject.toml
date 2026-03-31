@@ -16,12 +16,12 @@ requires-python = ">=3.10"
 
 [project.optional-dependencies]
 dev = ["mloda-testing", "pytest"]
-pyarrow = ["pyarrow"]
+pyarrow = ["pyarrow", "python-dateutil"]
 sqlite = []
 duckdb = ["duckdb"]
 polars = ["polars"]
 pandas = ["pandas"]
-all = ["pyarrow", "polars", "pandas", "duckdb"]
+all = ["pyarrow", "python-dateutil", "polars", "pandas", "duckdb"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
