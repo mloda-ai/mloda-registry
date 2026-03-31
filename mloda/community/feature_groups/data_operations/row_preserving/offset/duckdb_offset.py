@@ -72,4 +72,4 @@ class DuckdbOffset(OffsetFeatureGroup):
         result_rel = new_rel.project(
             ", ".join(quote_ident(c) for c in [col for col in new_rel.columns if col != _RN_COL])
         )
-        return DuckdbRelation(data._connection, result_rel)
+        return DuckdbRelation(data.connection, result_rel)

@@ -86,4 +86,4 @@ class DuckDBFrameAggregate(FrameAggregateFeatureGroup):
         keep = ", ".join(quote_ident(c) for c in rel.columns if c != _RN_COL)
         rel = rel.project(keep)
 
-        return DuckdbRelation(data._connection, rel)
+        return DuckdbRelation(data.connection, rel)
