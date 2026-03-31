@@ -91,11 +91,12 @@ class PyArrowFrameAggregate(FrameAggregateFeatureGroup):
     ) -> list[Any]:
         """Collect values within a time-based window ending at the current row.
 
-        Note: month and year use fixed approximations (30 days per month,
-        365 days per year). For calendar-accurate windows, consider using
-        dateutil.relativedelta in a custom subclass.
+        Uses timedelta for second, minute, hour, day, and week units, and
+        relativedelta for month and year units to ensure calendar-accurate windows.
         """
         from datetime import timedelta
+
+        from dateutil.relativedelta import relativedelta
 
         unit_map = {
             "second": timedelta(seconds=size),
@@ -103,8 +104,8 @@ class PyArrowFrameAggregate(FrameAggregateFeatureGroup):
             "hour": timedelta(hours=size),
             "day": timedelta(days=size),
             "week": timedelta(weeks=size),
-            "month": timedelta(days=size * 30),
-            "year": timedelta(days=size * 365),
+            "month": relativedelta(months=size),
+            "year": relativedelta(years=size),
         }
         delta = unit_map.get(unit, timedelta(days=size))
 
