@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, Set, Type, Union
+from typing import Optional, Set, Type, Union
 
 import pandas as pd
 
@@ -12,15 +12,12 @@ from mloda_plugins.compute_framework.base_implementations.pandas.dataframe impor
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
-
-# Mapping from aggregation type to the pandas GroupBy.transform function name.
-_PANDAS_AGG_FUNCS: dict[str, str] = {
-    "sum": "sum",
-    "avg": "mean",
-    "count": "count",
-    "min": "min",
-    "max": "max",
-}
+from mloda.community.feature_groups.data_operations.pandas_helpers import (
+    PANDAS_AGG_FUNCS,
+    apply_null_safe_agg,
+    coerce_count_dtype,
+    null_safe_groupby,
+)
 
 
 class PandasWindowAggregation(WindowAggregationFeatureGroup):
@@ -39,23 +36,16 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
         order_by: Optional[str] = None,
     ) -> pd.DataFrame:
         """Compute a window aggregation using pandas groupby().transform()."""
-        pandas_func = _PANDAS_AGG_FUNCS.get(agg_type)
+        pandas_func = PANDAS_AGG_FUNCS.get(agg_type)
         if pandas_func is None:
             raise ValueError(f"Unsupported aggregation type: {agg_type}")
 
-        # CRITICAL: dropna=False ensures null group keys form their own group,
-        # matching PyArrow behavior. Without this, pandas drops null keys entirely.
-        # min_count=1 for sum ensures all-null groups return NaN (not 0), matching PyArrow.
-        if agg_type == "sum":
-            result_series = data.groupby(partition_by, dropna=False)[source_col].transform(pandas_func, min_count=1)
-        else:
-            result_series = data.groupby(partition_by, dropna=False)[source_col].transform(pandas_func)
+        grouped = null_safe_groupby(data, partition_by, source_col)
+        result_series = apply_null_safe_agg(grouped, pandas_func, agg_type, method="transform")
 
         data = data.copy()
         data[feature_name] = result_series
 
-        # Convert count results to int64 (pandas transform may produce float when nulls exist)
-        if agg_type == "count":
-            data[feature_name] = data[feature_name].astype("int64")
+        coerce_count_dtype(data, feature_name, agg_type)
 
         return data

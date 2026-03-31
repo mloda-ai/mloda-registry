@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, Set, Type, Union
+from typing import Optional, Set, Type, Union
 
 import pandas as pd
 
@@ -12,13 +12,14 @@ from mloda_plugins.compute_framework.base_implementations.pandas.dataframe impor
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.pandas_helpers import (
+    PANDAS_AGG_FUNCS,
+    coerce_count_dtype,
+    null_safe_groupby,
+)
 
-_PANDAS_AGG_FUNCS: dict[str, str] = {
-    "sum": "sum",
-    "avg": "mean",
-    "count": "count",
-    "min": "min",
-    "max": "max",
+_PANDAS_FRAME_AGG_FUNCS: dict[str, str] = {
+    **PANDAS_AGG_FUNCS,
     "std": "std",
     "var": "var",
     "median": "median",
@@ -45,7 +46,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         frame_size: Optional[int] = None,
         frame_unit: Optional[str] = None,
     ) -> pd.DataFrame:
-        pandas_func = _PANDAS_AGG_FUNCS.get(agg_type)
+        pandas_func = _PANDAS_FRAME_AGG_FUNCS.get(agg_type)
         if pandas_func is None:
             raise ValueError(f"Unsupported aggregation type for Pandas frame aggregate: {agg_type}")
 
@@ -57,7 +58,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
 
         data = data.sort_values(by=[*partition_by, order_by], na_position="last")
 
-        grouped = data.groupby(partition_by, dropna=False)[source_col]
+        grouped = null_safe_groupby(data, partition_by, source_col)
 
         # std/var require at least 2 observations for a meaningful result
         min_periods = 2 if agg_type in ("std", "var") else 1
@@ -74,8 +75,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         result = getattr(window_obj, pandas_func)().reset_index(level=reset_levels, drop=True)
 
         data[feature_name] = result
-        if agg_type == "count":
-            data[feature_name] = data[feature_name].astype("int64")
+        coerce_count_dtype(data, feature_name, agg_type)
 
         # Restore original row order and drop helper column
         data = data.sort_values(by=rn_col)
