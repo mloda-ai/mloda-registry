@@ -11,13 +11,13 @@ resolution-markers = [
 [manifest]
 members = [
     "mloda-community",
-    "mloda-community-binning",
     "mloda-community-compute-frameworks-example",
     "mloda-community-data-operations",
     "mloda-community-example",
     "mloda-community-example-a",
     "mloda-community-example-b",
     "mloda-community-extenders-example",
+    "mloda-community-group-aggregation",
     "mloda-community-window-aggregation",
     "mloda-enterprise",
     "mloda-enterprise-compute-frameworks-example",
@@ -230,56 +230,6 @@ dependencies = [
 requires-dist = [{ name = "mloda", specifier = ">=0.5.5" }]
 
 [[package]]
-name = "mloda-community-binning"
-version = "0.2.12"
-source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/binning" }
-dependencies = [
-    { name = "mloda-community-data-operations" },
-]
-
-[package.optional-dependencies]
-all = [
-    { name = "duckdb" },
-    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "pandas", version = "3.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "polars" },
-    { name = "pyarrow" },
-]
-dev = [
-    { name = "mloda-testing" },
-    { name = "pytest" },
-]
-duckdb = [
-    { name = "duckdb" },
-]
-pandas = [
-    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "pandas", version = "3.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-]
-polars = [
-    { name = "polars" },
-]
-pyarrow = [
-    { name = "pyarrow" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "duckdb", marker = "extra == 'all'" },
-    { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
-    { name = "pandas", marker = "extra == 'all'" },
-    { name = "pandas", marker = "extra == 'pandas'" },
-    { name = "polars", marker = "extra == 'all'" },
-    { name = "polars", marker = "extra == 'polars'" },
-    { name = "pyarrow", marker = "extra == 'all'" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'" },
-    { name = "pytest", marker = "extra == 'dev'" },
-]
-provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
-
-[[package]]
 name = "mloda-community-compute-frameworks-example"
 version = "0.2.12"
 source = { editable = "mloda/community/compute_frameworks/example" }
@@ -311,7 +261,7 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
-    { name = "mloda-community-binning" },
+    { name = "mloda-community-group-aggregation" },
     { name = "mloda-community-window-aggregation" },
 ]
 dev = [
@@ -322,7 +272,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "mloda", specifier = ">=0.5.5" },
-    { name = "mloda-community-binning", marker = "extra == 'all'" },
+    { name = "mloda-community-group-aggregation", marker = "extra == 'all'" },
     { name = "mloda-community-window-aggregation", marker = "extra == 'all'" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
@@ -422,6 +372,56 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "mloda-community-group-aggregation"
+version = "0.2.12"
+source = { editable = "mloda/community/feature_groups/data_operations/group_aggregation" }
+dependencies = [
+    { name = "mloda-community-data-operations" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "duckdb" },
+    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pandas", version = "3.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "polars" },
+    { name = "pyarrow" },
+]
+dev = [
+    { name = "mloda-testing" },
+    { name = "pytest" },
+]
+duckdb = [
+    { name = "duckdb" },
+]
+pandas = [
+    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pandas", version = "3.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+polars = [
+    { name = "polars" },
+]
+pyarrow = [
+    { name = "pyarrow" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "duckdb", marker = "extra == 'all'" },
+    { name = "duckdb", marker = "extra == 'duckdb'" },
+    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "pandas", marker = "extra == 'all'" },
+    { name = "pandas", marker = "extra == 'pandas'" },
+    { name = "polars", marker = "extra == 'all'" },
+    { name = "polars", marker = "extra == 'polars'" },
+    { name = "pyarrow", marker = "extra == 'all'" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'" },
+    { name = "pytest", marker = "extra == 'dev'" },
+]
+provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-window-aggregation"
@@ -1012,11 +1012,11 @@ wheels = [
 
 [[package]]
 name = "pygments"
-version = "2.20.0"
+version = "2.19.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c3/b2/bc9c9196916376152d655522fdcebac55e66de6603a76a02bca1b6414f6c/pygments-2.20.0.tar.gz", hash = "sha256:6757cd03768053ff99f3039c1a36d6c0aa0b263438fcab17520b30a303a82b5f", size = 4955991, upload-time = "2026-03-29T13:29:33.898Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b0/77/a5b8c569bf593b0140bde72ea885a803b82086995367bf2037de0159d924/pygments-2.19.2.tar.gz", hash = "sha256:636cb2477cec7f8952536970bc533bc43743542f70392ae026374600add5b887", size = 4968631, upload-time = "2025-06-21T13:39:12.283Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f4/7e/a72dd26f3b0f4f2bf1dd8923c85f7ceb43172af56d63c7383eb62b332364/pygments-2.20.0-py3-none-any.whl", hash = "sha256:81a9e26dd42fd28a23a2d169d86d7ac03b46e2f8b59ed4698fb4785f946d0176", size = 1231151, upload-time = "2026-03-29T13:29:30.038Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/21/705964c7812476f378728bdf590ca4b771ec72385c533964653c68e86bdc/pygments-2.19.2-py3-none-any.whl", hash = "sha256:86540386c03d588bb81d44bc3928634ff26449851e99741617ecb9037ee5ec0b", size = 1225217, upload-time = "2025-06-21T13:39:07.939Z" },
 ]
 
 [[package]]
