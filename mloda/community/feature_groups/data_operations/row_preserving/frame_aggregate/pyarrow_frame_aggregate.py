@@ -9,6 +9,7 @@ import pyarrow as pa
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.pyarrow_aggregation_helpers import aggregate
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -74,7 +75,7 @@ class PyArrowFrameAggregate(FrameAggregateFeatureGroup):
                 else:
                     window = [r[2] for r in rows[: pos + 1]]
 
-                result_values[orig_idx] = cls._aggregate(window, agg_type)
+                result_values[orig_idx] = aggregate(window, agg_type)
 
         new_col = pa.array(result_values)
         return table.append_column(feature_name, new_col)
@@ -112,50 +113,3 @@ class PyArrowFrameAggregate(FrameAggregateFeatureGroup):
 
         window_start = current_order - delta
         return [r[2] for r in rows[: pos + 1] if r[1] is not None and r[1] >= window_start]
-
-    @classmethod
-    def _aggregate(cls, values: list[Any], agg_type: str) -> Any:
-        non_null = [v for v in values if v is not None]
-        if not non_null:
-            return None
-
-        if agg_type == "sum":
-            return sum(non_null)
-        if agg_type == "avg":
-            return sum(non_null) / len(non_null)
-        if agg_type == "count":
-            return len(non_null)
-        if agg_type == "min":
-            return min(non_null)
-        if agg_type == "max":
-            return max(non_null)
-        if agg_type == "std":
-            return cls._std(non_null)
-        if agg_type == "var":
-            return cls._var(non_null)
-        if agg_type == "median":
-            return cls._median(non_null)
-
-        raise ValueError(f"Unsupported aggregation type for frame aggregate: {agg_type}")
-
-    @classmethod
-    def _std(cls, values: list[Any]) -> Any:
-        if len(values) < 2:
-            return None
-        return cls._var(values) ** 0.5
-
-    @classmethod
-    def _var(cls, values: list[Any]) -> Any:
-        if len(values) < 2:
-            return None
-        mean = sum(values) / len(values)
-        return sum((x - mean) ** 2 for x in values) / (len(values) - 1)
-
-    @classmethod
-    def _median(cls, values: list[Any]) -> Any:
-        s = sorted(values)
-        n = len(s)
-        mid = n // 2
-        if n % 2 == 0:
-            return (s[mid - 1] + s[mid]) / 2.0
-        return float(s[mid])
