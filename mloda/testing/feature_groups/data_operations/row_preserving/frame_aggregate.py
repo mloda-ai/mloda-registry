@@ -406,3 +406,25 @@ class FrameAggregateTestBase(ABC):
         # With window 100, each row sees all preceding rows in its partition.
         # This is equivalent to cumulative sum.
         assert result_col == EXPECTED_CUMSUM
+
+    def test_multiple_null_order_by_values(self) -> None:
+        """Two or more null order_by values must not crash during sorting."""
+        table = pa.table(
+            {
+                "region": ["A", "A", "A", "A"],
+                "ts": [None, 1, None, 2],
+                "value": [100, 10, 200, 20],
+            }
+        )
+        data = self.create_test_data(table)
+        fs = make_feature_set("value__cumsum", ["region"], "ts")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "value__cumsum")
+
+        # Sorted order: ts=1 (10), ts=2 (20), ts=None (100), ts=None (200)
+        # Cumsum:        10,       30,          130,            330
+        # Map back to original positions: row1->10, row3->30, nulls get 130 and 330
+        assert result_col[1] == 10
+        assert result_col[3] == 30
+        assert set([result_col[0], result_col[2]]) == {130, 330}

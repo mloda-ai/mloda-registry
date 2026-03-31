@@ -143,32 +143,6 @@ class TestPyArrowNullHandling:
 
         assert col == [130, 10, 30]
 
-    def test_multiple_null_order_by_values(self) -> None:
-        """Two or more null order_by values must not crash during sorting."""
-        table = pa.table(
-            {
-                "region": ["A", "A", "A", "A"],
-                "ts": [None, 1, None, 2],
-                "value": [100, 10, 200, 20],
-            }
-        )
-        feature = Feature(
-            "value__cumsum",
-            options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-
-        result = PyArrowFrameAggregate.calculate_feature(table, fs)
-        col = result.column("value__cumsum").to_pylist()
-
-        # Sorted order: ts=1 (10), ts=2 (20), ts=None (100), ts=None (200)
-        # Cumsum:        10,       30,          130,            330
-        # Map back to original positions: row0=None->130 or 330, row1=1->10, row2=None->330 or 130, row3=2->30
-        assert col[1] == 10
-        assert col[3] == 30
-        assert set([col[0], col[2]]) == {130, 330}
-
     def test_all_null_values_returns_none(self) -> None:
         """When all values in the window are null, the result should be None."""
         table = pa.table(
