@@ -200,7 +200,63 @@ class PercentileTestBase(DataOpsTestBase):
         result_col = self.extract_column(result, "my_custom_percentile")
         assert result_col == pytest.approx(EXPECTED_P50_BY_REGION, rel=1e-6)
 
-    # -- Cross-framework comparison (matches PyArrow reference) --------------
+    # -- Float column tests ----------------------------------------------------
+
+    def test_multi_key_float_p50(self) -> None:
+        """P50 of value_float partitioned by [region, category]."""
+        fs = make_feature_set("value_float__p50_percentile", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_float__p50_percentile")
+        # A/X: [1.5, None] -> p50 = 1.5
+        assert result_col[0] == pytest.approx(1.5, rel=1e-6)
+        assert result_col[2] == pytest.approx(1.5, rel=1e-6)
+        # A/Y: [2.5, 0.0] -> sorted = [0.0, 2.5] -> p50 = 1.25
+        assert result_col[1] == pytest.approx(1.25, rel=1e-6)
+        assert result_col[3] == pytest.approx(1.25, rel=1e-6)
+
+    # -- Multi-column in_features rejection ------------------------------------
+
+    def test_multi_column_in_features_rejected_at_calculate(self) -> None:
+        """calculate_feature must reject features with multiple in_features."""
+        feature = Feature(
+            "bad_multi",
+            options=Options(
+                context={
+                    "percentile": 0.5,
+                    "in_features": ["value_int", "value_float"],
+                    "partition_by": ["region"],
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        with pytest.raises(ValueError, match="at most 1"):
+            self.implementation_class().calculate_feature(self.test_data, fs)
+
+    # -- Null consistency tests (multi-null columns) ---------------------------
+
+    def test_multi_null_column_p50(self) -> None:
+        """value_float has 2 nulls (rows 2, 11). Percentile should skip them."""
+        fs = make_feature_set("value_float__p50_percentile", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_float__p50_percentile")
+        # A: value_float non-null = [1.5, 0.0, 2.5] -> sorted [0.0, 1.5, 2.5] -> p50 = 1.5
+        assert result_col[0] == pytest.approx(1.5, rel=1e-6)
+        # None group: value_float = [None] -> all null -> result is None
+        assert result_col[11] is None
+
+    def test_amount_p50_by_region(self) -> None:
+        """amount has 2 nulls (rows 1, 7). Percentile should skip them."""
+        fs = make_feature_set("amount__p50_percentile", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "amount__p50_percentile")
+        # A: amount non-null = [100.0, 250.0, 75.0] -> sorted [75.0, 100.0, 250.0] -> p50 = 100.0
+        assert result_col[0] == pytest.approx(100.0, rel=1e-6)
+
+    # -- Cross-framework comparison (matches PyArrow reference) ----------------
 
     def test_cross_framework_p50(self) -> None:
         """P50 must match PyArrow reference."""
@@ -213,3 +269,17 @@ class PercentileTestBase(DataOpsTestBase):
     def test_cross_framework_p75(self) -> None:
         """P75 must match PyArrow reference."""
         self._compare_with_pyarrow("value_int__p75_percentile", partition_by=["region"], use_approx=True)
+
+    # -- Cross-framework null comparisons --------------------------------------
+
+    def test_cross_framework_all_null_p50(self) -> None:
+        """All-null column p50 must match PyArrow reference."""
+        self._compare_with_pyarrow("score__p50_percentile", partition_by=["region"])
+
+    def test_cross_framework_multi_null_p50(self) -> None:
+        """Multi-null column (value_float) p50 must match PyArrow reference."""
+        self._compare_with_pyarrow("value_float__p50_percentile", partition_by=["region"], use_approx=True)
+
+    def test_cross_framework_amount_p50(self) -> None:
+        """Amount column (2 nulls) p50 must match PyArrow reference."""
+        self._compare_with_pyarrow("amount__p50_percentile", partition_by=["region"], use_approx=True)
