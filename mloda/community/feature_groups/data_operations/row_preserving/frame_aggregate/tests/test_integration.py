@@ -85,7 +85,7 @@ class TestFrameAggregateIntegration(DataOpsIntegrationTestBase):
     @classmethod
     def invalid_feature_names(cls) -> list[str]:
         return [
-            "value_int__sum_groupby",
+            "value_int__sum_window",
             "value_int",
             "plain_feature",
         ]

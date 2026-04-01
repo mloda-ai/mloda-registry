@@ -104,7 +104,7 @@ class TestPatternMatching:
 
     def test_no_match_wrong_suffix(self) -> None:
         options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
-        result = RankFeatureGroup.match_feature_group_criteria("value_int__rank_groupby", options, None)
+        result = RankFeatureGroup.match_feature_group_criteria("value_int__rank_window", options, None)
         assert result is False
 
     def test_no_match_no_source_column(self) -> None:

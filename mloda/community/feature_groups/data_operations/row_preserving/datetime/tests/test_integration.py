@@ -87,7 +87,7 @@ class TestDateTimeIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def invalid_feature_names(cls) -> list[str]:
-        return ["timestamp", "timestamp__weekday", "year", "timestamp__sum_groupby"]
+        return ["timestamp", "timestamp__weekday", "year", "timestamp__sum_window"]
 
     @classmethod
     def match_options(cls) -> Options:

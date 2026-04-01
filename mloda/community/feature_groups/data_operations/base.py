@@ -16,7 +16,7 @@ from enum import Enum
 PARTITION_BY = "partition_by"
 """Config key for partitioning columns (list of column names).
 
-Used by: window_aggregation, group_aggregation, rank, offset, frame_aggregate.
+Used by: window_aggregation, aggregation, rank, offset, frame_aggregate.
 """
 
 FRAME_TYPE = "frame_type"
@@ -68,13 +68,13 @@ class NullPolicy(str, Enum):
     SKIP = "skip"
     """Aggregations skip null values (e.g. SUM ignores nulls).
 
-    Applies to: window_aggregation, group_aggregation, frame_aggregate.
+    Applies to: window_aggregation, aggregation, frame_aggregate.
     """
 
     NULL_IS_GROUP = "null_is_group"
     """Null is a valid group key in partitioned operations.
 
-    Applies to: window_aggregation, group_aggregation, rank, offset, frame_aggregate.
+    Applies to: window_aggregation, aggregation, rank, offset, frame_aggregate.
     Pandas divergence: pass ``dropna=False`` to ``groupby()``.
     """
 

@@ -76,7 +76,7 @@ class DataOpsIntegrationTestBase(ABC):
     @classmethod
     @abstractmethod
     def primary_feature_name(cls) -> str:
-        """Feature name for the primary single-feature test (e.g. 'value_int__sum_groupby')."""
+        """Feature name for the primary single-feature test (e.g. 'value_int__sum_window')."""
 
     @classmethod
     @abstractmethod
@@ -91,7 +91,7 @@ class DataOpsIntegrationTestBase(ABC):
     @classmethod
     @abstractmethod
     def secondary_feature_name(cls) -> str:
-        """Feature name for the secondary single-feature test (e.g. 'value_int__avg_groupby')."""
+        """Feature name for the secondary single-feature test (e.g. 'value_int__avg_window')."""
 
     @classmethod
     @abstractmethod

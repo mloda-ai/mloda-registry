@@ -92,9 +92,9 @@ class TestPatternMatching:
         assert result is False
 
     def test_no_match_wrong_suffix(self) -> None:
-        """Feature with wrong suffix (groupby instead of agg) should not match."""
+        """Feature with wrong suffix (window instead of agg) should not match."""
         options = Options(context={"partition_by": ["region"]})
-        result = AggregationFeatureGroup.match_feature_group_criteria("value_int__avg_groupby", options, None)
+        result = AggregationFeatureGroup.match_feature_group_criteria("value_int__avg_window", options, None)
         assert result is False
 
     def test_no_match_no_suffix(self) -> None:
