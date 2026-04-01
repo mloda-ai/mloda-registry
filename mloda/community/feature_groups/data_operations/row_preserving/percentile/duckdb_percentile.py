@@ -32,6 +32,9 @@ class DuckdbPercentile(PercentileFeatureGroup):
         quoted_feature = quote_ident(feature_name)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)
 
+        # Safety: identifiers are quote_ident()-quoted. The percentile value is a
+        # Python float validated to [0.0, 1.0] by the base class, so it cannot
+        # produce SQL injection via float.__format__.
         raw_sql = (
             f"*, QUANTILE_CONT({quoted_source}, {percentile}) "
             f"OVER (PARTITION BY {partition_clause}) AS {quoted_feature}"

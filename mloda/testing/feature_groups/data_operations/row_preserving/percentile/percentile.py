@@ -48,7 +48,6 @@ EXPECTED_P100_BY_REGION: list[float] = [20.0, 20.0, 20.0, 20.0, 60.0, 60.0, 60.0
 # C/Y: rows 8,10 values [15,40] sorted=[15,40] p50=27.5
 # C/X: row 9 values [15] p50=15.0
 # None/X: row 11 values [-10] p50=-10.0
-EXPECTED_P50_MULTI_KEY: list[float] = [5.0, 7.5, 5.0, 7.5, 60.0, 50.0, 30.0, 60.0, 27.5, 15.0, 27.5, -10.0]
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +185,6 @@ class PercentileTestBase(DataOpsTestBase):
             "my_custom_percentile",
             options=Options(
                 context={
-                    "aggregation_type": "percentile",
                     "percentile": 0.5,
                     "in_features": "value_int",
                     "partition_by": ["region"],

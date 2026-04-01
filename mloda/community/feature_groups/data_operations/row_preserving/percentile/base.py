@@ -75,15 +75,17 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     }
 
     @classmethod
+    def _parse_percentile_from_config(cls, operation_config: str) -> Optional[float]:
+        """Parse a pN operation config into a float 0.0-1.0, or None if invalid."""
+        n = int(operation_config[1:])
+        if 0 <= n <= 100:
+            return n / 100.0
+        return None
+
+    @classmethod
     def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
         """Validate that the parsed percentile value is in the range 0-100."""
-        if not operation_config.startswith("p"):
-            return False
-        num_str = operation_config[1:]
-        if not num_str.isdigit():
-            return False
-        num = int(num_str)
-        return 0 <= num <= 100
+        return cls._parse_percentile_from_config(operation_config) is not None
 
     @classmethod
     def match_feature_group_criteria(
@@ -129,8 +131,7 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         prefix_patterns = cls._get_prefix_patterns()
         operation_config, _ = FeatureChainParser.parse_feature_name(name, prefix_patterns)
         if operation_config is not None:
-            num_str = operation_config[1:]
-            return int(num_str) / 100.0
+            return cls._parse_percentile_from_config(operation_config)
         percentile = options.get(cls.PERCENTILE)
         if percentile is not None:
             if isinstance(percentile, (int, float)):
@@ -149,8 +150,9 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         prefix_patterns = cls._get_prefix_patterns()
         operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
         if operation_config is not None:
-            num_str = operation_config[1:]
-            return int(num_str) / 100.0
+            result = cls._parse_percentile_from_config(operation_config)
+            if result is not None:
+                return result
         raise ValueError(f"Could not extract percentile value from feature name: {feature_name}")
 
     @classmethod
@@ -160,8 +162,9 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         prefix_patterns = cls._get_prefix_patterns()
         operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
         if operation_config is not None:
-            num_str = operation_config[1:]
-            return int(num_str) / 100.0
+            result = cls._parse_percentile_from_config(operation_config)
+            if result is not None:
+                return result
         percentile = feature.options.get(cls.PERCENTILE)
         if percentile is None:
             raise ValueError(f"Could not extract percentile for {feature_name}")

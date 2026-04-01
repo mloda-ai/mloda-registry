@@ -6,7 +6,7 @@ from the collected values using PyArrow's quantile function.
 
 from __future__ import annotations
 
-from typing import Any, Optional, Set, Type, Union
+from typing import Any, Set, Type, Union
 
 import pyarrow as pa
 import pyarrow.compute as pc
