@@ -35,6 +35,9 @@ class PandasAggregation(AggregationFeatureGroup):
         agg_type: str,
     ) -> pd.DataFrame:
         """Compute a group aggregation using pandas groupby().agg()."""
+        if agg_type == "mode":
+            return cls._compute_mode(data, feature_name, source_col, partition_by)
+
         pandas_func = PANDAS_AGG_FUNCS.get(agg_type)
         if pandas_func is None:
             raise ValueError(f"Unsupported aggregation type: {agg_type}")
@@ -46,3 +49,16 @@ class PandasAggregation(AggregationFeatureGroup):
         coerce_count_dtype(result, feature_name, agg_type)
 
         return result
+
+    @classmethod
+    def _compute_mode(
+        cls,
+        data: pd.DataFrame,
+        feature_name: str,
+        source_col: str,
+        partition_by: list[str],
+    ) -> pd.DataFrame:
+        """Compute mode via lambda because pandas has no string-based mode aggregation."""
+        grouped = null_safe_groupby(data, partition_by, source_col)
+        result = grouped.agg(lambda x: x.mode().iloc[0] if not x.mode().empty else None).reset_index()
+        return result.rename(columns={source_col: feature_name})

@@ -248,6 +248,26 @@ class AggregationTestBase(DataOpsTestBase):
         """Max must match PyArrow reference."""
         self._compare_agg_with_pyarrow("value_int__max_agg", ["region"])
 
+    def test_cross_framework_std(self) -> None:
+        """Std must match PyArrow reference."""
+        self._skip_if_unsupported("std")
+        self._compare_agg_with_pyarrow("value_int__std_agg", ["region"], use_approx=True)
+
+    def test_cross_framework_var(self) -> None:
+        """Var must match PyArrow reference."""
+        self._skip_if_unsupported("var")
+        self._compare_agg_with_pyarrow("value_int__var_agg", ["region"], use_approx=True)
+
+    def test_cross_framework_median(self) -> None:
+        """Median must match PyArrow reference."""
+        self._skip_if_unsupported("median")
+        self._compare_agg_with_pyarrow("value_int__median_agg", ["region"], use_approx=True)
+
+    def test_cross_framework_nunique(self) -> None:
+        """Nunique must match PyArrow reference."""
+        self._skip_if_unsupported("nunique")
+        self._compare_agg_with_pyarrow("value_int__nunique_agg", ["region"])
+
     # -- Statistical aggregation tests (skipped if unsupported) --------------
 
     def test_std_agg_region(self) -> None:
@@ -403,6 +423,24 @@ class AggregationTestBase(DataOpsTestBase):
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "score__avg_agg")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_median_per_group(self) -> None:
+        """score is all-null. Median per group should be None."""
+        self._skip_if_unsupported("median")
+        fs = make_feature_set("score__median_agg", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__median_agg")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_mode_per_group(self) -> None:
+        """score is all-null. Mode per group should be None."""
+        self._skip_if_unsupported("mode")
+        fs = make_feature_set("score__mode_agg", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__mode_agg")
         assert all(v is None for v in result_col)
 
     # -- Cross-framework null comparisons ------------------------------------
