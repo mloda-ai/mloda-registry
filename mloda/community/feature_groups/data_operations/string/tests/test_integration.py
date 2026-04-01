@@ -84,7 +84,7 @@ class TestStringIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def invalid_feature_names(cls) -> list[str]:
-        return ["name", "name__split", "upper", "__upper", "name__sum_groupby"]
+        return ["name", "name__split", "upper", "__upper", "name__sum_window"]
 
     @classmethod
     def match_options(cls) -> Options:

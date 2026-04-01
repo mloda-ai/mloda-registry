@@ -1,4 +1,4 @@
-"""Pandas implementation for single-column global aggregate broadcast."""
+"""Pandas implementation for aggregation feature groups."""
 
 from __future__ import annotations
 
@@ -10,44 +10,39 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
-    ColumnAggregationFeatureGroup,
+    AggregationFeatureGroup,
+)
+from mloda.community.feature_groups.data_operations.pandas_helpers import (
+    PANDAS_AGG_FUNCS,
+    apply_null_safe_agg,
+    coerce_count_dtype,
+    null_safe_groupby,
 )
 
 
-class PandasColumnAggregation(ColumnAggregationFeatureGroup):
+class PandasAggregation(AggregationFeatureGroup):
     @classmethod
     def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
         return {PandasDataFrame}
 
     @classmethod
-    def _compute_aggregation(
+    def _compute_group(
         cls,
         data: pd.DataFrame,
         feature_name: str,
         source_col: str,
+        partition_by: list[str],
         agg_type: str,
     ) -> pd.DataFrame:
-        data = data.copy()
-        col = data[source_col]
-
-        if agg_type == "sum":
-            result = col.sum()
-        elif agg_type == "min":
-            result = col.min()
-        elif agg_type == "max":
-            result = col.max()
-        elif agg_type in ("avg", "mean"):
-            result = col.mean()
-        elif agg_type == "count":
-            result = col.count()
-        elif agg_type == "std":
-            result = col.std(ddof=0)
-        elif agg_type == "var":
-            result = col.var(ddof=0)
-        elif agg_type == "median":
-            result = col.median()
-        else:
+        """Compute a group aggregation using pandas groupby().agg()."""
+        pandas_func = PANDAS_AGG_FUNCS.get(agg_type)
+        if pandas_func is None:
             raise ValueError(f"Unsupported aggregation type: {agg_type}")
 
-        data[feature_name] = result
-        return data
+        grouped = null_safe_groupby(data, partition_by, source_col)
+        result = apply_null_safe_agg(grouped, pandas_func, agg_type).reset_index()
+        result = result.rename(columns={source_col: feature_name})
+
+        coerce_count_dtype(result, feature_name, agg_type)
+
+        return result

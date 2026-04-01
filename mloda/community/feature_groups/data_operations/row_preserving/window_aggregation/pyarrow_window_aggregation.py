@@ -27,6 +27,7 @@ _IDX_COL = "__mloda_wa_idx__"
 _PA_AGG_FUNCS: dict[str, str] = {
     "sum": "sum",
     "avg": "mean",
+    "mean": "mean",
     "count": "count",
     "min": "min",
     "max": "max",

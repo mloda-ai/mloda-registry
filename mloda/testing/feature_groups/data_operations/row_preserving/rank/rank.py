@@ -252,10 +252,12 @@ class RankTestBase(DataOpsTestBase):
 
     def test_all_null_column_row_number(self) -> None:
         """Row number on an all-null order_by column should still produce valid ranks."""
-        table = pa.table({
-            "region": ["A", "A", "A"],
-            "score": pa.array([None, None, None], type=pa.int64()),
-        })
+        table = pa.table(
+            {
+                "region": ["A", "A", "A"],
+                "score": pa.array([None, None, None], type=pa.int64()),
+            }
+        )
         data = self.create_test_data(table)
         fs = make_feature_set("score__row_number_ranked", ["region"], "score")
         result = self.implementation_class().calculate_feature(data, fs)
@@ -267,10 +269,12 @@ class RankTestBase(DataOpsTestBase):
 
     def test_all_null_column_rank(self) -> None:
         """Rank on an all-null order_by column should assign rank 1 to all (all tied)."""
-        table = pa.table({
-            "region": ["A", "A", "A"],
-            "score": pa.array([None, None, None], type=pa.int64()),
-        })
+        table = pa.table(
+            {
+                "region": ["A", "A", "A"],
+                "score": pa.array([None, None, None], type=pa.int64()),
+            }
+        )
         data = self.create_test_data(table)
         fs = make_feature_set("score__rank_ranked", ["region"], "score")
         result = self.implementation_class().calculate_feature(data, fs)
@@ -351,11 +355,13 @@ class RankTestBase(DataOpsTestBase):
 
     def test_null_order_by_produces_valid_rank(self) -> None:
         """Null in order_by column should rank last (nulls last)."""
-        table = pa.table({
-            "region": ["A", "A", "A"],
-            "ts": [None, 1, 2],
-            "value": [100, 10, 20],
-        })
+        table = pa.table(
+            {
+                "region": ["A", "A", "A"],
+                "ts": [None, 1, 2],
+                "value": [100, 10, 20],
+            }
+        )
         data = self.create_test_data(table)
         fs = make_feature_set("value__row_number_ranked", ["region"], "ts")
         result = self.implementation_class().calculate_feature(data, fs)

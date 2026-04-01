@@ -46,12 +46,11 @@ class DataOpsIntegrationTestBase(ABC):
     provides 7 concrete test methods that exercise the full mloda pipeline
     including run_all, PluginCollector, and pattern matching.
 
-    For row-preserving operations (window_aggregation, rank, offset), the
-    expected row count is 12 (same as input). For reducing operations
-    (group_aggregation), override ``expected_row_count`` to return the
-    reduced count.
+    For row-preserving operations (window_aggregation, scalar_aggregate, rank, offset),
+    the expected row count is 12 (same as input). For reducing operations
+    (aggregation), override ``expected_row_count`` to return the reduced count.
 
-    For operations where result order is not guaranteed (group_aggregation),
+    For operations where result order is not guaranteed (aggregation),
     set ``compare_sorted`` to True.
 
     For floating-point results, set ``use_approx`` to True.
@@ -77,7 +76,7 @@ class DataOpsIntegrationTestBase(ABC):
     @classmethod
     @abstractmethod
     def primary_feature_name(cls) -> str:
-        """Feature name for the primary single-feature test (e.g. 'value_int__sum_groupby')."""
+        """Feature name for the primary single-feature test (e.g. 'value_int__sum_window')."""
 
     @classmethod
     @abstractmethod
@@ -92,7 +91,7 @@ class DataOpsIntegrationTestBase(ABC):
     @classmethod
     @abstractmethod
     def secondary_feature_name(cls) -> str:
-        """Feature name for the secondary single-feature test (e.g. 'value_int__avg_groupby')."""
+        """Feature name for the secondary single-feature test (e.g. 'value_int__avg_window')."""
 
     @classmethod
     @abstractmethod

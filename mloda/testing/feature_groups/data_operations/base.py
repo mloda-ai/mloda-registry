@@ -1,7 +1,7 @@
 """Shared abstract base class for all data-operations framework test suites.
 
 ``DataOpsTestBase`` eliminates the boilerplate that was duplicated across all
-9 operation-specific test bases (aggregation, group_aggregation, window_aggregation,
+9 operation-specific test bases (scalar_aggregate, aggregation, window_aggregation,
 offset, rank, binning, datetime, frame_aggregate, string). It provides:
 
 - 5 abstract adapter methods (implementation_class, create_test_data,

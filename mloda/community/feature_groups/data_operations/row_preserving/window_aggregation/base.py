@@ -29,8 +29,8 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     - ``count``: Count of non-null values
     - ``min``: Minimum value
     - ``max``: Maximum value
-    - ``std``: Standard deviation
-    - ``var``: Variance
+    - ``std``: Sample standard deviation (ddof=1)
+    - ``var``: Sample variance (ddof=1)
     - ``median``: Median value
     - ``mode``: Most frequent value
     - ``nunique``: Count of unique values
@@ -44,14 +44,14 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     ### 1. String-Based Creation
 
-    Features follow the naming pattern: ``{source_column}__{aggregation_type}_groupby``
+    Features follow the naming pattern: ``{source_column}__{aggregation_type}_window``
 
     Examples::
 
         features = [
-            Feature("sales__sum_groupby", options=Options(context={"partition_by": ["region"]})),
-            Feature("temperature__avg_groupby", options=Options(context={"partition_by": ["city"]})),
-            Feature("price__first_groupby", options=Options(context={
+            Feature("sales__sum_window", options=Options(context={"partition_by": ["region"]})),
+            Feature("temperature__avg_window", options=Options(context={"partition_by": ["city"]})),
+            Feature("price__first_window", options=Options(context={
                 "partition_by": ["region"], "order_by": "timestamp",
             })),
         ]
@@ -80,7 +80,7 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     - ``order_by``: Column to order by (required for first/last)
     """
 
-    PREFIX_PATTERN = r".*__([\w]+)_groupby$"
+    PREFIX_PATTERN = r".*__([\w]+)_window$"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -92,11 +92,12 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     AGGREGATION_TYPES = {
         "sum": "Sum of values",
         "avg": "Average of values",
+        "mean": "Average of values",
         "count": "Count of non-null values",
         "min": "Minimum value",
         "max": "Maximum value",
-        "std": "Standard deviation",
-        "var": "Variance",
+        "std": "Sample standard deviation (ddof=1)",
+        "var": "Sample variance (ddof=1)",
         "median": "Median value",
         "mode": "Most frequent value",
         "nunique": "Count of unique values",
@@ -208,7 +209,7 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         """Shared loop: extract params from each feature, delegate to _compute_window.
 
-        Supports both string-based features (e.g. "value_int__sum_groupby") and
+        Supports both string-based features (e.g. "value_int__sum_window") and
         configuration-based features (via Options with aggregation_type, in_features,
         partition_by).
         """

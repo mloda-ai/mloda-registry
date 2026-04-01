@@ -42,7 +42,7 @@ class TestWindowAggregationIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def primary_feature_name(cls) -> str:
-        return "value_int__sum_groupby"
+        return "value_int__sum_window"
 
     @classmethod
     def primary_feature_options(cls) -> dict[str, Any]:
@@ -54,7 +54,7 @@ class TestWindowAggregationIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def secondary_feature_name(cls) -> str:
-        return "value_int__avg_groupby"
+        return "value_int__avg_window"
 
     @classmethod
     def secondary_feature_options(cls) -> dict[str, Any]:
@@ -66,7 +66,7 @@ class TestWindowAggregationIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def valid_feature_names(cls) -> list[str]:
-        return ["value_int__sum_groupby", "value_int__avg_groupby", "value_int__count_groupby"]
+        return ["value_int__sum_window", "value_int__avg_window", "value_int__count_window"]
 
     @classmethod
     def invalid_feature_names(cls) -> list[str]:
@@ -91,11 +91,11 @@ class TestIntegrationMultipleFeatures:
         )
 
         f_sum = Feature(
-            "value_int__sum_groupby",
+            "value_int__sum_window",
             options=Options(context={"partition_by": ["region"]}),
         )
         f_avg = Feature(
-            "value_int__avg_groupby",
+            "value_int__avg_window",
             options=Options(context={"partition_by": ["region"]}),
         )
 
@@ -112,13 +112,13 @@ class TestIntegrationMultipleFeatures:
         for table in results:
             if not isinstance(table, pa.Table):
                 continue
-            if "value_int__sum_groupby" in table.column_names:
-                sum_col = table.column("value_int__sum_groupby").to_pylist()
+            if "value_int__sum_window" in table.column_names:
+                sum_col = table.column("value_int__sum_window").to_pylist()
                 expected_sum = [25, 25, 25, 25, 140, 140, 140, 140, 70, 70, 70, -10]
                 assert sum_col == expected_sum
                 sum_found = True
-            if "value_int__avg_groupby" in table.column_names:
-                avg_col = table.column("value_int__avg_groupby").to_pylist()
+            if "value_int__avg_window" in table.column_names:
+                avg_col = table.column("value_int__avg_window").to_pylist()
                 expected_avg = [
                     6.25,
                     6.25,
@@ -136,8 +136,8 @@ class TestIntegrationMultipleFeatures:
                 assert avg_col == pytest.approx(expected_avg, rel=1e-3)
                 avg_found = True
 
-        assert sum_found, "sum_groupby result not found in any result table"
-        assert avg_found, "avg_groupby result not found in any result table"
+        assert sum_found, "sum_window result not found in any result table"
+        assert avg_found, "avg_window result not found in any result table"
 
     def test_different_aggregation_types(self) -> None:
         """Request min and max features in one pipeline run."""
@@ -146,11 +146,11 @@ class TestIntegrationMultipleFeatures:
         )
 
         f_min = Feature(
-            "value_int__min_groupby",
+            "value_int__min_window",
             options=Options(context={"partition_by": ["region"]}),
         )
         f_max = Feature(
-            "value_int__max_groupby",
+            "value_int__max_window",
             options=Options(context={"partition_by": ["region"]}),
         )
 
@@ -167,16 +167,16 @@ class TestIntegrationMultipleFeatures:
         for table in results:
             if not isinstance(table, pa.Table):
                 continue
-            if "value_int__min_groupby" in table.column_names:
-                min_col = table.column("value_int__min_groupby").to_pylist()
+            if "value_int__min_window" in table.column_names:
+                min_col = table.column("value_int__min_window").to_pylist()
                 expected_min = [-5, -5, -5, -5, 30, 30, 30, 30, 15, 15, 15, -10]
                 assert min_col == expected_min
                 min_found = True
-            if "value_int__max_groupby" in table.column_names:
-                max_col = table.column("value_int__max_groupby").to_pylist()
+            if "value_int__max_window" in table.column_names:
+                max_col = table.column("value_int__max_window").to_pylist()
                 expected_max = [20, 20, 20, 20, 60, 60, 60, 60, 40, 40, 40, -10]
                 assert max_col == expected_max
                 max_found = True
 
-        assert min_found, "min_groupby result not found in any result table"
-        assert max_found, "max_groupby result not found in any result table"
+        assert min_found, "min_window result not found in any result table"
+        assert max_found, "max_window result not found in any result table"

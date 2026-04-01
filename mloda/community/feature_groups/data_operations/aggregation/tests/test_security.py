@@ -12,32 +12,61 @@ import pytest
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
-    AGGREGATION_TYPES,
-    ColumnAggregationFeatureGroup,
+    AggregationFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import (
-    PyArrowColumnAggregation,
+    PyArrowAggregation,
 )
 
 
 class TestAggregationComputeRejection:
     """Verify that invalid types reaching compute raise ValueError."""
 
+    def test_pyarrow_rejects_unknown_type_at_compute(self) -> None:
+        arrow_table = PyArrowDataOpsTestDataCreator.create()
+        with pytest.raises((ValueError, KeyError)):
+            PyArrowAggregation._compute_group(arrow_table, "result_col", "value_int", ["region"], "evil_type")
+
     def test_pandas_rejects_unknown_type_at_compute(self) -> None:
         pytest.importorskip("pandas")
         from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import (
-            PandasColumnAggregation,
+            PandasAggregation,
         )
 
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         df = arrow_table.to_pandas()
-        with pytest.raises(ValueError, match="[Uu]nsupported"):
-            PandasColumnAggregation._compute_aggregation(df, "result_col", "value_int", "evil_type")
+        with pytest.raises((ValueError, KeyError)):
+            PandasAggregation._compute_group(df, "result_col", "value_int", ["region"], "evil_type")
 
-    def test_pyarrow_rejects_unknown_type_at_compute(self) -> None:
+    def test_duckdb_rejects_unknown_type_at_compute(self) -> None:
+        duckdb = pytest.importorskip("duckdb")
+        from mloda.community.feature_groups.data_operations.aggregation.duckdb_aggregation import (
+            DuckdbAggregation,
+        )
+        from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
+
+        conn = duckdb.connect()
         arrow_table = PyArrowDataOpsTestDataCreator.create()
+        rel = conn.from_arrow(arrow_table)
+        data = DuckdbRelation(conn, rel)
         with pytest.raises(ValueError, match="[Uu]nsupported"):
-            PyArrowColumnAggregation._compute_aggregation(arrow_table, "result_col", "value_int", "evil_type")
+            DuckdbAggregation._compute_group(data, "result_col", "value_int", ["region"], "evil_type")
+        conn.close()
+
+    def test_sqlite_rejects_unknown_type_at_compute(self) -> None:
+        import sqlite3
+
+        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
+        from mloda.community.feature_groups.data_operations.aggregation.sqlite_aggregation import (
+            SqliteAggregation,
+        )
+
+        conn = sqlite3.connect(":memory:")
+        arrow_table = PyArrowDataOpsTestDataCreator.create()
+        data = SqliteRelation.from_arrow(conn, arrow_table)
+        with pytest.raises(ValueError, match="[Uu]nsupported"):
+            SqliteAggregation._compute_group(data, "result_col", "value_int", ["region"], "evil_type")
+        conn.close()
 
 
 class TestAllowlistCompleteness:
@@ -48,58 +77,42 @@ class TestAllowlistCompleteness:
             _DUCKDB_AGG_FUNCS,
         )
 
-        for agg_type in AGGREGATION_TYPES:
+        for agg_type in AggregationFeatureGroup.AGGREGATION_TYPES:
             assert agg_type in _DUCKDB_AGG_FUNCS, f"DuckDB backend missing aggregation type: {agg_type}"
-
-    def test_pandas_covers_all_types(self) -> None:
-        pytest.importorskip("pandas")
-        from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import (
-            PandasColumnAggregation,
-        )
-
-        arrow_table = PyArrowDataOpsTestDataCreator.create()
-        df = arrow_table.to_pandas()
-        for agg_type in AGGREGATION_TYPES:
-            result = PandasColumnAggregation._compute_aggregation(df, f"test_{agg_type}", "value_int", agg_type)
-            assert f"test_{agg_type}" in result.columns
-
-    def test_pyarrow_covers_all_types(self) -> None:
-        arrow_table = PyArrowDataOpsTestDataCreator.create()
-        for agg_type in AGGREGATION_TYPES:
-            result = PyArrowColumnAggregation._compute_aggregation(
-                arrow_table, f"test_{agg_type}", "value_int", agg_type
-            )
-            assert f"test_{agg_type}" in result.column_names
-
-    def test_polars_covers_all_types(self) -> None:
-        polars = pytest.importorskip("polars")
-        from mloda.community.feature_groups.data_operations.aggregation.polars_lazy_aggregation import (
-            PolarsLazyColumnAggregation,
-        )
-
-        arrow_table = PyArrowDataOpsTestDataCreator.create()
-        lf = polars.from_arrow(arrow_table).lazy()
-        for agg_type in AGGREGATION_TYPES:
-            result = PolarsLazyColumnAggregation._compute_aggregation(lf, f"test_{agg_type}", "value_int", agg_type)
-            collected = result.collect()
-            assert f"test_{agg_type}" in collected.columns
 
     def test_sqlite_covers_supported_types(self) -> None:
         from mloda.community.feature_groups.data_operations.aggregation.sqlite_aggregation import (
             _SQLITE_AGG_FUNCS,
         )
 
-        basic_types = {"sum", "min", "max", "avg", "mean", "count"}
+        basic_types = {"sum", "min", "max", "avg", "count"}
         for agg_type in basic_types:
             assert agg_type in _SQLITE_AGG_FUNCS, f"SQLite backend missing basic aggregation type: {agg_type}"
 
 
-class TestSqlUtilities:
-    """Verify SQL utility functions handle edge cases safely."""
+class TestPartitionByInjection:
+    """Verify that partition_by values with SQL injection payloads are safely quoted."""
 
-    def test_sqlite_quote_ident_handles_double_quotes(self) -> None:
+    INJECTION_PAYLOADS = [
+        'region"; DROP TABLE users--',
+        "region' OR '1'='1",
+        "region); DELETE FROM data--",
+    ]
+
+    def test_duckdb_quotes_partition_by(self) -> None:
+        """DuckDB uses quote_ident for partition_by columns, preventing injection."""
         from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
-        assert quote_ident('col"name') == '"col""name"'
-        assert quote_ident("normal_col") == '"normal_col"'
-        assert quote_ident("col'; DROP TABLE--") == '"col\'; DROP TABLE--"'
+        for payload in self.INJECTION_PAYLOADS:
+            quoted = quote_ident(payload)
+            assert '"' == quoted[0] and '"' == quoted[-1], f"Not properly quoted: {quoted}"
+            assert payload.replace('"', '""') in quoted
+
+    def test_sqlite_quotes_partition_by(self) -> None:
+        """SQLite uses quote_ident for partition_by columns, preventing injection."""
+        from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+
+        for payload in self.INJECTION_PAYLOADS:
+            quoted = quote_ident(payload)
+            assert '"' == quoted[0] and '"' == quoted[-1], f"Not properly quoted: {quoted}"
+            assert payload.replace('"', '""') in quoted

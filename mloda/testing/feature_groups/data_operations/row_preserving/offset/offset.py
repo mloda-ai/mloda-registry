@@ -227,10 +227,12 @@ class OffsetTestBase(DataOpsTestBase):
 
     def test_all_null_column_lag(self) -> None:
         """Lag on an all-null column should produce all None."""
-        table = pa.table({
-            "region": ["A", "A", "A"],
-            "score": pa.array([None, None, None], type=pa.int64()),
-        })
+        table = pa.table(
+            {
+                "region": ["A", "A", "A"],
+                "score": pa.array([None, None, None], type=pa.int64()),
+            }
+        )
         data = self.create_test_data(table)
         fs = make_feature_set("score__lag_1_offset", ["region"], "score")
         result = self.implementation_class().calculate_feature(data, fs)
@@ -240,10 +242,12 @@ class OffsetTestBase(DataOpsTestBase):
 
     def test_all_null_column_first_value(self) -> None:
         """First value on an all-null column should produce all None."""
-        table = pa.table({
-            "region": ["A", "A", "A"],
-            "score": pa.array([None, None, None], type=pa.int64()),
-        })
+        table = pa.table(
+            {
+                "region": ["A", "A", "A"],
+                "score": pa.array([None, None, None], type=pa.int64()),
+            }
+        )
         data = self.create_test_data(table)
         fs = make_feature_set("score__first_value_offset", ["region"], "score")
         result = self.implementation_class().calculate_feature(data, fs)
@@ -323,11 +327,13 @@ class OffsetTestBase(DataOpsTestBase):
 
     def test_null_order_by_key(self) -> None:
         """Null in order_by column should rank last (nulls last)."""
-        table = pa.table({
-            "region": ["A", "A", "A"],
-            "ts": [None, 1, 2],
-            "value": [100, 10, 20],
-        })
+        table = pa.table(
+            {
+                "region": ["A", "A", "A"],
+                "ts": [None, 1, 2],
+                "value": [100, 10, 20],
+            }
+        )
         data = self.create_test_data(table)
         fs = make_feature_set("value__lag_1_offset", ["region"], "ts")
         result = self.implementation_class().calculate_feature(data, fs)
