@@ -18,6 +18,10 @@ PANDAS_AGG_FUNCS: dict[str, str] = {
     "max": "max",
     "std": "std",
     "var": "var",
+    "std_pop": "std",
+    "std_samp": "std",
+    "var_pop": "var",
+    "var_samp": "var",
     "nunique": "nunique",
     "first": "first",
     "last": "last",
@@ -36,6 +40,19 @@ def null_safe_groupby(df: Any, partition_by: list[str], col: str) -> Any:
     return df.groupby(by, dropna=False)[col]
 
 
+# Pandas groupby.agg("std") / .transform("std") always uses ddof=1.
+# There is no way to pass ddof through the string-based API, so we
+# intercept std/var operations and use a lambda wrapper instead.
+_DDOF_BY_AGG_TYPE: dict[str, int] = {
+    "std": 0,
+    "var": 0,
+    "std_pop": 0,
+    "var_pop": 0,
+    "std_samp": 1,
+    "var_samp": 1,
+}
+
+
 def apply_null_safe_agg(
     grouped: Any,
     pandas_func: str,
@@ -47,7 +64,16 @@ def apply_null_safe_agg(
 
     When *agg_type* is ``"sum"``, ``min_count=1`` is forwarded so that
     all-NaN groups return NaN rather than 0.
+
+    When *agg_type* is a std/var variant, a lambda wrapper is used to
+    pass the correct ``ddof`` (0 for population, 1 for sample) because
+    the string-based pandas API does not support a ddof parameter.
     """
+    ddof = _DDOF_BY_AGG_TYPE.get(agg_type)
+    if ddof is not None:
+        func = lambda x, _d=ddof, _f=pandas_func: getattr(x, _f)(ddof=_d)
+        return getattr(grouped, method)(func)
+
     kwargs: dict[str, Any] = {}
     if agg_type == "sum":
         kwargs["min_count"] = 1

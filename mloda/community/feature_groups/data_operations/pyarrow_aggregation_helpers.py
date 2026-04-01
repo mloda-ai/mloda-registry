@@ -30,10 +30,14 @@ def aggregate(values: list[Any], agg_type: str) -> Any:
         return min(non_null)
     if agg_type == "max":
         return max(non_null)
-    if agg_type == "std":
-        return std(non_null)
-    if agg_type == "var":
-        return var(non_null)
+    if agg_type in ("std", "std_pop"):
+        return std(non_null, ddof=0)
+    if agg_type in ("var", "var_pop"):
+        return var(non_null, ddof=0)
+    if agg_type == "std_samp":
+        return std(non_null, ddof=1)
+    if agg_type == "var_samp":
+        return var(non_null, ddof=1)
     if agg_type == "median":
         return median(non_null)
     if agg_type == "mode":
@@ -48,17 +52,17 @@ def aggregate(values: list[Any], agg_type: str) -> Any:
     raise ValueError(f"Unsupported aggregation type: {agg_type}")
 
 
-def std(values: list[Any]) -> Any:
-    if len(values) < 2:
+def std(values: list[Any], ddof: int = 0) -> Any:
+    if len(values) < ddof + 1:
         return None
-    return var(values) ** 0.5
+    return var(values, ddof=ddof) ** 0.5
 
 
-def var(values: list[Any]) -> Any:
-    if len(values) < 2:
+def var(values: list[Any], ddof: int = 0) -> Any:
+    if len(values) < ddof + 1:
         return None
     mean = sum(values) / len(values)
-    return sum((x - mean) ** 2 for x in values) / (len(values) - 1)
+    return sum((x - mean) ** 2 for x in values) / (len(values) - ddof)
 
 
 def median(values: list[Any]) -> Any:

@@ -40,10 +40,14 @@ class PandasScalarAggregate(ScalarAggregateFeatureGroup):
             result = col.mean()
         elif agg_type == "count":
             result = col.count()
-        elif agg_type == "std":
+        elif agg_type in ("std", "std_pop"):
             result = col.std(ddof=0)
-        elif agg_type == "var":
+        elif agg_type in ("var", "var_pop"):
             result = col.var(ddof=0)
+        elif agg_type == "std_samp":
+            result = col.std(ddof=1)
+        elif agg_type == "var_samp":
+            result = col.var(ddof=1)
         elif agg_type == "median":
             result = col.median()
         else:

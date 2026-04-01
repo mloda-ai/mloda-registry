@@ -19,8 +19,8 @@ _DUCKDB_AGG_FUNCS: dict[str, str] = {
     "count": "COUNT",
     "min": "MIN",
     "max": "MAX",
-    "std": "STDDEV_SAMP",
-    "var": "VAR_SAMP",
+    "std": "STDDEV_POP",
+    "var": "VAR_POP",
     "median": "MEDIAN",
 }
 

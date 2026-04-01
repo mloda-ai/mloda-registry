@@ -39,10 +39,14 @@ class PolarsLazyScalarAggregate(ScalarAggregateFeatureGroup):
             expr = col.mean()
         elif agg_type == "count":
             expr = col.count()
-        elif agg_type == "std":
+        elif agg_type in ("std", "std_pop"):
             expr = col.std(ddof=0)
-        elif agg_type == "var":
+        elif agg_type in ("var", "var_pop"):
             expr = col.var(ddof=0)
+        elif agg_type == "std_samp":
+            expr = col.std(ddof=1)
+        elif agg_type == "var_samp":
+            expr = col.var(ddof=1)
         elif agg_type == "median":
             expr = col.median()
         else:

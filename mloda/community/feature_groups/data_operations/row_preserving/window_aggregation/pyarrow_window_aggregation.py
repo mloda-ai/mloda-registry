@@ -34,9 +34,13 @@ _PA_AGG_FUNCS: dict[str, str] = {
     "nunique": "count_distinct",
 }
 
-_SAMPLE_STAT_FUNCS: dict[str, str] = {
-    "std": "stddev",
-    "var": "variance",
+_VARIANCE_FUNCS: dict[str, tuple[str, int]] = {
+    "std": ("stddev", 0),
+    "var": ("variance", 0),
+    "std_pop": ("stddev", 0),
+    "std_samp": ("stddev", 1),
+    "var_pop": ("variance", 0),
+    "var_samp": ("variance", 1),
 }
 
 _ORDERED_FUNCS: dict[str, str] = {
@@ -73,11 +77,11 @@ class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
             )
             agg_col = f"{source_col}_{pa_func}"
 
-        elif agg_type in _SAMPLE_STAT_FUNCS:
-            pa_func = _SAMPLE_STAT_FUNCS[agg_type]
+        elif agg_type in _VARIANCE_FUNCS:
+            pa_func, ddof = _VARIANCE_FUNCS[agg_type]
             grouped = t_with_idx.group_by(partition_by).aggregate(
                 [
-                    (source_col, pa_func, pc.VarianceOptions(ddof=1)),
+                    (source_col, pa_func, pc.VarianceOptions(ddof=ddof)),
                     (_IDX_COL, "list"),
                 ]
             )

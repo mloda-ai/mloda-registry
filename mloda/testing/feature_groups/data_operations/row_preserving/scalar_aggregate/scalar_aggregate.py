@@ -40,6 +40,10 @@ _mean = sum(_non_null) / len(_non_null)
 EXPECTED_VAR: float = sum((x - _mean) ** 2 for x in _non_null) / len(_non_null)
 EXPECTED_STD: float = EXPECTED_VAR**0.5
 
+# Sample std/var (ddof=1)
+EXPECTED_VAR_SAMP: float = sum((x - _mean) ** 2 for x in _non_null) / (len(_non_null) - 1)
+EXPECTED_STD_SAMP: float = EXPECTED_VAR_SAMP**0.5
+
 # Median of sorted non-null: [-10, -5, 0, 10, 15, 15, 20, 30, 40, 50, 60] -> 15.0
 EXPECTED_MEDIAN: float = 15.0
 
@@ -52,7 +56,21 @@ EXPECTED_MEDIAN: float = 15.0
 class ScalarAggregateTestBase(DataOpsTestBase):
     """Abstract base class for scalar aggregate framework tests."""
 
-    ALL_AGG_TYPES = {"sum", "min", "max", "avg", "mean", "count", "std", "var", "median"}
+    ALL_AGG_TYPES = {
+        "sum",
+        "min",
+        "max",
+        "avg",
+        "mean",
+        "count",
+        "std",
+        "var",
+        "std_pop",
+        "std_samp",
+        "var_pop",
+        "var_samp",
+        "median",
+    }
 
     @classmethod
     def supported_agg_types(cls) -> set[str]:
@@ -123,6 +141,42 @@ class ScalarAggregateTestBase(DataOpsTestBase):
 
         result_col = self.extract_column(result, "value_int__var_scalar")
         assert all(v == pytest.approx(EXPECTED_VAR, rel=1e-4) for v in result_col)
+
+    def test_std_pop_scalar(self) -> None:
+        """Explicit population standard deviation (ddof=0), identical to std."""
+        self._skip_if_unsupported("std_pop")
+        fs = make_feature_set("value_int__std_pop_scalar")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__std_pop_scalar")
+        assert all(v == pytest.approx(EXPECTED_STD, rel=1e-4) for v in result_col)
+
+    def test_std_samp_scalar(self) -> None:
+        """Sample standard deviation (ddof=1)."""
+        self._skip_if_unsupported("std_samp")
+        fs = make_feature_set("value_int__std_samp_scalar")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__std_samp_scalar")
+        assert all(v == pytest.approx(EXPECTED_STD_SAMP, rel=1e-4) for v in result_col)
+
+    def test_var_pop_scalar(self) -> None:
+        """Explicit population variance (ddof=0), identical to var."""
+        self._skip_if_unsupported("var_pop")
+        fs = make_feature_set("value_int__var_pop_scalar")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__var_pop_scalar")
+        assert all(v == pytest.approx(EXPECTED_VAR, rel=1e-4) for v in result_col)
+
+    def test_var_samp_scalar(self) -> None:
+        """Sample variance (ddof=1)."""
+        self._skip_if_unsupported("var_samp")
+        fs = make_feature_set("value_int__var_samp_scalar")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__var_samp_scalar")
+        assert all(v == pytest.approx(EXPECTED_VAR_SAMP, rel=1e-4) for v in result_col)
 
     def test_median_scalar(self) -> None:
         self._skip_if_unsupported("median")
