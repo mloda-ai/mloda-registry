@@ -59,6 +59,18 @@ class PandasRank(RankFeatureGroup):
             )
             group_size = null_safe_groupby(data, partition_by, order_by).transform("size")
             data[feature_name] = (((rank_col - 1) * ntile_n) // group_size + 1).astype("int64")
+        elif rank_type.startswith("top_"):
+            top_n = int(rank_type[len("top_") :])
+            row_num = null_safe_groupby(data, partition_by, order_by).rank(
+                method="first", ascending=False, na_option="bottom"
+            )
+            data[feature_name] = row_num <= top_n
+        elif rank_type.startswith("bottom_"):
+            bottom_n = int(rank_type[len("bottom_") :])
+            row_num = null_safe_groupby(data, partition_by, order_by).rank(
+                method="first", ascending=True, na_option="bottom"
+            )
+            data[feature_name] = row_num <= bottom_n
         else:
             raise ValueError(f"Unsupported rank type: {rank_type}")
 

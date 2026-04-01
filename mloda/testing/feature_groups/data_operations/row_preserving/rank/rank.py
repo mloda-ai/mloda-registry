@@ -48,6 +48,22 @@ EXPECTED_RANK = [3, 1, 2, 4, 4, 2, 1, 3, 1, 1, 3, 1]
 # dense_rank: same rank for ties, no gaps
 EXPECTED_DENSE_RANK = [3, 1, 2, 4, 4, 2, 1, 3, 1, 1, 2, 1]
 
+# top_3: ROW_NUMBER() OVER (PARTITION BY region ORDER BY value_int DESC NULLS LAST) <= 3
+# Returns boolean: True if row is in the top 3 by value_int within its partition.
+#   A (DESC): 20, 10, 0, -5 => top 3 = {20, 10, 0}
+#   B (DESC): 60, 50, 30, None => top 3 = {60, 50, 30}
+#   C (DESC): 40, 15, 15 => all 3 qualify
+#   None: -10 => qualifies (N >= group_size)
+EXPECTED_TOP_3 = [True, False, True, True, False, True, True, True, True, True, True, True]
+
+# bottom_2: ROW_NUMBER() OVER (PARTITION BY region ORDER BY value_int ASC NULLS LAST) <= 2
+# Returns boolean: True if row is in the bottom 2 by value_int within its partition.
+#   A (ASC): -5, 0, 10, 20 => bottom 2 = {-5, 0}
+#   B (ASC): 30, 50, 60, None => bottom 2 = {30, 50}
+#   C (ASC): 15, 15, 40 => bottom 2 = {15, 15}
+#   None: -10 => qualifies (N >= group_size)
+EXPECTED_BOTTOM_2 = [False, True, True, False, False, True, True, False, True, True, False, True]
+
 
 # ---------------------------------------------------------------------------
 # Reusable test base class
@@ -153,6 +169,28 @@ class RankTestBase(DataOpsTestBase):
         # None group: 1 row, ntile(2) => 1
         assert result_col[11] == 1
 
+    def test_top_n_ranked(self) -> None:
+        """Top 3 of value_int partitioned by region, ordered by value_int."""
+        fs = make_feature_set("value_int__top_3_ranked", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert isinstance(result, self.get_expected_type())
+        assert self.get_row_count(result) == 12
+
+        result_col = self.extract_column(result, "value_int__top_3_ranked")
+        assert result_col == EXPECTED_TOP_3
+
+    def test_bottom_n_ranked(self) -> None:
+        """Bottom 2 of value_int partitioned by region, ordered by value_int."""
+        fs = make_feature_set("value_int__bottom_2_ranked", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert isinstance(result, self.get_expected_type())
+        assert self.get_row_count(result) == 12
+
+        result_col = self.extract_column(result, "value_int__bottom_2_ranked")
+        assert result_col == EXPECTED_BOTTOM_2
+
     def test_null_policy_nulls_last(self) -> None:
         """NullPolicy.NULLS_LAST: null values in order_by column rank last."""
         fs = make_feature_set("value_int__row_number_ranked", ["region"], "value_int")
@@ -223,6 +261,38 @@ class RankTestBase(DataOpsTestBase):
         assert result_col[8] == 1
         assert result_col[9] == 1
 
+    def test_top_n_exceeds_group_size(self) -> None:
+        """Top 10 on groups smaller than 10: all rows are True."""
+        fs = make_feature_set("value_int__top_10_ranked", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__top_10_ranked")
+        assert all(v is True for v in result_col)
+
+    def test_bottom_n_exceeds_group_size(self) -> None:
+        """Bottom 10 on groups smaller than 10: all rows are True."""
+        fs = make_feature_set("value_int__bottom_10_ranked", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__bottom_10_ranked")
+        assert all(v is True for v in result_col)
+
+    def test_top_1_selects_maximum(self) -> None:
+        """Top 1: only the row with the highest value in each partition is True."""
+        fs = make_feature_set("value_int__top_1_ranked", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__top_1_ranked")
+        # A: max=20 at row 3 -> True, rest False
+        assert result_col[3] is True
+        assert result_col[0] is False  # val=10
+        assert result_col[1] is False  # val=-5
+        # B: max=60 at row 7 -> True
+        assert result_col[7] is True
+        assert result_col[6] is False  # val=30
+        # None group: single row -> True
+        assert result_col[11] is True
+
     # -- Cross-framework comparison (matches PyArrow reference) --------------
 
     def test_cross_framework_row_number(self) -> None:
@@ -247,6 +317,14 @@ class RankTestBase(DataOpsTestBase):
     def test_cross_framework_ntile(self) -> None:
         """Ntile must match PyArrow reference."""
         self._compare_with_pyarrow("value_int__ntile_2_ranked", partition_by=["region"], order_by="value_int")
+
+    def test_cross_framework_top_n(self) -> None:
+        """Top N must match PyArrow reference."""
+        self._compare_with_pyarrow("value_int__top_3_ranked", partition_by=["region"], order_by="value_int")
+
+    def test_cross_framework_bottom_n(self) -> None:
+        """Bottom N must match PyArrow reference."""
+        self._compare_with_pyarrow("value_int__bottom_2_ranked", partition_by=["region"], order_by="value_int")
 
     # -- All-null column tests -----------------------------------------------
 
@@ -283,6 +361,24 @@ class RankTestBase(DataOpsTestBase):
         assert len(result_col) == 3
         # All nulls are tied, so all get rank 1
         assert all(v == 1 for v in result_col)
+
+    def test_top_n_null_order_by(self) -> None:
+        """Null values in order_by get False for top_N (nulls rank last in DESC order)."""
+        fs = make_feature_set("value_int__top_3_ranked", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__top_3_ranked")
+        # Row 4 has value_int=None in group B (4 rows). Null ranks last in DESC -> position 4 > 3 -> False
+        assert result_col[4] is False
+
+    def test_bottom_n_null_order_by(self) -> None:
+        """Null values in order_by get False for bottom_N (nulls rank last in ASC order)."""
+        fs = make_feature_set("value_int__bottom_2_ranked", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__bottom_2_ranked")
+        # Row 4 has value_int=None in group B (4 rows). Null ranks last in ASC -> position 4 > 2 -> False
+        assert result_col[4] is False
 
     # -- Option-based config tests -------------------------------------------
 

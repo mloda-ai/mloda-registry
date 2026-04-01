@@ -111,13 +111,14 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     @classmethod
     def _supports_rank_type(cls, rank_type: str) -> bool:
-        """Check if the given rank type is supported, including ntile_N."""
+        """Check if the given rank type is supported, including ntile_N, top_N, and bottom_N."""
         if rank_type in cls.RANK_TYPES:
             return True
-        if rank_type.startswith("ntile_"):
-            suffix = rank_type[len("ntile_") :]
-            if suffix.isdigit() and int(suffix) >= 1:
-                return True
+        for prefix in ("ntile_", "top_", "bottom_"):
+            if rank_type.startswith(prefix):
+                suffix = rank_type[len(prefix) :]
+                if suffix.isdigit() and int(suffix) >= 1:
+                    return True
         return False
 
     @classmethod

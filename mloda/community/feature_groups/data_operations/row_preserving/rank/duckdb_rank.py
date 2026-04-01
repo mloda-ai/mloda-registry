@@ -44,6 +44,16 @@ class DuckdbRank(RankFeatureGroup):
         if rank_type.startswith("ntile_"):
             ntile_n = int(rank_type[len("ntile_") :])
             rank_expr = f"NTILE({ntile_n})"
+        elif rank_type.startswith(("top_", "bottom_")):
+            is_top = rank_type.startswith("top_")
+            prefix = "top_" if is_top else "bottom_"
+            n_val = int(rank_type[len(prefix) :])
+            direction = "DESC" if is_top else "ASC"
+            rank_expr = (
+                f"(ROW_NUMBER() OVER "
+                f"(PARTITION BY {partition_clause} ORDER BY {quoted_order} {direction} NULLS LAST) "
+                f"<= {n_val})"
+            )
         else:
             rank_func = _DUCKDB_RANK_FUNCS.get(rank_type)
             if rank_func is None:
@@ -54,14 +64,23 @@ class DuckdbRank(RankFeatureGroup):
         # The _RN_COL column tracks original position, then we
         # sort by it and drop it to return rows in the original order.
         qrn = quote_ident(_RN_COL)
-        sql = (
-            f"SELECT *, "  # nosec B608
-            f"{rank_expr} OVER "
-            f"(PARTITION BY {partition_clause} ORDER BY {quoted_order} ASC NULLS LAST) "
-            f"AS {quoted_feature}, "
-            f"ROW_NUMBER() OVER () AS {qrn} "
-            f"FROM __t ORDER BY {qrn}"
-        )
+        if rank_type.startswith(("top_", "bottom_")):
+            # rank_expr already contains full window expression with boolean comparison
+            sql = (
+                f"SELECT *, "  # nosec B608
+                f"{rank_expr} AS {quoted_feature}, "
+                f"ROW_NUMBER() OVER () AS {qrn} "
+                f"FROM __t ORDER BY {qrn}"
+            )
+        else:
+            sql = (
+                f"SELECT *, "  # nosec B608
+                f"{rank_expr} OVER "
+                f"(PARTITION BY {partition_clause} ORDER BY {quoted_order} ASC NULLS LAST) "
+                f"AS {quoted_feature}, "
+                f"ROW_NUMBER() OVER () AS {qrn} "
+                f"FROM __t ORDER BY {qrn}"
+            )
         new_rel = data._relation.query("__t", sql)
         # Drop the helper column
         result_rel = new_rel.project(
