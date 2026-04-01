@@ -94,6 +94,7 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             **OFFSET_TYPES,
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.type_validator: lambda v: isinstance(v, str),
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Source feature for offset operation",

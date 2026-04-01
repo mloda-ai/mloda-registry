@@ -13,7 +13,8 @@ import pyarrow as pa
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate import (
+from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
+from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
     FrameAggregateTestBase,
 )
 from mloda.user import Feature
@@ -23,7 +24,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 )
 
 
-class TestPyArrowFrameAggregate(FrameAggregateTestBase):
+class TestPyArrowFrameAggregate(PyArrowTestMixin, FrameAggregateTestBase):
     """Unified tests inherited from the base class."""
 
     @classmethod
@@ -33,18 +34,6 @@ class TestPyArrowFrameAggregate(FrameAggregateTestBase):
     @classmethod
     def supports_time_frame(cls) -> bool:
         return True
-
-    def create_test_data(self, arrow_table: pa.Table) -> Any:
-        return arrow_table
-
-    def extract_column(self, result: Any, column_name: str) -> list[Any]:
-        return list(result.column(column_name).to_pylist())
-
-    def get_row_count(self, result: Any) -> int:
-        return int(result.num_rows)
-
-    def get_expected_type(self) -> Any:
-        return pa.Table
 
 
 class TestPyArrowTimeWindow:

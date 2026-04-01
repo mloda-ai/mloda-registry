@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
@@ -231,3 +234,31 @@ class TestAggregationTypeExtraction:
         feature_name = f"col__{agg_type}_aggr"
         result = ColumnAggregationFeatureGroup.get_aggregation_type(feature_name)
         assert result == agg_type
+
+
+class TestAggregationMatchValidation(MatchValidationTestBase):
+    """Shared match-validation tests adapted for column aggregation."""
+
+    @classmethod
+    def feature_group_class(cls) -> Any:
+        return ColumnAggregationFeatureGroup
+
+    @classmethod
+    def valid_operations(cls) -> set[str]:
+        return set(AGGREGATION_TYPES)
+
+    @classmethod
+    def config_key(cls) -> str:
+        return "aggregation_type"
+
+    @classmethod
+    def build_feature_name(cls, operation: str) -> str:
+        return f"value_int__{operation}_aggr"
+
+    @classmethod
+    def build_feature_name_no_source(cls) -> str:
+        return "sum_aggr"
+
+    @classmethod
+    def additional_match_options(cls) -> dict[str, Any]:
+        return {"in_features": "value_int"}

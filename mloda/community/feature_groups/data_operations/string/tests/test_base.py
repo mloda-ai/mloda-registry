@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.string.base import (
@@ -135,3 +138,29 @@ class TestValidateStringMatch:
     def test_base_class_rejects_unknown_ops(self) -> None:
         """Base class _validate_string_match rejects operations not in STRING_OPS."""
         assert StringFeatureGroup._validate_string_match("name__capitalize", "capitalize", "name") is False
+
+
+class TestStringMatchValidation(MatchValidationTestBase):
+    @classmethod
+    def feature_group_class(cls) -> Any:
+        return StringFeatureGroup
+
+    @classmethod
+    def valid_operations(cls) -> set[str]:
+        return set(STRING_OPS)
+
+    @classmethod
+    def config_key(cls) -> str:
+        return "string_op"
+
+    @classmethod
+    def build_feature_name(cls, operation: str) -> str:
+        return f"name__{operation}"
+
+    @classmethod
+    def build_feature_name_no_source(cls) -> str:
+        return "upper"
+
+    @classmethod
+    def additional_match_options(cls) -> dict[str, Any]:
+        return {"in_features": "name"}

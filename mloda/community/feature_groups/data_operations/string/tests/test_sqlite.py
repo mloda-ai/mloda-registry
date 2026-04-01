@@ -2,23 +2,20 @@
 
 from __future__ import annotations
 
-import sqlite3
 from typing import Any
 
-import pyarrow as pa
 import pytest
-
-from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 from mloda.community.feature_groups.data_operations.string.sqlite_string import (
     SqliteStringOps,
 )
-from mloda.testing.feature_groups.data_operations.string import (
+from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.string.string import (
     StringTestBase,
 )
 
 
-class TestSqliteStringOps(StringTestBase):
+class TestSqliteStringOps(SqliteTestMixin, StringTestBase):
     """All tests inherited from the base class.
 
     SQLite does not support the 'reverse' operation natively,
@@ -45,20 +42,6 @@ class TestSqliteStringOps(StringTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteStringOps
-
-    def create_test_data(self, arrow_table: pa.Table) -> Any:
-        self.conn = sqlite3.connect(":memory:")
-        return SqliteRelation.from_arrow(self.conn, arrow_table)
-
-    def extract_column(self, result: Any, column_name: str) -> list[Any]:
-        arrow_table = result.to_arrow_table()
-        return list(arrow_table.column(column_name).to_pylist())
-
-    def get_row_count(self, result: Any) -> int:
-        return int(len(result))
-
-    def get_expected_type(self) -> Any:
-        return SqliteRelation
 
     def test_cross_framework_upper(self) -> None:
         """Skip: SQLite UPPER differs from PyArrow for non-ASCII characters."""

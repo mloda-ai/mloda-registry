@@ -13,16 +13,13 @@ any framework implementation inherits by subclassing and implementing
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from typing import Any
 
 import pyarrow as pa
 import pytest
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.user import Feature
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
 
 # ---------------------------------------------------------------------------
@@ -64,54 +61,12 @@ NULL_GROUP_SUM_EXPECTED: int = -10
 
 
 # ---------------------------------------------------------------------------
-# Standalone helpers (for cross-framework tests and other uses)
-# ---------------------------------------------------------------------------
-
-
-def extract_column(result: Any, column_name: str) -> list[Any]:
-    """Extract a column from a result object as a Python list.
-
-    Handles pa.Table (direct .column() access) and relation types
-    (DuckdbRelation, SqliteRelation) that expose .to_arrow_table().
-    """
-    if isinstance(result, pa.Table):
-        return list(result.column(column_name).to_pylist())
-    arrow_table = result.to_arrow_table()
-    return list(arrow_table.column(column_name).to_pylist())
-
-
-def make_feature_set(feature_name: str, partition_by: list[str], order_by: str | None = None) -> FeatureSet:
-    """Build a FeatureSet with partition_by and optional order_by options."""
-    context: dict[str, Any] = {"partition_by": partition_by}
-    if order_by is not None:
-        context["order_by"] = order_by
-    feature = Feature(
-        feature_name,
-        options=Options(context=context),
-    )
-    fs = FeatureSet()
-    fs.add(feature)
-    return fs
-
-
-# ---------------------------------------------------------------------------
 # Reusable test base class
 # ---------------------------------------------------------------------------
 
 
-class WindowAggregationTestBase(ABC):
-    """Abstract base class for window aggregation framework tests.
-
-    Subclasses implement 5 abstract methods to wire up their framework,
-    then inherit 16 concrete test methods for free (10 per-framework +
-    5 cross-framework comparison against PyArrow + 1 column check).
-
-    Simple frameworks (PyArrow, Pandas, Polars) need ~15 lines.
-    Connection-based frameworks (DuckDB, SQLite) need ~25 lines
-    (add setup_method/teardown_method for connection lifecycle).
-    """
-
-    # -- Overridable methods --------------------------------------------------
+class WindowAggregationTestBase(DataOpsTestBase):
+    """Abstract base class for window aggregation framework tests."""
 
     ALL_AGG_TYPES = {"sum", "avg", "count", "min", "max", "std", "var", "median", "mode", "nunique", "first", "last"}
 
@@ -120,54 +75,13 @@ class WindowAggregationTestBase(ABC):
         """Aggregation types this framework supports. Override to restrict."""
         return cls.ALL_AGG_TYPES
 
-    # -- Abstract methods subclasses must implement --------------------------
-
-    @classmethod
-    @abstractmethod
-    def implementation_class(cls) -> Any:
-        """Return the WindowAggregation implementation class to test."""
-
     @classmethod
     def pyarrow_implementation_class(cls) -> Any:
-        """Return the PyArrow implementation class (reference for cross-framework comparison)."""
         from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
             PyArrowWindowAggregation,
         )
 
         return PyArrowWindowAggregation
-
-    @abstractmethod
-    def create_test_data(self, arrow_table: pa.Table) -> Any:
-        """Convert the standard PyArrow test table to the framework's native format."""
-
-    @abstractmethod
-    def extract_column(self, result: Any, column_name: str) -> list[Any]:
-        """Extract a column from the result as a Python list."""
-
-    @abstractmethod
-    def get_row_count(self, result: Any) -> int:
-        """Return the number of rows in the result."""
-
-    @abstractmethod
-    def get_expected_type(self) -> Any:
-        """Return the expected type of the result (for isinstance checks)."""
-
-    # -- Setup / teardown ----------------------------------------------------
-
-    def setup_method(self) -> None:
-        """Create test data from the canonical 12-row dataset.
-
-        Connection-based subclasses should create their connection as
-        ``self.conn`` first, then call ``super().setup_method()``.
-        """
-        self._arrow_table = PyArrowDataOpsTestDataCreator.create()
-        self.test_data = self.create_test_data(self._arrow_table)
-
-    def teardown_method(self) -> None:
-        """Close self.conn if it was set by a connection-based subclass."""
-        conn = getattr(self, "conn", None)
-        if conn is not None:
-            conn.close()
 
     # -- Concrete test methods (inherited for free) --------------------------
 
@@ -269,50 +183,27 @@ class WindowAggregationTestBase(ABC):
 
     # -- Cross-framework comparison (matches PyArrow reference) --------------
 
-    def _compare_with_pyarrow(self, feature_name: str, partition_by: list[str], use_approx: bool = False) -> None:
-        """Run the feature through this framework and PyArrow, assert results match."""
-        fs = make_feature_set(feature_name, partition_by)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
-
-        result_col = self.extract_column(result, feature_name)
-        ref_col = extract_column(ref, feature_name)
-
-        assert len(result_col) == len(ref_col), f"row count {len(result_col)} != reference {len(ref_col)}"
-        if use_approx:
-            for i, (ref_val, fw_val) in enumerate(zip(ref_col, result_col)):
-                if ref_val is None:
-                    assert fw_val is None, f"row {i}: expected None, got {fw_val}"
-                else:
-                    assert fw_val == pytest.approx(ref_val, rel=1e-6), f"row {i}: {fw_val} != reference {ref_val}"
-        else:
-            assert result_col == ref_col
-
     def test_cross_framework_sum(self) -> None:
         """Sum must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__sum_groupby", ["region"])
+        self._compare_with_pyarrow("value_int__sum_groupby", partition_by=["region"])
 
     def test_cross_framework_avg(self) -> None:
         """Avg must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__avg_groupby", ["region"], use_approx=True)
+        self._compare_with_pyarrow("value_int__avg_groupby", partition_by=["region"], use_approx=True)
 
     def test_cross_framework_count(self) -> None:
         """Count must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__count_groupby", ["region"])
+        self._compare_with_pyarrow("value_int__count_groupby", partition_by=["region"])
 
     def test_cross_framework_min(self) -> None:
         """Min must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__min_groupby", ["region"])
+        self._compare_with_pyarrow("value_int__min_groupby", partition_by=["region"])
 
     def test_cross_framework_max(self) -> None:
         """Max must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__max_groupby", ["region"])
+        self._compare_with_pyarrow("value_int__max_groupby", partition_by=["region"])
 
     # -- Statistical aggregation tests (skipped if unsupported) --------------
-
-    def _skip_if_unsupported(self, agg_type: str) -> None:
-        if agg_type not in self.supported_agg_types():
-            pytest.skip(f"{agg_type} not supported by this framework")
 
     def test_std_groupby_region(self) -> None:
         """Standard deviation of value_int partitioned by region."""
@@ -516,3 +407,47 @@ class WindowAggregationTestBase(ABC):
         # A/Y: [2.5, 0.0] -> avg = 1.25
         assert result_col[1] == pytest.approx(1.25, rel=1e-6)
         assert result_col[3] == pytest.approx(1.25, rel=1e-6)
+
+    # -- Option-based config tests -------------------------------------------
+
+    def test_option_based_sum_groupby(self) -> None:
+        """Option-based configuration (not string pattern) produces the same result."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
+
+        feature = Feature(
+            "my_window_sum",
+            options=Options(
+                context={
+                    "aggregation_type": "sum",
+                    "in_features": "value_int",
+                    "partition_by": ["region"],
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "my_window_sum")
+        assert result_col == EXPECTED_SUM_BY_REGION
+
+    def test_unsupported_aggregation_type_raises(self) -> None:
+        """Calling calculate_feature with an unknown aggregation type should raise."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
+
+        feature = Feature(
+            "value_int__evil_type_groupby",
+            options=Options(
+                context={
+                    "partition_by": ["region"],
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        with pytest.raises((ValueError, KeyError)):
+            self.implementation_class().calculate_feature(self.test_data, fs)
