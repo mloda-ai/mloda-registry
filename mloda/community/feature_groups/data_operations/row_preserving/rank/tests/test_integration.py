@@ -76,6 +76,34 @@ class TestIntegrationBasic:
         expected = [3, 1, 2, 4, 4, 2, 1, 3, 1, 1, 2, 1]
         assert result_col == expected
 
+    def test_top_n_through_pipeline(self) -> None:
+        """Run value_int__top_3_ranked through run_all."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowRank})
+
+        feature = Feature(
+            "value_int__top_3_ranked",
+            options=Options(context={"partition_by": ["region"], "order_by": "value_int"}),
+        )
+
+        results = mloda.run_all(
+            [feature],
+            compute_frameworks={PyArrowTable},
+            plugin_collector=plugin_collector,
+        )
+
+        result_table = None
+        for table in results:
+            if isinstance(table, pa.Table) and "value_int__top_3_ranked" in table.column_names:
+                result_table = table
+                break
+
+        assert result_table is not None
+        assert result_table.num_rows == 12
+
+        result_col = result_table.column("value_int__top_3_ranked").to_pylist()
+        expected = [True, False, True, True, False, True, True, True, True, True, True, True]
+        assert result_col == expected
+
 
 class TestIntegrationPluginDiscovery:
     """Test plugin discovery for rank feature groups."""

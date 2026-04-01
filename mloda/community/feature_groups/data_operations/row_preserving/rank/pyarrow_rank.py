@@ -113,6 +113,22 @@ class PyArrowRank(RankFeatureGroup):
                     bucket = (pos * ntile_n) // n + 1
                     result_values[idx] = bucket
 
+            elif rank_type.startswith("top_"):
+                top_n = int(rank_type[len("top_") :])
+                # Sort DESC for top-N with nulls last
+                desc_rows = sorted(
+                    sorted_rows,
+                    key=lambda x: (x[1] is None, -(x[1]) if x[1] is not None else 0),
+                )
+                for pos, (idx, _) in enumerate(desc_rows):
+                    result_values[idx] = pos + 1 <= top_n
+
+            elif rank_type.startswith("bottom_"):
+                bottom_n = int(rank_type[len("bottom_") :])
+                # Already sorted ASC for bottom-N
+                for pos, (idx, _) in enumerate(sorted_rows):
+                    result_values[idx] = pos + 1 <= bottom_n
+
             else:
                 raise ValueError(f"Unsupported rank type: {rank_type}")
 

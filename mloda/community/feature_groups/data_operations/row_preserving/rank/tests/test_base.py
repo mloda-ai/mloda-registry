@@ -45,6 +45,22 @@ class TestClassAttributes:
     def test_rejects_ntile_negative(self) -> None:
         assert not RankFeatureGroup._supports_rank_type("ntile_-1")
 
+    def test_supports_top_n(self) -> None:
+        assert RankFeatureGroup._supports_rank_type("top_5")
+        assert RankFeatureGroup._supports_rank_type("top_1")
+
+    def test_supports_bottom_n(self) -> None:
+        assert RankFeatureGroup._supports_rank_type("bottom_5")
+        assert RankFeatureGroup._supports_rank_type("bottom_1")
+
+    def test_rejects_invalid_top_n(self) -> None:
+        assert not RankFeatureGroup._supports_rank_type("top_0")
+        assert not RankFeatureGroup._supports_rank_type("top_abc")
+
+    def test_rejects_invalid_bottom_n(self) -> None:
+        assert not RankFeatureGroup._supports_rank_type("bottom_0")
+        assert not RankFeatureGroup._supports_rank_type("bottom_abc")
+
     def test_min_in_features_is_one(self) -> None:
         assert RankFeatureGroup.MIN_IN_FEATURES == 1
 
@@ -117,6 +133,16 @@ class TestPatternMatching:
         result = RankFeatureGroup.match_feature_group_criteria("value_int__unknown_ranked", options, None)
         assert result is False
 
+    def test_matches_top_n(self) -> None:
+        options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
+        result = RankFeatureGroup.match_feature_group_criteria("value_int__top_5_ranked", options, None)
+        assert result is True
+
+    def test_matches_bottom_n(self) -> None:
+        options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
+        result = RankFeatureGroup.match_feature_group_criteria("value_int__bottom_3_ranked", options, None)
+        assert result is True
+
 
 class TestPatternParsing:
     """Tests for extracting rank type and source column."""
@@ -132,6 +158,14 @@ class TestPatternParsing:
     def test_parse_ntile(self) -> None:
         rank_type = RankFeatureGroup.get_rank_type("value_int__ntile_4_ranked")
         assert rank_type == "ntile_4"
+
+    def test_parse_top_n(self) -> None:
+        rank_type = RankFeatureGroup.get_rank_type("value_int__top_5_ranked")
+        assert rank_type == "top_5"
+
+    def test_parse_bottom_n(self) -> None:
+        rank_type = RankFeatureGroup.get_rank_type("value_int__bottom_3_ranked")
+        assert rank_type == "bottom_3"
 
     def test_parse_source_feature(self) -> None:
         from mloda.user import Feature
