@@ -111,6 +111,8 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         partition_by = options.get(cls.PARTITION_BY)
         if not isinstance(partition_by, (list, tuple)):
             return False
+        if len(partition_by) == 0:
+            return False
         if not all(isinstance(item, str) for item in partition_by):
             return False
 

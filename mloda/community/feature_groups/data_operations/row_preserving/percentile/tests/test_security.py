@@ -75,8 +75,13 @@ class TestSqlInjectionInPartitionBy:
         result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", options, None)
         assert result is False, f"Non-string partition_by should be rejected: {malicious_partition}"
 
-    def test_empty_partition_by_rejected(self) -> None:
+    def test_non_list_partition_by_rejected(self) -> None:
         options = Options(context={"partition_by": "not_a_list"})
+        result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", options, None)
+        assert result is False
+
+    def test_empty_partition_by_rejected(self) -> None:
+        options = Options(context={"partition_by": []})
         result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", options, None)
         assert result is False
 
