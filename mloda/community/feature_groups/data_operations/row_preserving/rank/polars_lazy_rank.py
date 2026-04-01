@@ -22,6 +22,25 @@ class PolarsLazyRank(RankFeatureGroup):
         return {PolarsLazyDataFrame}
 
     @classmethod
+    def _row_number_nulls_last(
+        cls,
+        order_by: str,
+        partition_by: list[str],
+        descending: bool = False,
+    ) -> pl.Expr:
+        """Row number expression with nulls-last semantics.
+
+        Returns an Int64 expression giving each row its 1-based position
+        within its partition, with null values in *order_by* ranked after
+        all non-null values.
+        """
+        non_null_rank = pl.col(order_by).rank(method="ordinal", descending=descending).over(partition_by)
+        group_size = pl.col(order_by).len().over(partition_by)
+        null_count_before = pl.col(_NULL_FLAG_COL).cum_sum().over(partition_by)
+        non_null_count = group_size - pl.col(_NULL_FLAG_COL).sum().over(partition_by)
+        return pl.when(pl.col(order_by).is_null()).then(non_null_count + null_count_before).otherwise(non_null_rank)
+
+    @classmethod
     def _compute_rank(
         cls,
         data: pl.LazyFrame,
@@ -41,20 +60,8 @@ class PolarsLazyRank(RankFeatureGroup):
         data = data.with_columns(null_flag)
 
         if rank_type == "row_number":
-            # For non-null: rank by value. For null: assign rank = group_size.
-            non_null_rank = pl.col(order_by).rank(method="ordinal").over(partition_by)
-            group_size = pl.col(order_by).len().over(partition_by)
-            # null_rank_offset: count of non-null values + position among nulls
-            null_count_before = pl.col(_NULL_FLAG_COL).cum_sum().over(partition_by)
-            non_null_count = group_size - pl.col(_NULL_FLAG_COL).sum().over(partition_by)
-
-            expr = (
-                pl.when(pl.col(order_by).is_null())
-                .then(non_null_count + null_count_before)
-                .otherwise(non_null_rank)
-                .cast(pl.Int64)
-                .alias(feature_name)
-            )
+            row_num = cls._row_number_nulls_last(order_by, partition_by)
+            expr = row_num.cast(pl.Int64).alias(feature_name)
         elif rank_type == "rank":
             non_null_rank = pl.col(order_by).rank(method="min").over(partition_by)
             group_size = pl.col(order_by).len().over(partition_by)
@@ -90,36 +97,16 @@ class PolarsLazyRank(RankFeatureGroup):
             )
         elif rank_type.startswith("ntile_"):
             ntile_n = int(rank_type[len("ntile_") :])
-            # Use row_number approach for ntile
-            non_null_rank = pl.col(order_by).rank(method="ordinal").over(partition_by)
+            row_num = cls._row_number_nulls_last(order_by, partition_by)
             group_size = pl.col(order_by).len().over(partition_by)
-            non_null_count = group_size - pl.col(_NULL_FLAG_COL).sum().over(partition_by)
-            null_count_before = pl.col(_NULL_FLAG_COL).cum_sum().over(partition_by)
-            row_num = (
-                pl.when(pl.col(order_by).is_null()).then(non_null_count + null_count_before).otherwise(non_null_rank)
-            )
             expr = ((row_num - 1) * ntile_n // group_size + 1).cast(pl.Int64).alias(feature_name)
         elif rank_type.startswith("top_"):
             top_n = int(rank_type[len("top_") :])
-            # DESC rank: highest values get lowest row numbers
-            non_null_rank = pl.col(order_by).rank(method="ordinal", descending=True).over(partition_by)
-            group_size = pl.col(order_by).len().over(partition_by)
-            null_count_before = pl.col(_NULL_FLAG_COL).cum_sum().over(partition_by)
-            non_null_count = group_size - pl.col(_NULL_FLAG_COL).sum().over(partition_by)
-            row_num = (
-                pl.when(pl.col(order_by).is_null()).then(non_null_count + null_count_before).otherwise(non_null_rank)
-            )
+            row_num = cls._row_number_nulls_last(order_by, partition_by, descending=True)
             expr = (row_num <= top_n).alias(feature_name)
         elif rank_type.startswith("bottom_"):
             bottom_n = int(rank_type[len("bottom_") :])
-            # ASC rank (same as row_number), nulls last
-            non_null_rank = pl.col(order_by).rank(method="ordinal").over(partition_by)
-            group_size = pl.col(order_by).len().over(partition_by)
-            null_count_before = pl.col(_NULL_FLAG_COL).cum_sum().over(partition_by)
-            non_null_count = group_size - pl.col(_NULL_FLAG_COL).sum().over(partition_by)
-            row_num = (
-                pl.when(pl.col(order_by).is_null()).then(non_null_count + null_count_before).otherwise(non_null_rank)
-            )
+            row_num = cls._row_number_nulls_last(order_by, partition_by)
             expr = (row_num <= bottom_n).alias(feature_name)
         else:
             raise ValueError(f"Unsupported rank type: {rank_type}")

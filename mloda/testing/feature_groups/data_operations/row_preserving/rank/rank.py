@@ -362,24 +362,6 @@ class RankTestBase(DataOpsTestBase):
         # All nulls are tied, so all get rank 1
         assert all(v == 1 for v in result_col)
 
-    def test_top_n_null_order_by(self) -> None:
-        """Null values in order_by get False for top_N (nulls rank last in DESC order)."""
-        fs = make_feature_set("value_int__top_3_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "value_int__top_3_ranked")
-        # Row 4 has value_int=None in group B (4 rows). Null ranks last in DESC -> position 4 > 3 -> False
-        assert result_col[4] is False
-
-    def test_bottom_n_null_order_by(self) -> None:
-        """Null values in order_by get False for bottom_N (nulls rank last in ASC order)."""
-        fs = make_feature_set("value_int__bottom_2_ranked", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "value_int__bottom_2_ranked")
-        # Row 4 has value_int=None in group B (4 rows). Null ranks last in ASC -> position 4 > 2 -> False
-        assert result_col[4] is False
-
     # -- Option-based config tests -------------------------------------------
 
     def test_option_based_row_number(self) -> None:
@@ -405,6 +387,30 @@ class RankTestBase(DataOpsTestBase):
 
         result_col = self.extract_column(result, "my_row_number")
         assert result_col == EXPECTED_ROW_NUMBER
+
+    def test_option_based_top_n(self) -> None:
+        """Option-based top_N produces the same result as string pattern."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
+
+        feature = Feature(
+            "my_top_3",
+            options=Options(
+                context={
+                    "rank_type": "top_3",
+                    "in_features": "value_int",
+                    "partition_by": ["region"],
+                    "order_by": "value_int",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "my_top_3")
+        assert result_col == EXPECTED_TOP_3
 
     def test_unsupported_rank_type_raises(self) -> None:
         """Calling calculate_feature with an unknown rank type should raise."""

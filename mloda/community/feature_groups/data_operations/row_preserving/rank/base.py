@@ -19,7 +19,7 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     ## Supported Rank Types
 
-    **Integer rank types:**
+    **Numeric rank types:**
 
     - ``row_number``: Sequential position (1, 2, 3, ...), no ties
     - ``rank``: Standard rank with gaps for ties (1, 2, 2, 4, ...)
