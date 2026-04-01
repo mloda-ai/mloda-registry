@@ -12,16 +12,22 @@ Group compositions (ordered by value_int, nulls last):
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from typing import Any
 
-import pyarrow as pa
 import pytest
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.user import Feature
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+
+__all__ = [
+    "EXPECTED_FIRST_VALUE",
+    "EXPECTED_LAG_1",
+    "EXPECTED_LAST_VALUE",
+    "EXPECTED_LEAD_1",
+    "OffsetTestBase",
+    "extract_column",
+    "make_feature_set",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -45,26 +51,7 @@ EXPECTED_FIRST_VALUE = [-5, -5, -5, -5, 30, 30, 30, 30, 15, 15, 15, -10]
 EXPECTED_LAST_VALUE = [20, 20, 20, 20, 60, 60, 60, 60, 40, 40, 40, -10]
 
 
-def extract_column(result: Any, column_name: str) -> list[Any]:
-    """Extract a column from a result object as a Python list."""
-    if isinstance(result, pa.Table):
-        return list(result.column(column_name).to_pylist())
-    arrow_table = result.to_arrow_table()
-    return list(arrow_table.column(column_name).to_pylist())
-
-
-def make_feature_set(feature_name: str, partition_by: list[str], order_by: str) -> FeatureSet:
-    """Build a FeatureSet with partition_by and order_by options."""
-    feature = Feature(
-        feature_name,
-        options=Options(context={"partition_by": partition_by, "order_by": order_by}),
-    )
-    fs = FeatureSet()
-    fs.add(feature)
-    return fs
-
-
-class OffsetTestBase(ABC):
+class OffsetTestBase(DataOpsTestBase):
     """Abstract base class for offset framework tests."""
 
     ALL_OFFSET_TYPES = {"lag", "lead", "diff", "pct_change", "first_value", "last_value"}
@@ -75,41 +62,11 @@ class OffsetTestBase(ABC):
         return cls.ALL_OFFSET_TYPES
 
     @classmethod
-    @abstractmethod
-    def implementation_class(cls) -> Any:
-        """Return the Offset implementation class to test."""
-
-    @classmethod
     def pyarrow_implementation_class(cls) -> Any:
         """Return the PyArrow implementation class (reference)."""
         from mloda.community.feature_groups.data_operations.row_preserving.offset.pyarrow_offset import PyArrowOffset
 
         return PyArrowOffset
-
-    @abstractmethod
-    def create_test_data(self, arrow_table: pa.Table) -> Any:
-        """Convert the standard PyArrow test table to the framework's native format."""
-
-    @abstractmethod
-    def extract_column(self, result: Any, column_name: str) -> list[Any]:
-        """Extract a column from the result as a Python list."""
-
-    @abstractmethod
-    def get_row_count(self, result: Any) -> int:
-        """Return the number of rows in the result."""
-
-    @abstractmethod
-    def get_expected_type(self) -> Any:
-        """Return the expected type of the result."""
-
-    def setup_method(self) -> None:
-        self._arrow_table = PyArrowDataOpsTestDataCreator.create()
-        self.test_data = self.create_test_data(self._arrow_table)
-
-    def teardown_method(self) -> None:
-        conn = getattr(self, "conn", None)
-        if conn is not None:
-            conn.close()
 
     # -- Concrete tests ------------------------------------------------------
 
@@ -243,51 +200,24 @@ class OffsetTestBase(ABC):
 
     # -- Cross-framework comparison ------------------------------------------
 
-    def _compare_with_pyarrow(self, feature_name: str, partition_by: list[str], order_by: str) -> None:
-        fs = make_feature_set(feature_name, partition_by, order_by)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
-
-        result_col = self.extract_column(result, feature_name)
-        ref_col = extract_column(ref, feature_name)
-        assert len(result_col) == len(ref_col)
-        assert result_col == ref_col
-
     def test_cross_framework_lag(self) -> None:
-        self._compare_with_pyarrow("value_int__lag_1_offset", ["region"], "value_int")
+        self._compare_with_pyarrow("value_int__lag_1_offset", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_lead(self) -> None:
-        self._compare_with_pyarrow("value_int__lead_1_offset", ["region"], "value_int")
+        self._compare_with_pyarrow("value_int__lead_1_offset", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_first_value(self) -> None:
-        self._compare_with_pyarrow("value_int__first_value_offset", ["region"], "value_int")
+        self._compare_with_pyarrow("value_int__first_value_offset", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_last_value(self) -> None:
-        self._compare_with_pyarrow("value_int__last_value_offset", ["region"], "value_int")
+        self._compare_with_pyarrow("value_int__last_value_offset", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_diff(self) -> None:
         self._skip_if_unsupported("diff")
-        self._compare_with_pyarrow("value_int__diff_1_offset", ["region"], "value_int")
+        self._compare_with_pyarrow("value_int__diff_1_offset", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_pct_change(self) -> None:
         self._skip_if_unsupported("pct_change")
-        self._compare_with_pyarrow_approx("value_int__pct_change_1_offset", ["region"], "value_int")
-
-    def _compare_with_pyarrow_approx(self, feature_name: str, partition_by: list[str], order_by: str) -> None:
-        """Compare with PyArrow reference using approximate equality for floats."""
-        fs = make_feature_set(feature_name, partition_by, order_by)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
-
-        result_col = self.extract_column(result, feature_name)
-        ref_col = extract_column(ref, feature_name)
-        assert len(result_col) == len(ref_col)
-        for i, (r, e) in enumerate(zip(result_col, ref_col)):
-            if e is None:
-                assert r is None, f"Row {i}: expected None, got {r}"
-            else:
-                assert r == pytest.approx(e), f"Row {i}: expected {e}, got {r}"
-
-    def _skip_if_unsupported(self, offset_type: str) -> None:
-        if offset_type not in self.supported_offset_types():
-            pytest.skip(f"{offset_type} not supported by this framework")
+        self._compare_with_pyarrow(
+            "value_int__pct_change_1_offset", partition_by=["region"], order_by="value_int", use_approx=True
+        )

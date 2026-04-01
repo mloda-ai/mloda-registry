@@ -30,16 +30,13 @@ a few abstract methods.
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any
 
 import pyarrow as pa
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.user import Feature
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 
 
 # ---------------------------------------------------------------------------
@@ -117,95 +114,27 @@ def _create_varied_times_arrow_table() -> pa.Table:
 
 
 # ---------------------------------------------------------------------------
-# Standalone helpers
-# ---------------------------------------------------------------------------
-
-
-def extract_column(result: Any, column_name: str) -> list[Any]:
-    """Extract a column from a result object as a Python list.
-
-    Handles pa.Table (direct .column() access) and relation types
-    (DuckdbRelation, SqliteRelation) that expose .to_arrow_table().
-    """
-    if isinstance(result, pa.Table):
-        return list(result.column(column_name).to_pylist())
-    arrow_table = result.to_arrow_table()
-    return list(arrow_table.column(column_name).to_pylist())
-
-
-def make_feature_set(feature_name: str) -> FeatureSet:
-    """Build a FeatureSet with the given feature name."""
-    feature = Feature(feature_name, options=Options())
-    fs = FeatureSet()
-    fs.add(feature)
-    return fs
-
-
-# ---------------------------------------------------------------------------
 # Reusable test base class
 # ---------------------------------------------------------------------------
 
 
-class DateTimeTestBase(ABC):
-    """Abstract base class for datetime extraction framework tests.
-
-    Subclasses implement abstract methods to wire up their framework,
-    then inherit concrete test methods for all 9 datetime operations
-    plus null handling, row count checks, type checks, cross-framework
-    comparison against PyArrow, and non-midnight time extraction tests.
-    """
-
-    # -- Abstract methods subclasses must implement --------------------------
-
-    @classmethod
-    @abstractmethod
-    def implementation_class(cls) -> Any:
-        """Return the DateTimeExtraction implementation class to test."""
+class DateTimeTestBase(DataOpsTestBase):
+    """Abstract base class for datetime extraction framework tests."""
 
     @classmethod
     def pyarrow_implementation_class(cls) -> Any:
-        """Return the PyArrow implementation class (reference for cross-framework comparison)."""
         from mloda.community.feature_groups.data_operations.row_preserving.datetime.pyarrow_datetime import (
             PyArrowDateTimeExtraction,
         )
 
         return PyArrowDateTimeExtraction
 
-    @abstractmethod
-    def create_test_data(self, arrow_table: pa.Table) -> Any:
-        """Convert the standard PyArrow test table to the framework's native format."""
-
-    @abstractmethod
-    def extract_column(self, result: Any, column_name: str) -> list[Any]:
-        """Extract a column from the result as a Python list."""
-
-    @abstractmethod
-    def get_row_count(self, result: Any) -> int:
-        """Return the number of rows in the result."""
-
-    @abstractmethod
-    def get_expected_type(self) -> Any:
-        """Return the expected type of the result (for isinstance checks)."""
-
-    # -- Setup / teardown ----------------------------------------------------
+    # -- Setup (extended for supplementary dataset) --------------------------
 
     def setup_method(self) -> None:
-        """Create test data from the canonical 12-row dataset.
-
-        Connection-based subclasses should create their connection as
-        ``self.conn`` first, then call ``super().setup_method()``.
-        """
-        self._arrow_table = PyArrowDataOpsTestDataCreator.create()
-        self.test_data = self.create_test_data(self._arrow_table)
-
+        super().setup_method()
         self._varied_arrow_table = _create_varied_times_arrow_table()
         self._varied_test_data = self.create_test_data(self._varied_arrow_table)
-
-    def teardown_method(self) -> None:
-        """Close self.conn if it was set by a connection-based subclass."""
-        conn = getattr(self, "conn", None)
-        if conn is not None:
-            conn.close()
 
     # -- Concrete test methods: datetime operations --------------------------
 
@@ -361,18 +290,6 @@ class DateTimeTestBase(ABC):
         assert isinstance(result, self.get_expected_type())
 
     # -- Cross-framework comparison (matches PyArrow reference) --------------
-
-    def _compare_with_pyarrow(self, feature_name: str) -> None:
-        """Run the feature through this framework and PyArrow, assert results match."""
-        fs = make_feature_set(feature_name)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
-
-        result_col = self.extract_column(result, feature_name)
-        ref_col = extract_column(ref, feature_name)
-
-        assert len(result_col) == len(ref_col), f"row count {len(result_col)} != reference {len(ref_col)}"
-        assert result_col == ref_col
 
     def _compare_varied_with_pyarrow(self, feature_name: str) -> None:
         """Run the feature on the supplementary dataset, compare with PyArrow."""

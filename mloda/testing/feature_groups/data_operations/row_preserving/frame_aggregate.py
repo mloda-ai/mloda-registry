@@ -13,7 +13,7 @@ small set of abstract methods. This follows the same pattern as
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -22,7 +22,8 @@ import pytest
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.user import Feature
 
 
@@ -113,7 +114,7 @@ EXPECTED_EXPANDING_AVG: list[float] = [
 
 
 # ---------------------------------------------------------------------------
-# Standalone helpers
+# Helpers
 # ---------------------------------------------------------------------------
 
 
@@ -121,8 +122,6 @@ def _is_null(value: Any) -> bool:
     """Check if a value is null (None or NaN)."""
     if value is None:
         return True
-    import math
-
     if isinstance(value, float) and math.isnan(value):
         return True
     return False
@@ -138,98 +137,26 @@ def _assert_values_with_nulls(actual: list[Any], expected: list[Any]) -> None:
             assert a == pytest.approx(e, rel=1e-6), f"row {i}: {a} != {e}"
 
 
-def extract_column(result: Any, column_name: str) -> list[Any]:
-    """Extract a column from a result object as a Python list."""
-    if isinstance(result, pa.Table):
-        return list(result.column(column_name).to_pylist())
-    if hasattr(result, "to_arrow_table"):
-        arrow_table = result.to_arrow_table()
-        return list(arrow_table.column(column_name).to_pylist())
-    if hasattr(result, "collect"):
-        df = result.collect()
-        return list(df[column_name].to_list())
-    return list(result[column_name])
-
-
-def make_feature_set(
-    feature_name: str,
-    partition_by: list[str],
-    order_by: str,
-) -> FeatureSet:
-    """Build a FeatureSet with partition_by and order_by options."""
-    context: dict[str, Any] = {"partition_by": partition_by, "order_by": order_by}
-    feature = Feature(
-        feature_name,
-        options=Options(context=context),
-    )
-    fs = FeatureSet()
-    fs.add(feature)
-    return fs
-
-
 # ---------------------------------------------------------------------------
 # Reusable test base class
 # ---------------------------------------------------------------------------
 
 
-class FrameAggregateTestBase(ABC):
-    """Abstract base class for frame aggregate framework tests.
-
-    Subclasses implement abstract methods to wire up their framework,
-    then inherit concrete test methods covering rolling, cumulative,
-    expanding, row preservation, time window rejection (where applicable),
-    and cross-framework comparison against PyArrow.
-    """
-
-    # -- Abstract methods subclasses must implement --------------------------
-
-    @classmethod
-    @abstractmethod
-    def implementation_class(cls) -> Any:
-        """Return the FrameAggregate implementation class to test."""
+class FrameAggregateTestBase(DataOpsTestBase):
+    """Abstract base class for frame aggregate framework tests."""
 
     @classmethod
     def pyarrow_implementation_class(cls) -> Any:
-        """Return the PyArrow implementation class (reference for cross-framework comparison)."""
         from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pyarrow_frame_aggregate import (
             PyArrowFrameAggregate,
         )
 
         return PyArrowFrameAggregate
 
-    @abstractmethod
-    def create_test_data(self, arrow_table: pa.Table) -> Any:
-        """Convert the standard PyArrow test table to the framework's native format."""
-
-    @abstractmethod
-    def extract_column(self, result: Any, column_name: str) -> list[Any]:
-        """Extract a column from the result as a Python list."""
-
-    @abstractmethod
-    def get_row_count(self, result: Any) -> int:
-        """Return the number of rows in the result."""
-
-    @abstractmethod
-    def get_expected_type(self) -> Any:
-        """Return the expected type of the result (for isinstance checks)."""
-
     @classmethod
     def supports_time_frame(cls) -> bool:
         """Whether this framework supports frame_type='time'. Default: False."""
         return False
-
-    # -- Setup / teardown ----------------------------------------------------
-
-    def setup_method(self) -> None:
-        """Create test data from the canonical 12-row dataset."""
-        self._arrow_table = PyArrowDataOpsTestDataCreator.create()
-        self.test_data = self.create_test_data(self._arrow_table)
-
-    def teardown_method(self) -> None:
-        """Close self.conn if it was set by a connection-based subclass."""
-        conn = getattr(self, "conn", None)
-        if conn is not None:
-            conn.close()
 
     # -- Rolling tests -------------------------------------------------------
 
@@ -412,42 +339,25 @@ class FrameAggregateTestBase(ABC):
 
     # -- Cross-framework comparison ------------------------------------------
 
-    def _compare_with_pyarrow(
-        self, feature_name: str, partition_by: list[str], order_by: str, use_approx: bool = False
-    ) -> None:
-        """Run the feature through this framework and PyArrow, assert results match."""
-        fs = make_feature_set(feature_name, partition_by, order_by)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
-
-        result_col = self.extract_column(result, feature_name)
-        ref_col = extract_column(ref, feature_name)
-
-        assert len(result_col) == len(ref_col), f"row count {len(result_col)} != reference {len(ref_col)}"
-        if use_approx:
-            for i, (ref_val, fw_val) in enumerate(zip(ref_col, result_col)):
-                if ref_val is None:
-                    assert fw_val is None, f"row {i}: expected None, got {fw_val}"
-                else:
-                    assert fw_val == pytest.approx(ref_val, rel=1e-6), f"row {i}: {fw_val} != reference {ref_val}"
-        else:
-            assert result_col == ref_col
-
     def test_cross_framework_rolling_sum(self) -> None:
         """Rolling sum must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__sum_rolling_3", ["region"], "value_int")
+        self._compare_with_pyarrow("value_int__sum_rolling_3", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_cumsum(self) -> None:
         """Cumulative sum must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__cumsum", ["region"], "value_int")
+        self._compare_with_pyarrow("value_int__cumsum", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_expanding_avg(self) -> None:
         """Expanding avg must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__expanding_avg", ["region"], "value_int", use_approx=True)
+        self._compare_with_pyarrow(
+            "value_int__expanding_avg", partition_by=["region"], order_by="value_int", use_approx=True
+        )
 
     def test_cross_framework_rolling_avg(self) -> None:
         """Rolling avg must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__avg_rolling_2", ["region"], "value_int", use_approx=True)
+        self._compare_with_pyarrow(
+            "value_int__avg_rolling_2", partition_by=["region"], order_by="value_int", use_approx=True
+        )
 
     # -- Edge case tests -----------------------------------------------------
 

@@ -12,15 +12,14 @@ Non-null values: [10, -5, 0, 20, 50, 30, 60, 15, 15, 40, -10] (11 values)
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from typing import Any
 
-import pyarrow as pa
 import pytest
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 from mloda.user import Feature
 
 
@@ -46,32 +45,11 @@ EXPECTED_MEDIAN: float = 15.0
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def extract_column(result: Any, column_name: str) -> list[Any]:
-    """Extract a column from a result object as a Python list."""
-    if isinstance(result, pa.Table):
-        return list(result.column(column_name).to_pylist())
-    arrow_table = result.to_arrow_table()
-    return list(arrow_table.column(column_name).to_pylist())
-
-
-def make_feature_set(feature_name: str) -> FeatureSet:
-    """Build a FeatureSet for an aggregation feature."""
-    feature = Feature(feature_name, options=Options())
-    fs = FeatureSet()
-    fs.add(feature)
-    return fs
-
-
-# ---------------------------------------------------------------------------
 # Reusable test base class
 # ---------------------------------------------------------------------------
 
 
-class AggregationTestBase(ABC):
+class AggregationTestBase(DataOpsTestBase):
     """Abstract base class for column aggregation framework tests."""
 
     ALL_AGG_TYPES = {"sum", "min", "max", "avg", "mean", "count", "std", "var", "median"}
@@ -82,50 +60,12 @@ class AggregationTestBase(ABC):
         return cls.ALL_AGG_TYPES
 
     @classmethod
-    @abstractmethod
-    def implementation_class(cls) -> Any:
-        """Return the aggregation implementation class to test."""
-
-    @classmethod
     def pyarrow_implementation_class(cls) -> Any:
         from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import (
             PyArrowColumnAggregation,
         )
 
         return PyArrowColumnAggregation
-
-    @abstractmethod
-    def create_test_data(self, arrow_table: pa.Table) -> Any:
-        """Convert PyArrow table to framework's native format."""
-
-    @abstractmethod
-    def extract_column(self, result: Any, column_name: str) -> list[Any]:
-        """Extract a column as a Python list."""
-
-    @abstractmethod
-    def get_row_count(self, result: Any) -> int:
-        """Return row count."""
-
-    @abstractmethod
-    def get_expected_type(self) -> Any:
-        """Return expected result type."""
-
-    # -- Setup / teardown ----------------------------------------------------
-
-    def setup_method(self) -> None:
-        self._arrow_table = PyArrowDataOpsTestDataCreator.create()
-        self.test_data = self.create_test_data(self._arrow_table)
-
-    def teardown_method(self) -> None:
-        conn = getattr(self, "conn", None)
-        if conn is not None:
-            conn.close()
-
-    # -- Helpers -------------------------------------------------------------
-
-    def _skip_if_unsupported(self, agg_type: str) -> None:
-        if agg_type not in self.supported_agg_types():
-            pytest.skip(f"{agg_type} not supported by this framework")
 
     # -- Concrete tests ------------------------------------------------------
 
@@ -303,24 +243,6 @@ class AggregationTestBase(ABC):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
     # -- Cross-framework comparison ------------------------------------------
-
-    def _compare_with_pyarrow(self, feature_name: str, use_approx: bool = False) -> None:
-        fs = make_feature_set(feature_name)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
-
-        result_col = self.extract_column(result, feature_name)
-        ref_col = extract_column(ref, feature_name)
-
-        assert len(result_col) == len(ref_col)
-        if use_approx:
-            for i, (r, f) in enumerate(zip(ref_col, result_col)):
-                if r is None:
-                    assert f is None, f"row {i}: expected None, got {f}"
-                else:
-                    assert f == pytest.approx(r, rel=1e-4), f"row {i}: {f} != reference {r}"
-        else:
-            assert result_col == ref_col
 
     def test_cross_framework_sum(self) -> None:
         self._compare_with_pyarrow("value_int__sum_aggr")

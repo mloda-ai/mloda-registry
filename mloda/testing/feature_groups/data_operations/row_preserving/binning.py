@@ -12,16 +12,13 @@ framework implementation inherits by subclassing and implementing
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from typing import Any
 
 import pyarrow as pa
 import pytest
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.user import Feature
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
 
 # ---------------------------------------------------------------------------
@@ -67,80 +64,20 @@ EXPECTED_QBIN_5: list[Any] = [1, 0, 0, 2, None, 4, 3, 4, 1, 2, 3, 0]
 
 
 # ---------------------------------------------------------------------------
-# Standalone helpers
-# ---------------------------------------------------------------------------
-
-
-def extract_column(result: Any, column_name: str) -> list[Any]:
-    """Extract a column from a result object as a Python list."""
-    if isinstance(result, pa.Table):
-        return list(result.column(column_name).to_pylist())
-    arrow_table = result.to_arrow_table()
-    return list(arrow_table.column(column_name).to_pylist())
-
-
-def make_feature_set(feature_name: str) -> FeatureSet:
-    """Build a FeatureSet for a binning feature (no extra options needed)."""
-    feature = Feature(feature_name, options=Options())
-    fs = FeatureSet()
-    fs.add(feature)
-    return fs
-
-
-# ---------------------------------------------------------------------------
 # Reusable test base class
 # ---------------------------------------------------------------------------
 
 
-class BinningTestBase(ABC):
-    """Abstract base class for binning framework tests.
-
-    Subclasses implement 5 abstract methods to wire up their framework,
-    then inherit concrete test methods for free.
-    """
-
-    # -- Abstract methods subclasses must implement --------------------------
-
-    @classmethod
-    @abstractmethod
-    def implementation_class(cls) -> Any:
-        """Return the Binning implementation class to test."""
+class BinningTestBase(DataOpsTestBase):
+    """Abstract base class for binning framework tests."""
 
     @classmethod
     def pyarrow_implementation_class(cls) -> Any:
-        """Return the PyArrow implementation class (reference for cross-framework comparison)."""
         from mloda.community.feature_groups.data_operations.row_preserving.binning.pyarrow_binning import (
             PyArrowBinning,
         )
 
         return PyArrowBinning
-
-    @abstractmethod
-    def create_test_data(self, arrow_table: pa.Table) -> Any:
-        """Convert the standard PyArrow test table to the framework's native format."""
-
-    @abstractmethod
-    def extract_column(self, result: Any, column_name: str) -> list[Any]:
-        """Extract a column from the result as a Python list."""
-
-    @abstractmethod
-    def get_row_count(self, result: Any) -> int:
-        """Return the number of rows in the result."""
-
-    @abstractmethod
-    def get_expected_type(self) -> Any:
-        """Return the expected type of the result (for isinstance checks)."""
-
-    # -- Setup / teardown ----------------------------------------------------
-
-    def setup_method(self) -> None:
-        self._arrow_table = PyArrowDataOpsTestDataCreator.create()
-        self.test_data = self.create_test_data(self._arrow_table)
-
-    def teardown_method(self) -> None:
-        conn = getattr(self, "conn", None)
-        if conn is not None:
-            conn.close()
 
     # -- Concrete test methods -----------------------------------------------
 
@@ -239,18 +176,6 @@ class BinningTestBase(ABC):
                 assert 0 <= val < 5, f"Qbin value {val} out of range [0, 4]"
 
     # -- Cross-framework comparison (matches PyArrow reference) --------------
-
-    def _compare_with_pyarrow(self, feature_name: str) -> None:
-        """Run the feature through this framework and PyArrow, assert results match."""
-        fs = make_feature_set(feature_name)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
-
-        result_col = self.extract_column(result, feature_name)
-        ref_col = extract_column(ref, feature_name)
-
-        assert len(result_col) == len(ref_col), f"row count {len(result_col)} != reference {len(ref_col)}"
-        assert result_col == ref_col
 
     def test_cross_framework_bin_3(self) -> None:
         """bin_3 must match PyArrow reference."""

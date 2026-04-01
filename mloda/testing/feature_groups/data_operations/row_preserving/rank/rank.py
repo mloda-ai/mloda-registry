@@ -12,21 +12,17 @@ Group compositions (ordered by value_int, nulls last):
 
 The ``RankTestBase`` class provides concrete test methods
 that any framework implementation inherits by subclassing and implementing
-5 abstract methods.
+the abstract adapter methods from ``DataOpsTestBase``.
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from typing import Any
 
-import pyarrow as pa
 import pytest
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.user import Feature
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
 
 # ---------------------------------------------------------------------------
@@ -53,39 +49,15 @@ EXPECTED_DENSE_RANK = [3, 1, 2, 4, 4, 2, 1, 3, 1, 1, 2, 1]
 
 
 # ---------------------------------------------------------------------------
-# Standalone helpers
-# ---------------------------------------------------------------------------
-
-
-def extract_column(result: Any, column_name: str) -> list[Any]:
-    """Extract a column from a result object as a Python list."""
-    if isinstance(result, pa.Table):
-        return list(result.column(column_name).to_pylist())
-    arrow_table = result.to_arrow_table()
-    return list(arrow_table.column(column_name).to_pylist())
-
-
-def make_feature_set(feature_name: str, partition_by: list[str], order_by: str) -> FeatureSet:
-    """Build a FeatureSet with partition_by and order_by options."""
-    feature = Feature(
-        feature_name,
-        options=Options(context={"partition_by": partition_by, "order_by": order_by}),
-    )
-    fs = FeatureSet()
-    fs.add(feature)
-    return fs
-
-
-# ---------------------------------------------------------------------------
 # Reusable test base class
 # ---------------------------------------------------------------------------
 
 
-class RankTestBase(ABC):
+class RankTestBase(DataOpsTestBase):
     """Abstract base class for rank framework tests.
 
-    Subclasses implement 5 abstract methods to wire up their framework,
-    then inherit concrete test methods for free.
+    Subclasses implement the abstract adapter methods from ``DataOpsTestBase``
+    to wire up their framework, then inherit concrete test methods for free.
     """
 
     ALL_RANK_TYPES = {"row_number", "rank", "dense_rank", "percent_rank"}
@@ -95,12 +67,7 @@ class RankTestBase(ABC):
         """Rank types this framework supports. Override to restrict."""
         return cls.ALL_RANK_TYPES
 
-    # -- Abstract methods subclasses must implement --------------------------
-
-    @classmethod
-    @abstractmethod
-    def implementation_class(cls) -> Any:
-        """Return the Rank implementation class to test."""
+    # -- PyArrow reference override --------------------------------------------
 
     @classmethod
     def pyarrow_implementation_class(cls) -> Any:
@@ -110,35 +77,6 @@ class RankTestBase(ABC):
         )
 
         return PyArrowRank
-
-    @abstractmethod
-    def create_test_data(self, arrow_table: pa.Table) -> Any:
-        """Convert the standard PyArrow test table to the framework's native format."""
-
-    @abstractmethod
-    def extract_column(self, result: Any, column_name: str) -> list[Any]:
-        """Extract a column from the result as a Python list."""
-
-    @abstractmethod
-    def get_row_count(self, result: Any) -> int:
-        """Return the number of rows in the result."""
-
-    @abstractmethod
-    def get_expected_type(self) -> Any:
-        """Return the expected type of the result (for isinstance checks)."""
-
-    # -- Setup / teardown ----------------------------------------------------
-
-    def setup_method(self) -> None:
-        """Create test data from the canonical 12-row dataset."""
-        self._arrow_table = PyArrowDataOpsTestDataCreator.create()
-        self.test_data = self.create_test_data(self._arrow_table)
-
-    def teardown_method(self) -> None:
-        """Close self.conn if it was set by a connection-based subclass."""
-        conn = getattr(self, "conn", None)
-        if conn is not None:
-            conn.close()
 
     # -- Concrete test methods (inherited for free) --------------------------
 
@@ -286,53 +224,30 @@ class RankTestBase(ABC):
 
     # -- Cross-framework comparison (matches PyArrow reference) --------------
 
-    def _compare_with_pyarrow(self, feature_name: str, partition_by: list[str], order_by: str) -> None:
-        """Run the feature through this framework and PyArrow, assert results match."""
-        fs = make_feature_set(feature_name, partition_by, order_by)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
-
-        result_col = self.extract_column(result, feature_name)
-        ref_col = extract_column(ref, feature_name)
-
-        assert len(result_col) == len(ref_col), f"row count {len(result_col)} != reference {len(ref_col)}"
-        assert result_col == ref_col
-
     def test_cross_framework_row_number(self) -> None:
         """Row number must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__row_number_ranked", ["region"], "value_int")
+        self._compare_with_pyarrow("value_int__row_number_ranked", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_rank(self) -> None:
         """Rank must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__rank_ranked", ["region"], "value_int")
+        self._compare_with_pyarrow("value_int__rank_ranked", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_dense_rank(self) -> None:
         """Dense rank must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__dense_rank_ranked", ["region"], "value_int")
+        self._compare_with_pyarrow("value_int__dense_rank_ranked", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_percent_rank(self) -> None:
         """Percent rank must match PyArrow reference."""
         self._skip_if_unsupported("percent_rank")
-        self._compare_with_pyarrow_approx("value_int__percent_rank_ranked", ["region"], "value_int")
+        self._compare_with_pyarrow(
+            "value_int__percent_rank_ranked", partition_by=["region"], order_by="value_int", use_approx=True
+        )
 
     def test_cross_framework_ntile(self) -> None:
         """Ntile must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__ntile_2_ranked", ["region"], "value_int")
+        self._compare_with_pyarrow("value_int__ntile_2_ranked", partition_by=["region"], order_by="value_int")
 
     # -- Helper methods ------------------------------------------------------
-
-    def _compare_with_pyarrow_approx(self, feature_name: str, partition_by: list[str], order_by: str) -> None:
-        """Like _compare_with_pyarrow but uses pytest.approx for float comparison."""
-        fs = make_feature_set(feature_name, partition_by, order_by)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
-
-        result_col = self.extract_column(result, feature_name)
-        ref_col = extract_column(ref, feature_name)
-
-        assert len(result_col) == len(ref_col), f"row count {len(result_col)} != reference {len(ref_col)}"
-        for i, (actual, expected) in enumerate(zip(result_col, ref_col)):
-            assert actual == pytest.approx(expected, rel=1e-6), f"row {i}: {actual} != {expected}"
 
     def _skip_if_unsupported(self, rank_type: str) -> None:
         if rank_type not in self.supported_rank_types():

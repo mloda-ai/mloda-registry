@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import (
+from mloda.testing.feature_groups.data_operations.helpers import (
     make_feature_set,
 )
 
