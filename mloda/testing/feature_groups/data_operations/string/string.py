@@ -270,9 +270,11 @@ class StringTestBase(DataOpsTestBase):
 
     def test_all_null_column_upper(self) -> None:
         """Upper on an all-null column should produce all None."""
-        table = pa.table({
-            "name": pa.array([None, None, None], type=pa.string()),
-        })
+        table = pa.table(
+            {
+                "name": pa.array([None, None, None], type=pa.string()),
+            }
+        )
         data = self.create_test_data(table)
         fs = make_feature_set("name__upper")
         result = self.implementation_class().calculate_feature(data, fs)
@@ -282,9 +284,11 @@ class StringTestBase(DataOpsTestBase):
 
     def test_all_null_column_length(self) -> None:
         """Length on an all-null column should produce all None."""
-        table = pa.table({
-            "name": pa.array([None, None, None], type=pa.string()),
-        })
+        table = pa.table(
+            {
+                "name": pa.array([None, None, None], type=pa.string()),
+            }
+        )
         data = self.create_test_data(table)
         fs = make_feature_set("name__length")
         result = self.implementation_class().calculate_feature(data, fs)

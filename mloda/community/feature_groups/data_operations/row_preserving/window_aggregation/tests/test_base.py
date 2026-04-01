@@ -54,18 +54,18 @@ class TestPatternMatching:
     @pytest.mark.parametrize(
         "feature_name",
         [
-            "value_int__sum_groupby",
-            "value_int__avg_groupby",
-            "value_int__count_groupby",
-            "value_int__min_groupby",
-            "value_int__max_groupby",
-            "value_int__std_groupby",
-            "value_int__var_groupby",
-            "value_int__median_groupby",
+            "value_int__sum_window",
+            "value_int__avg_window",
+            "value_int__count_window",
+            "value_int__min_window",
+            "value_int__max_window",
+            "value_int__std_window",
+            "value_int__var_window",
+            "value_int__median_window",
         ],
     )
     def test_matches_standard_operations(self, feature_name: str) -> None:
-        """Standard aggregation operations with _groupby suffix should match."""
+        """Standard aggregation operations with _window suffix should match."""
         options = Options(context={"partition_by": ["region"]})
         result = WindowAggregationFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
@@ -73,12 +73,12 @@ class TestPatternMatching:
     @pytest.mark.parametrize(
         "feature_name",
         [
-            "value_int__mode_groupby",
-            "value_int__nunique_groupby",
+            "value_int__mode_window",
+            "value_int__nunique_window",
         ],
     )
     def test_matches_advanced_operations(self, feature_name: str) -> None:
-        """Advanced aggregation operations with _groupby suffix should match."""
+        """Advanced aggregation operations with _window suffix should match."""
         options = Options(context={"partition_by": ["region"]})
         result = WindowAggregationFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
@@ -90,21 +90,21 @@ class TestPatternMatching:
         assert result is False
 
     def test_no_match_no_suffix(self) -> None:
-        """Feature without _groupby suffix should not match."""
+        """Feature without _window suffix should not match."""
         options = Options(context={"partition_by": ["region"]})
         result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__avg", options, None)
         assert result is False
 
     def test_no_match_no_source_column(self) -> None:
-        """Feature with no source column (just operation_groupby) should not match."""
+        """Feature with no source column (just operation_window) should not match."""
         options = Options(context={"partition_by": ["region"]})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("avg_groupby", options, None)
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("avg_window", options, None)
         assert result is False
 
     def test_no_match_invalid_operation(self) -> None:
         """Feature with an unknown/invalid operation should not match."""
         options = Options(context={"partition_by": ["region"]})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__unknown_groupby", options, None)
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__unknown_window", options, None)
         assert result is False
 
 
@@ -112,32 +112,32 @@ class TestPatternParsing:
     """Tests for extracting operation and source column from feature names."""
 
     def test_parse_avg_operation(self) -> None:
-        """Parsing value_int__avg_groupby should yield operation=avg, source=value_int."""
-        operation = WindowAggregationFeatureGroup.get_aggregation_type("value_int__avg_groupby")
+        """Parsing value_int__avg_window should yield operation=avg, source=value_int."""
+        operation = WindowAggregationFeatureGroup.get_aggregation_type("value_int__avg_window")
         assert operation == "avg"
 
     def test_parse_sum_operation(self) -> None:
-        """Parsing my_col__sum_groupby should yield operation=sum, source=my_col."""
-        operation = WindowAggregationFeatureGroup.get_aggregation_type("my_col__sum_groupby")
+        """Parsing my_col__sum_window should yield operation=sum, source=my_col."""
+        operation = WindowAggregationFeatureGroup.get_aggregation_type("my_col__sum_window")
         assert operation == "sum"
 
     def test_parse_source_feature_from_avg(self) -> None:
-        """Source feature should be extracted correctly from value_int__avg_groupby."""
+        """Source feature should be extracted correctly from value_int__avg_window."""
         from mloda.user import Feature
 
         feature = Feature(
-            "value_int__avg_groupby",
+            "value_int__avg_window",
             options=Options(context={"partition_by": ["region"]}),
         )
         source_features = WindowAggregationFeatureGroup._extract_source_features(feature)
         assert source_features == ["value_int"]
 
     def test_parse_source_feature_from_sum(self) -> None:
-        """Source feature should be extracted correctly from my_col__sum_groupby."""
+        """Source feature should be extracted correctly from my_col__sum_window."""
         from mloda.user import Feature
 
         feature = Feature(
-            "my_col__sum_groupby",
+            "my_col__sum_window",
             options=Options(context={"partition_by": ["region"]}),
         )
         source_features = WindowAggregationFeatureGroup._extract_source_features(feature)
@@ -150,43 +150,43 @@ class TestConfigValidation:
     def test_partition_by_required(self) -> None:
         """match_feature_group_criteria should fail without partition_by in options."""
         options = Options(context={})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_groupby", options, None)
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_window", options, None)
         assert result is False
 
     def test_partition_by_accepts_list_of_strings(self) -> None:
         """partition_by should accept a list of strings."""
         options = Options(context={"partition_by": ["region", "country"]})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_groupby", options, None)
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_window", options, None)
         assert result is True
 
     def test_partition_by_must_be_list(self) -> None:
         """partition_by as a plain string (not a list) should fail validation."""
         options = Options(context={"partition_by": "region"})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_groupby", options, None)
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_window", options, None)
         assert result is False
 
     def test_first_requires_order_by(self) -> None:
-        """first_groupby without order_by should not match."""
+        """first_window without order_by should not match."""
         options = Options(context={"partition_by": ["region"]})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__first_groupby", options, None)
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__first_window", options, None)
         assert result is False
 
     def test_last_requires_order_by(self) -> None:
-        """last_groupby without order_by should not match."""
+        """last_window without order_by should not match."""
         options = Options(context={"partition_by": ["region"]})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__last_groupby", options, None)
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__last_window", options, None)
         assert result is False
 
     def test_first_matches_with_order_by(self) -> None:
-        """first_groupby with order_by should match."""
+        """first_window with order_by should match."""
         options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__first_groupby", options, None)
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__first_window", options, None)
         assert result is True
 
     def test_sum_does_not_require_order_by(self) -> None:
-        """sum_groupby should match without order_by (order-independent)."""
+        """sum_window should match without order_by (order-independent)."""
         options = Options(context={"partition_by": ["region"]})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_groupby", options, None)
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_window", options, None)
         assert result is True
 
 
@@ -280,11 +280,11 @@ class TestWindowAggregationMatchValidation(MatchValidationTestBase):
 
     @classmethod
     def build_feature_name(cls, operation: str) -> str:
-        return f"value_int__{operation}_groupby"
+        return f"value_int__{operation}_window"
 
     @classmethod
     def build_feature_name_no_source(cls) -> str:
-        return "sum_groupby"
+        return "sum_window"
 
     @classmethod
     def additional_match_options(cls) -> dict[str, Any]:

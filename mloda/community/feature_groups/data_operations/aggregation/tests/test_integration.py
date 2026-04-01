@@ -1,7 +1,14 @@
-"""Integration tests for column aggregation through mloda's full pipeline.
+"""Integration tests for aggregation through mloda's full pipeline.
 
-Covers both string-pattern features (e.g. ``value_int__sum_aggr``) and
-option-based configuration (aggregation_type + in_features via Options).
+These tests verify that aggregation feature groups work end-to-end
+through mloda's runtime, including plugin discovery, feature resolution,
+and the PluginCollector mechanism.
+
+Uses the shared DataOpsIntegrationTestBase from the testing library,
+plus custom multi-feature tests for aggregation specifics.
+
+Note: mloda's pipeline only returns requested feature columns, so
+integration tests verify values as sets (not keyed by partition columns).
 """
 
 from __future__ import annotations
@@ -13,25 +20,21 @@ import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.aggregation.aggregation import (
-    EXPECTED_AVG,
-    EXPECTED_MAX,
-    EXPECTED_MIN,
-    EXPECTED_SUM,
-)
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import (
-    PyArrowColumnAggregation,
+    PyArrowAggregation,
 )
 
 
 class TestAggregationIntegration(DataOpsIntegrationTestBase):
+    """Standard integration tests inherited from the base class."""
+
     @classmethod
     def feature_group_class(cls) -> type:
-        return PyArrowColumnAggregation
+        return PyArrowAggregation
 
     @classmethod
     def data_creator_class(cls) -> type:
@@ -43,31 +46,31 @@ class TestAggregationIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def primary_feature_name(cls) -> str:
-        return "value_int__sum_aggr"
+        return "value_int__sum_agg"
 
     @classmethod
     def primary_feature_options(cls) -> dict[str, Any]:
-        return {}
+        return {"partition_by": ["region"]}
 
     @classmethod
     def primary_expected_values(cls) -> list[Any]:
-        return [EXPECTED_SUM] * 12
+        return [25, 140, 70, -10]
 
     @classmethod
     def secondary_feature_name(cls) -> str:
-        return "value_int__avg_aggr"
+        return "value_int__avg_agg"
 
     @classmethod
     def secondary_feature_options(cls) -> dict[str, Any]:
-        return {}
+        return {"partition_by": ["region"]}
 
     @classmethod
     def secondary_expected_values(cls) -> list[Any]:
-        return [EXPECTED_AVG] * 12
+        return [6.25, 46.667, 23.333, -10.0]
 
     @classmethod
     def valid_feature_names(cls) -> list[str]:
-        return ["value_int__sum_aggr", "value_int__avg_aggr", "value_int__count_aggr"]
+        return ["value_int__sum_agg", "value_int__avg_agg", "value_int__count_agg"]
 
     @classmethod
     def invalid_feature_names(cls) -> list[str]:
@@ -75,197 +78,249 @@ class TestAggregationIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def match_options(cls) -> Options:
-        return Options()
+        return Options(context={"partition_by": ["region"]})
+
+    @classmethod
+    def expected_row_count(cls) -> int:
+        return 4
+
+    @classmethod
+    def compare_sorted(cls) -> bool:
+        return True
 
     @classmethod
     def use_approx(cls) -> bool:
         return True
 
-    def test_match_rejects_missing_config(self) -> None:
-        """Override: aggregation requires no config for pattern-based features."""
-        options = Options()
-        fg_cls = self.feature_group_class()
-        assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)  # type: ignore[attr-defined]
+
+class TestIntegrationAdditionalAggTypes:
+    """Test additional aggregation types through the full mloda pipeline.
+
+    Aggregation reduces rows, so each feature must be requested
+    in a separate run_all call (mloda cannot merge different row-count
+    outputs without explicit Links).
+    """
+
+    def test_min_agg_through_pipeline(self) -> None:
+        """Run value_int__min_agg through run_all and verify the result."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
+
+        feature = Feature(
+            "value_int__min_agg",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+
+        results = mloda.run_all(
+            [feature],
+            compute_frameworks={PyArrowTable},
+            plugin_collector=plugin_collector,
+        )
+
+        result_table = None
+        for table in results:
+            if isinstance(table, pa.Table) and "value_int__min_agg" in table.column_names:
+                result_table = table
+                break
+
+        assert result_table is not None
+        assert result_table.num_rows == 4
+        min_col = sorted(result_table.column("value_int__min_agg").to_pylist())
+        assert min_col == sorted([-5, 30, 15, -10])
+
+    def test_max_agg_through_pipeline(self) -> None:
+        """Run value_int__max_agg through run_all and verify the result."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
+
+        feature = Feature(
+            "value_int__max_agg",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+
+        results = mloda.run_all(
+            [feature],
+            compute_frameworks={PyArrowTable},
+            plugin_collector=plugin_collector,
+        )
+
+        result_table = None
+        for table in results:
+            if isinstance(table, pa.Table) and "value_int__max_agg" in table.column_names:
+                result_table = table
+                break
+
+        assert result_table is not None
+        assert result_table.num_rows == 4
+        max_col = sorted(result_table.column("value_int__max_agg").to_pylist())
+        assert max_col == sorted([20, 60, 40, -10])
+
+    def test_std_agg_through_pipeline(self) -> None:
+        """Run value_int__std_agg through run_all and verify the result."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
+
+        feature = Feature(
+            "value_int__std_agg",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+
+        results = mloda.run_all(
+            [feature],
+            compute_frameworks={PyArrowTable},
+            plugin_collector=plugin_collector,
+        )
+
+        result_table = None
+        for table in results:
+            if isinstance(table, pa.Table) and "value_int__std_agg" in table.column_names:
+                result_table = table
+                break
+
+        assert result_table is not None
+        assert result_table.num_rows == 4
+
+    def test_median_agg_through_pipeline(self) -> None:
+        """Run value_int__median_agg through run_all and verify the result."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
+
+        feature = Feature(
+            "value_int__median_agg",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+
+        results = mloda.run_all(
+            [feature],
+            compute_frameworks={PyArrowTable},
+            plugin_collector=plugin_collector,
+        )
+
+        result_table = None
+        for table in results:
+            if isinstance(table, pa.Table) and "value_int__median_agg" in table.column_names:
+                result_table = table
+                break
+
+        assert result_table is not None
+        assert result_table.num_rows == 4
+
+    def test_nunique_agg_through_pipeline(self) -> None:
+        """Run value_int__nunique_agg through run_all and verify the result."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
+
+        feature = Feature(
+            "value_int__nunique_agg",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+
+        results = mloda.run_all(
+            [feature],
+            compute_frameworks={PyArrowTable},
+            plugin_collector=plugin_collector,
+        )
+
+        result_table = None
+        for table in results:
+            if isinstance(table, pa.Table) and "value_int__nunique_agg" in table.column_names:
+                result_table = table
+                break
+
+        assert result_table is not None
+        assert result_table.num_rows == 4
 
 
 class TestIntegrationMultipleFeatures:
-    def test_sum_and_avg_together(self) -> None:
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowColumnAggregation}
-        )
+    """Test multiple aggregation features in separate pipeline runs.
 
-        f_sum = Feature("value_int__sum_aggr", options=Options())
-        f_avg = Feature("value_int__avg_aggr", options=Options())
-
-        results = mloda.run_all(
-            [f_sum, f_avg],
-            compute_frameworks={PyArrowTable},
-            plugin_collector=plugin_collector,
-        )
-
-        assert len(results) >= 1
-
-        sum_found = False
-        avg_found = False
-        for table in results:
-            if not isinstance(table, pa.Table):
-                continue
-            if "value_int__sum_aggr" in table.column_names:
-                sum_col = table.column("value_int__sum_aggr").to_pylist()
-                assert all(v == EXPECTED_SUM for v in sum_col)
-                sum_found = True
-            if "value_int__avg_aggr" in table.column_names:
-                avg_col = table.column("value_int__avg_aggr").to_pylist()
-                assert all(v == pytest.approx(EXPECTED_AVG, rel=1e-6) for v in avg_col)
-                avg_found = True
-
-        assert sum_found, "sum_aggr result not found"
-        assert avg_found, "avg_aggr result not found"
-
-
-class TestIntegrationOptionBasedConfig:
-    """Integration tests for option-based (non-string-pattern) configuration.
-
-    These tests exercise the path where aggregation_type and in_features
-    are provided through Options rather than encoded in the feature name.
+    Aggregation reduces rows, so each feature must be requested
+    in a separate run_all call (mloda cannot merge different row-count
+    outputs without explicit Links). These tests verify that different
+    aggregation types produce consistent, correct results from the
+    same source data.
     """
 
-    def test_option_based_sum_through_pipeline(self) -> None:
-        """Option-based sum produces the same result as the string pattern."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowColumnAggregation}
-        )
+    def test_sum_and_avg_consistent(self) -> None:
+        """Run sum and avg separately and verify both produce correct results."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
 
-        feature = Feature(
-            "my_custom_sum",
-            options=Options(
-                context={
-                    "aggregation_type": "sum",
-                    "in_features": "value_int",
-                }
-            ),
+        f_sum = Feature(
+            "value_int__sum_agg",
+            options=Options(context={"partition_by": ["region"]}),
         )
-
-        results = mloda.run_all(
-            [feature],
+        sum_results = mloda.run_all(
+            [f_sum],
             compute_frameworks={PyArrowTable},
             plugin_collector=plugin_collector,
         )
 
-        found = False
-        for table in results:
-            if not isinstance(table, pa.Table):
-                continue
-            if "my_custom_sum" in table.column_names:
-                col = table.column("my_custom_sum").to_pylist()
-                assert all(v == EXPECTED_SUM for v in col)
-                assert len(col) == 12
-                found = True
+        sum_table = None
+        for table in sum_results:
+            if isinstance(table, pa.Table) and "value_int__sum_agg" in table.column_names:
+                sum_table = table
+                break
+        assert sum_table is not None
+        sum_col = sorted(sum_table.column("value_int__sum_agg").to_pylist())
+        assert sum_col == sorted([25, 140, 70, -10])
 
-        assert found, "option-based sum result not found"
-
-    def test_option_based_min_through_pipeline(self) -> None:
-        """Option-based min aggregation through the full pipeline."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowColumnAggregation}
+        f_avg = Feature(
+            "value_int__avg_agg",
+            options=Options(context={"partition_by": ["region"]}),
         )
-
-        feature = Feature(
-            "lowest_value",
-            options=Options(
-                context={
-                    "aggregation_type": "min",
-                    "in_features": "value_int",
-                }
-            ),
-        )
-
-        results = mloda.run_all(
-            [feature],
+        avg_results = mloda.run_all(
+            [f_avg],
             compute_frameworks={PyArrowTable},
             plugin_collector=plugin_collector,
         )
 
-        found = False
-        for table in results:
-            if not isinstance(table, pa.Table):
-                continue
-            if "lowest_value" in table.column_names:
-                col = table.column("lowest_value").to_pylist()
-                assert all(v == EXPECTED_MIN for v in col)
-                found = True
+        avg_table = None
+        for table in avg_results:
+            if isinstance(table, pa.Table) and "value_int__avg_agg" in table.column_names:
+                avg_table = table
+                break
+        assert avg_table is not None
+        avg_col = sorted(avg_table.column("value_int__avg_agg").to_pylist())
+        expected_avg = sorted([6.25, 46.667, 23.333, -10.0])
+        assert avg_col == pytest.approx(expected_avg, rel=1e-3)
 
-        assert found, "option-based min result not found"
+        assert sum_table.num_rows == avg_table.num_rows == 4
 
-    def test_option_based_max_through_pipeline(self) -> None:
-        """Option-based max aggregation through the full pipeline."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowColumnAggregation}
+    def test_min_and_max_consistent(self) -> None:
+        """Run min and max separately and verify both produce correct results."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
+
+        f_min = Feature(
+            "value_int__min_agg",
+            options=Options(context={"partition_by": ["region"]}),
         )
-
-        feature = Feature(
-            "highest_value",
-            options=Options(
-                context={
-                    "aggregation_type": "max",
-                    "in_features": "value_int",
-                }
-            ),
-        )
-
-        results = mloda.run_all(
-            [feature],
+        min_results = mloda.run_all(
+            [f_min],
             compute_frameworks={PyArrowTable},
             plugin_collector=plugin_collector,
         )
 
-        found = False
-        for table in results:
-            if not isinstance(table, pa.Table):
-                continue
-            if "highest_value" in table.column_names:
-                col = table.column("highest_value").to_pylist()
-                assert all(v == EXPECTED_MAX for v in col)
-                found = True
+        min_table = None
+        for table in min_results:
+            if isinstance(table, pa.Table) and "value_int__min_agg" in table.column_names:
+                min_table = table
+                break
+        assert min_table is not None
+        min_col = sorted(min_table.column("value_int__min_agg").to_pylist())
+        assert min_col == sorted([-5, 30, 15, -10])
 
-        assert found, "option-based max result not found"
-
-    def test_string_and_option_features_together(self) -> None:
-        """Combining string-pattern and option-based features in one run."""
-        plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowColumnAggregation}
+        f_max = Feature(
+            "value_int__max_agg",
+            options=Options(context={"partition_by": ["region"]}),
         )
-
-        f_pattern = Feature("value_int__sum_aggr", options=Options())
-        f_option = Feature(
-            "my_avg",
-            options=Options(
-                context={
-                    "aggregation_type": "avg",
-                    "in_features": "value_int",
-                }
-            ),
-        )
-
-        results = mloda.run_all(
-            [f_pattern, f_option],
+        max_results = mloda.run_all(
+            [f_max],
             compute_frameworks={PyArrowTable},
             plugin_collector=plugin_collector,
         )
 
-        sum_found = False
-        avg_found = False
-        for table in results:
-            if not isinstance(table, pa.Table):
-                continue
-            if "value_int__sum_aggr" in table.column_names:
-                col = table.column("value_int__sum_aggr").to_pylist()
-                assert all(v == EXPECTED_SUM for v in col)
-                sum_found = True
-            if "my_avg" in table.column_names:
-                col = table.column("my_avg").to_pylist()
-                assert all(v == pytest.approx(EXPECTED_AVG, rel=1e-6) for v in col)
-                avg_found = True
+        max_table = None
+        for table in max_results:
+            if isinstance(table, pa.Table) and "value_int__max_agg" in table.column_names:
+                max_table = table
+                break
+        assert max_table is not None
+        max_col = sorted(max_table.column("value_int__max_agg").to_pylist())
+        assert max_col == sorted([20, 60, 40, -10])
 
-        assert sum_found, "string-pattern sum result not found"
-        assert avg_found, "option-based avg result not found"
+        assert min_table.num_rows == max_table.num_rows == 4

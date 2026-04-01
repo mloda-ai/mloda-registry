@@ -1,4 +1,4 @@
-"""Tests for ColumnAggregationFeatureGroup base class."""
+"""Tests for AggregationFeatureGroup base class."""
 
 from __future__ import annotations
 
@@ -6,246 +6,307 @@ from typing import Any
 
 import pytest
 
-from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
-from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
-    AGGREGATION_TYPES,
-    ColumnAggregationFeatureGroup,
+    AggregationFeatureGroup,
 )
 
 
 class TestClassAttributes:
-    def test_prefix_pattern_exists(self) -> None:
-        assert hasattr(ColumnAggregationFeatureGroup, "PREFIX_PATTERN")
-        assert isinstance(ColumnAggregationFeatureGroup.PREFIX_PATTERN, str)
+    """Tests for AggregationFeatureGroup class attributes."""
 
-    def test_aggregation_types_contains_all_operations(self) -> None:
-        expected_ops = {"sum", "min", "max", "avg", "mean", "count", "std", "var", "median"}
+    def test_prefix_pattern_exists(self) -> None:
+        """PREFIX_PATTERN regex attribute should be defined."""
+        assert hasattr(AggregationFeatureGroup, "PREFIX_PATTERN")
+        assert isinstance(AggregationFeatureGroup.PREFIX_PATTERN, str)
+
+    def test_aggregation_types_exists(self) -> None:
+        """AGGREGATION_TYPES dict should be defined with supported operations."""
+        assert hasattr(AggregationFeatureGroup, "AGGREGATION_TYPES")
+        assert isinstance(AggregationFeatureGroup.AGGREGATION_TYPES, dict)
+
+    def test_aggregation_types_contains_standard_operations(self) -> None:
+        """AGGREGATION_TYPES should contain standard aggregation operations."""
+        expected_ops = {"sum", "avg", "count", "min", "max", "std", "var", "median"}
         for op in expected_ops:
-            assert op in AGGREGATION_TYPES, f"Missing operation: {op}"
+            assert op in AggregationFeatureGroup.AGGREGATION_TYPES, f"Missing standard operation: {op}"
+
+    def test_aggregation_types_contains_advanced_operations(self) -> None:
+        """AGGREGATION_TYPES should contain advanced aggregation operations."""
+        expected_ops = {"mode", "nunique", "first", "last"}
+        for op in expected_ops:
+            assert op in AggregationFeatureGroup.AGGREGATION_TYPES, f"Missing advanced operation: {op}"
 
     def test_min_in_features_is_one(self) -> None:
-        assert ColumnAggregationFeatureGroup.MIN_IN_FEATURES == 1
+        """MIN_IN_FEATURES should be 1 (single source column)."""
+        assert AggregationFeatureGroup.MIN_IN_FEATURES == 1
 
     def test_max_in_features_is_one(self) -> None:
-        assert ColumnAggregationFeatureGroup.MAX_IN_FEATURES == 1
+        """MAX_IN_FEATURES should be 1 (single source column)."""
+        assert AggregationFeatureGroup.MAX_IN_FEATURES == 1
 
 
 class TestPatternMatching:
+    """Tests for feature name pattern matching via match_feature_group_criteria."""
+
     @pytest.mark.parametrize(
         "feature_name",
         [
-            "value_int__sum_aggr",
-            "value_int__min_aggr",
-            "value_int__max_aggr",
-            "value_int__avg_aggr",
-            "value_int__mean_aggr",
-            "value_int__count_aggr",
-            "value_int__std_aggr",
-            "value_int__var_aggr",
-            "value_int__median_aggr",
+            "value_int__sum_agg",
+            "value_int__avg_agg",
+            "value_int__count_agg",
+            "value_int__min_agg",
+            "value_int__max_agg",
+            "value_int__std_agg",
+            "value_int__var_agg",
+            "value_int__median_agg",
         ],
     )
-    def test_matches_all_operations(self, feature_name: str) -> None:
-        options = Options()
-        result = ColumnAggregationFeatureGroup.match_feature_group_criteria(feature_name, options, None)
+    def test_matches_standard_operations(self, feature_name: str) -> None:
+        """Standard aggregation operations with _agg suffix should match."""
+        options = Options(context={"partition_by": ["region"]})
+        result = AggregationFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
 
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            "value_int__mode_agg",
+            "value_int__nunique_agg",
+            "value_int__first_agg",
+            "value_int__last_agg",
+        ],
+    )
+    def test_matches_advanced_operations(self, feature_name: str) -> None:
+        """Advanced aggregation operations with _agg suffix should match."""
+        options = Options(context={"partition_by": ["region"]})
+        result = AggregationFeatureGroup.match_feature_group_criteria(feature_name, options, None)
+        assert result is True, f"Should match: {feature_name}"
+
+    def test_rejects_unimplemented_dynamic_type(self) -> None:
+        """Unimplemented dynamic types like percentile_75 should not match."""
+        options = Options(context={"partition_by": ["region"]})
+        result = AggregationFeatureGroup.match_feature_group_criteria("value_int__percentile_75_agg", options, None)
+        assert result is False
+
     def test_no_match_wrong_suffix(self) -> None:
-        options = Options()
-        result = ColumnAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_grouped", options, None)
+        """Feature with wrong suffix (groupby instead of agg) should not match."""
+        options = Options(context={"partition_by": ["region"]})
+        result = AggregationFeatureGroup.match_feature_group_criteria("value_int__avg_groupby", options, None)
         assert result is False
 
     def test_no_match_no_suffix(self) -> None:
-        options = Options()
-        result = ColumnAggregationFeatureGroup.match_feature_group_criteria("value_int__sum", options, None)
+        """Feature without _agg suffix should not match."""
+        options = Options(context={"partition_by": ["region"]})
+        result = AggregationFeatureGroup.match_feature_group_criteria("value_int__avg", options, None)
         assert result is False
 
     def test_no_match_no_source_column(self) -> None:
-        options = Options()
-        result = ColumnAggregationFeatureGroup.match_feature_group_criteria("sum_aggr", options, None)
+        """Feature with no source column (just operation_agg) should not match."""
+        options = Options(context={"partition_by": ["region"]})
+        result = AggregationFeatureGroup.match_feature_group_criteria("avg_agg", options, None)
         assert result is False
 
     def test_no_match_invalid_operation(self) -> None:
-        options = Options()
-        result = ColumnAggregationFeatureGroup.match_feature_group_criteria("value_int__unknown_aggr", options, None)
+        """Feature with an unknown/invalid operation should not match."""
+        options = Options(context={"partition_by": ["region"]})
+        result = AggregationFeatureGroup.match_feature_group_criteria("value_int__unknown_agg", options, None)
         assert result is False
 
 
 class TestPatternParsing:
-    def test_parse_sum_operation(self) -> None:
-        operation = ColumnAggregationFeatureGroup.get_aggregation_type("value_int__sum_aggr")
-        assert operation == "sum"
+    """Tests for extracting operation and source column from feature names."""
 
     def test_parse_avg_operation(self) -> None:
-        operation = ColumnAggregationFeatureGroup.get_aggregation_type("value_int__avg_aggr")
+        """Parsing value_int__avg_agg should yield operation=avg."""
+        operation = AggregationFeatureGroup.get_aggregation_type("value_int__avg_agg")
         assert operation == "avg"
 
-    def test_parse_source_feature(self) -> None:
+    def test_parse_sum_operation(self) -> None:
+        """Parsing my_col__sum_agg should yield operation=sum."""
+        operation = AggregationFeatureGroup.get_aggregation_type("my_col__sum_agg")
+        assert operation == "sum"
+
+    def test_parse_percentile_operation(self) -> None:
+        """Parsing value_int__percentile_75_agg should yield operation=percentile_75."""
+        operation = AggregationFeatureGroup.get_aggregation_type("value_int__percentile_75_agg")
+        assert operation == "percentile_75"
+
+    def test_parse_source_feature_from_avg(self) -> None:
+        """Source feature should be extracted correctly from value_int__avg_agg."""
         from mloda.user import Feature
 
-        feature = Feature("value_int__sum_aggr", options=Options())
-        source_features = ColumnAggregationFeatureGroup._extract_source_features(feature)
+        feature = Feature(
+            "value_int__avg_agg",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+        source_features = AggregationFeatureGroup._extract_source_features(feature)
         assert source_features == ["value_int"]
 
-    def test_parse_source_feature_with_underscores(self) -> None:
+    def test_parse_source_feature_from_sum(self) -> None:
+        """Source feature should be extracted correctly from my_col__sum_agg."""
         from mloda.user import Feature
 
-        feature = Feature("my_value__max_aggr", options=Options())
-        source_features = ColumnAggregationFeatureGroup._extract_source_features(feature)
-        assert source_features == ["my_value"]
-
-
-class TestConfigBasedFeatures:
-    def test_config_based_match(self) -> None:
-        options = Options(
-            context={
-                "aggregation_type": "sum",
-                "in_features": "value_int",
-            }
+        feature = Feature(
+            "my_col__sum_agg",
+            options=Options(context={"partition_by": ["region"]}),
         )
-        result = ColumnAggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        source_features = AggregationFeatureGroup._extract_source_features(feature)
+        assert source_features == ["my_col"]
+
+
+class TestPropertyMapping:
+    """Tests for PROPERTY_MAPPING consistency."""
+
+    def test_partition_by_in_property_mapping(self) -> None:
+        """PARTITION_BY should be declared in PROPERTY_MAPPING for consistency with window aggregation."""
+        assert AggregationFeatureGroup.PARTITION_BY in AggregationFeatureGroup.PROPERTY_MAPPING
+
+    def test_partition_by_is_context_parameter(self) -> None:
+        """PARTITION_BY should be declared as a context parameter."""
+        from mloda.provider import DefaultOptionKeys
+
+        mapping = AggregationFeatureGroup.PROPERTY_MAPPING[AggregationFeatureGroup.PARTITION_BY]
+        assert mapping[DefaultOptionKeys.context] is True
+
+    def test_property_mapping_has_aggregation_type(self) -> None:
+        """AGGREGATION_TYPE should be in PROPERTY_MAPPING with strict validation."""
+        from mloda.provider import DefaultOptionKeys
+
+        mapping = AggregationFeatureGroup.PROPERTY_MAPPING[AggregationFeatureGroup.AGGREGATION_TYPE]
+        assert mapping[DefaultOptionKeys.strict_validation] is True
+
+    def test_property_mapping_has_in_features(self) -> None:
+        """in_features should be in PROPERTY_MAPPING."""
+        from mloda.provider import DefaultOptionKeys
+
+        assert DefaultOptionKeys.in_features in AggregationFeatureGroup.PROPERTY_MAPPING
+
+
+class TestConfigValidation:
+    """Tests for partition_by configuration validation."""
+
+    def test_partition_by_required(self) -> None:
+        """match_feature_group_criteria should fail without partition_by in options."""
+        options = Options(context={})
+        result = AggregationFeatureGroup.match_feature_group_criteria("value_int__sum_agg", options, None)
+        assert result is False
+
+    def test_partition_by_accepts_list_of_strings(self) -> None:
+        """partition_by should accept a list of strings."""
+        options = Options(context={"partition_by": ["region", "country"]})
+        result = AggregationFeatureGroup.match_feature_group_criteria("value_int__sum_agg", options, None)
         assert result is True
 
-    def test_config_based_match_rejects_invalid_op(self) -> None:
-        options = Options(
-            context={
-                "aggregation_type": "invalid_op",
-                "in_features": "value_int",
-            }
-        )
-        result = ColumnAggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
+    def test_partition_by_accepts_tuple_of_strings(self) -> None:
+        """partition_by should accept a tuple of strings (converted from list by mixin)."""
+        options = Options(context={"partition_by": ("region", "country")})
+        result = AggregationFeatureGroup.match_feature_group_criteria("value_int__sum_agg", options, None)
+        assert result is True
+
+    def test_partition_by_must_be_list_or_tuple(self) -> None:
+        """partition_by as a plain string (not a list or tuple) should fail validation."""
+        options = Options(context={"partition_by": "region"})
+        result = AggregationFeatureGroup.match_feature_group_criteria("value_int__sum_agg", options, None)
+        assert result is False
+
+    def test_partition_by_rejects_non_string_items(self) -> None:
+        """partition_by containing non-string items should fail validation."""
+        options = Options(context={"partition_by": [123, "region"]})
+        result = AggregationFeatureGroup.match_feature_group_criteria("value_int__sum_agg", options, None)
         assert result is False
 
 
-class TestSingleColumnEnforcement:
-    """Verify that MAX_IN_FEATURES=1 enforces single-column behavior.
+class TestConfigBasedFeatures:
+    """Tests for configuration-based feature matching (non-string features)."""
 
-    The aggregation package computes a scalar aggregate over one source
-    column and broadcasts it to every row. Multiple in_features are
-    rejected at two levels: input_features() validates the count during
-    feature resolution, and _extract_source_features() validates it
-    again during calculate_feature() to prevent silent truncation.
-    """
-
-    def test_max_in_features_is_one(self) -> None:
-        assert ColumnAggregationFeatureGroup.MAX_IN_FEATURES == 1
-
-    def test_input_features_rejects_multiple_option_in_features(self) -> None:
-        """Option-based features with >1 in_features must be rejected."""
+    def test_config_based_match(self) -> None:
+        """A feature with aggregation_type and in_features in options should match."""
         options = Options(
             context={
                 "aggregation_type": "sum",
-                "in_features": ["col_a", "col_b"],
+                "in_features": "value_int",
+                "partition_by": ["region"],
             }
         )
-        instance = ColumnAggregationFeatureGroup()
-        with pytest.raises(ValueError, match="at most 1"):
-            instance.input_features(options, FeatureName("my_result"))
+        result = AggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is True
 
-    def test_extract_source_features_rejects_multiple_in_features(self) -> None:
-        """_extract_source_features must reject multiple source features.
+    def test_config_based_match_rejects_multiple_in_features(self) -> None:
+        """Config-based feature with multiple in_features should not match (MAX_IN_FEATURES=1)."""
+        from mloda.user import Feature as UserFeature
 
-        This guards against silent truncation to a single column if
-        calculate_feature() is invoked with multi-column options that
-        bypassed input_features() validation.
-        """
         options = Options(
             context={
                 "aggregation_type": "sum",
-                "in_features": ["col_a", "col_b"],
+                "in_features": frozenset({UserFeature("value_int"), UserFeature("value_float")}),
+                "partition_by": ["region"],
             }
         )
-        feature = Feature("my_result", options=options)
-        with pytest.raises(ValueError, match="at most 1"):
-            ColumnAggregationFeatureGroup._extract_source_features(feature)
+        result = AggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False
 
-    def test_extract_source_features_returns_single_item_for_string_pattern(self) -> None:
-        feature = Feature("value_int__sum_aggr", options=Options())
-        source_features = ColumnAggregationFeatureGroup._extract_source_features(feature)
-        assert len(source_features) == 1
-        assert source_features == ["value_int"]
-
-    def test_extract_source_features_returns_single_item_for_option_config(self) -> None:
-        """Option-based config with one in_feature returns a single-element list."""
+    def test_config_based_match_rejects_missing_partition_by(self) -> None:
+        """Config-based feature without partition_by should not match."""
         options = Options(
             context={
-                "aggregation_type": "max",
-                "in_features": "revenue",
-            }
-        )
-        feature = Feature("my_result", options=options)
-        source_features = ColumnAggregationFeatureGroup._extract_source_features(feature)
-        assert len(source_features) == 1
-        assert source_features == ["revenue"]
-
-    def test_input_features_returns_single_feature_for_string_pattern(self) -> None:
-        options = Options()
-        instance = ColumnAggregationFeatureGroup()
-        result = instance.input_features(options, FeatureName("value_int__sum_aggr"))
-        assert result is not None
-        assert len(result) == 1
-        names = {f.get_name() for f in result}
-        assert names == {"value_int"}
-
-    def test_input_features_returns_single_feature_for_option_config(self) -> None:
-        options = Options(
-            context={
-                "aggregation_type": "max",
-                "in_features": "revenue",
-            }
-        )
-        instance = ColumnAggregationFeatureGroup()
-        result = instance.input_features(options, FeatureName("my_max_result"))
-        assert result is not None
-        assert len(result) == 1
-        names = {f.get_name() for f in result}
-        assert names == {"revenue"}
-
-
-class TestAggregationTypeExtraction:
-    """Verify aggregation type extraction from both string and option sources."""
-
-    def test_get_aggregation_type_raises_for_non_pattern_name(self) -> None:
-        with pytest.raises(ValueError, match="Could not extract"):
-            ColumnAggregationFeatureGroup.get_aggregation_type("plain_name")
-
-    def test_extract_aggregation_type_from_options(self) -> None:
-        options = Options(
-            context={
-                "aggregation_type": "median",
+                "aggregation_type": "sum",
                 "in_features": "value_int",
             }
         )
-        feature = Feature("my_result", options=options)
-        agg_type = ColumnAggregationFeatureGroup._extract_aggregation_type(feature)
-        assert agg_type == "median"
+        result = AggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False
 
-    def test_extract_aggregation_type_raises_without_option(self) -> None:
-        feature = Feature("plain_name", options=Options())
-        with pytest.raises(ValueError, match="Could not extract"):
-            ColumnAggregationFeatureGroup._extract_aggregation_type(feature)
+    def test_config_based_calculate_feature(self) -> None:
+        """Config-based feature should compute correctly via calculate_feature."""
+        import pyarrow as pa
 
-    @pytest.mark.parametrize("agg_type", list(AGGREGATION_TYPES.keys()))
-    def test_get_aggregation_type_for_all_ops(self, agg_type: str) -> None:
-        feature_name = f"col__{agg_type}_aggr"
-        result = ColumnAggregationFeatureGroup.get_aggregation_type(feature_name)
-        assert result == agg_type
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import (
+            PyArrowAggregation,
+        )
+        from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+        from mloda.user import Feature
+
+        table = PyArrowDataOpsTestDataCreator.create()
+
+        feature = Feature(
+            "my_sum_result",
+            options=Options(
+                context={
+                    "aggregation_type": "sum",
+                    "in_features": "value_int",
+                    "partition_by": ["region"],
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+
+        result = PyArrowAggregation.calculate_feature(table, fs)
+        assert isinstance(result, pa.Table)
+        assert "my_sum_result" in result.column_names
+        assert result.num_rows == 4
+
+        region_col = result.column("region").to_pylist()
+        result_col = result.column("my_sum_result").to_pylist()
+        result_map = {region_col[i]: result_col[i] for i in range(len(region_col))}
+        assert result_map["A"] == 25
+        assert result_map["B"] == 140
+        assert result_map["C"] == 70
+        assert result_map[None] == -10
 
 
 class TestAggregationMatchValidation(MatchValidationTestBase):
-    """Shared match-validation tests adapted for column aggregation."""
-
     @classmethod
     def feature_group_class(cls) -> Any:
-        return ColumnAggregationFeatureGroup
+        return AggregationFeatureGroup
 
     @classmethod
     def valid_operations(cls) -> set[str]:
-        return set(AGGREGATION_TYPES)
+        return set(AggregationFeatureGroup.AGGREGATION_TYPES)
 
     @classmethod
     def config_key(cls) -> str:
@@ -253,12 +314,12 @@ class TestAggregationMatchValidation(MatchValidationTestBase):
 
     @classmethod
     def build_feature_name(cls, operation: str) -> str:
-        return f"value_int__{operation}_aggr"
+        return f"value_int__{operation}_agg"
 
     @classmethod
     def build_feature_name_no_source(cls) -> str:
-        return "sum_aggr"
+        return "sum_agg"
 
     @classmethod
     def additional_match_options(cls) -> dict[str, Any]:
-        return {"in_features": "value_int"}
+        return {"in_features": "value_int", "partition_by": ["region"]}

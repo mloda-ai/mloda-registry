@@ -85,67 +85,67 @@ class WindowAggregationTestBase(DataOpsTestBase):
 
     # -- Concrete test methods (inherited for free) --------------------------
 
-    def test_sum_groupby_region(self) -> None:
+    def test_sum_window_region(self) -> None:
         """Sum of value_int partitioned by region, broadcast back to every row."""
-        fs = make_feature_set("value_int__sum_groupby", ["region"])
+        fs = make_feature_set("value_int__sum_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
 
-        result_col = self.extract_column(result, "value_int__sum_groupby")
+        result_col = self.extract_column(result, "value_int__sum_window")
         assert result_col == EXPECTED_SUM_BY_REGION
 
-    def test_avg_groupby_region(self) -> None:
+    def test_avg_window_region(self) -> None:
         """Average of value_int partitioned by region, broadcast back to every row."""
-        fs = make_feature_set("value_int__avg_groupby", ["region"])
+        fs = make_feature_set("value_int__avg_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
 
-        result_col = self.extract_column(result, "value_int__avg_groupby")
+        result_col = self.extract_column(result, "value_int__avg_window")
         assert result_col == pytest.approx(EXPECTED_AVG_BY_REGION, rel=1e-3)
 
-    def test_count_groupby_region(self) -> None:
+    def test_count_window_region(self) -> None:
         """Count of non-null value_int partitioned by region."""
-        fs = make_feature_set("value_int__count_groupby", ["region"])
+        fs = make_feature_set("value_int__count_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
 
-        result_col = self.extract_column(result, "value_int__count_groupby")
+        result_col = self.extract_column(result, "value_int__count_window")
         assert result_col == EXPECTED_COUNT_BY_REGION
 
-    def test_min_groupby_region(self) -> None:
+    def test_min_window_region(self) -> None:
         """Minimum of value_int partitioned by region."""
-        fs = make_feature_set("value_int__min_groupby", ["region"])
+        fs = make_feature_set("value_int__min_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
 
-        result_col = self.extract_column(result, "value_int__min_groupby")
+        result_col = self.extract_column(result, "value_int__min_window")
         assert result_col == EXPECTED_MIN_BY_REGION
 
-    def test_max_groupby_region(self) -> None:
+    def test_max_window_region(self) -> None:
         """Maximum of value_int partitioned by region."""
-        fs = make_feature_set("value_int__max_groupby", ["region"])
+        fs = make_feature_set("value_int__max_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
         assert self.get_row_count(result) == 12
 
-        result_col = self.extract_column(result, "value_int__max_groupby")
+        result_col = self.extract_column(result, "value_int__max_window")
         assert result_col == EXPECTED_MAX_BY_REGION
 
     def test_null_policy_skip_avg_with_null_values(self) -> None:
         """NullPolicy.SKIP: Group B has a null value_int at row 4. Avg should skip it."""
-        fs = make_feature_set("value_int__avg_groupby", ["region"])
+        fs = make_feature_set("value_int__avg_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "value_int__avg_groupby")
+        result_col = self.extract_column(result, "value_int__avg_window")
         assert result_col[4] == pytest.approx(GROUP_B_AVG_EXPECTED, rel=1e-6)
         assert result_col[5] == pytest.approx(GROUP_B_AVG_EXPECTED, rel=1e-6)
         assert result_col[6] == pytest.approx(GROUP_B_AVG_EXPECTED, rel=1e-6)
@@ -153,30 +153,30 @@ class WindowAggregationTestBase(DataOpsTestBase):
 
     def test_null_policy_null_is_group(self) -> None:
         """NullPolicy.NULL_IS_GROUP: Row 11 has region=None. It should form its own group."""
-        fs = make_feature_set("value_int__sum_groupby", ["region"])
+        fs = make_feature_set("value_int__sum_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "value_int__sum_groupby")
+        result_col = self.extract_column(result, "value_int__sum_window")
         assert result_col[11] == NULL_GROUP_SUM_EXPECTED
 
     def test_output_rows_equal_input_rows(self) -> None:
         """Output must have exactly 12 rows, same as input."""
-        fs = make_feature_set("value_int__sum_groupby", ["region"])
+        fs = make_feature_set("value_int__sum_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         assert self.get_row_count(result) == 12
 
     def test_new_column_added(self) -> None:
         """The aggregation result column should be added to the output."""
-        fs = make_feature_set("value_int__max_groupby", ["region"])
+        fs = make_feature_set("value_int__max_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_cols = self.extract_column(result, "value_int__max_groupby")
+        result_cols = self.extract_column(result, "value_int__max_window")
         assert len(result_cols) == 12
 
     def test_result_has_correct_type(self) -> None:
         """The result of calculate_feature must be the expected framework type."""
-        fs = make_feature_set("value_int__min_groupby", ["region"])
+        fs = make_feature_set("value_int__min_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
@@ -185,33 +185,33 @@ class WindowAggregationTestBase(DataOpsTestBase):
 
     def test_cross_framework_sum(self) -> None:
         """Sum must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__sum_groupby", partition_by=["region"])
+        self._compare_with_pyarrow("value_int__sum_window", partition_by=["region"])
 
     def test_cross_framework_avg(self) -> None:
         """Avg must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__avg_groupby", partition_by=["region"], use_approx=True)
+        self._compare_with_pyarrow("value_int__avg_window", partition_by=["region"], use_approx=True)
 
     def test_cross_framework_count(self) -> None:
         """Count must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__count_groupby", partition_by=["region"])
+        self._compare_with_pyarrow("value_int__count_window", partition_by=["region"])
 
     def test_cross_framework_min(self) -> None:
         """Min must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__min_groupby", partition_by=["region"])
+        self._compare_with_pyarrow("value_int__min_window", partition_by=["region"])
 
     def test_cross_framework_max(self) -> None:
         """Max must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__max_groupby", partition_by=["region"])
+        self._compare_with_pyarrow("value_int__max_window", partition_by=["region"])
 
     # -- Statistical aggregation tests (skipped if unsupported) --------------
 
-    def test_std_groupby_region(self) -> None:
+    def test_std_window_region(self) -> None:
         """Standard deviation of value_int partitioned by region."""
         self._skip_if_unsupported("std")
-        fs = make_feature_set("value_int__std_groupby", ["region"])
+        fs = make_feature_set("value_int__std_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "value_int__std_groupby")
+        result_col = self.extract_column(result, "value_int__std_window")
         # Group A values: [10, -5, 0, 20] -> sample std
         a_vals = [10, -5, 0, 20]
         a_std = (sum((x - 6.25) ** 2 for x in a_vals) / (len(a_vals) - 1)) ** 0.5
@@ -220,25 +220,25 @@ class WindowAggregationTestBase(DataOpsTestBase):
         assert result_col[2] == pytest.approx(a_std, rel=1e-6)
         assert result_col[3] == pytest.approx(a_std, rel=1e-6)
 
-    def test_var_groupby_region(self) -> None:
+    def test_var_window_region(self) -> None:
         """Variance of value_int partitioned by region."""
         self._skip_if_unsupported("var")
-        fs = make_feature_set("value_int__var_groupby", ["region"])
+        fs = make_feature_set("value_int__var_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "value_int__var_groupby")
+        result_col = self.extract_column(result, "value_int__var_window")
         a_vals = [10, -5, 0, 20]
         a_var = sum((x - 6.25) ** 2 for x in a_vals) / (len(a_vals) - 1)
         assert result_col[0] == pytest.approx(a_var, rel=1e-6)
         assert result_col[1] == pytest.approx(a_var, rel=1e-6)
 
-    def test_median_groupby_region(self) -> None:
+    def test_median_window_region(self) -> None:
         """Median of value_int partitioned by region."""
         self._skip_if_unsupported("median")
-        fs = make_feature_set("value_int__median_groupby", ["region"])
+        fs = make_feature_set("value_int__median_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "value_int__median_groupby")
+        result_col = self.extract_column(result, "value_int__median_window")
         # Group A sorted: [-5, 0, 10, 20] -> median = 5.0
         assert result_col[0] == pytest.approx(5.0, rel=1e-6)
         # Group B sorted (non-null): [30, 50, 60] -> median = 50
@@ -250,13 +250,13 @@ class WindowAggregationTestBase(DataOpsTestBase):
 
     # -- Advanced aggregation tests (skipped if unsupported) -----------------
 
-    def test_mode_groupby_region(self) -> None:
+    def test_mode_window_region(self) -> None:
         """Mode of value_int partitioned by region."""
         self._skip_if_unsupported("mode")
-        fs = make_feature_set("value_int__mode_groupby", ["region"])
+        fs = make_feature_set("value_int__mode_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "value_int__mode_groupby")
+        result_col = self.extract_column(result, "value_int__mode_window")
         # Group C has 15 appearing twice, so mode = 15
         assert result_col[8] == 15
         assert result_col[9] == 15
@@ -264,7 +264,7 @@ class WindowAggregationTestBase(DataOpsTestBase):
         # None group: single value -10
         assert result_col[11] == -10
 
-    def test_nunique_groupby_region(self) -> None:
+    def test_nunique_window_region(self) -> None:
         """Count of unique value_int values partitioned by region.
 
         Some frameworks (Polars) count null as a unique value, others
@@ -272,16 +272,16 @@ class WindowAggregationTestBase(DataOpsTestBase):
         3 unique without null, 4 unique with null.
         """
         self._skip_if_unsupported("nunique")
-        fs = make_feature_set("value_int__nunique_groupby", ["region"])
+        fs = make_feature_set("value_int__nunique_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "value_int__nunique_groupby")
+        result_col = self.extract_column(result, "value_int__nunique_window")
         assert result_col[0] == 4  # Group A: {10, -5, 0, 20} (no nulls)
         assert result_col[4] == 3  # Group B: 3 non-null unique values (null skipped)
         assert result_col[8] == 2  # Group C: {15, 40} (no nulls in non-null values)
         assert result_col[11] == 1  # None group: {-10}
 
-    def test_first_groupby_region(self) -> None:
+    def test_first_window_region(self) -> None:
         """First non-null value_int per region, ordered by value_int ascending.
 
         Group A: sorted non-null = [-5, 0, 10, 20] -> first=-5
@@ -290,13 +290,13 @@ class WindowAggregationTestBase(DataOpsTestBase):
         None:    sorted non-null = [-10] -> first=-10
         """
         self._skip_if_unsupported("first")
-        fs = make_feature_set("value_int__first_groupby", ["region"], order_by="value_int")
+        fs = make_feature_set("value_int__first_window", ["region"], order_by="value_int")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "value_int__first_groupby")
+        result_col = self.extract_column(result, "value_int__first_window")
         assert result_col == EXPECTED_FIRST_BY_REGION
 
-    def test_last_groupby_region(self) -> None:
+    def test_last_window_region(self) -> None:
         """Last non-null value_int per region, ordered by value_int ascending.
 
         Group A: sorted non-null = [-5, 0, 10, 20] -> last=20
@@ -305,10 +305,10 @@ class WindowAggregationTestBase(DataOpsTestBase):
         None:    sorted non-null = [-10] -> last=-10
         """
         self._skip_if_unsupported("last")
-        fs = make_feature_set("value_int__last_groupby", ["region"], order_by="value_int")
+        fs = make_feature_set("value_int__last_window", ["region"], order_by="value_int")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "value_int__last_groupby")
+        result_col = self.extract_column(result, "value_int__last_window")
         assert result_col == EXPECTED_LAST_BY_REGION
 
     # -- Null edge case tests ------------------------------------------------
@@ -319,20 +319,20 @@ class WindowAggregationTestBase(DataOpsTestBase):
         PyArrow/Polars/DuckDB/SQLite return null for sum of all-null group.
         Pandas returns 0 (groupby.transform("sum") treats all-null as 0).
         """
-        fs = make_feature_set("score__sum_groupby", ["region"])
+        fs = make_feature_set("score__sum_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "score__sum_groupby")
+        result_col = self.extract_column(result, "score__sum_window")
         assert all(v is None for v in result_col)
 
     # -- Multi-key partition tests -------------------------------------------
 
     def test_multi_key_partition_sum(self) -> None:
         """Sum of value_int partitioned by [region, category]."""
-        fs = make_feature_set("value_int__sum_groupby", ["region", "category"])
+        fs = make_feature_set("value_int__sum_window", ["region", "category"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "value_int__sum_groupby")
+        result_col = self.extract_column(result, "value_int__sum_window")
         assert result_col[0] == 10  # A/X: [10, 0]
         assert result_col[2] == 10
         assert result_col[1] == 15  # A/Y: [-5, 20]
@@ -344,10 +344,10 @@ class WindowAggregationTestBase(DataOpsTestBase):
 
     def test_multi_key_partition_count(self) -> None:
         """Count of non-null value_int partitioned by [region, category]."""
-        fs = make_feature_set("value_int__count_groupby", ["region", "category"])
+        fs = make_feature_set("value_int__count_window", ["region", "category"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "value_int__count_groupby")
+        result_col = self.extract_column(result, "value_int__count_window")
         assert result_col[0] == 2  # A/X: 2 non-null
         assert result_col[2] == 2
         assert result_col[1] == 2  # A/Y: 2 non-null
@@ -366,10 +366,10 @@ class WindowAggregationTestBase(DataOpsTestBase):
             }
         )
         data = self.create_test_data(table)
-        fs = make_feature_set("value__first_groupby", ["region"], order_by="ts")
+        fs = make_feature_set("value__first_window", ["region"], order_by="ts")
         result = self.implementation_class().calculate_feature(data, fs)
 
-        result_col = self.extract_column(result, "value__first_groupby")
+        result_col = self.extract_column(result, "value__first_window")
 
         # first with order_by sorts by ts: [1->10, 2->20, None->100, None->200]
         # first non-null = 10, broadcast to all rows
@@ -386,10 +386,10 @@ class WindowAggregationTestBase(DataOpsTestBase):
             }
         )
         data = self.create_test_data(table)
-        fs = make_feature_set("value__last_groupby", ["region"], order_by="ts")
+        fs = make_feature_set("value__last_window", ["region"], order_by="ts")
         result = self.implementation_class().calculate_feature(data, fs)
 
-        result_col = self.extract_column(result, "value__last_groupby")
+        result_col = self.extract_column(result, "value__last_window")
 
         # last with order_by sorts by ts: [1->10, 2->20, None->100, None->200]
         # last non-null = 200, broadcast to all rows
@@ -397,10 +397,10 @@ class WindowAggregationTestBase(DataOpsTestBase):
 
     def test_multi_key_float_avg(self) -> None:
         """Avg of value_float partitioned by [region, category]."""
-        fs = make_feature_set("value_float__avg_groupby", ["region", "category"])
+        fs = make_feature_set("value_float__avg_window", ["region", "category"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "value_float__avg_groupby")
+        result_col = self.extract_column(result, "value_float__avg_window")
         # A/X: [1.5, None] -> avg = 1.5
         assert result_col[0] == pytest.approx(1.5, rel=1e-6)
         assert result_col[2] == pytest.approx(1.5, rel=1e-6)
@@ -410,7 +410,7 @@ class WindowAggregationTestBase(DataOpsTestBase):
 
     # -- Option-based config tests -------------------------------------------
 
-    def test_option_based_sum_groupby(self) -> None:
+    def test_option_based_sum_window(self) -> None:
         """Option-based configuration (not string pattern) produces the same result."""
         from mloda.core.abstract_plugins.components.feature_set import FeatureSet
         from mloda.core.abstract_plugins.components.options import Options
@@ -440,7 +440,7 @@ class WindowAggregationTestBase(DataOpsTestBase):
         from mloda.user import Feature
 
         feature = Feature(
-            "value_int__evil_type_groupby",
+            "value_int__evil_type_window",
             options=Options(
                 context={
                     "partition_by": ["region"],

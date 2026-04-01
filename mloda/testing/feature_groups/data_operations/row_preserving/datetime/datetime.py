@@ -358,9 +358,11 @@ class DateTimeTestBase(DataOpsTestBase):
 
     def test_all_null_timestamp_column(self) -> None:
         """An all-null timestamp column should produce all None for year extraction."""
-        all_null_table = pa.table({
-            "timestamp": pa.array([None, None, None], type=pa.timestamp("us", tz="UTC")),
-        })
+        all_null_table = pa.table(
+            {
+                "timestamp": pa.array([None, None, None], type=pa.timestamp("us", tz="UTC")),
+            }
+        )
         data = self.create_test_data(all_null_table)
         fs = make_feature_set("timestamp__year")
         result = self.implementation_class().calculate_feature(data, fs)

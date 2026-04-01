@@ -6,9 +6,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mloda-community-group-aggregation"
+name = "mloda-community-scalar-aggregate"
 version = "0.2.12"
-description = "Group aggregation feature group (reduce, partition_by, one row per group)"
+description = "Scalar aggregate feature group (single-column global aggregate broadcast)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
 dependencies = ["mloda-community-data-operations>=0.2.12"]
@@ -28,5 +28,5 @@ Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
 [tool.setuptools]
-package-dir = {"" = "../../../../.."}
-packages = ["mloda.community.feature_groups.data_operations.group_aggregation"]
+package-dir = {"" = "../../../../../.."}
+packages = ["mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate"]

@@ -166,8 +166,7 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         Ties receive consecutive ranks (same value may span two bins at a boundary).
         """
         indexed = [
-            (v, i) for i, v in enumerate(values)
-            if v is not None and not (isinstance(v, float) and math.isnan(v))
+            (v, i) for i, v in enumerate(values) if v is not None and not (isinstance(v, float) and math.isnan(v))
         ]
         indexed.sort(key=lambda pair: pair[0])
         n = len(indexed)
