@@ -22,6 +22,10 @@ _DUCKDB_AGG_FUNCS: dict[str, str] = {
     "count": "COUNT",
     "std": "STDDEV_POP",
     "var": "VAR_POP",
+    "std_pop": "STDDEV_POP",
+    "std_samp": "STDDEV_SAMP",
+    "var_pop": "VAR_POP",
+    "var_samp": "VAR_SAMP",
     "median": "MEDIAN",
 }
 

@@ -32,10 +32,14 @@ _PA_AGG_FUNCS: dict[str, str] = {
     "nunique": "count_distinct",
 }
 
-# Sample statistics need VarianceOptions(ddof=1).
-_SAMPLE_STAT_FUNCS: dict[str, str] = {
-    "std": "stddev",
-    "var": "variance",
+# Variance/stddev operations mapped to (PyArrow func name, ddof).
+_VARIANCE_FUNCS: dict[str, tuple[str, int]] = {
+    "std": ("stddev", 0),
+    "var": ("variance", 0),
+    "std_pop": ("stddev", 0),
+    "std_samp": ("stddev", 1),
+    "var_pop": ("variance", 0),
+    "var_samp": ("variance", 1),
 }
 
 # Ordered aggregates need use_threads=False in PyArrow.
@@ -62,9 +66,9 @@ class PyArrowAggregation(AggregationFeatureGroup):
         if agg_type in _PA_AGG_FUNCS:
             pa_func = _PA_AGG_FUNCS[agg_type]
             grouped = table.group_by(partition_by).aggregate([(source_col, pa_func)])
-        elif agg_type in _SAMPLE_STAT_FUNCS:
-            pa_func = _SAMPLE_STAT_FUNCS[agg_type]
-            grouped = table.group_by(partition_by).aggregate([(source_col, pa_func, pc.VarianceOptions(ddof=1))])
+        elif agg_type in _VARIANCE_FUNCS:
+            pa_func, ddof = _VARIANCE_FUNCS[agg_type]
+            grouped = table.group_by(partition_by).aggregate([(source_col, pa_func, pc.VarianceOptions(ddof=ddof))])
         elif agg_type in _ORDERED_FUNCS:
             pa_func = _ORDERED_FUNCS[agg_type]
             grouped = table.group_by(partition_by, use_threads=False).aggregate([(source_col, pa_func)])

@@ -72,7 +72,10 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         else:
             raise ValueError(f"Unsupported frame type for Pandas: {frame_type}")
 
-        result = getattr(window_obj, pandas_func)().reset_index(level=reset_levels, drop=True)
+        if agg_type in ("std", "var"):
+            result = getattr(window_obj, pandas_func)(ddof=0).reset_index(level=reset_levels, drop=True)
+        else:
+            result = getattr(window_obj, pandas_func)().reset_index(level=reset_levels, drop=True)
 
         data[feature_name] = result
         coerce_count_dtype(data, feature_name, agg_type)

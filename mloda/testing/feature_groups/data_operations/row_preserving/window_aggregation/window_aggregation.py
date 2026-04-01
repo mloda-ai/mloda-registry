@@ -68,7 +68,24 @@ NULL_GROUP_SUM_EXPECTED: int = -10
 class WindowAggregationTestBase(DataOpsTestBase):
     """Abstract base class for window aggregation framework tests."""
 
-    ALL_AGG_TYPES = {"sum", "avg", "count", "min", "max", "std", "var", "median", "mode", "nunique", "first", "last"}
+    ALL_AGG_TYPES = {
+        "sum",
+        "avg",
+        "count",
+        "min",
+        "max",
+        "std",
+        "var",
+        "std_pop",
+        "std_samp",
+        "var_pop",
+        "var_samp",
+        "median",
+        "mode",
+        "nunique",
+        "first",
+        "last",
+    }
 
     @classmethod
     def supported_agg_types(cls) -> set[str]:
@@ -236,31 +253,75 @@ class WindowAggregationTestBase(DataOpsTestBase):
     # -- Statistical aggregation tests (skipped if unsupported) --------------
 
     def test_std_window_region(self) -> None:
-        """Standard deviation of value_int partitioned by region."""
+        """Population standard deviation of value_int partitioned by region (ddof=0)."""
         self._skip_if_unsupported("std")
         fs = make_feature_set("value_int__std_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__std_window")
-        # Group A values: [10, -5, 0, 20] -> sample std
+        # Group A values: [10, -5, 0, 20] -> population std (ddof=0)
         a_vals = [10, -5, 0, 20]
-        a_std = (sum((x - 6.25) ** 2 for x in a_vals) / (len(a_vals) - 1)) ** 0.5
+        a_std = (sum((x - 6.25) ** 2 for x in a_vals) / len(a_vals)) ** 0.5
         assert result_col[0] == pytest.approx(a_std, rel=1e-6)
         assert result_col[1] == pytest.approx(a_std, rel=1e-6)
         assert result_col[2] == pytest.approx(a_std, rel=1e-6)
         assert result_col[3] == pytest.approx(a_std, rel=1e-6)
 
     def test_var_window_region(self) -> None:
-        """Variance of value_int partitioned by region."""
+        """Population variance of value_int partitioned by region (ddof=0)."""
         self._skip_if_unsupported("var")
         fs = make_feature_set("value_int__var_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__var_window")
         a_vals = [10, -5, 0, 20]
-        a_var = sum((x - 6.25) ** 2 for x in a_vals) / (len(a_vals) - 1)
+        a_var = sum((x - 6.25) ** 2 for x in a_vals) / len(a_vals)
         assert result_col[0] == pytest.approx(a_var, rel=1e-6)
         assert result_col[1] == pytest.approx(a_var, rel=1e-6)
+
+    def test_std_pop_window_region(self) -> None:
+        """Explicit population standard deviation (ddof=0), identical to std."""
+        self._skip_if_unsupported("std_pop")
+        fs = make_feature_set("value_int__std_pop_window", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__std_pop_window")
+        a_vals = [10, -5, 0, 20]
+        a_std = (sum((x - 6.25) ** 2 for x in a_vals) / len(a_vals)) ** 0.5
+        assert result_col[0] == pytest.approx(a_std, rel=1e-6)
+
+    def test_std_samp_window_region(self) -> None:
+        """Sample standard deviation (ddof=1)."""
+        self._skip_if_unsupported("std_samp")
+        fs = make_feature_set("value_int__std_samp_window", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__std_samp_window")
+        a_vals = [10, -5, 0, 20]
+        a_std = (sum((x - 6.25) ** 2 for x in a_vals) / (len(a_vals) - 1)) ** 0.5
+        assert result_col[0] == pytest.approx(a_std, rel=1e-6)
+
+    def test_var_pop_window_region(self) -> None:
+        """Explicit population variance (ddof=0), identical to var."""
+        self._skip_if_unsupported("var_pop")
+        fs = make_feature_set("value_int__var_pop_window", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__var_pop_window")
+        a_vals = [10, -5, 0, 20]
+        a_var = sum((x - 6.25) ** 2 for x in a_vals) / len(a_vals)
+        assert result_col[0] == pytest.approx(a_var, rel=1e-6)
+
+    def test_var_samp_window_region(self) -> None:
+        """Sample variance (ddof=1)."""
+        self._skip_if_unsupported("var_samp")
+        fs = make_feature_set("value_int__var_samp_window", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__var_samp_window")
+        a_vals = [10, -5, 0, 20]
+        a_var = sum((x - 6.25) ** 2 for x in a_vals) / (len(a_vals) - 1)
+        assert result_col[0] == pytest.approx(a_var, rel=1e-6)
 
     def test_median_window_region(self) -> None:
         """Median of value_int partitioned by region."""

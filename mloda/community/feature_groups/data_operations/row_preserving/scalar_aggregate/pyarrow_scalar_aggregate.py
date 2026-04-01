@@ -40,10 +40,14 @@ class PyArrowScalarAggregate(ScalarAggregateFeatureGroup):
             result = pc.mean(column).as_py()
         elif agg_type == "count":
             result = pc.count(column).as_py()
-        elif agg_type == "std":
+        elif agg_type in ("std", "std_pop"):
             result = pc.stddev(column).as_py()
-        elif agg_type == "var":
+        elif agg_type in ("var", "var_pop"):
             result = pc.variance(column).as_py()
+        elif agg_type == "std_samp":
+            result = pc.stddev(column, ddof=1).as_py()
+        elif agg_type == "var_samp":
+            result = pc.variance(column, ddof=1).as_py()
         elif agg_type == "median":
             q_result = pc.quantile(column, q=0.5)
             result = q_result[0].as_py()

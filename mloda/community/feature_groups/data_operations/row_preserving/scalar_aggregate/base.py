@@ -31,6 +31,10 @@ AGGREGATION_TYPES = {
     "count": "Count of non-null values",
     "std": "Population standard deviation (ddof=0)",
     "var": "Population variance (ddof=0)",
+    "std_pop": "Population standard deviation (ddof=0, same as std)",
+    "std_samp": "Sample standard deviation (ddof=1)",
+    "var_pop": "Population variance (ddof=0, same as var)",
+    "var_samp": "Sample variance (ddof=1)",
     "median": "Median value",
 }
 
