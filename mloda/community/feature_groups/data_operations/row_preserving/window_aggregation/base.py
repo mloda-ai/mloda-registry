@@ -92,6 +92,7 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     AGGREGATION_TYPES = {
         "sum": "Sum of values",
         "avg": "Average of values",
+        "mean": "Average of values",
         "count": "Count of non-null values",
         "min": "Minimum value",
         "max": "Maximum value",

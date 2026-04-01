@@ -18,6 +18,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 _POLARS_AGG_EXPRS: dict[str, Any] = {
     "sum": lambda col: pl.col(col).sum(),
     "avg": lambda col: pl.col(col).mean(),
+    "mean": lambda col: pl.col(col).mean(),
     "count": lambda col: pl.col(col).count(),
     "min": lambda col: pl.col(col).min(),
     "max": lambda col: pl.col(col).max(),

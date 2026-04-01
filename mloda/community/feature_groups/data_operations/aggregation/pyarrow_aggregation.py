@@ -25,6 +25,7 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
 _PA_AGG_FUNCS: dict[str, str] = {
     "sum": "sum",
     "avg": "mean",
+    "mean": "mean",
     "count": "count",
     "min": "min",
     "max": "max",

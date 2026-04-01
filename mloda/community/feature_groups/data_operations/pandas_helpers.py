@@ -12,6 +12,7 @@ from typing import Any
 PANDAS_AGG_FUNCS: dict[str, str] = {
     "sum": "sum",
     "avg": "mean",
+    "mean": "mean",
     "count": "count",
     "min": "min",
     "max": "max",

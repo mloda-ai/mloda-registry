@@ -17,6 +17,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 _DUCKDB_AGG_FUNCS: dict[str, str] = {
     "sum": "SUM",
     "avg": "AVG",
+    "mean": "AVG",
     "count": "COUNT",
     "min": "MIN",
     "max": "MAX",
