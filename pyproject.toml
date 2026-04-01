@@ -76,6 +76,7 @@ members = [
     "mloda/community/feature_groups/data_operations/aggregation",
     "mloda/community/feature_groups/data_operations/row_preserving/binning",
     "mloda/community/feature_groups/data_operations/row_preserving/datetime",
+    "mloda/community/feature_groups/data_operations/row_preserving/filtered_aggregation",
     "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate",
     "mloda/community/feature_groups/data_operations/row_preserving/offset",
     "mloda/community/feature_groups/data_operations/row_preserving/rank",
