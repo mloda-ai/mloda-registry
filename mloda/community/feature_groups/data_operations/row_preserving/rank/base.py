@@ -19,11 +19,22 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     ## Supported Rank Types
 
+    **Integer rank types:**
+
     - ``row_number``: Sequential position (1, 2, 3, ...), no ties
     - ``rank``: Standard rank with gaps for ties (1, 2, 2, 4, ...)
     - ``dense_rank``: Rank without gaps (1, 2, 2, 3, ...)
     - ``percent_rank``: Relative rank as fraction from 0.0 to 1.0
     - ``ntile_N``: Divide rows into N roughly equal buckets (1..N)
+
+    **Boolean mask types:**
+
+    - ``top_N``: True if the row is in the top N values (ordered DESC, nulls last)
+    - ``bottom_N``: True if the row is in the bottom N values (ordered ASC, nulls last)
+
+    N must be a positive integer (>= 1). When N exceeds the partition size,
+    all rows in that partition are True. Null values in the order column
+    rank last in both directions and receive False when N < partition size.
 
     ## Feature Creation Methods
 
@@ -42,6 +53,12 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             })),
             Feature("value__ntile_4_ranked", options=Options(context={
                 "partition_by": ["region"], "order_by": "value",
+            })),
+            Feature("price__top_5_ranked", options=Options(context={
+                "partition_by": ["category"], "order_by": "price",
+            })),
+            Feature("score__bottom_3_ranked", options=Options(context={
+                "partition_by": ["team"], "order_by": "score",
             })),
         ]
 
@@ -123,7 +140,7 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     @classmethod
     def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
-        """Validate that the rank type is supported (including ntile_N)."""
+        """Validate that the rank type is supported (including ntile_N, top_N, bottom_N)."""
         return cls._supports_rank_type(operation_config)
 
     @classmethod
