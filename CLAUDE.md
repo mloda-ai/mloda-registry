@@ -41,6 +41,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Never continue TDD cycles if agents are stuck** - this wastes resources and indicates a fundamental issue that requires human intervention.
 
+## Avoid Duplication
+
+- Before creating any new code, search the codebase for existing implementations that solve the same or a similar problem.
+- If similar logic already exists, reuse it: extend, parameterise, or refactor the existing code rather than duplicating it.
+- Never copy-paste blocks of code across files. If the same logic is needed in multiple places, extract it into a shared module, function, or utility.
+
+## Follow Existing Conventions
+
+- Before writing or modifying code (including tests), read surrounding files to understand the existing conventions (naming, formatting, structure, comments, indentation).
+- Match the style of the repository by default. Only introduce new patterns, naming conventions, or structural choices when explicitly requested or when the feature genuinely requires it.
+- If the repo uses specific file naming schemes (e.g. numbered prefixes, grouped by concern), follow the same scheme.
+- For tests specifically, follow the existing test structure, assertion style, naming patterns, and strategies (e.g. mocking, stubbing, fixtures, test data setup) rather than introducing new ones.
+
 ## Git Commits
 
 - No agent should add `Co-Authored-By` lines or any other commit authorship attribution.
