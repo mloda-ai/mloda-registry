@@ -28,8 +28,8 @@ class AggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     - ``count``: Count of non-null values
     - ``min``: Minimum value
     - ``max``: Maximum value
-    - ``std``: Standard deviation
-    - ``var``: Variance
+    - ``std``: Sample standard deviation (ddof=1)
+    - ``var``: Sample variance (ddof=1)
     - ``median``: Median value
     - ``mode``: Most frequent value
     - ``nunique``: Count of unique values
@@ -87,8 +87,8 @@ class AggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         "count": "Count of non-null values",
         "min": "Minimum value",
         "max": "Maximum value",
-        "std": "Standard deviation",
-        "var": "Variance",
+        "std": "Sample standard deviation (ddof=1)",
+        "var": "Sample variance (ddof=1)",
         "median": "Median value",
         "mode": "Most frequent value",
         "nunique": "Count of unique values",

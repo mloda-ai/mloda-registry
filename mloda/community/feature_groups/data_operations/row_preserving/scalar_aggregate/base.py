@@ -29,8 +29,8 @@ AGGREGATION_TYPES = {
     "avg": "Average (mean) of values",
     "mean": "Average (mean) of values",
     "count": "Count of non-null values",
-    "std": "Standard deviation of values",
-    "var": "Variance of values",
+    "std": "Population standard deviation (ddof=0)",
+    "var": "Population variance (ddof=0)",
     "median": "Median value",
 }
 
