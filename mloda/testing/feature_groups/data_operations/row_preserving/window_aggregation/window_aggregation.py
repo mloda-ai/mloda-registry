@@ -203,6 +203,36 @@ class WindowAggregationTestBase(DataOpsTestBase):
         """Max must match PyArrow reference."""
         self._compare_with_pyarrow("value_int__max_window", partition_by=["region"])
 
+    def test_cross_framework_std(self) -> None:
+        """Std must match PyArrow reference."""
+        self._skip_if_unsupported("std")
+        self._compare_with_pyarrow("value_int__std_window", partition_by=["region"], use_approx=True)
+
+    def test_cross_framework_var(self) -> None:
+        """Var must match PyArrow reference."""
+        self._skip_if_unsupported("var")
+        self._compare_with_pyarrow("value_int__var_window", partition_by=["region"], use_approx=True)
+
+    def test_cross_framework_median(self) -> None:
+        """Median must match PyArrow reference."""
+        self._skip_if_unsupported("median")
+        self._compare_with_pyarrow("value_int__median_window", partition_by=["region"], use_approx=True)
+
+    def test_cross_framework_nunique(self) -> None:
+        """Nunique must match PyArrow reference."""
+        self._skip_if_unsupported("nunique")
+        self._compare_with_pyarrow("value_int__nunique_window", partition_by=["region"])
+
+    def test_cross_framework_first(self) -> None:
+        """First must match PyArrow reference (with order_by)."""
+        self._skip_if_unsupported("first")
+        self._compare_with_pyarrow("value_int__first_window", partition_by=["region"], order_by="value_int")
+
+    def test_cross_framework_last(self) -> None:
+        """Last must match PyArrow reference (with order_by)."""
+        self._skip_if_unsupported("last")
+        self._compare_with_pyarrow("value_int__last_window", partition_by=["region"], order_by="value_int")
+
     # -- Statistical aggregation tests (skipped if unsupported) --------------
 
     def test_std_window_region(self) -> None:
