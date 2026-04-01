@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, List, Optional, Set
 
 from mloda.core.abstract_plugins.components.feature import Feature
@@ -143,7 +144,7 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
         result: list[Any] = []
         for val in values:
-            if val is None:
+            if val is None or (isinstance(val, float) and math.isnan(val)):
                 result.append(None)
                 continue
             if min_val == max_val:
@@ -164,7 +165,10 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         For N non-null values, rank r (0-based) maps to bin = r * n_bins // N.
         Ties receive consecutive ranks (same value may span two bins at a boundary).
         """
-        indexed = [(v, i) for i, v in enumerate(values) if v is not None]
+        indexed = [
+            (v, i) for i, v in enumerate(values)
+            if v is not None and not (isinstance(v, float) and math.isnan(v))
+        ]
         indexed.sort(key=lambda pair: pair[0])
         n = len(indexed)
 

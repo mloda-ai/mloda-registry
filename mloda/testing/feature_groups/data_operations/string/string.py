@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pyarrow as pa
 import pytest
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -264,3 +265,53 @@ class StringTestBase(DataOpsTestBase):
         """Calling _compute_string with an unknown operation should raise ValueError."""
         with pytest.raises(ValueError, match="[Uu]nsupported string operation"):
             self.implementation_class()._compute_string(self.test_data, "name__capitalize", "name", "capitalize")
+
+    # -- All-null column tests -----------------------------------------------
+
+    def test_all_null_column_upper(self) -> None:
+        """Upper on an all-null column should produce all None."""
+        table = pa.table({
+            "name": pa.array([None, None, None], type=pa.string()),
+        })
+        data = self.create_test_data(table)
+        fs = make_feature_set("name__upper")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "name__upper")
+        assert all(v is None for v in result_col), f"expected all None, got {result_col}"
+
+    def test_all_null_column_length(self) -> None:
+        """Length on an all-null column should produce all None."""
+        table = pa.table({
+            "name": pa.array([None, None, None], type=pa.string()),
+        })
+        data = self.create_test_data(table)
+        fs = make_feature_set("name__length")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "name__length")
+        assert all(v is None for v in result_col), f"expected all None, got {result_col}"
+
+    # -- Option-based config tests -------------------------------------------
+
+    def test_option_based_upper(self) -> None:
+        """Option-based configuration (not string pattern) produces the same result."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
+
+        feature = Feature(
+            "my_upper",
+            options=Options(
+                context={
+                    "string_op": "upper",
+                    "in_features": "name",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "my_upper")
+        assert result_col == self.expected_upper()

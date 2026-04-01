@@ -330,3 +330,49 @@ class BinningTestBase(DataOpsTestBase):
 
         result_col = self.extract_column(result, "value_int__bin_3")
         assert result_col == [0, 1, 2, 2]
+
+    # -- Option-based config tests -------------------------------------------
+
+    def test_option_based_bin_3(self) -> None:
+        """Option-based configuration (not string pattern) produces the same result."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
+
+        feature = Feature(
+            "my_bin_result",
+            options=Options(
+                context={
+                    "binning_op": "bin",
+                    "n_bins": 3,
+                    "in_features": "value_int",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "my_bin_result")
+        assert result_col == EXPECTED_BIN_3
+
+    def test_unsupported_binning_type_raises(self) -> None:
+        """Calling calculate_feature with an unknown binning type should raise."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
+
+        feature = Feature(
+            "value_int__evil_3",
+            options=Options(
+                context={
+                    "binning_op": "evil",
+                    "n_bins": 3,
+                    "in_features": "value_int",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        with pytest.raises((ValueError, KeyError)):
+            self.implementation_class().calculate_feature(self.test_data, fs)

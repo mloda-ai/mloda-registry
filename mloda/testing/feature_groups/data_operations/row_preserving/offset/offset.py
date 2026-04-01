@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pyarrow as pa
 import pytest
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -221,3 +222,118 @@ class OffsetTestBase(DataOpsTestBase):
         self._compare_with_pyarrow(
             "value_int__pct_change_1_offset", partition_by=["region"], order_by="value_int", use_approx=True
         )
+
+    # -- All-null column tests -----------------------------------------------
+
+    def test_all_null_column_lag(self) -> None:
+        """Lag on an all-null column should produce all None."""
+        table = pa.table({
+            "region": ["A", "A", "A"],
+            "score": pa.array([None, None, None], type=pa.int64()),
+        })
+        data = self.create_test_data(table)
+        fs = make_feature_set("score__lag_1_offset", ["region"], "score")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "score__lag_1_offset")
+        assert all(v is None for v in result_col), f"expected all None, got {result_col}"
+
+    def test_all_null_column_first_value(self) -> None:
+        """First value on an all-null column should produce all None."""
+        table = pa.table({
+            "region": ["A", "A", "A"],
+            "score": pa.array([None, None, None], type=pa.int64()),
+        })
+        data = self.create_test_data(table)
+        fs = make_feature_set("score__first_value_offset", ["region"], "score")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "score__first_value_offset")
+        assert all(v is None for v in result_col), f"expected all None, got {result_col}"
+
+    # -- Option-based config tests -------------------------------------------
+
+    def test_option_based_lag(self) -> None:
+        """Option-based configuration (not string pattern) produces the same result as pattern."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
+
+        feature = Feature(
+            "my_lag_result",
+            options=Options(
+                context={
+                    "offset_type": "lag_1",
+                    "in_features": "value_int",
+                    "partition_by": ["region"],
+                    "order_by": "value_int",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "my_lag_result")
+        assert result_col == EXPECTED_LAG_1
+
+    def test_unsupported_offset_type_raises(self) -> None:
+        """Calling calculate_feature with an unknown offset type should raise ValueError."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
+
+        feature = Feature(
+            "value_int__evil_type_offset",
+            options=Options(
+                context={
+                    "partition_by": ["region"],
+                    "order_by": "value_int",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        with pytest.raises((ValueError, KeyError)):
+            self.implementation_class().calculate_feature(self.test_data, fs)
+
+    # -- Tier 3: Partition / order_by null tests ------------------------------
+
+    def test_null_partition_key(self) -> None:
+        """Null in partition_by forms its own group. Row 11 has region=None."""
+        fs = make_feature_set("value_int__first_value_offset", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__first_value_offset")
+        # Row 11 has region=None, value_int=-10. Only member of its group.
+        # first_value of a single-row group = that value.
+        assert result_col[11] == -10
+
+    def test_multi_key_partition_lag(self) -> None:
+        """Lag partitioned by [region, category] produces correct grouping."""
+        fs = make_feature_set("value_int__lag_1_offset", ["region", "category"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__lag_1_offset")
+        # Group A/X: values [10, 0] sorted by value_int -> [0, 10]
+        #   row 2 (val 0, pos 0): lag=None
+        #   row 0 (val 10, pos 1): lag=0
+        assert result_col[2] is None
+        assert result_col[0] == 0
+
+    def test_null_order_by_key(self) -> None:
+        """Null in order_by column should rank last (nulls last)."""
+        table = pa.table({
+            "region": ["A", "A", "A"],
+            "ts": [None, 1, 2],
+            "value": [100, 10, 20],
+        })
+        data = self.create_test_data(table)
+        fs = make_feature_set("value__lag_1_offset", ["region"], "ts")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "value__lag_1_offset")
+        # Sorted by ts: 1->10, 2->20, None->100
+        # Lag: [None, 10, 20]
+        # Map back: row 0 (ts=None) -> lag=20, row 1 (ts=1) -> lag=None, row 2 (ts=2) -> lag=10
+        assert result_col[1] is None  # first in sorted order has no predecessor

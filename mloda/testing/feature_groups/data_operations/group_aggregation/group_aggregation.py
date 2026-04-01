@@ -463,3 +463,24 @@ class GroupAggregationTestBase(DataOpsTestBase):
         assert result_map[("A", "X")] == pytest.approx(1.5, rel=1e-6)
         # A/Y: [2.5, 0.0] -> avg = 1.25
         assert result_map[("A", "Y")] == pytest.approx(1.25, rel=1e-6)
+
+    # -- Unsupported operation raises ----------------------------------------
+
+    def test_unsupported_aggregation_type_raises(self) -> None:
+        """Calling calculate_feature with an unknown aggregation type should raise."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
+
+        feature = Feature(
+            "value_int__evil_type_grouped",
+            options=Options(
+                context={
+                    "partition_by": ["region"],
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        with pytest.raises((ValueError, KeyError)):
+            self.implementation_class().calculate_feature(self.test_data, fs)

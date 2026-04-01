@@ -425,3 +425,84 @@ class FrameAggregateTestBase(DataOpsTestBase):
         assert result_col[1] == 10
         assert result_col[3] == 30
         assert set([result_col[0], result_col[2]]) == {130, 330}
+
+    # -- Option-based config tests -------------------------------------------
+
+    def test_option_based_rolling_sum(self) -> None:
+        """Option-based configuration (not string pattern) produces the same result."""
+        feature = Feature(
+            "my_rolling_sum",
+            options=Options(
+                context={
+                    "aggregation_type": "sum",
+                    "frame_type": "rolling",
+                    "frame_size": 3,
+                    "in_features": "value_int",
+                    "partition_by": ["region"],
+                    "order_by": "value_int",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "my_rolling_sum")
+        assert result_col == EXPECTED_ROLLING_SUM_3
+
+    def test_unsupported_frame_type_raises(self) -> None:
+        """Config with an invalid frame_type should be rejected at match time."""
+        options = Options(
+            context={
+                "aggregation_type": "sum",
+                "frame_type": "evil_frame",
+                "frame_size": 3,
+                "in_features": "value_int",
+                "partition_by": ["region"],
+                "order_by": "value_int",
+            }
+        )
+        assert not self.implementation_class().match_feature_group_criteria("bad_frame", options)
+
+    # -- Tier 3: Partition / order_by null tests ------------------------------
+
+    def test_null_partition_key(self) -> None:
+        """Null in partition_by forms its own group. Row 11 has region=None."""
+        fs = make_feature_set("value_int__cumsum", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__cumsum")
+        # Row 11: region=None, value_int=-10. Only member of its group.
+        # cumsum of a single value = that value.
+        assert result_col[11] == -10
+
+    def test_multi_key_partition_rolling(self) -> None:
+        """Rolling sum partitioned by [region, category] produces correct sub-groups."""
+        fs = make_feature_set("value_int__sum_rolling_3", ["region", "category"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__sum_rolling_3")
+        # Group A/X: values [10, 0] sorted by value_int -> [0, 10]
+        #   row 2 (val 0, pos 0): window=[0] -> 0
+        #   row 0 (val 10, pos 1): window=[0, 10] -> 10
+        assert result_col[2] == 0
+        assert result_col[0] == 10
+
+    def test_null_order_by_key(self) -> None:
+        """Null in order_by column should sort last (nulls last)."""
+        table = pa.table({
+            "region": ["A", "A", "A"],
+            "ts": [None, 1, 2],
+            "value": [100, 10, 20],
+        })
+        data = self.create_test_data(table)
+        fs = make_feature_set("value__cumsum", ["region"], "ts")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "value__cumsum")
+        # Sorted by ts: 1->10, 2->20, None->100
+        # cumsum: 10, 30, 130
+        # Map back: row 0 (ts=None) -> 130, row 1 (ts=1) -> 10, row 2 (ts=2) -> 30
+        assert result_col[1] == 10
+        assert result_col[2] == 30
+        assert result_col[0] == 130

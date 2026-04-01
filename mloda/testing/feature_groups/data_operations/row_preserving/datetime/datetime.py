@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pyarrow as pa
+import pytest
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
@@ -352,3 +353,46 @@ class DateTimeTestBase(DataOpsTestBase):
     def test_cross_framework_varied_second(self) -> None:
         """Non-zero seconds must match PyArrow reference on varied dataset."""
         self._compare_varied_with_pyarrow("timestamp__second")
+
+    # -- All-null column tests -----------------------------------------------
+
+    def test_all_null_timestamp_column(self) -> None:
+        """An all-null timestamp column should produce all None for year extraction."""
+        all_null_table = pa.table({
+            "timestamp": pa.array([None, None, None], type=pa.timestamp("us", tz="UTC")),
+        })
+        data = self.create_test_data(all_null_table)
+        fs = make_feature_set("timestamp__year")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "timestamp__year")
+        assert all(v is None for v in result_col), f"expected all None, got {result_col}"
+
+    # -- Option-based config tests -------------------------------------------
+
+    def test_option_based_year(self) -> None:
+        """Option-based configuration (not string pattern) produces the same result."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
+
+        feature = Feature(
+            "my_year",
+            options=Options(
+                context={
+                    "datetime_op": "year",
+                    "in_features": "timestamp",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "my_year")
+        assert result_col == EXPECTED_YEAR
+
+    def test_unsupported_datetime_op_raises(self) -> None:
+        """Calling _compute_datetime with an unknown operation should raise ValueError."""
+        with pytest.raises(ValueError, match="[Uu]nsupported"):
+            self.implementation_class()._compute_datetime(self.test_data, "timestamp__evil_op", "timestamp", "evil_op")

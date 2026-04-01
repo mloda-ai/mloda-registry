@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+import pyarrow as pa
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
@@ -246,6 +247,125 @@ class RankTestBase(DataOpsTestBase):
     def test_cross_framework_ntile(self) -> None:
         """Ntile must match PyArrow reference."""
         self._compare_with_pyarrow("value_int__ntile_2_ranked", partition_by=["region"], order_by="value_int")
+
+    # -- All-null column tests -----------------------------------------------
+
+    def test_all_null_column_row_number(self) -> None:
+        """Row number on an all-null order_by column should still produce valid ranks."""
+        table = pa.table({
+            "region": ["A", "A", "A"],
+            "score": pa.array([None, None, None], type=pa.int64()),
+        })
+        data = self.create_test_data(table)
+        fs = make_feature_set("score__row_number_ranked", ["region"], "score")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "score__row_number_ranked")
+        assert len(result_col) == 3
+        # All values are null/tied, so row_number should assign 1, 2, 3
+        assert sorted(result_col) == [1, 2, 3]
+
+    def test_all_null_column_rank(self) -> None:
+        """Rank on an all-null order_by column should assign rank 1 to all (all tied)."""
+        table = pa.table({
+            "region": ["A", "A", "A"],
+            "score": pa.array([None, None, None], type=pa.int64()),
+        })
+        data = self.create_test_data(table)
+        fs = make_feature_set("score__rank_ranked", ["region"], "score")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "score__rank_ranked")
+        assert len(result_col) == 3
+        # All nulls are tied, so all get rank 1
+        assert all(v == 1 for v in result_col)
+
+    # -- Option-based config tests -------------------------------------------
+
+    def test_option_based_row_number(self) -> None:
+        """Option-based configuration (not string pattern) produces the same result."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
+
+        feature = Feature(
+            "my_row_number",
+            options=Options(
+                context={
+                    "rank_type": "row_number",
+                    "in_features": "value_int",
+                    "partition_by": ["region"],
+                    "order_by": "value_int",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "my_row_number")
+        assert result_col == EXPECTED_ROW_NUMBER
+
+    def test_unsupported_rank_type_raises(self) -> None:
+        """Calling calculate_feature with an unknown rank type should raise."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
+
+        feature = Feature(
+            "value_int__evil_type_ranked",
+            options=Options(
+                context={
+                    "partition_by": ["region"],
+                    "order_by": "value_int",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        with pytest.raises((ValueError, KeyError)):
+            self.implementation_class().calculate_feature(self.test_data, fs)
+
+    # -- Tier 3: Partition / order_by null tests ------------------------------
+
+    def test_null_partition_key_rank(self) -> None:
+        """Null in partition_by forms its own group. Row 11 has region=None."""
+        fs = make_feature_set("value_int__row_number_ranked", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__row_number_ranked")
+        # Row 11 has region=None, single row in its group -> row_number = 1
+        assert result_col[11] == 1
+
+    def test_multi_key_partition_rank(self) -> None:
+        """Rank partitioned by [region, category] produces correct grouping."""
+        fs = make_feature_set("value_int__row_number_ranked", ["region", "category"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__row_number_ranked")
+        # Group A/X: values [10, 0] sorted -> [0, 10], row_number = [1, 2]
+        #   row 2 (val 0): row_number = 1
+        #   row 0 (val 10): row_number = 2
+        assert result_col[2] == 1
+        assert result_col[0] == 2
+
+    def test_null_order_by_produces_valid_rank(self) -> None:
+        """Null in order_by column should rank last (nulls last)."""
+        table = pa.table({
+            "region": ["A", "A", "A"],
+            "ts": [None, 1, 2],
+            "value": [100, 10, 20],
+        })
+        data = self.create_test_data(table)
+        fs = make_feature_set("value__row_number_ranked", ["region"], "ts")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "value__row_number_ranked")
+        # Sorted by ts: 1->row_num 1, 2->row_num 2, None->row_num 3
+        # Map back: row 0 (ts=None) -> 3, row 1 (ts=1) -> 1, row 2 (ts=2) -> 2
+        assert result_col[1] == 1  # ts=1, first in sorted order
+        assert result_col[2] == 2  # ts=2, second
+        assert result_col[0] == 3  # ts=None, last (nulls last)
 
     # -- Helper methods ------------------------------------------------------
 

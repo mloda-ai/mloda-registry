@@ -407,3 +407,47 @@ class WindowAggregationTestBase(DataOpsTestBase):
         # A/Y: [2.5, 0.0] -> avg = 1.25
         assert result_col[1] == pytest.approx(1.25, rel=1e-6)
         assert result_col[3] == pytest.approx(1.25, rel=1e-6)
+
+    # -- Option-based config tests -------------------------------------------
+
+    def test_option_based_sum_groupby(self) -> None:
+        """Option-based configuration (not string pattern) produces the same result."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
+
+        feature = Feature(
+            "my_window_sum",
+            options=Options(
+                context={
+                    "aggregation_type": "sum",
+                    "in_features": "value_int",
+                    "partition_by": ["region"],
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "my_window_sum")
+        assert result_col == EXPECTED_SUM_BY_REGION
+
+    def test_unsupported_aggregation_type_raises(self) -> None:
+        """Calling calculate_feature with an unknown aggregation type should raise."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
+
+        feature = Feature(
+            "value_int__evil_type_groupby",
+            options=Options(
+                context={
+                    "partition_by": ["region"],
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        with pytest.raises((ValueError, KeyError)):
+            self.implementation_class().calculate_feature(self.test_data, fs)
