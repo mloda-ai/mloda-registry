@@ -13,7 +13,7 @@ import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.aggregation import (
+from mloda.testing.feature_groups.data_operations.aggregation.aggregation import (
     EXPECTED_AVG,
     EXPECTED_MAX,
     EXPECTED_MIN,

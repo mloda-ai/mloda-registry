@@ -8,7 +8,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.binning.pyarr
     PyArrowBinning,
 )
 from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
-from mloda.testing.feature_groups.data_operations.row_preserving.binning import (
+from mloda.testing.feature_groups.data_operations.row_preserving.binning.binning import (
     BinningTestBase,
 )
 

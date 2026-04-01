@@ -12,7 +12,7 @@ from mloda.community.feature_groups.data_operations.string.duckdb_string import 
     DuckdbStringOps,
 )
 from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
-from mloda.testing.feature_groups.data_operations.string import (
+from mloda.testing.feature_groups.data_operations.string.string import (
     StringTestBase,
 )
 

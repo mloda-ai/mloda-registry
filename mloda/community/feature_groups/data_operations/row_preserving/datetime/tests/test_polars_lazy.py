@@ -12,7 +12,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.datetime.pola
     PolarsLazyDateTimeExtraction,
 )
 from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
-from mloda.testing.feature_groups.data_operations.row_preserving.datetime import (
+from mloda.testing.feature_groups.data_operations.row_preserving.datetime.datetime import (
     DateTimeTestBase,
 )
 

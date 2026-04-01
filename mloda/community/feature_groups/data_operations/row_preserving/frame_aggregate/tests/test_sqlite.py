@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
-from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate import (
+from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
     FrameAggregateTestBase,
 )
 

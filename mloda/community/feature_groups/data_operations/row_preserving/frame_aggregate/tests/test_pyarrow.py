@@ -14,7 +14,7 @@ import pyarrow as pa
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
-from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate import (
+from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
     FrameAggregateTestBase,
 )
 from mloda.user import Feature

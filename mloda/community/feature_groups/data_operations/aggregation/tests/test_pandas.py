@@ -11,7 +11,7 @@ pytest.importorskip("pandas")
 from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import (
     PandasColumnAggregation,
 )
-from mloda.testing.feature_groups.data_operations.aggregation import (
+from mloda.testing.feature_groups.data_operations.aggregation.aggregation import (
     AggregationTestBase,
 )
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set

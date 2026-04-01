@@ -12,7 +12,7 @@ from mloda.community.feature_groups.data_operations.string.pandas_string import 
     PandasStringOps,
 )
 from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
-from mloda.testing.feature_groups.data_operations.string import (
+from mloda.testing.feature_groups.data_operations.string.string import (
     StringTestBase,
 )
 

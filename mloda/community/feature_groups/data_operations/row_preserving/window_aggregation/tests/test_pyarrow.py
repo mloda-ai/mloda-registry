@@ -8,7 +8,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
     PyArrowWindowAggregation,
 )
 from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
-from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation import (
+from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.window_aggregation import (
     WindowAggregationTestBase,
 )
 

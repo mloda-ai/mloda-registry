@@ -7,7 +7,7 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import (
     PyArrowColumnAggregation,
 )
-from mloda.testing.feature_groups.data_operations.aggregation import (
+from mloda.testing.feature_groups.data_operations.aggregation.aggregation import (
     AggregationTestBase,
 )
 from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin

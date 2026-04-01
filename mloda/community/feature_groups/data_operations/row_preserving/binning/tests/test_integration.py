@@ -9,7 +9,7 @@ import pyarrow as pa
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
-from mloda.testing.feature_groups.data_operations.row_preserving.binning import (
+from mloda.testing.feature_groups.data_operations.row_preserving.binning.binning import (
     EXPECTED_BIN_3,
     EXPECTED_QBIN_3,
 )

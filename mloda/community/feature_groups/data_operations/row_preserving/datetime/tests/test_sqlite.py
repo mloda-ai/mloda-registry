@@ -8,7 +8,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.datetime.sqli
     SqliteDateTimeExtraction,
 )
 from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
-from mloda.testing.feature_groups.data_operations.row_preserving.datetime import (
+from mloda.testing.feature_groups.data_operations.row_preserving.datetime.datetime import (
     DateTimeTestBase,
 )
 

@@ -12,7 +12,7 @@ from mloda.community.feature_groups.data_operations.string.polars_lazy_string im
     PolarsLazyStringOps,
 )
 from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
-from mloda.testing.feature_groups.data_operations.string import (
+from mloda.testing.feature_groups.data_operations.string.string import (
     StringTestBase,
 )
 

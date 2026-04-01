@@ -8,7 +8,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.datetime.pyar
     PyArrowDateTimeExtraction,
 )
 from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
-from mloda.testing.feature_groups.data_operations.row_preserving.datetime import (
+from mloda.testing.feature_groups.data_operations.row_preserving.datetime.datetime import (
     DateTimeTestBase,
 )
 

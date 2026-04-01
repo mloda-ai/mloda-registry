@@ -11,7 +11,7 @@ pytest.importorskip("duckdb")
 from mloda.community.feature_groups.data_operations.aggregation.duckdb_aggregation import (
     DuckdbColumnAggregation,
 )
-from mloda.testing.feature_groups.data_operations.aggregation import (
+from mloda.testing.feature_groups.data_operations.aggregation.aggregation import (
     AggregationTestBase,
 )
 from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin

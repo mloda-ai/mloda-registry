@@ -12,7 +12,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
     PolarsLazyWindowAggregation,
 )
 from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
-from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation import (
+from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.window_aggregation import (
     WindowAggregationTestBase,
 )
 
