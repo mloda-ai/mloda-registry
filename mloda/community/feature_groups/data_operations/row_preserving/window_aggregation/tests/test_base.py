@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
@@ -259,3 +263,29 @@ class TestConfigBasedFeatures:
         result_col = result.column("my_sum_result").to_pylist()
         expected = [25, 25, 25, 25, 140, 140, 140, 140, 70, 70, 70, -10]
         assert result_col == expected
+
+
+class TestWindowAggregationMatchValidation(MatchValidationTestBase):
+    @classmethod
+    def feature_group_class(cls) -> Any:
+        return WindowAggregationFeatureGroup
+
+    @classmethod
+    def valid_operations(cls) -> set[str]:
+        return set(WindowAggregationFeatureGroup.AGGREGATION_TYPES)
+
+    @classmethod
+    def config_key(cls) -> str:
+        return "aggregation_type"
+
+    @classmethod
+    def build_feature_name(cls, operation: str) -> str:
+        return f"value_int__{operation}_groupby"
+
+    @classmethod
+    def build_feature_name_no_source(cls) -> str:
+        return "sum_groupby"
+
+    @classmethod
+    def additional_match_options(cls) -> dict[str, Any]:
+        return {"in_features": "value_int", "partition_by": ["region"]}

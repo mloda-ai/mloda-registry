@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BINNING_OPS,
@@ -119,3 +122,29 @@ class TestConfigBasedFeatures:
         )
         result = BinningFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is False
+
+
+class TestBinningMatchValidation(MatchValidationTestBase):
+    @classmethod
+    def feature_group_class(cls) -> Any:
+        return BinningFeatureGroup
+
+    @classmethod
+    def valid_operations(cls) -> set[str]:
+        return set(BINNING_OPS)
+
+    @classmethod
+    def config_key(cls) -> str:
+        return "binning_op"
+
+    @classmethod
+    def build_feature_name(cls, operation: str) -> str:
+        return f"value_int__{operation}_5"
+
+    @classmethod
+    def build_feature_name_no_source(cls) -> str:
+        return "equal_width_5"
+
+    @classmethod
+    def additional_match_options(cls) -> dict[str, Any]:
+        return {"in_features": "value_int", "n_bins": 5}

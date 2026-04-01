@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import OffsetFeatureGroup
 
 
@@ -168,3 +172,33 @@ class TestConfigBasedFeatures:
         assert isinstance(result, pa.Table)
         assert "my_lag" in result.column_names
         assert result.num_rows == 12
+
+
+class TestOffsetMatchValidation(MatchValidationTestBase):
+    @classmethod
+    def feature_group_class(cls) -> Any:
+        return OffsetFeatureGroup
+
+    @classmethod
+    def valid_operations(cls) -> set[str]:
+        return {"first_value", "last_value", "lag_1", "lead_1"}
+
+    @classmethod
+    def config_key(cls) -> str:
+        return "offset_type"
+
+    @classmethod
+    def build_feature_name(cls, operation: str) -> str:
+        return f"value_int__{operation}_offset"
+
+    @classmethod
+    def build_feature_name_no_source(cls) -> str:
+        return "lag_1_offset"
+
+    @classmethod
+    def additional_match_options(cls) -> dict[str, Any]:
+        return {"in_features": "value_int", "partition_by": ["region"], "order_by": "timestamp"}
+
+    @classmethod
+    def options_reject_invalid_types(cls) -> bool:
+        return False

@@ -1,19 +1,15 @@
-"""Security-focused tests for the column aggregation package.
+"""Aggregation-specific security tests: compute-level rejection, backend
+allowlist completeness, and SQL utility safety.
 
-Generic security tests (SQL injection, invalid types, type confusion, case
-sensitivity) are inherited from ``SecurityTestBase``.  This file adds
-aggregation-specific tests: compute-level rejection and backend allowlist
-completeness.
+Generic match-validation tests live in ``test_base.py`` via
+``MatchValidationTestBase``.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.security import SecurityTestBase
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AGGREGATION_TYPES,
@@ -22,30 +18,6 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
 from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import (
     PyArrowColumnAggregation,
 )
-
-
-class TestAggregationSecurity(SecurityTestBase):
-    """Shared security tests adapted for column aggregation."""
-
-    @classmethod
-    def feature_group_class(cls) -> Any:
-        return ColumnAggregationFeatureGroup
-
-    @classmethod
-    def valid_operations(cls) -> set[str]:
-        return set(AGGREGATION_TYPES)
-
-    @classmethod
-    def config_key(cls) -> str:
-        return "aggregation_type"
-
-    @classmethod
-    def build_feature_name(cls, operation: str) -> str:
-        return f"value_int__{operation}_aggr"
-
-    @classmethod
-    def additional_match_options(cls) -> dict[str, Any]:
-        return {"in_features": "value_int"}
 
 
 class TestAggregationComputeRejection:

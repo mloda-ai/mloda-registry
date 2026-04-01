@@ -1,6 +1,7 @@
-"""Shared security test base for data-operations feature groups.
+"""Shared match-validation test base for data-operations feature groups.
 
-Provides ``SecurityTestBase`` with reusable test methods covering:
+Provides ``MatchValidationTestBase`` with reusable test methods covering:
+- Feature names without a source column prefix
 - SQL injection in feature names
 - Invalid operation types (pattern-based and options-based)
 - Special characters in the operation portion of feature names
@@ -21,8 +22,8 @@ import pytest
 from mloda.core.abstract_plugins.components.options import Options
 
 
-class SecurityTestBase:
-    """Shared security tests for data-operations feature groups.
+class MatchValidationTestBase:
+    """Shared match-validation tests for data-operations feature groups.
 
     Subclasses implement abstract methods to provide operation-specific
     constants (valid operations, config key, feature name pattern, etc.).
@@ -53,6 +54,14 @@ class SecurityTestBase:
         """
 
     @classmethod
+    @abstractmethod
+    def build_feature_name_no_source(cls) -> str:
+        """Build a feature name with the right op/suffix but no source column prefix.
+
+        For example, ``"sum_aggr"`` instead of ``"value_int__sum_aggr"``.
+        """
+
+    @classmethod
     def additional_match_options(cls) -> dict[str, Any]:
         """Additional options needed for options-based matching.
 
@@ -77,6 +86,15 @@ class SecurityTestBase:
         False for operations with strict_validation=False on the config key.
         """
         return True
+
+    # -- No source column ------------------------------------------------------
+
+    def test_no_match_no_source_column(self) -> None:
+        """Feature name without a source column prefix must not match."""
+        name = self.build_feature_name_no_source()
+        options = self.pattern_match_options()
+        result = self.feature_group_class().match_feature_group_criteria(name, options, None)
+        assert result is False, f"Should reject feature name without source column: {name}"
 
     # -- SQL injection -------------------------------------------------------
 

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
@@ -239,3 +242,29 @@ class TestConfigBasedFeatures:
         assert isinstance(result, pa.Table)
         assert "my_rank_result" in result.column_names
         assert result.num_rows == 12
+
+
+class TestRankMatchValidation(MatchValidationTestBase):
+    @classmethod
+    def feature_group_class(cls) -> Any:
+        return RankFeatureGroup
+
+    @classmethod
+    def valid_operations(cls) -> set[str]:
+        return set(RankFeatureGroup.RANK_TYPES)
+
+    @classmethod
+    def config_key(cls) -> str:
+        return "rank_type"
+
+    @classmethod
+    def build_feature_name(cls, operation: str) -> str:
+        return f"value_int__{operation}_ranked"
+
+    @classmethod
+    def build_feature_name_no_source(cls) -> str:
+        return "row_number_ranked"
+
+    @classmethod
+    def additional_match_options(cls) -> dict[str, Any]:
+        return {"in_features": "value_int", "partition_by": ["region"], "order_by": "value_int"}
