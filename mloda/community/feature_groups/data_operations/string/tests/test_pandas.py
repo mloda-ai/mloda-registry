@@ -11,7 +11,7 @@ pytest.importorskip("pandas")
 from mloda.community.feature_groups.data_operations.string.pandas_string import (
     PandasStringOps,
 )
-from mloda.testing.feature_groups.data_operations.helpers import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
 from mloda.testing.feature_groups.data_operations.string import (
     StringTestBase,
 )

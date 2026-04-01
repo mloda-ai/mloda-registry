@@ -14,7 +14,7 @@ from mloda.community.feature_groups.data_operations.aggregation.polars_lazy_aggr
 from mloda.testing.feature_groups.data_operations.aggregation import (
     AggregationTestBase,
 )
-from mloda.testing.feature_groups.data_operations.helpers import PolarsLazyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
 
 
 class TestPolarsLazyColumnAggregation(PolarsLazyTestMixin, AggregationTestBase):

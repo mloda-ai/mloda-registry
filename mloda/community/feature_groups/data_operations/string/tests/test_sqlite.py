@@ -9,7 +9,7 @@ import pytest
 from mloda.community.feature_groups.data_operations.string.sqlite_string import (
     SqliteStringOps,
 )
-from mloda.testing.feature_groups.data_operations.helpers import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
 from mloda.testing.feature_groups.data_operations.string import (
     StringTestBase,
 )

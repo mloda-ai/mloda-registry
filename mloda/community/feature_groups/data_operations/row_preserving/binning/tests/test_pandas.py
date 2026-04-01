@@ -13,7 +13,7 @@ import pandas as pd
 from mloda.community.feature_groups.data_operations.row_preserving.binning.pandas_binning import (
     PandasBinning,
 )
-from mloda.testing.feature_groups.data_operations.helpers import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.binning import (
     BinningTestBase,
 )

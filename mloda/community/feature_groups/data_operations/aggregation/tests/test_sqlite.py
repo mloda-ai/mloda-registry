@@ -10,7 +10,7 @@ from mloda.community.feature_groups.data_operations.aggregation.sqlite_aggregati
 from mloda.testing.feature_groups.data_operations.aggregation import (
     AggregationTestBase,
 )
-from mloda.testing.feature_groups.data_operations.helpers import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
 
 
 class TestSqliteColumnAggregation(SqliteTestMixin, AggregationTestBase):

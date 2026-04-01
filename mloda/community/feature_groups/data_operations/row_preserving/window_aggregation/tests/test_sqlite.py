@@ -7,7 +7,7 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.sqlite_window_aggregation import (
     SqliteWindowAggregation,
 )
-from mloda.testing.feature_groups.data_operations.helpers import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation import (
     WindowAggregationTestBase,
 )

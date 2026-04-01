@@ -11,7 +11,7 @@ pytest.importorskip("polars")
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.polars_lazy_datetime import (
     PolarsLazyDateTimeExtraction,
 )
-from mloda.testing.feature_groups.data_operations.helpers import PolarsLazyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.datetime import (
     DateTimeTestBase,
 )

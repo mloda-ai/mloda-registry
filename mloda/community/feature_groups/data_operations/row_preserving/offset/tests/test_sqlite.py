@@ -12,7 +12,7 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation
 
 from mloda.community.feature_groups.data_operations.row_preserving.offset.sqlite_offset import SqliteOffset
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.helpers import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.offset.offset import (
     OffsetTestBase,
     make_feature_set,

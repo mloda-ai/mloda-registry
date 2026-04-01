@@ -11,7 +11,7 @@ pytest.importorskip("pandas")
 from mloda.community.feature_groups.data_operations.row_preserving.rank.pandas_rank import (
     PandasRank,
 )
-from mloda.testing.feature_groups.data_operations.helpers import PandasTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import (
     RankTestBase,
 )

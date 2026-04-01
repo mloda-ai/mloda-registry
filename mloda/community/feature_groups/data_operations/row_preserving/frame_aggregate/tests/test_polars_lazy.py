@@ -11,7 +11,7 @@ import pytest
 
 pytest.importorskip("polars")
 
-from mloda.testing.feature_groups.data_operations.helpers import PolarsLazyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate import (
     FrameAggregateTestBase,
 )

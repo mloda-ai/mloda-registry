@@ -11,7 +11,7 @@ duckdb = pytest.importorskip("duckdb")
 from mloda.community.feature_groups.data_operations.string.duckdb_string import (
     DuckdbStringOps,
 )
-from mloda.testing.feature_groups.data_operations.helpers import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.string import (
     StringTestBase,
 )

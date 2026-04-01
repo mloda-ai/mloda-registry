@@ -7,7 +7,7 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.row_preserving.rank.pyarrow_rank import (
     PyArrowRank,
 )
-from mloda.testing.feature_groups.data_operations.helpers import PyArrowTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import (
     RankTestBase,
 )

@@ -11,7 +11,7 @@ duckdb = pytest.importorskip("duckdb")
 from mloda.community.feature_groups.data_operations.row_preserving.binning.duckdb_binning import (
     DuckdbBinning,
 )
-from mloda.testing.feature_groups.data_operations.helpers import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.binning import (
     BinningTestBase,
 )

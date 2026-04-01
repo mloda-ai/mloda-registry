@@ -11,7 +11,7 @@ pytest.importorskip("polars")
 from mloda.community.feature_groups.data_operations.row_preserving.rank.polars_lazy_rank import (
     PolarsLazyRank,
 )
-from mloda.testing.feature_groups.data_operations.helpers import PolarsLazyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import (
     RankTestBase,
 )

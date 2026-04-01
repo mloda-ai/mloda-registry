@@ -10,7 +10,7 @@ from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregat
 from mloda.testing.feature_groups.data_operations.aggregation import (
     AggregationTestBase,
 )
-from mloda.testing.feature_groups.data_operations.helpers import PyArrowTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
 
 
 class TestPyArrowColumnAggregation(PyArrowTestMixin, AggregationTestBase):

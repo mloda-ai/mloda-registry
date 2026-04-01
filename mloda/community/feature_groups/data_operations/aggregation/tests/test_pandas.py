@@ -14,7 +14,8 @@ from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregati
 from mloda.testing.feature_groups.data_operations.aggregation import (
     AggregationTestBase,
 )
-from mloda.testing.feature_groups.data_operations.helpers import PandasTestMixin, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
 
 
 class TestPandasColumnAggregation(PandasTestMixin, AggregationTestBase):
