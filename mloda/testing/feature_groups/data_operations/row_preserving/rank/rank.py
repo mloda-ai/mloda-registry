@@ -475,6 +475,40 @@ class RankTestBase(DataOpsTestBase):
         assert result_col[2] == 2  # ts=2, second
         assert result_col[0] == 3  # ts=None, last (nulls last)
 
+    def test_top_n_string_order_by(self) -> None:
+        """Top 2 with a string order_by column: DESC sort must not use negation."""
+        table = pa.table(
+            {
+                "region": ["A", "A", "A", "A"],
+                "label": ["cherry", "apple", "banana", None],
+            }
+        )
+        data = self.create_test_data(table)
+        fs = make_feature_set("label__top_2_ranked", ["region"], "label")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "label__top_2_ranked")
+        # DESC with nulls last: cherry(0), banana(2), apple(1), None(3)
+        # Top 2 = rows 0 and 2 -> True; rows 1 and 3 -> False
+        assert result_col == [True, False, True, False]
+
+    def test_bottom_n_string_order_by(self) -> None:
+        """Bottom 2 with a string order_by column: ASC sort on non-numeric types."""
+        table = pa.table(
+            {
+                "region": ["A", "A", "A", "A"],
+                "label": ["cherry", "apple", "banana", None],
+            }
+        )
+        data = self.create_test_data(table)
+        fs = make_feature_set("label__bottom_2_ranked", ["region"], "label")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "label__bottom_2_ranked")
+        # ASC with nulls last: apple(1), banana(2), cherry(0), None(3)
+        # Bottom 2 = rows 1 and 2 -> True; rows 0 and 3 -> False
+        assert result_col == [False, True, True, False]
+
     # -- Helper methods ------------------------------------------------------
 
     def _skip_if_unsupported(self, rank_type: str) -> None:

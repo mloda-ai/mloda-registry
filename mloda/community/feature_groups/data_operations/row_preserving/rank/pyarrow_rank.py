@@ -53,7 +53,7 @@ class PyArrowRank(RankFeatureGroup):
 
         # Sort each group by order_by value (nulls last)
         for key in groups:
-            groups[key].sort(key=lambda x: (x[1] is None, x[1] if x[1] is not None else 0))
+            groups[key].sort(key=lambda x: (1,) if x[1] is None else (0, x[1]))
 
         # Compute rank values
         result_values: list[Any] = [0] * num_rows
@@ -115,11 +115,10 @@ class PyArrowRank(RankFeatureGroup):
 
             elif rank_type.startswith("top_"):
                 top_n = int(rank_type[len("top_") :])
-                # Sort DESC for top-N with nulls last
-                desc_rows = sorted(
-                    sorted_rows,
-                    key=lambda x: (x[1] is None, -(x[1]) if x[1] is not None else 0),
-                )
+                # Reverse the ASC-sorted non-null rows to get DESC; keep nulls last
+                non_null = [(idx, val) for idx, val in sorted_rows if val is not None]
+                nulls = [(idx, val) for idx, val in sorted_rows if val is None]
+                desc_rows = non_null[::-1] + nulls
                 for pos, (idx, _) in enumerate(desc_rows):
                     result_values[idx] = pos + 1 <= top_n
 
