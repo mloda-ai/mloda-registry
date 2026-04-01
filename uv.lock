@@ -679,7 +679,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'pyarrow'" },
     { name = "pytest", marker = "extra == 'dev'" },
 ]
-provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "pyarrow", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-rank"
