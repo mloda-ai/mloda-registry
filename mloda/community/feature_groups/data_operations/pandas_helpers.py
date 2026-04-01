@@ -16,6 +16,12 @@ PANDAS_AGG_FUNCS: dict[str, str] = {
     "count": "count",
     "min": "min",
     "max": "max",
+    "std": "std",
+    "var": "var",
+    "nunique": "nunique",
+    "first": "first",
+    "last": "last",
+    "median": "median",
 }
 
 
