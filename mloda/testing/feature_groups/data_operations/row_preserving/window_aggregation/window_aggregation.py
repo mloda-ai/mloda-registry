@@ -251,24 +251,14 @@ class WindowAggregationTestBase(DataOpsTestBase):
         self._compare_with_pyarrow("value_int__last_window", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_mode(self) -> None:
-        """Mode must match PyArrow reference for groups with unambiguous mode.
+        """Mode must match PyArrow reference.
 
-        Groups A and B have all-unique values; tie-breaking is
-        implementation-defined.  Only Group C (rows 8-10, mode=15) and
-        the None group (row 11, mode=-10) are compared.
+        PyArrow picks the first-encountered value on ties.
+        Frameworks that use different tie-breaking must exclude
+        'mode' from supported_agg_types().
         """
         self._skip_if_unsupported("mode")
-        from mloda.testing.feature_groups.data_operations.helpers import extract_column
-
-        fs = make_feature_set("value_int__mode_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
-
-        result_col = self.extract_column(result, "value_int__mode_window")
-        ref_col = extract_column(ref, "value_int__mode_window")
-
-        for i in (8, 9, 10, 11):
-            assert result_col[i] == ref_col[i], f"row {i}: {result_col[i]} != ref {ref_col[i]}"
+        self._compare_with_pyarrow("value_int__mode_window", partition_by=["region"])
 
     # -- Statistical aggregation tests (skipped if unsupported) --------------
 
@@ -362,18 +352,17 @@ class WindowAggregationTestBase(DataOpsTestBase):
     # -- Advanced aggregation tests (skipped if unsupported) -----------------
 
     def test_mode_window_region(self) -> None:
-        """Mode of value_int partitioned by region."""
+        """Mode of value_int partitioned by region.
+
+        PyArrow reference: [10,10,10,10, 50,50,50,50, 15,15,15, -10].
+        On ties (all-unique groups A, B), PyArrow picks the first-encountered value.
+        """
         self._skip_if_unsupported("mode")
         fs = make_feature_set("value_int__mode_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__mode_window")
-        # Group C has 15 appearing twice, so mode = 15
-        assert result_col[8] == 15
-        assert result_col[9] == 15
-        assert result_col[10] == 15
-        # None group: single value -10
-        assert result_col[11] == -10
+        assert result_col == [10, 10, 10, 10, 50, 50, 50, 50, 15, 15, 15, -10]
 
     def test_nunique_window_region(self) -> None:
         """Count of unique value_int values partitioned by region.
@@ -473,17 +462,16 @@ class WindowAggregationTestBase(DataOpsTestBase):
         assert all(v is None for v in result_col)
 
     def test_all_null_column_nunique(self) -> None:
-        """score is all-null. Nunique per group should be 0 or 1.
+        """score is all-null. Nunique per group should be 0 (no distinct non-null values).
 
-        Most frameworks return 0 (no distinct non-null values).
-        PyArrow count_distinct may return 1 (counting null as distinct).
+        PyArrow reference: count_distinct excludes nulls, returning 0.
         """
         self._skip_if_unsupported("nunique")
         fs = make_feature_set("score__nunique_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "score__nunique_window")
-        assert all(v in {0, 1} for v in result_col)
+        assert all(v == 0 for v in result_col)
 
     # -- Multi-key partition tests -------------------------------------------
 
@@ -641,22 +629,15 @@ class WindowAggregationTestBase(DataOpsTestBase):
     def test_multi_key_partition_mode(self) -> None:
         """Mode of value_int partitioned by [region, category].
 
-        Only single-value groups are checked because multi-value groups
-        have all-unique values making tie-breaking implementation-defined.
+        PyArrow reference: [10,-5,10,-5, 60,50,30,60, 15,15,15, -10].
+        On ties, PyArrow picks the first-encountered value.
         """
         self._skip_if_unsupported("mode")
         fs = make_feature_set("value_int__mode_window", ["region", "category"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__mode_window")
-        # (B,Y) row 5: single value 50
-        assert result_col[5] == 50
-        # (B,None) row 6: single value 30
-        assert result_col[6] == 30
-        # (C,X) row 9: single value 15
-        assert result_col[9] == 15
-        # (None,X) row 11: single value -10
-        assert result_col[11] == -10
+        assert result_col == [10, -5, 10, -5, 60, 50, 30, 60, 15, 15, 15, -10]
 
     def test_multi_key_partition_first(self) -> None:
         """First non-null value_int per [region, category], ordered by value_int."""

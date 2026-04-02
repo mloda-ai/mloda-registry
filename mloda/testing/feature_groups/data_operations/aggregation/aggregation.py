@@ -224,17 +224,12 @@ class AggregationTestBase(DataOpsTestBase):
         feature_name: str,
         partition_by: list[str],
         use_approx: bool = False,
-        nullable_groups: set[Any] | None = None,
     ) -> None:
         """Run the feature through this framework and PyArrow, assert results match.
 
-        *nullable_groups*, when provided, lists group keys where a framework
-        returning None while PyArrow returns a non-None value is accepted.
-        This accommodates first/last null-handling differences (e.g. DuckDB
-        returns the literal first value including None for Group B, while
-        PyArrow skips nulls and returns 50).  Groups NOT in this set are
-        always compared strictly, so a new regression that introduces an
-        unexpected None will be caught.
+        PyArrow is the reference implementation.  Every framework must produce
+        identical results.  If a framework cannot match PyArrow for a given
+        operation, it should exclude that operation from supported_agg_types().
         """
         fs = make_feature_set(feature_name, partition_by)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
@@ -248,11 +243,8 @@ class AggregationTestBase(DataOpsTestBase):
         ref_col = extract_column(ref, feature_name)
         ref_map = _build_result_map(ref_region_col, ref_col)
 
-        _nullable = nullable_groups or set()
         assert len(result_map) == len(ref_map), f"group count {len(result_map)} != reference {len(ref_map)}"
         for key in ref_map:
-            if key in _nullable and result_map[key] is None and ref_map[key] is not None:
-                continue
             if use_approx:
                 if ref_map[key] is None:
                     assert result_map[key] is None, f"group {key}: expected None, got {result_map[key]}"
@@ -304,46 +296,28 @@ class AggregationTestBase(DataOpsTestBase):
         self._compare_agg_with_pyarrow("value_int__nunique_agg", ["region"])
 
     def test_cross_framework_first(self) -> None:
-        """First must match PyArrow reference (tolerating null-skip divergence).
+        """First must match PyArrow reference.
 
-        Group B has a leading null.  PyArrow skips nulls (returns 50),
-        while DuckDB/Polars return None (literal first value).
-        Only group B is allowed to diverge; all other groups must match strictly.
+        PyArrow skips nulls (Group B returns 50, not None).
+        Frameworks that cannot match must exclude 'first' from supported_agg_types().
         """
         self._skip_if_unsupported("first")
-        self._compare_agg_with_pyarrow("value_int__first_agg", ["region"], nullable_groups={"B"})
+        self._compare_agg_with_pyarrow("value_int__first_agg", ["region"])
 
     def test_cross_framework_last(self) -> None:
-        """Last must match PyArrow reference.
-
-        No group has a trailing null, so all frameworks agree on last.
-        """
+        """Last must match PyArrow reference."""
         self._skip_if_unsupported("last")
         self._compare_agg_with_pyarrow("value_int__last_agg", ["region"])
 
     def test_cross_framework_mode(self) -> None:
-        """Mode must match PyArrow reference for groups with unambiguous mode.
+        """Mode must match PyArrow reference.
 
-        Groups A and B have all-unique values; tie-breaking is
-        implementation-defined (Pandas picks smallest, PyArrow picks
-        first encountered).  Only Groups C (15 appears twice) and None
-        (single value -10) have a deterministic mode.
+        PyArrow picks the first-encountered value on ties (Group A=10,
+        Group B=50).  Frameworks that use different tie-breaking must
+        exclude 'mode' from supported_agg_types().
         """
         self._skip_if_unsupported("mode")
-        fs = make_feature_set("value_int__mode_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
-
-        region_col = self.extract_column(result, "region")
-        result_col = self.extract_column(result, "value_int__mode_agg")
-        result_map = _build_result_map(region_col, result_col)
-
-        ref_region_col = extract_column(ref, "region")
-        ref_col = extract_column(ref, "value_int__mode_agg")
-        ref_map = _build_result_map(ref_region_col, ref_col)
-
-        for key in ("C", None):
-            assert result_map[key] == ref_map[key], f"group {key}: {result_map[key]} != ref {ref_map[key]}"
+        self._compare_agg_with_pyarrow("value_int__mode_agg", ["region"])
 
     # -- Statistical aggregation tests (skipped if unsupported) --------------
 
@@ -443,7 +417,11 @@ class AggregationTestBase(DataOpsTestBase):
     # -- Advanced aggregation tests (skipped if unsupported) -----------------
 
     def test_mode_agg_region(self) -> None:
-        """Mode of value_int grouped by region."""
+        """Mode of value_int grouped by region.
+
+        PyArrow reference: A=10, B=50, C=15, None=-10.
+        On ties (all-unique groups A, B), PyArrow picks the first-encountered value.
+        """
         self._skip_if_unsupported("mode")
         fs = make_feature_set("value_int__mode_agg", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
@@ -451,9 +429,9 @@ class AggregationTestBase(DataOpsTestBase):
         region_col = self.extract_column(result, "region")
         result_col = self.extract_column(result, "value_int__mode_agg")
         result_map = _build_result_map(region_col, result_col)
-        # Group C has 15 appearing twice, so mode = 15
+        assert result_map["A"] == 10
+        assert result_map["B"] == 50
         assert result_map["C"] == 15
-        # None group: single value -10
         assert result_map[None] == -10
 
     def test_nunique_agg_region(self) -> None:
@@ -473,10 +451,9 @@ class AggregationTestBase(DataOpsTestBase):
     def test_first_agg_region(self) -> None:
         """First value of value_int grouped by region.
 
-        Group values (insertion order): A=[10,-5,0,20], B=[None,50,30,60],
-        C=[15,15,40], None=[-10]. For groups without leading nulls, all
-        frameworks agree. For B, PyArrow returns the first non-null (50)
-        while Polars/DuckDB return None (literal first value).
+        PyArrow reference: A=10, B=50, C=15, None=-10.
+        PyArrow skips nulls, so Group B returns 50 (first non-null), not None.
+        Frameworks that cannot match must exclude 'first' from supported_agg_types().
         """
         self._skip_if_unsupported("first")
         fs = make_feature_set("value_int__first_agg", ["region"])
@@ -487,10 +464,9 @@ class AggregationTestBase(DataOpsTestBase):
         result_map = _build_result_map(region_col, result_col)
 
         assert result_map["A"] == 10
+        assert result_map["B"] == 50
         assert result_map["C"] == 15
         assert result_map[None] == -10
-        # B has a leading null: PyArrow skips nulls (50), others return None
-        assert result_map["B"] in {None, 50}
 
     def test_last_agg_region(self) -> None:
         """Last value of value_int grouped by region.
@@ -609,17 +585,16 @@ class AggregationTestBase(DataOpsTestBase):
         assert all(v is None for v in result_col)
 
     def test_all_null_column_nunique_per_group(self) -> None:
-        """score is all-null. Nunique per group should be 0 or 1.
+        """score is all-null. Nunique per group should be 0 (no distinct non-null values).
 
-        Most frameworks return 0 (no distinct non-null values).
-        PyArrow count_distinct may return 1 (counting null as distinct).
+        PyArrow reference: count_distinct excludes nulls, returning 0.
         """
         self._skip_if_unsupported("nunique")
         fs = make_feature_set("score__nunique_agg", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "score__nunique_agg")
-        assert all(v in {0, 1} for v in result_col)
+        assert all(v == 0 for v in result_col)
 
     # -- Cross-framework null comparisons ------------------------------------
 
@@ -752,22 +727,27 @@ class AggregationTestBase(DataOpsTestBase):
     def test_multi_key_partition_mode(self) -> None:
         """Mode of value_int grouped by [region, category].
 
-        Only single-value groups are checked because multi-value groups
-        have all-unique values making tie-breaking implementation-defined.
+        PyArrow reference: on ties, picks the first-encountered value.
         """
         self._skip_if_unsupported("mode")
         fs = make_feature_set("value_int__mode_agg", ["region", "category"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         result_map = self._build_multi_key_map(result, "value_int__mode_agg")
 
-        # Single-value groups have an unambiguous mode
+        assert result_map[("A", "X")] == 10
+        assert result_map[("A", "Y")] == -5
+        assert result_map[("B", "X")] == 60
         assert result_map[("B", "Y")] == 50
         assert result_map[("B", None)] == 30
         assert result_map[("C", "X")] == 15
+        assert result_map[("C", "Y")] == 15
         assert result_map[(None, "X")] == -10
 
     def test_multi_key_partition_first(self) -> None:
-        """First value of value_int grouped by [region, category] (insertion order)."""
+        """First value of value_int grouped by [region, category] (insertion order).
+
+        PyArrow skips nulls: (B,X) has [None, 60], first non-null = 60.
+        """
         self._skip_if_unsupported("first")
         fs = make_feature_set("value_int__first_agg", ["region", "category"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
@@ -775,8 +755,7 @@ class AggregationTestBase(DataOpsTestBase):
 
         assert result_map[("A", "X")] == 10
         assert result_map[("A", "Y")] == -5
-        # (B,X): [None, 60] -> first is None or 60 (null-skip divergence)
-        assert result_map[("B", "X")] in {None, 60}
+        assert result_map[("B", "X")] == 60
         assert result_map[("B", "Y")] == 50
         assert result_map[("B", None)] == 30
         assert result_map[("C", "Y")] == 15
