@@ -365,11 +365,10 @@ class WindowAggregationTestBase(DataOpsTestBase):
         assert result_col == [10, 10, 10, 10, 50, 50, 50, 50, 15, 15, 15, -10]
 
     def test_nunique_window_region(self) -> None:
-        """Count of unique value_int values partitioned by region.
+        """Count of unique non-null value_int values partitioned by region.
 
-        Some frameworks (Polars) count null as a unique value, others
-        (PyArrow, DuckDB) skip nulls. Group B has {None, 50, 30, 60}:
-        3 unique without null, 4 unique with null.
+        PyArrow reference: nulls are excluded from the distinct count.
+        Group B has {None, 50, 30, 60}: 3 distinct non-null values.
         """
         self._skip_if_unsupported("nunique")
         fs = make_feature_set("value_int__nunique_window", ["region"])
