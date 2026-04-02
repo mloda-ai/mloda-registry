@@ -140,6 +140,32 @@ class DataOpsIntegrationTestBase(ABC):
         """Relative tolerance for pytest.approx. Default: 1e-3."""
         return 1e-3
 
+    # -- Framework adapter methods (override for non-PyArrow frameworks) ------
+
+    def _is_framework_result(self, obj: Any, feature_name: str) -> bool:
+        """Check if *obj* is a framework result containing *feature_name*.
+
+        Default implementation checks for ``pa.Table``. Override for other
+        frameworks (e.g. ``pd.DataFrame``).
+        """
+        return isinstance(obj, pa.Table) and feature_name in obj.column_names
+
+    def _extract_result_column(self, result: Any, feature_name: str) -> list[Any]:
+        """Extract a column from the framework result as a Python list.
+
+        Default implementation uses PyArrow's ``.column().to_pylist()``.
+        Override for other frameworks.
+        """
+        return result.column(feature_name).to_pylist()  # type: ignore[no-any-return]
+
+    def _get_result_row_count(self, result: Any) -> int:
+        """Return the number of rows in the framework result.
+
+        Default implementation uses PyArrow's ``.num_rows``.
+        Override for other frameworks.
+        """
+        return result.num_rows  # type: ignore[no-any-return]
+
     # -- Helpers --------------------------------------------------------------
 
     def _make_feature(self, name: str, options_context: dict[str, Any]) -> Feature:
@@ -150,8 +176,8 @@ class DataOpsIntegrationTestBase(ABC):
         """Create a PluginCollector with the feature group and data creator enabled."""
         return PluginCollector.enabled_feature_groups({self.data_creator_class(), self.feature_group_class()})
 
-    def _run_single_feature(self, name: str, options_context: dict[str, Any]) -> pa.Table:
-        """Run a single feature through the pipeline and return the result table."""
+    def _run_single_feature(self, name: str, options_context: dict[str, Any]) -> Any:
+        """Run a single feature through the pipeline and return the result."""
         feature = self._make_feature(name, options_context)
         results = mloda.run_all(
             [feature],
@@ -160,14 +186,11 @@ class DataOpsIntegrationTestBase(ABC):
         )
         assert len(results) >= 1
 
-        result_table = None
         for table in results:
-            if isinstance(table, pa.Table) and name in table.column_names:
-                result_table = table
-                break
+            if self._is_framework_result(table, name):
+                return table
 
-        assert result_table is not None, f"No result table with {name} found"
-        return result_table
+        raise AssertionError(f"No result with {name} found")
 
     def _assert_values_equal(self, actual: list[Any], expected: list[Any]) -> None:
         """Compare actual and expected values, respecting compare_sorted and use_approx."""
@@ -184,24 +207,24 @@ class DataOpsIntegrationTestBase(ABC):
 
     def test_primary_feature_through_pipeline(self) -> None:
         """Run the primary feature through run_all and verify values."""
-        result_table = self._run_single_feature(
+        result = self._run_single_feature(
             self.primary_feature_name(),
             self.primary_feature_options(),
         )
-        assert result_table.num_rows == self.expected_row_count()
+        assert self._get_result_row_count(result) == self.expected_row_count()
 
-        result_col = result_table.column(self.primary_feature_name()).to_pylist()
+        result_col = self._extract_result_column(result, self.primary_feature_name())
         self._assert_values_equal(result_col, self.primary_expected_values())
 
     def test_secondary_feature_through_pipeline(self) -> None:
         """Run the secondary feature through run_all and verify values."""
-        result_table = self._run_single_feature(
+        result = self._run_single_feature(
             self.secondary_feature_name(),
             self.secondary_feature_options(),
         )
-        assert result_table.num_rows == self.expected_row_count()
+        assert self._get_result_row_count(result) == self.expected_row_count()
 
-        result_col = result_table.column(self.secondary_feature_name()).to_pylist()
+        result_col = self._extract_result_column(result, self.secondary_feature_name())
         self._assert_values_equal(result_col, self.secondary_expected_values())
 
     def test_feature_group_is_discoverable(self) -> None:

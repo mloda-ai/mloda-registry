@@ -1,12 +1,13 @@
 """Integration tests for frame aggregate feature group.
 
 Uses PandasFrameAggregate as the backend (PyArrow implementation was removed
-because PyArrow lacks native window frame functions).
+because PyArrow lacks native window frame functions). Inherits from
+DataOpsIntegrationTestBase with Pandas adapter overrides.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 
@@ -14,6 +15,7 @@ pd = pytest.importorskip("pandas")
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
@@ -21,69 +23,73 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
     PandasFrameAggregate,
 )
 
-if TYPE_CHECKING:
-    import pandas
 
-
-def _extract_column(df: pandas.DataFrame, col: str) -> list[Any]:
-    """Extract a column as a Python list with None for NaN."""
+def _extract_pandas_column(df: Any, col: str) -> list[Any]:
+    """Extract a column from a DataFrame as a Python list with None for NaN."""
     return [None if pd.isna(v) else v for v in df[col].tolist()]
 
 
-def _run_single_feature(name: str, options_context: dict[str, Any]) -> pandas.DataFrame:
-    """Run a single feature through the pipeline and return the result DataFrame."""
-    plugin_collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, PandasFrameAggregate})
-    feature = Feature(name, options=Options(context=options_context))
-    results = mloda.run_all(
-        [feature],
-        compute_frameworks={PandasDataFrame},
-        plugin_collector=plugin_collector,
-    )
-    assert len(results) >= 1
-    for table in results:
-        if isinstance(table, pd.DataFrame) and name in table.columns:
-            return table
-    raise AssertionError(f"No result DataFrame with {name} found")
+class TestFrameAggregateIntegration(DataOpsIntegrationTestBase):
+    """Standard integration tests inherited from the base class.
 
+    Overrides the framework adapter methods to work with Pandas DataFrames
+    instead of the default PyArrow Tables.
+    """
 
-class TestFrameAggregateIntegration:
-    """Standard integration tests (previously inherited from DataOpsIntegrationTestBase)."""
+    # -- Pandas adapter overrides ---------------------------------------------
 
-    _opts = {"partition_by": ["region"], "order_by": "value_int"}
+    def _is_framework_result(self, obj: Any, feature_name: str) -> bool:
+        return isinstance(obj, pd.DataFrame) and feature_name in obj.columns
 
-    # Rolling sum (window 3) on value_int, partitioned by region, ordered by value_int.
-    _primary_expected = [5, -5, -5, 30, 110, 80, 30, 140, 15, 30, 70, -10]
-    # Cumulative sum on value_int, partitioned by region, ordered by value_int.
-    _secondary_expected = [5, -5, -5, 25, 140, 80, 30, 140, 15, 30, 70, -10]
+    def _extract_result_column(self, result: Any, feature_name: str) -> list[Any]:
+        return _extract_pandas_column(result, feature_name)
 
-    def test_primary_feature_through_pipeline(self) -> None:
-        result = _run_single_feature("value_int__sum_rolling_3", self._opts)
-        assert len(result) == 12
-        assert _extract_column(result, "value_int__sum_rolling_3") == self._primary_expected
+    def _get_result_row_count(self, result: Any) -> int:
+        return len(result)
 
-    def test_secondary_feature_through_pipeline(self) -> None:
-        result = _run_single_feature("value_int__cumsum", self._opts)
-        assert len(result) == 12
-        assert _extract_column(result, "value_int__cumsum") == self._secondary_expected
+    # -- Abstract method implementations --------------------------------------
 
-    def test_feature_group_is_discoverable(self) -> None:
-        plugin_collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator, PandasFrameAggregate})
-        assert plugin_collector.applicable_feature_group_class(PandasFrameAggregate)
-        assert plugin_collector.applicable_feature_group_class(PandasDataOpsTestDataCreator)
+    @classmethod
+    def feature_group_class(cls) -> type:
+        return PandasFrameAggregate
 
-    def test_disabled_feature_group_blocks_execution(self) -> None:
-        plugin_collector = PluginCollector.enabled_feature_groups({PandasDataOpsTestDataCreator})
-        feature = Feature("value_int__sum_rolling_3", options=Options(context=self._opts))
-        with pytest.raises(ValueError):
-            mloda.run_all(
-                [feature],
-                compute_frameworks={PandasDataFrame},
-                plugin_collector=plugin_collector,
-            )
+    @classmethod
+    def data_creator_class(cls) -> type:
+        return PandasDataOpsTestDataCreator
 
-    def test_match_feature_group_criteria_valid(self) -> None:
-        options = Options(context=self._opts)
-        valid_names = [
+    @classmethod
+    def compute_framework_class(cls) -> type:
+        return PandasDataFrame
+
+    @classmethod
+    def primary_feature_name(cls) -> str:
+        return "value_int__sum_rolling_3"
+
+    @classmethod
+    def primary_feature_options(cls) -> dict[str, Any]:
+        return {"partition_by": ["region"], "order_by": "value_int"}
+
+    @classmethod
+    def primary_expected_values(cls) -> list[Any]:
+        # Rolling sum (window 3) on value_int, partitioned by region, ordered by value_int.
+        return [5, -5, -5, 30, 110, 80, 30, 140, 15, 30, 70, -10]
+
+    @classmethod
+    def secondary_feature_name(cls) -> str:
+        return "value_int__cumsum"
+
+    @classmethod
+    def secondary_feature_options(cls) -> dict[str, Any]:
+        return {"partition_by": ["region"], "order_by": "value_int"}
+
+    @classmethod
+    def secondary_expected_values(cls) -> list[Any]:
+        # Cumulative sum on value_int, partitioned by region, ordered by value_int.
+        return [5, -5, -5, 25, 140, 80, 30, 140, 15, 30, 70, -10]
+
+    @classmethod
+    def valid_feature_names(cls) -> list[str]:
+        return [
             "value_int__sum_rolling_3",
             "value_int__avg_rolling_5",
             "value_int__cumsum",
@@ -91,26 +97,22 @@ class TestFrameAggregateIntegration:
             "value_int__cumavg",
             "value_int__expanding_avg",
         ]
-        for name in valid_names:
-            assert PandasFrameAggregate.match_feature_group_criteria(name, options), (
-                f"Expected {name} to match PandasFrameAggregate"
-            )
 
-    def test_match_rejects_invalid_feature_names(self) -> None:
-        options = Options(context=self._opts)
-        invalid_names = [
+    @classmethod
+    def invalid_feature_names(cls) -> list[str]:
+        return [
             "value_int__sum_window",
             "value_int",
             "plain_feature",
         ]
-        for name in invalid_names:
-            assert not PandasFrameAggregate.match_feature_group_criteria(name, options), (
-                f"Expected {name} to NOT match PandasFrameAggregate"
-            )
 
-    def test_match_rejects_missing_config(self) -> None:
-        options = Options()
-        assert not PandasFrameAggregate.match_feature_group_criteria("value_int__sum_rolling_3", options)
+    @classmethod
+    def match_options(cls) -> Options:
+        return Options(context={"partition_by": ["region"], "order_by": "value_int"})
+
+    @classmethod
+    def expected_row_count(cls) -> int:
+        return 12
 
 
 class TestFrameAggregateMultiFeature:
@@ -138,11 +140,11 @@ class TestFrameAggregateMultiFeature:
             if not isinstance(table, pd.DataFrame):
                 continue
             if "value_int__sum_rolling_3" in table.columns:
-                col = _extract_column(table, "value_int__sum_rolling_3")
+                col = _extract_pandas_column(table, "value_int__sum_rolling_3")
                 assert col == [5, -5, -5, 30, 110, 80, 30, 140, 15, 30, 70, -10]
                 rolling_found = True
             if "value_int__cumsum" in table.columns:
-                col = _extract_column(table, "value_int__cumsum")
+                col = _extract_pandas_column(table, "value_int__cumsum")
                 assert col == [5, -5, -5, 25, 140, 80, 30, 140, 15, 30, 70, -10]
                 cumsum_found = True
 
@@ -194,12 +196,12 @@ class TestFrameAggregateMultiFeature:
             if not isinstance(table, pd.DataFrame):
                 continue
             if "value_int__expanding_avg" in table.columns:
-                col = _extract_column(table, "value_int__expanding_avg")
+                col = _extract_pandas_column(table, "value_int__expanding_avg")
                 for i, (actual, expected) in enumerate(zip(col, expected_expanding_avg)):
                     assert actual == pytest.approx(expected, rel=1e-3), f"expanding_avg row {i}: {actual} != {expected}"
                 expanding_found = True
             if "value_int__min_rolling_2" in table.columns:
-                col = _extract_column(table, "value_int__min_rolling_2")
+                col = _extract_pandas_column(table, "value_int__min_rolling_2")
                 assert col == expected_rolling_min_2
                 rolling_min_found = True
 
