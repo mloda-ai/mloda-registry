@@ -88,17 +88,17 @@ class SqliteRank(RankFeatureGroup):
                 raise ValueError(f"Unsupported rank type for SQLite: {rank_type}")
             rank_expr = rank_func
 
-        # nosec B608: all identifiers use quote_ident(), rank_expr from whitelist
+        # Safety: all identifiers use quote_ident(), rank_expr from whitelist
         if rank_type.startswith(("top_", "bottom_")):
             # rank_expr already contains full window expression with boolean comparison
             sql = (
-                f"SELECT {rank_expr} AS {quoted_feature}, "  # nosec B608
+                f"SELECT {rank_expr} AS {quoted_feature}, "  # nosec
                 f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn} "
                 f"FROM {quote_ident(data.table_name)} ORDER BY {qrn}"
             )
         else:
             sql = (
-                f"SELECT {rank_expr} OVER "  # nosec B608
+                f"SELECT {rank_expr} OVER "  # nosec
                 f"(PARTITION BY {partition_clause} ORDER BY {order_clause}) AS {quoted_feature}, "
                 f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn} "
                 f"FROM {quote_ident(data.table_name)} ORDER BY {qrn}"

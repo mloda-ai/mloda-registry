@@ -37,7 +37,7 @@ class SqliteOffset(OffsetFeatureGroup):
 
         null_sort = f"CASE WHEN {quoted_order} IS NULL THEN 1 ELSE 0 END"
         order_clause = f"{null_sort}, {quoted_order}"
-        window_clause = f"PARTITION BY {partition_clause} ORDER BY {order_clause}"  # nosec B608
+        window_clause = f"PARTITION BY {partition_clause} ORDER BY {order_clause}"  # nosec
 
         if offset_type.startswith("lag_"):
             offset_n = int(offset_type[len("lag_") :])
@@ -52,7 +52,7 @@ class SqliteOffset(OffsetFeatureGroup):
             raise ValueError(f"Unsupported offset type for SQLite: {offset_type}. Supported types: {supported}")
 
         sql = (
-            f"SELECT {offset_expr} OVER ({window_clause}) AS {quoted_feature}, "  # nosec B608
+            f"SELECT {offset_expr} OVER ({window_clause}) AS {quoted_feature}, "  # nosec
             f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn} "
             f"FROM {quote_ident(data.table_name)} ORDER BY {qrn}"
         )
@@ -92,12 +92,12 @@ class SqliteOffset(OffsetFeatureGroup):
             sort_clause = f"{null_sort} DESC, t2.{quoted_order} DESC"
 
         subquery = (
-            f"(SELECT t2.{quoted_source} FROM {quote_ident(data.table_name)} t2 "  # nosec B608
+            f"(SELECT t2.{quoted_source} FROM {quote_ident(data.table_name)} t2 "  # nosec
             f"WHERE {partition_match} AND t2.{quoted_source} IS NOT NULL "
             f"ORDER BY {sort_clause} LIMIT 1)"
         )
         sql = (
-            f"SELECT {subquery} AS {quoted_feature}, "  # nosec B608
+            f"SELECT {subquery} AS {quoted_feature}, "  # nosec
             f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn} "
             f"FROM {quote_ident(data.table_name)} t1 ORDER BY {qrn}"
         )

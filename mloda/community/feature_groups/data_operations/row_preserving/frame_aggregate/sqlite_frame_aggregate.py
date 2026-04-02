@@ -65,13 +65,13 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         else:
             raise ValueError(f"Unsupported frame type for SQLite: {frame_type}")
 
-        # nosec B608: all identifiers use quote_ident(), agg_func from whitelist
-        sql = " ".join(  # nosec B608
+        # Safety: all identifiers use quote_ident(), agg_func from whitelist
+        sql = " ".join(  # nosec
             [
                 "SELECT",
-                f"{agg_func}({quoted_source}) OVER",  # nosec B608
-                f"(PARTITION BY {partition_clause} ORDER BY {order_clause} {frame_clause})",  # nosec B608
-                f"AS {quoted_feature},",  # nosec B608
+                f"{agg_func}({quoted_source}) OVER",
+                f"(PARTITION BY {partition_clause} ORDER BY {order_clause} {frame_clause})",
+                f"AS {quoted_feature},",
                 f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn}",
                 "FROM",
                 f"{quote_ident(data.table_name)}",
