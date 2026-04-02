@@ -91,16 +91,16 @@ class AggregationTestBase(DataOpsTestBase):
         """Aggregation types this framework supports. Override to restrict."""
         return cls.ALL_AGG_TYPES
 
-    # -- PyArrow reference (for cross-framework comparison) -------------------
+    # -- Reference implementation (for cross-framework comparison) -------------------
 
     @classmethod
-    def pyarrow_implementation_class(cls) -> Any:
-        """Return the PyArrow implementation class (reference for cross-framework comparison)."""
-        from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import (
-            PyArrowAggregation,
+    def reference_implementation_class(cls) -> Any:
+        """Return the reference implementation class for cross-framework comparison."""
+        from mloda.testing.feature_groups.data_operations.aggregation.reference import (
+            ReferenceAggregation,
         )
 
-        return PyArrowAggregation
+        return ReferenceAggregation
 
     # -- Concrete test methods (inherited for free) --------------------------
 
@@ -217,23 +217,24 @@ class AggregationTestBase(DataOpsTestBase):
 
         assert isinstance(result, self.get_expected_type())
 
-    # -- Cross-framework comparison (matches PyArrow reference) --------------
+    # -- Cross-framework comparison (matches reference) --------------
 
-    def _compare_agg_with_pyarrow(
+    def _compare_agg_with_reference(
         self,
         feature_name: str,
         partition_by: list[str],
         use_approx: bool = False,
     ) -> None:
-        """Run the feature through this framework and PyArrow, assert results match.
+        """Run the feature through this framework and the reference, assert results match.
 
-        PyArrow is the reference implementation.  Every framework must produce
-        identical results.  If a framework cannot match PyArrow for a given
-        operation, it should exclude that operation from supported_agg_types().
+        The reference implementation produces the canonical results.  Every
+        framework must produce identical results.  If a framework cannot match
+        the reference for a given operation, it should exclude that operation
+        from supported_agg_types().
         """
         fs = make_feature_set(feature_name, partition_by)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
+        ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
 
         region_col = self.extract_column(result, partition_by[0])
         result_col = self.extract_column(result, feature_name)
@@ -256,68 +257,68 @@ class AggregationTestBase(DataOpsTestBase):
                 assert result_map[key] == ref_map[key], f"group {key}: {result_map[key]} != reference {ref_map[key]}"
 
     def test_cross_framework_sum(self) -> None:
-        """Sum must match PyArrow reference."""
-        self._compare_agg_with_pyarrow("value_int__sum_agg", ["region"])
+        """Sum must match reference."""
+        self._compare_agg_with_reference("value_int__sum_agg", ["region"])
 
     def test_cross_framework_avg(self) -> None:
-        """Avg must match PyArrow reference."""
-        self._compare_agg_with_pyarrow("value_int__avg_agg", ["region"], use_approx=True)
+        """Avg must match reference."""
+        self._compare_agg_with_reference("value_int__avg_agg", ["region"], use_approx=True)
 
     def test_cross_framework_count(self) -> None:
-        """Count must match PyArrow reference."""
-        self._compare_agg_with_pyarrow("value_int__count_agg", ["region"])
+        """Count must match reference."""
+        self._compare_agg_with_reference("value_int__count_agg", ["region"])
 
     def test_cross_framework_min(self) -> None:
-        """Min must match PyArrow reference."""
-        self._compare_agg_with_pyarrow("value_int__min_agg", ["region"])
+        """Min must match reference."""
+        self._compare_agg_with_reference("value_int__min_agg", ["region"])
 
     def test_cross_framework_max(self) -> None:
-        """Max must match PyArrow reference."""
-        self._compare_agg_with_pyarrow("value_int__max_agg", ["region"])
+        """Max must match reference."""
+        self._compare_agg_with_reference("value_int__max_agg", ["region"])
 
     def test_cross_framework_std(self) -> None:
-        """Std must match PyArrow reference."""
+        """Std must match reference."""
         self._skip_if_unsupported("std")
-        self._compare_agg_with_pyarrow("value_int__std_agg", ["region"], use_approx=True)
+        self._compare_agg_with_reference("value_int__std_agg", ["region"], use_approx=True)
 
     def test_cross_framework_var(self) -> None:
-        """Var must match PyArrow reference."""
+        """Var must match reference."""
         self._skip_if_unsupported("var")
-        self._compare_agg_with_pyarrow("value_int__var_agg", ["region"], use_approx=True)
+        self._compare_agg_with_reference("value_int__var_agg", ["region"], use_approx=True)
 
     def test_cross_framework_median(self) -> None:
-        """Median must match PyArrow reference."""
+        """Median must match reference."""
         self._skip_if_unsupported("median")
-        self._compare_agg_with_pyarrow("value_int__median_agg", ["region"], use_approx=True)
+        self._compare_agg_with_reference("value_int__median_agg", ["region"], use_approx=True)
 
     def test_cross_framework_nunique(self) -> None:
-        """Nunique must match PyArrow reference."""
+        """Nunique must match reference."""
         self._skip_if_unsupported("nunique")
-        self._compare_agg_with_pyarrow("value_int__nunique_agg", ["region"])
+        self._compare_agg_with_reference("value_int__nunique_agg", ["region"])
 
     def test_cross_framework_first(self) -> None:
-        """First must match PyArrow reference.
+        """First must match reference.
 
         PyArrow skips nulls (Group B returns 50, not None).
         Frameworks that cannot match must exclude 'first' from supported_agg_types().
         """
         self._skip_if_unsupported("first")
-        self._compare_agg_with_pyarrow("value_int__first_agg", ["region"])
+        self._compare_agg_with_reference("value_int__first_agg", ["region"])
 
     def test_cross_framework_last(self) -> None:
-        """Last must match PyArrow reference."""
+        """Last must match reference."""
         self._skip_if_unsupported("last")
-        self._compare_agg_with_pyarrow("value_int__last_agg", ["region"])
+        self._compare_agg_with_reference("value_int__last_agg", ["region"])
 
     def test_cross_framework_mode(self) -> None:
-        """Mode must match PyArrow reference.
+        """Mode must match reference.
 
         PyArrow picks the first-encountered value on ties (Group A=10,
         Group B=50).  Frameworks that use different tie-breaking must
         exclude 'mode' from supported_agg_types().
         """
         self._skip_if_unsupported("mode")
-        self._compare_agg_with_pyarrow("value_int__mode_agg", ["region"])
+        self._compare_agg_with_reference("value_int__mode_agg", ["region"])
 
     # -- Statistical aggregation tests (skipped if unsupported) --------------
 
@@ -419,7 +420,7 @@ class AggregationTestBase(DataOpsTestBase):
     def test_mode_agg_region(self) -> None:
         """Mode of value_int grouped by region.
 
-        PyArrow reference: A=10, B=50, C=15, None=-10.
+        reference: A=10, B=50, C=15, None=-10.
         On ties (all-unique groups A, B), PyArrow picks the first-encountered value.
         """
         self._skip_if_unsupported("mode")
@@ -451,7 +452,7 @@ class AggregationTestBase(DataOpsTestBase):
     def test_first_agg_region(self) -> None:
         """First value of value_int grouped by region.
 
-        PyArrow reference: A=10, B=50, C=15, None=-10.
+        reference: A=10, B=50, C=15, None=-10.
         PyArrow skips nulls, so Group B returns 50 (first non-null), not None.
         Frameworks that cannot match must exclude 'first' from supported_agg_types().
         """
@@ -587,7 +588,7 @@ class AggregationTestBase(DataOpsTestBase):
     def test_all_null_column_nunique_per_group(self) -> None:
         """score is all-null. Nunique per group should be 0 (no distinct non-null values).
 
-        PyArrow reference: count_distinct excludes nulls, returning 0.
+        reference: count_distinct excludes nulls, returning 0.
         """
         self._skip_if_unsupported("nunique")
         fs = make_feature_set("score__nunique_agg", ["region"])
@@ -599,12 +600,12 @@ class AggregationTestBase(DataOpsTestBase):
     # -- Cross-framework null comparisons ------------------------------------
 
     def test_cross_framework_all_null_sum(self) -> None:
-        """score sum aggregation must match PyArrow reference."""
-        self._compare_agg_with_pyarrow("score__sum_agg", ["region"])
+        """score sum aggregation must match reference."""
+        self._compare_agg_with_reference("score__sum_agg", ["region"])
 
     def test_cross_framework_all_null_count(self) -> None:
-        """score count aggregation must match PyArrow reference."""
-        self._compare_agg_with_pyarrow("score__count_agg", ["region"])
+        """score count aggregation must match reference."""
+        self._compare_agg_with_reference("score__count_agg", ["region"])
 
     # -- Multi-key partition tests -------------------------------------------
 
@@ -727,7 +728,7 @@ class AggregationTestBase(DataOpsTestBase):
     def test_multi_key_partition_mode(self) -> None:
         """Mode of value_int grouped by [region, category].
 
-        PyArrow reference: on ties, picks the first-encountered value.
+        reference: on ties, picks the first-encountered value.
         """
         self._skip_if_unsupported("mode")
         fs = make_feature_set("value_int__mode_agg", ["region", "category"])

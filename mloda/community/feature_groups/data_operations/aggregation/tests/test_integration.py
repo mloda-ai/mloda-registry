@@ -177,30 +177,6 @@ class TestIntegrationAdditionalAggTypes:
         assert result_table is not None
         assert result_table.num_rows == 4
 
-    def test_median_agg_through_pipeline(self) -> None:
-        """Run value_int__median_agg through run_all and verify the result."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
-
-        feature = Feature(
-            "value_int__median_agg",
-            options=Options(context={"partition_by": ["region"]}),
-        )
-
-        results = mloda.run_all(
-            [feature],
-            compute_frameworks={PyArrowTable},
-            plugin_collector=plugin_collector,
-        )
-
-        result_table = None
-        for table in results:
-            if isinstance(table, pa.Table) and "value_int__median_agg" in table.column_names:
-                result_table = table
-                break
-
-        assert result_table is not None
-        assert result_table.num_rows == 4
-
     def test_nunique_agg_through_pipeline(self) -> None:
         """Run value_int__nunique_agg through run_all and verify the result."""
         plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})

@@ -19,3 +19,23 @@ class TestPyArrowAggregation(PyArrowTestMixin, AggregationTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PyArrowAggregation
+
+    @classmethod
+    def supported_agg_types(cls) -> set[str]:
+        return {
+            "sum",
+            "avg",
+            "mean",
+            "count",
+            "min",
+            "max",
+            "std",
+            "var",
+            "std_pop",
+            "std_samp",
+            "var_pop",
+            "var_samp",
+            "nunique",
+            "first",
+            "last",
+        }

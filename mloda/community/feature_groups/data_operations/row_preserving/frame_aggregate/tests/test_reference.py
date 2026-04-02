@@ -1,48 +1,31 @@
-"""Tests for PyArrow frame aggregate implementation.
+"""Tests for the reference frame aggregate implementation.
 
-Uses the unified FrameAggregateTestBase plus PyArrow-specific tests
-for time windows and null handling.
+Covers time window and null handling edge cases using
+the ReferenceFrameAggregate from the testing library.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
 
 import pyarrow as pa
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
-from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
-    FrameAggregateTestBase,
-)
 from mloda.user import Feature
 
-from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pyarrow_frame_aggregate import (
-    PyArrowFrameAggregate,
+from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.reference import (
+    ReferenceFrameAggregate,
 )
 
 
-class TestPyArrowFrameAggregate(PyArrowTestMixin, FrameAggregateTestBase):
-    """Unified tests inherited from the base class."""
-
-    @classmethod
-    def implementation_class(cls) -> Any:
-        return PyArrowFrameAggregate
-
-    @classmethod
-    def supports_time_frame(cls) -> bool:
-        return True
-
-
-class TestPyArrowTimeWindow:
-    """PyArrow-specific time window tests (only PyArrow supports time frames)."""
+class TestReferenceTimeWindow:
+    """Reference-specific time window tests (only reference supports time frames)."""
 
     def test_time_frame_match_accepted(self) -> None:
-        """PyArrow supports time frames, so matching should succeed."""
+        """Reference supports time frames, so matching should succeed."""
         options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
-        assert PyArrowFrameAggregate.match_feature_group_criteria("value_int__avg_7_day_window", options)
+        assert ReferenceFrameAggregate.match_feature_group_criteria("value_int__avg_7_day_window", options)
 
     def test_time_window_via_config(self) -> None:
         """Time-based window using config-based feature creation."""
@@ -75,7 +58,7 @@ class TestPyArrowTimeWindow:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = PyArrowFrameAggregate.calculate_feature(table, fs)
+        result = ReferenceFrameAggregate.calculate_feature(table, fs)
         col = result.column("my_time_sum").to_pylist()
 
         # 2-day window:
@@ -86,8 +69,8 @@ class TestPyArrowTimeWindow:
         assert col == [10, 30, 50, 70]
 
 
-class TestPyArrowNullHandling:
-    """PyArrow-specific null handling edge case tests."""
+class TestReferenceNullHandling:
+    """Reference-specific null handling edge case tests."""
 
     def test_rolling_sum_skips_nulls(self) -> None:
         """Null values in the source column should be skipped by the aggregation."""
@@ -105,7 +88,7 @@ class TestPyArrowNullHandling:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = PyArrowFrameAggregate.calculate_feature(table, fs)
+        result = ReferenceFrameAggregate.calculate_feature(table, fs)
         col = result.column("value__sum_rolling_3").to_pylist()
 
         assert col == [10, 10, 40, 70]
@@ -126,7 +109,7 @@ class TestPyArrowNullHandling:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = PyArrowFrameAggregate.calculate_feature(table, fs)
+        result = ReferenceFrameAggregate.calculate_feature(table, fs)
         col = result.column("value__cumsum").to_pylist()
 
         assert col == [130, 10, 30]
@@ -147,7 +130,7 @@ class TestPyArrowNullHandling:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = PyArrowFrameAggregate.calculate_feature(table, fs)
+        result = ReferenceFrameAggregate.calculate_feature(table, fs)
         col = result.column("value__cumsum").to_pylist()
 
         assert col == [None, None]

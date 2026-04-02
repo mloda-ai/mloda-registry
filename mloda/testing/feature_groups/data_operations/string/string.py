@@ -123,7 +123,7 @@ class StringTestBase(DataOpsTestBase):
         return EXPECTED_REVERSE
 
     @classmethod
-    def pyarrow_implementation_class(cls) -> Any:
+    def reference_implementation_class(cls) -> Any:
         from mloda.community.feature_groups.data_operations.string.pyarrow_string import (
             PyArrowStringOps,
         )
@@ -236,28 +236,28 @@ class StringTestBase(DataOpsTestBase):
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         assert isinstance(result, self.get_expected_type())
 
-    # -- Cross-framework comparison (matches PyArrow reference) --------------
+    # -- Cross-framework comparison (matches reference) --------------
 
     def test_cross_framework_upper(self) -> None:
-        """Upper must match PyArrow reference."""
-        self._compare_with_pyarrow("name__upper")
+        """Upper must match reference."""
+        self._compare_with_reference("name__upper")
 
     def test_cross_framework_lower(self) -> None:
-        """Lower must match PyArrow reference."""
-        self._compare_with_pyarrow("name__lower")
+        """Lower must match reference."""
+        self._compare_with_reference("name__lower")
 
     def test_cross_framework_trim(self) -> None:
-        """Trim must match PyArrow reference."""
-        self._compare_with_pyarrow("name__trim")
+        """Trim must match reference."""
+        self._compare_with_reference("name__trim")
 
     def test_cross_framework_length(self) -> None:
-        """Length must match PyArrow reference."""
-        self._compare_with_pyarrow("name__length")
+        """Length must match reference."""
+        self._compare_with_reference("name__length")
 
     def test_cross_framework_reverse(self) -> None:
-        """Reverse must match PyArrow reference."""
+        """Reverse must match reference."""
         self._skip_if_unsupported("reverse")
-        self._compare_with_pyarrow("name__reverse")
+        self._compare_with_reference("name__reverse")
 
     # -- Unsupported operation error path ------------------------------------
 

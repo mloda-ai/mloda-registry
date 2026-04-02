@@ -93,7 +93,7 @@ class WindowAggregationTestBase(DataOpsTestBase):
         return cls.ALL_AGG_TYPES
 
     @classmethod
-    def pyarrow_implementation_class(cls) -> Any:
+    def reference_implementation_class(cls) -> Any:
         from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
             PyArrowWindowAggregation,
         )
@@ -198,67 +198,67 @@ class WindowAggregationTestBase(DataOpsTestBase):
 
         assert isinstance(result, self.get_expected_type())
 
-    # -- Cross-framework comparison (matches PyArrow reference) --------------
+    # -- Cross-framework comparison (matches reference) --------------
 
     def test_cross_framework_sum(self) -> None:
-        """Sum must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__sum_window", partition_by=["region"])
+        """Sum must match reference."""
+        self._compare_with_reference("value_int__sum_window", partition_by=["region"])
 
     def test_cross_framework_avg(self) -> None:
-        """Avg must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__avg_window", partition_by=["region"], use_approx=True)
+        """Avg must match reference."""
+        self._compare_with_reference("value_int__avg_window", partition_by=["region"], use_approx=True)
 
     def test_cross_framework_count(self) -> None:
-        """Count must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__count_window", partition_by=["region"])
+        """Count must match reference."""
+        self._compare_with_reference("value_int__count_window", partition_by=["region"])
 
     def test_cross_framework_min(self) -> None:
-        """Min must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__min_window", partition_by=["region"])
+        """Min must match reference."""
+        self._compare_with_reference("value_int__min_window", partition_by=["region"])
 
     def test_cross_framework_max(self) -> None:
-        """Max must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__max_window", partition_by=["region"])
+        """Max must match reference."""
+        self._compare_with_reference("value_int__max_window", partition_by=["region"])
 
     def test_cross_framework_std(self) -> None:
-        """Std must match PyArrow reference."""
+        """Std must match reference."""
         self._skip_if_unsupported("std")
-        self._compare_with_pyarrow("value_int__std_window", partition_by=["region"], use_approx=True)
+        self._compare_with_reference("value_int__std_window", partition_by=["region"], use_approx=True)
 
     def test_cross_framework_var(self) -> None:
-        """Var must match PyArrow reference."""
+        """Var must match reference."""
         self._skip_if_unsupported("var")
-        self._compare_with_pyarrow("value_int__var_window", partition_by=["region"], use_approx=True)
+        self._compare_with_reference("value_int__var_window", partition_by=["region"], use_approx=True)
 
     def test_cross_framework_median(self) -> None:
-        """Median must match PyArrow reference."""
+        """Median must match reference."""
         self._skip_if_unsupported("median")
-        self._compare_with_pyarrow("value_int__median_window", partition_by=["region"], use_approx=True)
+        self._compare_with_reference("value_int__median_window", partition_by=["region"], use_approx=True)
 
     def test_cross_framework_nunique(self) -> None:
-        """Nunique must match PyArrow reference."""
+        """Nunique must match reference."""
         self._skip_if_unsupported("nunique")
-        self._compare_with_pyarrow("value_int__nunique_window", partition_by=["region"])
+        self._compare_with_reference("value_int__nunique_window", partition_by=["region"])
 
     def test_cross_framework_first(self) -> None:
-        """First must match PyArrow reference (with order_by)."""
+        """First must match reference (with order_by)."""
         self._skip_if_unsupported("first")
-        self._compare_with_pyarrow("value_int__first_window", partition_by=["region"], order_by="value_int")
+        self._compare_with_reference("value_int__first_window", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_last(self) -> None:
-        """Last must match PyArrow reference (with order_by)."""
+        """Last must match reference (with order_by)."""
         self._skip_if_unsupported("last")
-        self._compare_with_pyarrow("value_int__last_window", partition_by=["region"], order_by="value_int")
+        self._compare_with_reference("value_int__last_window", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_mode(self) -> None:
-        """Mode must match PyArrow reference.
+        """Mode must match reference.
 
         PyArrow picks the first-encountered value on ties.
         Frameworks that use different tie-breaking must exclude
         'mode' from supported_agg_types().
         """
         self._skip_if_unsupported("mode")
-        self._compare_with_pyarrow("value_int__mode_window", partition_by=["region"])
+        self._compare_with_reference("value_int__mode_window", partition_by=["region"])
 
     # -- Statistical aggregation tests (skipped if unsupported) --------------
 
@@ -354,7 +354,7 @@ class WindowAggregationTestBase(DataOpsTestBase):
     def test_mode_window_region(self) -> None:
         """Mode of value_int partitioned by region.
 
-        PyArrow reference: [10,10,10,10, 50,50,50,50, 15,15,15, -10].
+        reference: [10,10,10,10, 50,50,50,50, 15,15,15, -10].
         On ties (all-unique groups A, B), PyArrow picks the first-encountered value.
         """
         self._skip_if_unsupported("mode")
@@ -367,7 +367,7 @@ class WindowAggregationTestBase(DataOpsTestBase):
     def test_nunique_window_region(self) -> None:
         """Count of unique non-null value_int values partitioned by region.
 
-        PyArrow reference: nulls are excluded from the distinct count.
+        reference: nulls are excluded from the distinct count.
         Group B has {None, 50, 30, 60}: 3 distinct non-null values.
         """
         self._skip_if_unsupported("nunique")
@@ -463,7 +463,7 @@ class WindowAggregationTestBase(DataOpsTestBase):
     def test_all_null_column_nunique(self) -> None:
         """score is all-null. Nunique per group should be 0 (no distinct non-null values).
 
-        PyArrow reference: count_distinct excludes nulls, returning 0.
+        reference: count_distinct excludes nulls, returning 0.
         """
         self._skip_if_unsupported("nunique")
         fs = make_feature_set("score__nunique_window", ["region"])
@@ -628,7 +628,7 @@ class WindowAggregationTestBase(DataOpsTestBase):
     def test_multi_key_partition_mode(self) -> None:
         """Mode of value_int partitioned by [region, category].
 
-        PyArrow reference: [10,-5,10,-5, 60,50,30,60, 15,15,15, -10].
+        reference: [10,-5,10,-5, 60,50,30,60, 15,15,15, -10].
         On ties, PyArrow picks the first-encountered value.
         """
         self._skip_if_unsupported("mode")

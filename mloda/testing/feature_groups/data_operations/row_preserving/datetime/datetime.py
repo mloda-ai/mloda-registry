@@ -123,7 +123,7 @@ class DateTimeTestBase(DataOpsTestBase):
     """Abstract base class for datetime extraction framework tests."""
 
     @classmethod
-    def pyarrow_implementation_class(cls) -> Any:
+    def reference_implementation_class(cls) -> Any:
         from mloda.community.feature_groups.data_operations.row_preserving.datetime.pyarrow_datetime import (
             PyArrowDateTimeExtraction,
         )
@@ -290,13 +290,13 @@ class DateTimeTestBase(DataOpsTestBase):
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         assert isinstance(result, self.get_expected_type())
 
-    # -- Cross-framework comparison (matches PyArrow reference) --------------
+    # -- Cross-framework comparison (matches reference) --------------
 
-    def _compare_varied_with_pyarrow(self, feature_name: str) -> None:
-        """Run the feature on the supplementary dataset, compare with PyArrow."""
+    def _compare_varied_with_reference(self, feature_name: str) -> None:
+        """Run the feature on the supplementary dataset, compare with the reference."""
         fs = make_feature_set(feature_name)
         result = self.implementation_class().calculate_feature(self._varied_test_data, fs)
-        ref = self.pyarrow_implementation_class().calculate_feature(self._varied_arrow_table, fs)
+        ref = self.reference_implementation_class().calculate_feature(self._varied_arrow_table, fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = extract_column(ref, feature_name)
@@ -305,54 +305,54 @@ class DateTimeTestBase(DataOpsTestBase):
         assert result_col == ref_col
 
     def test_cross_framework_year(self) -> None:
-        """Year must match PyArrow reference."""
-        self._compare_with_pyarrow("timestamp__year")
+        """Year must match reference."""
+        self._compare_with_reference("timestamp__year")
 
     def test_cross_framework_month(self) -> None:
-        """Month must match PyArrow reference."""
-        self._compare_with_pyarrow("timestamp__month")
+        """Month must match reference."""
+        self._compare_with_reference("timestamp__month")
 
     def test_cross_framework_day(self) -> None:
-        """Day must match PyArrow reference."""
-        self._compare_with_pyarrow("timestamp__day")
+        """Day must match reference."""
+        self._compare_with_reference("timestamp__day")
 
     def test_cross_framework_hour(self) -> None:
-        """Hour must match PyArrow reference."""
-        self._compare_with_pyarrow("timestamp__hour")
+        """Hour must match reference."""
+        self._compare_with_reference("timestamp__hour")
 
     def test_cross_framework_minute(self) -> None:
-        """Minute must match PyArrow reference."""
-        self._compare_with_pyarrow("timestamp__minute")
+        """Minute must match reference."""
+        self._compare_with_reference("timestamp__minute")
 
     def test_cross_framework_second(self) -> None:
-        """Second must match PyArrow reference."""
-        self._compare_with_pyarrow("timestamp__second")
+        """Second must match reference."""
+        self._compare_with_reference("timestamp__second")
 
     def test_cross_framework_dayofweek(self) -> None:
-        """Day of week must match PyArrow reference."""
-        self._compare_with_pyarrow("timestamp__dayofweek")
+        """Day of week must match reference."""
+        self._compare_with_reference("timestamp__dayofweek")
 
     def test_cross_framework_is_weekend(self) -> None:
-        """Is-weekend must match PyArrow reference."""
-        self._compare_with_pyarrow("timestamp__is_weekend")
+        """Is-weekend must match reference."""
+        self._compare_with_reference("timestamp__is_weekend")
 
     def test_cross_framework_quarter(self) -> None:
-        """Quarter must match PyArrow reference."""
-        self._compare_with_pyarrow("timestamp__quarter")
+        """Quarter must match reference."""
+        self._compare_with_reference("timestamp__quarter")
 
     # -- Cross-framework comparison on varied-times dataset ------------------
 
     def test_cross_framework_varied_hour(self) -> None:
-        """Non-zero hours must match PyArrow reference on varied dataset."""
-        self._compare_varied_with_pyarrow("timestamp__hour")
+        """Non-zero hours must match reference on varied dataset."""
+        self._compare_varied_with_reference("timestamp__hour")
 
     def test_cross_framework_varied_minute(self) -> None:
-        """Non-zero minutes must match PyArrow reference on varied dataset."""
-        self._compare_varied_with_pyarrow("timestamp__minute")
+        """Non-zero minutes must match reference on varied dataset."""
+        self._compare_varied_with_reference("timestamp__minute")
 
     def test_cross_framework_varied_second(self) -> None:
-        """Non-zero seconds must match PyArrow reference on varied dataset."""
-        self._compare_varied_with_pyarrow("timestamp__second")
+        """Non-zero seconds must match reference on varied dataset."""
+        self._compare_varied_with_reference("timestamp__second")
 
     # -- All-null column tests -----------------------------------------------
 

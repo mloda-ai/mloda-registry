@@ -9,7 +9,7 @@ offset, rank, binning, datetime, frame_aggregate, string). It provides:
   or concrete test classes implement once.
 - Shared setup_method / teardown_method (connection lifecycle).
 - A ``_skip_if_unsupported`` helper for operations not available on every framework.
-- A ``_compare_with_pyarrow`` cross-framework comparison helper.
+- A ``_compare_with_reference`` cross-framework comparison helper.
 
 Operation-specific test bases (e.g. ``AggregationTestBase``) inherit from this
 class and add their own expected values and concrete test methods.
@@ -60,15 +60,15 @@ class DataOpsTestBase(ABC):
     def get_expected_type(self) -> Any:
         """Return the expected Python type of the framework result."""
 
-    # -- PyArrow reference (for cross-framework comparison) --------------------
+    # -- Reference implementation (for cross-framework comparison) --------------------
 
     @classmethod
-    def pyarrow_implementation_class(cls) -> Any:
-        """Return the PyArrow implementation for cross-framework comparison.
+    def reference_implementation_class(cls) -> Any:
+        """Return the reference implementation for cross-framework comparison.
 
         Operation-specific bases override this to import the correct class.
         """
-        raise NotImplementedError("Subclass must override pyarrow_implementation_class")
+        raise NotImplementedError("Subclass must override reference_implementation_class")
 
     # -- Setup / teardown ------------------------------------------------------
 
@@ -105,7 +105,7 @@ class DataOpsTestBase(ABC):
 
     # -- Cross-framework comparison --------------------------------------------
 
-    def _compare_with_pyarrow(
+    def _compare_with_reference(
         self,
         feature_name: str,
         *,
@@ -114,12 +114,12 @@ class DataOpsTestBase(ABC):
         use_approx: bool = False,
         rel: float = 1e-6,
     ) -> None:
-        """Run a feature through this framework and PyArrow, assert results match."""
+        """Run a feature through this framework and the reference, assert results match."""
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
         fs = make_feature_set(feature_name, partition_by=partition_by, order_by=order_by)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
+        ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
