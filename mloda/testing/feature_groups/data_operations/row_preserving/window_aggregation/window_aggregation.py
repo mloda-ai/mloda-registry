@@ -250,6 +250,16 @@ class WindowAggregationTestBase(DataOpsTestBase):
         self._skip_if_unsupported("last")
         self._compare_with_pyarrow("value_int__last_window", partition_by=["region"], order_by="value_int")
 
+    def test_cross_framework_mode(self) -> None:
+        """Mode must match PyArrow reference.
+
+        PyArrow picks the first-encountered value on ties.
+        Frameworks that use different tie-breaking must exclude
+        'mode' from supported_agg_types().
+        """
+        self._skip_if_unsupported("mode")
+        self._compare_with_pyarrow("value_int__mode_window", partition_by=["region"])
+
     # -- Statistical aggregation tests (skipped if unsupported) --------------
 
     def test_std_window_region(self) -> None:
@@ -342,25 +352,23 @@ class WindowAggregationTestBase(DataOpsTestBase):
     # -- Advanced aggregation tests (skipped if unsupported) -----------------
 
     def test_mode_window_region(self) -> None:
-        """Mode of value_int partitioned by region."""
+        """Mode of value_int partitioned by region.
+
+        PyArrow reference: [10,10,10,10, 50,50,50,50, 15,15,15, -10].
+        On ties (all-unique groups A, B), PyArrow picks the first-encountered value.
+        """
         self._skip_if_unsupported("mode")
         fs = make_feature_set("value_int__mode_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__mode_window")
-        # Group C has 15 appearing twice, so mode = 15
-        assert result_col[8] == 15
-        assert result_col[9] == 15
-        assert result_col[10] == 15
-        # None group: single value -10
-        assert result_col[11] == -10
+        assert result_col == [10, 10, 10, 10, 50, 50, 50, 50, 15, 15, 15, -10]
 
     def test_nunique_window_region(self) -> None:
-        """Count of unique value_int values partitioned by region.
+        """Count of unique non-null value_int values partitioned by region.
 
-        Some frameworks (Polars) count null as a unique value, others
-        (PyArrow, DuckDB) skip nulls. Group B has {None, 50, 30, 60}:
-        3 unique without null, 4 unique with null.
+        PyArrow reference: nulls are excluded from the distinct count.
+        Group B has {None, 50, 30, 60}: 3 distinct non-null values.
         """
         self._skip_if_unsupported("nunique")
         fs = make_feature_set("value_int__nunique_window", ["region"])
@@ -415,6 +423,54 @@ class WindowAggregationTestBase(DataOpsTestBase):
 
         result_col = self.extract_column(result, "score__sum_window")
         assert all(v is None for v in result_col)
+
+    def test_all_null_column_std(self) -> None:
+        """score is all-null. Std per group should be None."""
+        self._skip_if_unsupported("std")
+        fs = make_feature_set("score__std_window", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__std_window")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_var(self) -> None:
+        """score is all-null. Var per group should be None."""
+        self._skip_if_unsupported("var")
+        fs = make_feature_set("score__var_window", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__var_window")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_first(self) -> None:
+        """score is all-null. First per group should be None."""
+        self._skip_if_unsupported("first")
+        fs = make_feature_set("score__first_window", ["region"], order_by="score")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__first_window")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_last(self) -> None:
+        """score is all-null. Last per group should be None."""
+        self._skip_if_unsupported("last")
+        fs = make_feature_set("score__last_window", ["region"], order_by="score")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__last_window")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_nunique(self) -> None:
+        """score is all-null. Nunique per group should be 0 (no distinct non-null values).
+
+        PyArrow reference: count_distinct excludes nulls, returning 0.
+        """
+        self._skip_if_unsupported("nunique")
+        fs = make_feature_set("score__nunique_window", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__nunique_window")
+        assert all(v == 0 for v in result_col)
 
     # -- Multi-key partition tests -------------------------------------------
 
@@ -498,6 +554,127 @@ class WindowAggregationTestBase(DataOpsTestBase):
         # A/Y: [2.5, 0.0] -> avg = 1.25
         assert result_col[1] == pytest.approx(1.25, rel=1e-6)
         assert result_col[3] == pytest.approx(1.25, rel=1e-6)
+
+    def test_multi_key_partition_median(self) -> None:
+        """Median of value_int partitioned by [region, category]."""
+        self._skip_if_unsupported("median")
+        fs = make_feature_set("value_int__median_window", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__median_window")
+        # (A,X) rows 0,2: median([10, 0]) = 5.0
+        assert result_col[0] == pytest.approx(5.0, rel=1e-6)
+        assert result_col[2] == pytest.approx(5.0, rel=1e-6)
+        # (A,Y) rows 1,3: median([-5, 20]) = 7.5
+        assert result_col[1] == pytest.approx(7.5, rel=1e-6)
+        assert result_col[3] == pytest.approx(7.5, rel=1e-6)
+        # (C,Y) rows 8,10: median([15, 40]) = 27.5
+        assert result_col[8] == pytest.approx(27.5, rel=1e-6)
+        assert result_col[10] == pytest.approx(27.5, rel=1e-6)
+
+    def test_multi_key_partition_std(self) -> None:
+        """Population std of value_int partitioned by [region, category].
+
+        Only groups with >= 2 non-null values are checked.
+        """
+        self._skip_if_unsupported("std")
+        fs = make_feature_set("value_int__std_window", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__std_window")
+        # (A,X) rows 0,2: std([10, 0]) = 5.0
+        assert result_col[0] == pytest.approx(5.0, rel=1e-6)
+        assert result_col[2] == pytest.approx(5.0, rel=1e-6)
+        # (A,Y) rows 1,3: std([-5, 20]) = 12.5
+        assert result_col[1] == pytest.approx(12.5, rel=1e-6)
+        assert result_col[3] == pytest.approx(12.5, rel=1e-6)
+        # (C,Y) rows 8,10: std([15, 40]) = 12.5
+        assert result_col[8] == pytest.approx(12.5, rel=1e-6)
+        assert result_col[10] == pytest.approx(12.5, rel=1e-6)
+
+    def test_multi_key_partition_var(self) -> None:
+        """Population variance of value_int partitioned by [region, category]."""
+        self._skip_if_unsupported("var")
+        fs = make_feature_set("value_int__var_window", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__var_window")
+        # (A,X) rows 0,2: var([10, 0]) = 25.0
+        assert result_col[0] == pytest.approx(25.0, rel=1e-6)
+        assert result_col[2] == pytest.approx(25.0, rel=1e-6)
+        # (A,Y) rows 1,3: var([-5, 20]) = 156.25
+        assert result_col[1] == pytest.approx(156.25, rel=1e-6)
+        assert result_col[3] == pytest.approx(156.25, rel=1e-6)
+        # (C,Y) rows 8,10: var([15, 40]) = 156.25
+        assert result_col[8] == pytest.approx(156.25, rel=1e-6)
+        assert result_col[10] == pytest.approx(156.25, rel=1e-6)
+
+    def test_multi_key_partition_nunique(self) -> None:
+        """Nunique of value_int partitioned by [region, category]."""
+        self._skip_if_unsupported("nunique")
+        fs = make_feature_set("value_int__nunique_window", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__nunique_window")
+        assert result_col[0] == 2  # (A,X): {10, 0}
+        assert result_col[2] == 2
+        assert result_col[1] == 2  # (A,Y): {-5, 20}
+        assert result_col[3] == 2
+        assert result_col[4] == 1  # (B,X): {60} (null excluded)
+        assert result_col[7] == 1
+        assert result_col[8] == 2  # (C,Y): {15, 40}
+        assert result_col[10] == 2
+
+    def test_multi_key_partition_mode(self) -> None:
+        """Mode of value_int partitioned by [region, category].
+
+        PyArrow reference: [10,-5,10,-5, 60,50,30,60, 15,15,15, -10].
+        On ties, PyArrow picks the first-encountered value.
+        """
+        self._skip_if_unsupported("mode")
+        fs = make_feature_set("value_int__mode_window", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__mode_window")
+        assert result_col == [10, -5, 10, -5, 60, 50, 30, 60, 15, 15, 15, -10]
+
+    def test_multi_key_partition_first(self) -> None:
+        """First non-null value_int per [region, category], ordered by value_int."""
+        self._skip_if_unsupported("first")
+        fs = make_feature_set("value_int__first_window", ["region", "category"], order_by="value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__first_window")
+        # (A,X) rows 0,2: sorted [0, 10] -> first = 0
+        assert result_col[0] == 0
+        assert result_col[2] == 0
+        # (A,Y) rows 1,3: sorted [-5, 20] -> first = -5
+        assert result_col[1] == -5
+        assert result_col[3] == -5
+        # (B,X) rows 4,7: sorted [60] (null excluded) -> first = 60
+        assert result_col[7] == 60
+        # (C,Y) rows 8,10: sorted [15, 40] -> first = 15
+        assert result_col[8] == 15
+        assert result_col[10] == 15
+
+    def test_multi_key_partition_last(self) -> None:
+        """Last non-null value_int per [region, category], ordered by value_int."""
+        self._skip_if_unsupported("last")
+        fs = make_feature_set("value_int__last_window", ["region", "category"], order_by="value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__last_window")
+        # (A,X) rows 0,2: sorted [0, 10] -> last = 10
+        assert result_col[0] == 10
+        assert result_col[2] == 10
+        # (A,Y) rows 1,3: sorted [-5, 20] -> last = 20
+        assert result_col[1] == 20
+        assert result_col[3] == 20
+        # (B,X) rows 4,7: sorted [60] -> last = 60
+        assert result_col[7] == 60
+        # (C,Y) rows 8,10: sorted [15, 40] -> last = 40
+        assert result_col[8] == 40
+        assert result_col[10] == 40
 
     # -- Option-based config tests -------------------------------------------
 

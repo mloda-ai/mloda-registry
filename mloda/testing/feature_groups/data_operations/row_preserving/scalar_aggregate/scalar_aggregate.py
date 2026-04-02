@@ -350,6 +350,30 @@ class ScalarAggregateTestBase(DataOpsTestBase):
         result_col = self.extract_column(result, "score__count_scalar")
         assert all(v == 0 for v in result_col)
 
+    def test_all_null_column_std(self) -> None:
+        """score is all-null. Std should broadcast None."""
+        self._skip_if_unsupported("std")
+        fs = make_feature_set("score__std_scalar")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_col = self.extract_column(result, "score__std_scalar")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_var(self) -> None:
+        """score is all-null. Var should broadcast None."""
+        self._skip_if_unsupported("var")
+        fs = make_feature_set("score__var_scalar")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_col = self.extract_column(result, "score__var_scalar")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_median(self) -> None:
+        """score is all-null. Median should broadcast None."""
+        self._skip_if_unsupported("median")
+        fs = make_feature_set("score__median_scalar")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_col = self.extract_column(result, "score__median_scalar")
+        assert all(v is None for v in result_col)
+
     # -- Null consistency tests (multi-null columns) -------------------------
 
     def test_multi_null_column_count(self) -> None:
