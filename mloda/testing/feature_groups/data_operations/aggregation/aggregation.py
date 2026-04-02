@@ -219,8 +219,20 @@ class AggregationTestBase(DataOpsTestBase):
 
     # -- Cross-framework comparison (matches PyArrow reference) --------------
 
-    def _compare_agg_with_pyarrow(self, feature_name: str, partition_by: list[str], use_approx: bool = False) -> None:
-        """Run the feature through this framework and PyArrow, assert results match."""
+    def _compare_agg_with_pyarrow(
+        self,
+        feature_name: str,
+        partition_by: list[str],
+        use_approx: bool = False,
+        allow_null_divergence: bool = False,
+    ) -> None:
+        """Run the feature through this framework and PyArrow, assert results match.
+
+        When *allow_null_divergence* is True, a framework returning None where
+        PyArrow returns a non-None value is accepted.  This accommodates
+        first/last null-handling differences (e.g. DuckDB returns the literal
+        first value including None, while PyArrow skips nulls).
+        """
         fs = make_feature_set(feature_name, partition_by)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
@@ -235,6 +247,8 @@ class AggregationTestBase(DataOpsTestBase):
 
         assert len(result_map) == len(ref_map), f"group count {len(result_map)} != reference {len(ref_map)}"
         for key in ref_map:
+            if allow_null_divergence and result_map[key] is None and ref_map[key] is not None:
+                continue
             if use_approx:
                 if ref_map[key] is None:
                     assert result_map[key] is None, f"group {key}: expected None, got {result_map[key]}"
@@ -284,6 +298,48 @@ class AggregationTestBase(DataOpsTestBase):
         """Nunique must match PyArrow reference."""
         self._skip_if_unsupported("nunique")
         self._compare_agg_with_pyarrow("value_int__nunique_agg", ["region"])
+
+    def test_cross_framework_first(self) -> None:
+        """First must match PyArrow reference (tolerating null-skip divergence).
+
+        Group B has a leading null.  PyArrow skips nulls (returns 50),
+        while DuckDB/Polars return None (literal first value).
+        allow_null_divergence accepts this difference.
+        """
+        self._skip_if_unsupported("first")
+        self._compare_agg_with_pyarrow("value_int__first_agg", ["region"], allow_null_divergence=True)
+
+    def test_cross_framework_last(self) -> None:
+        """Last must match PyArrow reference.
+
+        No group has a trailing null, so all frameworks agree on last.
+        """
+        self._skip_if_unsupported("last")
+        self._compare_agg_with_pyarrow("value_int__last_agg", ["region"])
+
+    def test_cross_framework_mode(self) -> None:
+        """Mode must match PyArrow reference for groups with unambiguous mode.
+
+        Groups A and B have all-unique values; tie-breaking is
+        implementation-defined (Pandas picks smallest, PyArrow picks
+        first encountered).  Only Groups C (15 appears twice) and None
+        (single value -10) have a deterministic mode.
+        """
+        self._skip_if_unsupported("mode")
+        fs = make_feature_set("value_int__mode_agg", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
+
+        region_col = self.extract_column(result, "region")
+        result_col = self.extract_column(result, "value_int__mode_agg")
+        result_map = _build_result_map(region_col, result_col)
+
+        ref_region_col = extract_column(ref, "region")
+        ref_col = extract_column(ref, "value_int__mode_agg")
+        ref_map = _build_result_map(ref_region_col, ref_col)
+
+        for key in ("C", None):
+            assert result_map[key] == ref_map[key], f"group {key}: {result_map[key]} != ref {ref_map[key]}"
 
     # -- Statistical aggregation tests (skipped if unsupported) --------------
 
@@ -512,6 +568,55 @@ class AggregationTestBase(DataOpsTestBase):
         result_col = self.extract_column(result, "score__mode_agg")
         assert all(v is None for v in result_col)
 
+    def test_all_null_column_std_per_group(self) -> None:
+        """score is all-null. Std per group should be None."""
+        self._skip_if_unsupported("std")
+        fs = make_feature_set("score__std_agg", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__std_agg")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_var_per_group(self) -> None:
+        """score is all-null. Var per group should be None."""
+        self._skip_if_unsupported("var")
+        fs = make_feature_set("score__var_agg", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__var_agg")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_first_per_group(self) -> None:
+        """score is all-null. First per group should be None."""
+        self._skip_if_unsupported("first")
+        fs = make_feature_set("score__first_agg", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__first_agg")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_last_per_group(self) -> None:
+        """score is all-null. Last per group should be None."""
+        self._skip_if_unsupported("last")
+        fs = make_feature_set("score__last_agg", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__last_agg")
+        assert all(v is None for v in result_col)
+
+    def test_all_null_column_nunique_per_group(self) -> None:
+        """score is all-null. Nunique per group should be 0 or 1.
+
+        Most frameworks return 0 (no distinct non-null values).
+        PyArrow count_distinct may return 1 (counting null as distinct).
+        """
+        self._skip_if_unsupported("nunique")
+        fs = make_feature_set("score__nunique_agg", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "score__nunique_agg")
+        assert all(v in {0, 1} for v in result_col)
+
     # -- Cross-framework null comparisons ------------------------------------
 
     def test_cross_framework_all_null_sum(self) -> None:
@@ -568,6 +673,130 @@ class AggregationTestBase(DataOpsTestBase):
         assert result_map[("A", "X")] == pytest.approx(1.5, rel=1e-6)
         # A/Y: [2.5, 0.0] -> avg = 1.25
         assert result_map[("A", "Y")] == pytest.approx(1.25, rel=1e-6)
+
+    def _build_multi_key_map(self, result: Any, feature_name: str) -> dict[tuple[Any, ...], Any]:
+        """Build a {(region, category): value} map from a multi-key aggregation result."""
+        region_col = self.extract_column(result, "region")
+        category_col = self.extract_column(result, "category")
+        result_col = self.extract_column(result, feature_name)
+        return {(region_col[i], category_col[i]): result_col[i] for i in range(len(region_col))}
+
+    def test_multi_key_partition_median(self) -> None:
+        """Median of value_int grouped by [region, category]."""
+        self._skip_if_unsupported("median")
+        fs = make_feature_set("value_int__median_agg", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_map = self._build_multi_key_map(result, "value_int__median_agg")
+
+        # (A,X): [10, 0] -> median = 5.0
+        assert result_map[("A", "X")] == pytest.approx(5.0, rel=1e-6)
+        # (A,Y): [-5, 20] -> median = 7.5
+        assert result_map[("A", "Y")] == pytest.approx(7.5, rel=1e-6)
+        # (C,Y): [15, 40] -> median = 27.5
+        assert result_map[("C", "Y")] == pytest.approx(27.5, rel=1e-6)
+        # Single-value groups
+        assert result_map[("B", "Y")] == pytest.approx(50.0, rel=1e-6)
+        assert result_map[("C", "X")] == pytest.approx(15.0, rel=1e-6)
+
+    def test_multi_key_partition_std(self) -> None:
+        """Population std of value_int grouped by [region, category].
+
+        Only groups with >= 2 non-null values are checked. Single-value
+        groups produce 0 (population std) but the assertion is kept
+        to groups where the result is non-trivial.
+        """
+        self._skip_if_unsupported("std")
+        fs = make_feature_set("value_int__std_agg", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_map = self._build_multi_key_map(result, "value_int__std_agg")
+
+        # (A,X): [10, 0] -> pop std = 5.0
+        assert result_map[("A", "X")] == pytest.approx(5.0, rel=1e-6)
+        # (A,Y): [-5, 20] -> pop std = 12.5
+        assert result_map[("A", "Y")] == pytest.approx(12.5, rel=1e-6)
+        # (C,Y): [15, 40] -> pop std = 12.5
+        assert result_map[("C", "Y")] == pytest.approx(12.5, rel=1e-6)
+
+    def test_multi_key_partition_var(self) -> None:
+        """Population variance of value_int grouped by [region, category]."""
+        self._skip_if_unsupported("var")
+        fs = make_feature_set("value_int__var_agg", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_map = self._build_multi_key_map(result, "value_int__var_agg")
+
+        # (A,X): [10, 0] -> pop var = 25.0
+        assert result_map[("A", "X")] == pytest.approx(25.0, rel=1e-6)
+        # (A,Y): [-5, 20] -> pop var = 156.25
+        assert result_map[("A", "Y")] == pytest.approx(156.25, rel=1e-6)
+        # (C,Y): [15, 40] -> pop var = 156.25
+        assert result_map[("C", "Y")] == pytest.approx(156.25, rel=1e-6)
+
+    def test_multi_key_partition_nunique(self) -> None:
+        """Nunique of value_int grouped by [region, category]."""
+        self._skip_if_unsupported("nunique")
+        fs = make_feature_set("value_int__nunique_agg", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_map = self._build_multi_key_map(result, "value_int__nunique_agg")
+
+        assert result_map[("A", "X")] == 2  # {10, 0}
+        assert result_map[("A", "Y")] == 2  # {-5, 20}
+        assert result_map[("B", "X")] == 1  # {60} (null excluded)
+        assert result_map[("B", "Y")] == 1  # {50}
+        assert result_map[("C", "Y")] == 2  # {15, 40}
+        assert result_map[("C", "X")] == 1  # {15}
+
+    def test_multi_key_partition_mode(self) -> None:
+        """Mode of value_int grouped by [region, category].
+
+        Only single-value groups are checked because multi-value groups
+        have all-unique values making tie-breaking implementation-defined.
+        """
+        self._skip_if_unsupported("mode")
+        fs = make_feature_set("value_int__mode_agg", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_map = self._build_multi_key_map(result, "value_int__mode_agg")
+
+        # Single-value groups have an unambiguous mode
+        assert result_map[("B", "Y")] == 50
+        assert result_map[("B", None)] == 30
+        assert result_map[("C", "X")] == 15
+        assert result_map[(None, "X")] == -10
+
+    def test_multi_key_partition_first(self) -> None:
+        """First value of value_int grouped by [region, category] (insertion order)."""
+        self._skip_if_unsupported("first")
+        fs = make_feature_set("value_int__first_agg", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_map = self._build_multi_key_map(result, "value_int__first_agg")
+
+        assert result_map[("A", "X")] == 10
+        assert result_map[("A", "Y")] == -5
+        # (B,X): [None, 60] -> first is None or 60 (null-skip divergence)
+        assert result_map[("B", "X")] in {None, 60}
+        assert result_map[("B", "Y")] == 50
+        assert result_map[("B", None)] == 30
+        assert result_map[("C", "Y")] == 15
+        assert result_map[("C", "X")] == 15
+        assert result_map[(None, "X")] == -10
+
+    def test_multi_key_partition_last(self) -> None:
+        """Last value of value_int grouped by [region, category] (insertion order).
+
+        No multi-key group has a trailing null, so all frameworks agree.
+        """
+        self._skip_if_unsupported("last")
+        fs = make_feature_set("value_int__last_agg", ["region", "category"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        result_map = self._build_multi_key_map(result, "value_int__last_agg")
+
+        assert result_map[("A", "X")] == 0
+        assert result_map[("A", "Y")] == 20
+        assert result_map[("B", "X")] == 60
+        assert result_map[("B", "Y")] == 50
+        assert result_map[("B", None)] == 30
+        assert result_map[("C", "Y")] == 40
+        assert result_map[("C", "X")] == 15
+        assert result_map[(None, "X")] == -10
 
     # -- Unsupported operation raises ----------------------------------------
 
