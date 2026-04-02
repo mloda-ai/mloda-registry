@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Set, Type, Union
 
+import numpy as np
 import pandas as pd
 
 from mloda.provider import ComputeFramework
@@ -37,12 +38,23 @@ class PandasBinning(BinningFeatureGroup):
             return data
 
         if op == "bin":
-            non_null_vals = col[non_null_mask].tolist()
-            result = cls._equal_width_binning(col.tolist(), non_null_vals, n_bins)
-            data[feature_name] = pd.Series(result, dtype="Int64")
+            col_min = col[non_null_mask].min()
+            col_max = col[non_null_mask].max()
+            bin_width = (col_max - col_min) / n_bins
+
+            if col_min == col_max:
+                result = pd.array([0 if m else pd.NA for m in non_null_mask], dtype="Int64")
+            else:
+                bin_idx = np.floor((col - col_min) / bin_width)
+                bin_idx = bin_idx.clip(upper=n_bins - 1)
+                result = bin_idx.astype("Int64")
+
+            data[feature_name] = result
         elif op == "qbin":
-            result = cls._quantile_binning(col.tolist(), n_bins)
-            data[feature_name] = pd.Series(result, dtype="Int64")
+            n = non_null_mask.sum()
+            rank = col.rank(method="first", na_option="keep") - 1
+            result = (rank * n_bins // n).astype("Int64")
+            data[feature_name] = result
         else:
             raise ValueError(f"Unsupported binning operation: {op}")
 

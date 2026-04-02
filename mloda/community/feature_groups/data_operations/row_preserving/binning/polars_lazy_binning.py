@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
+from typing import Set, Type, Union
 
 import polars as pl
 
@@ -28,22 +28,42 @@ class PolarsLazyBinning(BinningFeatureGroup):
         op: str,
         n_bins: int,
     ) -> pl.LazyFrame:
-        collected = data.collect()
-        col = collected[source_col]
-        values = col.to_list()
-        non_null = [v for v in values if v is not None]
-
-        if not non_null:
-            result_values: list[Any] = [None] * len(values)
-            result_series = pl.Series(feature_name, result_values, dtype=pl.Int64)
-            return collected.with_columns(result_series).lazy()
-
         if op == "bin":
-            result_values = cls._equal_width_binning(values, non_null, n_bins)
+            expr = cls._build_bin_expr(source_col, n_bins)
         elif op == "qbin":
-            result_values = cls._quantile_binning(values, n_bins)
+            expr = cls._build_qbin_expr(source_col, n_bins)
         else:
             raise ValueError(f"Unsupported binning operation: {op}")
 
-        result_series = pl.Series(feature_name, result_values, dtype=pl.Int64)
-        return collected.with_columns(result_series).lazy()
+        return data.with_columns(expr.alias(feature_name))
+
+    @classmethod
+    def _build_bin_expr(cls, source_col: str, n_bins: int) -> pl.Expr:
+        col = pl.col(source_col).fill_nan(None)
+        col_min = col.min()
+        col_max = col.max()
+        col_range = col_max - col_min
+
+        safe_width = pl.when(col_range == 0).then(pl.lit(1.0)).otherwise(col_range.cast(pl.Float64) / n_bins)
+
+        raw_bin = ((col - col_min) / safe_width).floor()
+
+        clamped = pl.when(raw_bin >= n_bins).then(pl.lit(n_bins - 1).cast(pl.Float64)).otherwise(raw_bin)
+
+        return (
+            pl.when(col.is_null())
+            .then(pl.lit(None, dtype=pl.Int64))
+            .when(col_min == col_max)
+            .then(pl.lit(0, dtype=pl.Int64))
+            .otherwise(clamped.cast(pl.Int64))
+        )
+
+    @classmethod
+    def _build_qbin_expr(cls, source_col: str, n_bins: int) -> pl.Expr:
+        col = pl.col(source_col).fill_nan(None)
+        rank_expr = col.rank("ordinal") - 1
+        count_expr = col.count()
+
+        bin_expr = (rank_expr * n_bins) // count_expr
+
+        return pl.when(col.is_null()).then(pl.lit(None, dtype=pl.Int64)).otherwise(bin_expr).cast(pl.Int64)

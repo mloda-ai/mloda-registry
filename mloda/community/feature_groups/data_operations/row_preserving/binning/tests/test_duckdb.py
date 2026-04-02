@@ -18,7 +18,16 @@ from mloda.testing.feature_groups.data_operations.row_preserving.binning.binning
 
 
 class TestDuckdbBinning(DuckdbTestMixin, BinningTestBase):
-    """Standard tests inherited from the base class."""
+    """Standard tests inherited from the base class.
+
+    qbin is excluded: DuckdbRelation lacks a public order() method, so NTILE
+    results cannot be re-sorted to original row order without eager materialization.
+    Tracked in https://github.com/mloda-ai/mloda/issues/251.
+    """
+
+    @classmethod
+    def supported_ops(cls) -> set[str]:
+        return {"bin"}
 
     @classmethod
     def implementation_class(cls) -> Any:

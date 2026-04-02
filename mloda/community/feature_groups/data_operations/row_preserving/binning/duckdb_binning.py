@@ -32,23 +32,22 @@ class DuckdbBinning(BinningFeatureGroup):
         quoted_feature = quote_ident(feature_name)
 
         if op == "bin":
+            not_nan = f"NOT isnan({quoted_source})"
+            min_expr = f"MIN({quoted_source}) FILTER (WHERE {not_nan}) OVER ()"
+            max_expr = f"MAX({quoted_source}) FILTER (WHERE {not_nan}) OVER ()"
             expr = (
-                f"CASE WHEN {quoted_source} IS NULL THEN NULL "
-                f"WHEN MAX({quoted_source}) OVER () = MIN({quoted_source}) OVER () THEN 0 "
+                f"CASE WHEN {quoted_source} IS NULL OR isnan({quoted_source}) THEN NULL "
+                f"WHEN {max_expr} = {min_expr} THEN 0 "
                 f"ELSE LEAST(CAST(FLOOR("
-                f"({quoted_source} - MIN({quoted_source}) OVER ()) / "
-                f"NULLIF((MAX({quoted_source}) OVER () - MIN({quoted_source}) OVER ()) / {n_bins}.0, 0)"
+                f"({quoted_source} - {min_expr}) / "
+                f"NULLIF(({max_expr} - {min_expr}) / {n_bins}.0, 0)"
                 f") AS INTEGER), {n_bins - 1}) END"
             )
             raw_sql = f"*, {expr} AS {quoted_feature}"
             result: DuckdbRelation = data.select(_raw_sql=raw_sql)
             return result
 
-        if op == "qbin":
-            arrow_table = data.to_arrow_table()
-            values = arrow_table.column(source_col).to_pylist()
-            result_values = cls._quantile_binning(values, n_bins)
-            qbin_result: DuckdbRelation = data.append_column(feature_name, result_values)
-            return qbin_result
-
+        # qbin requires NTILE() with ORDER BY, which reorders rows in DuckDB's
+        # relational API. Blocked until DuckdbRelation exposes a public order() method.
+        # See: https://github.com/mloda-ai/mloda/issues/251
         raise ValueError(f"Unsupported binning operation for DuckDB: {op}")
