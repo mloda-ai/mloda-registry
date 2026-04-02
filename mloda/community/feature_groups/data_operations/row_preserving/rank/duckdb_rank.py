@@ -67,14 +67,14 @@ class DuckdbRank(RankFeatureGroup):
         if rank_type.startswith(("top_", "bottom_")):
             # rank_expr already contains full window expression with boolean comparison
             sql = (
-                f"SELECT *, "  # nosec B608
+                f"SELECT *, "  # nosec
                 f"{rank_expr} AS {quoted_feature}, "
                 f"ROW_NUMBER() OVER () AS {qrn} "
                 f"FROM __t ORDER BY {qrn}"
             )
         else:
             sql = (
-                f"SELECT *, "  # nosec B608
+                f"SELECT *, "  # nosec
                 f"{rank_expr} OVER "
                 f"(PARTITION BY {partition_clause} ORDER BY {quoted_order} ASC NULLS LAST) "
                 f"AS {quoted_feature}, "

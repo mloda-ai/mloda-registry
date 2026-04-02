@@ -36,7 +36,7 @@ class SqliteBinning(BinningFeatureGroup):
         if op == "bin":
             # Safety: all identifiers are quote_ident()-quoted, n_bins is int.
             expr = (
-                f"CASE WHEN {quoted_source} IS NULL THEN NULL "  # nosec B608
+                f"CASE WHEN {quoted_source} IS NULL THEN NULL "  # nosec
                 f"WHEN (SELECT MAX({quoted_source}) FROM {table_name}) = "
                 f"(SELECT MIN({quoted_source}) FROM {table_name}) THEN 0 "
                 f"ELSE MIN(CAST("
@@ -48,7 +48,7 @@ class SqliteBinning(BinningFeatureGroup):
         elif op == "qbin":
             # Safety: all identifiers are quote_ident()-quoted, n_bins is int.
             expr = (
-                f"CASE WHEN {quoted_source} IS NULL THEN NULL "  # nosec B608
+                f"CASE WHEN {quoted_source} IS NULL THEN NULL "  # nosec
                 f"ELSE MIN(NTILE({n_bins}) OVER ("
                 f"PARTITION BY CASE WHEN {quoted_source} IS NOT NULL THEN 1 END "
                 f"ORDER BY {quoted_source}) - 1, {n_bins - 1}) END"

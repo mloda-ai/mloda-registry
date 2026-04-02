@@ -71,10 +71,10 @@ class DuckDBFrameAggregate(FrameAggregateFeatureGroup):
             raise ValueError(f"Unsupported frame type for DuckDB: {frame_type}")
 
         # Step 1: tag rows with original position
-        rel = data._relation.project(f"*, ROW_NUMBER() OVER () AS {qrn}")  # nosec B608
+        rel = data._relation.project(f"*, ROW_NUMBER() OVER () AS {qrn}")  # nosec
 
         # Step 2: compute window function with frame
-        raw_sql = (  # nosec B608
+        raw_sql = (  # nosec
             f"*, {agg_func}({quoted_source}) OVER "
             f"(PARTITION BY {partition_clause} ORDER BY {order_clause} {frame_clause}) "
             f"AS {quoted_feature}"

@@ -49,7 +49,7 @@ class SqliteAggregation(AggregationFeatureGroup):
 
         new_name = _next_table_name()
         sql = (
-            f"CREATE TEMP VIEW {quote_ident(new_name)} AS "  # nosec B608
+            f"CREATE TEMP VIEW {quote_ident(new_name)} AS "  # nosec
             f"SELECT {partition_cols}, "
             f"{agg_func}({quoted_source}) AS {quoted_feature} "
             f"FROM {quote_ident(data.table_name)} "

@@ -62,9 +62,9 @@ class DuckdbOffset(OffsetFeatureGroup):
 
         # Use query() to preserve original row order
         qrn = quote_ident(_RN_COL)
-        sql = (  # nosec B608
-            f"SELECT *, "
-            f"{offset_expr} OVER ({window_clause}) AS {quoted_feature}, "  # nosec B608
+        sql = (
+            f"SELECT *, "  # nosec
+            f"{offset_expr} OVER ({window_clause}) AS {quoted_feature}, "
             f"ROW_NUMBER() OVER () AS {qrn} "
             f"FROM __t ORDER BY {qrn}"
         )
