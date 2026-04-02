@@ -72,6 +72,10 @@ class BinningTestBase(DataOpsTestBase):
     """Abstract base class for binning framework tests."""
 
     @classmethod
+    def supported_ops(cls) -> set[str]:
+        return {"bin", "qbin"}
+
+    @classmethod
     def pyarrow_implementation_class(cls) -> Any:
         from mloda.community.feature_groups.data_operations.row_preserving.binning.pyarrow_binning import (
             PyArrowBinning,
@@ -137,6 +141,7 @@ class BinningTestBase(DataOpsTestBase):
 
     def test_qbin_3_value_int(self) -> None:
         """Quantile binning of value_int into 3 bins."""
+        self._skip_if_unsupported("qbin")
         fs = make_feature_set("value_int__qbin_3")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -148,6 +153,7 @@ class BinningTestBase(DataOpsTestBase):
 
     def test_qbin_5_value_int(self) -> None:
         """Quantile binning of value_int into 5 bins."""
+        self._skip_if_unsupported("qbin")
         fs = make_feature_set("value_int__qbin_5")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -159,6 +165,7 @@ class BinningTestBase(DataOpsTestBase):
 
     def test_qbin_null_propagation(self) -> None:
         """Null values produce null qbin assignments."""
+        self._skip_if_unsupported("qbin")
         fs = make_feature_set("value_int__qbin_3")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -167,6 +174,7 @@ class BinningTestBase(DataOpsTestBase):
 
     def test_qbin_values_in_range(self) -> None:
         """All non-null qbin values must be in [0, n_bins-1]."""
+        self._skip_if_unsupported("qbin")
         fs = make_feature_set("value_int__qbin_5")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -187,10 +195,12 @@ class BinningTestBase(DataOpsTestBase):
 
     def test_cross_framework_qbin_3(self) -> None:
         """qbin_3 must match PyArrow reference."""
+        self._skip_if_unsupported("qbin")
         self._compare_with_pyarrow("value_int__qbin_3")
 
     def test_cross_framework_qbin_5(self) -> None:
         """qbin_5 must match PyArrow reference."""
+        self._skip_if_unsupported("qbin")
         self._compare_with_pyarrow("value_int__qbin_5")
 
     # -- Edge case tests -----------------------------------------------------
@@ -221,6 +231,7 @@ class BinningTestBase(DataOpsTestBase):
 
     def test_qbin_all_identical_values(self) -> None:
         """Quantile binning with all identical values should produce bin 0."""
+        self._skip_if_unsupported("qbin")
         identical_data = {"value_int": [5, 5, 5, 5, 5]}
         arrow_table = pa.table(identical_data)
         test_data = self.create_test_data(arrow_table)
@@ -240,6 +251,7 @@ class BinningTestBase(DataOpsTestBase):
 
     def test_qbin_single_value(self) -> None:
         """Quantile binning with a single value."""
+        self._skip_if_unsupported("qbin")
         single_data = {"value_int": [42]}
         arrow_table = pa.table(single_data)
         test_data = self.create_test_data(arrow_table)
@@ -264,6 +276,7 @@ class BinningTestBase(DataOpsTestBase):
 
     def test_qbin_n_bins_1(self) -> None:
         """qbin with n_bins=1: all non-null values should map to bin 0."""
+        self._skip_if_unsupported("qbin")
         fs = make_feature_set("value_int__qbin_1")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -302,6 +315,7 @@ class BinningTestBase(DataOpsTestBase):
 
     def test_all_null_column_qbin(self) -> None:
         """All-null column should produce all-null qbin assignments."""
+        self._skip_if_unsupported("qbin")
         arrow_table = pa.table({"value_int": pa.array([None, None, None], type=pa.int64())})
         test_data = self.create_test_data(arrow_table)
 
@@ -330,6 +344,44 @@ class BinningTestBase(DataOpsTestBase):
 
         result_col = self.extract_column(result, "value_int__bin_3")
         assert result_col == [0, 1, 2, 2]
+
+    # -- NaN handling tests ----------------------------------------------------
+
+    def test_nan_treated_as_null_bin(self) -> None:
+        """NaN values in float columns must be treated as null for bin.
+
+        Data: [1.0, NaN, 3.0, 5.0, 7.0]
+        Non-null (NaN excluded): [1.0, 3.0, 5.0, 7.0]
+        min=1.0, max=7.0, range=6.0, width=2.0
+        val=1: (1-1)/2=0.0 -> 0, val=NaN: None, val=3: (3-1)/2=1.0 -> 1,
+        val=5: (5-1)/2=2.0 -> 2, val=7: (7-1)/2=3.0 -> clamped to 2
+        """
+        arrow_table = pa.table({"value_int": pa.array([1.0, float("nan"), 3.0, 5.0, 7.0])})
+        test_data = self.create_test_data(arrow_table)
+
+        fs = make_feature_set("value_int__bin_3")
+        result = self.implementation_class().calculate_feature(test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__bin_3")
+        assert result_col == [0, None, 1, 2, 2]
+
+    def test_nan_treated_as_null_qbin(self) -> None:
+        """NaN values in float columns must be treated as null for qbin.
+
+        Data: [1.0, NaN, 3.0, 5.0, 7.0]
+        Non-null sorted: [1.0, 3.0, 5.0, 7.0], N=4, n_bins=3
+        rank 0 -> 0*3//4=0, rank 1 -> 3//4=0,
+        rank 2 -> 6//4=1, rank 3 -> 9//4=2
+        """
+        self._skip_if_unsupported("qbin")
+        arrow_table = pa.table({"value_int": pa.array([1.0, float("nan"), 3.0, 5.0, 7.0])})
+        test_data = self.create_test_data(arrow_table)
+
+        fs = make_feature_set("value_int__qbin_3")
+        result = self.implementation_class().calculate_feature(test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__qbin_3")
+        assert result_col == [0, None, 0, 1, 2]
 
     # -- Option-based config tests -------------------------------------------
 
