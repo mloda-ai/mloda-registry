@@ -64,10 +64,8 @@ class OffsetTestBase(DataOpsTestBase):
 
     @classmethod
     def pyarrow_implementation_class(cls) -> Any:
-        """Return the PyArrow implementation class (reference)."""
-        from mloda.community.feature_groups.data_operations.row_preserving.offset.pyarrow_offset import PyArrowOffset
-
-        return PyArrowOffset
+        """PyArrow has no native lag/lead API; no implementation available."""
+        raise NotImplementedError("PyArrow lacks native offset/lag/lead functions")
 
     # -- Concrete tests ------------------------------------------------------
 

@@ -147,11 +147,8 @@ class FrameAggregateTestBase(DataOpsTestBase):
 
     @classmethod
     def pyarrow_implementation_class(cls) -> Any:
-        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pyarrow_frame_aggregate import (
-            PyArrowFrameAggregate,
-        )
-
-        return PyArrowFrameAggregate
+        """PyArrow has no native window frame API; no implementation available."""
+        raise NotImplementedError("PyArrow lacks native window frame functions")
 
     @classmethod
     def supports_time_frame(cls) -> bool:

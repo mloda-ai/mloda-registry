@@ -45,10 +45,22 @@ class DuckdbBinning(BinningFeatureGroup):
             return result
 
         if op == "qbin":
-            arrow_table = data.to_arrow_table()
-            values = arrow_table.column(source_col).to_pylist()
-            result_values = cls._quantile_binning(values, n_bins)
-            qbin_result: DuckdbRelation = data.append_column(feature_name, result_values)
+            rn_col = quote_ident("__mloda_rn__")
+            rn_sql = f"*, ROW_NUMBER() OVER () AS {rn_col}"
+            with_rn = data.select(_raw_sql=rn_sql)
+
+            expr = (
+                f"CASE WHEN {quoted_source} IS NULL THEN NULL "
+                f"ELSE LEAST(NTILE({n_bins}) OVER ("
+                f"PARTITION BY CASE WHEN {quoted_source} IS NOT NULL THEN 1 END "
+                f"ORDER BY {quoted_source}) - 1, {n_bins - 1}) END"
+            )
+            ntile_sql = f"*, {expr} AS {quoted_feature}"
+            with_ntile = with_rn.select(_raw_sql=ntile_sql)
+
+            sorted_rel = with_ntile._relation.order(rn_col)
+            keep = ", ".join(quote_ident(c) for c in sorted_rel.columns if c != "__mloda_rn__")
+            qbin_result: DuckdbRelation = DuckdbRelation(data._connection, sorted_rel.project(keep))
             return qbin_result
 
         raise ValueError(f"Unsupported binning operation for DuckDB: {op}")

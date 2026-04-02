@@ -115,11 +115,16 @@ class DataOpsTestBase(ABC):
         rel: float = 1e-6,
     ) -> None:
         """Run a feature through this framework and PyArrow, assert results match."""
+        try:
+            pyarrow_cls = self.pyarrow_implementation_class()
+        except NotImplementedError:
+            pytest.skip("No PyArrow implementation for cross-framework comparison")
+
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
         fs = make_feature_set(feature_name, partition_by=partition_by, order_by=order_by)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.pyarrow_implementation_class().calculate_feature(self._arrow_table, fs)
+        ref = pyarrow_cls.calculate_feature(self._arrow_table, fs)
 
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)

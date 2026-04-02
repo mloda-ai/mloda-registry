@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import importlib
+
 import pytest
+
+_has_pandas = importlib.util.find_spec("pandas") is not None
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
@@ -145,15 +149,16 @@ class TestConfigBasedFeatures:
         )
         assert OffsetFeatureGroup.match_feature_group_criteria("my_result", options, None)
 
+    @pytest.mark.skipif(not _has_pandas, reason="pandas not installed")
     def test_config_based_calculate_feature(self) -> None:
-        import pyarrow as pa
+        import pandas as pd
 
         from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.community.feature_groups.data_operations.row_preserving.offset.pyarrow_offset import PyArrowOffset
-        from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+        from mloda.community.feature_groups.data_operations.row_preserving.offset.pandas_offset import PandasOffset
+        from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
         from mloda.user import Feature
 
-        table = PyArrowDataOpsTestDataCreator.create()
+        df = PandasDataOpsTestDataCreator.create()
         feature = Feature(
             "my_lag",
             options=Options(
@@ -168,10 +173,10 @@ class TestConfigBasedFeatures:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = PyArrowOffset.calculate_feature(table, fs)
-        assert isinstance(result, pa.Table)
-        assert "my_lag" in result.column_names
-        assert result.num_rows == 12
+        result = PandasOffset.calculate_feature(df, fs)
+        assert isinstance(result, pd.DataFrame)
+        assert "my_lag" in result.columns
+        assert len(result) == 12
 
 
 class TestOffsetMatchValidation(MatchValidationTestBase):

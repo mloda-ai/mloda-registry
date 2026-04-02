@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import importlib
+
 import pytest
+
+_has_pandas = importlib.util.find_spec("pandas") is not None
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
@@ -248,15 +252,16 @@ class TestConfigBasedFeatures:
         result = RankFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is False
 
+    @pytest.mark.skipif(not _has_pandas, reason="pandas not installed")
     def test_config_based_calculate_feature(self) -> None:
-        import pyarrow as pa
+        import pandas as pd
 
         from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.community.feature_groups.data_operations.row_preserving.rank.pyarrow_rank import PyArrowRank
-        from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+        from mloda.community.feature_groups.data_operations.row_preserving.rank.pandas_rank import PandasRank
+        from mloda.testing.data_creator.pandas import PandasDataOpsTestDataCreator
         from mloda.user import Feature
 
-        table = PyArrowDataOpsTestDataCreator.create()
+        df = PandasDataOpsTestDataCreator.create()
 
         feature = Feature(
             "my_rank_result",
@@ -272,10 +277,10 @@ class TestConfigBasedFeatures:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = PyArrowRank.calculate_feature(table, fs)
-        assert isinstance(result, pa.Table)
-        assert "my_rank_result" in result.column_names
-        assert result.num_rows == 12
+        result = PandasRank.calculate_feature(df, fs)
+        assert isinstance(result, pd.DataFrame)
+        assert "my_rank_result" in result.columns
+        assert len(result) == 12
 
 
 class TestRankMatchValidation(MatchValidationTestBase):

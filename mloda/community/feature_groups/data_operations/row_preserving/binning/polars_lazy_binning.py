@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
+from typing import Set, Type, Union
 
 import polars as pl
 
@@ -28,22 +28,34 @@ class PolarsLazyBinning(BinningFeatureGroup):
         op: str,
         n_bins: int,
     ) -> pl.LazyFrame:
-        collected = data.collect()
-        col = collected[source_col]
-        values = col.to_list()
-        non_null = [v for v in values if v is not None]
-
-        if not non_null:
-            result_values: list[Any] = [None] * len(values)
-            result_series = pl.Series(feature_name, result_values, dtype=pl.Int64)
-            return collected.with_columns(result_series).lazy()
+        col = pl.col(source_col)
 
         if op == "bin":
-            result_values = cls._equal_width_binning(values, non_null, n_bins)
+            col_min = col.min()
+            col_max = col.max()
+            bin_width = (col_max - col_min) / n_bins
+
+            expr = (
+                pl.when(col.is_null())
+                .then(None)
+                .when(col_max == col_min)
+                .then(pl.lit(0))
+                .otherwise(((col - col_min) / bin_width).fill_nan(0).floor().cast(pl.Int64).clip(0, n_bins - 1))
+                .cast(pl.Int64)
+                .alias(feature_name)
+            )
         elif op == "qbin":
-            result_values = cls._quantile_binning(values, n_bins)
+            non_null_count = col.count()
+            rank = col.rank(method="ordinal")
+
+            expr = (
+                pl.when(col.is_null())
+                .then(None)
+                .otherwise(((rank - 1) * n_bins / non_null_count).floor().cast(pl.Int64).clip(0, n_bins - 1))
+                .cast(pl.Int64)
+                .alias(feature_name)
+            )
         else:
             raise ValueError(f"Unsupported binning operation: {op}")
 
-        result_series = pl.Series(feature_name, result_values, dtype=pl.Int64)
-        return collected.with_columns(result_series).lazy()
+        return data.with_columns(expr)

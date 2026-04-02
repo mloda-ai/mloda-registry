@@ -88,12 +88,8 @@ class RankTestBase(DataOpsTestBase):
 
     @classmethod
     def pyarrow_implementation_class(cls) -> Any:
-        """Return the PyArrow implementation class (reference for cross-framework comparison)."""
-        from mloda.community.feature_groups.data_operations.row_preserving.rank.pyarrow_rank import (
-            PyArrowRank,
-        )
-
-        return PyArrowRank
+        """PyArrow has no native ranking API; no implementation available."""
+        raise NotImplementedError("PyArrow lacks native ranking functions")
 
     # -- Concrete test methods (inherited for free) --------------------------
 
