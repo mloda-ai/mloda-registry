@@ -224,14 +224,17 @@ class AggregationTestBase(DataOpsTestBase):
         feature_name: str,
         partition_by: list[str],
         use_approx: bool = False,
-        allow_null_divergence: bool = False,
+        nullable_groups: set[Any] | None = None,
     ) -> None:
         """Run the feature through this framework and PyArrow, assert results match.
 
-        When *allow_null_divergence* is True, a framework returning None where
-        PyArrow returns a non-None value is accepted.  This accommodates
-        first/last null-handling differences (e.g. DuckDB returns the literal
-        first value including None, while PyArrow skips nulls).
+        *nullable_groups*, when provided, lists group keys where a framework
+        returning None while PyArrow returns a non-None value is accepted.
+        This accommodates first/last null-handling differences (e.g. DuckDB
+        returns the literal first value including None for Group B, while
+        PyArrow skips nulls and returns 50).  Groups NOT in this set are
+        always compared strictly, so a new regression that introduces an
+        unexpected None will be caught.
         """
         fs = make_feature_set(feature_name, partition_by)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
@@ -245,9 +248,10 @@ class AggregationTestBase(DataOpsTestBase):
         ref_col = extract_column(ref, feature_name)
         ref_map = _build_result_map(ref_region_col, ref_col)
 
+        _nullable = nullable_groups or set()
         assert len(result_map) == len(ref_map), f"group count {len(result_map)} != reference {len(ref_map)}"
         for key in ref_map:
-            if allow_null_divergence and result_map[key] is None and ref_map[key] is not None:
+            if key in _nullable and result_map[key] is None and ref_map[key] is not None:
                 continue
             if use_approx:
                 if ref_map[key] is None:
@@ -304,10 +308,10 @@ class AggregationTestBase(DataOpsTestBase):
 
         Group B has a leading null.  PyArrow skips nulls (returns 50),
         while DuckDB/Polars return None (literal first value).
-        allow_null_divergence accepts this difference.
+        Only group B is allowed to diverge; all other groups must match strictly.
         """
         self._skip_if_unsupported("first")
-        self._compare_agg_with_pyarrow("value_int__first_agg", ["region"], allow_null_divergence=True)
+        self._compare_agg_with_pyarrow("value_int__first_agg", ["region"], nullable_groups={"B"})
 
     def test_cross_framework_last(self) -> None:
         """Last must match PyArrow reference.
