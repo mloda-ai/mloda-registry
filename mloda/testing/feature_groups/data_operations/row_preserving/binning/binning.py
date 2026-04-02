@@ -76,7 +76,7 @@ class BinningTestBase(DataOpsTestBase):
         return {"bin", "qbin"}
 
     @classmethod
-    def pyarrow_implementation_class(cls) -> Any:
+    def reference_implementation_class(cls) -> Any:
         from mloda.community.feature_groups.data_operations.row_preserving.binning.pyarrow_binning import (
             PyArrowBinning,
         )
@@ -183,25 +183,25 @@ class BinningTestBase(DataOpsTestBase):
             if val is not None:
                 assert 0 <= val < 5, f"Qbin value {val} out of range [0, 4]"
 
-    # -- Cross-framework comparison (matches PyArrow reference) --------------
+    # -- Cross-framework comparison (matches reference) --------------
 
     def test_cross_framework_bin_3(self) -> None:
-        """bin_3 must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__bin_3")
+        """bin_3 must match reference."""
+        self._compare_with_reference("value_int__bin_3")
 
     def test_cross_framework_bin_5(self) -> None:
-        """bin_5 must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__bin_5")
+        """bin_5 must match reference."""
+        self._compare_with_reference("value_int__bin_5")
 
     def test_cross_framework_qbin_3(self) -> None:
-        """qbin_3 must match PyArrow reference."""
+        """qbin_3 must match reference."""
         self._skip_if_unsupported("qbin")
-        self._compare_with_pyarrow("value_int__qbin_3")
+        self._compare_with_reference("value_int__qbin_3")
 
     def test_cross_framework_qbin_5(self) -> None:
-        """qbin_5 must match PyArrow reference."""
+        """qbin_5 must match reference."""
         self._skip_if_unsupported("qbin")
-        self._compare_with_pyarrow("value_int__qbin_5")
+        self._compare_with_reference("value_int__qbin_5")
 
     # -- Edge case tests -----------------------------------------------------
 

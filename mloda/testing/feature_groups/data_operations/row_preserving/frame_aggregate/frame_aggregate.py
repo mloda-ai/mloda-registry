@@ -146,12 +146,12 @@ class FrameAggregateTestBase(DataOpsTestBase):
     """Abstract base class for frame aggregate framework tests."""
 
     @classmethod
-    def pyarrow_implementation_class(cls) -> Any:
-        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pyarrow_frame_aggregate import (
-            PyArrowFrameAggregate,
+    def reference_implementation_class(cls) -> Any:
+        from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.reference import (
+            ReferenceFrameAggregate,
         )
 
-        return PyArrowFrameAggregate
+        return ReferenceFrameAggregate
 
     @classmethod
     def supports_time_frame(cls) -> bool:
@@ -340,22 +340,22 @@ class FrameAggregateTestBase(DataOpsTestBase):
     # -- Cross-framework comparison ------------------------------------------
 
     def test_cross_framework_rolling_sum(self) -> None:
-        """Rolling sum must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__sum_rolling_3", partition_by=["region"], order_by="value_int")
+        """Rolling sum must match reference."""
+        self._compare_with_reference("value_int__sum_rolling_3", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_cumsum(self) -> None:
-        """Cumulative sum must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__cumsum", partition_by=["region"], order_by="value_int")
+        """Cumulative sum must match reference."""
+        self._compare_with_reference("value_int__cumsum", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_expanding_avg(self) -> None:
-        """Expanding avg must match PyArrow reference."""
-        self._compare_with_pyarrow(
+        """Expanding avg must match reference."""
+        self._compare_with_reference(
             "value_int__expanding_avg", partition_by=["region"], order_by="value_int", use_approx=True
         )
 
     def test_cross_framework_rolling_avg(self) -> None:
-        """Rolling avg must match PyArrow reference."""
-        self._compare_with_pyarrow(
+        """Rolling avg must match reference."""
+        self._compare_with_reference(
             "value_int__avg_rolling_2", partition_by=["region"], order_by="value_int", use_approx=True
         )
 

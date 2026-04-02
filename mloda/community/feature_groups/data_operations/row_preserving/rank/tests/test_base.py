@@ -252,7 +252,7 @@ class TestConfigBasedFeatures:
         import pyarrow as pa
 
         from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.community.feature_groups.data_operations.row_preserving.rank.pyarrow_rank import PyArrowRank
+        from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import ReferenceRank
         from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
         from mloda.user import Feature
 
@@ -272,7 +272,7 @@ class TestConfigBasedFeatures:
         fs = FeatureSet()
         fs.add(feature)
 
-        result = PyArrowRank.calculate_feature(table, fs)
+        result = ReferenceRank.calculate_feature(table, fs)
         assert isinstance(result, pa.Table)
         assert "my_rank_result" in result.column_names
         assert result.num_rows == 12

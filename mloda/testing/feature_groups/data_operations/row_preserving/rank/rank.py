@@ -84,16 +84,16 @@ class RankTestBase(DataOpsTestBase):
         """Rank types this framework supports. Override to restrict."""
         return cls.ALL_RANK_TYPES
 
-    # -- PyArrow reference override --------------------------------------------
+    # -- Reference implementation override --------------------------------------------
 
     @classmethod
-    def pyarrow_implementation_class(cls) -> Any:
-        """Return the PyArrow implementation class (reference for cross-framework comparison)."""
-        from mloda.community.feature_groups.data_operations.row_preserving.rank.pyarrow_rank import (
-            PyArrowRank,
+    def reference_implementation_class(cls) -> Any:
+        """Return the reference implementation class for cross-framework comparison."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import (
+            ReferenceRank,
         )
 
-        return PyArrowRank
+        return ReferenceRank
 
     # -- Concrete test methods (inherited for free) --------------------------
 
@@ -293,38 +293,38 @@ class RankTestBase(DataOpsTestBase):
         # None group: single row -> True
         assert result_col[11] is True
 
-    # -- Cross-framework comparison (matches PyArrow reference) --------------
+    # -- Cross-framework comparison (matches reference) --------------
 
     def test_cross_framework_row_number(self) -> None:
-        """Row number must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__row_number_ranked", partition_by=["region"], order_by="value_int")
+        """Row number must match reference."""
+        self._compare_with_reference("value_int__row_number_ranked", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_rank(self) -> None:
-        """Rank must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__rank_ranked", partition_by=["region"], order_by="value_int")
+        """Rank must match reference."""
+        self._compare_with_reference("value_int__rank_ranked", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_dense_rank(self) -> None:
-        """Dense rank must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__dense_rank_ranked", partition_by=["region"], order_by="value_int")
+        """Dense rank must match reference."""
+        self._compare_with_reference("value_int__dense_rank_ranked", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_percent_rank(self) -> None:
-        """Percent rank must match PyArrow reference."""
+        """Percent rank must match reference."""
         self._skip_if_unsupported("percent_rank")
-        self._compare_with_pyarrow(
+        self._compare_with_reference(
             "value_int__percent_rank_ranked", partition_by=["region"], order_by="value_int", use_approx=True
         )
 
     def test_cross_framework_ntile(self) -> None:
-        """Ntile must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__ntile_2_ranked", partition_by=["region"], order_by="value_int")
+        """Ntile must match reference."""
+        self._compare_with_reference("value_int__ntile_2_ranked", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_top_n(self) -> None:
-        """Top N must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__top_3_ranked", partition_by=["region"], order_by="value_int")
+        """Top N must match reference."""
+        self._compare_with_reference("value_int__top_3_ranked", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_bottom_n(self) -> None:
-        """Bottom N must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__bottom_2_ranked", partition_by=["region"], order_by="value_int")
+        """Bottom N must match reference."""
+        self._compare_with_reference("value_int__bottom_2_ranked", partition_by=["region"], order_by="value_int")
 
     # -- All-null column tests -----------------------------------------------
 

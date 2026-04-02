@@ -59,7 +59,7 @@ class PercentileTestBase(DataOpsTestBase):
     """Abstract base class for percentile framework tests."""
 
     @classmethod
-    def pyarrow_implementation_class(cls) -> Any:
+    def reference_implementation_class(cls) -> Any:
         from mloda.community.feature_groups.data_operations.row_preserving.percentile.pyarrow_percentile import (
             PyArrowPercentile,
         )
@@ -254,30 +254,30 @@ class PercentileTestBase(DataOpsTestBase):
         # A: amount non-null = [100.0, 250.0, 75.0] -> sorted [75.0, 100.0, 250.0] -> p50 = 100.0
         assert result_col[0] == pytest.approx(100.0, rel=1e-6)
 
-    # -- Cross-framework comparison (matches PyArrow reference) ----------------
+    # -- Cross-framework comparison (matches reference) ----------------
 
     def test_cross_framework_p50(self) -> None:
-        """P50 must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__p50_percentile", partition_by=["region"], use_approx=True)
+        """P50 must match reference."""
+        self._compare_with_reference("value_int__p50_percentile", partition_by=["region"], use_approx=True)
 
     def test_cross_framework_p25(self) -> None:
-        """P25 must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__p25_percentile", partition_by=["region"], use_approx=True)
+        """P25 must match reference."""
+        self._compare_with_reference("value_int__p25_percentile", partition_by=["region"], use_approx=True)
 
     def test_cross_framework_p75(self) -> None:
-        """P75 must match PyArrow reference."""
-        self._compare_with_pyarrow("value_int__p75_percentile", partition_by=["region"], use_approx=True)
+        """P75 must match reference."""
+        self._compare_with_reference("value_int__p75_percentile", partition_by=["region"], use_approx=True)
 
     # -- Cross-framework null comparisons --------------------------------------
 
     def test_cross_framework_all_null_p50(self) -> None:
-        """All-null column p50 must match PyArrow reference."""
-        self._compare_with_pyarrow("score__p50_percentile", partition_by=["region"])
+        """All-null column p50 must match reference."""
+        self._compare_with_reference("score__p50_percentile", partition_by=["region"])
 
     def test_cross_framework_multi_null_p50(self) -> None:
-        """Multi-null column (value_float) p50 must match PyArrow reference."""
-        self._compare_with_pyarrow("value_float__p50_percentile", partition_by=["region"], use_approx=True)
+        """Multi-null column (value_float) p50 must match reference."""
+        self._compare_with_reference("value_float__p50_percentile", partition_by=["region"], use_approx=True)
 
     def test_cross_framework_amount_p50(self) -> None:
-        """Amount column (2 nulls) p50 must match PyArrow reference."""
-        self._compare_with_pyarrow("amount__p50_percentile", partition_by=["region"], use_approx=True)
+        """Amount column (2 nulls) p50 must match reference."""
+        self._compare_with_reference("amount__p50_percentile", partition_by=["region"], use_approx=True)

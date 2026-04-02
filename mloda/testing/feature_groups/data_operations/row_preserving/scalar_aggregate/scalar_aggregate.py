@@ -78,7 +78,7 @@ class ScalarAggregateTestBase(DataOpsTestBase):
         return cls.ALL_AGG_TYPES
 
     @classmethod
-    def pyarrow_implementation_class(cls) -> Any:
+    def reference_implementation_class(cls) -> Any:
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pyarrow_scalar_aggregate import (
             PyArrowScalarAggregate,
         )
@@ -299,19 +299,19 @@ class ScalarAggregateTestBase(DataOpsTestBase):
     # -- Cross-framework comparison ------------------------------------------
 
     def test_cross_framework_sum(self) -> None:
-        self._compare_with_pyarrow("value_int__sum_scalar")
+        self._compare_with_reference("value_int__sum_scalar")
 
     def test_cross_framework_avg(self) -> None:
-        self._compare_with_pyarrow("value_int__avg_scalar", use_approx=True)
+        self._compare_with_reference("value_int__avg_scalar", use_approx=True)
 
     def test_cross_framework_count(self) -> None:
-        self._compare_with_pyarrow("value_int__count_scalar")
+        self._compare_with_reference("value_int__count_scalar")
 
     def test_cross_framework_min(self) -> None:
-        self._compare_with_pyarrow("value_int__min_scalar")
+        self._compare_with_reference("value_int__min_scalar")
 
     def test_cross_framework_max(self) -> None:
-        self._compare_with_pyarrow("value_int__max_scalar")
+        self._compare_with_reference("value_int__max_scalar")
 
     # -- Null consistency tests (all-null column: score) ---------------------
 
@@ -393,25 +393,25 @@ class ScalarAggregateTestBase(DataOpsTestBase):
     # -- Cross-framework null comparisons ------------------------------------
 
     def test_cross_framework_all_null_min(self) -> None:
-        self._compare_with_pyarrow("score__min_scalar")
+        self._compare_with_reference("score__min_scalar")
 
     def test_cross_framework_all_null_max(self) -> None:
-        self._compare_with_pyarrow("score__max_scalar")
+        self._compare_with_reference("score__max_scalar")
 
     def test_cross_framework_all_null_avg(self) -> None:
-        self._compare_with_pyarrow("score__avg_scalar")
+        self._compare_with_reference("score__avg_scalar")
 
     def test_cross_framework_all_null_count(self) -> None:
-        self._compare_with_pyarrow("score__count_scalar")
+        self._compare_with_reference("score__count_scalar")
 
     def test_cross_framework_multi_null_sum(self) -> None:
-        self._compare_with_pyarrow("value_float__sum_scalar", use_approx=True)
+        self._compare_with_reference("value_float__sum_scalar", use_approx=True)
 
     def test_cross_framework_multi_null_count(self) -> None:
-        self._compare_with_pyarrow("value_float__count_scalar")
+        self._compare_with_reference("value_float__count_scalar")
 
     def test_cross_framework_amount_sum(self) -> None:
-        self._compare_with_pyarrow("amount__sum_scalar", use_approx=True)
+        self._compare_with_reference("amount__sum_scalar", use_approx=True)
 
     def test_cross_framework_amount_count(self) -> None:
-        self._compare_with_pyarrow("amount__count_scalar")
+        self._compare_with_reference("amount__count_scalar")

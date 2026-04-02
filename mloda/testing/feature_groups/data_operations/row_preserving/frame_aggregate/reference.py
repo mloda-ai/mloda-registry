@@ -1,10 +1,10 @@
-"""PyArrow implementation for frame aggregate feature groups.
+"""Test reference implementation for frame aggregate feature groups.
 
-Uses bulk ``to_pylist()`` extraction (one C++ call per column) instead of
-per-row ``.as_py()`` calls, then performs grouping, sorting, and windowed
-aggregation in pure Python on the extracted lists. The windowing logic
-(rolling, cumulative, expanding, time) is inherently sequential per group
-and cannot be further vectorized with PyArrow's current API.
+Accepts PyArrow tables but computes in Python. Used as the cross-framework
+comparison baseline in test suites. Uses bulk ``to_pylist()`` extraction
+(one C++ call per column) instead of per-row ``.as_py()`` calls, then
+performs grouping, sorting, and windowed aggregation in pure Python on the
+extracted lists.
 """
 
 from __future__ import annotations
@@ -16,13 +16,13 @@ import pyarrow as pa
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.data_operations.pyarrow_aggregation_helpers import aggregate
+from mloda.testing.feature_groups.data_operations.aggregation_helpers import aggregate
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
 
 
-class PyArrowFrameAggregate(FrameAggregateFeatureGroup):
+class ReferenceFrameAggregate(FrameAggregateFeatureGroup):
     @classmethod
     def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
         return {PyArrowTable}

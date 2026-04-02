@@ -1,4 +1,4 @@
-"""Shared PyArrow aggregation helpers for data operation feature groups.
+"""Shared aggregation helpers for test reference implementations.
 
 The helper functions below compute scalar aggregates over plain Python lists.
 They are used by frame_aggregate (per-window aggregation) and as a fallback

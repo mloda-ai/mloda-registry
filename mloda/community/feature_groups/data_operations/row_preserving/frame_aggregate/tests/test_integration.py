@@ -16,8 +16,8 @@ from mloda.testing.feature_groups.data_operations.integration import DataOpsInte
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pyarrow_frame_aggregate import (
-    PyArrowFrameAggregate,
+from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.reference import (
+    ReferenceFrameAggregate,
 )
 
 
@@ -31,7 +31,7 @@ class TestFrameAggregateIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def feature_group_class(cls) -> type:
-        return PyArrowFrameAggregate
+        return ReferenceFrameAggregate
 
     @classmethod
     def data_creator_class(cls) -> type:
@@ -104,7 +104,7 @@ class TestFrameAggregateMultiFeature:
 
     def test_rolling_and_cumulative_together(self) -> None:
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowFrameAggregate}
+            {PyArrowDataOpsTestDataCreator, ReferenceFrameAggregate}
         )
 
         features: list[Feature | str] = [
@@ -140,7 +140,7 @@ class TestFrameAggregateMultiFeature:
     def test_expanding_and_rolling_different_aggs(self) -> None:
         """Request expanding avg and rolling min in one pipeline run."""
         plugin_collector = PluginCollector.enabled_feature_groups(
-            {PyArrowDataOpsTestDataCreator, PyArrowFrameAggregate}
+            {PyArrowDataOpsTestDataCreator, ReferenceFrameAggregate}
         )
 
         features: list[Feature | str] = [

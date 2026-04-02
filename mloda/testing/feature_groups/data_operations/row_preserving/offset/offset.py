@@ -63,11 +63,11 @@ class OffsetTestBase(DataOpsTestBase):
         return cls.ALL_OFFSET_TYPES
 
     @classmethod
-    def pyarrow_implementation_class(cls) -> Any:
-        """Return the PyArrow implementation class (reference)."""
-        from mloda.community.feature_groups.data_operations.row_preserving.offset.pyarrow_offset import PyArrowOffset
+    def reference_implementation_class(cls) -> Any:
+        """Return the reference implementation class."""
+        from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import ReferenceOffset
 
-        return PyArrowOffset
+        return ReferenceOffset
 
     # -- Concrete tests ------------------------------------------------------
 
@@ -202,24 +202,24 @@ class OffsetTestBase(DataOpsTestBase):
     # -- Cross-framework comparison ------------------------------------------
 
     def test_cross_framework_lag(self) -> None:
-        self._compare_with_pyarrow("value_int__lag_1_offset", partition_by=["region"], order_by="value_int")
+        self._compare_with_reference("value_int__lag_1_offset", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_lead(self) -> None:
-        self._compare_with_pyarrow("value_int__lead_1_offset", partition_by=["region"], order_by="value_int")
+        self._compare_with_reference("value_int__lead_1_offset", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_first_value(self) -> None:
-        self._compare_with_pyarrow("value_int__first_value_offset", partition_by=["region"], order_by="value_int")
+        self._compare_with_reference("value_int__first_value_offset", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_last_value(self) -> None:
-        self._compare_with_pyarrow("value_int__last_value_offset", partition_by=["region"], order_by="value_int")
+        self._compare_with_reference("value_int__last_value_offset", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_diff(self) -> None:
         self._skip_if_unsupported("diff")
-        self._compare_with_pyarrow("value_int__diff_1_offset", partition_by=["region"], order_by="value_int")
+        self._compare_with_reference("value_int__diff_1_offset", partition_by=["region"], order_by="value_int")
 
     def test_cross_framework_pct_change(self) -> None:
         self._skip_if_unsupported("pct_change")
-        self._compare_with_pyarrow(
+        self._compare_with_reference(
             "value_int__pct_change_1_offset", partition_by=["region"], order_by="value_int", use_approx=True
         )
 

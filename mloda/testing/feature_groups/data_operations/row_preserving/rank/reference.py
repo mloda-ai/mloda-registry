@@ -1,4 +1,8 @@
-"""PyArrow implementation for rank feature groups."""
+"""Test reference implementation for rank feature groups.
+
+Accepts PyArrow tables but computes in Python. Used as the cross-framework
+comparison baseline in test suites.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +18,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.rank.base imp
 )
 
 
-class PyArrowRank(RankFeatureGroup):
+class ReferenceRank(RankFeatureGroup):
     @classmethod
     def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
         return {PyArrowTable}

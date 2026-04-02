@@ -1,4 +1,10 @@
-"""Integration tests for rank through mloda's full pipeline."""
+"""Integration tests for rank through mloda's full pipeline.
+
+Uses the ReferenceRank implementation (a test utility that accepts PyArrow
+tables and computes in Python) because PyArrow lacks native ranking functions.
+The tests verify that rank operations work end-to-end through mloda's
+runtime, including plugin discovery, feature resolution, and PluginCollector.
+"""
 
 from __future__ import annotations
 
@@ -10,8 +16,8 @@ from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.data_operations.row_preserving.rank.pyarrow_rank import (
-    PyArrowRank,
+from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import (
+    ReferenceRank,
 )
 
 
@@ -20,7 +26,7 @@ class TestIntegrationBasic:
 
     def test_row_number_through_pipeline(self) -> None:
         """Run value_int__row_number_ranked through run_all."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowRank})
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ReferenceRank})
 
         feature = Feature(
             "value_int__row_number_ranked",
@@ -50,7 +56,7 @@ class TestIntegrationBasic:
 
     def test_dense_rank_through_pipeline(self) -> None:
         """Run value_int__dense_rank_ranked through run_all."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowRank})
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ReferenceRank})
 
         feature = Feature(
             "value_int__dense_rank_ranked",
@@ -78,7 +84,7 @@ class TestIntegrationBasic:
 
     def test_top_n_through_pipeline(self) -> None:
         """Run value_int__top_3_ranked through run_all."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowRank})
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ReferenceRank})
 
         feature = Feature(
             "value_int__top_3_ranked",
@@ -109,8 +115,8 @@ class TestIntegrationPluginDiscovery:
     """Test plugin discovery for rank feature groups."""
 
     def test_feature_group_is_discoverable(self) -> None:
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowRank})
-        assert plugin_collector.applicable_feature_group_class(PyArrowRank)
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ReferenceRank})
+        assert plugin_collector.applicable_feature_group_class(ReferenceRank)
 
     def test_disabled_feature_group_blocks_execution(self) -> None:
         plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator})
@@ -129,13 +135,13 @@ class TestIntegrationPluginDiscovery:
 
     def test_match_feature_group_criteria(self) -> None:
         options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
-        assert PyArrowRank.match_feature_group_criteria("value_int__row_number_ranked", options)
-        assert PyArrowRank.match_feature_group_criteria("value_int__rank_ranked", options)
+        assert ReferenceRank.match_feature_group_criteria("value_int__row_number_ranked", options)
+        assert ReferenceRank.match_feature_group_criteria("value_int__rank_ranked", options)
 
     def test_match_rejects_missing_order_by(self) -> None:
         options = Options(context={"partition_by": ["region"]})
-        assert not PyArrowRank.match_feature_group_criteria("value_int__row_number_ranked", options)
+        assert not ReferenceRank.match_feature_group_criteria("value_int__row_number_ranked", options)
 
     def test_match_rejects_missing_partition_by(self) -> None:
         options = Options(context={"order_by": "value_int"})
-        assert not PyArrowRank.match_feature_group_criteria("value_int__row_number_ranked", options)
+        assert not ReferenceRank.match_feature_group_criteria("value_int__row_number_ranked", options)

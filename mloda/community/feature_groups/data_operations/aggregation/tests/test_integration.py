@@ -27,6 +27,9 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import (
     PyArrowAggregation,
 )
+from mloda.testing.feature_groups.data_operations.aggregation.reference import (
+    ReferenceAggregation,
+)
 
 
 class TestAggregationIntegration(DataOpsIntegrationTestBase):
@@ -177,30 +180,6 @@ class TestIntegrationAdditionalAggTypes:
         assert result_table is not None
         assert result_table.num_rows == 4
 
-    def test_median_agg_through_pipeline(self) -> None:
-        """Run value_int__median_agg through run_all and verify the result."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
-
-        feature = Feature(
-            "value_int__median_agg",
-            options=Options(context={"partition_by": ["region"]}),
-        )
-
-        results = mloda.run_all(
-            [feature],
-            compute_frameworks={PyArrowTable},
-            plugin_collector=plugin_collector,
-        )
-
-        result_table = None
-        for table in results:
-            if isinstance(table, pa.Table) and "value_int__median_agg" in table.column_names:
-                result_table = table
-                break
-
-        assert result_table is not None
-        assert result_table.num_rows == 4
-
     def test_nunique_agg_through_pipeline(self) -> None:
         """Run value_int__nunique_agg through run_all and verify the result."""
         plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
@@ -224,6 +203,47 @@ class TestIntegrationAdditionalAggTypes:
 
         assert result_table is not None
         assert result_table.num_rows == 4
+
+
+class TestIntegrationReferenceOnlyAggTypes:
+    """Pipeline test for aggregation types not natively supported by PyArrow.
+
+    PyArrow lacks native grouped median and mode, so those operations were
+    removed from PyArrowAggregation. The ReferenceAggregation (a test utility
+    that computes in Python) still supports them. This test verifies that
+    median continues to work end-to-end through mloda's pipeline, ensuring
+    no regression for frameworks that do support it natively (Pandas, Polars,
+    SQLite, DuckDB).
+    """
+
+    def test_median_agg_through_pipeline(self) -> None:
+        """Run median aggregation through run_all using the reference implementation."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ReferenceAggregation})
+
+        feature = Feature(
+            "value_int__median_agg",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+
+        results = mloda.run_all(
+            [feature],
+            compute_frameworks={PyArrowTable},
+            plugin_collector=plugin_collector,
+        )
+
+        result_table = None
+        for table in results:
+            if isinstance(table, pa.Table) and "value_int__median_agg" in table.column_names:
+                result_table = table
+                break
+
+        assert result_table is not None
+        assert result_table.num_rows == 4
+
+        median_col = sorted(result_table.column("value_int__median_agg").to_pylist())
+        # Regions: A=[−5,0,10,20] median=5.0, B=[30,50,60,None] median=50.0,
+        #          C=[15,15,40] median=15.0, None=[−10] median=−10.0
+        assert median_col == pytest.approx(sorted([-10.0, 5.0, 15.0, 50.0]))
 
 
 class TestIntegrationMultipleFeatures:
