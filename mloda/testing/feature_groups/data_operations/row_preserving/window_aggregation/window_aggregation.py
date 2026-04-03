@@ -94,11 +94,11 @@ class WindowAggregationTestBase(DataOpsTestBase):
 
     @classmethod
     def reference_implementation_class(cls) -> Any:
-        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
-            PyArrowWindowAggregation,
+        from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.reference import (
+            ReferenceWindowAggregation,
         )
 
-        return PyArrowWindowAggregation
+        return ReferenceWindowAggregation
 
     # -- Concrete test methods (inherited for free) --------------------------
 

@@ -60,11 +60,11 @@ class PercentileTestBase(DataOpsTestBase):
 
     @classmethod
     def reference_implementation_class(cls) -> Any:
-        from mloda.community.feature_groups.data_operations.row_preserving.percentile.pyarrow_percentile import (
-            PyArrowPercentile,
+        from mloda.testing.feature_groups.data_operations.row_preserving.percentile.reference import (
+            ReferencePercentile,
         )
 
-        return PyArrowPercentile
+        return ReferencePercentile
 
     # -- Concrete test methods (inherited for free) --------------------------
 

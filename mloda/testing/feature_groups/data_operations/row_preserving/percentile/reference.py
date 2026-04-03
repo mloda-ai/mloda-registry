@@ -1,7 +1,9 @@
-"""PyArrow implementation for percentile feature groups.
+"""Test reference implementation for percentile feature groups.
 
-Uses PyArrow's group_by with list collection, then computes the percentile
-from the collected values using PyArrow's quantile function.
+Accepts PyArrow tables but computes in Python. Used as the cross-framework
+comparison baseline in test suites. Uses PyArrow's group_by with list
+collection, then computes the percentile from the collected values using
+PyArrow's quantile function.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.percentile.ba
 _IDX_COL = "__mloda_pctl_idx__"
 
 
-class PyArrowPercentile(PercentileFeatureGroup):
+class ReferencePercentile(PercentileFeatureGroup):
     @classmethod
     def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
         return {PyArrowTable}
