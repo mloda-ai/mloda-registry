@@ -1,10 +1,9 @@
 """Integration tests for percentile through mloda's full pipeline.
 
-These tests verify that percentile feature groups work end-to-end
-through mloda's runtime, including plugin discovery, feature resolution,
-and the PluginCollector mechanism.
-
-Uses the shared DataOpsIntegrationTestBase from the testing library.
+Uses the ReferencePercentile implementation (a test utility that accepts PyArrow
+tables and computes in Python) because PyArrow lacks native grouped percentile.
+The tests verify that percentile operations work end-to-end through mloda's
+runtime, including plugin discovery, feature resolution, and PluginCollector.
 """
 
 from __future__ import annotations
@@ -20,15 +19,15 @@ from mloda.testing.feature_groups.data_operations.integration import DataOpsInte
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.data_operations.row_preserving.percentile.pyarrow_percentile import (
-    PyArrowPercentile,
+from mloda.testing.feature_groups.data_operations.row_preserving.percentile.reference import (
+    ReferencePercentile,
 )
 
 
 class TestPercentileIntegration(DataOpsIntegrationTestBase):
     @classmethod
     def feature_group_class(cls) -> type:
-        return PyArrowPercentile
+        return ReferencePercentile
 
     @classmethod
     def data_creator_class(cls) -> type:
@@ -82,7 +81,7 @@ class TestPercentileIntegration(DataOpsIntegrationTestBase):
 class TestIntegrationMultipleFeatures:
     def test_p50_and_p75_together(self) -> None:
         """Request both p50 and p75 in one pipeline run."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowPercentile})
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ReferencePercentile})
 
         f_p50 = Feature(
             "value_int__p50_percentile",
@@ -122,7 +121,7 @@ class TestIntegrationMultipleFeatures:
 
     def test_different_percentiles(self) -> None:
         """Request p25 and p100 in one pipeline run."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowPercentile})
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ReferencePercentile})
 
         f_p25 = Feature(
             "value_int__p25_percentile",

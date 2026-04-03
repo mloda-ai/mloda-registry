@@ -1,13 +1,16 @@
-"""PyArrow implementation for window aggregation feature groups.
+"""Test reference implementation for window aggregation feature groups.
 
-Uses PyArrow's native ``Table.group_by().aggregate()`` API for vectorized,
-C++-backed aggregation. The aggregate is computed per partition in C++ and
-then broadcast back to every row via an index-list collected during the
-same group_by call.
+Accepts PyArrow tables but computes in Python for median and mode. Used as
+the cross-framework comparison baseline in test suites. Native PyArrow
+group_by aggregation is used for sum, avg, count, min, max, variance, stddev,
+nunique, first, and last. Median and mode fall back to a list-collect-then-
+compute path because PyArrow has no exact grouped median or grouped mode
+function.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any, Optional, Set, Type, Union
 
 import pyarrow as pa
@@ -47,7 +50,7 @@ _ORDERED_FUNCS: dict[str, str] = {
 }
 
 
-class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
+class ReferenceWindowAggregation(WindowAggregationFeatureGroup):
     @classmethod
     def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
         return {PyArrowTable}
@@ -88,6 +91,9 @@ class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
         elif agg_type in _ORDERED_FUNCS:
             return cls._compute_ordered(t_with_idx, feature_name, source_col, partition_by, agg_type, order_by)
 
+        elif agg_type in ("median", "mode"):
+            return cls._compute_via_list(t_with_idx, feature_name, source_col, partition_by, agg_type)
+
         else:
             raise ValueError(f"Unsupported aggregation type: {agg_type}")
 
@@ -122,6 +128,45 @@ class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
         return cls._broadcast(original_table, grouped, agg_col, feature_name, original_table.num_rows)
 
     @classmethod
+    def _compute_via_list(
+        cls,
+        t_with_idx: pa.Table,
+        feature_name: str,
+        source_col: str,
+        partition_by: list[str],
+        agg_type: str,
+    ) -> pa.Table:
+        grouped = t_with_idx.group_by(partition_by).aggregate(
+            [
+                (source_col, "list"),
+                (_IDX_COL, "list"),
+            ]
+        )
+        list_col = f"{source_col}_list"
+        idx_list_col = f"{_IDX_COL}_list"
+
+        num_rows = t_with_idx.num_rows
+        result_values: list[Any] = [None] * num_rows
+
+        for g in range(grouped.num_rows):
+            vals = grouped.column(list_col)[g].as_py()
+            indices = grouped.column(idx_list_col)[g].as_py()
+            non_null = [v for v in vals if v is not None]
+
+            if not non_null:
+                agg_val = None
+            elif agg_type == "median":
+                agg_val = _median(non_null)
+            else:
+                agg_val = _mode(non_null)
+
+            for idx in indices:
+                result_values[idx] = agg_val
+
+        original_table = t_with_idx.drop_columns([_IDX_COL])
+        return original_table.append_column(feature_name, pa.array(result_values))
+
+    @classmethod
     def _broadcast(
         cls,
         original_table: pa.Table,
@@ -140,3 +185,19 @@ class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
                 result_values[idx] = agg_val
 
         return original_table.append_column(feature_name, pa.array(result_values))
+
+
+def _median(values: list[Any]) -> Any:
+    s = sorted(values)
+    n = len(s)
+    mid = n // 2
+    if n % 2 == 0:
+        return (s[mid - 1] + s[mid]) / 2.0
+    return float(s[mid])
+
+
+def _mode(values: list[Any]) -> Any:
+    if not values:
+        return None
+    counts = Counter(values)
+    return counts.most_common(1)[0][0]
