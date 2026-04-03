@@ -27,7 +27,7 @@ _DUCKDB_AGG_FUNCS: dict[str, str] = {
 _RN_COL = "__mloda_rn__"
 
 
-class DuckDBFrameAggregate(FrameAggregateFeatureGroup):
+class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
     SUPPORTED_FRAME_TYPES = {"rolling", "cumulative", "expanding"}
 
     @classmethod
