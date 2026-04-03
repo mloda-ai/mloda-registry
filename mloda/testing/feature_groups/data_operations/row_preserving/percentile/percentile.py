@@ -281,3 +281,62 @@ class PercentileTestBase(DataOpsTestBase):
     def test_cross_framework_amount_p50(self) -> None:
         """Amount column (2 nulls) p50 must match reference."""
         self._compare_with_reference("amount__p50_percentile", partition_by=["region"], use_approx=True)
+
+    # -- Edge case tests -------------------------------------------------------
+
+    def test_empty_data_returns_zero_rows(self) -> None:
+        """Percentile on an empty table (0 rows) should return 0 rows with the new column."""
+        import pyarrow as pa
+
+        empty_arrow = pa.table(
+            {
+                "region": pa.array([], type=pa.string()),
+                "value_int": pa.array([], type=pa.int64()),
+            }
+        )
+        empty_data = self.create_test_data(empty_arrow)
+        fs = make_feature_set("value_int__p50_percentile", ["region"])
+        result = self.implementation_class().calculate_feature(empty_data, fs)
+        assert self.get_row_count(result) == 0
+
+    def test_single_row_partitions_return_own_value(self) -> None:
+        """Each partition has 1 row: percentile at any level equals the single value."""
+        import pyarrow as pa
+
+        # 3 rows, each in its own partition
+        arrow = pa.table(
+            {
+                "region": pa.array(["A", "B", "C"], type=pa.string()),
+                "value_int": pa.array([10, 20, 30], type=pa.int64()),
+            }
+        )
+        custom_data = self.create_test_data(arrow)
+
+        for pctl in ("p0", "p50", "p100"):
+            feature_name = f"value_int__{pctl}_percentile"
+            fs = make_feature_set(feature_name, ["region"])
+            result = self.implementation_class().calculate_feature(custom_data, fs)
+
+            result_col = self.extract_column(result, feature_name)
+            assert result_col == pytest.approx([10.0, 20.0, 30.0], rel=1e-6), (
+                f"{pctl}: single-row partitions should return the value itself"
+            )
+
+    def test_unicode_column_names(self) -> None:
+        """Unicode characters in source and partition_by column names must work."""
+        import pyarrow as pa
+
+        arrow = pa.table(
+            {
+                "r\u00e9gion": pa.array(["A", "A", "B", "B"], type=pa.string()),
+                "w\u00e9rt": pa.array([10, 20, 30, 40], type=pa.int64()),
+            }
+        )
+        custom_data = self.create_test_data(arrow)
+
+        fs = make_feature_set("w\u00e9rt__p50_percentile", ["r\u00e9gion"])
+        result = self.implementation_class().calculate_feature(custom_data, fs)
+
+        result_col = self.extract_column(result, "w\u00e9rt__p50_percentile")
+        # A: [10, 20] -> p50 = 15.0, B: [30, 40] -> p50 = 35.0
+        assert result_col == pytest.approx([15.0, 15.0, 35.0, 35.0], rel=1e-6)
