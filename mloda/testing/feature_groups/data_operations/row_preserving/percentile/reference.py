@@ -61,6 +61,10 @@ class ReferencePercentile(PercentileFeatureGroup):
             else:
                 arr = pa.array(non_null, type=pa.float64())
                 q_result = pc.quantile(arr, q=percentile)
+                if len(q_result) == 0:
+                    raise ValueError(
+                        f"pc.quantile returned an empty result for q={percentile} on {len(non_null)} non-null values"
+                    )
                 agg_val = q_result[0].as_py()
 
             for idx in indices:

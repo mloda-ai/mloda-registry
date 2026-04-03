@@ -50,6 +50,8 @@ class PyArrowScalarAggregate(ScalarAggregateFeatureGroup):
             result = pc.variance(column, ddof=1).as_py()
         elif agg_type == "median":
             q_result = pc.quantile(column, q=0.5)
+            if len(q_result) == 0:
+                raise ValueError("pc.quantile returned an empty result for median computation")
             result = q_result[0].as_py()
         else:
             raise ValueError(f"Unsupported aggregation type: {agg_type}")

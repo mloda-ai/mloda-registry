@@ -17,13 +17,13 @@ from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate
 )
 
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.duckdb_frame_aggregate import (
-    DuckDBFrameAggregate,
+    DuckdbFrameAggregate,
 )
 
 
-class TestDuckDBFrameAggregate(DuckdbTestMixin, FrameAggregateTestBase):
+class TestDuckdbFrameAggregate(DuckdbTestMixin, FrameAggregateTestBase):
     """Unified tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:
-        return DuckDBFrameAggregate
+        return DuckdbFrameAggregate
