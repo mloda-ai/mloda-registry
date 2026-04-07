@@ -47,7 +47,20 @@ class DuckdbBinning(BinningFeatureGroup):
             result: DuckdbRelation = data.select(_raw_sql=raw_sql)
             return result
 
-        # qbin requires NTILE() with ORDER BY, which reorders rows in DuckDB's
-        # relational API. Blocked until DuckdbRelation exposes a public order() method.
-        # See: https://github.com/mloda-ai/mloda/issues/251
+        if op == "qbin":
+            qrn = quote_ident("__mloda_rn__")
+            expr = (
+                f"CASE WHEN {quoted_source} IS NULL OR isnan({quoted_source}) THEN NULL "
+                f"ELSE LEAST(NTILE({n_bins}) OVER ("
+                f"PARTITION BY CASE WHEN {quoted_source} IS NOT NULL "
+                f"AND NOT isnan({quoted_source}) THEN 1 END "
+                f"ORDER BY {quoted_source}) - 1, {n_bins - 1}) END"
+            )
+            with_rn = data.select(_raw_sql=f"*, ROW_NUMBER() OVER () AS {qrn}")
+            with_qbin = with_rn.select(_raw_sql=f"*, {expr} AS {quoted_feature}")
+            sorted_rel = with_qbin.order(qrn)
+            keep = ", ".join(quote_ident(c) for c in sorted_rel.columns if c != "__mloda_rn__")
+            qbin_result: DuckdbRelation = sorted_rel.select(_raw_sql=keep)
+            return qbin_result
+
         raise ValueError(f"Unsupported binning operation for DuckDB: {op}")
