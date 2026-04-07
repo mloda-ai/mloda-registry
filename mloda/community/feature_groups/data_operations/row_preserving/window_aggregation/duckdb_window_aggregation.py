@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, Set, Type, Union
+from typing import Any
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
@@ -39,7 +39,7 @@ _RN_COL = "__mloda_rn__"
 
 class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {DuckDBFramework}
 
     @classmethod
@@ -50,7 +50,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
-        order_by: Optional[str] = None,
+        order_by: str | None = None,
     ) -> DuckdbRelation:
         # Safety: _raw_sql is composed entirely from quote_ident()-quoted identifiers
         # and hardcoded SQL function names from _DUCKDB_AGG_FUNCS. No user-controlled
@@ -80,7 +80,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
-        order_by: Optional[str] = None,
+        order_by: str | None = None,
     ) -> DuckdbRelation:
         """Compute FIRST_VALUE/LAST_VALUE with ORDER BY for deterministic results.
 

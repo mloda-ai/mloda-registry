@@ -1,6 +1,6 @@
 """Enterprise Example Extender implementation."""
 
-from typing import Any, Set
+from typing import Any
 
 from mloda.steward import Extender, ExtenderHook
 
@@ -8,7 +8,7 @@ from mloda.steward import Extender, ExtenderHook
 class EnterpriseExampleExtender(Extender):
     """An example enterprise extender that demonstrates the Extender pattern."""
 
-    def wraps(self) -> Set[ExtenderHook]:
+    def wraps(self) -> set[ExtenderHook]:
         """Return the hooks this extender wraps."""
         return set()
 

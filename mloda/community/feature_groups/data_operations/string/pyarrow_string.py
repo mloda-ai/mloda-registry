@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Set, Type, Union
-
 import pyarrow as pa
 import pyarrow.compute as pc
 
@@ -25,7 +23,7 @@ _PYARROW_STRING_FUNCS: dict[str, str] = {
 
 class PyArrowStringOps(StringFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PyArrowTable}
 
     @classmethod

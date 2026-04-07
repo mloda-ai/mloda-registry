@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
@@ -114,8 +114,8 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         raise ValueError(f"Could not extract datetime operation from feature name: {feature_name}")
 
     @classmethod
-    def _extract_datetime_op(cls, feature: Any) -> str:
-        feature_name = feature.get_name()
+    def _extract_datetime_op(cls, feature: Feature) -> str:
+        feature_name = feature.name
         prefix_patterns = cls._get_prefix_patterns()
         operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
         if operation_config is not None:
@@ -125,8 +125,8 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             raise ValueError(f"Could not extract datetime operation for {feature_name}")
         return str(op)
 
-    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[set[Feature]]:
-        _feature_name = feature_name.name if isinstance(feature_name, FeatureName) else feature_name
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        _feature_name = str(feature_name)
 
         prefix_patterns = self._get_prefix_patterns()
         operation_config, source_feature = FeatureChainParser.parse_feature_name(_feature_name, prefix_patterns)
@@ -140,7 +140,7 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     @classmethod
     def _extract_source_features(cls, feature: Feature) -> list[str]:
-        feature_name = feature.get_name()
+        feature_name = feature.name
         prefix_patterns = cls._get_prefix_patterns()
 
         operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
@@ -149,14 +149,14 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             return [source_feature]
 
         in_features_set = feature.options.get_in_features()
-        return [f.get_name() for f in in_features_set]
+        return [str(f.name) for f in in_features_set]
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         table = data
 
         for feature in features.features:
-            feature_name = feature.get_name()
+            feature_name = feature.name
 
             source_features = cls._extract_source_features(feature)
             source_col = source_features[0]

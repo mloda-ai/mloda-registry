@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
 
 import pyarrow as pa
 
@@ -50,7 +49,7 @@ _SQLITE_RANK_FUNCS: dict[str, str] = {
 
 class SqliteRank(RankFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {SqliteFramework}
 
     @classmethod

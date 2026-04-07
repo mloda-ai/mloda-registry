@@ -5,7 +5,6 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-import pyarrow as pa
 import pytest
 
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation

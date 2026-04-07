@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Set, Type, Union
-
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
@@ -31,7 +29,7 @@ _SQLITE_DATETIME_EXPRS: dict[str, str] = {
 
 class SqliteDateTimeExtraction(DateTimeFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {SqliteFramework}
 
     @classmethod

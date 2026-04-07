@@ -36,11 +36,11 @@ Q3: Need state with ParallelizationMode.MULTIPROCESSING?
 ## Example
 
 ```python
-from typing import Any, Set
+from typing import Any
 from mloda.steward import Extender, ExtenderHook
 
 class MyExtender(Extender):
-    def wraps(self) -> Set[ExtenderHook]:
+    def wraps(self) -> set[ExtenderHook]:
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:

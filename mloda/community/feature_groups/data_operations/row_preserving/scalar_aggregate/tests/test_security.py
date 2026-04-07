@@ -13,7 +13,6 @@ from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     AGGREGATION_TYPES,
-    ScalarAggregateFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pyarrow_scalar_aggregate import (
     PyArrowScalarAggregate,

@@ -12,13 +12,13 @@ Framework-specific features restrict computation to certain frameworks.
 
 | Method | Behavior |
 |--------|----------|
-| `compute_framework_rule()` | Returns `Union[bool, Set[Type[ComputeFramework]]]` |
+| `compute_framework_rule()` | Returns `set[type[ComputeFramework]] | None` |
 | Default | `True` = any framework allowed |
 
 ## Complete Example
 
 ```python
-from typing import Any, Union, Set, Type
+from typing import Any
 from mloda.provider import FeatureGroup, ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 from mloda.user import Feature, Options, FeatureName
@@ -29,10 +29,10 @@ class PandasGroupMean(FeatureGroup):
     """Group mean using Pandas-only API."""
 
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PandasDataFrame}
 
-    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         return {Feature.not_typed("value"), Feature.not_typed("category")}
 
     @classmethod

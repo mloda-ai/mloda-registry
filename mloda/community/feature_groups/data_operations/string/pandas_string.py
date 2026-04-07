@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Set, Type, Union
-
 import pandas as pd
 
 from mloda.provider import ComputeFramework
@@ -16,7 +14,7 @@ from mloda.community.feature_groups.data_operations.string.base import (
 
 class PandasStringOps(StringFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PandasDataFrame}
 
     @classmethod

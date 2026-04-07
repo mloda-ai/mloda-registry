@@ -19,7 +19,7 @@ Artifact features save and load fitted state (scalers, models) between runs.
 ## Complete Example
 
 ```python
-from typing import Any, Optional, Set, Type
+from typing import Any
 from mloda.provider import FeatureGroup
 from mloda.provider import FeatureChainParserMixin, BaseArtifact, FeatureSet
 from mloda.user import Feature, Options, FeatureName
@@ -31,14 +31,14 @@ class ScalerArtifact(BaseArtifact):
     """Store fitted scaler params (mean, std)."""
 
     @classmethod
-    def custom_saver(cls, features: FeatureSet, artifact: Any) -> Optional[str]:
+    def custom_saver(cls, features: FeatureSet, artifact: Any) -> str | None:
         path = f"/tmp/scaler_{features.name_of_one_feature.name}.pkl"
         with open(path, "wb") as f:
             pickle.dump(artifact, f)
         return path
 
     @classmethod
-    def custom_loader(cls, features: FeatureSet) -> Optional[Any]:
+    def custom_loader(cls, features: FeatureSet) -> Any | None:
         path = f"/tmp/scaler_{features.name_of_one_feature.name}.pkl"
         if Path(path).exists():
             with open(path, "rb") as f:
@@ -52,11 +52,11 @@ class StandardScaledFeature(FeatureChainParserMixin, FeatureGroup):
     PREFIX_PATTERN = r"^.+__standard_scaled$"
 
     @staticmethod
-    def artifact() -> Optional[Type[BaseArtifact]]:
+    def artifact() -> type[BaseArtifact] | None:
         return ScalerArtifact
 
-    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
-        source = feature_name.name.replace("__standard_scaled", "")
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        source = str(feature_name).replace("__standard_scaled", "")
         return {Feature.not_typed(source)}
 
     @classmethod

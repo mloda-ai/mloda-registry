@@ -14,7 +14,6 @@ from __future__ import annotations
 from typing import Any
 
 import pyarrow as pa
-import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator

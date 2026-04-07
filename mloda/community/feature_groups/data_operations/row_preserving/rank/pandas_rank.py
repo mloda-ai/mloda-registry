@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Set, Type, Union
-
 import pandas as pd
 
 from mloda.provider import ComputeFramework
@@ -23,7 +21,7 @@ _PANDAS_RANK_METHODS: dict[str, str] = {
 
 class PandasRank(RankFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PandasDataFrame}
 
     @classmethod

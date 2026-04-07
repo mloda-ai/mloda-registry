@@ -71,7 +71,11 @@ def apply_null_safe_agg(
     """
     ddof = _DDOF_BY_AGG_TYPE.get(agg_type)
     if ddof is not None:
-        func = lambda x, _d=ddof, _f=pandas_func: getattr(x, _f)(ddof=_d)
+        _ddof: int = ddof
+
+        def func(x: Any, _d: int = _ddof, _f: str = pandas_func) -> Any:
+            return getattr(x, _f)(ddof=_d)
+
         return getattr(grouped, method)(func)
 
     kwargs: dict[str, Any] = {}

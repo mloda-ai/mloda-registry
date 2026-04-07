@@ -1,7 +1,5 @@
 """Tests for EnterpriseExampleExtender."""
 
-import pytest
-
 from mloda.steward import Extender
 
 

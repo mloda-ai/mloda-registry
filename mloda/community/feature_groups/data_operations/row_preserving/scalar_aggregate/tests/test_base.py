@@ -188,7 +188,7 @@ class TestSingleColumnEnforcement:
         result = instance.input_features(options, FeatureName("value_int__sum_scalar"))
         assert result is not None
         assert len(result) == 1
-        names = {f.get_name() for f in result}
+        names = {f.name for f in result}
         assert names == {"value_int"}
 
     def test_input_features_returns_single_feature_for_option_config(self) -> None:
@@ -202,7 +202,7 @@ class TestSingleColumnEnforcement:
         result = instance.input_features(options, FeatureName("my_max_result"))
         assert result is not None
         assert len(result) == 1
-        names = {f.get_name() for f in result}
+        names = {f.name for f in result}
         assert names == {"revenue"}
 
 

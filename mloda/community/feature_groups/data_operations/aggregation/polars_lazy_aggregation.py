@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
+from typing import Any
 
 import polars as pl
 
@@ -36,7 +36,7 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
 
 class PolarsLazyAggregation(AggregationFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PolarsLazyDataFrame}
 
     @classmethod

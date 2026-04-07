@@ -34,7 +34,7 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
 @classmethod
 def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     for feature in features.features:
-        name = feature.get_name()
+        name = feature.name
         # Access options per feature
         threshold = feature.options.get("threshold") or 0.5
         data[name] = data["source"] > threshold
@@ -49,11 +49,11 @@ Chained feature groups (using `FeatureChainParserMixin`) often need to extract a
 @classmethod
 def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     for feature in features.features:
-        name = feature.get_name()
+        name = feature.name
 
         # Resolves from PREFIX_PATTERN match or options["imputation_method"]
         method = cls._resolve_operation(feature, "imputation_method")
-        source = next(iter(feature.options.get_in_features())).get_name()
+        source = next(iter(feature.options.get_in_features())).name
 
         col = data[source]
         data[name] = col.fillna(col.mean() if method == "mean" else col.median())

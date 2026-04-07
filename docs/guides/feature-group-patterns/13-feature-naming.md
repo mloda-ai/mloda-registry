@@ -36,7 +36,7 @@ Define a set of supported feature names.
 ```python
 class HolidayFeature(FeatureGroup):
     @classmethod
-    def feature_names_supported(cls) -> Set[str]:
+    def feature_names_supported(cls) -> set[str]:
         return {"is_holiday", "is_weekend", "is_business_day"}
 ```
 
@@ -73,7 +73,7 @@ Modify the feature name after matching (rarely needed).
 ```python
 def set_feature_name(self, options: Options, feature_name: FeatureName) -> FeatureName:
     # Example: normalize to lowercase
-    return FeatureName(feature_name.name.lower())
+    return FeatureName(str(feature_name).lower())
 ```
 
 ---

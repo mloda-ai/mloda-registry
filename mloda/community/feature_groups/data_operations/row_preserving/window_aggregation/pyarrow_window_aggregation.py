@@ -8,7 +8,7 @@ same group_by call.
 
 from __future__ import annotations
 
-from typing import Any, Optional, Set, Type, Union
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -49,7 +49,7 @@ _ORDERED_FUNCS: dict[str, str] = {
 
 class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PyArrowTable}
 
     @classmethod
@@ -60,7 +60,7 @@ class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
-        order_by: Optional[str] = None,
+        order_by: str | None = None,
     ) -> pa.Table:
         num_rows = table.num_rows
         t_with_idx = table.append_column(_IDX_COL, pa.array(range(num_rows)))
@@ -101,7 +101,7 @@ class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
-        order_by: Optional[str],
+        order_by: str | None,
     ) -> pa.Table:
         pa_func = _ORDERED_FUNCS[agg_type]
         sort_keys = [(col, "ascending") for col in partition_by]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
@@ -188,9 +189,9 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         raise ValueError(f"Could not extract rank type from feature name: {feature_name}")
 
     @classmethod
-    def _extract_rank_type(cls, feature: Any) -> str:
+    def _extract_rank_type(cls, feature: Feature) -> str:
         """Extract rank type from feature (string-based or config-based)."""
-        feature_name = feature.get_name()
+        feature_name = feature.name
         prefix_patterns = cls._get_prefix_patterns()
         operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
         if operation_config is not None:
@@ -211,7 +212,7 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         table = data
 
         for feature in features.features:
-            feature_name = feature.get_name()
+            feature_name = feature.name
 
             rank_type = cls._extract_rank_type(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)

@@ -11,20 +11,18 @@ How to validate input and output data in feature groups.
 
 ```python
 @classmethod
-def validate_input_features(cls, data: Any, features: FeatureSet) -> Optional[bool]:
+def validate_input_features(cls, data: Any, features: FeatureSet) -> None:
     if data["my_input"].isnull().any():
         raise ValueError("Input contains null values")
-    return True
 ```
 
 ## Output Validation
 
 ```python
 @classmethod
-def validate_output_features(cls, data: Any, features: FeatureSet) -> Optional[bool]:
+def validate_output_features(cls, data: Any, features: FeatureSet) -> None:
     if len(data[cls.get_class_name()]) != 3:
         raise ValueError("Output should have 3 elements")
-    return True
 ```
 
 ## Using BaseValidator
@@ -35,9 +33,9 @@ For reusable validation logic (e.g., with Pandera):
 from mloda.provider import BaseValidator
 
 class MyValidator(BaseValidator):
-    def validate(self, data) -> Optional[bool]:
-        # Custom validation logic
-        return True
+    def validate(self, data) -> None:
+        if not valid:
+            raise ValueError("Descriptive validation failure message")
 ```
 
 ## Full Documentation

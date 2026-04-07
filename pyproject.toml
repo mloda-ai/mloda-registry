@@ -9,7 +9,7 @@ description = "Development workspace for mloda registry packages"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10,<3.14"
 dependencies = [
-    "mloda>=0.5.7",
+    "mloda>=0.6.0",
 ]
 authors = [
     { name = "Tom Kaltofen", email = "info@mloda.ai" }
@@ -31,6 +31,12 @@ dev = [
 
 [tool.ruff]
 line-length = 120
+
+[tool.ruff.lint]
+extend-select = ["UP006", "UP007"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["E402"]
 
 [tool.setuptools.packages.find]
 where = ["."]

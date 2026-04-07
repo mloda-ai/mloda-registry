@@ -18,7 +18,7 @@ Derived features transform existing features with a static name (no naming patte
 ## Complete Example
 
 ```python
-from typing import Any, Optional, Set
+from typing import Any
 from mloda.provider import FeatureGroup
 from mloda.user import Feature, Options, FeatureName
 from mloda.provider import FeatureSet
@@ -27,7 +27,7 @@ from mloda.provider import FeatureSet
 class DoubledValue(FeatureGroup):
     """Double the source_column value."""
 
-    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         return {Feature.not_typed("source_column")}
 
     @classmethod

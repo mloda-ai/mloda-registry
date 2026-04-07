@@ -19,7 +19,7 @@ Multi-output features produce multiple columns using the `~` separator (e.g., `e
 ## Complete Example
 
 ```python
-from typing import Any, Optional, Set, Dict
+from typing import Any
 from mloda.provider import FeatureGroup
 from mloda.user import Feature, Options, FeatureName
 from mloda.provider import FeatureSet
@@ -32,12 +32,12 @@ class StatsFeature(FeatureGroup):
     def match_feature_group_criteria(cls, feature_name: str, options: Any) -> bool:
         return feature_name.endswith("__stats")
 
-    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
-        source = feature_name.name.replace("__stats", "")
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        source = str(feature_name).replace("__stats", "")
         return {Feature.not_typed(source)}
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Dict[str, Any]:
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> dict[str, Any]:
         feature_name = features.name_of_one_feature.name
         source = feature_name.replace("__stats", "")
         col = data[source]
@@ -97,7 +97,7 @@ Consumers can depend on all columns or specific sub-columns:
 class SpecificSubColumnConsumer(FeatureGroup):
     """Consume only embedding~1 from a multi-column feature."""
 
-    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         return {Feature("embedding~1")}  # Only this sub-column
 
     @classmethod

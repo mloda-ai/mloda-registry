@@ -10,7 +10,7 @@ data source in mloda's pipeline.
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from typing import Any, Optional, Set, Type, Union
+from typing import Any
 
 from mloda.core.abstract_plugins.components.input_data.base_input_data import BaseInputData
 from mloda.core.abstract_plugins.components.input_data.creator.data_creator import DataCreator
@@ -26,7 +26,7 @@ class DataOperationsTestDataCreator(FeatureGroup):
     Use directly in PluginCollector sets for integration tests.
     """
 
-    compute_framework: Type[ComputeFramework] = PyArrowTable
+    compute_framework: type[ComputeFramework] = PyArrowTable
 
     NULL_POSITIONS: dict[str, set[int]] = {
         "region": {11},
@@ -42,7 +42,7 @@ class DataOperationsTestDataCreator(FeatureGroup):
     }
 
     @classmethod
-    def input_data(cls) -> Optional[BaseInputData]:
+    def input_data(cls) -> BaseInputData | None:
         return DataCreator(set(cls.get_raw_data().keys()))
 
     @classmethod
@@ -111,7 +111,7 @@ class DataOperationsTestDataCreator(FeatureGroup):
         return cls.get_raw_data()
 
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {cls.compute_framework}
 
     @classmethod

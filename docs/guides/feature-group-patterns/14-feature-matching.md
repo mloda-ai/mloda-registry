@@ -39,7 +39,7 @@ def match_feature_group_criteria(
     cls,
     feature_name: str,
     options: Options,
-    data_access_collection: Optional[DataAccessCollection] = None,
+    data_access_collection: DataAccessCollection | None = None,
 ) -> bool:
     return feature_name.endswith("_score")
 ```
@@ -113,8 +113,8 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     for feature in features.features:
         # Resolves from PREFIX_PATTERN or options["my_method"]
         method = cls._resolve_operation(feature, cls.MY_METHOD)
-        source = next(iter(feature.options.get_in_features())).get_name()
-        data[feature.get_name()] = apply_transform(data[source], method)
+        source = next(iter(feature.options.get_in_features())).name
+        data[feature.name] = apply_transform(data[source], method)
     return data
 ```
 

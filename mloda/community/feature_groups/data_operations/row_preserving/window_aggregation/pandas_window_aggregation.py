@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional, Set, Type, Union
-
 import pandas as pd
 
 from mloda.provider import ComputeFramework
@@ -22,7 +20,7 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
 
 class PandasWindowAggregation(WindowAggregationFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PandasDataFrame}
 
     @classmethod
@@ -33,7 +31,7 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
-        order_by: Optional[str] = None,
+        order_by: str | None = None,
     ) -> pd.DataFrame:
         """Compute a window aggregation using pandas groupby().transform()."""
         if agg_type == "mode":

@@ -6,8 +6,6 @@ avoiding row-by-row Python loops for performance on large datasets.
 
 from __future__ import annotations
 
-from typing import Set, Type, Union
-
 import pyarrow as pa
 import pyarrow.compute as pc
 
@@ -21,7 +19,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.datetime.base
 
 class PyArrowDateTimeExtraction(DateTimeFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PyArrowTable}
 
     @classmethod

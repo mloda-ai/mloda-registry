@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
 
 import polars as pl
 
@@ -16,7 +15,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.offset.base i
 
 class PolarsLazyOffset(OffsetFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PolarsLazyDataFrame}
 
     @classmethod

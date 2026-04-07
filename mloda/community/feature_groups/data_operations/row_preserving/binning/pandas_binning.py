@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
 
 import numpy as np
 import pandas as pd
@@ -17,7 +16,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.binning.base 
 
 class PandasBinning(BinningFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PandasDataFrame}
 
     @classmethod

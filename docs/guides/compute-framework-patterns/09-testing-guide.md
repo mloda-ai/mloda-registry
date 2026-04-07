@@ -38,7 +38,7 @@ class TestMyFilterEngine(FilterEngineTestMixin):
     def sample_data(self) -> Any:
         return my_lib.DataFrame({"str_col": ["a", "b"], "int_col": [1, 5]})
 
-    def get_column_values(self, result, column) -> List[Any]:
+    def get_column_values(self, result, column) -> list[Any]:
         return result[column].tolist()
 ```
 
@@ -51,14 +51,14 @@ from tests.test_plugins.compute_framework.test_tooling.multi_index.multi_index_t
 
 class TestMyMergeEngine(MultiIndexMergeEngineTestBase):
     @classmethod
-    def merge_engine_class(cls) -> Type[BaseMergeEngine]:
+    def merge_engine_class(cls) -> type[BaseMergeEngine]:
         return MyMergeEngine
 
     @classmethod
-    def framework_type(cls) -> Type[Any]:
+    def framework_type(cls) -> type[Any]:
         return my_lib.DataFrame
 
-    def get_connection(self) -> Optional[Any]:
+    def get_connection(self) -> Any | None:
         return None  # Or connection for stateful frameworks
 ```
 
@@ -71,13 +71,13 @@ from tests.test_plugins.compute_framework.test_tooling.dataframe_test_base impor
 
 class TestMyFrameworkMerge(DataFrameTestBase):
     @classmethod
-    def framework_class(cls) -> Type[Any]:
+    def framework_class(cls) -> type[Any]:
         return MyFramework
 
     def create_dataframe(self, data: dict) -> Any:
         return my_lib.DataFrame(data)
 
-    def get_connection(self) -> Optional[Any]:
+    def get_connection(self) -> Any | None:
         return None
 ```
 

@@ -12,7 +12,7 @@ How to match feature groups against data connections.
 `ConnectionMatcherMixin` checks if a feature group can handle a request based on the available data connection.
 
 ```python
-from typing import Any, Optional
+from typing import Any
 from mloda.provider import FeatureGroup, ConnectionMatcherMixin
 from mloda.user import DataAccessCollection, Options
 
@@ -22,8 +22,8 @@ class DatabaseFeature(ConnectionMatcherMixin, FeatureGroup):
         cls,
         feature_name: str,
         options: Options,
-        data_access_collection: Optional[DataAccessCollection] = None,
-        framework_connection_object: Optional[Any] = None,
+        data_access_collection: DataAccessCollection | None = None,
+        framework_connection_object: Any | None = None,
     ) -> Any:
         if data_access_collection and data_access_collection.has_connection("my_database"):
             return data_access_collection.get("my_database")
@@ -48,7 +48,7 @@ class CsvFeature(FeatureGroup):
     @classmethod
     def match_feature_group_criteria(
         cls, feature_name: str, options: Options,
-        data_access_collection: Optional[DataAccessCollection] = None,
+        data_access_collection: DataAccessCollection | None = None,
     ) -> bool:
         if data_access_collection is None or not data_access_collection.folders:
             return False
@@ -60,7 +60,7 @@ class CsvFeature(FeatureGroup):
 
 ```python
 @classmethod
-def match_subclass_data_access(cls, data_access: Any, feature_names: List[str], options: Options) -> Any:
+def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any:
     ...
 ```
 

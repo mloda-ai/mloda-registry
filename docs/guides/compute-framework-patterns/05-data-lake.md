@@ -22,7 +22,7 @@ Data lake frameworks work with catalog-based table formats for large-scale data.
 Flexible connection - accepts catalog or table:
 
 ```python
-def set_framework_connection_object(self, framework_connection_object: Optional[Any] = None) -> None:
+def set_framework_connection_object(self, framework_connection_object: Any | None = None) -> None:
     if self.framework_connection_object is None and framework_connection_object is not None:
         if hasattr(framework_connection_object, "load_table"):
             self.framework_connection_object = framework_connection_object  # Catalog
@@ -36,14 +36,14 @@ Merge typically not supported:
 
 ```python
 @classmethod
-def merge_engine(cls) -> Type[BaseMergeEngine]:
+def merge_engine(cls) -> type[BaseMergeEngine]:
     raise NotImplementedError("Use catalog-level operations for merging.")
 ```
 
 PyArrow as interchange format:
 
 ```python
-def transform(self, data: Any, feature_names: Set[str]) -> Any:
+def transform(self, data: Any, feature_names: set[str]) -> Any:
     if isinstance(data, dict):
         return pa.Table.from_pydict(data)  # PyArrow interchange
     if isinstance(data, (IcebergTable, pa.Table)):

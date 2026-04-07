@@ -1,7 +1,5 @@
 """Tests for CommunityExampleComputeFramework."""
 
-import pytest
-
 from mloda.provider import ComputeFramework
 
 

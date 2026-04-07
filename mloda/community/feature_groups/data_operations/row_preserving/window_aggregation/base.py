@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
+from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
@@ -179,7 +180,7 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return True
 
     @classmethod
-    def _resolve_agg_type(cls, feature_name: Any, options: Any) -> Optional[str]:
+    def _resolve_agg_type(cls, feature_name: Any, options: Any) -> str | None:
         """Extract agg_type from feature name or options for validation."""
         name = str(feature_name)
         prefix_patterns = cls._get_prefix_patterns()
@@ -201,9 +202,9 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         raise ValueError(f"Could not extract aggregation type from feature name: {feature_name}")
 
     @classmethod
-    def _extract_aggregation_type(cls, feature: Any) -> str:
+    def _extract_aggregation_type(cls, feature: Feature) -> str:
         """Extract aggregation type from feature (string-based or config-based)."""
-        feature_name = feature.get_name()
+        feature_name = feature.name
         prefix_patterns = cls._get_prefix_patterns()
         operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
         if operation_config is not None:
@@ -224,7 +225,7 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         table = data
 
         for feature in features.features:
-            feature_name = feature.get_name()
+            feature_name = feature.name
 
             source_features = cls._extract_source_features(feature)
             source_col = source_features[0]
@@ -244,7 +245,7 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
-        order_by: Optional[str] = None,
+        order_by: str | None = None,
     ) -> Any:
         """Subclasses must implement the actual window computation."""
         raise NotImplementedError
