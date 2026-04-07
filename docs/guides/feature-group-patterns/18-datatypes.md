@@ -63,7 +63,7 @@ from mloda.user import DataType, Feature
 
 class UserCount(FeatureGroup):
     @classmethod
-    def return_data_type_rule(cls, feature: Feature) -> Optional[DataType]:
+    def return_data_type_rule(cls, feature: Feature) -> DataType | None:
         return DataType.INT64
 ```
 

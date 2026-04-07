@@ -12,7 +12,7 @@ column and fills every row with that scalar result.
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Set
+from typing import Any
 
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
@@ -73,8 +73,8 @@ class ScalarAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         raise ValueError(f"Could not extract aggregation type from feature name: {feature_name}")
 
     @classmethod
-    def _extract_aggregation_type(cls, feature: Any) -> str:
-        feature_name = feature.get_name()
+    def _extract_aggregation_type(cls, feature: Feature) -> str:
+        feature_name = feature.name
         prefix_patterns = cls._get_prefix_patterns()
         operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
         if operation_config is not None:
@@ -84,8 +84,8 @@ class ScalarAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             raise ValueError(f"Could not extract aggregation type for {feature_name}")
         return str(agg_type)
 
-    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
-        _feature_name = feature_name.name if isinstance(feature_name, FeatureName) else feature_name
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        _feature_name = str(feature_name)
 
         prefix_patterns = self._get_prefix_patterns()
         operation_config, source_feature = FeatureChainParser.parse_feature_name(_feature_name, prefix_patterns)
@@ -98,14 +98,14 @@ class ScalarAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return set(in_features_set)
 
     @classmethod
-    def _extract_source_features(cls, feature: Feature) -> List[str]:
+    def _extract_source_features(cls, feature: Feature) -> list[str]:
         """Extract and validate the single source feature for aggregation.
 
         Returns a one-element list containing the source column name.
         Raises ValueError if more than one source feature is found, since
         this package only supports single-column aggregation.
         """
-        feature_name = feature.get_name()
+        feature_name = feature.name
         prefix_patterns = cls._get_prefix_patterns()
 
         operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
@@ -114,7 +114,7 @@ class ScalarAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             return [source_feature]
 
         in_features_set = feature.options.get_in_features()
-        source_names = [f.get_name() for f in in_features_set]
+        source_names: list[str] = [str(f.name) for f in in_features_set]
 
         if len(source_names) > cls.MAX_IN_FEATURES:
             raise ValueError(
@@ -135,7 +135,7 @@ class ScalarAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         table = data
 
         for feature in features.features:
-            feature_name = feature.get_name()
+            feature_name = feature.name
 
             source_features = cls._extract_source_features(feature)
             source_col = source_features[0]

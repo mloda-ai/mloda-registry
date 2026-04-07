@@ -9,7 +9,7 @@ extracted lists.
 
 from __future__ import annotations
 
-from typing import Any, Optional, Set, Type, Union
+from typing import Any
 
 import pyarrow as pa
 
@@ -24,7 +24,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 
 class ReferenceFrameAggregate(FrameAggregateFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PyArrowTable}
 
     @classmethod
@@ -37,8 +37,8 @@ class ReferenceFrameAggregate(FrameAggregateFeatureGroup):
         order_by: str,
         agg_type: str,
         frame_type: str,
-        frame_size: Optional[int] = None,
-        frame_unit: Optional[str] = None,
+        frame_size: int | None = None,
+        frame_unit: str | None = None,
     ) -> pa.Table:
         num_rows = table.num_rows
 

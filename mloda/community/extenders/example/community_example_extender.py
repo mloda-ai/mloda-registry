@@ -1,6 +1,6 @@
 """Community Example Extender implementation."""
 
-from typing import Any, Set
+from typing import Any
 
 from mloda.steward import Extender, ExtenderHook
 
@@ -8,7 +8,7 @@ from mloda.steward import Extender, ExtenderHook
 class CommunityExampleExtender(Extender):
     """Community Example Extender for demonstrating plugin structure."""
 
-    def wraps(self) -> Set[ExtenderHook]:
+    def wraps(self) -> set[ExtenderHook]:
         """Return the set of hooks this extender wraps."""
         return set()
 

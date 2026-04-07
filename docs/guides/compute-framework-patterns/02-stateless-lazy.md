@@ -31,7 +31,7 @@ def select_data_by_column_names(self, data, selected_feature_names):
     _selected = self.identify_naming_convention(selected_feature_names, column_names)
     return data.select(list(_selected)).collect()  # Materialize HERE
 
-def transform(self, data: Any, feature_names: Set[str]) -> Any:
+def transform(self, data: Any, feature_names: set[str]) -> Any:
     if isinstance(data, dict):
         return pl.LazyFrame(data)  # LazyFrame, not DataFrame
     if isinstance(data, pl.DataFrame):

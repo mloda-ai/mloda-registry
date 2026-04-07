@@ -22,7 +22,7 @@ Stateful frameworks require a connection or session object to operate.
 Only this method is added:
 
 ```python
-def set_framework_connection_object(self, framework_connection_object: Optional[Any] = None) -> None:
+def set_framework_connection_object(self, framework_connection_object: Any | None = None) -> None:
     """CRITICAL: Set or validate connection object."""
     if self.framework_connection_object is None:
         if framework_connection_object is not None:
@@ -38,7 +38,7 @@ def set_framework_connection_object(self, framework_connection_object: Optional[
 And `transform()` must check connection:
 
 ```python
-def transform(self, data: Any, feature_names: Set[str]) -> Any:
+def transform(self, data: Any, feature_names: set[str]) -> Any:
     if self.framework_connection_object is None:
         raise ValueError("Connection not set.")
     # Use connection for conversion...

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, Set, Type, Union
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
@@ -26,7 +25,7 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
     SUPPORTED_FRAME_TYPES = {"rolling", "cumulative", "expanding"}
 
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {SqliteFramework}
 
     @classmethod
@@ -39,8 +38,8 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         order_by: str,
         agg_type: str,
         frame_type: str,
-        frame_size: Optional[int] = None,
-        frame_unit: Optional[str] = None,
+        frame_size: int | None = None,
+        frame_unit: str | None = None,
     ) -> SqliteRelation:
         agg_func = _SQLITE_AGG_FUNCS.get(agg_type)
         if agg_func is None:

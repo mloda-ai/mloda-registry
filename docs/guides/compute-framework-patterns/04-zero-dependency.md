@@ -36,13 +36,13 @@ class MyZeroDependencyFramework(ComputeFramework):
 
     def set_column_names(self) -> None:
         # Must iterate rows to get all keys
-        all_columns: Set[str] = set()
+        all_columns: set[str] = set()
         for row in self.data:
             if isinstance(row, dict):
                 all_columns.update(row.keys())
         self.column_names = all_columns
 
-    def transform(self, data: Any, feature_names: Set[str]) -> List[Dict[str, Any]]:
+    def transform(self, data: Any, feature_names: set[str]) -> list[dict[str, Any]]:
         if isinstance(data, dict):
             # Columnar dict to row-based list
             if all(isinstance(v, list) for v in data.values()):

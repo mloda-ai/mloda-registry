@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
+from typing import Any
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
@@ -25,7 +25,7 @@ _DUCKDB_STRING_EXPRS: dict[str, str] = {
 
 class DuckdbStringOps(StringFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {DuckDBFramework}
 
     @classmethod

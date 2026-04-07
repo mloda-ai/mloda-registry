@@ -303,7 +303,6 @@ class BinningTestBase(DataOpsTestBase):
 
     def test_all_null_column(self) -> None:
         """All-null column should produce all-null bin assignments."""
-        all_null_data = {"value_int": [None, None, None]}
         arrow_table = pa.table({"value_int": pa.array([None, None, None], type=pa.int64())})
         test_data = self.create_test_data(arrow_table)
 

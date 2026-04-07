@@ -19,7 +19,7 @@ Multi-input features combine two or more inputs using the `&` separator in the f
 ## Complete Example
 
 ```python
-from typing import Any, Optional, Set
+from typing import Any
 from mloda.provider import FeatureGroup
 from mloda.user import Feature, Options, FeatureName
 from mloda.provider import FeatureSet
@@ -32,8 +32,8 @@ class DiffFeature(FeatureGroup):
     def match_feature_group_criteria(cls, feature_name: str, options: Options) -> bool:
         return "&" in feature_name and feature_name.endswith("__diff")
 
-    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
-        base = feature_name.name.replace("__diff", "")
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        base = str(feature_name).replace("__diff", "")
         a, b = base.split("&")
         return {Feature.not_typed(a), Feature.not_typed(b)}
 

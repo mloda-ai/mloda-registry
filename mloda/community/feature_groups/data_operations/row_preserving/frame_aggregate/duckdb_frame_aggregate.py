@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, Set, Type, Union
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
@@ -31,7 +30,7 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
     SUPPORTED_FRAME_TYPES = {"rolling", "cumulative", "expanding"}
 
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {DuckDBFramework}
 
     @classmethod
@@ -44,8 +43,8 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         order_by: str,
         agg_type: str,
         frame_type: str,
-        frame_size: Optional[int] = None,
-        frame_unit: Optional[str] = None,
+        frame_size: int | None = None,
+        frame_unit: str | None = None,
     ) -> DuckdbRelation:
         agg_func = _DUCKDB_AGG_FUNCS.get(agg_type)
         if agg_func is None:

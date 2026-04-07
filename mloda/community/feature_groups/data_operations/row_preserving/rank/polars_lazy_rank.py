@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any, Set, Type, Union
 
 import polars as pl
 
@@ -18,7 +17,7 @@ _NULL_FLAG_COL = "__mloda_rank_null_flag__"
 
 class PolarsLazyRank(RankFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PolarsLazyDataFrame}
 
     @classmethod

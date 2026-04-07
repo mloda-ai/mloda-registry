@@ -18,7 +18,7 @@ Index features require specific columns for ordering, grouping, or joining.
 ## Complete Example
 
 ```python
-from typing import Any, Optional, Set, List
+from typing import Any
 from mloda.provider import FeatureGroup
 from mloda.provider import FeatureChainParserMixin, FeatureSet
 from mloda.user import Feature, Options, FeatureName, Index
@@ -33,11 +33,11 @@ class LagFeature(FeatureChainParserMixin, FeatureGroup):
     MAX_IN_FEATURES = 1
 
     @classmethod
-    def index_columns(cls) -> Optional[List[Index]]:
+    def index_columns(cls) -> list[Index] | None:
         return [Index(("timestamp",))]
 
-    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
-        source = feature_name.name.rsplit("__lag_", 1)[0]
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        source = str(feature_name).rsplit("__lag_", 1)[0]
         return {Feature.not_typed(source), Feature.not_typed("timestamp")}
 
     @classmethod
@@ -85,7 +85,7 @@ Index(("user_id", "date"))
 **Multiple indexes (primary + foreign keys)**
 ```python
 @classmethod
-def index_columns(cls) -> List[Index]:
+def index_columns(cls) -> list[Index]:
     return [
         Index(("order_id",)),       # Primary key
         Index(("customer_id",)),    # Foreign key

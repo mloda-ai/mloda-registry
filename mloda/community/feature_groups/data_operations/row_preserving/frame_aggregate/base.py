@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, List, Optional, Set
+from typing import Any
 
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
@@ -99,7 +99,7 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     # expanding). This value is a placeholder to satisfy the mixin contract.
     PREFIX_PATTERN = r".*__([\w]+)_rolling_\d+$"
 
-    SUPPORTED_FRAME_TYPES: Set[str] = {"rolling", "time", "cumulative", "expanding"}
+    SUPPORTED_FRAME_TYPES: set[str] = {"rolling", "time", "cumulative", "expanding"}
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -156,9 +156,9 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         },
     }
 
-    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         """Parse input features from the four frame patterns or config fallback."""
-        name = feature_name.name if isinstance(feature_name, FeatureName) else str(feature_name)
+        name = str(feature_name)
         parsed = self._parse_frame_feature(name)
         if parsed is not None:
             return {Feature(parsed["source_col"])}
@@ -166,17 +166,17 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return set(in_features_set)
 
     @classmethod
-    def _extract_source_features(cls, feature: Feature) -> List[str]:
+    def _extract_source_features(cls, feature: Feature) -> list[str]:
         """Extract source features from the four frame patterns or config fallback."""
-        name = feature.get_name()
+        name = feature.name
         parsed = cls._parse_frame_feature(name)
         if parsed is not None:
             return [parsed["source_col"]]
         in_features_set = feature.options.get_in_features()
-        return [f.get_name() for f in in_features_set]
+        return [str(f.name) for f in in_features_set]
 
     @classmethod
-    def _parse_frame_feature(cls, feature_name: str) -> Optional[dict[str, Any]]:
+    def _parse_frame_feature(cls, feature_name: str) -> dict[str, Any] | None:
         """Parse a frame aggregate feature name into its components.
 
         Returns a dict with keys: source_col, agg_type, frame_type, frame_size, frame_unit.
@@ -241,7 +241,7 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         - For cumulative/expanding: agg in _CUMULATIVE_OPS (same as _AGGREGATION_TYPES)
         - For time: frame_unit in _TIME_UNITS
         """
-        name = str(feature_name.name if hasattr(feature_name, "name") else feature_name)
+        name = str(feature_name)
 
         parsed = cls._parse_frame_feature(name)
 
@@ -284,9 +284,9 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return True
 
     @classmethod
-    def _extract_params(cls, feature: Any) -> dict[str, Any]:
+    def _extract_params(cls, feature: Feature) -> dict[str, Any]:
         """Extract all frame aggregate parameters from a feature."""
-        feature_name = feature.get_name()
+        feature_name = feature.name
         parsed = cls._parse_frame_feature(feature_name)
 
         if parsed is not None:
@@ -317,7 +317,7 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         table = data
 
         for feature in features.features:
-            feature_name = feature.get_name()
+            feature_name = feature.name
             params = cls._extract_params(feature)
 
             table = cls._compute_frame(
@@ -344,8 +344,8 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         order_by: str,
         agg_type: str,
         frame_type: str,
-        frame_size: Optional[int] = None,
-        frame_unit: Optional[str] = None,
+        frame_size: int | None = None,
+        frame_unit: str | None = None,
     ) -> Any:
         """Subclasses must implement the actual frame computation."""
         raise NotImplementedError

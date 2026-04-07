@@ -1,7 +1,5 @@
 """Tests for EnterpriseExampleComputeFramework."""
 
-import pytest
-
 from mloda.provider import ComputeFramework
 
 

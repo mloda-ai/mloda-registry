@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, Set, Type, Union
+from typing import Any
 
 import polars as pl
 
@@ -35,7 +35,7 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
 
 class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PolarsLazyDataFrame}
 
     @classmethod
@@ -46,7 +46,7 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
-        order_by: Optional[str] = None,
+        order_by: str | None = None,
     ) -> pl.LazyFrame:
         """Compute a window aggregation using Polars .over() expressions (fully lazy)."""
         if agg_type == "mode":
@@ -66,7 +66,7 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
-        order_by: Optional[str],
+        order_by: str | None,
         feature_name: str,
     ) -> pl.Expr:
         """Build a Polars expression for first/last with deterministic ordering."""

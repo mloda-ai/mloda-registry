@@ -19,7 +19,7 @@ Join feature groups to combine data from different sources.
 ## Complete Example
 
 ```python
-from typing import Any, Optional, Set
+from typing import Any
 from mloda.user import Link, JoinSpec, Index, Feature, FeatureName, Options
 from mloda.provider import FeatureGroup, FeatureSet
 
@@ -27,7 +27,7 @@ from mloda.provider import FeatureGroup, FeatureSet
 class OrderWithCustomer(FeatureGroup):
     """Join orders with customer data."""
 
-    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         link = Link.inner_on(OrderFeatureGroup, CustomerFeatureGroup)
         return {
             Feature(name="order_value", link=link),
@@ -115,7 +115,7 @@ feature = Feature(name="order_value", link=link, index=Index(("order_id",)))
 ## Via input_features()
 
 ```python
-def input_features(self, options: Options, feature_name: FeatureName) -> Optional[Set[Feature]]:
+def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
     link = Link.left(
         JoinSpec(OrderFeatureGroup, Index(("order_id",))),
         JoinSpec(CustomerFeatureGroup, Index(("customer_id",)))

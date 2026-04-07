@@ -20,7 +20,7 @@ Stateless eager frameworks execute operations immediately in-memory.
 ## Complete Example
 
 ```python
-from typing import Any, Set, Type
+from typing import Any
 from mloda.provider import ComputeFramework, BaseMergeEngine, BaseFilterEngine
 
 try:
@@ -41,16 +41,16 @@ class MyEagerFramework(ComputeFramework):
         return ml.DataFrame  # Return TYPE, not instance
 
     @classmethod
-    def merge_engine(cls) -> Type[BaseMergeEngine]:
+    def merge_engine(cls) -> type[BaseMergeEngine]:
         from my_plugin.my_merge_engine import MyMergeEngine
         return MyMergeEngine
 
     @classmethod
-    def filter_engine(cls) -> Type[BaseFilterEngine]:
+    def filter_engine(cls) -> type[BaseFilterEngine]:
         from my_plugin.my_filter_engine import MyFilterEngine
         return MyFilterEngine
 
-    def transform(self, data: Any, feature_names: Set[str]) -> Any:
+    def transform(self, data: Any, feature_names: set[str]) -> Any:
         if isinstance(data, dict):
             return ml.DataFrame.from_dict(data)
         raise ValueError(f"Data type {type(data)} not supported")

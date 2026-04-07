@@ -40,3 +40,5 @@ jobs:
     - name: Run tox
       run: tox -e ${{ matrix.toxenv }}
       timeout-minutes: 3
+      env:
+        PYTEST_WORKERS: "0"

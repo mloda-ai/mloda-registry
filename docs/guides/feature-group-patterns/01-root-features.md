@@ -18,7 +18,7 @@ Root features have no input dependencies - they are pipeline entry points.
 ## Complete Example
 
 ```python
-from typing import Any, Optional
+from typing import Any
 from mloda.provider import FeatureGroup
 from mloda.provider import BaseInputData, FeatureSet
 
@@ -32,7 +32,7 @@ class MyRootFeature(FeatureGroup):
     """Load data from external source."""
 
     @classmethod
-    def input_data(cls) -> Optional[BaseInputData]:
+    def input_data(cls) -> BaseInputData | None:
         return MyInputData()
 
     @classmethod
@@ -63,7 +63,7 @@ class OrderSyntheticData(FeatureGroup):
     """Generate synthetic order data."""
 
     @classmethod
-    def input_data(cls) -> Optional[BaseInputData]:
+    def input_data(cls) -> BaseInputData | None:
         return DataCreator({"order_id", "product_id", "quantity"})
 
     @classmethod

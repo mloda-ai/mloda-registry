@@ -10,7 +10,7 @@ because PyArrow has no exact grouped median or grouped mode function.
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any, Set, Type, Union
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -52,7 +52,7 @@ _ORDERED_FUNCS: dict[str, str] = {
 
 class ReferenceAggregation(AggregationFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PyArrowTable}
 
     @classmethod

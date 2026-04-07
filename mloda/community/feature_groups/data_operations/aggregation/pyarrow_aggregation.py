@@ -6,8 +6,6 @@ C++-backed aggregation.
 
 from __future__ import annotations
 
-from typing import Set, Type, Union
-
 import pyarrow as pa
 import pyarrow.compute as pc
 
@@ -48,7 +46,7 @@ _ORDERED_FUNCS: dict[str, str] = {
 
 class PyArrowAggregation(AggregationFeatureGroup):
     @classmethod
-    def compute_framework_rule(cls) -> Union[bool, Set[Type[ComputeFramework]]]:
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PyArrowTable}
 
     @classmethod

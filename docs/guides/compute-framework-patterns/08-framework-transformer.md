@@ -32,7 +32,7 @@ Pandas ←→ PyArrow ←→ Polars
 ## Complete Example
 
 ```python
-from typing import Any, Optional
+from typing import Any
 from mloda.provider import BaseTransformer
 
 try:
@@ -70,7 +70,7 @@ class MyPyArrowTransformer(BaseTransformer):
         return data.to_arrow()  # MyFramework → PyArrow
 
     @classmethod
-    def transform_other_fw_to_fw(cls, data: Any, framework_connection_object: Optional[Any] = None) -> Any:
+    def transform_other_fw_to_fw(cls, data: Any, framework_connection_object: Any | None = None) -> Any:
         return mf.from_arrow(data)  # PyArrow → MyFramework
 ```
 
@@ -95,7 +95,7 @@ For frameworks needing a connection (like Spark):
 
 ```python
 @classmethod
-def transform_other_fw_to_fw(cls, data: Any, framework_connection_object: Optional[Any] = None) -> Any:
+def transform_other_fw_to_fw(cls, data: Any, framework_connection_object: Any | None = None) -> Any:
     if framework_connection_object is None:
         raise ValueError("SparkSession required")
     return framework_connection_object.createDataFrame(data.to_pandas())
