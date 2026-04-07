@@ -180,3 +180,72 @@ class TestIntegrationMultipleFeatures:
 
         assert min_found, "min_window result not found in any result table"
         assert max_found, "max_window result not found in any result table"
+
+
+def _extract_result_column(results: list[Any], feature_name: str) -> list[Any]:
+    for table in results:
+        if isinstance(table, pa.Table) and feature_name in table.column_names:
+            result: list[Any] = table.column(feature_name).to_pylist()
+            return result
+    raise AssertionError(f"No result table with {feature_name} found")
+
+
+class TestWindowAggregationMaskIntegration:
+    """Integration tests for window aggregation with conditional mask."""
+
+    def test_mask_single_condition(self) -> None:
+        """Masked sum through full pipeline: only category='X' rows contribute."""
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
+        )
+        feature = Feature(
+            "value_int__sum_window",
+            options=Options(context={"partition_by": ["region"], "mask": ("category", "equal", "X")}),
+        )
+        results = mloda.run_all([feature], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector)
+        result_col = _extract_result_column(results, "value_int__sum_window")
+        assert result_col == [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, -10]
+
+    def test_mask_multiple_conditions(self) -> None:
+        """AND-combined mask: category='X' AND value_int >= 10."""
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
+        )
+        feature = Feature(
+            "value_int__sum_window",
+            options=Options(
+                context={
+                    "partition_by": ["region"],
+                    "mask": [("category", "equal", "X"), ("value_int", "greater_equal", 10)],
+                }
+            ),
+        )
+        results = mloda.run_all([feature], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector)
+        result_col = _extract_result_column(results, "value_int__sum_window")
+        assert result_col == [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, None]
+
+    def test_mask_and_unmasked_produce_different_results(self) -> None:
+        """Masked and unmasked features produce different results from the same source."""
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
+        )
+
+        # Masked sum: only category='X' rows contribute
+        f_masked = Feature(
+            "value_int__sum_window",
+            options=Options(context={"partition_by": ["region"], "mask": ("category", "equal", "X")}),
+        )
+        masked_results = mloda.run_all([f_masked], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector)
+        masked_col = _extract_result_column(masked_results, "value_int__sum_window")
+        assert masked_col == [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, -10]
+
+        # Unmasked count: all rows contribute
+        f_unmasked = Feature(
+            "value_int__count_window",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+        unmasked_results = mloda.run_all(
+            [f_unmasked], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector
+        )
+        unmasked_col = _extract_result_column(unmasked_results, "value_int__count_window")
+        assert unmasked_col == [4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 1]

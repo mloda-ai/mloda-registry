@@ -158,3 +158,27 @@ class TestIntegrationMultipleFeatures:
 
         assert p25_found, "p25_percentile result not found in any result table"
         assert p100_found, "p100_percentile result not found in any result table"
+
+
+def _extract_result_column(results: list[Any], feature_name: str) -> list[Any]:
+    for table in results:
+        if isinstance(table, pa.Table) and feature_name in table.column_names:
+            result: list[Any] = table.column(feature_name).to_pylist()
+            return result
+    raise AssertionError(f"No result table with {feature_name} found")
+
+
+class TestPercentileMaskIntegration:
+    """Integration tests for percentile with conditional mask."""
+
+    def test_mask_p50_single_condition(self) -> None:
+        """Masked p50 through full pipeline: only category='X' rows contribute."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ReferencePercentile})
+        feature = Feature(
+            "value_int__p50_percentile",
+            options=Options(context={"partition_by": ["region"], "mask": ("category", "equal", "X")}),
+        )
+        results = mloda.run_all([feature], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector)
+        result_col = _extract_result_column(results, "value_int__p50_percentile")
+        expected = [5.0, 5.0, 5.0, 5.0, 60.0, 60.0, 60.0, 60.0, 15.0, 15.0, 15.0, -10.0]
+        assert result_col == pytest.approx(expected, rel=1e-3)

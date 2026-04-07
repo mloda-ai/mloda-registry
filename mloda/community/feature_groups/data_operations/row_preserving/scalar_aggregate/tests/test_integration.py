@@ -269,3 +269,57 @@ class TestIntegrationOptionBasedConfig:
 
         assert sum_found, "string-pattern sum result not found"
         assert avg_found, "option-based avg result not found"
+
+
+def _extract_result_column(results: list[Any], feature_name: str) -> list[Any]:
+    for table in results:
+        if isinstance(table, pa.Table) and feature_name in table.column_names:
+            result: list[Any] = table.column(feature_name).to_pylist()
+            return result
+    raise AssertionError(f"No result table with {feature_name} found")
+
+
+class TestScalarAggregateMaskIntegration:
+    """Integration tests for scalar aggregate with conditional mask."""
+
+    def test_mask_single_condition(self) -> None:
+        """Masked sum_scalar through full pipeline: only category='X' rows contribute."""
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, PyArrowScalarAggregate}
+        )
+        feature = Feature(
+            "value_int__sum_scalar",
+            options=Options(context={"mask": ("category", "equal", "X")}),
+        )
+        results = mloda.run_all([feature], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector)
+        result_col = _extract_result_column(results, "value_int__sum_scalar")
+        assert len(result_col) == 12
+        assert all(v == 75 for v in result_col)
+
+    def test_mask_and_unmasked_produce_different_results(self) -> None:
+        """Masked and unmasked scalar features produce different results from the same source."""
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, PyArrowScalarAggregate}
+        )
+
+        # Masked sum: only category='X' rows contribute
+        f_masked = Feature(
+            "value_int__sum_scalar",
+            options=Options(context={"mask": ("category", "equal", "X")}),
+        )
+        masked_results = mloda.run_all([f_masked], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector)
+        masked_col = _extract_result_column(masked_results, "value_int__sum_scalar")
+        assert len(masked_col) == 12
+        assert all(v == 75 for v in masked_col)
+
+        # Unmasked count: all non-null value_int rows contribute
+        f_unmasked = Feature(
+            "value_int__count_scalar",
+            options=Options(context={}),
+        )
+        unmasked_results = mloda.run_all(
+            [f_unmasked], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector
+        )
+        unmasked_col = _extract_result_column(unmasked_results, "value_int__count_scalar")
+        assert len(unmasked_col) == 12
+        assert all(v == 11 for v in unmasked_col)

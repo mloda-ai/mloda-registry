@@ -197,3 +197,39 @@ class TestFrameAggregateMultiFeature:
 
         assert expanding_found, "expanding_avg result not found in any result table"
         assert rolling_min_found, "min_rolling_2 result not found in any result table"
+
+
+def _extract_result_column(results: list[Any], feature_name: str) -> list[Any]:
+    for table in results:
+        if isinstance(table, pa.Table) and feature_name in table.column_names:
+            result: list[Any] = table.column(feature_name).to_pylist()
+            return result
+    raise AssertionError(f"No result table with {feature_name} found")
+
+
+class TestFrameAggregateMaskIntegration:
+    """Integration tests for frame aggregate with conditional mask."""
+
+    def test_mask_cumsum(self) -> None:
+        """Masked cumsum through full pipeline: only category='X' rows contribute."""
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, ReferenceFrameAggregate}
+        )
+        feature = Feature(
+            "value_int__cumsum",
+            options=Options(
+                context={
+                    "partition_by": ["region"],
+                    "order_by": "value_int",
+                    "mask": ("category", "equal", "X"),
+                }
+            ),
+        )
+        results = mloda.run_all([feature], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector)
+        result_col = _extract_result_column(results, "value_int__cumsum")
+        expected = [10, 10, 0, 10, 60, 60, 60, 60, 15, 15, 15, -10]
+        for i, (a, e) in enumerate(zip(result_col, expected)):
+            if e is None:
+                assert a is None, f"row {i}: expected None, got {a}"
+            else:
+                assert a == e, f"row {i}: expected {e}, got {a}"

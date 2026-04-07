@@ -344,3 +344,44 @@ class TestIntegrationMultipleFeatures:
         assert max_col == sorted([20, 60, 40, -10])
 
         assert min_table.num_rows == max_table.num_rows == 4
+
+
+def _extract_result_column(results: list[Any], feature_name: str) -> list[Any]:
+    for table in results:
+        if isinstance(table, pa.Table) and feature_name in table.column_names:
+            result: list[Any] = table.column(feature_name).to_pylist()
+            return result
+    raise AssertionError(f"No result table with {feature_name} found")
+
+
+class TestAggregationMaskIntegration:
+    """Integration tests for aggregation with conditional mask."""
+
+    def test_mask_single_condition(self) -> None:
+        """Masked sum_agg through full pipeline: only category='X' rows contribute."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
+        feature = Feature(
+            "value_int__sum_agg",
+            options=Options(context={"partition_by": ["region"], "mask": ("category", "equal", "X")}),
+        )
+        results = mloda.run_all([feature], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector)
+        result_col = _extract_result_column(results, "value_int__sum_agg")
+        assert sorted(v for v in result_col if v is not None) == [-10, 10, 15, 60]
+
+    def test_mask_multiple_conditions(self) -> None:
+        """AND-combined mask: category='X' AND value_int >= 10."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowAggregation})
+        feature = Feature(
+            "value_int__sum_agg",
+            options=Options(
+                context={
+                    "partition_by": ["region"],
+                    "mask": [("category", "equal", "X"), ("value_int", "greater_equal", 10)],
+                }
+            ),
+        )
+        results = mloda.run_all([feature], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector)
+        result_col = _extract_result_column(results, "value_int__sum_agg")
+        non_null = sorted(v for v in result_col if v is not None)
+        assert non_null == [10, 15, 60]
+        assert None in result_col  # None group has all values masked out
