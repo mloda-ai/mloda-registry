@@ -9,6 +9,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
+from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -50,8 +51,6 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         quoted_source = quote_ident(source_col)
         source_sql = quoted_source
         if mask_spec is not None:
-            from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
-
             source_sql = build_sql_case_when(mask_spec, quoted_source)
         quoted_order = quote_ident(order_by)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)

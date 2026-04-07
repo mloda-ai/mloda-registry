@@ -12,11 +12,15 @@ from mloda_plugins.compute_framework.base_implementations.pandas.dataframe impor
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
 from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
     apply_null_safe_agg,
     coerce_count_dtype,
     null_safe_groupby,
+)
+from mloda_plugins.compute_framework.base_implementations.pandas.pandas_filter_mask_engine import (
+    PandasFilterMaskEngine,
 )
 
 
@@ -37,11 +41,6 @@ class PandasAggregation(AggregationFeatureGroup):
     ) -> pd.DataFrame:
         """Compute a group aggregation using pandas groupby().agg()."""
         if mask_spec is not None:
-            from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
-            from mloda_plugins.compute_framework.base_implementations.pandas.pandas_filter_mask_engine import (
-                PandasFilterMaskEngine,
-            )
-
             mask = build_mask_from_spec(PandasFilterMaskEngine, data, mask_spec)
             data = data.copy()
             data[source_col] = data[source_col].where(mask)

@@ -9,6 +9,7 @@ import polars as pl
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
+from mloda.community.feature_groups.data_operations.mask_utils import build_polars_mask_expr
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
@@ -54,8 +55,6 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
         """Compute a window aggregation using Polars .over() expressions (fully lazy)."""
         actual_source = source_col
         if mask_spec is not None:
-            from mloda.community.feature_groups.data_operations.mask_utils import build_polars_mask_expr
-
             mask_expr = build_polars_mask_expr(mask_spec)
             data = data.with_columns(pl.when(mask_expr).then(pl.col(source_col)).otherwise(None).alias(_MASK_TMP))
             actual_source = _MASK_TMP

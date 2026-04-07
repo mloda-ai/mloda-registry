@@ -16,8 +16,12 @@ import pyarrow.compute as pc
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
+)
+from mloda_plugins.compute_framework.base_implementations.pyarrow.pyarrow_filter_mask_engine import (
+    PyArrowFilterMaskEngine,
 )
 
 _IDX_COL = "__mloda_wa_idx__"
@@ -64,11 +68,6 @@ class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pa.Table:
         if mask_spec is not None:
-            from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
-            from mloda_plugins.compute_framework.base_implementations.pyarrow.pyarrow_filter_mask_engine import (
-                PyArrowFilterMaskEngine,
-            )
-
             mask = build_mask_from_spec(PyArrowFilterMaskEngine, table, mask_spec)
             null_scalar = pa.scalar(None, type=table.schema.field(source_col).type)
             masked_col = pc.if_else(pc.fill_null(mask, False), table.column(source_col), null_scalar)

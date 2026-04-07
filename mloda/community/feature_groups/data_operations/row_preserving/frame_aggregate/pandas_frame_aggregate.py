@@ -9,6 +9,7 @@ import pandas as pd
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
+from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -16,6 +17,9 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
     coerce_count_dtype,
     null_safe_groupby,
+)
+from mloda_plugins.compute_framework.base_implementations.pandas.pandas_filter_mask_engine import (
+    PandasFilterMaskEngine,
 )
 
 _PANDAS_FRAME_AGG_FUNCS: dict[str, str] = {
@@ -62,11 +66,6 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         # Apply mask AFTER sorting so that sort order uses original (unmasked) values.
         # This matters when order_by == source_col.
         if mask_spec is not None:
-            from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
-            from mloda_plugins.compute_framework.base_implementations.pandas.pandas_filter_mask_engine import (
-                PandasFilterMaskEngine,
-            )
-
             mask = build_mask_from_spec(PandasFilterMaskEngine, data, mask_spec)
             data[source_col] = data[source_col].where(mask)
 

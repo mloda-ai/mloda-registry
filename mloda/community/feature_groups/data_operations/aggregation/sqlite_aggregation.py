@@ -12,6 +12,7 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 
 # Aggregation types that SQLite supports natively.
 _SQLITE_AGG_FUNCS: dict[str, str] = {
@@ -50,8 +51,6 @@ class SqliteAggregation(AggregationFeatureGroup):
 
         source_sql = quoted_source
         if mask_spec is not None:
-            from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
-
             source_sql = build_sql_case_when(mask_spec, quoted_source)
 
         new_name = _next_table_name()

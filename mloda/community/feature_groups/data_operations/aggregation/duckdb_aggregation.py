@@ -12,6 +12,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 
 # All aggregation types natively supported by DuckDB.
 _DUCKDB_AGG_FUNCS: dict[str, str] = {
@@ -56,8 +57,6 @@ class DuckdbAggregation(AggregationFeatureGroup):
 
         source_sql = quoted_source
         if mask_spec is not None:
-            from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
-
             source_sql = build_sql_case_when(mask_spec, quoted_source)
 
         if agg_type == "nunique":

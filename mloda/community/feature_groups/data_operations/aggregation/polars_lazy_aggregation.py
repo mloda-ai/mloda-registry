@@ -12,6 +12,7 @@ from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.mask_utils import build_polars_mask_expr
 
 _MASK_TMP = "__mloda_masked_src__"
 
@@ -54,8 +55,6 @@ class PolarsLazyAggregation(AggregationFeatureGroup):
         """Compute a group aggregation using Polars group_by().agg() (fully lazy)."""
         actual_source = source_col
         if mask_spec is not None:
-            from mloda.community.feature_groups.data_operations.mask_utils import build_polars_mask_expr
-
             mask_expr = build_polars_mask_expr(mask_spec)
             data = data.with_columns(pl.when(mask_expr).then(pl.col(source_col)).otherwise(None).alias(_MASK_TMP))
             actual_source = _MASK_TMP

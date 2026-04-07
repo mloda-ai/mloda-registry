@@ -9,6 +9,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
+from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
@@ -53,8 +54,6 @@ class DuckdbScalarAggregate(ScalarAggregateFeatureGroup):
 
         source_sql = quoted_source
         if mask_spec is not None:
-            from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
-
             source_sql = build_sql_case_when(mask_spec, quoted_source)
 
         raw_sql = f"*, {agg_func}({source_sql}) OVER () AS {quoted_feature}"
