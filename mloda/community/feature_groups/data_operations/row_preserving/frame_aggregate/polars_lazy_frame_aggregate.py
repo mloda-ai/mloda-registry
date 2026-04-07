@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 
 import polars as pl
 
@@ -34,7 +35,17 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
         frame_type: str,
         frame_size: int | None = None,
         frame_unit: str | None = None,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pl.LazyFrame:
+        _mask_tmp = "__mloda_masked_src__"
+        actual_source = source_col
+        if mask_spec is not None:
+            from mloda.community.feature_groups.data_operations.mask_utils import build_polars_mask_expr
+
+            mask_expr = build_polars_mask_expr(mask_spec)
+            data = data.with_columns(pl.when(mask_expr).then(pl.col(source_col)).otherwise(None).alias(_mask_tmp))
+            actual_source = _mask_tmp
+
         # Tag rows with original position
         data = data.with_row_index(_RN_COL)
 
@@ -42,7 +53,7 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
         sort_expr = pl.col(order_by).is_null().cast(pl.Int8)
         sorted_data = data.sort(sort_expr, order_by)
 
-        col = pl.col(source_col)
+        col = pl.col(actual_source)
 
         if frame_type in ("cumulative", "expanding"):
             # forward_fill() after cumulative ops ensures null source values carry
@@ -92,8 +103,11 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
 
         result = sorted_data.with_columns(expr)
 
-        # Restore original row order and drop helper column
+        # Restore original row order and drop helper columns
         result = result.sort(_RN_COL)
-        result = result.drop(_RN_COL)
+        drop_cols = [_RN_COL]
+        if mask_spec is not None:
+            drop_cols.append(_mask_tmp)
+        result = result.drop(drop_cols)
 
         return result

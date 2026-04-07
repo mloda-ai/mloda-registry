@@ -12,6 +12,8 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
+
 
 # Patterns for string-based feature names:
 #   {col}__sum_rolling_3         -> rolling N rows
@@ -153,6 +155,12 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             "explanation": "Column to order by within each partition",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+        },
+        MASK_KEY: {
+            "explanation": "Conditional mask: (column, operator, value) tuple or list of tuples",
+            DefaultOptionKeys.context: True,
+            DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.default: None,
         },
     }
 
@@ -320,6 +328,8 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             feature_name = feature.name
             params = cls._extract_params(feature)
 
+            mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
+
             table = cls._compute_frame(
                 table,
                 feature_name,
@@ -330,6 +340,7 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
                 params["frame_type"],
                 params.get("frame_size"),
                 params.get("frame_unit"),
+                mask_spec,
             )
 
         return table
@@ -346,6 +357,7 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         frame_type: str,
         frame_size: int | None = None,
         frame_unit: str | None = None,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> Any:
         """Subclasses must implement the actual frame computation."""
         raise NotImplementedError

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
@@ -37,6 +38,7 @@ class SqliteWindowAggregation(WindowAggregationFeatureGroup):
         partition_by: list[str],
         agg_type: str,
         order_by: str | None = None,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> SqliteRelation:
         """Execute the aggregation as a SQL window function."""
         agg_func = _SQLITE_AGG_FUNCS.get(agg_type)
@@ -48,13 +50,19 @@ class SqliteWindowAggregation(WindowAggregationFeatureGroup):
         quoted_feature = quote_ident(feature_name)
         qrn = quote_ident("__mloda_rn__")
 
+        source_sql = quoted_source
+        if mask_spec is not None:
+            from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
+
+            source_sql = build_sql_case_when(mask_spec, quoted_source)
+
         # Safety: no user-supplied values, only quote_ident()-quoted identifiers
         # and whitelisted SQL keywords. PEP 249 qmark parametrization does not
         # apply (identifiers cannot be parameterized per the SQL standard).
         sql = " ".join(
             [
                 "SELECT",
-                f"{agg_func}({quoted_source}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature},",
+                f"{agg_func}({source_sql}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature},",
                 f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn}",
                 "FROM",
                 f"{quote_ident(data.table_name)}",

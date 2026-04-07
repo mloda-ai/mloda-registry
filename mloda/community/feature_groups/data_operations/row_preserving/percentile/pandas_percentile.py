@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 
 from mloda.provider import ComputeFramework
@@ -25,7 +27,18 @@ class PandasPercentile(PercentileFeatureGroup):
         source_col: str,
         partition_by: list[str],
         percentile: float,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pd.DataFrame:
+        if mask_spec is not None:
+            from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
+            from mloda_plugins.compute_framework.base_implementations.pandas.pandas_filter_mask_engine import (
+                PandasFilterMaskEngine,
+            )
+
+            mask = build_mask_from_spec(PandasFilterMaskEngine, data, mask_spec)
+            data = data.copy()
+            data[source_col] = data[source_col].where(mask)
+
         data = data.copy()
         by: str | list[str] = partition_by[0] if len(partition_by) == 1 else partition_by
         grouped = data.groupby(by, dropna=False)[source_col]

@@ -42,6 +42,7 @@ class DuckdbScalarAggregate(ScalarAggregateFeatureGroup):
         feature_name: str,
         source_col: str,
         agg_type: str,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> DuckdbRelation:
         agg_func = _DUCKDB_AGG_FUNCS.get(agg_type)
         if agg_func is None:
@@ -50,6 +51,12 @@ class DuckdbScalarAggregate(ScalarAggregateFeatureGroup):
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
 
-        raw_sql = f"*, {agg_func}({quoted_source}) OVER () AS {quoted_feature}"
+        source_sql = quoted_source
+        if mask_spec is not None:
+            from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
+
+            source_sql = build_sql_case_when(mask_spec, quoted_source)
+
+        raw_sql = f"*, {agg_func}({source_sql}) OVER () AS {quoted_feature}"
         result: DuckdbRelation = data.select(_raw_sql=raw_sql)
         return result

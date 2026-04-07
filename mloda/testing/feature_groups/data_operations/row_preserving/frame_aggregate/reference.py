@@ -39,7 +39,22 @@ class ReferenceFrameAggregate(FrameAggregateFeatureGroup):
         frame_type: str,
         frame_size: int | None = None,
         frame_unit: str | None = None,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pa.Table:
+        if mask_spec is not None:
+            import pyarrow.compute as pc
+
+            from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
+            from mloda_plugins.compute_framework.base_implementations.pyarrow.pyarrow_filter_mask_engine import (
+                PyArrowFilterMaskEngine,
+            )
+
+            mask = build_mask_from_spec(PyArrowFilterMaskEngine, table, mask_spec)
+            null_scalar = pa.scalar(None, type=table.schema.field(source_col).type)
+            masked_col = pc.if_else(pc.fill_null(mask, False), table.column(source_col), null_scalar)
+            col_idx = table.schema.get_field_index(source_col)
+            table = table.set_column(col_idx, source_col, masked_col)
+
         num_rows = table.num_rows
 
         # Bulk-extract all needed columns (one C++ call each, not N .as_py() calls)

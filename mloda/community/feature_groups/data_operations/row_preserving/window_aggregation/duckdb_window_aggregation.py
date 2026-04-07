@@ -51,6 +51,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         partition_by: list[str],
         agg_type: str,
         order_by: str | None = None,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> DuckdbRelation:
         # Safety: _raw_sql is composed entirely from quote_ident()-quoted identifiers
         # and hardcoded SQL function names from _DUCKDB_AGG_FUNCS. No user-controlled
@@ -59,8 +60,14 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         quoted_feature = quote_ident(feature_name)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)
 
+        source_sql = quoted_source
+        if mask_spec is not None:
+            from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
+
+            source_sql = build_sql_case_when(mask_spec, quoted_source)
+
         if agg_type == "nunique":
-            raw_sql = f"*, COUNT(DISTINCT {quoted_source}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}"
+            raw_sql = f"*, COUNT(DISTINCT {source_sql}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}"
             result: DuckdbRelation = data.select(_raw_sql=raw_sql)
             return result
 
@@ -68,7 +75,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
             return cls._compute_first_last(data, feature_name, source_col, partition_by, agg_type, order_by)
 
         agg_func = _DUCKDB_AGG_FUNCS[agg_type]
-        raw_sql = f"*, {agg_func}({quoted_source}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}"
+        raw_sql = f"*, {agg_func}({source_sql}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}"
         result = data.select(_raw_sql=raw_sql)
         return result
 

@@ -22,6 +22,8 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
+
 AGGREGATION_TYPES = {
     "sum": "Sum of values",
     "min": "Minimum value",
@@ -57,6 +59,12 @@ class ScalarAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             "explanation": "Single source feature column to aggregate",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+        },
+        MASK_KEY: {
+            "explanation": "Conditional mask: (column, operator, value) tuple or list of tuples",
+            DefaultOptionKeys.context: True,
+            DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.default: None,
         },
     }
 
@@ -140,8 +148,9 @@ class ScalarAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             source_features = cls._extract_source_features(feature)
             source_col = source_features[0]
             agg_type = cls._extract_aggregation_type(feature)
+            mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
 
-            table = cls._compute_aggregation(table, feature_name, source_col, agg_type)
+            table = cls._compute_aggregation(table, feature_name, source_col, agg_type, mask_spec)
 
         return table
 
@@ -152,5 +161,6 @@ class ScalarAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         feature_name: str,
         source_col: str,
         agg_type: str,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> Any:
         raise NotImplementedError

@@ -10,6 +10,8 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
+
 # Aggregation types that require an order_by column to be deterministic.
 _ORDER_DEPENDENT_AGG_TYPES = {"first", "last"}
 
@@ -136,6 +138,12 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             DefaultOptionKeys.strict_validation: False,
             DefaultOptionKeys.default: None,
         },
+        MASK_KEY: {
+            "explanation": "Conditional mask: (column, operator, value) tuple or list of tuples",
+            DefaultOptionKeys.context: True,
+            DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.default: None,
+        },
     }
 
     @classmethod
@@ -232,8 +240,9 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             agg_type = cls._extract_aggregation_type(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
             order_by = feature.options.get(cls.ORDER_BY)
+            mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
 
-            table = cls._compute_window(table, feature_name, source_col, partition_by, agg_type, order_by)
+            table = cls._compute_window(table, feature_name, source_col, partition_by, agg_type, order_by, mask_spec)
 
         return table
 
@@ -246,6 +255,7 @@ class WindowAggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         partition_by: list[str],
         agg_type: str,
         order_by: str | None = None,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> Any:
         """Subclasses must implement the actual window computation."""
         raise NotImplementedError

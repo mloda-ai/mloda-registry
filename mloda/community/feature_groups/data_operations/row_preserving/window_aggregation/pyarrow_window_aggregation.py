@@ -61,7 +61,20 @@ class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
         partition_by: list[str],
         agg_type: str,
         order_by: str | None = None,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pa.Table:
+        if mask_spec is not None:
+            from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
+            from mloda_plugins.compute_framework.base_implementations.pyarrow.pyarrow_filter_mask_engine import (
+                PyArrowFilterMaskEngine,
+            )
+
+            mask = build_mask_from_spec(PyArrowFilterMaskEngine, table, mask_spec)
+            null_scalar = pa.scalar(None, type=table.schema.field(source_col).type)
+            masked_col = pc.if_else(pc.fill_null(mask, False), table.column(source_col), null_scalar)
+            col_idx = table.schema.get_field_index(source_col)
+            table = table.set_column(col_idx, source_col, masked_col)
+
         num_rows = table.num_rows
         t_with_idx = table.append_column(_IDX_COL, pa.array(range(num_rows)))
 

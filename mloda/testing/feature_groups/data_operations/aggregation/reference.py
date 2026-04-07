@@ -63,7 +63,20 @@ class ReferenceAggregation(AggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pa.Table:
+        if mask_spec is not None:
+            from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
+            from mloda_plugins.compute_framework.base_implementations.pyarrow.pyarrow_filter_mask_engine import (
+                PyArrowFilterMaskEngine,
+            )
+
+            mask = build_mask_from_spec(PyArrowFilterMaskEngine, table, mask_spec)
+            null_scalar = pa.scalar(None, type=table.schema.field(source_col).type)
+            masked_col = pc.if_else(pc.fill_null(mask, False), table.column(source_col), null_scalar)
+            col_idx = table.schema.get_field_index(source_col)
+            table = table.set_column(col_idx, source_col, masked_col)
+
         if agg_type in _PA_AGG_FUNCS:
             pa_func = _PA_AGG_FUNCS[agg_type]
             grouped = table.group_by(partition_by).aggregate([(source_col, pa_func)])

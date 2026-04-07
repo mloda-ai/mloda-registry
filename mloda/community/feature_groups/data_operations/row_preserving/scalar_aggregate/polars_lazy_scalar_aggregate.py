@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import polars as pl
 
 from mloda.provider import ComputeFramework
@@ -10,6 +12,9 @@ from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
+
+
+_MASK_TMP = "__mloda_masked_src__"
 
 
 class PolarsLazyScalarAggregate(ScalarAggregateFeatureGroup):
@@ -24,8 +29,17 @@ class PolarsLazyScalarAggregate(ScalarAggregateFeatureGroup):
         feature_name: str,
         source_col: str,
         agg_type: str,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pl.LazyFrame:
-        col = pl.col(source_col)
+        actual_source = source_col
+        if mask_spec is not None:
+            from mloda.community.feature_groups.data_operations.mask_utils import build_polars_mask_expr
+
+            mask_expr = build_polars_mask_expr(mask_spec)
+            data = data.with_columns(pl.when(mask_expr).then(pl.col(source_col)).otherwise(None).alias(_MASK_TMP))
+            actual_source = _MASK_TMP
+
+        col = pl.col(actual_source)
 
         if agg_type == "sum":
             expr = col.sum()
@@ -50,4 +64,7 @@ class PolarsLazyScalarAggregate(ScalarAggregateFeatureGroup):
         else:
             raise ValueError(f"Unsupported aggregation type: {agg_type}")
 
-        return data.with_columns(expr.alias(feature_name))
+        result = data.with_columns(expr.alias(feature_name))
+        if mask_spec is not None:
+            result = result.drop(_MASK_TMP)
+        return result

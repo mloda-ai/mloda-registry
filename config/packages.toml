@@ -8,7 +8,7 @@ path = "mloda/registry"
 
 [packages.mloda-testing]
 description = "Test utilities for mloda plugin development"
-dependencies = ["mloda>=0.5.7", "pytest"]
+dependencies = ["mloda>=0.6.0", "pytest"]
 path = "mloda/testing"
 optional_dependencies = { dev = ["pytest"] }
 

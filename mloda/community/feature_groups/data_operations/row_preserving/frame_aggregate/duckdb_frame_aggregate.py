@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
@@ -45,12 +46,18 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         frame_type: str,
         frame_size: int | None = None,
         frame_unit: str | None = None,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> DuckdbRelation:
         agg_func = _DUCKDB_AGG_FUNCS.get(agg_type)
         if agg_func is None:
             raise ValueError(f"Unsupported aggregation type for DuckDB frame aggregate: {agg_type}")
 
         quoted_source = quote_ident(source_col)
+        source_sql = quoted_source
+        if mask_spec is not None:
+            from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
+
+            source_sql = build_sql_case_when(mask_spec, quoted_source)
         quoted_feature = quote_ident(feature_name)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)
         quoted_order = quote_ident(order_by)
@@ -74,7 +81,7 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
 
         # Step 2: compute window function with frame
         raw_sql = (  # nosec
-            f"*, {agg_func}({quoted_source}) OVER "
+            f"*, {agg_func}({source_sql}) OVER "
             f"(PARTITION BY {partition_clause} ORDER BY {order_clause} {frame_clause}) "
             f"AS {quoted_feature}"
         )

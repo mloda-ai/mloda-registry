@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 
 from mloda.provider import ComputeFramework
@@ -31,8 +33,19 @@ class PandasAggregation(AggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pd.DataFrame:
         """Compute a group aggregation using pandas groupby().agg()."""
+        if mask_spec is not None:
+            from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
+            from mloda_plugins.compute_framework.base_implementations.pandas.pandas_filter_mask_engine import (
+                PandasFilterMaskEngine,
+            )
+
+            mask = build_mask_from_spec(PandasFilterMaskEngine, data, mask_spec)
+            data = data.copy()
+            data[source_col] = data[source_col].where(mask)
+
         if agg_type == "mode":
             return cls._compute_mode(data, feature_name, source_col, partition_by)
 
