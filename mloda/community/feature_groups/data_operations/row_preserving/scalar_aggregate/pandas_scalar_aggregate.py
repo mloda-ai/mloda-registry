@@ -36,8 +36,8 @@ class PandasScalarAggregate(ScalarAggregateFeatureGroup):
             mask = build_mask_from_spec(PandasFilterMaskEngine, data, mask_spec)
             data = data.copy()
             data[source_col] = data[source_col].where(mask)
-
-        data = data.copy()
+        else:
+            data = data.copy()
         col = data[source_col]
 
         if agg_type == "sum":

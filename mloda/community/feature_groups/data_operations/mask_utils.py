@@ -21,6 +21,7 @@ MASK_KEY = "mask"
 
 MASK_OPERATORS: dict[str, str] = {
     "equal": "=",
+    "greater_than": ">",
     "greater_equal": ">=",
     "less_equal": "<=",
     "less_than": "<",
@@ -63,6 +64,18 @@ def parse_mask_spec(mask_option: Any) -> list[tuple[str, str, Any]] | None:
         if op not in MASK_OPERATORS:
             raise ValueError(f"Unsupported mask operator '{op}'. Supported: {sorted(MASK_OPERATORS)}")
 
+        if op == "is_in":
+            if isinstance(val, (str, bytes)) or not isinstance(val, (list, tuple, set, frozenset)):
+                raise ValueError(
+                    f"is_in values must be a list, tuple, or set, got {type(val).__name__}. "
+                    f"Use e.g. ('col', 'is_in', ['a', 'b']) instead of ('col', 'is_in', 'ab')."
+                )
+        elif val is not None and not isinstance(val, (bool, int, float, str)):
+            raise ValueError(
+                f"Mask value must be None, bool, int, float, or str, got {type(val).__name__}. "
+                f"Types like datetime or Decimal are not supported in mask conditions."
+            )
+
         parsed.append((col, op, val))
 
     return parsed
@@ -94,6 +107,25 @@ def _engine_op(
     """Dispatch a single mask condition to the engine method."""
     if op == "equal":
         return engine_cls.equal(data, col, val)
+    if op == "greater_than":
+        # BaseFilterMaskEngine lacks greater_than; use native comparison
+        # to get correct null semantics (null > val = False, not True).
+        try:
+            import pyarrow as pa
+            import pyarrow.compute as pc
+
+            if isinstance(data, pa.Table):
+                return pc.greater(data.column(col), val)
+        except ImportError:
+            pass
+        try:
+            import pandas as pd
+
+            if isinstance(data, pd.DataFrame):
+                return data[col] > val
+        except ImportError:
+            pass
+        raise ValueError("greater_than requires pandas or pyarrow")
     if op == "greater_equal":
         return engine_cls.greater_equal(data, col, val)
     if op == "less_equal":
@@ -123,6 +155,8 @@ def _polars_condition(pl: Any, col: str, op: str, val: Any) -> Any:
     """Build a single Polars boolean expression for one condition."""
     if op == "equal":
         return pl.col(col) == val
+    if op == "greater_than":
+        return pl.col(col) > val
     if op == "greater_equal":
         return pl.col(col) >= val
     if op == "less_equal":
@@ -132,6 +166,53 @@ def _polars_condition(pl: Any, col: str, op: str, val: Any) -> Any:
     if op == "is_in":
         return pl.col(col).is_in(val)
     raise ValueError(f"Unsupported mask operator: {op}")
+
+
+_POLARS_MASK_TMP = "__mloda_masked_src__"
+
+
+def apply_polars_mask(
+    data: Any,
+    source_col: str,
+    mask_spec: list[tuple[str, str, Any]],
+) -> tuple[Any, str]:
+    """Apply a mask spec to a Polars LazyFrame, creating a temp masked column.
+
+    Returns ``(data_with_mask, actual_source)`` where *actual_source* is the
+    name of the column to aggregate (either *source_col* unchanged or the
+    temporary masked column ``_POLARS_MASK_TMP``).
+
+    Callers must drop ``_POLARS_MASK_TMP`` from the result when done.
+    """
+    import polars as pl
+
+    mask_expr = build_polars_mask_expr(mask_spec)
+    data = data.with_columns(pl.when(mask_expr).then(pl.col(source_col)).otherwise(None).alias(_POLARS_MASK_TMP))
+    return data, _POLARS_MASK_TMP
+
+
+def apply_pyarrow_mask(
+    table: Any,
+    source_col: str,
+    mask_spec: list[tuple[str, str, Any]],
+) -> Any:
+    """Apply a mask spec to a PyArrow table, replacing masked values with null.
+
+    Returns the table with the *source_col* column replaced so that rows
+    not matching the mask have null values.
+    """
+    import pyarrow as pa
+    import pyarrow.compute as pc
+
+    from mloda_plugins.compute_framework.base_implementations.pyarrow.pyarrow_filter_mask_engine import (
+        PyArrowFilterMaskEngine,
+    )
+
+    mask = build_mask_from_spec(PyArrowFilterMaskEngine, table, mask_spec)
+    null_scalar = pa.scalar(None, type=table.schema.field(source_col).type)
+    masked_col = pc.if_else(pc.fill_null(mask, False), table.column(source_col), null_scalar)
+    col_idx = table.schema.get_field_index(source_col)
+    return table.set_column(col_idx, source_col, masked_col)
 
 
 def build_sql_case_when(
@@ -149,6 +230,8 @@ def build_sql_case_when(
         if op == "is_in":
             values_sql = ", ".join(quote_value(v) for v in val)
             conditions.append(f"{quoted_col} IN ({values_sql})")
+        elif op == "equal" and val is None:
+            conditions.append(f"{quoted_col} IS NULL")
         else:
             sql_op = MASK_OPERATORS[op]
             conditions.append(f"{quoted_col} {sql_op} {quote_value(val)}")

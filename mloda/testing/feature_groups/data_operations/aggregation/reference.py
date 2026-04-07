@@ -21,6 +21,7 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 
 # Aggregation types with direct PyArrow group_by support.
 _PA_AGG_FUNCS: dict[str, str] = {
@@ -66,16 +67,7 @@ class ReferenceAggregation(AggregationFeatureGroup):
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pa.Table:
         if mask_spec is not None:
-            from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
-            from mloda_plugins.compute_framework.base_implementations.pyarrow.pyarrow_filter_mask_engine import (
-                PyArrowFilterMaskEngine,
-            )
-
-            mask = build_mask_from_spec(PyArrowFilterMaskEngine, table, mask_spec)
-            null_scalar = pa.scalar(None, type=table.schema.field(source_col).type)
-            masked_col = pc.if_else(pc.fill_null(mask, False), table.column(source_col), null_scalar)
-            col_idx = table.schema.get_field_index(source_col)
-            table = table.set_column(col_idx, source_col, masked_col)
+            table = apply_pyarrow_mask(table, source_col, mask_spec)
 
         if agg_type in _PA_AGG_FUNCS:
             pa_func = _PA_AGG_FUNCS[agg_type]

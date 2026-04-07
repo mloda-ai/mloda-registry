@@ -38,14 +38,6 @@ Used by frame_aggregate with frame_type "time".
 Valid values: second, minute, hour, day, week, month, year.
 """
 
-MASK = "mask"
-"""Config key for conditional aggregation mask.
-
-A tuple ``(column, operator, value)`` or list of such tuples (AND-combined).
-Supported operators: equal, greater_equal, less_equal, less_than, is_in.
-Used by: window_aggregation, aggregation, frame_aggregate, scalar_aggregate, percentile.
-"""
-
 
 # ---------------------------------------------------------------------------
 # Null handling policy constants

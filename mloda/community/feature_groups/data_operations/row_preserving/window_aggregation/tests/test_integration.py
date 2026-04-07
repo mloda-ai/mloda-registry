@@ -249,3 +249,88 @@ class TestWindowAggregationMaskIntegration:
         )
         unmasked_col = _extract_result_column(unmasked_results, "value_int__count_window")
         assert unmasked_col == [4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 1]
+
+    def test_mask_first_window(self) -> None:
+        """Masked first_window: only category='X' values considered per partition.
+
+        Region A: X values [10, 0] ordered by timestamp -> first=10
+        Region B: X values [None, 60] ordered by timestamp -> first=60 (null skipped)
+        Region C: X values [15] -> first=15
+        None: X values [-10] -> first=-10
+        """
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
+        )
+        feature = Feature(
+            "value_int__first_window",
+            options=Options(
+                context={
+                    "partition_by": ["region"],
+                    "order_by": "timestamp",
+                    "mask": ("category", "equal", "X"),
+                }
+            ),
+        )
+        results = mloda.run_all([feature], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector)
+        result_col = _extract_result_column(results, "value_int__first_window")
+        assert result_col == [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, -10]
+
+    def test_mask_last_window(self) -> None:
+        """Masked last_window: only category='X' values considered per partition.
+
+        Region A: X values [10, 0] ordered by timestamp -> last=0
+        Region B: X values [None, 60] ordered by timestamp -> last=60
+        Region C: X values [15] -> last=15
+        None: X values [-10] -> last=-10
+        """
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
+        )
+        feature = Feature(
+            "value_int__last_window",
+            options=Options(
+                context={
+                    "partition_by": ["region"],
+                    "order_by": "timestamp",
+                    "mask": ("category", "equal", "X"),
+                }
+            ),
+        )
+        results = mloda.run_all([feature], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector)
+        result_col = _extract_result_column(results, "value_int__last_window")
+        assert result_col == [0, 0, 0, 0, 60, 60, 60, 60, 15, 15, 15, -10]
+
+    def test_mask_nunique_window(self) -> None:
+        """Masked nunique_window: count distinct non-null category='X' values.
+
+        Region A: X values [10, 0] -> 2 distinct
+        Region B: X values [None, 60] -> 1 distinct (null skipped)
+        Region C: X values [15] -> 1 distinct
+        None: X values [-10] -> 1 distinct
+        """
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
+        )
+        feature = Feature(
+            "value_int__nunique_window",
+            options=Options(context={"partition_by": ["region"], "mask": ("category", "equal", "X")}),
+        )
+        results = mloda.run_all([feature], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector)
+        result_col = _extract_result_column(results, "value_int__nunique_window")
+        assert result_col == [2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1]
+
+    def test_mask_fully_masked_partition(self) -> None:
+        """All rows masked out in a partition should produce None.
+
+        mask: category='Z' (no rows match) -> all values null per partition.
+        """
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, PyArrowWindowAggregation}
+        )
+        feature = Feature(
+            "value_int__sum_window",
+            options=Options(context={"partition_by": ["region"], "mask": ("category", "equal", "Z")}),
+        )
+        results = mloda.run_all([feature], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector)
+        result_col = _extract_result_column(results, "value_int__sum_window")
+        assert all(v is None for v in result_col)

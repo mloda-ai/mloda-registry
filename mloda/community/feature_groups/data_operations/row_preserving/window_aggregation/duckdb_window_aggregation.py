@@ -71,7 +71,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
             return result
 
         if agg_type in ("first", "last"):
-            return cls._compute_first_last(data, feature_name, source_col, partition_by, agg_type, order_by)
+            return cls._compute_first_last(data, feature_name, source_sql, partition_by, agg_type, order_by)
 
         agg_func = _DUCKDB_AGG_FUNCS[agg_type]
         raw_sql = f"*, {agg_func}({source_sql}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}"
@@ -83,7 +83,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         cls,
         data: DuckdbRelation,
         feature_name: str,
-        source_col: str,
+        source_sql: str,
         partition_by: list[str],
         agg_type: str,
         order_by: str | None = None,
@@ -93,8 +93,10 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         Uses ROW_NUMBER to tag original row positions, computes the window
         function with an explicit UNBOUNDED frame and ORDER BY clause,
         then restores original row order.
+
+        *source_sql* is a quoted identifier or a ``CASE WHEN`` expression
+        when a mask is active.
         """
-        quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)
         qrn = quote_ident(_RN_COL)
@@ -107,7 +109,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
 
         # Step 2: compute with full frame and ORDER BY for deterministic results
         rel = rel.project(
-            f"*, {agg_func}({quoted_source} IGNORE NULLS) "
+            f"*, {agg_func}({source_sql} IGNORE NULLS) "
             f"OVER (PARTITION BY {partition_clause} {order_clause} "
             f"ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS {quoted_feature}"
         )

@@ -323,3 +323,20 @@ class TestScalarAggregateMaskIntegration:
         unmasked_col = _extract_result_column(unmasked_results, "value_int__count_scalar")
         assert len(unmasked_col) == 12
         assert all(v == 11 for v in unmasked_col)
+
+    def test_mask_fully_masked_scalar_sum_returns_none(self) -> None:
+        """Fully masked scalar sum returns None, not 0.
+
+        Regression test: Polars sum() returns 0 for all-null columns.
+        """
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, PyArrowScalarAggregate}
+        )
+        feature = Feature(
+            "value_int__sum_scalar",
+            options=Options(context={"mask": ("category", "equal", "Z")}),
+        )
+        results = mloda.run_all([feature], compute_frameworks={PyArrowTable}, plugin_collector=plugin_collector)
+        result_col = _extract_result_column(results, "value_int__sum_scalar")
+        assert len(result_col) == 12
+        assert all(v is None for v in result_col)

@@ -9,12 +9,10 @@ import polars as pl
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
-from mloda.community.feature_groups.data_operations.mask_utils import build_polars_mask_expr
+from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
-
-_MASK_TMP = "__mloda_masked_src__"
 
 # Mapping from aggregation type to a Polars expression builder.
 # Each callable takes a column name and returns a Polars Expr.
@@ -55,9 +53,7 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
         """Compute a window aggregation using Polars .over() expressions (fully lazy)."""
         actual_source = source_col
         if mask_spec is not None:
-            mask_expr = build_polars_mask_expr(mask_spec)
-            data = data.with_columns(pl.when(mask_expr).then(pl.col(source_col)).otherwise(None).alias(_MASK_TMP))
-            actual_source = _MASK_TMP
+            data, actual_source = apply_polars_mask(data, source_col, mask_spec)
 
         if agg_type == "mode":
             expr = pl.col(actual_source).mode().first().over(partition_by).alias(feature_name)
@@ -76,7 +72,7 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
 
         result = data.with_columns(expr)
         if mask_spec is not None:
-            result = result.drop(_MASK_TMP)
+            result = result.drop(_POLARS_MASK_TMP)
         return result
 
     @classmethod

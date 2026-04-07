@@ -12,9 +12,7 @@ from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
-from mloda.community.feature_groups.data_operations.mask_utils import build_polars_mask_expr
-
-_MASK_TMP = "__mloda_masked_src__"
+from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
 
 # Mapping from aggregation type to a Polars expression builder.
 _POLARS_AGG_EXPRS: dict[str, Any] = {
@@ -55,9 +53,7 @@ class PolarsLazyAggregation(AggregationFeatureGroup):
         """Compute a group aggregation using Polars group_by().agg() (fully lazy)."""
         actual_source = source_col
         if mask_spec is not None:
-            mask_expr = build_polars_mask_expr(mask_spec)
-            data = data.with_columns(pl.when(mask_expr).then(pl.col(source_col)).otherwise(None).alias(_MASK_TMP))
-            actual_source = _MASK_TMP
+            data, actual_source = apply_polars_mask(data, source_col, mask_spec)
 
         if agg_type == "mode":
             expr = pl.col(actual_source).mode().first().alias(feature_name)
@@ -79,5 +75,5 @@ class PolarsLazyAggregation(AggregationFeatureGroup):
 
         result = data.group_by(partition_by, maintain_order=True).agg(expr)
         if mask_spec is not None:
-            result = result.drop(_MASK_TMP, strict=False)
+            result = result.drop(_POLARS_MASK_TMP, strict=False)
         return result

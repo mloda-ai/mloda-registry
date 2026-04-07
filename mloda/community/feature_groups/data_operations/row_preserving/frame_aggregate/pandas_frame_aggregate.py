@@ -65,6 +65,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
 
         # Apply mask AFTER sorting so that sort order uses original (unmasked) values.
         # This matters when order_by == source_col.
+        # Safe to mutate: data was already copied above (data = data.copy()).
         if mask_spec is not None:
             mask = build_mask_from_spec(PandasFilterMaskEngine, data, mask_spec)
             data[source_col] = data[source_col].where(mask)

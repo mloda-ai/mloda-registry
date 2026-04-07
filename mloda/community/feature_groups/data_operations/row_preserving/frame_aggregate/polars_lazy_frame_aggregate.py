@@ -9,7 +9,7 @@ import polars as pl
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
-from mloda.community.feature_groups.data_operations.mask_utils import build_polars_mask_expr
+from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -38,12 +38,9 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
         frame_unit: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pl.LazyFrame:
-        _mask_tmp = "__mloda_masked_src__"
         actual_source = source_col
         if mask_spec is not None:
-            mask_expr = build_polars_mask_expr(mask_spec)
-            data = data.with_columns(pl.when(mask_expr).then(pl.col(source_col)).otherwise(None).alias(_mask_tmp))
-            actual_source = _mask_tmp
+            data, actual_source = apply_polars_mask(data, source_col, mask_spec)
 
         # Tag rows with original position
         data = data.with_row_index(_RN_COL)
@@ -106,7 +103,7 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
         result = result.sort(_RN_COL)
         drop_cols = [_RN_COL]
         if mask_spec is not None:
-            drop_cols.append(_mask_tmp)
+            drop_cols.append(_POLARS_MASK_TMP)
         result = result.drop(drop_cols)
 
         return result

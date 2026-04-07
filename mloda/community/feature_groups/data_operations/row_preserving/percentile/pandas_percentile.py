@@ -37,8 +37,8 @@ class PandasPercentile(PercentileFeatureGroup):
             mask = build_mask_from_spec(PandasFilterMaskEngine, data, mask_spec)
             data = data.copy()
             data[source_col] = data[source_col].where(mask)
-
-        data = data.copy()
+        else:
+            data = data.copy()
         by: str | list[str] = partition_by[0] if len(partition_by) == 1 else partition_by
         grouped = data.groupby(by, dropna=False)[source_col]
         data[feature_name] = grouped.transform(lambda x: x.quantile(percentile))
