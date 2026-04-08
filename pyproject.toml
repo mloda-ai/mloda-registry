@@ -74,7 +74,7 @@ skips = [
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = ["mloda=2099-01-01"]
+exclude-newer-package = { mloda = false }
 
 # AUTO-GENERATED workspace members from config/packages.toml
 # Do not edit manually - run: python scripts/generate_pyproject.py
