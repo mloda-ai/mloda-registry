@@ -1,2 +1,0 @@
-exclude-newer = "7 days"
-exclude-newer-package = ["mloda=2099-01-01"]
