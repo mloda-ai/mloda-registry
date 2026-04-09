@@ -37,12 +37,9 @@ class PolarsLazyScalarAggregate(ScalarAggregateFeatureGroup):
 
         if agg_type == "sum":
             raw = col.sum()
-            if mask_spec is not None:
-                # Polars sum() returns 0 for all-null columns; correct to null.
-                has_values = pl.col(actual_source).count() > 0
-                expr = pl.when(has_values).then(raw).otherwise(None)
-            else:
-                expr = raw
+            # Polars sum() returns 0 for all-null columns; correct to null.
+            has_values = pl.col(actual_source).count() > 0
+            expr = pl.when(has_values).then(raw).otherwise(None)
         elif agg_type == "min":
             expr = col.min()
         elif agg_type == "max":

@@ -47,8 +47,24 @@ class DuckdbOffset(OffsetFeatureGroup):
             offset_expr = f"{quoted_source} - LAG({quoted_source}, {offset_n})"
         elif offset_type.startswith("pct_change_"):
             offset_n = int(offset_type[len("pct_change_") :])
-            prev = f"LAG({quoted_source}, {offset_n})"
-            offset_expr = f"CASE WHEN {prev} IS NOT NULL AND {prev} != 0 THEN ({quoted_source} - {prev}) / CAST({prev} AS DOUBLE) END"
+            prev = f"LAG({quoted_source}, {offset_n}) OVER ({window_clause})"
+            offset_expr = (
+                f"CASE WHEN {prev} IS NOT NULL AND {prev} != 0 "
+                f"THEN ({quoted_source} - {prev}) / CAST({prev} AS DOUBLE) END"
+            )
+
+            qrn = quote_ident(_RN_COL)
+            sql = (
+                f"SELECT *, "  # nosec
+                f"{offset_expr} AS {quoted_feature}, "
+                f"ROW_NUMBER() OVER () AS {qrn} "
+                f"FROM __t ORDER BY {qrn}"
+            )
+            new_rel = data._relation.query("__t", sql)
+            result_rel = new_rel.project(
+                ", ".join(quote_ident(c) for c in [col for col in new_rel.columns if col != _RN_COL])
+            )
+            return DuckdbRelation(data.connection, result_rel)
         elif offset_type == "first_value":
             offset_expr = f"FIRST_VALUE({quoted_source} IGNORE NULLS)"
             window_clause += " ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING"
