@@ -19,8 +19,8 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
     coerce_count_dtype,
     null_safe_groupby,
 )
-from mloda_plugins.compute_framework.base_implementations.pandas.pandas_filter_mask_engine import (
-    PandasFilterMaskEngine,
+from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
+    PandasMaskEngine,
 )
 
 
@@ -42,7 +42,7 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
     ) -> pd.DataFrame:
         """Compute a window aggregation using pandas groupby().transform()."""
         if mask_spec is not None:
-            mask = build_mask_from_spec(PandasFilterMaskEngine, data, mask_spec)
+            mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
             data = data.copy()
             data[source_col] = data[source_col].where(mask)
 

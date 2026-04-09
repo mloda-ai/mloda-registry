@@ -3,7 +3,7 @@
 Provides three mask-building strategies matched to framework capabilities:
 
 1. ``build_mask_from_spec`` -- for DataFrame-based frameworks (Pandas, PyArrow)
-   that have a ``BaseFilterMaskEngine`` returning native boolean arrays.
+   that have a ``BaseMaskEngine`` returning native boolean arrays.
 2. ``build_polars_mask_expr`` -- for Polars lazy evaluation, building a
    ``pl.Expr`` boolean chain directly (the engine needs an eager DataFrame).
 3. ``build_sql_case_when`` -- for SQL-based frameworks (DuckDB, SQLite),
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.core.filter.filter_mask_engine import BaseFilterMaskEngine
+from mloda.core.abstract_plugins.components.mask.base_mask_engine import BaseMaskEngine
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident, quote_value
 
 MASK_KEY = "mask"
@@ -90,11 +90,11 @@ def parse_mask_spec(mask_option: Any) -> list[tuple[str, str, Any]] | None:
 
 
 def build_mask_from_spec(
-    engine_cls: type[BaseFilterMaskEngine],
+    engine_cls: type[BaseMaskEngine],
     data: Any,
     mask_spec: list[tuple[str, str, Any]],
 ) -> Any:
-    """Build a boolean mask using a FilterMaskEngine (Pandas, PyArrow).
+    """Build a boolean mask using a MaskEngine (Pandas, PyArrow).
 
     Returns a framework-native boolean array/series.
     """
@@ -106,7 +106,7 @@ def build_mask_from_spec(
 
 
 def _engine_op(
-    engine_cls: type[BaseFilterMaskEngine],
+    engine_cls: type[BaseMaskEngine],
     data: Any,
     col: str,
     op: str,
@@ -116,24 +116,7 @@ def _engine_op(
     if op == "equal":
         return engine_cls.equal(data, col, val)
     if op == "greater_than":
-        # BaseFilterMaskEngine lacks greater_than; use native comparison
-        # to get correct null semantics (null > val = False, not True).
-        try:
-            import pyarrow as pa
-            import pyarrow.compute as pc
-
-            if isinstance(data, pa.Table):
-                return pc.greater(data.column(col), val)
-        except ImportError:
-            pass
-        try:
-            import pandas as pd
-
-            if isinstance(data, pd.DataFrame):
-                return data[col] > val
-        except ImportError:
-            pass
-        raise ValueError("greater_than requires pandas or pyarrow")
+        return engine_cls.greater_than(data, col, val)
     if op == "greater_equal":
         return engine_cls.greater_equal(data, col, val)
     if op == "less_equal":
@@ -212,11 +195,11 @@ def apply_pyarrow_mask(
     import pyarrow as pa
     import pyarrow.compute as pc
 
-    from mloda_plugins.compute_framework.base_implementations.pyarrow.pyarrow_filter_mask_engine import (
-        PyArrowFilterMaskEngine,
+    from mloda_plugins.compute_framework.base_implementations.pyarrow.pyarrow_mask_engine import (
+        PyArrowMaskEngine,
     )
 
-    mask = build_mask_from_spec(PyArrowFilterMaskEngine, table, mask_spec)
+    mask = build_mask_from_spec(PyArrowMaskEngine, table, mask_spec)
     null_scalar = pa.scalar(None, type=table.schema.field(source_col).type)
     masked_col = pc.if_else(pc.fill_null(mask, False), table.column(source_col), null_scalar)
     col_idx = table.schema.get_field_index(source_col)

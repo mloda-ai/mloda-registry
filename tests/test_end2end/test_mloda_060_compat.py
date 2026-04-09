@@ -1,4 +1,4 @@
-"""Verify mloda 0.6.0 API contracts that this registry depends on.
+"""Verify mloda 0.6.1 API contracts that this registry depends on.
 
 These tests guard against regressions if the minimum mloda version
 is ever accidentally lowered, or if a future mloda release changes
@@ -65,3 +65,11 @@ def test_duckdb_relation_has_order_method() -> None:
 
     assert hasattr(DuckdbRelation, "order")
     assert callable(DuckdbRelation.order)
+
+
+def test_base_mask_engine_importable() -> None:
+    """BaseMaskEngine is available for mask_utils.py."""
+    from mloda.core.abstract_plugins.components.mask.base_mask_engine import BaseMaskEngine
+
+    assert BaseMaskEngine is not None
+    assert hasattr(BaseMaskEngine, "greater_than")
