@@ -62,7 +62,7 @@ result = mloda.run_all(
 | File | Description |
 |------|-------------|
 | [duckdb/duckdb_framework.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/compute_framework/base_implementations/duckdb/duckdb_framework.py) | DuckDB |
-| [sqlite/sqlite_framework.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/compute_framework/base_implementations/sqlite/sqlite_framework.py) | SQLite (0.5.4+) |
+| [sqlite/sqlite_framework.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/compute_framework/base_implementations/sqlite/sqlite_framework.py) | SQLite |
 | [spark/spark_framework.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/compute_framework/base_implementations/spark/spark_framework.py) | Spark |
 
 ## Combines With

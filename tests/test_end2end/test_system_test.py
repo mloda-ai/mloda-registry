@@ -1,7 +1,7 @@
 """System tests to verify namespace package imports work correctly.
 
 These tests verify that:
-1. Core mloda (v0.4.2+) PEP 420 namespace package works
+1. Core mloda PEP 420 namespace package works
 2. mloda-registry namespace packages merge correctly with core mloda
 3. All import patterns documented in TODO.md work
 """
@@ -17,7 +17,7 @@ def test_mloda_is_namespace_package() -> None:
 
 
 def test_mloda_user_imports() -> None:
-    """Verify mloda.user module imports work (v0.4.2+ pattern)."""
+    """Verify mloda.user module imports work."""
     from mloda.user import mloda, mlodaAPI, Feature, Options
 
     assert mloda is mlodaAPI  # mloda is alias for mlodaAPI
