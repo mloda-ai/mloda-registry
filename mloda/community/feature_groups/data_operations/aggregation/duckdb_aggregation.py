@@ -66,6 +66,8 @@ class DuckdbAggregation(AggregationFeatureGroup):
             if agg_func is None:
                 raise ValueError(f"Unsupported aggregation type for DuckDB: {agg_type}")
             agg_expr = f"{agg_func}({source_sql})"
+            if agg_type in ("first", "last"):
+                agg_expr += f" FILTER (WHERE {source_sql} IS NOT NULL)"
 
         # Use lazy relation methods (aggregate + order) instead of eager query()
         # so DuckDB defers execution until the result is consumed.

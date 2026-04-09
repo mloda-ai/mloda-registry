@@ -13,8 +13,8 @@ from mloda.community.feature_groups.data_operations.mask_utils import build_mask
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
-from mloda_plugins.compute_framework.base_implementations.pandas.pandas_filter_mask_engine import (
-    PandasFilterMaskEngine,
+from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
+    PandasMaskEngine,
 )
 
 
@@ -33,7 +33,7 @@ class PandasScalarAggregate(ScalarAggregateFeatureGroup):
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pd.DataFrame:
         if mask_spec is not None:
-            mask = build_mask_from_spec(PandasFilterMaskEngine, data, mask_spec)
+            mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
             data = data.copy()
             data[source_col] = data[source_col].where(mask)
         else:

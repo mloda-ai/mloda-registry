@@ -77,7 +77,7 @@ class UserCount(FeatureGroup):
 Feature.int32_of("exact_count", options={"strict_type_enforcement": True})
 ```
 
-## Python Type Inference (0.5.1+)
+## Python Type Inference
 
 Python-native types are automatically mapped to DataTypes:
 

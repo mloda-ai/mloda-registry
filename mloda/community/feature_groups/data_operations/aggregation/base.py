@@ -145,7 +145,7 @@ class AggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     ) -> bool:
         """Extend mixin matching with partition_by type validation.
 
-        The mixin (mloda >= 0.5.5) handles:
+        The mixin (mloda >= 0.6.0) handles:
         - Pattern and config matching via PROPERTY_MAPPING
         - List-valued options (partition_by) via tuple conversion (#228)
         - MIN/MAX_IN_FEATURES enforcement (#231)

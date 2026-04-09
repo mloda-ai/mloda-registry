@@ -34,6 +34,20 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
 }
 
 
+def _mode_with_insertion_order(s: pl.Series) -> Any:
+    """Return the mode of *s*, breaking ties by first-occurrence order (matching PyArrow)."""
+    s_clean = s.drop_nulls()
+    if len(s_clean) == 0:
+        return None
+    df = s_clean.to_frame("v").with_row_index("_order")
+    counts = df.group_by("v").agg(
+        pl.col("_order").min().alias("first_idx"),
+        pl.len().alias("cnt"),
+    )
+    winner = counts.sort(["cnt", "first_idx"], descending=[True, False]).row(0)
+    return winner[0]
+
+
 class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
@@ -56,12 +70,20 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
             data, actual_source = apply_polars_mask(data, source_col, mask_spec)
 
         if agg_type == "mode":
-            expr = pl.col(actual_source).mode().first().over(partition_by).alias(feature_name)
+            expr = (
+                pl.col(actual_source)
+                .map_batches(
+                    lambda s: _mode_with_insertion_order(s),
+                    returns_scalar=True,
+                )
+                .over(partition_by)
+                .alias(feature_name)
+            )
         elif agg_type in ("first", "last"):
             expr = cls._build_first_last_expr(actual_source, partition_by, agg_type, order_by, feature_name)
         elif agg_type in _POLARS_AGG_EXPRS:
             raw_expr = _POLARS_AGG_EXPRS[agg_type](actual_source).over(partition_by)
-            if mask_spec is not None and agg_type == "sum":
+            if agg_type == "sum":
                 # Polars sum() returns 0 for all-null groups; correct to null.
                 has_values = pl.col(actual_source).count().over(partition_by) > 0
                 expr = pl.when(has_values).then(raw_expr).otherwise(None).alias(feature_name)
@@ -87,7 +109,7 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
         """Build a Polars expression for first/last with deterministic ordering."""
         base = pl.col(source_col)
         if order_by:
-            base = base.sort_by(order_by)
+            base = base.sort_by(order_by, nulls_last=True)
         base = base.drop_nulls()
         if agg_type == "first":
             return base.first().over(partition_by).alias(feature_name)

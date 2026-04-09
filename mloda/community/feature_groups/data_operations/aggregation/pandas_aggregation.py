@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 import pandas as pd
@@ -19,8 +20,8 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
     coerce_count_dtype,
     null_safe_groupby,
 )
-from mloda_plugins.compute_framework.base_implementations.pandas.pandas_filter_mask_engine import (
-    PandasFilterMaskEngine,
+from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
+    PandasMaskEngine,
 )
 
 
@@ -41,7 +42,7 @@ class PandasAggregation(AggregationFeatureGroup):
     ) -> pd.DataFrame:
         """Compute a group aggregation using pandas groupby().agg()."""
         if mask_spec is not None:
-            mask = build_mask_from_spec(PandasFilterMaskEngine, data, mask_spec)
+            mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
             data = data.copy()
             data[source_col] = data[source_col].where(mask)
 
@@ -68,7 +69,19 @@ class PandasAggregation(AggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
     ) -> pd.DataFrame:
-        """Compute mode via lambda because pandas has no string-based mode aggregation."""
+        """Compute mode with insertion-order tie-breaking (matching PyArrow)."""
         grouped = null_safe_groupby(data, partition_by, source_col)
-        result = grouped.agg(lambda x: x.mode().iloc[0] if not x.mode().empty else None).reset_index()
+
+        def _insertion_order_mode(x: pd.Series) -> Any:
+            vals = x.dropna()
+            if len(vals) == 0:
+                return None
+            counts = Counter(vals)
+            max_count = max(counts.values())
+            for v in vals:
+                if counts[v] == max_count:
+                    return v
+            return None  # pragma: no cover
+
+        result = grouped.agg(_insertion_order_mode).reset_index()
         return result.rename(columns={source_col: feature_name})

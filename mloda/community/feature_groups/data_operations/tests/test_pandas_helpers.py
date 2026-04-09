@@ -16,13 +16,24 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
 
 class TestPandasAggFuncs:
     def test_pandas_agg_funcs_contains_base_mappings(self) -> None:
-        """PANDAS_AGG_FUNCS must contain exactly the 5 canonical aggregation mappings."""
+        """PANDAS_AGG_FUNCS must contain all canonical aggregation mappings."""
         expected = {
             "sum": "sum",
             "avg": "mean",
+            "mean": "mean",
             "count": "count",
             "min": "min",
             "max": "max",
+            "std": "std",
+            "var": "var",
+            "std_pop": "std",
+            "std_samp": "std",
+            "var_pop": "var",
+            "var_samp": "var",
+            "nunique": "nunique",
+            "first": "first",
+            "last": "last",
+            "median": "median",
         }
         assert PANDAS_AGG_FUNCS == expected
 

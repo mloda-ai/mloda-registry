@@ -18,8 +18,8 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
     coerce_count_dtype,
     null_safe_groupby,
 )
-from mloda_plugins.compute_framework.base_implementations.pandas.pandas_filter_mask_engine import (
-    PandasFilterMaskEngine,
+from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
+    PandasMaskEngine,
 )
 
 _PANDAS_FRAME_AGG_FUNCS: dict[str, str] = {
@@ -67,7 +67,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         # This matters when order_by == source_col.
         # Safe to mutate: data was already copied above (data = data.copy()).
         if mask_spec is not None:
-            mask = build_mask_from_spec(PandasFilterMaskEngine, data, mask_spec)
+            mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
             data[source_col] = data[source_col].where(mask)
 
         grouped = null_safe_groupby(data, partition_by, source_col)

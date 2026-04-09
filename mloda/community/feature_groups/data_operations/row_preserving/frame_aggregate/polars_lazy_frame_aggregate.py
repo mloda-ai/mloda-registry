@@ -42,6 +42,11 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
         if mask_spec is not None:
             data, actual_source = apply_polars_mask(data, source_col, mask_spec)
 
+        # Cast Null-typed columns to Float64 so aggregation operations work.
+        schema = data.collect_schema()
+        if schema[actual_source] == pl.Null:
+            data = data.cast({actual_source: pl.Float64})
+
         # Tag rows with original position
         data = data.with_row_index(_RN_COL)
 

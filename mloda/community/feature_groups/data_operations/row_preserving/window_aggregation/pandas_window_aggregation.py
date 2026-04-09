@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 import pandas as pd
@@ -19,8 +20,8 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
     coerce_count_dtype,
     null_safe_groupby,
 )
-from mloda_plugins.compute_framework.base_implementations.pandas.pandas_filter_mask_engine import (
-    PandasFilterMaskEngine,
+from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
+    PandasMaskEngine,
 )
 
 
@@ -42,7 +43,7 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
     ) -> pd.DataFrame:
         """Compute a window aggregation using pandas groupby().transform()."""
         if mask_spec is not None:
-            mask = build_mask_from_spec(PandasFilterMaskEngine, data, mask_spec)
+            mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
             data = data.copy()
             data[source_col] = data[source_col].where(mask)
 
@@ -74,9 +75,21 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
     ) -> pd.DataFrame:
-        """Compute mode via lambda because pandas has no string-based mode transform."""
+        """Compute mode via Counter with insertion-order tie-breaking (matching PyArrow)."""
         grouped = null_safe_groupby(data, partition_by, source_col)
-        result_series = grouped.transform(lambda x: x.mode().iloc[0] if not x.mode().empty else None)
+
+        def _insertion_order_mode(x: pd.Series) -> Any:
+            vals = x.dropna()
+            if len(vals) == 0:
+                return None
+            counts = Counter(vals)
+            max_count = max(counts.values())
+            for v in vals:
+                if counts[v] == max_count:
+                    return v
+            return None  # pragma: no cover
+
+        result_series = grouped.transform(_insertion_order_mode)
 
         data = data.copy()
         data[feature_name] = result_series
