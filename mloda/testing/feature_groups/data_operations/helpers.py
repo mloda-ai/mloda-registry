@@ -38,13 +38,16 @@ def make_feature_set(
     feature_name: str,
     partition_by: list[str] | None = None,
     order_by: str | None = None,
+    mask: tuple[Any, ...] | list[tuple[Any, ...]] | None = None,
 ) -> FeatureSet:
-    """Build a FeatureSet with optional partition_by and order_by options."""
+    """Build a FeatureSet with optional partition_by, order_by, and mask options."""
     context: dict[str, Any] = {}
     if partition_by is not None:
         context["partition_by"] = partition_by
     if order_by is not None:
         context["order_by"] = order_by
+    if mask is not None:
+        context["mask"] = mask
     feature = Feature(feature_name, options=Options(context=context))
     fs = FeatureSet()
     fs.add(feature)

@@ -9,6 +9,7 @@ import polars as pl
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
+from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
@@ -47,18 +48,32 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
         partition_by: list[str],
         agg_type: str,
         order_by: str | None = None,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pl.LazyFrame:
         """Compute a window aggregation using Polars .over() expressions (fully lazy)."""
+        actual_source = source_col
+        if mask_spec is not None:
+            data, actual_source = apply_polars_mask(data, source_col, mask_spec)
+
         if agg_type == "mode":
-            expr = pl.col(source_col).mode().first().over(partition_by).alias(feature_name)
+            expr = pl.col(actual_source).mode().first().over(partition_by).alias(feature_name)
         elif agg_type in ("first", "last"):
-            expr = cls._build_first_last_expr(source_col, partition_by, agg_type, order_by, feature_name)
+            expr = cls._build_first_last_expr(actual_source, partition_by, agg_type, order_by, feature_name)
         elif agg_type in _POLARS_AGG_EXPRS:
-            expr = _POLARS_AGG_EXPRS[agg_type](source_col).over(partition_by).alias(feature_name)
+            raw_expr = _POLARS_AGG_EXPRS[agg_type](actual_source).over(partition_by)
+            if mask_spec is not None and agg_type == "sum":
+                # Polars sum() returns 0 for all-null groups; correct to null.
+                has_values = pl.col(actual_source).count().over(partition_by) > 0
+                expr = pl.when(has_values).then(raw_expr).otherwise(None).alias(feature_name)
+            else:
+                expr = raw_expr.alias(feature_name)
         else:
             raise ValueError(f"Unsupported aggregation type: {agg_type}")
 
-        return data.with_columns(expr)
+        result = data.with_columns(expr)
+        if mask_spec is not None:
+            result = result.drop(_POLARS_MASK_TMP)
+        return result
 
     @classmethod
     def _build_first_last_expr(

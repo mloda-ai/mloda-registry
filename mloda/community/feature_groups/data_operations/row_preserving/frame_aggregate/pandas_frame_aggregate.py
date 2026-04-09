@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
+from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -14,6 +17,9 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
     coerce_count_dtype,
     null_safe_groupby,
+)
+from mloda_plugins.compute_framework.base_implementations.pandas.pandas_filter_mask_engine import (
+    PandasFilterMaskEngine,
 )
 
 _PANDAS_FRAME_AGG_FUNCS: dict[str, str] = {
@@ -43,6 +49,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         frame_type: str,
         frame_size: int | None = None,
         frame_unit: str | None = None,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pd.DataFrame:
         pandas_func = _PANDAS_FRAME_AGG_FUNCS.get(agg_type)
         if pandas_func is None:
@@ -55,6 +62,13 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         data[rn_col] = range(len(data))
 
         data = data.sort_values(by=[*partition_by, order_by], na_position="last")
+
+        # Apply mask AFTER sorting so that sort order uses original (unmasked) values.
+        # This matters when order_by == source_col.
+        # Safe to mutate: data was already copied above (data = data.copy()).
+        if mask_spec is not None:
+            mask = build_mask_from_spec(PandasFilterMaskEngine, data, mask_spec)
+            data[source_col] = data[source_col].where(mask)
 
         grouped = null_safe_groupby(data, partition_by, source_col)
 

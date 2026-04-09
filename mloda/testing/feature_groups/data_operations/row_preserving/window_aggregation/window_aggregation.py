@@ -676,6 +676,121 @@ class WindowAggregationTestBase(DataOpsTestBase):
         assert result_col[8] == 40
         assert result_col[10] == 40
 
+    # -- Mask tests ------------------------------------------------------------
+
+    def test_mask_sum_window_equal(self) -> None:
+        """Sum of value_int where category='X', partitioned by region."""
+        fs = make_feature_set("value_int__sum_window", ["region"], mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert isinstance(result, self.get_expected_type())
+        assert self.get_row_count(result) == 12
+
+        result_col = self.extract_column(result, "value_int__sum_window")
+        assert result_col == [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, -10]
+
+    def test_mask_avg_window_equal(self) -> None:
+        """Avg of value_int where category='X', partitioned by region."""
+        fs = make_feature_set("value_int__avg_window", ["region"], mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__avg_window")
+        assert result_col == pytest.approx(
+            [5.0, 5.0, 5.0, 5.0, 60.0, 60.0, 60.0, 60.0, 15.0, 15.0, 15.0, -10.0], rel=1e-3
+        )
+
+    def test_mask_count_window_equal(self) -> None:
+        """Count of non-null value_int where category='X', partitioned by region."""
+        fs = make_feature_set("value_int__count_window", ["region"], mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__count_window")
+        assert result_col == [2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1]
+
+    def test_mask_min_window_equal(self) -> None:
+        """Min of value_int where category='X', partitioned by region."""
+        fs = make_feature_set("value_int__min_window", ["region"], mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__min_window")
+        assert result_col == [0, 0, 0, 0, 60, 60, 60, 60, 15, 15, 15, -10]
+
+    def test_mask_max_window_equal(self) -> None:
+        """Max of value_int where category='X', partitioned by region."""
+        fs = make_feature_set("value_int__max_window", ["region"], mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__max_window")
+        assert result_col == [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, -10]
+
+    def test_mask_multiple_conditions(self) -> None:
+        """Sum with AND-combined mask: category='X' AND value_int >= 10."""
+        fs = make_feature_set(
+            "value_int__sum_window",
+            ["region"],
+            mask=[("category", "equal", "X"), ("value_int", "greater_equal", 10)],
+        )
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__sum_window")
+        # Region A: only row 0 (val=10, cat=X, >=10) -> 10
+        # Region B: only row 7 (val=60, cat=X, >=10) -> 60
+        # Region C: only row 9 (val=15, cat=X, >=10) -> 15
+        # None: row 11 (val=-10, cat=X, <10) -> None (all masked out)
+        assert result_col == [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, None]
+
+    def test_mask_no_mask_unchanged(self) -> None:
+        """Without mask, results match the standard unmasked test."""
+        fs = make_feature_set("value_int__sum_window", ["region"])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__sum_window")
+        assert result_col == [25, 25, 25, 25, 140, 140, 140, 140, 70, 70, 70, -10]
+
+    def test_mask_first_window_equal(self) -> None:
+        """First of value_int where category='X', ordered by timestamp, partitioned by region."""
+        self._skip_if_unsupported("first")
+        fs = make_feature_set(
+            "value_int__first_window", ["region"], order_by="timestamp", mask=("category", "equal", "X")
+        )
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__first_window")
+        assert result_col == [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, -10]
+
+    def test_mask_last_window_equal(self) -> None:
+        """Last of value_int where category='X', ordered by timestamp, partitioned by region."""
+        self._skip_if_unsupported("last")
+        fs = make_feature_set(
+            "value_int__last_window", ["region"], order_by="timestamp", mask=("category", "equal", "X")
+        )
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__last_window")
+        assert result_col == [0, 0, 0, 0, 60, 60, 60, 60, 15, 15, 15, -10]
+
+    def test_mask_nunique_window_equal(self) -> None:
+        """Nunique of value_int where category='X', partitioned by region."""
+        self._skip_if_unsupported("nunique")
+        fs = make_feature_set("value_int__nunique_window", ["region"], mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__nunique_window")
+        assert result_col == [2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1]
+
+    def test_mask_fully_masked_window(self) -> None:
+        """All rows masked out (category='Z') should produce None for every row."""
+        fs = make_feature_set("value_int__sum_window", ["region"], mask=("category", "equal", "Z"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__sum_window")
+        assert all(v is None for v in result_col)
+
     # -- Option-based config tests -------------------------------------------
 
     def test_option_based_sum_window(self) -> None:

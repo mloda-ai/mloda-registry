@@ -337,6 +337,45 @@ class FrameAggregateTestBase(DataOpsTestBase):
         # Row 2 (2025-01-01): 1 year back = 2024-01-01. 2024-01-01 >= 2024-01-01, so [10, 20, 30] => 60
         assert col == [10, 30, 60]
 
+    # -- Mask tests -----------------------------------------------------------
+
+    def test_mask_cumsum_equal(self) -> None:
+        """Cumulative sum of value_int where category='X', partitioned by region, ordered by value_int."""
+        fs = make_feature_set("value_int__cumsum", ["region"], "value_int", mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert isinstance(result, self.get_expected_type())
+        assert self.get_row_count(result) == 12
+
+        result_col = self.extract_column(result, "value_int__cumsum")
+        # Group A sorted by value_int: (-5, 0, 10, 20) = rows (1, 2, 0, 3)
+        #   Masked: (null[Y], 0[X], 10[X], null[Y]) -> cumsum: null, 0, 10, 10
+        # Group B sorted: (30, 50, 60, None) = rows (6, 5, 7, 4)
+        #   Masked: (null[None], null[Y], 60[X], null[X,val=None]) -> cumsum: null, null, 60, 60
+        # Group C sorted: (15, 15, 40) = rows (8, 9, 10)
+        #   Masked: (null[Y], 15[X], null[Y]) -> cumsum: null, 15, 15
+        # None group: (-10) = row 11 -> cumsum: -10
+        expected = [10, None, 0, 10, 60, None, None, 60, None, 15, 15, -10]
+        _assert_values_with_nulls(result_col, expected)
+
+    def test_mask_rolling_sum_equal(self) -> None:
+        """Rolling sum (window 3) where category='X', partitioned by region, ordered by value_int."""
+        fs = make_feature_set("value_int__sum_rolling_3", ["region"], "value_int", mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert self.get_row_count(result) == 12
+
+        result_col = self.extract_column(result, "value_int__sum_rolling_3")
+        # Group A sorted by value_int: (-5, 0, 10, 20) = rows (1, 2, 0, 3)
+        #   Masked: (null, 0, 10, null) -> rolling_3 sum: null, 0, 10, 10
+        # Group B sorted: (30, 50, 60, None) = rows (6, 5, 7, 4)
+        #   Masked: (null, null, 60, null) -> rolling_3 sum: null, null, 60, 60
+        # Group C sorted: (15, 15, 40) = rows (8, 9, 10)
+        #   Masked: (null, 15, null) -> rolling_3 sum: null, 15, 15
+        # None group: (-10) = row 11 -> -10
+        expected = [10, None, 0, 10, 60, None, None, 60, None, 15, 15, -10]
+        _assert_values_with_nulls(result_col, expected)
+
     # -- Cross-framework comparison ------------------------------------------
 
     def test_cross_framework_rolling_sum(self) -> None:

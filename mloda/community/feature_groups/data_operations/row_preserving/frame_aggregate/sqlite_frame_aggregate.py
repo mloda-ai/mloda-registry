@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
+from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -40,12 +42,16 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         frame_type: str,
         frame_size: int | None = None,
         frame_unit: str | None = None,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> SqliteRelation:
         agg_func = _SQLITE_AGG_FUNCS.get(agg_type)
         if agg_func is None:
             raise ValueError(f"Unsupported aggregation type for SQLite frame aggregate: {agg_type}")
 
         quoted_source = quote_ident(source_col)
+        source_sql = quoted_source
+        if mask_spec is not None:
+            source_sql = build_sql_case_when(mask_spec, quoted_source)
         quoted_order = quote_ident(order_by)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)
         quoted_feature = quote_ident(feature_name)
@@ -68,7 +74,7 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         sql = " ".join(  # nosec
             [
                 "SELECT",
-                f"{agg_func}({quoted_source}) OVER",
+                f"{agg_func}({source_sql}) OVER",
                 f"(PARTITION BY {partition_clause} ORDER BY {order_clause} {frame_clause})",
                 f"AS {quoted_feature},",
                 f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn}",

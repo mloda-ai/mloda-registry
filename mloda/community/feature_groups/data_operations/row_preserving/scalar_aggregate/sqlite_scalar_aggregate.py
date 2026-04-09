@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
+from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
@@ -33,6 +36,7 @@ class SqliteScalarAggregate(ScalarAggregateFeatureGroup):
         feature_name: str,
         source_col: str,
         agg_type: str,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> SqliteRelation:
         agg_func = _SQLITE_AGG_FUNCS.get(agg_type)
         if agg_func is None:
@@ -41,10 +45,14 @@ class SqliteScalarAggregate(ScalarAggregateFeatureGroup):
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
 
+        source_sql = quoted_source
+        if mask_spec is not None:
+            source_sql = build_sql_case_when(mask_spec, quoted_source)
+
         sql = " ".join(
             [
                 "SELECT",
-                f"{agg_func}({quoted_source}) OVER () AS {quoted_feature}",
+                f"{agg_func}({source_sql}) OVER () AS {quoted_feature}",
                 "FROM",
                 f"{quote_ident(data.table_name)}",
             ]

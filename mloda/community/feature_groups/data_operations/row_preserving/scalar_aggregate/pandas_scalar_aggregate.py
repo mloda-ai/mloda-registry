@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
+from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
+)
+from mloda_plugins.compute_framework.base_implementations.pandas.pandas_filter_mask_engine import (
+    PandasFilterMaskEngine,
 )
 
 
@@ -24,12 +30,18 @@ class PandasScalarAggregate(ScalarAggregateFeatureGroup):
         feature_name: str,
         source_col: str,
         agg_type: str,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pd.DataFrame:
-        data = data.copy()
+        if mask_spec is not None:
+            mask = build_mask_from_spec(PandasFilterMaskEngine, data, mask_spec)
+            data = data.copy()
+            data[source_col] = data[source_col].where(mask)
+        else:
+            data = data.copy()
         col = data[source_col]
 
         if agg_type == "sum":
-            result = col.sum()
+            result = col.sum(min_count=1)
         elif agg_type == "min":
             result = col.min()
         elif agg_type == "max":

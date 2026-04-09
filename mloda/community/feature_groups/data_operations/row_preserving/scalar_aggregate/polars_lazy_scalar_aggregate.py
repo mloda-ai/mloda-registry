@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import polars as pl
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
+from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
@@ -24,11 +27,22 @@ class PolarsLazyScalarAggregate(ScalarAggregateFeatureGroup):
         feature_name: str,
         source_col: str,
         agg_type: str,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pl.LazyFrame:
-        col = pl.col(source_col)
+        actual_source = source_col
+        if mask_spec is not None:
+            data, actual_source = apply_polars_mask(data, source_col, mask_spec)
+
+        col = pl.col(actual_source)
 
         if agg_type == "sum":
-            expr = col.sum()
+            raw = col.sum()
+            if mask_spec is not None:
+                # Polars sum() returns 0 for all-null columns; correct to null.
+                has_values = pl.col(actual_source).count() > 0
+                expr = pl.when(has_values).then(raw).otherwise(None)
+            else:
+                expr = raw
         elif agg_type == "min":
             expr = col.min()
         elif agg_type == "max":
@@ -50,4 +64,7 @@ class PolarsLazyScalarAggregate(ScalarAggregateFeatureGroup):
         else:
             raise ValueError(f"Unsupported aggregation type: {agg_type}")
 
-        return data.with_columns(expr.alias(feature_name))
+        result = data.with_columns(expr.alias(feature_name))
+        if mask_spec is not None:
+            result = result.drop(_POLARS_MASK_TMP)
+        return result

@@ -802,3 +802,82 @@ class AggregationTestBase(DataOpsTestBase):
         fs.add(feature)
         with pytest.raises((ValueError, KeyError)):
             self.implementation_class().calculate_feature(self.test_data, fs)
+
+    # -- Mask (conditional aggregation) tests ----------------------------------
+
+    def test_mask_sum_agg_equal(self) -> None:
+        """Sum of value_int where category='X', grouped by region."""
+        fs = make_feature_set("value_int__sum_agg", ["region"], mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 4
+        result_col = self.extract_column(result, "value_int__sum_agg")
+        result_map = _build_result_map(self.extract_column(result, "region"), result_col)
+        assert result_map["A"] == 10
+        assert result_map["B"] == 60
+        assert result_map["C"] == 15
+        assert result_map[None] == -10
+
+    def test_mask_count_agg_equal(self) -> None:
+        """Count of non-null value_int where category='X', grouped by region."""
+        fs = make_feature_set("value_int__count_agg", ["region"], mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 4
+        result_col = self.extract_column(result, "value_int__count_agg")
+        result_map = _build_result_map(self.extract_column(result, "region"), result_col)
+        assert result_map["A"] == 2
+        assert result_map["B"] == 1
+        assert result_map["C"] == 1
+        assert result_map[None] == 1
+
+    def test_mask_multiple_conditions_agg(self) -> None:
+        """Sum with AND-combined mask: category='X' AND value_int >= 10."""
+        fs = make_feature_set(
+            "value_int__sum_agg",
+            ["region"],
+            mask=[("category", "equal", "X"), ("value_int", "greater_equal", 10)],
+        )
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 4
+        result_col = self.extract_column(result, "value_int__sum_agg")
+        # A: only row 0 (10) -> 10, B: only row 7 (60) -> 60, C: only row 9 (15) -> 15, None: row 11 (-10<10) -> None
+        result_pairs = sorted(
+            zip(self.extract_column(result, "region"), result_col),
+            key=lambda x: (x[0] is None, x[0] or ""),
+        )
+        assert result_pairs[0] == ("A", 10)
+        assert result_pairs[1] == ("B", 60)
+        assert result_pairs[2] == ("C", 15)
+        assert result_pairs[3][0] is None
+        assert result_pairs[3][1] is None
+
+    def test_mask_is_in_agg(self) -> None:
+        """Sum of value_int where region is_in ['A', 'C'], grouped by region."""
+        fs = make_feature_set("value_int__sum_agg", ["region"], mask=("region", "is_in", ["A", "C"]))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 4
+        result_col = self.extract_column(result, "value_int__sum_agg")
+        result_map = _build_result_map(self.extract_column(result, "region"), result_col)
+        assert result_map["A"] == 25  # All A rows match
+        assert result_map["C"] == 70  # All C rows match
+        assert result_map["B"] is None  # No B rows match
+        assert result_map[None] is None  # None group doesn't match
+
+    def test_mask_fully_masked_agg(self) -> None:
+        """All rows masked out (category='Z') should produce None for every group."""
+        fs = make_feature_set("value_int__sum_agg", ["region"], mask=("category", "equal", "Z"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 4
+        result_col = self.extract_column(result, "value_int__sum_agg")
+        assert all(v is None for v in result_col)
+
+    def test_mask_greater_than_agg(self) -> None:
+        """Sum of value_int where value_int > 10, grouped by region."""
+        fs = make_feature_set("value_int__sum_agg", ["region"], mask=("value_int", "greater_than", 10))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 4
+        result_col = self.extract_column(result, "value_int__sum_agg")
+        result_map = _build_result_map(self.extract_column(result, "region"), result_col)
+        assert result_map["A"] == 20  # Only [20] > 10
+        assert result_map["B"] == 140  # [50, 30, 60] > 10
+        assert result_map["C"] == 70  # [15, 15, 40] > 10
+        assert result_map[None] is None  # [-10] not > 10

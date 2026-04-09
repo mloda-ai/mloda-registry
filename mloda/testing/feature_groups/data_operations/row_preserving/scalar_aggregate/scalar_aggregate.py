@@ -415,3 +415,37 @@ class ScalarAggregateTestBase(DataOpsTestBase):
 
     def test_cross_framework_amount_count(self) -> None:
         self._compare_with_reference("amount__count_scalar")
+
+    # -- Mask tests ------------------------------------------------------------
+
+    def test_mask_sum_scalar_equal(self) -> None:
+        """Sum of value_int where category='X' (scalar broadcast)."""
+        fs = make_feature_set("value_int__sum_scalar", mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__sum_scalar")
+        assert all(v == 75 for v in result_col)
+
+    def test_mask_count_scalar_equal(self) -> None:
+        """Count of non-null value_int where category='X' (scalar broadcast)."""
+        fs = make_feature_set("value_int__count_scalar", mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__count_scalar")
+        assert all(v == 5 for v in result_col)
+
+    def test_mask_avg_scalar_equal(self) -> None:
+        """Avg of value_int where category='X' (scalar broadcast)."""
+        fs = make_feature_set("value_int__avg_scalar", mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__avg_scalar")
+        assert all(v == pytest.approx(15.0, rel=1e-3) for v in result_col)
+
+    def test_mask_fully_masked_scalar(self) -> None:
+        """Fully masked scalar sum (category='Z') returns None broadcast to all rows."""
+        fs = make_feature_set("value_int__sum_scalar", mask=("category", "equal", "Z"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__sum_scalar")
+        assert all(v is None for v in result_col)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -9,6 +10,7 @@ import pyarrow.compute as pc
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
@@ -26,7 +28,11 @@ class PyArrowScalarAggregate(ScalarAggregateFeatureGroup):
         feature_name: str,
         source_col: str,
         agg_type: str,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pa.Table:
+        if mask_spec is not None:
+            table = apply_pyarrow_mask(table, source_col, mask_spec)
+
         column = table.column(source_col)
 
         if agg_type == "sum":

@@ -10,6 +10,8 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
+
 
 class AggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for aggregation operations that reduce rows.
@@ -121,6 +123,12 @@ class AggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
         },
+        MASK_KEY: {
+            "explanation": "Conditional mask: (column, operator, value) tuple or list of tuples",
+            DefaultOptionKeys.context: True,
+            DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.default: None,
+        },
     }
 
     @classmethod
@@ -195,8 +203,9 @@ class AggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             source_col = source_features[0]
             agg_type = cls._extract_aggregation_type(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
+            mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
 
-            table = cls._compute_group(table, feature_name, source_col, partition_by, agg_type)
+            table = cls._compute_group(table, feature_name, source_col, partition_by, agg_type, mask_spec)
 
         return table
 
@@ -208,6 +217,7 @@ class AggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> Any:
         """Subclasses must implement the actual group computation."""
         raise NotImplementedError

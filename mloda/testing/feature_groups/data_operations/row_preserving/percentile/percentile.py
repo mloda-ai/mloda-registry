@@ -322,6 +322,34 @@ class PercentileTestBase(DataOpsTestBase):
                 f"{pctl}: single-row partitions should return the value itself"
             )
 
+    # -- Mask tests ------------------------------------------------------------
+
+    def test_mask_p50_percentile_equal(self) -> None:
+        """P50 of value_int where category='X', partitioned by region."""
+        fs = make_feature_set("value_int__p50_percentile", ["region"], mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__p50_percentile")
+        assert result_col == pytest.approx(
+            [5.0, 5.0, 5.0, 5.0, 60.0, 60.0, 60.0, 60.0, 15.0, 15.0, 15.0, -10.0], rel=1e-3
+        )
+
+    def test_mask_multiple_conditions_percentile(self) -> None:
+        """P50 with AND-combined mask: category='X' AND value_int >= 10."""
+        fs = make_feature_set(
+            "value_int__p50_percentile",
+            ["region"],
+            mask=[("category", "equal", "X"), ("value_int", "greater_equal", 10)],
+        )
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__p50_percentile")
+        # A: [10] -> 10.0, B: [60] -> 60.0, C: [15] -> 15.0, None: [] -> None
+        assert result_col[:4] == pytest.approx([10.0, 10.0, 10.0, 10.0], rel=1e-3)
+        assert result_col[4:8] == pytest.approx([60.0, 60.0, 60.0, 60.0], rel=1e-3)
+        assert result_col[8:11] == pytest.approx([15.0, 15.0, 15.0], rel=1e-3)
+        assert result_col[11] is None
+
     def test_unicode_column_names(self) -> None:
         """Unicode characters in source and partition_by column names must work."""
         import pyarrow as pa

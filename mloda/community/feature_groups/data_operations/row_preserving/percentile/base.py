@@ -12,6 +12,8 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
+
 
 class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for percentile operations that preserve row count.
@@ -71,6 +73,12 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             "explanation": "List of columns to partition by",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+        },
+        MASK_KEY: {
+            "explanation": "Conditional mask: (column, operator, value) tuple or list of tuples",
+            DefaultOptionKeys.context: True,
+            DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.default: None,
         },
     }
 
@@ -229,8 +237,9 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             source_col = source_features[0]
             percentile = cls._extract_percentile(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
+            mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
 
-            table = cls._compute_percentile(table, feature_name, source_col, partition_by, percentile)
+            table = cls._compute_percentile(table, feature_name, source_col, partition_by, percentile, mask_spec)
 
         return table
 
@@ -242,6 +251,7 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         source_col: str,
         partition_by: list[str],
         percentile: float,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> Any:
         """Subclasses must implement the actual percentile computation."""
         raise NotImplementedError

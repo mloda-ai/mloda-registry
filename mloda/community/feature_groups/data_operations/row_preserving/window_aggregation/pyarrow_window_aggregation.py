@@ -16,6 +16,7 @@ import pyarrow.compute as pc
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
@@ -61,7 +62,11 @@ class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
         partition_by: list[str],
         agg_type: str,
         order_by: str | None = None,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pa.Table:
+        if mask_spec is not None:
+            table = apply_pyarrow_mask(table, source_col, mask_spec)
+
         num_rows = table.num_rows
         t_with_idx = table.append_column(_IDX_COL, pa.array(range(num_rows)))
 

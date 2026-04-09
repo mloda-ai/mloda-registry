@@ -6,6 +6,8 @@ C++-backed aggregation.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pyarrow as pa
 import pyarrow.compute as pc
 
@@ -15,6 +17,7 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 
 # Aggregation types with direct PyArrow group_by support.
 _PA_AGG_FUNCS: dict[str, str] = {
@@ -57,7 +60,11 @@ class PyArrowAggregation(AggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
+        mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pa.Table:
+        if mask_spec is not None:
+            table = apply_pyarrow_mask(table, source_col, mask_spec)
+
         if agg_type in _PA_AGG_FUNCS:
             pa_func = _PA_AGG_FUNCS[agg_type]
             grouped = table.group_by(partition_by).aggregate([(source_col, pa_func)])
