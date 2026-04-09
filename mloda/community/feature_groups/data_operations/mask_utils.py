@@ -64,12 +64,20 @@ def parse_mask_spec(mask_option: Any) -> list[tuple[str, str, Any]] | None:
         if op not in MASK_OPERATORS:
             raise ValueError(f"Unsupported mask operator '{op}'. Supported: {sorted(MASK_OPERATORS)}")
 
+        if len(spec) == 2 and op != "equal":
+            raise ValueError(
+                f"2-element mask tuple ('column', 'operator') is only valid for 'equal' (IS NULL). "
+                f"Operator '{op}' requires a value: ('column', '{op}', value)."
+            )
+
         if op == "is_in":
             if isinstance(val, (str, bytes)) or not isinstance(val, (list, tuple, set, frozenset)):
                 raise ValueError(
                     f"is_in values must be a list, tuple, or set, got {type(val).__name__}. "
                     f"Use e.g. ('col', 'is_in', ['a', 'b']) instead of ('col', 'is_in', 'ab')."
                 )
+            if len(val) == 0:
+                raise ValueError("is_in values must not be empty. Use a different condition to match nothing.")
         elif val is not None and not isinstance(val, (bool, int, float, str)):
             raise ValueError(
                 f"Mask value must be None, bool, int, float, or str, got {type(val).__name__}. "

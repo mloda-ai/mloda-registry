@@ -41,7 +41,7 @@ class PandasScalarAggregate(ScalarAggregateFeatureGroup):
         col = data[source_col]
 
         if agg_type == "sum":
-            result = col.sum()
+            result = col.sum(min_count=1)
         elif agg_type == "min":
             result = col.min()
         elif agg_type == "max":

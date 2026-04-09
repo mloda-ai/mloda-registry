@@ -70,6 +70,23 @@ class TestParseMaskSpec:
         result = parse_mask_spec(("col", "equal"))
         assert result == [("col", "equal", None)]
 
+    def test_is_in_empty_list_rejected(self) -> None:
+        with pytest.raises(ValueError, match="must not be empty"):
+            parse_mask_spec(("col", "is_in", []))
+
+    def test_is_in_empty_set_rejected(self) -> None:
+        with pytest.raises(ValueError, match="must not be empty"):
+            parse_mask_spec(("col", "is_in", set()))
+
+    def test_two_element_greater_than_rejected(self) -> None:
+        """2-element tuple is only valid for 'equal', not other operators."""
+        with pytest.raises(ValueError, match="only valid for 'equal'"):
+            parse_mask_spec(("col", "greater_than"))
+
+    def test_two_element_is_in_rejected(self) -> None:
+        with pytest.raises(ValueError, match="only valid for 'equal'"):
+            parse_mask_spec(("col", "is_in"))
+
 
 class TestBuildSqlCaseWhen:
     def test_single_equal(self) -> None:
