@@ -50,9 +50,11 @@ class PolarsLazyRank(RankFeatureGroup):
     ) -> pl.LazyFrame:
         """Compute rank using Polars expressions (fully lazy).
 
-        NullPolicy.NULLS_LAST: nulls in order_by get the highest rank.
-        Polars rank() returns null for null inputs, so we handle nulls
-        by assigning them a rank of (group_size) or (group_size + 1).
+        PyArrow parity: the reference (and SQL window functions) rank
+        nulls last, assigning null values the highest rank positions as
+        integers. Polars rank() returns null for null inputs, so we
+        manually assign null rows a rank of (non_null_count + 1) to
+        match the reference behavior.
         """
         # Create a helper: is_null flag (0 for non-null, 1 for null) for sorting nulls last
         null_flag = pl.col(order_by).is_null().cast(pl.Int64).alias(_NULL_FLAG_COL)

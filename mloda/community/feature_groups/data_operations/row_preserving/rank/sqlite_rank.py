@@ -22,6 +22,7 @@ class _BoolCastRelation(SqliteRelation):
     stored as INTEGER.  This wrapper ensures the Arrow table produced by
     ``to_arrow_table()`` uses ``pa.bool_()`` for the designated columns so that
     downstream ``to_pylist()`` returns Python ``True``/``False``.
+    This ensures parity with the PyArrow reference, which returns native bool.
     """
 
     def __init__(self, base: SqliteRelation, bool_columns: set[str]) -> None:

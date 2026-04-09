@@ -427,3 +427,28 @@ class BinningTestBase(DataOpsTestBase):
         fs.add(feature)
         with pytest.raises((ValueError, KeyError)):
             self.implementation_class().calculate_feature(self.test_data, fs)
+
+    # -- Row-order preservation ------------------------------------------------
+
+    def test_row_order_preserved_qbin(self) -> None:
+        """Original columns must remain in input row order after qbin.
+
+        PyArrow parity: DuckDB NTILE() reorders rows via ORDER BY;
+        the ROW_NUMBER + .order() pattern must restore input order.
+        """
+        self._skip_if_unsupported("qbin")
+        fs = make_feature_set("value_int__qbin_3")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        input_col = self.extract_column(self.test_data, "value_int")
+        output_col = self.extract_column(result, "value_int")
+        assert output_col == input_col
+
+    def test_row_order_preserved_bin(self) -> None:
+        """Original columns must remain in input row order after bin."""
+        fs = make_feature_set("value_int__bin_3")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        input_col = self.extract_column(self.test_data, "value_int")
+        output_col = self.extract_column(result, "value_int")
+        assert output_col == input_col

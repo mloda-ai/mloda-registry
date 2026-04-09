@@ -105,7 +105,13 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
         agg_type: str,
         order_by: str,
     ) -> pd.DataFrame:
-        """Compute first/last with order_by by sorting, transforming, then restoring row order."""
+        """Compute first/last with order_by by sorting, transforming, then restoring row order.
+
+        PyArrow parity: the reference sorts within each partition then
+        returns results in original row order. sort_index() after
+        transform restores the original pandas index order, matching
+        PyArrow's row-order guarantee.
+        """
         pandas_func = PANDAS_AGG_FUNCS[agg_type]
         sorted_data = data.sort_values(order_by, na_position="last")
         grouped = null_safe_groupby(sorted_data, partition_by, source_col)

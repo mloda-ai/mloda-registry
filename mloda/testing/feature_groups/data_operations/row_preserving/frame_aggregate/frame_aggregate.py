@@ -547,3 +547,19 @@ class FrameAggregateTestBase(DataOpsTestBase):
         assert result_col[1] == 10
         assert result_col[2] == 30
         assert result_col[0] == 130
+
+    # -- Row-order preservation ------------------------------------------------
+
+    def test_row_order_preserved(self) -> None:
+        """Original columns must remain in input row order after frame aggregate.
+
+        PyArrow parity: DuckDB and Pandas sort by order_by for the frame
+        window; the ROW_NUMBER + restore pattern must return rows in
+        input order.
+        """
+        fs = make_feature_set("value_int__sum_rolling_3", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        input_col = self.extract_column(self.test_data, "value_int")
+        output_col = self.extract_column(result, "value_int")
+        assert output_col == input_col

@@ -75,6 +75,9 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         else:
             raise ValueError(f"Unsupported frame type for DuckDB: {frame_type}")
 
+        # PyArrow parity: the reference preserves input row order. DuckDB
+        # ORDER BY in the window frame reorders rows; tag with ROW_NUMBER(),
+        # compute, then .order(qrn) to restore original order.
         # Step 1: tag rows with original position
         rel = data._relation.project(f"*, ROW_NUMBER() OVER () AS {qrn}")  # nosec
 

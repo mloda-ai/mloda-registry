@@ -60,9 +60,10 @@ class DuckdbRank(RankFeatureGroup):
                 raise ValueError(f"Unsupported rank type for DuckDB: {rank_type}")
             rank_expr = rank_func
 
-        # Use query() with ROW_NUMBER() to preserve original row order.
-        # The _RN_COL column tracks original position, then we
-        # sort by it and drop it to return rows in the original order.
+        # PyArrow parity: the reference computes ranks via Python index
+        # mapping and returns results in original row order. DuckDB window
+        # functions with ORDER BY reorder result rows; tag positions with
+        # ROW_NUMBER() and ORDER BY qrn to restore input row order.
         qrn = quote_ident(_RN_COL)
         if rank_type.startswith(("top_", "bottom_")):
             # rank_expr already contains full window expression with boolean comparison

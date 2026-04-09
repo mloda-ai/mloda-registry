@@ -67,6 +67,11 @@ class DuckdbOffset(OffsetFeatureGroup):
             return DuckdbRelation(data.connection, result_rel)
         elif offset_type == "first_value":
             offset_expr = f"FIRST_VALUE({quoted_source} IGNORE NULLS)"
+            # PyArrow parity: the reference scans the entire partition for
+            # first/last non-null. DuckDB default ordered-window frame
+            # (UNBOUNDED PRECEDING to CURRENT ROW) would make LAST_VALUE
+            # return the current row. Explicit UNBOUNDED FOLLOWING gives
+            # partition-wide visibility.
             window_clause += " ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING"
         elif offset_type == "last_value":
             offset_expr = f"LAST_VALUE({quoted_source} IGNORE NULLS)"
@@ -74,7 +79,9 @@ class DuckdbOffset(OffsetFeatureGroup):
         else:
             raise ValueError(f"Unsupported offset type for DuckDB: {offset_type}")
 
-        # Use query() to preserve original row order
+        # PyArrow parity: the reference returns results in original row
+        # order. DuckDB window functions with ORDER BY reorder rows; tag
+        # positions with ROW_NUMBER() and ORDER BY qrn to restore.
         qrn = quote_ident(_RN_COL)
         sql = (
             f"SELECT *, "  # nosec
