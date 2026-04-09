@@ -441,3 +441,11 @@ class ScalarAggregateTestBase(DataOpsTestBase):
         assert self.get_row_count(result) == 12
         result_col = self.extract_column(result, "value_int__avg_scalar")
         assert all(v == pytest.approx(15.0, rel=1e-3) for v in result_col)
+
+    def test_mask_fully_masked_scalar(self) -> None:
+        """Fully masked scalar sum (category='Z') returns None broadcast to all rows."""
+        fs = make_feature_set("value_int__sum_scalar", mask=("category", "equal", "Z"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__sum_scalar")
+        assert all(v is None for v in result_col)
