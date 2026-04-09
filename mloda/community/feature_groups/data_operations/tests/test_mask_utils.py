@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from mloda.community.feature_groups.data_operations.mask_utils import (
+    build_polars_mask_expr,
     build_sql_case_when,
     parse_mask_spec,
 )
@@ -88,6 +89,47 @@ class TestParseMaskSpec:
             parse_mask_spec(("col", "is_in"))
 
 
+class TestBuildPolarsMaskExpr:
+    def test_single_equal(self) -> None:
+        pl = pytest.importorskip("polars")
+
+        expr = build_polars_mask_expr([("status", "equal", "active")])
+        df = pl.DataFrame({"status": ["active", "inactive", "active"]})
+        result = df.lazy().filter(expr).collect()
+        assert result.shape == (2, 1)
+        assert result["status"].to_list() == ["active", "active"]
+
+    def test_multiple_conditions(self) -> None:
+        pl = pytest.importorskip("polars")
+
+        expr = build_polars_mask_expr([("cat", "equal", "X"), ("val", "greater_equal", 10)])
+        df = pl.DataFrame({"cat": ["X", "X", "Y"], "val": [15, 5, 20]})
+        result = df.lazy().filter(expr).collect()
+        assert result.shape == (1, 2)
+
+    def test_is_in(self) -> None:
+        pl = pytest.importorskip("polars")
+
+        expr = build_polars_mask_expr([("col", "is_in", ["a", "b"])])
+        df = pl.DataFrame({"col": ["a", "c", "b"]})
+        result = df.lazy().filter(expr).collect()
+        assert result.shape == (2, 1)
+
+    def test_all_comparison_operators(self) -> None:
+        pl = pytest.importorskip("polars")
+
+        for op, test_val, expected_count in [
+            ("greater_than", 2, 1),
+            ("greater_equal", 2, 2),
+            ("less_than", 2, 1),
+            ("less_equal", 2, 2),
+        ]:
+            expr = build_polars_mask_expr([("x", op, test_val)])
+            df = pl.DataFrame({"x": [1, 2, 3]})
+            result = df.lazy().filter(expr).collect()
+            assert result.shape[0] == expected_count, f"Failed for {op}"
+
+
 class TestBuildSqlCaseWhen:
     def test_single_equal(self) -> None:
         result = build_sql_case_when([("status", "equal", "active")], '"value"')
@@ -114,3 +156,15 @@ class TestBuildSqlCaseWhen:
         result = build_sql_case_when([("col", "equal", None)], '"src"')
         assert "IS NULL" in result
         assert "= NULL" not in result
+
+    def test_less_than(self) -> None:
+        result = build_sql_case_when([("amount", "less_than", 100)], '"value"')
+        assert result == 'CASE WHEN "amount" < 100 THEN "value" END'
+
+    def test_less_equal(self) -> None:
+        result = build_sql_case_when([("amount", "less_equal", 100)], '"value"')
+        assert result == 'CASE WHEN "amount" <= 100 THEN "value" END'
+
+    def test_greater_equal(self) -> None:
+        result = build_sql_case_when([("amount", "greater_equal", 100)], '"value"')
+        assert result == 'CASE WHEN "amount" >= 100 THEN "value" END'

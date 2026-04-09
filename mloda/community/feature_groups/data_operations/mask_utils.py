@@ -1,13 +1,17 @@
 """Shared utilities for conditional aggregation via FilterMask.
 
-Provides three mask-building strategies matched to framework capabilities:
+Provides mask-building strategies matched to framework capabilities:
 
-1. ``build_mask_from_spec`` -- for DataFrame-based frameworks (Pandas, PyArrow)
-   that have a ``BaseMaskEngine`` returning native boolean arrays.
-2. ``build_polars_mask_expr`` -- for Polars lazy evaluation, building a
-   ``pl.Expr`` boolean chain directly (the engine needs an eager DataFrame).
+1. ``build_mask_from_spec`` -- universal dispatcher that works with any
+   ``BaseMaskEngine`` subclass (Pandas, PyArrow, and others).
+2. ``build_polars_mask_expr`` -- for Polars lazy evaluation, delegates to
+   upstream ``PolarsExprMaskEngine`` to build a ``pl.Expr`` boolean chain.
 3. ``build_sql_case_when`` -- for SQL-based frameworks (DuckDB, SQLite),
-   generating a ``CASE WHEN ... THEN source END`` expression.
+   delegates to upstream ``SqlBaseMaskEngine`` for individual conditions,
+   then wraps them in a ``CASE WHEN ... THEN source END`` expression.
+
+Apply helpers ``apply_polars_mask`` and ``apply_pyarrow_mask`` build on
+the above to create masked columns in framework-specific ways.
 """
 
 from __future__ import annotations
@@ -15,18 +19,13 @@ from __future__ import annotations
 from typing import Any
 
 from mloda.core.abstract_plugins.components.mask.base_mask_engine import BaseMaskEngine
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident, quote_value
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
 MASK_KEY = "mask"
 
-MASK_OPERATORS: dict[str, str] = {
-    "equal": "=",
-    "greater_than": ">",
-    "greater_equal": ">=",
-    "less_equal": "<=",
-    "less_than": "<",
-    "is_in": "IN",
-}
+_SUPPORTED_OPS: frozenset[str] = frozenset(
+    {"equal", "greater_than", "greater_equal", "less_equal", "less_than", "is_in"}
+)
 
 
 def parse_mask_spec(mask_option: Any) -> list[tuple[str, str, Any]] | None:
@@ -61,8 +60,8 @@ def parse_mask_spec(mask_option: Any) -> list[tuple[str, str, Any]] | None:
             raise ValueError(f"Mask column must be a string, got {type(col).__name__}")
         if not isinstance(op, str):
             raise ValueError(f"Mask operator must be a string, got {type(op).__name__}")
-        if op not in MASK_OPERATORS:
-            raise ValueError(f"Unsupported mask operator '{op}'. Supported: {sorted(MASK_OPERATORS)}")
+        if op not in _SUPPORTED_OPS:
+            raise ValueError(f"Unsupported mask operator '{op}'. Supported: {sorted(_SUPPORTED_OPS)}")
 
         if len(spec) == 2 and op != "equal":
             raise ValueError(
@@ -131,32 +130,18 @@ def _engine_op(
 def build_polars_mask_expr(mask_spec: list[tuple[str, str, Any]]) -> Any:
     """Build a lazy-compatible Polars boolean expression from a mask spec.
 
-    Returns a ``pl.Expr`` that evaluates to a boolean column.
+    Returns a ``pl.Expr`` that evaluates to a boolean column.  Delegates to
+    upstream ``PolarsExprMaskEngine`` instead of hand-rolling operator dispatch.
     """
-    import polars as pl
+    from mloda_plugins.compute_framework.base_implementations.polars.polars_expr_mask_engine import (
+        PolarsExprMaskEngine,
+    )
 
-    expr: pl.Expr | None = None
+    expr: Any = None
     for col, op, val in mask_spec:
-        single = _polars_condition(pl, col, op, val)
-        expr = single if expr is None else (expr & single)
+        single = _engine_op(PolarsExprMaskEngine, None, col, op, val)
+        expr = single if expr is None else PolarsExprMaskEngine.combine(expr, single)
     return expr
-
-
-def _polars_condition(pl: Any, col: str, op: str, val: Any) -> Any:
-    """Build a single Polars boolean expression for one condition."""
-    if op == "equal":
-        return pl.col(col) == val
-    if op == "greater_than":
-        return pl.col(col) > val
-    if op == "greater_equal":
-        return pl.col(col) >= val
-    if op == "less_equal":
-        return pl.col(col) <= val
-    if op == "less_than":
-        return pl.col(col) < val
-    if op == "is_in":
-        return pl.col(col).is_in(val)
-    raise ValueError(f"Unsupported mask operator: {op}")
 
 
 _POLARS_MASK_TMP = "__mloda_masked_src__"
@@ -212,20 +197,23 @@ def build_sql_case_when(
 ) -> str:
     """Build a SQL ``CASE WHEN ... THEN source END`` expression.
 
+    Delegates individual conditions to upstream ``SqlBaseMaskEngine`` instead
+    of hand-rolling operator dispatch.  The IS NULL case is handled explicitly
+    because upstream ``SqlBaseMaskEngine.equal(data, col, None)`` produces
+    ``"col" = NULL`` rather than the correct ``"col" IS NULL``.
+
     *source_expr* should already be a quoted identifier (via ``quote_ident``).
-    Column names in conditions are quoted; literal values use ``quote_value``.
     """
+    from mloda_plugins.compute_framework.base_implementations.sql.sql_base_mask_engine import (
+        SqlBaseMaskEngine,
+    )
+
     conditions = []
     for col, op, val in mask_spec:
-        quoted_col = quote_ident(col)
-        if op == "is_in":
-            values_sql = ", ".join(quote_value(v) for v in val)
-            conditions.append(f"{quoted_col} IN ({values_sql})")
-        elif op == "equal" and val is None:
-            conditions.append(f"{quoted_col} IS NULL")
+        if op == "equal" and val is None:
+            conditions.append(f"{quote_ident(col)} IS NULL")
         else:
-            sql_op = MASK_OPERATORS[op]
-            conditions.append(f"{quoted_col} {sql_op} {quote_value(val)}")
+            conditions.append(_engine_op(SqlBaseMaskEngine, None, col, op, val))  # type: ignore[type-abstract]
 
     where_clause = " AND ".join(conditions)
     return f"CASE WHEN {where_clause} THEN {source_expr} END"
