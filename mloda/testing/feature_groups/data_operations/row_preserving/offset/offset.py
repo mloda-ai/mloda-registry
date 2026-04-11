@@ -351,10 +351,23 @@ class OffsetTestBase(DataOpsTestBase):
 
         PyArrow parity: without the ROW_NUMBER + restore pattern, SQL
         backends return rows sorted by the window ORDER BY clause.
+
+        Compares (value_int, category) tuples to detect tied-row swaps
+        (rows 8 and 9 both have value_int=15).
         """
         fs = make_feature_set("value_int__lag_1_offset", ["region"], "value_int")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        input_col = self.extract_column(self.test_data, "value_int")
-        output_col = self.extract_column(result, "value_int")
-        assert output_col == input_col
+        input_id = list(
+            zip(
+                self.extract_column(self.test_data, "value_int"),
+                self.extract_column(self.test_data, "category"),
+            )
+        )
+        output_id = list(
+            zip(
+                self.extract_column(result, "value_int"),
+                self.extract_column(result, "category"),
+            )
+        )
+        assert output_id == input_id

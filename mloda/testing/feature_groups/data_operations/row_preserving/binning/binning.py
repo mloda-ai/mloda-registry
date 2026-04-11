@@ -435,20 +435,46 @@ class BinningTestBase(DataOpsTestBase):
 
         PyArrow parity: DuckDB NTILE() reorders rows via ORDER BY;
         the ROW_NUMBER + .order() pattern must restore input order.
+
+        Compares (value_int, category) tuples to detect tied-row swaps
+        (rows 8 and 9 both have value_int=15).
         """
         self._skip_if_unsupported("qbin")
         fs = make_feature_set("value_int__qbin_3")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        input_col = self.extract_column(self.test_data, "value_int")
-        output_col = self.extract_column(result, "value_int")
-        assert output_col == input_col
+        input_id = list(
+            zip(
+                self.extract_column(self.test_data, "value_int"),
+                self.extract_column(self.test_data, "category"),
+            )
+        )
+        output_id = list(
+            zip(
+                self.extract_column(result, "value_int"),
+                self.extract_column(result, "category"),
+            )
+        )
+        assert output_id == input_id
 
     def test_row_order_preserved_bin(self) -> None:
-        """Original columns must remain in input row order after bin."""
+        """Original columns must remain in input row order after bin.
+
+        Compares (value_int, category) tuples to detect tied-row swaps.
+        """
         fs = make_feature_set("value_int__bin_3")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        input_col = self.extract_column(self.test_data, "value_int")
-        output_col = self.extract_column(result, "value_int")
-        assert output_col == input_col
+        input_id = list(
+            zip(
+                self.extract_column(self.test_data, "value_int"),
+                self.extract_column(self.test_data, "category"),
+            )
+        )
+        output_id = list(
+            zip(
+                self.extract_column(result, "value_int"),
+                self.extract_column(result, "category"),
+            )
+        )
+        assert output_id == input_id

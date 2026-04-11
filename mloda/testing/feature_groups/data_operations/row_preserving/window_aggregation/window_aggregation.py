@@ -842,20 +842,46 @@ class WindowAggregationTestBase(DataOpsTestBase):
 
         PyArrow parity: DuckDB first/last uses ORDER BY which reorders
         rows; the ROW_NUMBER + .order() pattern must restore input order.
+
+        Compares (value_int, category) tuples to detect tied-row swaps
+        (rows 8 and 9 both have value_int=15).
         """
         self._skip_if_unsupported("first")
         fs = make_feature_set("value_int__first_window", ["region"], "value_int")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        input_col = self.extract_column(self.test_data, "value_int")
-        output_col = self.extract_column(result, "value_int")
-        assert output_col == input_col
+        input_id = list(
+            zip(
+                self.extract_column(self.test_data, "value_int"),
+                self.extract_column(self.test_data, "category"),
+            )
+        )
+        output_id = list(
+            zip(
+                self.extract_column(result, "value_int"),
+                self.extract_column(result, "category"),
+            )
+        )
+        assert output_id == input_id
 
     def test_row_order_preserved_sum(self) -> None:
-        """Original columns must remain in input row order after sum."""
+        """Original columns must remain in input row order after sum.
+
+        Compares (value_int, category) tuples to detect tied-row swaps.
+        """
         fs = make_feature_set("value_int__sum_window", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        input_col = self.extract_column(self.test_data, "value_int")
-        output_col = self.extract_column(result, "value_int")
-        assert output_col == input_col
+        input_id = list(
+            zip(
+                self.extract_column(self.test_data, "value_int"),
+                self.extract_column(self.test_data, "category"),
+            )
+        )
+        output_id = list(
+            zip(
+                self.extract_column(result, "value_int"),
+                self.extract_column(result, "category"),
+            )
+        )
+        assert output_id == input_id
