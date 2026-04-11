@@ -9,7 +9,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-02T10:41:21.149562169Z"
+exclude-newer = "2026-04-04T13:44:35.971174151Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -951,7 +951,11 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "bandit" },
+    { name = "duckdb" },
     { name = "mypy" },
+    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pandas", version = "3.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "polars" },
     { name = "pytest" },
     { name = "pytest-xdist" },
     { name = "python-dateutil" },
@@ -965,8 +969,11 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bandit", marker = "extra == 'dev'" },
+    { name = "duckdb", marker = "extra == 'dev'" },
     { name = "mloda", specifier = ">=0.6.1" },
     { name = "mypy", marker = "extra == 'dev'" },
+    { name = "pandas", marker = "extra == 'dev'" },
+    { name = "polars", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-xdist", marker = "extra == 'dev'" },
     { name = "python-dateutil", marker = "extra == 'dev'" },

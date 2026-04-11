@@ -17,7 +17,9 @@ class PolarsLazyTestMixin:
     def create_test_data(self, arrow_table: pa.Table) -> Any:
         import polars as pl
 
-        return pl.from_arrow(arrow_table).lazy()
+        df = pl.from_arrow(arrow_table)
+        assert isinstance(df, pl.DataFrame)
+        return df.lazy()
 
     def extract_column(self, result: Any, column_name: str) -> list[Any]:
         collected = result.collect()

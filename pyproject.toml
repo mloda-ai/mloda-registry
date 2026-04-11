@@ -27,6 +27,9 @@ dev = [
     "tomli",
     "python-dateutil",
     "types-python-dateutil",
+    "pandas",
+    "polars",
+    "duckdb",
 ]
 
 [tool.ruff]
