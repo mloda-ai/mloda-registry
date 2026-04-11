@@ -19,7 +19,12 @@ The filter engine handles filtering operations on data.
 | `do_regex_filter()` | Filter by regex pattern |
 | `do_categorical_inclusion_filter()` | Filter by set membership |
 | `final_filters()` | Return True if filters applied at end |
-| `applicable_filters()` | Return filters whose columns exist in output |
+
+## Base Class Methods (override optional)
+
+| Method | Description |
+|--------|-------------|
+| `applicable_filters()` | Return filters whose columns exist in output. Provided by `BaseFilterEngine` with a default that matches filter columns against the FeatureSet output. Override only if your framework needs custom column-matching logic. |
 
 ## Complete Example
 

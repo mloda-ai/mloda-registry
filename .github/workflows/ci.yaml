@@ -42,3 +42,14 @@ jobs:
       timeout-minutes: 3
       env:
         PYTEST_WORKERS: "0"
+
+  lint-docs:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Lint docs
+      run: python scripts/lint_docs.py

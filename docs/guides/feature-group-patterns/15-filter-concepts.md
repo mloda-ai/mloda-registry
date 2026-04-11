@@ -41,7 +41,7 @@ result = mloda.run_all(
 You can also use the `FilterType` enum directly:
 
 ```python
-from mloda.core.filter.filter_type_enum import FilterType
+from mloda.user import GlobalFilter, FilterType
 
 global_filter = GlobalFilter()
 global_filter.add_filter("age", FilterType.RANGE, {"min": 18, "max": 65})
@@ -91,7 +91,7 @@ When a data source reads filters inline (e.g. pushing predicates into a SQL WHER
 By default, the framework defers to the `FilterEngine` to decide whether row elimination runs after `calculate_feature()`. A FeatureGroup can override this by defining `final_filters()`:
 
 ```python
-from mloda.core.abstract_plugins.feature_group import FeatureGroup
+from mloda.provider import FeatureGroup
 
 class MyDataSource(FeatureGroup):
     @classmethod
@@ -187,5 +187,5 @@ All features from the same FeatureGroup must have the same filters. Split into s
 
 ## Related
 
-- [Filter Engine](../../compute-framework-patterns/07-filter-engine.md) - Implementing filter operations in a compute framework
+- [Filter Engine](../compute-framework-patterns/07-filter-engine.md) - Implementing filter operations in a compute framework
 - [calculate_feature](12-calculate-feature.md) - Accessing `features.filters` inside the calculation method
