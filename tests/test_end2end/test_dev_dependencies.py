@@ -35,3 +35,35 @@ def test_required_test_dependency_is_installed(module_name: str) -> None:
             f"Required test dependency '{module_name}' is not installed. "
             f"Add it to [project.optional-dependencies] dev in the root pyproject.toml."
         )
+
+
+# Maps a framework name to one representative test module that uses
+# ``pytest.importorskip`` at module level.  If the dependency is missing,
+# importing the module raises ``pytest.skip.Exception``.
+_FRAMEWORK_TEST_MODULES = {
+    "duckdb": "mloda.community.feature_groups.data_operations.aggregation.tests.test_duckdb",
+    "pandas": "mloda.community.feature_groups.data_operations.aggregation.tests.test_pandas",
+    "polars": "mloda.community.feature_groups.data_operations.aggregation.tests.test_polars_lazy",
+}
+
+
+@pytest.mark.parametrize(
+    ("framework", "module_path"),
+    _FRAMEWORK_TEST_MODULES.items(),
+    ids=_FRAMEWORK_TEST_MODULES.keys(),
+)
+def test_framework_tests_are_not_skipped(framework: str, module_path: str) -> None:
+    """Importing a framework test module must not trigger pytest.skip.
+
+    When a dependency is missing, the module-level ``pytest.importorskip``
+    raises ``pytest.skip.Exception`` at import time, causing every test in
+    that file to be silently skipped.  This test imports the module directly
+    and fails if the skip fires, proving the tests actually run.
+    """
+    try:
+        importlib.import_module(module_path)
+    except pytest.skip.Exception:
+        pytest.fail(
+            f"{framework} test module was skipped at import time. "
+            f"{framework} is not installed; add it to [project.optional-dependencies] dev."
+        )
