@@ -13,6 +13,7 @@ import pytest
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -21,7 +22,7 @@ from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate
 )
 
 
-class TestFrameAggregateIntegration(DataOpsIntegrationTestBase):
+class TestFrameAggregateIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTestBase):
     """Standard integration tests inherited from the base class.
 
     Uses the unified DataOpsIntegrationTestBase framework with real expected
@@ -97,6 +98,30 @@ class TestFrameAggregateIntegration(DataOpsIntegrationTestBase):
     @classmethod
     def expected_row_count(cls) -> int:
         return 12
+
+    # -- MaskIntegrationTestMixin configuration --------------------------------
+
+    @classmethod
+    def mask_integration_feature_name(cls) -> str:
+        return "value_int__cumsum"
+
+    @classmethod
+    def mask_integration_options(cls) -> dict[str, Any]:
+        return {"partition_by": ["region"], "order_by": "value_int"}
+
+    @classmethod
+    def mask_integration_expected(cls) -> list[Any]:
+        # category='X' cumsum through pipeline (nulls filled by pipeline broadcast)
+        return [10, 10, 0, 10, 60, 60, 60, 60, 15, 15, 15, -10]
+
+    @classmethod
+    def mask_integration_complex_expected(cls) -> list[Any]:
+        # category='X' AND value_int>=10 through pipeline (nulls filled by broadcast)
+        return [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, None]
+
+    @classmethod
+    def mask_integration_unmasked_expected(cls) -> list[Any]:
+        return [5, -5, -5, 25, 140, 80, 30, 140, 15, 30, 70, -10]
 
 
 class TestFrameAggregateMultiFeature:

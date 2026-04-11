@@ -21,6 +21,7 @@ import pytest
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +55,7 @@ def _build_result_map(
 # ---------------------------------------------------------------------------
 
 
-class AggregationTestBase(DataOpsTestBase):
+class AggregationTestBase(MaskTestMixin, DataOpsTestBase):
     """Abstract base class for aggregation framework tests.
 
     Subclasses implement 5 abstract methods to wire up their framework,
@@ -90,6 +91,48 @@ class AggregationTestBase(DataOpsTestBase):
     def supported_agg_types(cls) -> set[str]:
         """Aggregation types this framework supports. Override to restrict."""
         return cls.ALL_AGG_TYPES
+
+    # -- MaskTestMixin configuration -------------------------------------------
+
+    @classmethod
+    def mask_feature_name(cls) -> str:
+        return "value_int__sum_agg"
+
+    @classmethod
+    def mask_partition_by(cls) -> list[str] | None:
+        return ["region"]
+
+    @classmethod
+    def mask_expected_row_count(cls) -> int:
+        return 4
+
+    @classmethod
+    def mask_is_reducing(cls) -> bool:
+        return True
+
+    @classmethod
+    def mask_equal_expected(cls) -> dict[Any, Any]:
+        # category='X': A: 10+0=10, B: 60, C: 15, None: -10
+        return {"A": 10, "B": 60, "C": 15, None: -10}
+
+    @classmethod
+    def mask_multiple_conditions_expected(cls) -> dict[Any, Any]:
+        # category='X' AND value_int>=10: A: 10, B: 60, C: 15, None: None (-10<10)
+        return {"A": 10, "B": 60, "C": 15, None: None}
+
+    @classmethod
+    def mask_is_in_expected(cls) -> dict[Any, Any]:
+        # region is_in ['A','C']: A=25 (all match), B=None, C=70, None=None
+        return {"A": 25, "B": None, "C": 70, None: None}
+
+    @classmethod
+    def mask_greater_than_expected(cls) -> dict[Any, Any]:
+        # value_int > 10: A: [20]=20, B: [50,30,60]=140, C: [15,15,40]=70, None: None
+        return {"A": 20, "B": 140, "C": 70, None: None}
+
+    @classmethod
+    def mask_no_mask_expected(cls) -> dict[Any, Any]:
+        return dict(EXPECTED_SUM_BY_REGION)
 
     # -- Reference implementation (for cross-framework comparison) -------------------
 

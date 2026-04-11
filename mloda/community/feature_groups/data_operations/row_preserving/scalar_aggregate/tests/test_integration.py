@@ -20,6 +20,7 @@ from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregat
     EXPECTED_SUM,
 )
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -28,7 +29,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggreg
 )
 
 
-class TestScalarAggregateIntegration(DataOpsIntegrationTestBase):
+class TestScalarAggregateIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTestBase):
     @classmethod
     def feature_group_class(cls) -> type:
         return PyArrowScalarAggregate
@@ -86,6 +87,30 @@ class TestScalarAggregateIntegration(DataOpsIntegrationTestBase):
         options = Options()
         fg_cls = self.feature_group_class()
         assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)  # type: ignore[attr-defined]
+
+    # -- MaskIntegrationTestMixin configuration --------------------------------
+
+    @classmethod
+    def mask_integration_feature_name(cls) -> str:
+        return "value_int__sum_scalar"
+
+    @classmethod
+    def mask_integration_options(cls) -> dict[str, Any]:
+        return {}
+
+    @classmethod
+    def mask_integration_expected(cls) -> list[Any]:
+        # category='X': sum of [10, 0, 60, 15, -10] = 75, broadcast
+        return [75] * 12
+
+    @classmethod
+    def mask_integration_complex_expected(cls) -> list[Any]:
+        # category='X' AND value_int>=10: sum of [10, 60, 15] = 85, broadcast
+        return [85] * 12
+
+    @classmethod
+    def mask_integration_unmasked_expected(cls) -> list[Any]:
+        return [EXPECTED_SUM] * 12
 
 
 class TestIntegrationMultipleFeatures:

@@ -21,6 +21,7 @@ import pytest
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -32,7 +33,7 @@ from mloda.testing.feature_groups.data_operations.aggregation.reference import (
 )
 
 
-class TestAggregationIntegration(DataOpsIntegrationTestBase):
+class TestAggregationIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTestBase):
     """Standard integration tests inherited from the base class."""
 
     @classmethod
@@ -93,6 +94,38 @@ class TestAggregationIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def use_approx(cls) -> bool:
+        return True
+
+    # -- MaskIntegrationTestMixin configuration --------------------------------
+
+    @classmethod
+    def mask_integration_feature_name(cls) -> str:
+        return "value_int__sum_agg"
+
+    @classmethod
+    def mask_integration_options(cls) -> dict[str, Any]:
+        return {"partition_by": ["region"]}
+
+    @classmethod
+    def mask_integration_expected(cls) -> list[Any]:
+        # category='X': sorted by value: [-10, 10, 15, 60]
+        return sorted([-10, 10, 15, 60])
+
+    @classmethod
+    def mask_integration_complex_expected(cls) -> list[Any]:
+        # category='X' AND value_int>=10: A=10, B=60, C=15, None=None -> sorted
+        return sorted([10, 15, 60, None], key=lambda x: (x is None, x if x is not None else 0))
+
+    @classmethod
+    def mask_integration_unmasked_expected(cls) -> list[Any]:
+        return sorted([25, 140, 70, -10])
+
+    @classmethod
+    def mask_integration_expected_row_count(cls) -> int:
+        return 4
+
+    @classmethod
+    def mask_integration_compare_sorted(cls) -> bool:
         return True
 
 

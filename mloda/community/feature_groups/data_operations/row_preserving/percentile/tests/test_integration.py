@@ -16,6 +16,7 @@ import pytest
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -24,7 +25,7 @@ from mloda.testing.feature_groups.data_operations.row_preserving.percentile.refe
 )
 
 
-class TestPercentileIntegration(DataOpsIntegrationTestBase):
+class TestPercentileIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTestBase):
     @classmethod
     def feature_group_class(cls) -> type:
         return ReferencePercentile
@@ -75,6 +76,34 @@ class TestPercentileIntegration(DataOpsIntegrationTestBase):
 
     @classmethod
     def use_approx(cls) -> bool:
+        return True
+
+    # -- MaskIntegrationTestMixin configuration --------------------------------
+
+    @classmethod
+    def mask_integration_feature_name(cls) -> str:
+        return "value_int__p50_percentile"
+
+    @classmethod
+    def mask_integration_options(cls) -> dict[str, Any]:
+        return {"partition_by": ["region"]}
+
+    @classmethod
+    def mask_integration_expected(cls) -> list[Any]:
+        # category='X': A=[10,0] p50=5.0, B=[60] p50=60.0, C=[15] p50=15.0, None=[-10] p50=-10.0
+        return [5.0, 5.0, 5.0, 5.0, 60.0, 60.0, 60.0, 60.0, 15.0, 15.0, 15.0, -10.0]
+
+    @classmethod
+    def mask_integration_complex_expected(cls) -> list[Any]:
+        # category='X' AND value_int>=10: A=[10] p50=10, B=[60] p50=60, C=[15] p50=15, None=[] p50=None
+        return [10.0, 10.0, 10.0, 10.0, 60.0, 60.0, 60.0, 60.0, 15.0, 15.0, 15.0, None]
+
+    @classmethod
+    def mask_integration_unmasked_expected(cls) -> list[Any]:
+        return [5.0, 5.0, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 15.0, 15.0, 15.0, -10.0]
+
+    @classmethod
+    def mask_integration_use_approx(cls) -> bool:
         return True
 
 
