@@ -509,6 +509,34 @@ class RankTestBase(DataOpsTestBase):
         # Bottom 2 = rows 1 and 2 -> True; rows 0 and 3 -> False
         assert result_col == [False, True, True, False]
 
+    # -- Row-order preservation ------------------------------------------------
+
+    def test_row_order_preserved(self) -> None:
+        """Original non-rank columns must remain in input row order.
+
+        PyArrow parity: without the ROW_NUMBER + restore pattern, SQL
+        backends return rows sorted by the window ORDER BY clause.
+
+        Compares (value_int, category) tuples to detect tied-row swaps
+        (rows 8 and 9 both have value_int=15).
+        """
+        fs = make_feature_set("value_int__row_number_ranked", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        input_id = list(
+            zip(
+                self.extract_column(self.test_data, "value_int"),
+                self.extract_column(self.test_data, "category"),
+            )
+        )
+        output_id = list(
+            zip(
+                self.extract_column(result, "value_int"),
+                self.extract_column(result, "category"),
+            )
+        )
+        assert output_id == input_id
+
     # -- Helper methods ------------------------------------------------------
 
     def _skip_if_unsupported(self, rank_type: str) -> None:

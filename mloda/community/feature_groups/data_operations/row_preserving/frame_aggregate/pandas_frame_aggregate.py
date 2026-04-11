@@ -63,7 +63,9 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
 
         data = data.sort_values(by=[*partition_by, order_by], na_position="last")
 
-        # Apply mask AFTER sorting so that sort order uses original (unmasked) values.
+        # PyArrow parity: the reference applies masks before aggregation but
+        # sorts on unmasked values. Apply mask AFTER sorting so that sort
+        # order uses original (unmasked) values to match this behavior.
         # This matters when order_by == source_col.
         # Safe to mutate: data was already copied above (data = data.copy()).
         if mask_spec is not None:

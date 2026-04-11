@@ -48,6 +48,10 @@ class DuckdbBinning(BinningFeatureGroup):
             return result
 
         if op == "qbin":
+            # PyArrow parity: PyArrow _quantile_bin() assigns bins via index
+            # mapping and naturally preserves row order. DuckDB NTILE()
+            # reorders rows via ORDER BY; tag positions with ROW_NUMBER()
+            # and restore via .order() to match PyArrow output.
             qrn = quote_ident("__mloda_rn__")
             expr = (
                 f"CASE WHEN {quoted_source} IS NULL OR isnan({quoted_source}) THEN NULL "

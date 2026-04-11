@@ -30,8 +30,10 @@ class PolarsLazyOffset(OffsetFeatureGroup):
     ) -> pl.LazyFrame:
         """Compute offset using Polars expressions (fully lazy).
 
-        We add a row index, sort within partitions, compute the offset,
-        then restore original row order.
+        PyArrow parity: the reference returns results in original row
+        order. Polars offset operations require sorting by order_by,
+        which reorders rows. We add a row index before sorting and
+        restore order afterward to match the reference.
         """
         # Track original row order
         data = data.with_row_index("__mloda_orig_idx")

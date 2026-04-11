@@ -84,7 +84,9 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
         elif agg_type in _POLARS_AGG_EXPRS:
             raw_expr = _POLARS_AGG_EXPRS[agg_type](actual_source).over(partition_by)
             if agg_type == "sum":
-                # Polars sum() returns 0 for all-null groups; correct to null.
+                # PyArrow parity: PyArrow sum() returns null for all-null
+                # groups. Polars sum() returns 0; correct to null by
+                # checking whether any non-null values exist.
                 has_values = pl.col(actual_source).count().over(partition_by) > 0
                 expr = pl.when(has_values).then(raw_expr).otherwise(None).alias(feature_name)
             else:

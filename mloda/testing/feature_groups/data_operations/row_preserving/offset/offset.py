@@ -343,3 +343,31 @@ class OffsetTestBase(DataOpsTestBase):
         # Lag: [None, 10, 20]
         # Map back: row 0 (ts=None) -> lag=20, row 1 (ts=1) -> lag=None, row 2 (ts=2) -> lag=10
         assert result_col[1] is None  # first in sorted order has no predecessor
+
+    # -- Row-order preservation ------------------------------------------------
+
+    def test_row_order_preserved(self) -> None:
+        """Original columns must remain in input row order after offset.
+
+        PyArrow parity: without the ROW_NUMBER + restore pattern, SQL
+        backends return rows sorted by the window ORDER BY clause.
+
+        Compares (value_int, category) tuples to detect tied-row swaps
+        (rows 8 and 9 both have value_int=15).
+        """
+        fs = make_feature_set("value_int__lag_1_offset", ["region"], "value_int")
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        input_id = list(
+            zip(
+                self.extract_column(self.test_data, "value_int"),
+                self.extract_column(self.test_data, "category"),
+            )
+        )
+        output_id = list(
+            zip(
+                self.extract_column(result, "value_int"),
+                self.extract_column(result, "category"),
+            )
+        )
+        assert output_id == input_id
