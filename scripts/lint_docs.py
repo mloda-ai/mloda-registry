@@ -47,9 +47,7 @@ def check_internal_imports(md_file: Path, content: str) -> list[str]:
                 line_num = content.find(stripped)
                 if line_num >= 0:
                     line_num = content[:line_num].count("\n") + 1
-                errors.append(
-                    f"{md_file}:{line_num}: internal import in code snippet -> {stripped}"
-                )
+                errors.append(f"{md_file}:{line_num}: internal import in code snippet -> {stripped}")
     return errors
 
 
