@@ -28,6 +28,8 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
 | `features` | `Set[Feature]` | All features to compute |
 | `filters` | `Set[SingleFilter]` | Filters to apply (for data sources) |
 
+`features.filters` is always available, regardless of how the FeatureGroup's `final_filters()` is configured. Data sources typically read filters inline (e.g. building a WHERE clause), then return `False` from `final_filters()` to skip post-calculation row elimination. See [Filter Concepts](15-filter-concepts.md) for the full set of patterns.
+
 ## Common Pattern
 
 ```python
