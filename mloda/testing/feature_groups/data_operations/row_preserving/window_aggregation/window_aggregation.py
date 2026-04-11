@@ -20,6 +20,7 @@ import pytest
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +66,7 @@ NULL_GROUP_SUM_EXPECTED: int = -10
 # ---------------------------------------------------------------------------
 
 
-class WindowAggregationTestBase(DataOpsTestBase):
+class WindowAggregationTestBase(MaskTestMixin, DataOpsTestBase):
     """Abstract base class for window aggregation framework tests."""
 
     ALL_AGG_TYPES = {
@@ -91,6 +92,40 @@ class WindowAggregationTestBase(DataOpsTestBase):
     def supported_agg_types(cls) -> set[str]:
         """Aggregation types this framework supports. Override to restrict."""
         return cls.ALL_AGG_TYPES
+
+    # -- MaskTestMixin configuration -------------------------------------------
+
+    @classmethod
+    def mask_feature_name(cls) -> str:
+        return "value_int__sum_window"
+
+    @classmethod
+    def mask_partition_by(cls) -> list[str] | None:
+        return ["region"]
+
+    @classmethod
+    def mask_equal_expected(cls) -> list[Any]:
+        # category='X': A: 10+0=10, B: 60, C: 15, None: -10
+        return [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, -10]
+
+    @classmethod
+    def mask_multiple_conditions_expected(cls) -> list[Any]:
+        # category='X' AND value_int>=10: A: 10, B: 60, C: 15, None: None (-10<10)
+        return [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, None]
+
+    @classmethod
+    def mask_is_in_expected(cls) -> list[Any]:
+        # region is_in ['A','C']: A=all match sum=25, B=none match=None, C=all match sum=70, None=no match=None
+        return [25, 25, 25, 25, None, None, None, None, 70, 70, 70, None]
+
+    @classmethod
+    def mask_greater_than_expected(cls) -> list[Any]:
+        # value_int > 10: A: [20]=20, B: [50,30,60]=140, C: [15,15,40]=70, None: []=None
+        return [20, 20, 20, 20, 140, 140, 140, 140, 70, 70, 70, None]
+
+    @classmethod
+    def mask_no_mask_expected(cls) -> list[Any]:
+        return list(EXPECTED_SUM_BY_REGION)
 
     @classmethod
     def reference_implementation_class(cls) -> Any:

@@ -17,6 +17,7 @@ import pytest
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -25,7 +26,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 )
 
 
-class TestWindowAggregationIntegration(DataOpsIntegrationTestBase):
+class TestWindowAggregationIntegration(MaskIntegrationTestMixin, DataOpsIntegrationTestBase):
     """Standard integration tests inherited from the base class."""
 
     @classmethod
@@ -79,6 +80,30 @@ class TestWindowAggregationIntegration(DataOpsIntegrationTestBase):
     @classmethod
     def use_approx(cls) -> bool:
         return True
+
+    # -- MaskIntegrationTestMixin configuration --------------------------------
+
+    @classmethod
+    def mask_integration_feature_name(cls) -> str:
+        return "value_int__sum_window"
+
+    @classmethod
+    def mask_integration_options(cls) -> dict[str, Any]:
+        return {"partition_by": ["region"]}
+
+    @classmethod
+    def mask_integration_expected(cls) -> list[Any]:
+        # category='X': A: 10+0=10, B: 60, C: 15, None: -10
+        return [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, -10]
+
+    @classmethod
+    def mask_integration_complex_expected(cls) -> list[Any]:
+        # category='X' AND value_int>=10: A: 10, B: 60, C: 15, None: None
+        return [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, None]
+
+    @classmethod
+    def mask_integration_unmasked_expected(cls) -> list[Any]:
+        return [25, 25, 25, 25, 140, 140, 140, 140, 70, 70, 70, -10]
 
 
 class TestIntegrationMultipleFeatures:

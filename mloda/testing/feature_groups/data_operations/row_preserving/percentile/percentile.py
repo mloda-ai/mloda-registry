@@ -17,6 +17,7 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.user import Feature
 
 
@@ -55,8 +56,48 @@ EXPECTED_P100_BY_REGION: list[float] = [20.0, 20.0, 20.0, 20.0, 60.0, 60.0, 60.0
 # ---------------------------------------------------------------------------
 
 
-class PercentileTestBase(DataOpsTestBase):
+class PercentileTestBase(MaskTestMixin, DataOpsTestBase):
     """Abstract base class for percentile framework tests."""
+
+    # -- MaskTestMixin configuration -------------------------------------------
+
+    @classmethod
+    def mask_feature_name(cls) -> str:
+        return "value_int__p50_percentile"
+
+    @classmethod
+    def mask_partition_by(cls) -> list[str] | None:
+        return ["region"]
+
+    @classmethod
+    def mask_use_approx(cls) -> bool:
+        return True
+
+    @classmethod
+    def mask_equal_expected(cls) -> list[Any]:
+        # category='X': A=[10,0] p50=5.0, B=[60] p50=60.0, C=[15] p50=15.0, None=[-10] p50=-10.0
+        return [5.0, 5.0, 5.0, 5.0, 60.0, 60.0, 60.0, 60.0, 15.0, 15.0, 15.0, -10.0]
+
+    @classmethod
+    def mask_multiple_conditions_expected(cls) -> list[Any]:
+        # category='X' AND value_int>=10: A=[10] p50=10, B=[60] p50=60, C=[15] p50=15, None=[] p50=None
+        return [10.0, 10.0, 10.0, 10.0, 60.0, 60.0, 60.0, 60.0, 15.0, 15.0, 15.0, None]
+
+    @classmethod
+    def mask_is_in_expected(cls) -> list[Any]:
+        # region is_in ['A','C']: A=all match, B=none match, C=all match, None=no match
+        # A: [-5,0,10,20] p50=5.0, B: None, C: [15,15,40] p50=15.0, None: None
+        return [5.0, 5.0, 5.0, 5.0, None, None, None, None, 15.0, 15.0, 15.0, None]
+
+    @classmethod
+    def mask_greater_than_expected(cls) -> list[Any]:
+        # value_int > 10: A=[20] p50=20.0, B=[50,30,60] sorted=[30,50,60] p50=50.0,
+        # C=[15,15,40] p50=15.0, None=[] p50=None
+        return [20.0, 20.0, 20.0, 20.0, 50.0, 50.0, 50.0, 50.0, 15.0, 15.0, 15.0, None]
+
+    @classmethod
+    def mask_no_mask_expected(cls) -> list[Any]:
+        return list(EXPECTED_P50_BY_REGION)
 
     @classmethod
     def reference_implementation_class(cls) -> Any:

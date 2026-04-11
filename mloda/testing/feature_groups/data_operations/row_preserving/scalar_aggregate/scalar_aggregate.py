@@ -20,6 +20,7 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.user import Feature
 
 
@@ -53,7 +54,7 @@ EXPECTED_MEDIAN: float = 15.0
 # ---------------------------------------------------------------------------
 
 
-class ScalarAggregateTestBase(DataOpsTestBase):
+class ScalarAggregateTestBase(MaskTestMixin, DataOpsTestBase):
     """Abstract base class for scalar aggregate framework tests."""
 
     ALL_AGG_TYPES = {
@@ -76,6 +77,41 @@ class ScalarAggregateTestBase(DataOpsTestBase):
     def supported_agg_types(cls) -> set[str]:
         """Override to restrict supported types for a framework."""
         return cls.ALL_AGG_TYPES
+
+    # -- MaskTestMixin configuration -------------------------------------------
+
+    @classmethod
+    def mask_feature_name(cls) -> str:
+        return "value_int__sum_scalar"
+
+    @classmethod
+    def mask_partition_by(cls) -> list[str] | None:
+        return None
+
+    @classmethod
+    def mask_equal_expected(cls) -> list[Any]:
+        # category='X' rows: value_int = [10, 0, None, 60, 15, -10]
+        # Non-null sum: 10 + 0 + 60 + 15 + (-10) = 75, broadcast to all 12 rows
+        return [75] * 12
+
+    @classmethod
+    def mask_multiple_conditions_expected(cls) -> list[Any]:
+        # category='X' AND value_int >= 10: rows with val [10, 60, 15] -> sum = 85
+        return [85] * 12
+
+    @classmethod
+    def mask_is_in_expected(cls) -> list[Any]:
+        # region is_in ['A', 'C']: A=[10,-5,0,20], C=[15,15,40] -> sum = 95
+        return [95] * 12
+
+    @classmethod
+    def mask_greater_than_expected(cls) -> list[Any]:
+        # value_int > 10: [20, 50, 30, 60, 15, 15, 40] -> sum = 230
+        return [230] * 12
+
+    @classmethod
+    def mask_no_mask_expected(cls) -> list[Any]:
+        return [EXPECTED_SUM] * 12
 
     @classmethod
     def reference_implementation_class(cls) -> Any:

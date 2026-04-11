@@ -24,6 +24,7 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.user import Feature
 
 
@@ -142,8 +143,63 @@ def _assert_values_with_nulls(actual: list[Any], expected: list[Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-class FrameAggregateTestBase(DataOpsTestBase):
+class FrameAggregateTestBase(MaskTestMixin, DataOpsTestBase):
     """Abstract base class for frame aggregate framework tests."""
+
+    # -- MaskTestMixin configuration -------------------------------------------
+
+    @classmethod
+    def mask_feature_name(cls) -> str:
+        return "value_int__cumsum"
+
+    @classmethod
+    def mask_partition_by(cls) -> list[str] | None:
+        return ["region"]
+
+    @classmethod
+    def mask_order_by(cls) -> str | None:
+        return "value_int"
+
+    @classmethod
+    def mask_equal_expected(cls) -> list[Any]:
+        # category='X' cumsum, partitioned by region, ordered by value_int.
+        # Group A sorted: (-5[Y], 0[X], 10[X], 20[Y]) -> masked: (None, 0, 10, None) -> cumsum: None, 0, 10, 10
+        # Group B sorted: (30[None], 50[Y], 60[X], None[X]) -> masked: (None, None, 60, None) -> cumsum: None, None, 60, 60
+        # Group C sorted: (15[Y], 15[X], 40[Y]) -> masked: (None, 15, None) -> cumsum: None, 15, 15
+        # None group: (-10[X]) -> cumsum: -10
+        # Map to original row order:
+        return [10, None, 0, 10, 60, None, None, 60, None, 15, 15, -10]
+
+    @classmethod
+    def mask_multiple_conditions_expected(cls) -> list[Any]:
+        # category='X' AND value_int >= 10
+        # Group A sorted: (-5[Y], 0[X,<10], 10[X,>=10], 20[Y]) -> masked: (None, None, 10, None) -> cumsum: None, None, 10, 10
+        # Group B sorted: (30[None], 50[Y], 60[X,>=10], None[X]) -> masked: (None, None, 60, None) -> cumsum: None, None, 60, 60
+        # Group C sorted: (15[Y], 15[X,>=10], 40[Y]) -> masked: (None, 15, None) -> cumsum: None, 15, 15
+        # None group: (-10[X,<10]) -> masked: None -> cumsum: None
+        return [10, None, None, 10, 60, None, None, 60, None, 15, 15, None]
+
+    @classmethod
+    def mask_is_in_expected(cls) -> list[Any]:
+        # region is_in ['A', 'C']: within each partition, only rows with matching region pass.
+        # Group A: all have region=A (matches) -> normal cumsum: -5, -5, 5, 25
+        # Group B: all have region=B (no match) -> all None
+        # Group C: all have region=C (matches) -> normal cumsum: 15, 30, 70
+        # None group: region=None (no match) -> None
+        return [5, -5, -5, 25, None, None, None, None, 15, 30, 70, None]
+
+    @classmethod
+    def mask_greater_than_expected(cls) -> list[Any]:
+        # value_int > 10
+        # Group A sorted: (-5, 0, 10, 20) -> only 20>10 -> masked: (None, None, None, 20) -> cumsum: None, None, None, 20
+        # Group B sorted: (30, 50, 60, None) -> 30,50,60 > 10 -> masked: (30, 50, 60, None) -> cumsum: 30, 80, 140, 140
+        # Group C sorted: (15, 15, 40) -> all > 10 -> cumsum: 15, 30, 70
+        # None group: (-10) -> not > 10 -> None
+        return [None, None, None, 20, 140, 80, 30, 140, 15, 30, 70, None]
+
+    @classmethod
+    def mask_no_mask_expected(cls) -> list[Any]:
+        return list(EXPECTED_CUMSUM)
 
     @classmethod
     def reference_implementation_class(cls) -> Any:
