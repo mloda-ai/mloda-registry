@@ -8,8 +8,6 @@ import pytest
 
 pytest.importorskip("pandas")
 
-import pandas as pd
-
 from mloda.community.feature_groups.data_operations.row_preserving.binning.pandas_binning import (
     PandasBinning,
 )
@@ -25,7 +23,3 @@ class TestPandasBinning(PandasTestMixin, BinningTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PandasBinning
-
-    def extract_column(self, result: Any, column_name: str) -> list[Any]:
-        series = result[column_name]
-        return [None if pd.isna(v) else int(v) for v in series.tolist()]
