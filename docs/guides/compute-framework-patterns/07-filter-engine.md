@@ -19,6 +19,7 @@ The filter engine handles filtering operations on data.
 | `do_regex_filter()` | Filter by regex pattern |
 | `do_categorical_inclusion_filter()` | Filter by set membership |
 | `final_filters()` | Return True if filters applied at end |
+| `applicable_filters()` | Return filters whose columns exist in output |
 
 ## Complete Example
 
@@ -74,6 +75,20 @@ class MyFilterEngine(BaseFilterEngine):
         col = filter_feature.filter_feature.name
         return [row for row in data if row.get(col) in values]
 ```
+
+## FeatureGroup Override
+
+Individual FeatureGroups can override filter behavior per-class by defining `final_filters()` on the FeatureGroup itself. This takes precedence over the FilterEngine's `final_filters()` setting.
+
+| `FeatureGroup.final_filters()` | Effect |
+|------|--------|
+| `None` (default) | Defer to the FilterEngine's `final_filters()`. |
+| `False` | Skip row elimination for this FeatureGroup. |
+| `True` | Force row elimination, even if the FilterEngine returns `False`. |
+
+The framework checks `FeatureGroup.final_filters()` first. Only when it returns `None` does it fall back to `FilterEngine.final_filters()`.
+
+See [Filter Concepts](../feature-group-patterns/15-filter-concepts.md) for usage patterns.
 
 ## Test
 
