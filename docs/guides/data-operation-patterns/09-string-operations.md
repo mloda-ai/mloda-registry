@@ -63,22 +63,27 @@ All five operations propagate NULL. A NULL input produces a NULL output; they ne
 | Pandas | `.str.upper()`, `.str.lower()`, `.str.strip()`, `.str.len()`, `.str[::-1]` (NULL-safe) |
 | Polars lazy | `col.str.to_uppercase()`, `.to_lowercase()`, `.strip_chars()`, `.len_chars()`, `.reverse()` |
 | DuckDB | `UPPER`, `LOWER`, `TRIM`, `LENGTH`, `REVERSE` |
-| SQLite | `UPPER`, `LOWER`, `TRIM`, `LENGTH` only |
+| SQLite | `TRIM`, `LENGTH` native; `upper` / `lower` applied in Python because SQLite's native `UPPER`/`LOWER` are ASCII-only |
 
 SQLite has no native `REVERSE`. The implementation refuses to match `__reverse` at resolution time rather than emulating it in SQL:
 
 ```python
 # mloda/community/feature_groups/data_operations/string/sqlite_string.py
 _SQLITE_STRING_EXPRS: dict[str, str] = {
-    "upper":  "UPPER({col})",
-    "lower":  "LOWER({col})",
     "trim":   "TRIM({col})",
     "length": "LENGTH({col})",
 }
 
+_PYTHON_STRING_FUNCS: dict[str, Callable[[str], Any]] = {
+    "upper": str.upper,  # Python is unicode-aware; SQLite UPPER is ASCII-only
+    "lower": str.lower,
+}
+
+_SUPPORTED_OPS: frozenset[str] = frozenset(_SQLITE_STRING_EXPRS) | frozenset(_PYTHON_STRING_FUNCS)
+
 @classmethod
 def _validate_string_match(cls, feature_name, operation_config, source_feature) -> bool:
-    return operation_config in _SQLITE_STRING_EXPRS
+    return operation_config in _SUPPORTED_OPS
 ```
 
 The SQLite test class mirrors the restriction:

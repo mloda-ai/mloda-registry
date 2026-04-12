@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
+import pyarrow as pa
 
 from mloda.community.feature_groups.data_operations.string.sqlite_string import (
     SqliteStringOps,
 )
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
 from mloda.testing.feature_groups.data_operations.string.string import (
     StringTestBase,
@@ -19,9 +20,7 @@ class TestSqliteStringOps(SqliteTestMixin, StringTestBase):
     """All tests inherited from the base class.
 
     SQLite does not support the 'reverse' operation natively,
-    so supported_ops excludes it. SQLite's UPPER/LOWER only
-    handle ASCII characters, so unicode accented characters
-    are not transformed.
+    so supported_ops excludes it.
     """
 
     @classmethod
@@ -29,23 +28,28 @@ class TestSqliteStringOps(SqliteTestMixin, StringTestBase):
         return {"upper", "lower", "trim", "length"}
 
     @classmethod
-    def expected_upper(cls) -> list[Any]:
-        # SQLite UPPER only handles ASCII; accent e (\u00e9) stays lowercase
-        return ["ALICE", "BOB", None, "", " EVE ", "FRANK", "GRACE", "ALICE", "  ", "BOB", "H\u00e9LLO", None]
-
-    # Note: expected_lower is NOT overridden because the test data's only
-    # non-ASCII character (accent e in "hello") is already lowercase.
-    # SQLite's ASCII-only LOWER happens to produce the correct result
-    # by coincidence. If test data included uppercase accented characters,
-    # this override would be required.
-
-    @classmethod
     def implementation_class(cls) -> Any:
         return SqliteStringOps
 
-    def test_cross_framework_upper(self) -> None:
-        """Skip: SQLite UPPER differs from PyArrow for non-ASCII characters."""
-        pytest.skip("SQLite UPPER handles only ASCII; unicode results differ from PyArrow")
+    def test_unicode_lower_regression(self) -> None:
+        """Regression test: LOWER must lowercase non-ASCII uppercase characters.
+
+        SQLite's native LOWER() is ASCII-only and leaves characters like
+        'É', 'Ö', 'Ω' unchanged. PyArrow / Python str.lower() handle the
+        full unicode range. This test locks in the correct unicode-aware
+        behavior so a regression to ASCII-only LOWER is caught.
+        """
+        table = pa.table(
+            {
+                "name": pa.array(["H\u00c9LLO", "W\u00d6RLD", "\u03a9-OMEGA"], type=pa.string()),
+            }
+        )
+        data = self.create_test_data(table)
+        fs = make_feature_set("name__lower")
+        result = self.implementation_class().calculate_feature(data, fs)
+
+        result_col = self.extract_column(result, "name__lower")
+        assert result_col == ["h\u00e9llo", "w\u00f6rld", "\u03c9-omega"]
 
 
 class TestSqliteReverseUnsupported:
