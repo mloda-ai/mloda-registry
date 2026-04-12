@@ -118,7 +118,10 @@ All of the following feature groups accept the `mask` key in their context optio
 | Aggregation | `{col}__{agg}_agg` | `value_int__sum_agg` | Reduces rows (one per partition) |
 | Window Aggregation | `{col}__{agg}_window` | `value_int__sum_window` | Preserves rows (broadcasts per partition) |
 | Scalar Aggregate | `{col}__{agg}_scalar` | `value_int__sum_scalar` | Preserves rows (broadcasts globally) |
-| Frame Aggregate | `{col}__{agg}_rolling_{N}` | `value_int__sum_rolling_3` | Preserves rows (rolling window) |
+| Frame Aggregate (rolling) | `{col}__{agg}_rolling_{N}` | `value_int__sum_rolling_3` | Preserves rows (rolling window) |
+| Frame Aggregate (time window) | `{col}__{agg}_{size}_{unit}_window` | `value_int__avg_7_day_window` | Preserves rows (time-interval window) |
+| Frame Aggregate (cumulative) | `{col}__cum{agg}` | `value_int__cumsum` | Preserves rows (running aggregate) |
+| Frame Aggregate (expanding) | `{col}__expanding_{agg}` | `value_int__expanding_avg` | Preserves rows (expanding window) |
 | Percentile | `{col}__p{N}_percentile` | `value_int__p95_percentile` | Preserves rows (broadcasts per partition) |
 
 For all types, the mask is applied before the aggregation. Non-matching values become null, and the aggregation function skips nulls.
