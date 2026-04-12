@@ -189,3 +189,4 @@ All features from the same FeatureGroup must have the same filters. Split into s
 
 - [Filter Engine](../compute-framework-patterns/07-filter-engine.md) - Implementing filter operations in a compute framework
 - [calculate_feature](12-calculate-feature.md) - Accessing `features.filters` inside the calculation method
+- [Masking](25-masking.md) - Conditional aggregation that nulls out values instead of removing rows

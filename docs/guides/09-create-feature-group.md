@@ -77,6 +77,9 @@ Q22: Need to build the execution plan once at startup and reuse it for repeated 
 
 Q23: Need both plan reuse and incremental per-group delivery?
     YES → Use session.stream_run() — see 23-streaming and 24-realtime
+
+Q24: Need conditional aggregation (include only rows matching a predicate)?
+    YES → See 25-masking
 ```
 
 ## Pattern Guides
@@ -112,3 +115,4 @@ Q23: Need both plan reuse and incremental per-group delivery?
 | [22-feature-config](feature-group-patterns/22-feature-config.md) | JSON-based feature definition for AI agents and config pipelines |
 | [23-streaming](feature-group-patterns/23-streaming.md) | Consume results incrementally with `stream_all` |
 | [24-realtime](feature-group-patterns/24-realtime.md) | Reuse execution plans with `prepare` + `run` |
+| [25-masking](feature-group-patterns/25-masking.md) | Conditional aggregation via `mask` context option |
