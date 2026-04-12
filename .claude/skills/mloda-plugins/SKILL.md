@@ -101,6 +101,9 @@ Q22: Need to build the execution plan once at startup and reuse it for repeated 
 
 Q23: Need both plan reuse and incremental per-group delivery?
     YES → Use session.stream_run() — see 23-streaming and 24-realtime
+
+Q24: Need conditional aggregation that nulls out non-matching values instead of removing rows?
+    YES → See 25-masking
 ```
 
 ### Feature Group Pattern Guides
@@ -133,6 +136,7 @@ Location: `docs/guides/feature-group-patterns/`
 | 22 | `22-feature-config.md` | JSON-based feature definition |
 | 23 | `23-streaming.md` | Incremental results with `stream_all` |
 | 24 | `24-realtime.md` | Reuse execution plans with `prepare` + `run` |
+| 25 | `25-masking.md` | Conditional aggregation via FilterMask |
 
 ---
 
