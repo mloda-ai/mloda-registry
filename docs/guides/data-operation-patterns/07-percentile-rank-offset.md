@@ -60,7 +60,7 @@ Feature(
 )
 ```
 
-Rank types that need an ordering (`row_number`, `rank`, `dense_rank`, `percent_rank`, `top_N`, `bottom_N`) require `order_by`. Framework test classes may restrict `supported_rank_types` when their engine does not implement one variant; see [Supported ops](04-supported-ops.md).
+`order_by` is required for every rank type; the matcher rejects the feature if it is missing. That includes `ntile_N` as well as the standard numeric and boolean variants. Framework test classes may restrict `supported_rank_types` when their engine does not implement one variant; see [Supported ops](04-supported-ops.md).
 
 ---
 
@@ -96,7 +96,8 @@ All offset types require `order_by`; partition ordering is what "previous row" m
 
 ## Shared semantics
 
-- **NULL propagation**: If the source value for a row is NULL, the result is NULL for value-returning types (`lag`, `lead`, `first_value`, `last_value`). Rank types ignore NULLs when computing positions and return NULL for NULL rows.
+- **NULL in offsets**: Offsets reference *other* rows, so the current row being NULL does not force a NULL result. `lag_N` on a NULL row returns whatever sits N rows earlier (possibly non-NULL). `first_value` and `last_value` skip NULL source values and return the first or last non-NULL in the partition; the result is NULL only when every value in the partition is NULL. A NULL result from `lag_N`/`lead_N` happens when the referenced position falls outside the partition (first or last N rows).
+- **NULL in ranks**: NULL values in the order column sort *last* in both ascending and descending directions; they still receive a rank. For `top_N`/`bottom_N` those NULL-ordered rows get `False` whenever N is smaller than the partition size.
 - **Partition boundaries**: Operations never cross partitions. `lag_1` at the first row of a partition yields NULL, not a value from the previous partition.
 - **Empty partitions**: Impossible by construction (a partition exists only if a row has its key).
 

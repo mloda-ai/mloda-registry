@@ -28,8 +28,8 @@ median, mode, nunique, first, last
 
 | Key | Type | Required | Purpose |
 |---|---|---|---|
-| `partition_by` | `list[str]` | Optional | Columns defining the window. Omit for a global window. |
-| `order_by` | `str` | Optional | Column that orders rows within each partition. Some agg types (`first`, `last`) rely on it. |
+| `partition_by` | `list[str]` (or tuple) | Required | Columns defining the window. Must be present and non-empty; the matcher rejects the feature otherwise. For a single global window, use [scalar aggregate](08-scalar-and-frame-aggregate.md) instead. |
+| `order_by` | `str` | Required for ordered aggs (`first`, `last`) | Column that orders rows within each partition. |
 | `mask` | tuple or list of tuples | Optional | Conditional aggregation. See [Masking](../feature-group-patterns/25-masking.md). |
 
 ---

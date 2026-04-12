@@ -4,7 +4,7 @@ Element-wise string transforms: uppercase, lowercase, trim, length, reverse. Row
 
 **What**: `StringFeatureGroup` handles feature names of the form `{col}__{op}` where `op` is one of `upper`, `lower`, `trim`, `length`, `reverse`.
 **When**: You need cleaned or derived text alongside the original column.
-**Why**: These cover the overwhelmingly common cases. Each maps directly to a native function in every target framework, so there is no interpretation layer.
+**Why**: These cover the overwhelmingly common cases. Four of the five (`upper`, `lower`, `trim`, `length`) map directly to a native function in every target framework. `reverse` is the one exception: SQLite has no native REVERSE, so the SQLite implementation refuses to match it at resolution time.
 **Where**: `mloda/community/feature_groups/data_operations/string/`.
 **How**: Name the feature; no context options are required.
 

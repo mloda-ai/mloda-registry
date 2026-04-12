@@ -25,7 +25,7 @@ PluginLoader.all()
 feature = Feature("value_int__max_scalar")
 ```
 
-Supported aggregations match [window aggregation](06-window-aggregation.md): `sum`, `avg`/`mean`, `count`, `min`, `max`, `std`/`std_pop`/`std_samp`, `var`/`var_pop`/`var_samp`, `median`, `mode`, `nunique`, `first`, `last`.
+Supported aggregations are `sum`, `min`, `max`, `avg`/`mean`, `count`, `std`/`std_pop`/`std_samp`, `var`/`var_pop`/`var_samp`, and `median`. `mode`, `nunique`, `first`, and `last` are not supported on scalar aggregate, only on [window aggregation](06-window-aggregation.md); they need ordering or group structure that a single global scalar does not provide.
 
 Scalar aggregate accepts the `mask` option. Masked rows have their source value replaced with NULL before the aggregate computes; the output still has the same row count.
 
