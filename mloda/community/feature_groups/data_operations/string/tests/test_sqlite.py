@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-import pyarrow as pa
-
 from mloda.community.feature_groups.data_operations.string.sqlite_string import (
     SqliteStringOps,
 )
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
 from mloda.testing.feature_groups.data_operations.string.string import (
     StringTestBase,
@@ -19,41 +16,38 @@ from mloda.testing.feature_groups.data_operations.string.string import (
 class TestSqliteStringOps(SqliteTestMixin, StringTestBase):
     """All tests inherited from the base class.
 
-    SQLite does not support the 'reverse' operation natively,
-    so supported_ops excludes it.
+    SQLite supports only 'trim' and 'length' natively in a way that matches
+    the PyArrow reference. 'upper'/'lower' are ASCII-only in SQLite and
+    'reverse' has no native SQLite function, so all three are refused at
+    match time and resolved by another framework.
     """
 
     @classmethod
     def supported_ops(cls) -> set[str]:
-        return {"upper", "lower", "trim", "length"}
+        return {"trim", "length"}
 
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteStringOps
 
-    def test_unicode_lower_regression(self) -> None:
-        """Regression test: LOWER must lowercase non-ASCII uppercase characters.
 
-        SQLite's native LOWER() is ASCII-only and leaves characters like
-        'É', 'Ö', 'Ω' unchanged. PyArrow / Python str.lower() handle the
-        full unicode range. This test locks in the correct unicode-aware
-        behavior so a regression to ASCII-only LOWER is caught.
-        """
-        table = pa.table(
-            {
-                "name": pa.array(["H\u00c9LLO", "W\u00d6RLD", "\u03a9-OMEGA"], type=pa.string()),
-            }
-        )
-        data = self.create_test_data(table)
-        fs = make_feature_set("name__lower")
-        result = self.implementation_class().calculate_feature(data, fs)
+class TestSqliteUnsupportedOps:
+    """SQLite refuses upper/lower/reverse at match time; the resolver falls
+    back to another framework rather than silently producing ASCII-only output."""
 
-        result_col = self.extract_column(result, "name__lower")
-        assert result_col == ["h\u00e9llo", "w\u00f6rld", "\u03c9-omega"]
+    def test_upper_does_not_match(self) -> None:
+        from mloda.core.abstract_plugins.components.options import Options
 
+        options = Options()
+        result = SqliteStringOps.match_feature_group_criteria("name__upper", options, None)
+        assert result is False
 
-class TestSqliteReverseUnsupported:
-    """SQLite does not support 'reverse', so it should not match at all."""
+    def test_lower_does_not_match(self) -> None:
+        from mloda.core.abstract_plugins.components.options import Options
+
+        options = Options()
+        result = SqliteStringOps.match_feature_group_criteria("name__lower", options, None)
+        assert result is False
 
     def test_reverse_does_not_match(self) -> None:
         from mloda.core.abstract_plugins.components.options import Options
@@ -66,6 +60,6 @@ class TestSqliteReverseUnsupported:
         from mloda.core.abstract_plugins.components.options import Options
 
         options = Options()
-        for op in ("upper", "lower", "trim", "length"):
+        for op in ("trim", "length"):
             result = SqliteStringOps.match_feature_group_criteria(f"name__{op}", options, None)
             assert result is True, f"Expected name__{op} to match SqliteStringOps"

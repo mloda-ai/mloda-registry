@@ -134,6 +134,7 @@ class StringTestBase(DataOpsTestBase):
 
     def test_upper(self) -> None:
         """Convert name column to uppercase."""
+        self._skip_if_unsupported("upper")
         fs = make_feature_set("name__upper")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -145,6 +146,7 @@ class StringTestBase(DataOpsTestBase):
 
     def test_lower(self) -> None:
         """Convert name column to lowercase."""
+        self._skip_if_unsupported("lower")
         fs = make_feature_set("name__lower")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -195,6 +197,7 @@ class StringTestBase(DataOpsTestBase):
 
     def test_empty_string_upper(self) -> None:
         """Row 3 has empty string. Upper of empty string is empty string."""
+        self._skip_if_unsupported("upper")
         fs = make_feature_set("name__upper")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         result_col = self.extract_column(result, "name__upper")
@@ -218,21 +221,25 @@ class StringTestBase(DataOpsTestBase):
     # -- Row-preserving and type checks --------------------------------------
 
     def test_output_rows_equal_input_rows(self) -> None:
-        """Output must have exactly 12 rows, same as input."""
-        fs = make_feature_set("name__upper")
+        """Output must have exactly 12 rows, same as input. Uses 'trim' so
+        the test is independent of which ops a given framework supports."""
+        fs = make_feature_set("name__trim")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         assert self.get_row_count(result) == 12
 
     def test_new_column_added(self) -> None:
-        """The string result column should be added to the output."""
-        fs = make_feature_set("name__lower")
+        """The string result column should be added to the output. Uses 'trim'
+        so the test is independent of which ops a given framework supports."""
+        fs = make_feature_set("name__trim")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
-        result_col = self.extract_column(result, "name__lower")
+        result_col = self.extract_column(result, "name__trim")
         assert len(result_col) == 12
 
     def test_result_has_correct_type(self) -> None:
-        """The result of calculate_feature must be the expected framework type."""
-        fs = make_feature_set("name__upper")
+        """The result of calculate_feature must be the expected framework type.
+        Uses 'trim' so the test is independent of which ops a given framework
+        supports."""
+        fs = make_feature_set("name__trim")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         assert isinstance(result, self.get_expected_type())
 
@@ -240,10 +247,12 @@ class StringTestBase(DataOpsTestBase):
 
     def test_cross_framework_upper(self) -> None:
         """Upper must match reference."""
+        self._skip_if_unsupported("upper")
         self._compare_with_reference("name__upper")
 
     def test_cross_framework_lower(self) -> None:
         """Lower must match reference."""
+        self._skip_if_unsupported("lower")
         self._compare_with_reference("name__lower")
 
     def test_cross_framework_trim(self) -> None:
@@ -270,6 +279,7 @@ class StringTestBase(DataOpsTestBase):
 
     def test_all_null_column_upper(self) -> None:
         """Upper on an all-null column should produce all None."""
+        self._skip_if_unsupported("upper")
         table = pa.table(
             {
                 "name": pa.array([None, None, None], type=pa.string()),
@@ -300,6 +310,7 @@ class StringTestBase(DataOpsTestBase):
 
     def test_option_based_upper(self) -> None:
         """Option-based configuration (not string pattern) produces the same result."""
+        self._skip_if_unsupported("upper")
         from mloda.core.abstract_plugins.components.feature_set import FeatureSet
         from mloda.core.abstract_plugins.components.options import Options
         from mloda.user import Feature
