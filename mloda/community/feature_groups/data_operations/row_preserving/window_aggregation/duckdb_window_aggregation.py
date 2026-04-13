@@ -115,18 +115,18 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         order_clause = f"ORDER BY {quote_ident(order_by)}" if order_by else ""
 
         # Step 1: tag rows with their original position
-        rel = data._relation.project(f"*, ROW_NUMBER() OVER () AS {qrn}")
+        rel = data.select(_raw_sql=f"*, ROW_NUMBER() OVER () AS {qrn}")
 
         # Step 2: compute with full frame and ORDER BY for deterministic results
-        rel = rel.project(
-            f"*, {agg_func}({source_sql} IGNORE NULLS) "
-            f"OVER (PARTITION BY {partition_clause} {order_clause} "
-            f"ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS {quoted_feature}"
+        rel = rel.select(
+            _raw_sql=(
+                f"*, {agg_func}({source_sql} IGNORE NULLS) "
+                f"OVER (PARTITION BY {partition_clause} {order_clause} "
+                f"ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS {quoted_feature}"
+            )
         )
 
         # Step 3: restore original row order, drop helper column
         rel = rel.order(qrn)
         keep = ", ".join(quote_ident(c) for c in rel.columns if c != _RN_COL)
-        rel = rel.project(keep)
-
-        return DuckdbRelation(data.connection, rel)
+        return rel.select(_raw_sql=keep)

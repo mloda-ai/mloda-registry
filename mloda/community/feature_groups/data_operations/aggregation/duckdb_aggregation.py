@@ -12,6 +12,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.duckdb_helpers import group_aggregate
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 
@@ -72,6 +73,5 @@ class DuckdbAggregation(AggregationFeatureGroup):
 
         # Use lazy relation methods (aggregate + order) instead of eager query()
         # so DuckDB defers execution until the result is consumed.
-        rel = data._relation.aggregate(f"{partition_cols}, {agg_expr} AS {quoted_feature}", partition_cols)
-        rel = rel.order(partition_cols)
-        return DuckdbRelation(data.connection, rel)
+        rel = group_aggregate(data, f"{partition_cols}, {agg_expr} AS {quoted_feature}", partition_cols)
+        return rel.order(partition_cols)

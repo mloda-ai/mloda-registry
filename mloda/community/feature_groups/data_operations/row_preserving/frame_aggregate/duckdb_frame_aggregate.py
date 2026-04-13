@@ -92,7 +92,7 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         # ORDER BY in the window frame reorders rows; tag with ROW_NUMBER(),
         # compute, then .order(qrn) to restore original order.
         # Step 1: tag rows with original position
-        rel = data._relation.project(f"*, ROW_NUMBER() OVER () AS {qrn}")  # nosec
+        rel = data.select(_raw_sql=f"*, ROW_NUMBER() OVER () AS {qrn}")  # nosec
 
         # Step 2: compute window function with frame
         raw_sql = (  # nosec
@@ -100,11 +100,9 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
             f"(PARTITION BY {partition_clause} ORDER BY {order_clause} {frame_clause}) "
             f"AS {quoted_feature}"
         )
-        rel = rel.project(raw_sql)
+        rel = rel.select(_raw_sql=raw_sql)
 
         # Step 3: restore original order, drop helper
         rel = rel.order(qrn)
         keep = ", ".join(quote_ident(c) for c in rel.columns if c != _RN_COL)
-        rel = rel.project(keep)
-
-        return DuckdbRelation(data.connection, rel)
+        return rel.select(_raw_sql=keep)
