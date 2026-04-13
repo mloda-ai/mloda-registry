@@ -18,22 +18,6 @@ from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_eng
     PandasMaskEngine,
 )
 
-_SUPPORTED_AGG_TYPES = {
-    "sum",
-    "min",
-    "max",
-    "avg",
-    "mean",
-    "count",
-    "std",
-    "std_pop",
-    "std_samp",
-    "var",
-    "var_pop",
-    "var_samp",
-    "median",
-}
-
 
 class PandasScalarAggregate(ScalarAggregateFeatureGroup):
     @classmethod
@@ -78,7 +62,7 @@ class PandasScalarAggregate(ScalarAggregateFeatureGroup):
         elif agg_type == "median":
             result = col.median()
         else:
-            raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Pandas")
+            raise unsupported_agg_type_error(agg_type, cls._SUPPORTED_AGG_TYPES, framework="Pandas")
 
         data[feature_name] = result
         return data

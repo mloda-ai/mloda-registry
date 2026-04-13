@@ -401,6 +401,84 @@ class TestReferenceAggregationHelperError:
         _assert_valid_error(exc.value, "not_a_real_agg", "sum", "median", "mode")
 
 
+class TestScalarAggregateSupportedTypes:
+    """Guard the single-source-of-truth contract for scalar_aggregate supported types.
+
+    The base class must declare ``_SUPPORTED_AGG_TYPES`` as a ``frozenset``
+    derived from ``AGGREGATION_TYPES``. The pandas, pyarrow, and polars
+    scalar_aggregate modules must not redeclare the set at module scope and
+    their concrete classes must inherit the base attribute unchanged.
+    """
+
+    def test_base_class_declares_supported_agg_types_frozenset(self) -> None:
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
+            AGGREGATION_TYPES,
+            ScalarAggregateFeatureGroup,
+        )
+
+        assert hasattr(ScalarAggregateFeatureGroup, "_SUPPORTED_AGG_TYPES")
+        assert isinstance(ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES, frozenset)
+        assert ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES == frozenset(AGGREGATION_TYPES)
+
+    def test_pandas_pyarrow_polars_modules_do_not_redeclare_supported(self) -> None:
+        import importlib
+
+        module_paths = (
+            (
+                "pandas",
+                "mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pandas_scalar_aggregate",
+            ),
+            (
+                "pyarrow",
+                "mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pyarrow_scalar_aggregate",
+            ),
+            (
+                "polars",
+                "mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.polars_lazy_scalar_aggregate",
+            ),
+        )
+        for dep, path in module_paths:
+            pytest.importorskip(dep)
+            module = importlib.import_module(path)
+            assert not hasattr(module, "_SUPPORTED_AGG_TYPES"), (
+                f"{path} still declares a module-level _SUPPORTED_AGG_TYPES; "
+                "it must be removed in favour of the base class attribute."
+            )
+
+    def test_pandas_scalar_aggregate_uses_base_supported_set(self) -> None:
+        pytest.importorskip("pandas")
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
+            ScalarAggregateFeatureGroup,
+        )
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pandas_scalar_aggregate import (
+            PandasScalarAggregate,
+        )
+
+        assert PandasScalarAggregate._SUPPORTED_AGG_TYPES is ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES
+
+    def test_pyarrow_scalar_aggregate_uses_base_supported_set(self) -> None:
+        pytest.importorskip("pyarrow")
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
+            ScalarAggregateFeatureGroup,
+        )
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pyarrow_scalar_aggregate import (
+            PyArrowScalarAggregate,
+        )
+
+        assert PyArrowScalarAggregate._SUPPORTED_AGG_TYPES is ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES
+
+    def test_polars_scalar_aggregate_uses_base_supported_set(self) -> None:
+        pytest.importorskip("polars")
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
+            ScalarAggregateFeatureGroup,
+        )
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.polars_lazy_scalar_aggregate import (
+            PolarsLazyScalarAggregate,
+        )
+
+        assert PolarsLazyScalarAggregate._SUPPORTED_AGG_TYPES is ScalarAggregateFeatureGroup._SUPPORTED_AGG_TYPES
+
+
 def test_error_messages_use_single_quoted_repr() -> None:
     """All messages quote the rejected value via !r for robustness.
 

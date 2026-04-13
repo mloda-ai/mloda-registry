@@ -15,22 +15,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggreg
     ScalarAggregateFeatureGroup,
 )
 
-_SUPPORTED_AGG_TYPES = {
-    "sum",
-    "min",
-    "max",
-    "avg",
-    "mean",
-    "count",
-    "std",
-    "std_pop",
-    "std_samp",
-    "var",
-    "var_pop",
-    "var_samp",
-    "median",
-}
-
 
 class PolarsLazyScalarAggregate(ScalarAggregateFeatureGroup):
     @classmethod
@@ -76,7 +60,7 @@ class PolarsLazyScalarAggregate(ScalarAggregateFeatureGroup):
         elif agg_type == "median":
             expr = col.median()
         else:
-            raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Polars")
+            raise unsupported_agg_type_error(agg_type, cls._SUPPORTED_AGG_TYPES, framework="Polars")
 
         result = data.with_columns(expr.alias(feature_name))
         if mask_spec is not None:

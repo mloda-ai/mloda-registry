@@ -16,22 +16,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggreg
     ScalarAggregateFeatureGroup,
 )
 
-_SUPPORTED_AGG_TYPES = {
-    "sum",
-    "min",
-    "max",
-    "avg",
-    "mean",
-    "count",
-    "std",
-    "std_pop",
-    "std_samp",
-    "var",
-    "var_pop",
-    "var_samp",
-    "median",
-}
-
 
 class PyArrowScalarAggregate(ScalarAggregateFeatureGroup):
     @classmethod
@@ -76,7 +60,7 @@ class PyArrowScalarAggregate(ScalarAggregateFeatureGroup):
                 raise ValueError("pc.quantile returned an empty result for median computation")
             result = q_result[0].as_py()
         else:
-            raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="PyArrow")
+            raise unsupported_agg_type_error(agg_type, cls._SUPPORTED_AGG_TYPES, framework="PyArrow")
 
         repeated = pa.array([result] * table.num_rows)
         return table.append_column(feature_name, repeated)

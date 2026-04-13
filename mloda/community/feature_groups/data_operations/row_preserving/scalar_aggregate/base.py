@@ -12,7 +12,7 @@ column and fills every row with that scalar result.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
@@ -48,6 +48,8 @@ class ScalarAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     MAX_IN_FEATURES = 1
 
     AGGREGATION_TYPE = "aggregation_type"
+
+    _SUPPORTED_AGG_TYPES: ClassVar[frozenset[str]] = frozenset(AGGREGATION_TYPES)
 
     PROPERTY_MAPPING = {
         AGGREGATION_TYPE: {
