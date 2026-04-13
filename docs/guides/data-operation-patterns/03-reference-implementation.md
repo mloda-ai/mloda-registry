@@ -73,4 +73,5 @@ Do not "fix" a non-PyArrow framework to agree with the PyArrow bug. The referenc
 
 - [Row-preserving contract](02-row-preserving-contract.md) - The row-count-and-order invariant that the reference comparison enforces.
 - [Supported ops per framework](04-supported-ops.md) - How a framework skips comparisons for ops it cannot express.
+- [Known divergences](known-divergences.md) - Audited cases where a framework's native operator would diverge from PyArrow, and the fix or exclusion used.
 - [Adding a new data operation](10-adding-new-operation.md) - Where to put the PyArrow reference when adding an op.

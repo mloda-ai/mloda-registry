@@ -75,4 +75,5 @@ Each feature name resolves to one of the built-in data-operation feature groups.
 
 - [Row-preserving contract](02-row-preserving-contract.md) explains the central invariant that shapes most of this section.
 - [Reference implementation pattern](03-reference-implementation.md) explains why PyArrow is the source of truth.
+- [Known divergences](known-divergences.md) lists every audited case where a framework would otherwise produce a different result, and the mitigation for each.
 - [Adding a new data operation](10-adding-new-operation.md) is the end-to-end recipe if you want to extend this system.
