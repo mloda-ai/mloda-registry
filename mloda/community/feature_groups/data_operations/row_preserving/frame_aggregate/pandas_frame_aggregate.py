@@ -9,6 +9,10 @@ import pandas as pd
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
+from mloda.community.feature_groups.data_operations.errors import (
+    unsupported_agg_type_error,
+    unsupported_frame_type_error,
+)
 from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
@@ -53,7 +57,12 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
     ) -> pd.DataFrame:
         pandas_func = _PANDAS_FRAME_AGG_FUNCS.get(agg_type)
         if pandas_func is None:
-            raise ValueError(f"Unsupported aggregation type for Pandas frame aggregate: {agg_type}")
+            raise unsupported_agg_type_error(
+                agg_type,
+                _PANDAS_FRAME_AGG_FUNCS.keys(),
+                framework="Pandas",
+                operation="frame aggregate",
+            )
 
         data = data.copy()
 
@@ -84,7 +93,11 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
             window = int(frame_size) if frame_size is not None else 1
             window_obj = grouped.rolling(window=window, min_periods=min_periods)
         else:
-            raise ValueError(f"Unsupported frame type for Pandas: {frame_type}")
+            raise unsupported_frame_type_error(
+                frame_type,
+                cls.SUPPORTED_FRAME_TYPES,
+                framework="Pandas",
+            )
 
         if agg_type in ("std", "var"):
             result = getattr(window_obj, pandas_func)(ddof=0).reset_index(level=reset_levels, drop=True)

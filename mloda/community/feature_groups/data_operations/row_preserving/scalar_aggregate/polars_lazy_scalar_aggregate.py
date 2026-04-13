@@ -9,10 +9,27 @@ import polars as pl
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
+from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
+
+_SUPPORTED_AGG_TYPES = {
+    "sum",
+    "min",
+    "max",
+    "avg",
+    "mean",
+    "count",
+    "std",
+    "std_pop",
+    "std_samp",
+    "var",
+    "var_pop",
+    "var_samp",
+    "median",
+}
 
 
 class PolarsLazyScalarAggregate(ScalarAggregateFeatureGroup):
@@ -59,7 +76,7 @@ class PolarsLazyScalarAggregate(ScalarAggregateFeatureGroup):
         elif agg_type == "median":
             expr = col.median()
         else:
-            raise ValueError(f"Unsupported aggregation type: {agg_type}")
+            raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Polars")
 
         result = data.with_columns(expr.alias(feature_name))
         if mask_spec is not None:

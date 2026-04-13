@@ -17,6 +17,7 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 
 # Aggregation types with direct PyArrow group_by support.
@@ -45,6 +46,8 @@ _ORDERED_FUNCS: dict[str, str] = {
     "first": "first",
     "last": "last",
 }
+
+_SUPPORTED_AGG_TYPES = {*_PA_AGG_FUNCS, *_VARIANCE_FUNCS, *_ORDERED_FUNCS}
 
 
 class PyArrowAggregation(AggregationFeatureGroup):
@@ -75,7 +78,7 @@ class PyArrowAggregation(AggregationFeatureGroup):
             pa_func = _ORDERED_FUNCS[agg_type]
             grouped = table.group_by(partition_by, use_threads=False).aggregate([(source_col, pa_func)])
         else:
-            raise ValueError(f"Unsupported aggregation type: {agg_type}")
+            raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="PyArrow")
 
         # Rename auto-generated column (e.g. "val_sum") to feature_name.
         auto_col = f"{source_col}_{pa_func}"

@@ -9,6 +9,10 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
+from mloda.community.feature_groups.data_operations.errors import (
+    unsupported_agg_type_error,
+    unsupported_frame_type_error,
+)
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
@@ -46,7 +50,12 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
     ) -> SqliteRelation:
         agg_func = _SQLITE_AGG_FUNCS.get(agg_type)
         if agg_func is None:
-            raise ValueError(f"Unsupported aggregation type for SQLite frame aggregate: {agg_type}")
+            raise unsupported_agg_type_error(
+                agg_type,
+                _SQLITE_AGG_FUNCS.keys(),
+                framework="SQLite",
+                operation="frame aggregate",
+            )
 
         quoted_source = quote_ident(source_col)
         source_sql = quoted_source
@@ -68,7 +77,11 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         elif frame_type == "time":
             raise ValueError("SQLite does not support RANGE-based time windows natively")
         else:
-            raise ValueError(f"Unsupported frame type for SQLite: {frame_type}")
+            raise unsupported_frame_type_error(
+                frame_type,
+                cls.SUPPORTED_FRAME_TYPES,
+                framework="SQLite",
+            )
 
         # Safety: all identifiers use quote_ident(), agg_func from whitelist
         sql = " ".join(  # nosec

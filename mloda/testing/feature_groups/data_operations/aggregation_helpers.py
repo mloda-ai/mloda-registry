@@ -10,6 +10,27 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
+
+_SUPPORTED_AGG_TYPES = {
+    "sum",
+    "avg",
+    "count",
+    "min",
+    "max",
+    "std",
+    "std_pop",
+    "std_samp",
+    "var",
+    "var_pop",
+    "var_samp",
+    "median",
+    "mode",
+    "nunique",
+    "first",
+    "last",
+}
+
 
 def aggregate(values: list[Any], agg_type: str) -> Any:
     """Compute a single aggregate over a list of values (may contain None)."""
@@ -49,7 +70,7 @@ def aggregate(values: list[Any], agg_type: str) -> Any:
     if agg_type == "last":
         return non_null[-1]
 
-    raise ValueError(f"Unsupported aggregation type: {agg_type}")
+    raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES)
 
 
 def std(values: list[Any], ddof: int = 0) -> Any:

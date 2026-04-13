@@ -9,6 +9,7 @@ import polars as pl
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
+from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
@@ -32,6 +33,8 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
     "median": lambda col: pl.col(col).median(),
     "nunique": lambda col: pl.col(col).drop_nulls().n_unique(),
 }
+
+_SUPPORTED_AGG_TYPES = {*_POLARS_AGG_EXPRS.keys(), "mode", "first", "last"}
 
 
 def _mode_with_insertion_order(s: pl.Series) -> Any:
@@ -92,7 +95,7 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
             else:
                 expr = raw_expr.alias(feature_name)
         else:
-            raise ValueError(f"Unsupported aggregation type: {agg_type}")
+            raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Polars")
 
         result = data.with_columns(expr)
         if mask_spec is not None:
