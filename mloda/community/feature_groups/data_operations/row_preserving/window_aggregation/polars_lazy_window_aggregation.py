@@ -10,6 +10,11 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
+from mloda.community.feature_groups.data_operations.polars_mode_helpers import (
+    add_mode_helper_cols,
+    drop_mode_helper_cols,
+    mode_window_expr,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
@@ -34,20 +39,6 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
 }
 
 
-def _mode_with_insertion_order(s: pl.Series) -> Any:
-    """Return the mode of *s*, breaking ties by first-occurrence order (matching PyArrow)."""
-    s_clean = s.drop_nulls()
-    if len(s_clean) == 0:
-        return None
-    df = s_clean.to_frame("v").with_row_index("_order")
-    counts = df.group_by("v").agg(
-        pl.col("_order").min().alias("first_idx"),
-        pl.len().alias("cnt"),
-    )
-    winner = counts.sort(["cnt", "first_idx"], descending=[True, False]).row(0)
-    return winner[0]
-
-
 class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
@@ -70,15 +61,8 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
             data, actual_source = apply_polars_mask(data, source_col, mask_spec)
 
         if agg_type == "mode":
-            expr = (
-                pl.col(actual_source)
-                .map_batches(
-                    lambda s: _mode_with_insertion_order(s),
-                    returns_scalar=True,
-                )
-                .over(partition_by)
-                .alias(feature_name)
-            )
+            data = add_mode_helper_cols(data, actual_source, partition_by)
+            expr = mode_window_expr(actual_source, partition_by, feature_name)
         elif agg_type in ("first", "last"):
             expr = cls._build_first_last_expr(actual_source, partition_by, agg_type, order_by, feature_name)
         elif agg_type in _POLARS_AGG_EXPRS:
@@ -95,6 +79,8 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
             raise ValueError(f"Unsupported aggregation type: {agg_type}")
 
         result = data.with_columns(expr)
+        if agg_type == "mode":
+            result = drop_mode_helper_cols(result)
         if mask_spec is not None:
             result = result.drop(_POLARS_MASK_TMP)
         return result
