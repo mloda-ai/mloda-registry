@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pandas as pd
+
 PANDAS_AGG_FUNCS: dict[str, str] = {
     "sum": "sum",
     "avg": "mean",
@@ -88,3 +90,44 @@ def coerce_count_dtype(data: Any, feature_name: str, agg_type: str) -> None:
     """Cast *feature_name* column to int64 in-place when *agg_type* is ``"count"``."""
     if agg_type == "count":
         data[feature_name] = data[feature_name].astype("int64")
+
+
+_MODE_IDX_COL = "__mloda_mode_row_idx__"
+_MODE_COUNT_COL = "__mloda_mode_count__"
+_MODE_FIRST_IDX_COL = "__mloda_mode_first_idx__"
+
+
+def compute_mode_winners(
+    data: pd.DataFrame,
+    source_col: str,
+    partition_by: list[str],
+) -> pd.DataFrame:
+    """Return one row per partition with the mode value of *source_col*.
+
+    Ties are broken by first occurrence in *data* (matching PyArrow
+    ``mode_only``). Null values are ignored when counting (matching
+    pandas ``Series.mode`` semantics); partitions whose source values
+    are all-null are omitted from the result.
+
+    The returned frame has columns ``partition_by + [source_col]`` and
+    contains at most one row per unique partition-key combination.
+    """
+    work = data[partition_by + [source_col]].copy()
+    work[_MODE_IDX_COL] = range(len(work))
+    work = work[work[source_col].notna()]
+    if work.empty:
+        return data.iloc[0:0][partition_by + [source_col]].copy()
+
+    counts = work.groupby(partition_by + [source_col], dropna=False, as_index=False).agg(
+        **{
+            _MODE_COUNT_COL: (_MODE_IDX_COL, "size"),
+            _MODE_FIRST_IDX_COL: (_MODE_IDX_COL, "min"),
+        }
+    )
+    counts = counts.sort_values(
+        partition_by + [_MODE_COUNT_COL, _MODE_FIRST_IDX_COL],
+        ascending=[True] * len(partition_by) + [False, True],
+        kind="mergesort",
+    )
+    winners = counts.groupby(partition_by, dropna=False, as_index=False).head(1)
+    return winners[partition_by + [source_col]].reset_index(drop=True)

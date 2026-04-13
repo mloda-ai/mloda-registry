@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from typing import Any
 
 import pandas as pd
@@ -19,6 +18,7 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
     apply_null_safe_agg,
     coerce_count_dtype,
+    compute_mode_winners,
     null_safe_groupby,
 )
 from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
@@ -78,24 +78,24 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
     ) -> pd.DataFrame:
-        """Compute mode via Counter with insertion-order tie-breaking (matching PyArrow)."""
-        grouped = null_safe_groupby(data, partition_by, source_col)
+        """Compute mode with insertion-order tie-breaking (matching PyArrow)."""
+        winners = compute_mode_winners(data, source_col, partition_by)
+        winners = winners.rename(columns={source_col: feature_name})
 
-        def _insertion_order_mode(x: pd.Series) -> Any:
-            vals = x.dropna()
-            if len(vals) == 0:
-                return None
-            counts = Counter(vals)
-            max_count = max(counts.values())
-            for v in vals:
-                if counts[v] == max_count:
-                    return v
-            return None  # pragma: no cover
+        carrier = data[partition_by].copy()
+        carrier[feature_name] = pd.NA
+        carrier["__mloda_mode_is_data__"] = True
 
-        result_series = grouped.transform(_insertion_order_mode)
+        winners_for_merge = winners.copy()
+        winners_for_merge["__mloda_mode_is_data__"] = False
+
+        combined = pd.concat([winners_for_merge, carrier], ignore_index=True, sort=False)
+        combined[feature_name] = combined.groupby(partition_by, dropna=False)[feature_name].transform("first")
+
+        broadcast = combined.loc[combined["__mloda_mode_is_data__"], feature_name]
 
         data = data.copy()
-        data[feature_name] = result_series
+        data[feature_name] = broadcast.to_numpy()
         return data
 
     @classmethod
