@@ -231,6 +231,27 @@ class TestWindowAggregationErrors:
         _assert_valid_error(exc.value, "not_a_real_agg", "sum", "first")
         assert "for PyArrow" in str(exc.value)
 
+    def test_duckdb_window_error(self) -> None:
+        duckdb = pytest.importorskip("duckdb")
+        pa = pytest.importorskip("pyarrow")
+        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.duckdb_window_aggregation import (
+            DuckdbWindowAggregation,
+        )
+        from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import (
+            DuckdbRelation,
+        )
+
+        arrow = pa.table({"region": ["a", "b"], "val": [1, 2]})
+        conn = duckdb.connect(":memory:")
+        try:
+            rel = DuckdbRelation.from_arrow(conn, arrow)
+            with pytest.raises(ValueError) as exc:
+                DuckdbWindowAggregation._compute_window(rel, "f", "val", ["region"], "not_a_real_agg")
+            _assert_valid_error(exc.value, "not_a_real_agg", "sum", "median", "mode")
+            assert "for DuckDB" in str(exc.value)
+        finally:
+            conn.close()
+
     def test_sqlite_window_error(self) -> None:
         pa = pytest.importorskip("pyarrow")
         from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.sqlite_window_aggregation import (
