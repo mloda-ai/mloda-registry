@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from typing import Any
 
 import pandas as pd
@@ -19,6 +18,7 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
     apply_null_safe_agg,
     coerce_count_dtype,
+    compute_mode_winners,
     null_safe_groupby,
 )
 from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
@@ -70,21 +70,20 @@ class PandasAggregation(AggregationFeatureGroup):
         data: pd.DataFrame,
         feature_name: str,
         source_col: str,
-        partition_by: list[str],
+        partition_by: list[str] | tuple[str, ...],
     ) -> pd.DataFrame:
         """Compute mode with insertion-order tie-breaking (matching PyArrow)."""
-        grouped = null_safe_groupby(data, partition_by, source_col)
+        partition_by = list(partition_by)
+        if source_col in partition_by:
+            unique_parts = data[partition_by].drop_duplicates().reset_index(drop=True).copy()
+            unique_parts[feature_name] = unique_parts[source_col].where(unique_parts[source_col].notna(), pd.NA)
+            return unique_parts
 
-        def _insertion_order_mode(x: pd.Series) -> Any:
-            vals = x.dropna()
-            if len(vals) == 0:
-                return None
-            counts = Counter(vals)
-            max_count = max(counts.values())
-            for v in vals:
-                if counts[v] == max_count:
-                    return v
-            return None  # pragma: no cover
+        winners = compute_mode_winners(data, source_col, partition_by)
+        winners = winners.rename(columns={source_col: feature_name})
 
-        result = grouped.agg(_insertion_order_mode).reset_index()
-        return result.rename(columns={source_col: feature_name})
+        all_partitions = data[partition_by].drop_duplicates().copy()
+        all_partitions[feature_name] = pd.NA
+
+        combined = pd.concat([winners, all_partitions], ignore_index=True, sort=False)
+        return combined.groupby(partition_by, dropna=False, as_index=False)[feature_name].first().reset_index(drop=True)

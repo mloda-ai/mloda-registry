@@ -49,11 +49,11 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 ### Mode tie-breaking by first occurrence
 
 - **Operations**: `aggregation` (`mode` agg type), `window_aggregation` (`mode` agg type).
-- **Where it lives**: `mloda/community/feature_groups/data_operations/polars_mode_helpers.py` (shared Polars Lazy helpers used by both `polars_lazy_aggregation.py` and `polars_lazy_window_aggregation.py`); Pandas uses a `Counter`-based helper in `pandas_helpers.py`.
+- **Where it lives**: `mloda/community/feature_groups/data_operations/polars_mode_helpers.py` (shared Polars Lazy helpers used by both `polars_lazy_aggregation.py` and `polars_lazy_window_aggregation.py`); Pandas uses the vectorized `compute_mode_winners` helper in `pandas_helpers.py`.
 - **Reference behavior**: PyArrow's `pc.mode` breaks ties by first occurrence in the input ordering.
 - **Native framework behavior**: Polars' `.mode()` and Pandas' `.mode()` break ties differently (sorted order / multiple returned values / unspecified).
 - **Mitigation kind**: Implementation fix.
-- **How**: Both frameworks explicitly rank candidate values by `(count desc, first_occurrence_index asc)` and take the head. The Polars Lazy implementation stays inside the lazy / vectorised path: it adds per-`(partition, value)` count and first-index columns via `.over()`, then uses `sort_by([cnt, first_idx], descending=[True, False], maintain_order=True).first()` (no Python callback).
+- **How**: Both frameworks explicitly rank candidate values by `(count desc, first_occurrence_index asc)` and take the head. The Polars Lazy implementation stays inside the lazy / vectorised path: it adds per-`(partition, value)` count and first-index columns via `.over()`, then uses `sort_by([cnt, first_idx], descending=[True, False], maintain_order=True).first()` (no Python callback). On Pandas this is a single vectorized groupby over `(partition_by, value)` that aggregates count and first-occurrence index, avoiding a per-group Python reducer.
 - **Regression signal**: The canonical fixture has values that tie; mode tests compare against the PyArrow reference via `_compare_with_reference`.
 
 ### SQLite `UPPER`/`LOWER` are ASCII-only; no native `REVERSE`
