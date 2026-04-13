@@ -10,6 +10,7 @@ import pyarrow.compute as pc
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
@@ -59,7 +60,7 @@ class PyArrowScalarAggregate(ScalarAggregateFeatureGroup):
                 raise ValueError("pc.quantile returned an empty result for median computation")
             result = q_result[0].as_py()
         else:
-            raise ValueError(f"Unsupported aggregation type: {agg_type}")
+            raise unsupported_agg_type_error(agg_type, cls._SUPPORTED_AGG_TYPES, framework="PyArrow")
 
         repeated = pa.array([result] * table.num_rows)
         return table.append_column(feature_name, repeated)

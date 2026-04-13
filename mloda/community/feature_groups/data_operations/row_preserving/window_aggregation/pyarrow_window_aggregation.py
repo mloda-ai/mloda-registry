@@ -16,6 +16,7 @@ import pyarrow.compute as pc
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
@@ -46,6 +47,8 @@ _ORDERED_FUNCS: dict[str, str] = {
     "first": "first",
     "last": "last",
 }
+
+_SUPPORTED_AGG_TYPES = {*_PA_AGG_FUNCS, *_VARIANCE_FUNCS, *_ORDERED_FUNCS}
 
 
 class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
@@ -94,7 +97,7 @@ class PyArrowWindowAggregation(WindowAggregationFeatureGroup):
             return cls._compute_ordered(t_with_idx, feature_name, source_col, partition_by, agg_type, order_by)
 
         else:
-            raise ValueError(f"Unsupported aggregation type: {agg_type}")
+            raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="PyArrow")
 
         return cls._broadcast(table, grouped, agg_col, feature_name, num_rows)
 

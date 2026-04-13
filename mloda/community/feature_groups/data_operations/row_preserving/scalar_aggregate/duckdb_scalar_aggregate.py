@@ -9,6 +9,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
+from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
@@ -47,7 +48,7 @@ class DuckdbScalarAggregate(ScalarAggregateFeatureGroup):
     ) -> DuckdbRelation:
         agg_func = _DUCKDB_AGG_FUNCS.get(agg_type)
         if agg_func is None:
-            raise ValueError(f"Unsupported aggregation type for DuckDB: {agg_type}")
+            raise unsupported_agg_type_error(agg_type, _DUCKDB_AGG_FUNCS.keys(), framework="DuckDB")
 
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)

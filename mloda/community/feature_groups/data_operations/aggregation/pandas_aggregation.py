@@ -13,6 +13,7 @@ from mloda_plugins.compute_framework.base_implementations.pandas.dataframe impor
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
 from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
@@ -23,6 +24,8 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
 from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
     PandasMaskEngine,
 )
+
+_SUPPORTED_AGG_TYPES = {*PANDAS_AGG_FUNCS.keys(), "mode"}
 
 
 class PandasAggregation(AggregationFeatureGroup):
@@ -51,7 +54,7 @@ class PandasAggregation(AggregationFeatureGroup):
 
         pandas_func = PANDAS_AGG_FUNCS.get(agg_type)
         if pandas_func is None:
-            raise ValueError(f"Unsupported aggregation type: {agg_type}")
+            raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Pandas")
 
         grouped = null_safe_groupby(data, partition_by, source_col)
         result = apply_null_safe_agg(grouped, pandas_func, agg_type).reset_index()

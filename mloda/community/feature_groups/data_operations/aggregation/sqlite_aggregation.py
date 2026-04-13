@@ -12,6 +12,7 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 
 # Aggregation types that SQLite supports natively.
@@ -43,7 +44,7 @@ class SqliteAggregation(AggregationFeatureGroup):
         """Execute the aggregation as a SQL GROUP BY query."""
         agg_func = _SQLITE_AGG_FUNCS.get(agg_type)
         if agg_func is None:
-            raise ValueError(f"Unsupported aggregation type for SQLite: {agg_type}")
+            raise unsupported_agg_type_error(agg_type, _SQLITE_AGG_FUNCS.keys(), framework="SQLite")
 
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)

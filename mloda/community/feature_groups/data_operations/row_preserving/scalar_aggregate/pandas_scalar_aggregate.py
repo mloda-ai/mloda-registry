@@ -9,6 +9,7 @@ import pandas as pd
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
+from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
@@ -61,7 +62,7 @@ class PandasScalarAggregate(ScalarAggregateFeatureGroup):
         elif agg_type == "median":
             result = col.median()
         else:
-            raise ValueError(f"Unsupported aggregation type: {agg_type}")
+            raise unsupported_agg_type_error(agg_type, cls._SUPPORTED_AGG_TYPES, framework="Pandas")
 
         data[feature_name] = result
         return data

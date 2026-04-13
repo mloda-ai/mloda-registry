@@ -9,12 +9,19 @@ import polars as pl
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
+from mloda.community.feature_groups.data_operations.errors import (
+    unsupported_agg_type_error,
+    unsupported_frame_type_error,
+)
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
 
 _RN_COL = "__mloda_rn__"
+
+_CUMULATIVE_AGG_TYPES = {"sum", "min", "max", "count", "avg"}
+_ROLLING_AGG_TYPES = {"sum", "avg", "min", "max", "std", "var", "median", "count"}
 
 
 class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
@@ -72,7 +79,12 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
                 cum_count = col.cum_count().over(partition_by).cast(pl.Float64)
                 expr = (cum_sum / cum_count).alias(feature_name)
             else:
-                raise ValueError(f"Unsupported cumulative/expanding agg for Polars: {agg_type}")
+                raise unsupported_agg_type_error(
+                    agg_type,
+                    _CUMULATIVE_AGG_TYPES,
+                    framework="Polars",
+                    operation="cumulative/expanding",
+                )
         elif frame_type == "rolling":
             window = int(frame_size) if frame_size is not None else 1
             if agg_type == "sum":
@@ -98,9 +110,18 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
                     .alias(feature_name)
                 )
             else:
-                raise ValueError(f"Unsupported rolling agg for Polars: {agg_type}")
+                raise unsupported_agg_type_error(
+                    agg_type,
+                    _ROLLING_AGG_TYPES,
+                    framework="Polars",
+                    operation="rolling",
+                )
         else:
-            raise ValueError(f"Unsupported frame type for Polars: {frame_type}")
+            raise unsupported_frame_type_error(
+                frame_type,
+                cls.SUPPORTED_FRAME_TYPES,
+                framework="Polars",
+            )
 
         result = sorted_data.with_columns(expr)
 

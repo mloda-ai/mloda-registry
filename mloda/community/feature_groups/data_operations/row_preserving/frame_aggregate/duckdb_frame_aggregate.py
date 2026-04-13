@@ -9,6 +9,10 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
+from mloda.community.feature_groups.data_operations.errors import (
+    unsupported_agg_type_error,
+    unsupported_frame_type_error,
+)
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
@@ -51,7 +55,12 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
     ) -> DuckdbRelation:
         agg_func = _DUCKDB_AGG_FUNCS.get(agg_type)
         if agg_func is None:
-            raise ValueError(f"Unsupported aggregation type for DuckDB frame aggregate: {agg_type}")
+            raise unsupported_agg_type_error(
+                agg_type,
+                _DUCKDB_AGG_FUNCS.keys(),
+                framework="DuckDB",
+                operation="frame aggregate",
+            )
 
         quoted_source = quote_ident(source_col)
         source_sql = quoted_source
@@ -73,7 +82,11 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         elif frame_type == "time":
             raise ValueError("DuckDB time-based frame windows require RANGE which needs timestamp columns")
         else:
-            raise ValueError(f"Unsupported frame type for DuckDB: {frame_type}")
+            raise unsupported_frame_type_error(
+                frame_type,
+                cls.SUPPORTED_FRAME_TYPES,
+                framework="DuckDB",
+            )
 
         # PyArrow parity: the reference preserves input row order. DuckDB
         # ORDER BY in the window frame reorders rows; tag with ROW_NUMBER(),

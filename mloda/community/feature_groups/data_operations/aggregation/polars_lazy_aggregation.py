@@ -12,6 +12,7 @@ from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
 from mloda.community.feature_groups.data_operations.polars_mode_helpers import (
     add_mode_helper_cols,
@@ -37,6 +38,8 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
     "first": lambda col: pl.col(col).drop_nulls().first(),
     "last": lambda col: pl.col(col).drop_nulls().last(),
 }
+
+_SUPPORTED_AGG_TYPES = {*_POLARS_AGG_EXPRS.keys(), "mode"}
 
 
 class PolarsLazyAggregation(AggregationFeatureGroup):
@@ -76,7 +79,7 @@ class PolarsLazyAggregation(AggregationFeatureGroup):
             else:
                 expr = raw_expr
         else:
-            raise ValueError(f"Unsupported aggregation type: {agg_type}")
+            raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Polars")
 
         result = data.group_by(partition_by, maintain_order=True).agg(expr)
         if mask_spec is not None:
