@@ -91,22 +91,11 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         agg_type: str,
         order_by: str | None = None,
     ) -> DuckdbRelation:
-        """Compute FIRST_VALUE/LAST_VALUE with ORDER BY for deterministic results.
-
-        PyArrow parity: PyArrow group_by().aggregate() sees the entire
-        partition at once. DuckDB default ordered-window frame is
+        """PyArrow parity: DuckDB's default ordered-window frame is
         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, which makes
         LAST_VALUE return the current row instead of the partition-wide
-        last. Explicit ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED
-        FOLLOWING ensures full-partition visibility.
-
-        Uses ROW_NUMBER to tag original row positions, computes the window
-        function with the explicit UNBOUNDED frame, then restores original
-        row order.
-
-        *source_sql* is a quoted identifier or a ``CASE WHEN`` expression
-        when a mask is active.
-        """
+        last. Explicit UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING restores
+        full-partition visibility to match PyArrow group_by().aggregate()."""
         quoted_feature = quote_ident(feature_name)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)
         qrn = quote_ident(_RN_COL)

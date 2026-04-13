@@ -70,12 +70,8 @@ class SqliteOffset(OffsetFeatureGroup):
         order_by: str,
         offset_type: str,
     ) -> SqliteRelation:
-        """Compute first_value or last_value using a correlated subquery.
-
-        SQLite does not support IGNORE NULLS in window functions, so we use a
-        correlated subquery that selects the first (or last) non-null value
-        within each partition.
-        """
+        """SQLite lacks IGNORE NULLS in window functions, so select the first
+        (or last) non-null value per partition via a correlated subquery."""
         quoted_source = quote_ident(source_col)
         quoted_order = quote_ident(order_by)
         quoted_feature = quote_ident(feature_name)

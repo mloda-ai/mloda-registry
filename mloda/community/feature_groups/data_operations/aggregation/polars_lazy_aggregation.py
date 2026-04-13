@@ -57,7 +57,6 @@ class PolarsLazyAggregation(AggregationFeatureGroup):
         agg_type: str,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pl.LazyFrame:
-        """Compute a group aggregation using Polars group_by().agg() (fully lazy)."""
         actual_source = source_col
         if mask_spec is not None:
             data, actual_source = apply_polars_mask(data, source_col, mask_spec)

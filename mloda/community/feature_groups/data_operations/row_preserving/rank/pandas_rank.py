@@ -33,7 +33,6 @@ class PandasRank(RankFeatureGroup):
         order_by: str,
         rank_type: str,
     ) -> pd.DataFrame:
-        """Compute rank using pandas groupby().rank()."""
         data = data.copy()
 
         if rank_type in _PANDAS_RANK_METHODS:

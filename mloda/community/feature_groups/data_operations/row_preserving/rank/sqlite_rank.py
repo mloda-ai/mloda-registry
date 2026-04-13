@@ -62,7 +62,6 @@ class SqliteRank(RankFeatureGroup):
         order_by: str,
         rank_type: str,
     ) -> SqliteRelation:
-        """Execute the rank as a SQL window function with NULLS LAST."""
         quoted_order = quote_ident(order_by)
         quoted_feature = quote_ident(feature_name)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)

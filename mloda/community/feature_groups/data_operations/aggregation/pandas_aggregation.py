@@ -43,7 +43,6 @@ class PandasAggregation(AggregationFeatureGroup):
         agg_type: str,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pd.DataFrame:
-        """Compute a group aggregation using pandas groupby().agg()."""
         if mask_spec is not None:
             mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
             data = data.copy()
@@ -72,7 +71,7 @@ class PandasAggregation(AggregationFeatureGroup):
         source_col: str,
         partition_by: list[str] | tuple[str, ...],
     ) -> pd.DataFrame:
-        """Compute mode with insertion-order tie-breaking (matching PyArrow)."""
+        """Insertion-order tie-breaking for PyArrow parity."""
         partition_by = list(partition_by)
         if source_col in partition_by:
             unique_parts = data[partition_by].drop_duplicates().reset_index(drop=True).copy()

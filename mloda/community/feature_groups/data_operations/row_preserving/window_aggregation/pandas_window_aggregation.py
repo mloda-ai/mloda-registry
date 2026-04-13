@@ -45,7 +45,6 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
         order_by: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pd.DataFrame:
-        """Compute a window aggregation using pandas groupby().transform()."""
         if mask_spec is not None:
             mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
             data = data.copy()
@@ -79,7 +78,7 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
         source_col: str,
         partition_by: list[str] | tuple[str, ...],
     ) -> pd.DataFrame:
-        """Compute mode with insertion-order tie-breaking (matching PyArrow)."""
+        """Insertion-order tie-breaking for PyArrow parity."""
         partition_by = list(partition_by)
         if source_col in partition_by:
             data = data.copy()
@@ -117,13 +116,8 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
         agg_type: str,
         order_by: str,
     ) -> pd.DataFrame:
-        """Compute first/last with order_by by sorting, transforming, then restoring row order.
-
-        PyArrow parity: the reference sorts within each partition then
-        returns results in original row order. sort_index() after
-        transform restores the original pandas index order, matching
-        PyArrow's row-order guarantee.
-        """
+        """PyArrow parity: sort within each partition for first/last semantics,
+        then restore input row order via sort_index()."""
         pandas_func = PANDAS_AGG_FUNCS[agg_type]
         sorted_data = data.sort_values(order_by, na_position="last")
         grouped = null_safe_groupby(sorted_data, partition_by, source_col)
