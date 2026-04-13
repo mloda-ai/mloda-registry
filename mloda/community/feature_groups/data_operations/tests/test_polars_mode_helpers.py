@@ -35,6 +35,16 @@ class TestAddDropModeHelperCols:
         result = drop_mode_helper_cols(lf).collect()
         assert set(result.columns) == {"r", "v"}
 
+    @pytest.mark.parametrize(
+        "reserved_col",
+        ["__mloda_mode_idx__", "__mloda_mode_cnt__", "__mloda_mode_first__"],
+    )
+    def test_add_mode_helper_cols_raises_on_reserved_column_collision(self, reserved_col: str) -> None:
+        """If the input already has a reserved helper column, raise ValueError mentioning the name."""
+        lf = pl.DataFrame({"r": ["a", "a", "b"], "v": [1, 2, 3], reserved_col: [10, 20, 30]}).lazy()
+        with pytest.raises(ValueError, match=reserved_col):
+            add_mode_helper_cols(lf, "v", ["r"])
+
 
 class TestModeAggExpr:
     def test_mode_agg_expr_clear_winner(self) -> None:

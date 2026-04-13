@@ -924,3 +924,16 @@ class AggregationTestBase(MaskTestMixin, DataOpsTestBase):
         assert result_map["B"] == 140  # [50, 30, 60] > 10
         assert result_map["C"] == 70  # [15, 15, 40] > 10
         assert result_map[None] is None  # [-10] not > 10
+
+    def test_mask_mode_agg_equal(self) -> None:
+        """Mode of value_int where category='X', grouped by region."""
+        self._skip_if_unsupported("mode")
+        fs = make_feature_set("value_int__mode_agg", ["region"], mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 4
+        result_col = self.extract_column(result, "value_int__mode_agg")
+        result_map = _build_result_map(self.extract_column(result, "region"), result_col)
+        assert result_map["A"] == 10
+        assert result_map["B"] == 60
+        assert result_map["C"] == 15
+        assert result_map[None] == -10

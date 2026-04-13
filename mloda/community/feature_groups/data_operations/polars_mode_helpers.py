@@ -12,6 +12,12 @@ MODE_HELPER_COLS = [_MODE_IDX, _MODE_CNT, _MODE_FIRST]
 
 
 def add_mode_helper_cols(data: pl.LazyFrame, source_col: str, partition_by: list[str]) -> pl.LazyFrame:
+    existing = set(data.collect_schema().names())
+    for reserved in MODE_HELPER_COLS:
+        if reserved in existing:
+            raise ValueError(
+                f"Column '{reserved}' is a reserved mloda mode helper column and must not be present in the input."
+            )
     data = data.with_row_index(_MODE_IDX)
     data = data.with_columns(
         pl.col(source_col).count().over([*partition_by, source_col]).alias(_MODE_CNT),

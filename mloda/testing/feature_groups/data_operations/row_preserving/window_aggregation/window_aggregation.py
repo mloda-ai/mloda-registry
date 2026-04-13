@@ -826,6 +826,15 @@ class WindowAggregationTestBase(MaskTestMixin, DataOpsTestBase):
         result_col = self.extract_column(result, "value_int__sum_window")
         assert all(v is None for v in result_col)
 
+    def test_mask_mode_window_equal(self) -> None:
+        """Mode of value_int where category='X', partitioned by region (row-preserving)."""
+        self._skip_if_unsupported("mode")
+        fs = make_feature_set("value_int__mode_window", ["region"], mask=("category", "equal", "X"))
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+        assert self.get_row_count(result) == 12
+        result_col = self.extract_column(result, "value_int__mode_window")
+        assert result_col == [10, 10, 10, 10, 60, 60, 60, 60, 15, 15, 15, -10]
+
     # -- Option-based config tests -------------------------------------------
 
     def test_option_based_sum_window(self) -> None:
