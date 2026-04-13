@@ -9,6 +9,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
@@ -40,6 +41,7 @@ class DuckdbRank(RankFeatureGroup):
         quoted_order = quote_ident(order_by)
         quoted_feature = quote_ident(feature_name)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)
+        rn_col = unique_helper_name(_RN_COL, data._relation.columns)
 
         if rank_type.startswith("ntile_"):
             ntile_n = int(rank_type[len("ntile_") :])
@@ -64,7 +66,7 @@ class DuckdbRank(RankFeatureGroup):
         # mapping and returns results in original row order. DuckDB window
         # functions with ORDER BY reorder result rows; tag positions with
         # ROW_NUMBER() and ORDER BY qrn to restore input row order.
-        qrn = quote_ident(_RN_COL)
+        qrn = quote_ident(rn_col)
         if rank_type.startswith(("top_", "bottom_")):
             # rank_expr already contains full window expression with boolean comparison
             sql = (
@@ -85,6 +87,6 @@ class DuckdbRank(RankFeatureGroup):
         new_rel = data._relation.query("__t", sql)
         # Drop the helper column
         result_rel = new_rel.project(
-            ", ".join(quote_ident(c) for c in [col for col in new_rel.columns if col != _RN_COL])
+            ", ".join(quote_ident(c) for c in [col for col in new_rel.columns if col != rn_col])
         )
         return DuckdbRelation(data.connection, result_rel)

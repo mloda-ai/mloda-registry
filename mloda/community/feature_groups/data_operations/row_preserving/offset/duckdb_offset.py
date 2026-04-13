@@ -7,6 +7,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
@@ -33,6 +34,7 @@ class DuckdbOffset(OffsetFeatureGroup):
         quoted_order = quote_ident(order_by)
         quoted_feature = quote_ident(feature_name)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)
+        rn_col = unique_helper_name(_RN_COL, data._relation.columns)
 
         window_clause = f"PARTITION BY {partition_clause} ORDER BY {quoted_order} ASC NULLS LAST"
 
@@ -53,7 +55,7 @@ class DuckdbOffset(OffsetFeatureGroup):
                 f"THEN ({quoted_source} - {prev}) / CAST({prev} AS DOUBLE) END"
             )
 
-            qrn = quote_ident(_RN_COL)
+            qrn = quote_ident(rn_col)
             sql = (
                 f"SELECT *, "  # nosec
                 f"{offset_expr} AS {quoted_feature}, "
@@ -62,7 +64,7 @@ class DuckdbOffset(OffsetFeatureGroup):
             )
             new_rel = data._relation.query("__t", sql)
             result_rel = new_rel.project(
-                ", ".join(quote_ident(c) for c in [col for col in new_rel.columns if col != _RN_COL])
+                ", ".join(quote_ident(c) for c in [col for col in new_rel.columns if col != rn_col])
             )
             return DuckdbRelation(data.connection, result_rel)
         elif offset_type == "first_value":
@@ -82,7 +84,7 @@ class DuckdbOffset(OffsetFeatureGroup):
         # PyArrow parity: the reference returns results in original row
         # order. DuckDB window functions with ORDER BY reorder rows; tag
         # positions with ROW_NUMBER() and ORDER BY qrn to restore.
-        qrn = quote_ident(_RN_COL)
+        qrn = quote_ident(rn_col)
         sql = (
             f"SELECT *, "  # nosec
             f"{offset_expr} OVER ({window_clause}) AS {quoted_feature}, "
@@ -91,6 +93,6 @@ class DuckdbOffset(OffsetFeatureGroup):
         )
         new_rel = data._relation.query("__t", sql)
         result_rel = new_rel.project(
-            ", ".join(quote_ident(c) for c in [col for col in new_rel.columns if col != _RN_COL])
+            ", ".join(quote_ident(c) for c in [col for col in new_rel.columns if col != rn_col])
         )
         return DuckdbRelation(data.connection, result_rel)

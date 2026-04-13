@@ -11,6 +11,8 @@ from typing import Any
 
 import pandas as pd
 
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
+
 PANDAS_AGG_FUNCS: dict[str, str] = {
     "sum": "sum",
     "avg": "mean",
@@ -98,12 +100,7 @@ _MODE_FIRST_IDX_COL = "__mloda_mode_first_idx__"
 
 
 def _unique_temp_name(base: str, existing: Any) -> str:
-    if base not in existing:
-        return base
-    i = 1
-    while f"{base}_{i}" in existing:
-        i += 1
-    return f"{base}_{i}"
+    return unique_helper_name(base, existing)
 
 
 def compute_mode_winners(

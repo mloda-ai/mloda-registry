@@ -20,6 +20,7 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
@@ -74,14 +75,15 @@ class ReferenceWindowAggregation(WindowAggregationFeatureGroup):
             table = apply_pyarrow_mask(table, source_col, mask_spec)
 
         num_rows = table.num_rows
-        t_with_idx = table.append_column(_IDX_COL, pa.array(range(num_rows)))
+        idx_col = unique_helper_name(_IDX_COL, table.column_names)
+        t_with_idx = table.append_column(idx_col, pa.array(range(num_rows)))
 
         if agg_type in _PA_AGG_FUNCS:
             pa_func = _PA_AGG_FUNCS[agg_type]
             grouped = t_with_idx.group_by(partition_by).aggregate(
                 [
                     (source_col, pa_func),
-                    (_IDX_COL, "list"),
+                    (idx_col, "list"),
                 ]
             )
             agg_col = f"{source_col}_{pa_func}"
@@ -91,21 +93,21 @@ class ReferenceWindowAggregation(WindowAggregationFeatureGroup):
             grouped = t_with_idx.group_by(partition_by).aggregate(
                 [
                     (source_col, pa_func, pc.VarianceOptions(ddof=ddof)),
-                    (_IDX_COL, "list"),
+                    (idx_col, "list"),
                 ]
             )
             agg_col = f"{source_col}_{pa_func}"
 
         elif agg_type in _ORDERED_FUNCS:
-            return cls._compute_ordered(t_with_idx, feature_name, source_col, partition_by, agg_type, order_by)
+            return cls._compute_ordered(t_with_idx, feature_name, source_col, partition_by, agg_type, order_by, idx_col)
 
         elif agg_type in ("median", "mode"):
-            return cls._compute_via_list(t_with_idx, feature_name, source_col, partition_by, agg_type)
+            return cls._compute_via_list(t_with_idx, feature_name, source_col, partition_by, agg_type, idx_col)
 
         else:
             raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Reference")
 
-        return cls._broadcast(table, grouped, agg_col, feature_name, num_rows)
+        return cls._broadcast(table, grouped, agg_col, feature_name, num_rows, idx_col)
 
     @classmethod
     def _compute_ordered(
@@ -116,6 +118,7 @@ class ReferenceWindowAggregation(WindowAggregationFeatureGroup):
         partition_by: list[str],
         agg_type: str,
         order_by: str | None,
+        idx_col: str,
     ) -> pa.Table:
         pa_func = _ORDERED_FUNCS[agg_type]
         sort_keys = [(col, "ascending") for col in partition_by]
@@ -127,13 +130,13 @@ class ReferenceWindowAggregation(WindowAggregationFeatureGroup):
         grouped = sorted_t.group_by(partition_by, use_threads=False).aggregate(
             [
                 (source_col, pa_func),
-                (_IDX_COL, "list"),
+                (idx_col, "list"),
             ]
         )
         agg_col = f"{source_col}_{pa_func}"
 
-        original_table = t_with_idx.drop_columns([_IDX_COL])
-        return cls._broadcast(original_table, grouped, agg_col, feature_name, original_table.num_rows)
+        original_table = t_with_idx.drop_columns([idx_col])
+        return cls._broadcast(original_table, grouped, agg_col, feature_name, original_table.num_rows, idx_col)
 
     @classmethod
     def _compute_via_list(
@@ -143,15 +146,16 @@ class ReferenceWindowAggregation(WindowAggregationFeatureGroup):
         source_col: str,
         partition_by: list[str],
         agg_type: str,
+        idx_col: str,
     ) -> pa.Table:
         grouped = t_with_idx.group_by(partition_by).aggregate(
             [
                 (source_col, "list"),
-                (_IDX_COL, "list"),
+                (idx_col, "list"),
             ]
         )
         list_col = f"{source_col}_list"
-        idx_list_col = f"{_IDX_COL}_list"
+        idx_list_col = f"{idx_col}_list"
 
         num_rows = t_with_idx.num_rows
         result_values: list[Any] = [None] * num_rows
@@ -171,7 +175,7 @@ class ReferenceWindowAggregation(WindowAggregationFeatureGroup):
             for idx in indices:
                 result_values[idx] = agg_val
 
-        original_table = t_with_idx.drop_columns([_IDX_COL])
+        original_table = t_with_idx.drop_columns([idx_col])
         return original_table.append_column(feature_name, pa.array(result_values))
 
     @classmethod
@@ -182,8 +186,9 @@ class ReferenceWindowAggregation(WindowAggregationFeatureGroup):
         agg_col: str,
         feature_name: str,
         num_rows: int,
+        idx_col: str,
     ) -> pa.Table:
-        idx_list_col = f"{_IDX_COL}_list"
+        idx_list_col = f"{idx_col}_list"
         result_values: list[Any] = [None] * num_rows
 
         for g in range(grouped.num_rows):

@@ -16,6 +16,7 @@ import pyarrow.compute as pc
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (
     PercentileFeatureGroup,
@@ -43,16 +44,17 @@ class ReferencePercentile(PercentileFeatureGroup):
             table = apply_pyarrow_mask(table, source_col, mask_spec)
 
         num_rows = table.num_rows
-        t_with_idx = table.append_column(_IDX_COL, pa.array(range(num_rows)))
+        idx_col = unique_helper_name(_IDX_COL, table.column_names)
+        t_with_idx = table.append_column(idx_col, pa.array(range(num_rows)))
 
         grouped = t_with_idx.group_by(partition_by).aggregate(
             [
                 (source_col, "list"),
-                (_IDX_COL, "list"),
+                (idx_col, "list"),
             ]
         )
         list_col = f"{source_col}_list"
-        idx_list_col = f"{_IDX_COL}_list"
+        idx_list_col = f"{idx_col}_list"
 
         result_values: list[Any] = [None] * num_rows
 

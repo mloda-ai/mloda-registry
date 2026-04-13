@@ -8,6 +8,7 @@ import polars as pl
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
@@ -25,6 +26,7 @@ class PolarsLazyRank(RankFeatureGroup):
         cls,
         order_by: str,
         partition_by: list[str],
+        null_flag_col: str,
         descending: bool = False,
     ) -> pl.Expr:
         """Row number expression with nulls-last semantics.
@@ -35,8 +37,8 @@ class PolarsLazyRank(RankFeatureGroup):
         """
         non_null_rank = pl.col(order_by).rank(method="ordinal", descending=descending).over(partition_by)
         group_size = pl.col(order_by).len().over(partition_by)
-        null_count_before = pl.col(_NULL_FLAG_COL).cum_sum().over(partition_by)
-        non_null_count = group_size - pl.col(_NULL_FLAG_COL).sum().over(partition_by)
+        null_count_before = pl.col(null_flag_col).cum_sum().over(partition_by)
+        non_null_count = group_size - pl.col(null_flag_col).sum().over(partition_by)
         return pl.when(pl.col(order_by).is_null()).then(non_null_count + null_count_before).otherwise(non_null_rank)
 
     @classmethod
@@ -57,16 +59,17 @@ class PolarsLazyRank(RankFeatureGroup):
         match the reference behavior.
         """
         # Create a helper: is_null flag (0 for non-null, 1 for null) for sorting nulls last
-        null_flag = pl.col(order_by).is_null().cast(pl.Int64).alias(_NULL_FLAG_COL)
+        null_flag_col = unique_helper_name(_NULL_FLAG_COL, data.collect_schema().names())
+        null_flag = pl.col(order_by).is_null().cast(pl.Int64).alias(null_flag_col)
         data = data.with_columns(null_flag)
 
         if rank_type == "row_number":
-            row_num = cls._row_number_nulls_last(order_by, partition_by)
+            row_num = cls._row_number_nulls_last(order_by, partition_by, null_flag_col)
             expr = row_num.cast(pl.Int64).alias(feature_name)
         elif rank_type == "rank":
             non_null_rank = pl.col(order_by).rank(method="min").over(partition_by)
             group_size = pl.col(order_by).len().over(partition_by)
-            non_null_count = group_size - pl.col(_NULL_FLAG_COL).sum().over(partition_by)
+            non_null_count = group_size - pl.col(null_flag_col).sum().over(partition_by)
             expr = (
                 pl.when(pl.col(order_by).is_null())
                 .then(non_null_count + 1)
@@ -87,7 +90,7 @@ class PolarsLazyRank(RankFeatureGroup):
         elif rank_type == "percent_rank":
             non_null_rank = pl.col(order_by).rank(method="min").over(partition_by)
             group_size = pl.col(order_by).len().over(partition_by)
-            non_null_count = group_size - pl.col(_NULL_FLAG_COL).sum().over(partition_by)
+            non_null_count = group_size - pl.col(null_flag_col).sum().over(partition_by)
             null_rank = non_null_count + 1
             rank_val = pl.when(pl.col(order_by).is_null()).then(null_rank).otherwise(non_null_rank)
             expr = (
@@ -98,19 +101,19 @@ class PolarsLazyRank(RankFeatureGroup):
             )
         elif rank_type.startswith("ntile_"):
             ntile_n = int(rank_type[len("ntile_") :])
-            row_num = cls._row_number_nulls_last(order_by, partition_by)
+            row_num = cls._row_number_nulls_last(order_by, partition_by, null_flag_col)
             group_size = pl.col(order_by).len().over(partition_by)
             expr = ((row_num - 1) * ntile_n // group_size + 1).cast(pl.Int64).alias(feature_name)
         elif rank_type.startswith("top_"):
             top_n = int(rank_type[len("top_") :])
-            row_num = cls._row_number_nulls_last(order_by, partition_by, descending=True)
+            row_num = cls._row_number_nulls_last(order_by, partition_by, null_flag_col, descending=True)
             expr = (row_num <= top_n).alias(feature_name)
         elif rank_type.startswith("bottom_"):
             bottom_n = int(rank_type[len("bottom_") :])
-            row_num = cls._row_number_nulls_last(order_by, partition_by)
+            row_num = cls._row_number_nulls_last(order_by, partition_by, null_flag_col)
             expr = (row_num <= bottom_n).alias(feature_name)
         else:
             raise ValueError(f"Unsupported rank type: {rank_type}")
 
         result = data.with_columns(expr)
-        return result.drop(_NULL_FLAG_COL)
+        return result.drop(null_flag_col)

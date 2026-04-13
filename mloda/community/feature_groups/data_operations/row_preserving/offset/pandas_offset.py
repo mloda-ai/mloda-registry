@@ -7,6 +7,7 @@ import pandas as pd
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
@@ -33,8 +34,9 @@ class PandasOffset(OffsetFeatureGroup):
 
         # Sort by partition + order_by (nulls last) to ensure correct offset
         null_sort = data[order_by].isna().astype(int)
-        data["__mloda_null_sort"] = null_sort
-        data = data.sort_values(partition_by + ["__mloda_null_sort", order_by])
+        null_sort_col = unique_helper_name("__mloda_null_sort", data.columns)
+        data[null_sort_col] = null_sort
+        data = data.sort_values(partition_by + [null_sort_col, order_by])
 
         grouped = null_safe_groupby(data, partition_by, source_col)
 
@@ -58,7 +60,7 @@ class PandasOffset(OffsetFeatureGroup):
         else:
             raise ValueError(f"Unsupported offset type: {offset_type}")
 
-        data = data.drop(columns=["__mloda_null_sort"])
+        data = data.drop(columns=[null_sort_col])
         # Restore original row order
         data = data.sort_index()
         return data

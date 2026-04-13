@@ -8,6 +8,7 @@ import polars as pl
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
@@ -36,7 +37,8 @@ class PolarsLazyOffset(OffsetFeatureGroup):
         restore order afterward to match the reference.
         """
         # Track original row order
-        data = data.with_row_index("__mloda_orig_idx")
+        orig_idx_col = unique_helper_name("__mloda_orig_idx", data.collect_schema().names())
+        data = data.with_row_index(orig_idx_col)
 
         # Sort by partition_by + order_by (nulls last) for correct offset
         data = data.sort(partition_by + [order_by], nulls_last=True)
@@ -69,4 +71,4 @@ class PolarsLazyOffset(OffsetFeatureGroup):
 
         result = data.with_columns(expr)
         # Restore original row order and drop helper column
-        return result.sort("__mloda_orig_idx").drop("__mloda_orig_idx")
+        return result.sort(orig_idx_col).drop(orig_idx_col)

@@ -13,7 +13,8 @@ from mloda.community.feature_groups.data_operations.errors import (
     unsupported_agg_type_error,
     unsupported_frame_type_error,
 )
-from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
+from mloda.community.feature_groups.data_operations.mask_utils import apply_polars_mask
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -46,8 +47,14 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pl.LazyFrame:
         actual_source = source_col
+        # Resolve helper-column names against the original schema so that
+        # user-supplied columns named like our internal helpers survive.
+        existing_names = data.collect_schema().names()
+        rn_col = unique_helper_name(_RN_COL, existing_names)
+        mask_tmp_col: str | None = None
         if mask_spec is not None:
             data, actual_source = apply_polars_mask(data, source_col, mask_spec)
+            mask_tmp_col = actual_source
 
         # Cast Null-typed columns to Float64 so aggregation operations work.
         schema = data.collect_schema()
@@ -55,7 +62,7 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
             data = data.cast({actual_source: pl.Float64})
 
         # Tag rows with original position
-        data = data.with_row_index(_RN_COL)
+        data = data.with_row_index(rn_col)
 
         # Sort within partitions by order_by (nulls last)
         sort_expr = pl.col(order_by).is_null().cast(pl.Int8)
@@ -126,10 +133,10 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
         result = sorted_data.with_columns(expr)
 
         # Restore original row order and drop helper columns
-        result = result.sort(_RN_COL)
-        drop_cols = [_RN_COL]
-        if mask_spec is not None:
-            drop_cols.append(_POLARS_MASK_TMP)
+        result = result.sort(rn_col)
+        drop_cols = [rn_col]
+        if mask_tmp_col is not None:
+            drop_cols.append(mask_tmp_col)
         result = result.drop(drop_cols)
 
         return result

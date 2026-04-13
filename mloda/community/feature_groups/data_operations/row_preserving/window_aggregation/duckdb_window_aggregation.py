@@ -10,6 +10,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
@@ -109,7 +110,8 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         """
         quoted_feature = quote_ident(feature_name)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)
-        qrn = quote_ident(_RN_COL)
+        rn_col = unique_helper_name(_RN_COL, data._relation.columns)
+        qrn = quote_ident(rn_col)
         agg_func = _DUCKDB_AGG_FUNCS[agg_type]
 
         order_clause = f"ORDER BY {quote_ident(order_by)}" if order_by else ""
@@ -126,7 +128,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
 
         # Step 3: restore original row order, drop helper column
         rel = rel.order(qrn)
-        keep = ", ".join(quote_ident(c) for c in rel.columns if c != _RN_COL)
+        keep = ", ".join(quote_ident(c) for c in rel.columns if c != rn_col)
         rel = rel.project(keep)
 
         return DuckdbRelation(data.connection, rel)

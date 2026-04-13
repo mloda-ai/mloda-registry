@@ -13,6 +13,7 @@ from mloda.community.feature_groups.data_operations.errors import (
     unsupported_agg_type_error,
     unsupported_frame_type_error,
 )
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
@@ -67,7 +68,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         data = data.copy()
 
         # Save original row order so we can restore it after sorting
-        rn_col = "__mloda_rn__"
+        rn_col = unique_helper_name("__mloda_rn__", data.columns)
         data[rn_col] = range(len(data))
 
         data = data.sort_values(by=[*partition_by, order_by], na_position="last")

@@ -9,6 +9,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BinningFeatureGroup,
 )
@@ -52,7 +53,8 @@ class DuckdbBinning(BinningFeatureGroup):
             # mapping and naturally preserves row order. DuckDB NTILE()
             # reorders rows via ORDER BY; tag positions with ROW_NUMBER()
             # and restore via .order() to match PyArrow output.
-            qrn = quote_ident("__mloda_rn__")
+            rn_col = unique_helper_name("__mloda_rn__", data._relation.columns)
+            qrn = quote_ident(rn_col)
             expr = (
                 f"CASE WHEN {quoted_source} IS NULL OR isnan({quoted_source}) THEN NULL "
                 f"ELSE LEAST(NTILE({n_bins}) OVER ("
@@ -63,7 +65,7 @@ class DuckdbBinning(BinningFeatureGroup):
             with_rn = data.select(_raw_sql=f"*, ROW_NUMBER() OVER () AS {qrn}")
             with_qbin = with_rn.select(_raw_sql=f"*, {expr} AS {quoted_feature}")
             sorted_rel = with_qbin.order(qrn)
-            keep = ", ".join(quote_ident(c) for c in sorted_rel.columns if c != "__mloda_rn__")
+            keep = ", ".join(quote_ident(c) for c in sorted_rel.columns if c != rn_col)
             qbin_result: DuckdbRelation = sorted_rel.select(_raw_sql=keep)
             return qbin_result
 
