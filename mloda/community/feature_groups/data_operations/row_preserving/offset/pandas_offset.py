@@ -7,6 +7,7 @@ import pandas as pd
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
+from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
@@ -28,6 +29,8 @@ class PandasOffset(OffsetFeatureGroup):
         order_by: str,
         offset_type: str,
     ) -> pd.DataFrame:
+        assert_no_reserved_columns(data.columns, framework="Pandas", operation="offset")
+
         data = data.copy()
 
         # Sort by partition + order_by (nulls last) to ensure correct offset

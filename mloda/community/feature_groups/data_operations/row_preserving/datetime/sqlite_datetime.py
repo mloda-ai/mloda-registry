@@ -7,6 +7,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
+from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
     DateTimeFeatureGroup,
 )
@@ -40,6 +41,8 @@ class SqliteDateTimeExtraction(DateTimeFeatureGroup):
         source_col: str,
         op: str,
     ) -> SqliteRelation:
+        assert_no_reserved_columns(data.columns, framework="SQLite", operation="datetime")
+
         expr_template = _SQLITE_DATETIME_EXPRS.get(op)
         if expr_template is None:
             raise ValueError(f"Unsupported datetime operation for SQLite: {op}")

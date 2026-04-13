@@ -7,6 +7,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
+from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
@@ -29,6 +30,8 @@ class DuckdbOffset(OffsetFeatureGroup):
         order_by: str,
         offset_type: str,
     ) -> DuckdbRelation:
+        assert_no_reserved_columns(data.columns, framework="DuckDB", operation="offset")
+
         quoted_source = quote_ident(source_col)
         quoted_order = quote_ident(order_by)
         quoted_feature = quote_ident(feature_name)

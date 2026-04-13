@@ -8,6 +8,7 @@ import polars as pl
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
+from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
@@ -51,6 +52,8 @@ class PolarsLazyRank(RankFeatureGroup):
         """PyArrow parity: Polars rank() returns null for null inputs, but the
         reference ranks nulls last as integers. Assign null rows rank
         (non_null_count + 1) manually."""
+        assert_no_reserved_columns(data.collect_schema().names(), framework="Polars", operation="rank")
+
         # Create a helper: is_null flag (0 for non-null, 1 for null) for sorting nulls last
         null_flag = pl.col(order_by).is_null().cast(pl.Int64).alias(_NULL_FLAG_COL)
         data = data.with_columns(null_flag)

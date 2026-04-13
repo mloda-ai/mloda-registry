@@ -18,6 +18,7 @@ from mloda.community.feature_groups.data_operations.polars_mode_helpers import (
     add_mode_helper_cols,
     mode_agg_expr,
 )
+from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 
 # Mapping from aggregation type to a Polars expression builder.
 _POLARS_AGG_EXPRS: dict[str, Any] = {
@@ -57,6 +58,8 @@ class PolarsLazyAggregation(AggregationFeatureGroup):
         agg_type: str,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pl.LazyFrame:
+        assert_no_reserved_columns(data.collect_schema().names(), framework="Polars", operation="aggregation")
+
         actual_source = source_col
         if mask_spec is not None:
             data, actual_source = apply_polars_mask(data, source_col, mask_spec)

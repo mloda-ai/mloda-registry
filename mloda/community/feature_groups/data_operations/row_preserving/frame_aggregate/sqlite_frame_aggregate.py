@@ -14,6 +14,7 @@ from mloda.community.feature_groups.data_operations.errors import (
     unsupported_frame_type_error,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
+from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -48,6 +49,8 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         frame_unit: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> SqliteRelation:
+        assert_no_reserved_columns(data.columns, framework="SQLite", operation="frame aggregate")
+
         agg_func = _SQLITE_AGG_FUNCS.get(agg_type)
         if agg_func is None:
             raise unsupported_agg_type_error(

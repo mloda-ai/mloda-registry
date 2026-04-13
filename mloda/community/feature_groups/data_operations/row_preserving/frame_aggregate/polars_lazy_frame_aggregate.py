@@ -14,6 +14,7 @@ from mloda.community.feature_groups.data_operations.errors import (
     unsupported_frame_type_error,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
+from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -45,6 +46,8 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
         frame_unit: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pl.LazyFrame:
+        assert_no_reserved_columns(data.collect_schema().names(), framework="Polars", operation="frame aggregate")
+
         actual_source = source_col
         if mask_spec is not None:
             data, actual_source = apply_polars_mask(data, source_col, mask_spec)

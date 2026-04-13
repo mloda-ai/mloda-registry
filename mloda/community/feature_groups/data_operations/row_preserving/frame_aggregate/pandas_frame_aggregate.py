@@ -14,6 +14,7 @@ from mloda.community.feature_groups.data_operations.errors import (
     unsupported_frame_type_error,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
+from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -55,6 +56,8 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         frame_unit: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pd.DataFrame:
+        assert_no_reserved_columns(data.columns, framework="Pandas", operation="frame aggregate")
+
         pandas_func = _PANDAS_FRAME_AGG_FUNCS.get(agg_type)
         if pandas_func is None:
             raise unsupported_agg_type_error(

@@ -19,6 +19,7 @@ Divergences fall into three kinds, handled in three different places.
 | Implementation fix | Polars `sum()` returns `0` for an all-null group; PyArrow returns `null`. | The framework implementation detects the edge case and returns the PyArrow-equivalent result. |
 | Excluded op | SQLite `UPPER`/`LOWER` are ASCII-only; `REVERSE` has no native function. | `_validate_string_match` refuses to resolve the feature; `supported_ops()` skips the corresponding tests. See [Supported ops](04-supported-ops.md). |
 | Accepted tolerance | Float accumulation order differs between columnar reductions and SQL window functions. | Cross-framework comparison uses `pytest.approx(rel=1e-6)` when the test flips `use_approx=True`. |
+| Implementation guard | Several row-preserving implementations tag rows with hardcoded helper columns (`__mloda_rn__`, `__mloda_orig_idx`, ...). A user column with the same name would collide silently. | Every guarded `_compute_*` calls `assert_no_reserved_columns()`; any input column starting with the reserved prefix raises a clear `ValueError`. |
 
 An entry is added here only after a cross-framework test or an explicit audit has confirmed the divergence.
 
@@ -85,6 +86,16 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 - **How**: The `supported_ops()` / `supported_agg_types()` on each operation's PyArrow test class returns an empty or reduced set so the suite does not try to compare against an implementation that does not exist. See `aggregation/tests/test_pyarrow.py` and `row_preserving/window_aggregation/tests/test_pyarrow.py`.
 - **Regression signal**: Restoring the op on PyArrow requires both providing a native implementation and re-expanding the supported set; no silent skip is possible.
 - **Related**: This is the "Category 1" case described in issue #146; listed here for completeness.
+
+### Reserved `__mloda_` prefix for internal helper columns
+
+- **Operations**: `aggregation` (Polars Lazy), `binning` (DuckDB, SQLite), `datetime` (SQLite), `frame_aggregate` (all frameworks), `offset` (all frameworks), `percentile` (Polars Lazy), `rank` (DuckDB, Polars Lazy, SQLite), `scalar_aggregate` (Polars Lazy), `string` (SQLite), `window_aggregation` (all frameworks).
+- **Where it lives**: `mloda/community/feature_groups/data_operations/reserved_columns.py` defines `RESERVED_PREFIX = "__mloda_"` and the `assert_no_reserved_columns()` validator. Each guarded implementation calls it as the first statement of its `_compute_*` method.
+- **Reference behavior**: PyArrow's reference implementation does not need helper columns and is silent about column names starting with `__mloda_`.
+- **Native framework behavior**: Several row-preserving implementations add an internal helper column (for example `__mloda_rn__` to record original row order before a reordering window function). The helper name is hardcoded. If an input already carries a column with the same name, the helper would either overwrite user data or be dropped together with the helper at the end of the method, all without a diagnostic.
+- **Mitigation kind**: Implementation guard.
+- **How**: `assert_no_reserved_columns(<input columns>, framework=..., operation=...)` runs first in every guarded `_compute_*` method. It scans the input column names; any name starting with `__mloda_` raises `ValueError` with the offending name, the framework label, and the operation label. The whole prefix is reserved (not individual names) so future helpers added by new implementations are covered automatically.
+- **Regression signal**: `mloda/community/feature_groups/data_operations/tests/test_reserved_columns.py` tests the helper. `mloda/community/feature_groups/data_operations/tests/test_reserved_columns_integration.py` exercises every guarded `_compute_*` with a colliding input and asserts the framework + operation label appear in the message; removing the guard from any implementation fails one test from that file.
 
 ### SQLite lacks `percentile` and `reverse` (and the string ops above)
 

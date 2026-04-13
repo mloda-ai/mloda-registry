@@ -11,6 +11,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
+from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
@@ -55,6 +56,8 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         order_by: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> DuckdbRelation:
+        assert_no_reserved_columns(data.columns, framework="DuckDB", operation="window aggregation")
+
         # Safety: _raw_sql is composed entirely from quote_ident()-quoted identifiers
         # and hardcoded SQL function names from _DUCKDB_AGG_FUNCS. No user-controlled
         # strings are interpolated without quoting.
