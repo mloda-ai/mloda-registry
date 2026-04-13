@@ -70,9 +70,15 @@ class PandasAggregation(AggregationFeatureGroup):
         data: pd.DataFrame,
         feature_name: str,
         source_col: str,
-        partition_by: list[str],
+        partition_by: list[str] | tuple[str, ...],
     ) -> pd.DataFrame:
         """Compute mode with insertion-order tie-breaking (matching PyArrow)."""
+        partition_by = list(partition_by)
+        if source_col in partition_by:
+            unique_parts = data[partition_by].drop_duplicates().reset_index(drop=True).copy()
+            unique_parts[feature_name] = unique_parts[source_col].where(unique_parts[source_col].notna(), pd.NA)
+            return unique_parts
+
         winners = compute_mode_winners(data, source_col, partition_by)
         winners = winners.rename(columns={source_col: feature_name})
 

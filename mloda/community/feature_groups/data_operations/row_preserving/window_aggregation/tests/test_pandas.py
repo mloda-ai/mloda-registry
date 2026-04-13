@@ -92,3 +92,100 @@ class TestPandasWindowModeVectorized:
         )
 
         assert not hasattr(pandas_window_aggregation, "Counter")
+
+    def test_mode_source_col_equals_partition_by_single_key(self) -> None:
+        """Bug 1: source_col in partition_by must broadcast trivially.
+
+        Within every partition defined by value, the value column is
+        constant, so the mode equals the key.
+        """
+        data = pd.DataFrame({"value": [1, 2, 2, 3]})
+        result = PandasWindowAggregation._compute_mode(data, "mode_val", "value", ["value"])
+        assert result["value"].tolist() == [1, 2, 2, 3]
+        assert result["mode_val"].tolist() == [1, 2, 2, 3]
+
+    def test_mode_source_col_in_multi_key_partition(self) -> None:
+        """Bug 1: source_col appearing among multi-key partition_by must broadcast correctly."""
+        data = pd.DataFrame(
+            {
+                "region": ["A", "A", "B", "B"],
+                "value": [1, 1, 2, 2],
+            }
+        )
+        result = PandasWindowAggregation._compute_mode(data, "mode_val", "value", ["region", "value"])
+        assert result["region"].tolist() == ["A", "A", "B", "B"]
+        assert result["value"].tolist() == [1, 1, 2, 2]
+        assert result["mode_val"].tolist() == [1, 1, 2, 2]
+
+    def test_mode_source_col_equals_partition_by_with_null(self) -> None:
+        """Bug 1: null source values broadcast as NaN when source_col == partition_by."""
+        data = pd.DataFrame({"value": [1.0, 2.0, float("nan"), 2.0]})
+        result = PandasWindowAggregation._compute_mode(data, "mode_val", "value", ["value"])
+        assert result["value"].tolist()[:2] == [1.0, 2.0]
+        assert result.loc[0, "mode_val"] == 1.0
+        assert result.loc[1, "mode_val"] == 2.0
+        assert pd.isna(result.loc[2, "mode_val"])
+        assert result.loc[3, "mode_val"] == 2.0
+
+    def test_mode_partition_collides_with_is_data_sentinel(self) -> None:
+        """Bug 2: a user partition column named ``__mloda_mode_is_data__`` must
+        still produce a correct mode broadcast. The current implementation uses
+        that name as an internal sentinel and overwrites the column, yielding
+        all-None output.
+        """
+        data = pd.DataFrame(
+            {
+                "__mloda_mode_is_data__": ["A", "A", "B", "B", "B"],
+                "v": [1, 1, 2, 3, 3],
+            }
+        )
+        result = PandasWindowAggregation._compute_mode(data, "mode_val", "v", ["__mloda_mode_is_data__"])
+        assert result["__mloda_mode_is_data__"].tolist() == ["A", "A", "B", "B", "B"]
+        assert result["v"].tolist() == [1, 1, 2, 3, 3]
+        assert result["mode_val"].tolist() == [1, 1, 3, 3, 3]
+
+    def test_mode_partition_collides_with_row_idx_sentinel(self) -> None:
+        """Bug 2: a user partition column matching the helper's row-idx sentinel."""
+        data = pd.DataFrame(
+            {
+                "__mloda_mode_row_idx__": ["A", "A", "B", "B", "B"],
+                "v": [1, 1, 2, 3, 3],
+            }
+        )
+        result = PandasWindowAggregation._compute_mode(data, "mode_val", "v", ["__mloda_mode_row_idx__"])
+        assert result["mode_val"].tolist() == [1, 1, 3, 3, 3]
+
+    def test_mode_source_col_is_count_sentinel(self) -> None:
+        """Bug 2: a user source column matching the helper's count sentinel."""
+        data = pd.DataFrame(
+            {
+                "region": ["A", "A", "A", "B", "B"],
+                "__mloda_mode_count__": [10, 10, 20, 30, 30],
+            }
+        )
+        result = PandasWindowAggregation._compute_mode(data, "mode_val", "__mloda_mode_count__", ["region"])
+        assert result["mode_val"].tolist() == [10, 10, 10, 30, 30]
+
+    def test_mode_accepts_tuple_partition_by_single_key(self) -> None:
+        """Bug 3: tuple partition_by must not crash the window mode path.
+
+        mloda core converts list options to tuples for hashability (#228).
+        The shared helper builds ``partition_by + [source_col]`` which raises
+        ``TypeError`` when partition_by is a tuple.
+        """
+        data = pd.DataFrame({"region": ["A", "A", "A"], "value": [1, 2, 2]})
+        result = PandasWindowAggregation._compute_mode(data, "mode_val", "value", ("region",))
+        assert result["mode_val"].tolist() == [2, 2, 2]
+        assert result["value"].tolist() == [1, 2, 2]
+
+    def test_mode_accepts_tuple_partition_by_multi_key(self) -> None:
+        """Bug 3: multi-key tuple partition_by must broadcast correctly."""
+        data = pd.DataFrame(
+            {
+                "region": ["A", "A", "A", "B", "B"],
+                "category": ["x", "x", "y", "x", "x"],
+                "value": [1, 1, 5, 7, 9],
+            }
+        )
+        result = PandasWindowAggregation._compute_mode(data, "mode_val", "value", ("region", "category"))
+        assert result["mode_val"].tolist() == [1, 1, 5, 7, 7]

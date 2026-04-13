@@ -97,10 +97,19 @@ _MODE_COUNT_COL = "__mloda_mode_count__"
 _MODE_FIRST_IDX_COL = "__mloda_mode_first_idx__"
 
 
+def _unique_temp_name(base: str, existing: Any) -> str:
+    if base not in existing:
+        return base
+    i = 1
+    while f"{base}_{i}" in existing:
+        i += 1
+    return f"{base}_{i}"
+
+
 def compute_mode_winners(
     data: pd.DataFrame,
     source_col: str,
-    partition_by: list[str],
+    partition_by: list[str] | tuple[str, ...],
 ) -> pd.DataFrame:
     """Return one row per partition with the mode value of *source_col*.
 
@@ -112,20 +121,24 @@ def compute_mode_winners(
     The returned frame has columns ``partition_by + [source_col]`` and
     contains at most one row per unique partition-key combination.
     """
+    partition_by = list(partition_by)
     work = data[partition_by + [source_col]].copy()
-    work[_MODE_IDX_COL] = range(len(work))
+    idx_col = _unique_temp_name(_MODE_IDX_COL, work.columns)
+    count_col = _unique_temp_name(_MODE_COUNT_COL, work.columns)
+    first_idx_col = _unique_temp_name(_MODE_FIRST_IDX_COL, work.columns)
+    work[idx_col] = range(len(work))
     work = work[work[source_col].notna()]
     if work.empty:
         return data.iloc[0:0][partition_by + [source_col]].copy()
 
     counts = work.groupby(partition_by + [source_col], dropna=False, as_index=False).agg(
         **{
-            _MODE_COUNT_COL: (_MODE_IDX_COL, "size"),
-            _MODE_FIRST_IDX_COL: (_MODE_IDX_COL, "min"),
+            count_col: (idx_col, "size"),
+            first_idx_col: (idx_col, "min"),
         }
     )
     counts = counts.sort_values(
-        partition_by + [_MODE_COUNT_COL, _MODE_FIRST_IDX_COL],
+        partition_by + [count_col, first_idx_col],
         ascending=[True] * len(partition_by) + [False, True],
         kind="mergesort",
     )

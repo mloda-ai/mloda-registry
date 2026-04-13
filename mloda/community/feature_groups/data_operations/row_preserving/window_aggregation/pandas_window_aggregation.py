@@ -16,6 +16,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 )
 from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
+    _unique_temp_name,
     apply_null_safe_agg,
     coerce_count_dtype,
     compute_mode_winners,
@@ -76,23 +77,31 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
         data: pd.DataFrame,
         feature_name: str,
         source_col: str,
-        partition_by: list[str],
+        partition_by: list[str] | tuple[str, ...],
     ) -> pd.DataFrame:
         """Compute mode with insertion-order tie-breaking (matching PyArrow)."""
+        partition_by = list(partition_by)
+        if source_col in partition_by:
+            data = data.copy()
+            data[feature_name] = data[source_col]
+            return data
+
+        is_data_col = _unique_temp_name("__mloda_mode_is_data__", data.columns)
+
         winners = compute_mode_winners(data, source_col, partition_by)
         winners = winners.rename(columns={source_col: feature_name})
 
         carrier = data[partition_by].copy()
         carrier[feature_name] = pd.NA
-        carrier["__mloda_mode_is_data__"] = True
+        carrier[is_data_col] = True
 
         winners_for_merge = winners.copy()
-        winners_for_merge["__mloda_mode_is_data__"] = False
+        winners_for_merge[is_data_col] = False
 
         combined = pd.concat([winners_for_merge, carrier], ignore_index=True, sort=False)
         combined[feature_name] = combined.groupby(partition_by, dropna=False)[feature_name].transform("first")
 
-        broadcast = combined.loc[combined["__mloda_mode_is_data__"], feature_name]
+        broadcast = combined.loc[combined[is_data_col], feature_name]
 
         data = data.copy()
         data[feature_name] = broadcast.to_numpy()
