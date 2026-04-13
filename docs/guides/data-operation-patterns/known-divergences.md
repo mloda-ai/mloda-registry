@@ -130,6 +130,7 @@ Do not add speculative entries. If an audit only uncovered a hypothetical diverg
 
 ## Related
 
+- [Framework support matrix](framework-support-matrix.md) - The full operation x framework capability table; every divergence-driven exclusion on this page corresponds to one or more matrix cells.
 - [Reference implementation pattern](03-reference-implementation.md) - Why PyArrow is authoritative.
 - [Supported ops per framework](04-supported-ops.md) - The exclusion mechanism used when a framework cannot match PyArrow.
 - [Row-preserving contract](02-row-preserving-contract.md) - The invariant every row-preserving op must honor.

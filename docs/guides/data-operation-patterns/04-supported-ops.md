@@ -95,6 +95,7 @@ Start by returning the full set the operation supports. Shrink it only as concre
 
 ## Related
 
+- [Framework support matrix](framework-support-matrix.md) - The capability matrix this mechanism produces, rendered as operation x framework tables.
 - [Reference implementation pattern](03-reference-implementation.md) - How framework implementations are compared against PyArrow.
 - [String operations](09-string-operations.md) - The most common place `supported_ops()` comes up.
 - [Adding a new data operation](10-adding-new-operation.md) - How to define the method on a new operation's test base.

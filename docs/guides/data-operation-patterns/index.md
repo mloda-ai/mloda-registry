@@ -19,3 +19,4 @@ Read them after you are comfortable with the [feature-group patterns](../feature
 9. [String operations](09-string-operations.md) - Element-wise string transforms
 10. [Adding a new data operation](10-adding-new-operation.md) - End-to-end recipe
 11. [Known divergences](known-divergences.md) - Audited cases where a framework would diverge from the PyArrow reference, with the mitigation for each
+12. [Framework support matrix](framework-support-matrix.md) - Operation x framework capability table, generated from `supported_*()` test overrides
