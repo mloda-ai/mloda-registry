@@ -11,11 +11,12 @@ from mloda.community.feature_groups.data_operations.string.base import (
     StringFeatureGroup,
 )
 
-# SQLite native string functions.
-# reverse is not supported natively in SQLite.
+# SQLite's native UPPER/LOWER are ASCII-only: UPPER('héllo') returns 'HéLLO'
+# instead of 'HÉLLO'. Rather than emulate unicode-aware semantics in Python
+# and risk silent divergence from the PyArrow reference, SQLite refuses to
+# match upper/lower and lets the resolver fall back to another framework.
+# The same pattern is used for 'reverse', which SQLite has no native function for.
 _SQLITE_STRING_EXPRS: dict[str, str] = {
-    "upper": "UPPER({col})",
-    "lower": "LOWER({col})",
     "trim": "TRIM({col})",
     "length": "LENGTH({col})",
 }
@@ -28,7 +29,9 @@ class SqliteStringOps(StringFeatureGroup):
 
     @classmethod
     def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
-        """Reject 'reverse' at match time since SQLite has no native reverse function."""
+        """SQLite only supports trim and length. upper/lower are ASCII-only
+        in SQLite so they diverge from the PyArrow reference; reverse has
+        no native SQLite function. All three are refused at match time."""
         return operation_config in _SQLITE_STRING_EXPRS
 
     @classmethod

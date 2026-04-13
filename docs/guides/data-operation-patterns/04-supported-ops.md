@@ -27,15 +27,13 @@ The multiple method names exist because different operation categories use diffe
 
 ---
 
-## Example: SQLite excludes `reverse`
+## Example: SQLite excludes `upper`, `lower`, and `reverse`
 
-The string operation `reverse` has no native SQLite equivalent. The framework implementation refuses to match at selection time:
+SQLite has no native `REVERSE`, and its native `UPPER`/`LOWER` are ASCII-only and would diverge from the PyArrow reference on non-ASCII input (e.g. `UPPER('héllo')` returns `'HéLLO'` instead of `'HÉLLO'`). Rather than silently produce divergent results or emulate in SQL, the framework implementation refuses to match all three at selection time:
 
 ```python
 # mloda/community/feature_groups/data_operations/string/sqlite_string.py
 _SQLITE_STRING_EXPRS: dict[str, str] = {
-    "upper":  "UPPER({col})",
-    "lower":  "LOWER({col})",
     "trim":   "TRIM({col})",
     "length": "LENGTH({col})",
 }
@@ -52,10 +50,10 @@ The test class mirrors that decision:
 class TestSqliteStringOps(SqliteTestMixin, StringTestBase):
     @classmethod
     def supported_ops(cls) -> set[str]:
-        return {"upper", "lower", "trim", "length"}
+        return {"trim", "length"}
 ```
 
-With this override, the inherited `test_reverse_*` methods skip with "reverse not supported by this framework" instead of failing.
+With this override, the inherited `test_upper_*`, `test_lower_*`, and `test_reverse_*` methods skip with "not supported by this framework" instead of failing.
 
 ---
 
