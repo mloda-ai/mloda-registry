@@ -13,6 +13,10 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
+from mloda.community.feature_groups.data_operations.polars_mode_helpers import (
+    add_mode_helper_cols,
+    mode_agg_expr,
+)
 
 # Mapping from aggregation type to a Polars expression builder.
 _POLARS_AGG_EXPRS: dict[str, Any] = {
@@ -33,20 +37,6 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
     "first": lambda col: pl.col(col).drop_nulls().first(),
     "last": lambda col: pl.col(col).drop_nulls().last(),
 }
-
-
-def _mode_with_insertion_order(s: pl.Series) -> Any:
-    """Return the mode of *s*, breaking ties by first-occurrence order (matching PyArrow)."""
-    s_clean = s.drop_nulls()
-    if len(s_clean) == 0:
-        return None
-    df = s_clean.to_frame("v").with_row_index("_order")
-    counts = df.group_by("v").agg(
-        pl.col("_order").min().alias("first_idx"),
-        pl.len().alias("cnt"),
-    )
-    winner = counts.sort(["cnt", "first_idx"], descending=[True, False]).row(0)
-    return winner[0]
 
 
 class PolarsLazyAggregation(AggregationFeatureGroup):
@@ -70,17 +60,8 @@ class PolarsLazyAggregation(AggregationFeatureGroup):
             data, actual_source = apply_polars_mask(data, source_col, mask_spec)
 
         if agg_type == "mode":
-            # Use value_counts with insertion-order tie-breaking to match PyArrow.
-            # Within each group, assign a row number to track insertion order,
-            # then pick the value with the highest count (and lowest row number on ties).
-            expr = (
-                pl.col(actual_source)
-                .map_batches(
-                    lambda s: _mode_with_insertion_order(s),
-                    returns_scalar=True,
-                )
-                .alias(feature_name)
-            )
+            data = add_mode_helper_cols(data, actual_source, partition_by)
+            expr = mode_agg_expr(actual_source, feature_name)
         elif agg_type in _POLARS_AGG_EXPRS:
             raw_expr = _POLARS_AGG_EXPRS[agg_type](actual_source).alias(feature_name)
             if agg_type == "sum":
