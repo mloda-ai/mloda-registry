@@ -10,7 +10,7 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
-from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
+from mloda.community.feature_groups.data_operations.mask_utils import apply_polars_mask
 from mloda.community.feature_groups.data_operations.polars_mode_helpers import (
     add_mode_helper_cols,
     drop_mode_helper_cols,
@@ -60,8 +60,10 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
     ) -> pl.LazyFrame:
         """Compute a window aggregation using Polars .over() expressions (fully lazy)."""
         actual_source = source_col
+        mask_tmp_col: str | None = None
         if mask_spec is not None:
             data, actual_source = apply_polars_mask(data, source_col, mask_spec)
+            mask_tmp_col = actual_source
 
         if agg_type == "mode":
             data = add_mode_helper_cols(data, actual_source, partition_by)
@@ -84,8 +86,8 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
         result = data.with_columns(expr)
         if agg_type == "mode":
             result = drop_mode_helper_cols(result)
-        if mask_spec is not None:
-            result = result.drop(_POLARS_MASK_TMP)
+        if mask_tmp_col is not None:
+            result = result.drop(mask_tmp_col)
         return result
 
     @classmethod

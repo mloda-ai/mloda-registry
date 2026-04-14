@@ -89,6 +89,42 @@ class TestDuckdbWindowCollision:
         assert out.column("first_value").to_pylist() == [10.0, 10.0, 10.0, 40.0, 40.0]
 
 
+class TestPolarsLazyWindowAggregationMaskCollision:
+    """User column named ``__mloda_masked_src__`` must survive PolarsLazyWindowAggregation."""
+
+    def test_user_column_named_masked_src_survives(self) -> None:
+        pytest.importorskip("polars")
+        import polars as pl
+
+        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.polars_lazy_window_aggregation import (
+            PolarsLazyWindowAggregation,
+        )
+
+        data = pl.LazyFrame(
+            {
+                "region": ["A", "A", "A", "B", "B"],
+                "value": [10.0, 20.0, 30.0, 40.0, 50.0],
+                "flag": ["A", "A", "B", "A", "A"],
+                "__mloda_masked_src__": ["u0", "u1", "u2", "u3", "u4"],
+            }
+        )
+
+        result = PolarsLazyWindowAggregation._compute_window(
+            data=data,
+            feature_name="sum_value",
+            source_col="value",
+            partition_by=["region"],
+            agg_type="sum",
+            mask_spec=[("flag", "equal", "A")],
+        ).collect()
+
+        # Mask keeps flag == "A": region A -> 10+20 = 30, region B -> 40+50 = 90
+        assert "__mloda_masked_src__" in result.columns
+        assert result["__mloda_masked_src__"].to_list() == ["u0", "u1", "u2", "u3", "u4"]
+        assert "sum_value" in result.columns
+        assert result["sum_value"].to_list() == [30.0, 30.0, 30.0, 90.0, 90.0]
+
+
 class TestReferenceWindowCollision:
     """User column named ``__mloda_wa_idx__`` must survive ReferenceWindowAggregation."""
 

@@ -84,6 +84,46 @@ class TestPolarsLazyFrameAggregateCollision:
         assert result["sum_value"].to_list() == [10.0, 30.0, 60.0, 40.0, 90.0]
 
 
+class TestPolarsLazyFrameAggregateMaskCollision:
+    """User column named ``__mloda_masked_src__`` must survive PolarsLazyFrameAggregate."""
+
+    def test_user_column_named_masked_src_survives(self) -> None:
+        pytest.importorskip("polars")
+        import polars as pl
+
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.polars_lazy_frame_aggregate import (
+            PolarsLazyFrameAggregate,
+        )
+
+        data = pl.LazyFrame(
+            {
+                "region": ["A", "A", "A", "B", "B"],
+                "ts": [1, 2, 3, 1, 2],
+                "value": [10.0, 20.0, 30.0, 40.0, 50.0],
+                "flag": ["A", "A", "B", "A", "A"],
+                "__mloda_masked_src__": ["u0", "u1", "u2", "u3", "u4"],
+            }
+        )
+
+        result = PolarsLazyFrameAggregate._compute_frame(
+            data=data,
+            feature_name="sum_value",
+            source_col="value",
+            partition_by=["region"],
+            order_by="ts",
+            agg_type="sum",
+            frame_type="cumulative",
+            mask_spec=[("flag", "equal", "A")],
+        ).collect()
+
+        # Mask nulls row index 2 (flag == "B"); cumulative sum with forward_fill:
+        # region A: [10, 30, 30 (null ffilled)], region B: [40, 90]
+        assert "__mloda_masked_src__" in result.columns
+        assert result["__mloda_masked_src__"].to_list() == ["u0", "u1", "u2", "u3", "u4"]
+        assert "sum_value" in result.columns
+        assert result["sum_value"].to_list() == [10.0, 30.0, 30.0, 40.0, 90.0]
+
+
 class TestDuckdbFrameAggregateCollision:
     """User column named ``__mloda_rn__`` must survive DuckdbFrameAggregate."""
 

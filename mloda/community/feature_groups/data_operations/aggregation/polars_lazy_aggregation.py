@@ -13,7 +13,7 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
-from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
+from mloda.community.feature_groups.data_operations.mask_utils import apply_polars_mask
 from mloda.community.feature_groups.data_operations.polars_mode_helpers import (
     add_mode_helper_cols,
     mode_agg_expr,
@@ -59,8 +59,10 @@ class PolarsLazyAggregation(AggregationFeatureGroup):
     ) -> pl.LazyFrame:
         """Compute a group aggregation using Polars group_by().agg() (fully lazy)."""
         actual_source = source_col
+        mask_tmp_col: str | None = None
         if mask_spec is not None:
             data, actual_source = apply_polars_mask(data, source_col, mask_spec)
+            mask_tmp_col = actual_source
 
         if agg_type == "mode":
             data = add_mode_helper_cols(data, actual_source, partition_by)
@@ -82,6 +84,6 @@ class PolarsLazyAggregation(AggregationFeatureGroup):
             raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Polars")
 
         result = data.group_by(partition_by, maintain_order=True).agg(expr)
-        if mask_spec is not None:
-            result = result.drop(_POLARS_MASK_TMP, strict=False)
+        if mask_tmp_col is not None:
+            result = result.drop(mask_tmp_col, strict=False)
         return result

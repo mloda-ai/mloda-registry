@@ -10,6 +10,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
@@ -66,7 +67,8 @@ class SqliteRank(RankFeatureGroup):
         quoted_order = quote_ident(order_by)
         quoted_feature = quote_ident(feature_name)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)
-        qrn = quote_ident("__mloda_rn__")
+        rn_col = unique_helper_name("__mloda_rn__", data.columns)
+        qrn = quote_ident(rn_col)
 
         # NullPolicy.NULLS_LAST: add CASE WHEN to ORDER BY
         null_sort = f"CASE WHEN {quoted_order} IS NULL THEN 1 ELSE 0 END"

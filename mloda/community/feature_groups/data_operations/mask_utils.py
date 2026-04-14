@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.core.abstract_plugins.components.mask.base_mask_engine import BaseMaskEngine
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
@@ -144,9 +145,6 @@ def build_polars_mask_expr(mask_spec: list[tuple[str, str, Any]]) -> Any:
     return expr
 
 
-_POLARS_MASK_TMP = "__mloda_masked_src__"
-
-
 def apply_polars_mask(
     data: Any,
     source_col: str,
@@ -155,16 +153,19 @@ def apply_polars_mask(
     """Apply a mask spec to a Polars LazyFrame, creating a temp masked column.
 
     Returns ``(data_with_mask, actual_source)`` where *actual_source* is the
-    name of the column to aggregate (either *source_col* unchanged or the
-    temporary masked column ``_POLARS_MASK_TMP``).
+    name of the column to aggregate. The temporary column name is derived
+    from a base of ``__mloda_masked_src__`` via ``unique_helper_name`` so
+    that user data already containing such a column is preserved.
 
-    Callers must drop ``_POLARS_MASK_TMP`` from the result when done.
+    Callers must drop the returned *actual_source* column from the result
+    when done.
     """
     import polars as pl
 
+    tmp_col = unique_helper_name(base="__mloda_masked_src__", existing=data.collect_schema().names())
     mask_expr = build_polars_mask_expr(mask_spec)
-    data = data.with_columns(pl.when(mask_expr).then(pl.col(source_col)).otherwise(None).alias(_POLARS_MASK_TMP))
-    return data, _POLARS_MASK_TMP
+    data = data.with_columns(pl.when(mask_expr).then(pl.col(source_col)).otherwise(None).alias(tmp_col))
+    return data, tmp_col
 
 
 def apply_pyarrow_mask(

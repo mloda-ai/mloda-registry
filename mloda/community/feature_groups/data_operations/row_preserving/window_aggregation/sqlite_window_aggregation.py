@@ -10,6 +10,7 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framewor
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
@@ -50,7 +51,8 @@ class SqliteWindowAggregation(WindowAggregationFeatureGroup):
         quoted_source = quote_ident(source_col)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)
         quoted_feature = quote_ident(feature_name)
-        qrn = quote_ident("__mloda_rn__")
+        rn_col = unique_helper_name("__mloda_rn__", data.columns)
+        qrn = quote_ident(rn_col)
 
         source_sql = quoted_source
         if mask_spec is not None:

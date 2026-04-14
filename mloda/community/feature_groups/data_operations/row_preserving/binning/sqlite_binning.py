@@ -8,6 +8,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BinningFeatureGroup,
 )
@@ -29,7 +30,8 @@ class SqliteBinning(BinningFeatureGroup):
     ) -> SqliteRelation:
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
-        qrn = quote_ident("__mloda_rn__")
+        rn_col = unique_helper_name("__mloda_rn__", data.columns)
+        qrn = quote_ident(rn_col)
         table_name = quote_ident(data.table_name)
 
         if op == "bin":
