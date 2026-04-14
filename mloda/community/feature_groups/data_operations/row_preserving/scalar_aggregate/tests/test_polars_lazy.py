@@ -15,9 +15,22 @@ from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregat
     ScalarAggregateTestBase,
 )
 from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 
 
-class TestPolarsLazyScalarAggregate(PolarsLazyTestMixin, ScalarAggregateTestBase):
+class TestPolarsLazyScalarAggregate(ReservedColumnsTestMixin, PolarsLazyTestMixin, ScalarAggregateTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PolarsLazyScalarAggregate
+
+    @classmethod
+    def reserved_columns_feature_name(cls) -> str:
+        return "value_int__sum_scalar"
+
+    @classmethod
+    def reserved_columns_partition_by(cls) -> list[str] | None:
+        return None
+
+    @classmethod
+    def reserved_columns_order_by(cls) -> str | None:
+        return None

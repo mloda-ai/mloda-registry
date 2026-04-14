@@ -7,13 +7,14 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.string.sqlite_string import (
     SqliteStringOps,
 )
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
 from mloda.testing.feature_groups.data_operations.string.string import (
     StringTestBase,
 )
 
 
-class TestSqliteStringOps(SqliteTestMixin, StringTestBase):
+class TestSqliteStringOps(ReservedColumnsTestMixin, SqliteTestMixin, StringTestBase):
     """All tests inherited from the base class.
 
     SQLite supports only 'trim' and 'length' natively in a way that matches
@@ -29,6 +30,18 @@ class TestSqliteStringOps(SqliteTestMixin, StringTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteStringOps
+
+    @classmethod
+    def reserved_columns_feature_name(cls) -> str:
+        return "name__trim"
+
+    @classmethod
+    def reserved_columns_partition_by(cls) -> list[str] | None:
+        return None
+
+    @classmethod
+    def reserved_columns_order_by(cls) -> str | None:
+        return None
 
 
 class TestSqliteUnsupportedOps:

@@ -12,14 +12,27 @@ from mloda.community.feature_groups.data_operations.row_preserving.rank.duckdb_r
     DuckdbRank,
 )
 from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import (
     RankTestBase,
 )
 
 
-class TestDuckdbRank(DuckdbTestMixin, RankTestBase):
+class TestDuckdbRank(ReservedColumnsTestMixin, DuckdbTestMixin, RankTestBase):
     """Standard tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:
         return DuckdbRank
+
+    @classmethod
+    def reserved_columns_feature_name(cls) -> str:
+        return "value_int__row_number_ranked"
+
+    @classmethod
+    def reserved_columns_partition_by(cls) -> list[str] | None:
+        return ["region"]
+
+    @classmethod
+    def reserved_columns_order_by(cls) -> str | None:
+        return "value_int"
