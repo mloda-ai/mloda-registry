@@ -42,7 +42,6 @@ class SqliteWindowAggregation(WindowAggregationFeatureGroup):
         order_by: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> SqliteRelation:
-        """Execute the aggregation as a SQL window function."""
         agg_func = _SQLITE_AGG_FUNCS.get(agg_type)
         if agg_func is None:
             raise unsupported_agg_type_error(agg_type, _SQLITE_AGG_FUNCS.keys(), framework="SQLite")

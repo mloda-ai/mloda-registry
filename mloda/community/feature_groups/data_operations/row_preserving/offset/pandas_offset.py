@@ -28,7 +28,6 @@ class PandasOffset(OffsetFeatureGroup):
         order_by: str,
         offset_type: str,
     ) -> pd.DataFrame:
-        """Compute offset using pandas groupby().shift()."""
         data = data.copy()
 
         # Sort by partition + order_by (nulls last) to ensure correct offset
