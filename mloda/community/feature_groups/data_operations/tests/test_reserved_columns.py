@@ -94,3 +94,29 @@ class TestAssertNoReservedColumns:
         """A column named exactly the prefix (``__mloda_``) collides."""
         with pytest.raises(ValueError):
             assert_no_reserved_columns(["__mloda_"])
+
+    def test_uppercase_prefix_is_reserved(self) -> None:
+        """An all-uppercase variant collides because SQLite and DuckDB
+        unquoted identifiers are case-insensitive."""
+        with pytest.raises(ValueError):
+            assert_no_reserved_columns(["__MLODA_RN__"])
+
+    def test_mixed_case_prefix_is_reserved(self) -> None:
+        """A mixed-case variant collides for the same case-insensitivity reason."""
+        with pytest.raises(ValueError):
+            assert_no_reserved_columns(["__Mloda_Rn__"])
+
+    def test_exact_uppercase_prefix_is_reserved(self) -> None:
+        """The exact prefix in uppercase (``__MLODA_``) collides."""
+        with pytest.raises(ValueError):
+            assert_no_reserved_columns(["__MLODA_"])
+
+    def test_message_preserves_original_casing(self) -> None:
+        """The colliding name in the error message keeps the user-supplied casing."""
+        with pytest.raises(ValueError, match="'__MLODA_RN__'"):
+            assert_no_reserved_columns(["__MLODA_RN__"])
+
+    def test_prefix_boundary_preserved_case_insensitively(self) -> None:
+        """A name that shares letters but lacks the trailing ``_`` after ``mloda``
+        is still accepted (the prefix boundary is enforced case-insensitively)."""
+        assert_no_reserved_columns(["__MLODAX_foo"])

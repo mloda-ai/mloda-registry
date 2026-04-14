@@ -75,17 +75,26 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 # long as it starts with ``__mloda_``.
 COLLIDING = "__mloda_user_col__"
 
+# An uppercase variant that collides only under case-insensitive identifier
+# resolution (SQLite and DuckDB unquoted identifiers).
+COLLIDING_UPPER = "__MLODA_USER_COL__"
 
-def _arrow_fixture() -> pa.Table:
-    """Minimal valid input that also carries a colliding user column."""
+
+def _arrow_fixture_with(colliding: str) -> pa.Table:
+    """Minimal valid input that carries an arbitrary colliding user column."""
     return pa.table(
         {
             "region": ["A", "A", "B"],
             "value": [1.0, 2.0, 3.0],
             "ts": [0, 1, 2],
-            COLLIDING: [9, 9, 9],
+            colliding: [9, 9, 9],
         }
     )
+
+
+def _arrow_fixture() -> pa.Table:
+    """Minimal valid input that also carries a colliding user column."""
+    return _arrow_fixture_with(COLLIDING)
 
 
 def _pandas_fixture() -> pd.DataFrame:
@@ -108,6 +117,13 @@ def _sqlite_fixture(conn: Any) -> Any:
     from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
     return SqliteRelation.from_arrow(conn, _arrow_fixture())
+
+
+def _sqlite_fixture_upper(conn: Any) -> Any:
+    """SQLite relation carrying an uppercase colliding user column."""
+    from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
+
+    return SqliteRelation.from_arrow(conn, _arrow_fixture_with(COLLIDING_UPPER))
 
 
 @pytest.fixture
@@ -269,6 +285,14 @@ class TestSQLiteGuards:
 
         with pytest.raises(ValueError, match=r"SQLite string.*'__mloda_user_col__'"):
             SqliteStringOps._compute_string(_sqlite_fixture(sqlite_conn), "region__trim", "region", "trim")
+
+    def test_window_aggregation_uppercase_collision(self, sqlite_conn: Any) -> None:
+        """Uppercase user columns collide with SQLite's ``__mloda_rn__`` helper
+        because unquoted identifiers are case-insensitive in SQLite."""
+        with pytest.raises(ValueError, match=r"SQLite window aggregation.*'__MLODA_USER_COL__'"):
+            SqliteWindowAggregation._compute_window(
+                _sqlite_fixture_upper(sqlite_conn), "value__sum_agg", "value", ["region"], "sum"
+            )
 
 
 # ----------------------------------------------------------------------

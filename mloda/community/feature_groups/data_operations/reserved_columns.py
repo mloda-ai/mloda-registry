@@ -9,7 +9,10 @@ collide with the generated column silently.
 This module reserves the ``__mloda_`` prefix for internal use and provides a
 single validator that every implementation using such helpers calls at entry.
 The check is a whole-prefix ban rather than a per-name check so that new
-helpers added in the future are covered automatically.
+helpers added in the future are covered automatically. The prefix match is
+case-insensitive because SQLite and DuckDB fold unquoted identifiers, so a
+user column like ``__MLODA_RN__`` would silently collide with the internal
+``__mloda_rn__`` helper.
 """
 
 from __future__ import annotations
@@ -34,7 +37,7 @@ def assert_no_reserved_columns(
         operation: Optional operation qualifier (``"frame aggregate"``,
             ``"window aggregation"``, ...) echoed in the message.
     """
-    collisions = sorted({c for c in columns if c.startswith(RESERVED_PREFIX)})
+    collisions = sorted({c for c in columns if c.lower().startswith(RESERVED_PREFIX)})
     if not collisions:
         return
 
