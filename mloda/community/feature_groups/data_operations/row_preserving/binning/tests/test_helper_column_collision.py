@@ -4,11 +4,18 @@ These tests verify that user-provided columns whose names happen to match
 internal hardcoded helper-column names survive the computation unmodified.
 
 DuckDB binning uses a ``__mloda_rn__`` helper column in its ``qbin`` path.
+
+Framework-agnostic assertions live in
+``mloda.testing.feature_groups.data_operations.collision``.
 """
 
 from __future__ import annotations
 
 import pytest
+
+from mloda.testing.feature_groups.data_operations.collision import assert_collision_preserved
+
+_USER_VALUES = ["u0", "u1", "u2", "u3"]
 
 
 class TestDuckdbBinningCollision:
@@ -27,7 +34,7 @@ class TestDuckdbBinningCollision:
         arrow_table = pa.table(
             {
                 "value": [1.0, 2.0, 3.0, 4.0],
-                "__mloda_rn__": ["u0", "u1", "u2", "u3"],
+                "__mloda_rn__": _USER_VALUES,
             }
         )
         rel = DuckdbRelation.from_arrow(conn, arrow_table)
@@ -40,8 +47,4 @@ class TestDuckdbBinningCollision:
             n_bins=2,
         )
 
-        out = result.to_arrow_table()
-        assert "__mloda_rn__" in out.column_names
-        assert out.column("__mloda_rn__").to_pylist() == ["u0", "u1", "u2", "u3"]
-        assert "qbin_value" in out.column_names
-        assert out.column("qbin_value").to_pylist() == [0, 0, 1, 1]
+        assert_collision_preserved(result, "__mloda_rn__", _USER_VALUES, "qbin_value", [0, 0, 1, 1])

@@ -2,14 +2,19 @@
 
 These tests verify that user-provided columns whose names happen to match
 internal hardcoded helper-column names (e.g. ``__mloda_rn__``) survive the
-computation unmodified. The implementations currently clobber or drop the
-user column, so these tests are expected to FAIL on the current code and
-will guide the fix.
+computation unmodified.
+
+Framework-agnostic assertions live in
+``mloda.testing.feature_groups.data_operations.collision``.
 """
 
 from __future__ import annotations
 
 import pytest
+
+from mloda.testing.feature_groups.data_operations.collision import assert_collision_preserved
+
+_USER_VALUES = ["u0", "u1", "u2", "u3", "u4"]
 
 
 class TestPandasFrameAggregateCollision:
@@ -28,7 +33,7 @@ class TestPandasFrameAggregateCollision:
                 "region": ["A", "A", "A", "B", "B"],
                 "ts": [1, 2, 3, 1, 2],
                 "value": [10.0, 20.0, 30.0, 40.0, 50.0],
-                "__mloda_rn__": ["u0", "u1", "u2", "u3", "u4"],
+                "__mloda_rn__": _USER_VALUES,
             }
         )
 
@@ -42,10 +47,7 @@ class TestPandasFrameAggregateCollision:
             frame_type="cumulative",
         )
 
-        assert "__mloda_rn__" in result.columns
-        assert list(result["__mloda_rn__"]) == ["u0", "u1", "u2", "u3", "u4"]
-        assert "sum_value" in result.columns
-        assert list(result["sum_value"]) == [10.0, 30.0, 60.0, 40.0, 90.0]
+        assert_collision_preserved(result, "__mloda_rn__", _USER_VALUES, "sum_value", [10.0, 30.0, 60.0, 40.0, 90.0])
 
 
 class TestPolarsLazyFrameAggregateCollision:
@@ -64,7 +66,7 @@ class TestPolarsLazyFrameAggregateCollision:
                 "region": ["A", "A", "A", "B", "B"],
                 "ts": [1, 2, 3, 1, 2],
                 "value": [10.0, 20.0, 30.0, 40.0, 50.0],
-                "__mloda_rn__": ["u0", "u1", "u2", "u3", "u4"],
+                "__mloda_rn__": _USER_VALUES,
             }
         )
 
@@ -76,12 +78,9 @@ class TestPolarsLazyFrameAggregateCollision:
             order_by="ts",
             agg_type="sum",
             frame_type="cumulative",
-        ).collect()
+        )
 
-        assert "__mloda_rn__" in result.columns
-        assert result["__mloda_rn__"].to_list() == ["u0", "u1", "u2", "u3", "u4"]
-        assert "sum_value" in result.columns
-        assert result["sum_value"].to_list() == [10.0, 30.0, 60.0, 40.0, 90.0]
+        assert_collision_preserved(result, "__mloda_rn__", _USER_VALUES, "sum_value", [10.0, 30.0, 60.0, 40.0, 90.0])
 
 
 class TestPolarsLazyFrameAggregateMaskCollision:
@@ -101,7 +100,7 @@ class TestPolarsLazyFrameAggregateMaskCollision:
                 "ts": [1, 2, 3, 1, 2],
                 "value": [10.0, 20.0, 30.0, 40.0, 50.0],
                 "flag": ["A", "A", "B", "A", "A"],
-                "__mloda_masked_src__": ["u0", "u1", "u2", "u3", "u4"],
+                "__mloda_masked_src__": _USER_VALUES,
             }
         )
 
@@ -114,14 +113,13 @@ class TestPolarsLazyFrameAggregateMaskCollision:
             agg_type="sum",
             frame_type="cumulative",
             mask_spec=[("flag", "equal", "A")],
-        ).collect()
+        )
 
         # Mask nulls row index 2 (flag == "B"); cumulative sum with forward_fill:
         # region A: [10, 30, 30 (null ffilled)], region B: [40, 90]
-        assert "__mloda_masked_src__" in result.columns
-        assert result["__mloda_masked_src__"].to_list() == ["u0", "u1", "u2", "u3", "u4"]
-        assert "sum_value" in result.columns
-        assert result["sum_value"].to_list() == [10.0, 30.0, 30.0, 40.0, 90.0]
+        assert_collision_preserved(
+            result, "__mloda_masked_src__", _USER_VALUES, "sum_value", [10.0, 30.0, 30.0, 40.0, 90.0]
+        )
 
 
 class TestDuckdbFrameAggregateCollision:
@@ -142,7 +140,7 @@ class TestDuckdbFrameAggregateCollision:
                 "region": ["A", "A", "A", "B", "B"],
                 "ts": [1, 2, 3, 1, 2],
                 "value": [10.0, 20.0, 30.0, 40.0, 50.0],
-                "__mloda_rn__": ["u0", "u1", "u2", "u3", "u4"],
+                "__mloda_rn__": _USER_VALUES,
             }
         )
         rel = DuckdbRelation.from_arrow(conn, arrow_table)
@@ -157,8 +155,4 @@ class TestDuckdbFrameAggregateCollision:
             frame_type="cumulative",
         )
 
-        out = result.to_arrow_table()
-        assert "__mloda_rn__" in out.column_names
-        assert out.column("__mloda_rn__").to_pylist() == ["u0", "u1", "u2", "u3", "u4"]
-        assert "sum_value" in out.column_names
-        assert out.column("sum_value").to_pylist() == [10.0, 30.0, 60.0, 40.0, 90.0]
+        assert_collision_preserved(result, "__mloda_rn__", _USER_VALUES, "sum_value", [10.0, 30.0, 60.0, 40.0, 90.0])

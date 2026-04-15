@@ -8,13 +8,18 @@ Helper names currently used internally:
 - Polars Lazy: ``__mloda_orig_idx``
 - DuckDB: ``__mloda_orig_rn__``
 
-The implementations currently clobber or drop the user column, so these
-tests are expected to FAIL on the current code.
+Framework-agnostic assertions live in
+``mloda.testing.feature_groups.data_operations.collision``.
 """
 
 from __future__ import annotations
 
 import pytest
+
+from mloda.testing.feature_groups.data_operations.collision import assert_collision_preserved
+
+_USER_VALUES = ["u0", "u1", "u2", "u3", "u4"]
+_EXPECTED_LAG1 = [None, 10.0, 20.0, None, 40.0]
 
 
 class TestPandasOffsetCollision:
@@ -33,7 +38,7 @@ class TestPandasOffsetCollision:
                 "region": ["A", "A", "A", "B", "B"],
                 "ts": [1, 2, 3, 1, 2],
                 "value": [10.0, 20.0, 30.0, 40.0, 50.0],
-                "__mloda_null_sort": ["u0", "u1", "u2", "u3", "u4"],
+                "__mloda_null_sort": _USER_VALUES,
             }
         )
 
@@ -46,11 +51,7 @@ class TestPandasOffsetCollision:
             offset_type="lag_1",
         )
 
-        assert "__mloda_null_sort" in result.columns
-        assert list(result["__mloda_null_sort"]) == ["u0", "u1", "u2", "u3", "u4"]
-        assert "lag1_value" in result.columns
-        actual = [None if pd.isna(v) else v for v in result["lag1_value"].tolist()]
-        assert actual == [None, 10.0, 20.0, None, 40.0]
+        assert_collision_preserved(result, "__mloda_null_sort", _USER_VALUES, "lag1_value", _EXPECTED_LAG1)
 
 
 class TestPolarsLazyOffsetCollision:
@@ -69,7 +70,7 @@ class TestPolarsLazyOffsetCollision:
                 "region": ["A", "A", "A", "B", "B"],
                 "ts": [1, 2, 3, 1, 2],
                 "value": [10.0, 20.0, 30.0, 40.0, 50.0],
-                "__mloda_orig_idx": ["u0", "u1", "u2", "u3", "u4"],
+                "__mloda_orig_idx": _USER_VALUES,
             }
         )
 
@@ -80,12 +81,9 @@ class TestPolarsLazyOffsetCollision:
             partition_by=["region"],
             order_by="ts",
             offset_type="lag_1",
-        ).collect()
+        )
 
-        assert "__mloda_orig_idx" in result.columns
-        assert result["__mloda_orig_idx"].to_list() == ["u0", "u1", "u2", "u3", "u4"]
-        assert "lag1_value" in result.columns
-        assert result["lag1_value"].to_list() == [None, 10.0, 20.0, None, 40.0]
+        assert_collision_preserved(result, "__mloda_orig_idx", _USER_VALUES, "lag1_value", _EXPECTED_LAG1)
 
 
 class TestDuckdbOffsetCollision:
@@ -106,7 +104,7 @@ class TestDuckdbOffsetCollision:
                 "region": ["A", "A", "A", "B", "B"],
                 "ts": [1, 2, 3, 1, 2],
                 "value": [10.0, 20.0, 30.0, 40.0, 50.0],
-                "__mloda_orig_rn__": ["u0", "u1", "u2", "u3", "u4"],
+                "__mloda_orig_rn__": _USER_VALUES,
             }
         )
         rel = DuckdbRelation.from_arrow(conn, arrow_table)
@@ -120,8 +118,4 @@ class TestDuckdbOffsetCollision:
             offset_type="lag_1",
         )
 
-        out = result.to_arrow_table()
-        assert "__mloda_orig_rn__" in out.column_names
-        assert out.column("__mloda_orig_rn__").to_pylist() == ["u0", "u1", "u2", "u3", "u4"]
-        assert "lag1_value" in out.column_names
-        assert out.column("lag1_value").to_pylist() == [None, 10.0, 20.0, None, 40.0]
+        assert_collision_preserved(result, "__mloda_orig_rn__", _USER_VALUES, "lag1_value", _EXPECTED_LAG1)

@@ -5,11 +5,18 @@ internal hardcoded helper-column names survive the computation unmodified.
 
 Helper names currently used internally:
 - Polars mask temp: ``__mloda_masked_src__``
+
+Framework-agnostic assertions live in
+``mloda.testing.feature_groups.data_operations.collision``.
 """
 
 from __future__ import annotations
 
 import pytest
+
+from mloda.testing.feature_groups.data_operations.collision import assert_collision_preserved
+
+_USER_VALUES = ["u0", "u1", "u2", "u3", "u4"]
 
 
 class TestPolarsLazyScalarAggregateMaskCollision:
@@ -27,7 +34,7 @@ class TestPolarsLazyScalarAggregateMaskCollision:
             {
                 "value": [10.0, 20.0, 30.0, 40.0, 50.0],
                 "flag": ["A", "A", "B", "A", "A"],
-                "__mloda_masked_src__": ["u0", "u1", "u2", "u3", "u4"],
+                "__mloda_masked_src__": _USER_VALUES,
             }
         )
 
@@ -37,10 +44,9 @@ class TestPolarsLazyScalarAggregateMaskCollision:
             source_col="value",
             agg_type="sum",
             mask_spec=[("flag", "equal", "A")],
-        ).collect()
+        )
 
         # Mask keeps rows where flag == "A": 10+20+40+50 = 120
-        assert "__mloda_masked_src__" in result.columns
-        assert result["__mloda_masked_src__"].to_list() == ["u0", "u1", "u2", "u3", "u4"]
-        assert "sum_value" in result.columns
-        assert result["sum_value"].to_list() == [120.0, 120.0, 120.0, 120.0, 120.0]
+        assert_collision_preserved(
+            result, "__mloda_masked_src__", _USER_VALUES, "sum_value", [120.0, 120.0, 120.0, 120.0, 120.0]
+        )

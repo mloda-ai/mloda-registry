@@ -99,10 +99,6 @@ _MODE_COUNT_COL = "__mloda_mode_count__"
 _MODE_FIRST_IDX_COL = "__mloda_mode_first_idx__"
 
 
-def _unique_temp_name(base: str, existing: Any) -> str:
-    return unique_helper_name(base, existing)
-
-
 def compute_mode_winners(
     data: pd.DataFrame,
     source_col: str,
@@ -120,9 +116,9 @@ def compute_mode_winners(
     """
     partition_by = list(partition_by)
     work = data[partition_by + [source_col]].copy()
-    idx_col = _unique_temp_name(_MODE_IDX_COL, work.columns)
-    count_col = _unique_temp_name(_MODE_COUNT_COL, work.columns)
-    first_idx_col = _unique_temp_name(_MODE_FIRST_IDX_COL, work.columns)
+    idx_col = unique_helper_name(_MODE_IDX_COL, work.columns)
+    count_col = unique_helper_name(_MODE_COUNT_COL, work.columns)
+    first_idx_col = unique_helper_name(_MODE_FIRST_IDX_COL, work.columns)
     work[idx_col] = range(len(work))
     work = work[work[source_col].notna()]
     if work.empty:

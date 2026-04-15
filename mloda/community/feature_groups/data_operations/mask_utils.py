@@ -152,6 +152,11 @@ def apply_polars_mask(
 ) -> tuple[Any, str]:
     """Apply a mask spec to a Polars LazyFrame, creating a temp masked column.
 
+    Stays fully lazy: schema lookup uses ``LazyFrame.collect_schema()``
+    (the lazy-safe API) rather than ``.schema`` or ``.collect()``, and the
+    temp column is appended via ``with_columns`` which also defers
+    execution. The returned LazyFrame is therefore still unevaluated.
+
     Returns ``(data_with_mask, actual_source)`` where *actual_source* is the
     name of the column to aggregate. The temporary column name is derived
     from a base of ``__mloda_masked_src__`` via ``unique_helper_name`` so

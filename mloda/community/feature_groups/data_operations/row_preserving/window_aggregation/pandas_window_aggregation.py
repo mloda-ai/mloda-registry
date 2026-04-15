@@ -14,9 +14,9 @@ from mloda.community.feature_groups.data_operations.mask_utils import build_mask
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
-    _unique_temp_name,
     apply_null_safe_agg,
     coerce_count_dtype,
     compute_mode_winners,
@@ -86,7 +86,7 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
             data[feature_name] = data[source_col]
             return data
 
-        is_data_col = _unique_temp_name("__mloda_mode_is_data__", data.columns)
+        is_data_col = unique_helper_name("__mloda_mode_is_data__", data.columns)
 
         winners = compute_mode_winners(data, source_col, partition_by)
         winners = winners.rename(columns={source_col: feature_name})

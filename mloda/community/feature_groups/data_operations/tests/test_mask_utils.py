@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from mloda.community.feature_groups.data_operations.mask_utils import (
+    apply_polars_mask,
     build_polars_mask_expr,
     build_sql_case_when,
     parse_mask_spec,
@@ -128,6 +129,31 @@ class TestBuildPolarsMaskExpr:
             df = pl.DataFrame({"x": [1, 2, 3]})
             result = df.lazy().filter(expr).collect()
             assert result.shape[0] == expected_count, f"Failed for {op}"
+
+
+class TestApplyPolarsMask:
+    def test_stays_lazy(self) -> None:
+        """apply_polars_mask must return a LazyFrame without materializing input."""
+        pl = pytest.importorskip("polars")
+
+        lf = pl.LazyFrame({"value": [1, 2, 3], "flag": ["A", "B", "A"]})
+        result, tmp = apply_polars_mask(lf, "value", [("flag", "equal", "A")])
+        assert isinstance(result, pl.LazyFrame)
+        assert tmp == "__mloda_masked_src__"
+        collected = result.collect()
+        assert collected[tmp].to_list() == [1, None, 3]
+
+    def test_helper_name_collision_avoided(self) -> None:
+        """When the base helper name already exists, a suffixed name is used."""
+        pl = pytest.importorskip("polars")
+
+        lf = pl.LazyFrame({"value": [1, 2], "flag": ["A", "A"], "__mloda_masked_src__": ["u0", "u1"]})
+        result, tmp = apply_polars_mask(lf, "value", [("flag", "equal", "A")])
+        assert isinstance(result, pl.LazyFrame)
+        assert tmp != "__mloda_masked_src__"
+        collected = result.collect()
+        assert collected["__mloda_masked_src__"].to_list() == ["u0", "u1"]
+        assert collected[tmp].to_list() == [1, 2]
 
 
 class TestBuildSqlCaseWhen:

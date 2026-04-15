@@ -6,11 +6,19 @@ internal hardcoded helper-column names survive the computation unmodified.
 Helper names currently used internally:
 - Polars Lazy: ``__mloda_rank_null_flag__``
 - DuckDB: ``__mloda_orig_rn``
+
+Framework-agnostic assertions live in
+``mloda.testing.feature_groups.data_operations.collision``.
 """
 
 from __future__ import annotations
 
 import pytest
+
+from mloda.testing.feature_groups.data_operations.collision import assert_collision_preserved
+
+_USER_VALUES = ["u0", "u1", "u2", "u3", "u4"]
+_EXPECTED_RN = [1, 2, 3, 1, 2]
 
 
 class TestPolarsLazyRankCollision:
@@ -28,7 +36,7 @@ class TestPolarsLazyRankCollision:
             {
                 "region": ["A", "A", "A", "B", "B"],
                 "ts": [1, 2, 3, 1, 2],
-                "__mloda_rank_null_flag__": ["u0", "u1", "u2", "u3", "u4"],
+                "__mloda_rank_null_flag__": _USER_VALUES,
             }
         )
 
@@ -38,12 +46,9 @@ class TestPolarsLazyRankCollision:
             partition_by=["region"],
             order_by="ts",
             rank_type="row_number",
-        ).collect()
+        )
 
-        assert "__mloda_rank_null_flag__" in result.columns
-        assert result["__mloda_rank_null_flag__"].to_list() == ["u0", "u1", "u2", "u3", "u4"]
-        assert "rn" in result.columns
-        assert result["rn"].to_list() == [1, 2, 3, 1, 2]
+        assert_collision_preserved(result, "__mloda_rank_null_flag__", _USER_VALUES, "rn", _EXPECTED_RN)
 
 
 class TestDuckdbRankCollision:
@@ -63,7 +68,7 @@ class TestDuckdbRankCollision:
             {
                 "region": ["A", "A", "A", "B", "B"],
                 "ts": [1, 2, 3, 1, 2],
-                "__mloda_orig_rn": ["u0", "u1", "u2", "u3", "u4"],
+                "__mloda_orig_rn": _USER_VALUES,
             }
         )
         rel = DuckdbRelation.from_arrow(conn, arrow_table)
@@ -76,8 +81,4 @@ class TestDuckdbRankCollision:
             rank_type="row_number",
         )
 
-        out = result.to_arrow_table()
-        assert "__mloda_orig_rn" in out.column_names
-        assert out.column("__mloda_orig_rn").to_pylist() == ["u0", "u1", "u2", "u3", "u4"]
-        assert "rn" in out.column_names
-        assert out.column("rn").to_pylist() == [1, 2, 3, 1, 2]
+        assert_collision_preserved(result, "__mloda_orig_rn", _USER_VALUES, "rn", _EXPECTED_RN)

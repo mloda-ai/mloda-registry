@@ -4,11 +4,18 @@ These tests verify that user-provided columns whose names happen to match
 internal hardcoded helper-column names survive the computation unmodified.
 
 ReferencePercentile uses a ``__mloda_pctl_idx__`` helper column.
+
+Framework-agnostic assertions live in
+``mloda.testing.feature_groups.data_operations.collision``.
 """
 
 from __future__ import annotations
 
 import pytest
+
+from mloda.testing.feature_groups.data_operations.collision import assert_collision_preserved
+
+_USER_VALUES = ["u0", "u1", "u2", "u3", "u4"]
 
 
 class TestReferencePercentileCollision:
@@ -25,7 +32,7 @@ class TestReferencePercentileCollision:
             {
                 "region": ["A", "A", "A", "B", "B"],
                 "value": [10.0, 20.0, 30.0, 40.0, 50.0],
-                "__mloda_pctl_idx__": ["u0", "u1", "u2", "u3", "u4"],
+                "__mloda_pctl_idx__": _USER_VALUES,
             }
         )
 
@@ -37,10 +44,9 @@ class TestReferencePercentileCollision:
             percentile=0.5,
         )
 
-        assert "__mloda_pctl_idx__" in result.column_names
-        assert result.column("__mloda_pctl_idx__").to_pylist() == ["u0", "u1", "u2", "u3", "u4"]
-        assert "p50_value" in result.column_names
-        assert result.column("p50_value").to_pylist() == [20.0, 20.0, 20.0, 45.0, 45.0]
+        assert_collision_preserved(
+            result, "__mloda_pctl_idx__", _USER_VALUES, "p50_value", [20.0, 20.0, 20.0, 45.0, 45.0]
+        )
 
 
 class TestPolarsLazyPercentileMaskCollision:
@@ -59,7 +65,7 @@ class TestPolarsLazyPercentileMaskCollision:
                 "region": ["A", "A", "A", "B", "B"],
                 "value": [10.0, 20.0, 30.0, 40.0, 50.0],
                 "flag": ["A", "A", "B", "A", "A"],
-                "__mloda_masked_src__": ["u0", "u1", "u2", "u3", "u4"],
+                "__mloda_masked_src__": _USER_VALUES,
             }
         )
 
@@ -70,12 +76,11 @@ class TestPolarsLazyPercentileMaskCollision:
             partition_by=["region"],
             percentile=0.5,
             mask_spec=[("flag", "equal", "A")],
-        ).collect()
+        )
 
         # Masked values per region:
         #   region A: [10, 20, null] -> median of non-null = 15
         #   region B: [40, 50]       -> median = 45
-        assert "__mloda_masked_src__" in result.columns
-        assert result["__mloda_masked_src__"].to_list() == ["u0", "u1", "u2", "u3", "u4"]
-        assert "p50_value" in result.columns
-        assert result["p50_value"].to_list() == [15.0, 15.0, 15.0, 45.0, 45.0]
+        assert_collision_preserved(
+            result, "__mloda_masked_src__", _USER_VALUES, "p50_value", [15.0, 15.0, 15.0, 45.0, 45.0]
+        )
