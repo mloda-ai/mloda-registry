@@ -38,3 +38,12 @@ def test_framework_support_matrix_is_in_sync() -> None:
         "framework-support-matrix.md is out of sync with supported_*() sets.\n"
         "Run: python scripts/check_framework_support_matrix.py"
     )
+
+
+def test_operations_list_covers_every_data_operation_on_disk() -> None:
+    mod = _load_script_module()
+    uncovered = mod.discover_uncovered_tests_packages()
+    assert uncovered == [], (
+        "OPERATIONS in scripts/check_framework_support_matrix.py is missing entries "
+        "for these tests packages (each has test_<framework>.py files):\n  " + "\n  ".join(uncovered)
+    )

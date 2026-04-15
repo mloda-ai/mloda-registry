@@ -210,8 +210,13 @@ def import_test_class(tests_pkg: str, framework: str, base_cls: type) -> type | 
     mod_name = f"{tests_pkg}.test_{framework}"
     try:
         mod = importlib.import_module(mod_name)
-    except ModuleNotFoundError:
-        return None
+    except ModuleNotFoundError as e:
+        # Only treat the test module (or a missing parent tests package) as
+        # "framework absent". Broken imports *inside* an existing test module
+        # name a different module in ``e.name`` and must surface loudly.
+        if e.name and (e.name == mod_name or mod_name.startswith(e.name + ".")):
+            return None
+        raise
     for _, obj in inspect.getmembers(mod, inspect.isclass):
         if obj.__module__ != mod.__name__:
             continue
@@ -234,6 +239,33 @@ def supported_set(cls: type) -> tuple[str | None, set[str] | None]:
         except Exception:  # pragma: no cover - defensive
             return attr, None
     return None, None
+
+
+DATA_OPERATIONS_ROOT = REPO_ROOT / "mloda" / "community" / "feature_groups" / "data_operations"
+
+
+def discover_uncovered_tests_packages() -> list[str]:
+    """Return tests-package dotted paths that contain ``test_<framework>.py``
+    files but are not referenced by any :data:`OPERATIONS` entry.
+
+    Guards against silent incompleteness when a new data operation is added but
+    nobody remembers to extend :data:`OPERATIONS`.
+    """
+    if not DATA_OPERATIONS_ROOT.exists():
+        return []
+    covered = {op.tests_pkg for op in OPERATIONS}
+    framework_keys = {fw_key for fw_key, _ in FRAMEWORKS}
+    missing: list[str] = []
+    for tests_dir in DATA_OPERATIONS_ROOT.rglob("tests"):
+        if not tests_dir.is_dir():
+            continue
+        if not any((tests_dir / f"test_{fw}.py").exists() for fw in framework_keys):
+            continue
+        rel = tests_dir.relative_to(REPO_ROOT)
+        pkg = ".".join(rel.parts)
+        if pkg not in covered:
+            missing.append(pkg)
+    return sorted(missing)
 
 
 def sort_subtypes(items: Iterable[str], order_hint: tuple[str, ...]) -> list[str]:
@@ -313,10 +345,12 @@ def render_detail_table(item: dict[str, Any]) -> list[str]:
 
     if subtypes is None:
         # Single-row table: either the framework has a test class or it does not.
+        # Use the same "--" glyph as the summary so the legend stays consistent
+        # ("--" = no test class, "\u2717" = excluded subtype).
         row = ["(all)"]
         for fw_key, _label in FRAMEWORKS:
             fw = item["frameworks"][fw_key]
-            row.append("\u2713" if fw["present"] else "\u2717")
+            row.append("\u2713" if fw["present"] else "--")
         lines += [header, sep, "| " + " | ".join(row) + " |"]
         return lines
 
@@ -381,6 +415,18 @@ def main() -> int:
         help="Exit non-zero if the doc is out of sync with supported_*() sets.",
     )
     args = parser.parse_args()
+
+    uncovered = discover_uncovered_tests_packages()
+    if uncovered:
+        sys.stderr.write(
+            "Framework support matrix is missing OPERATIONS entries for the\n"
+            "following tests packages (each contains test_<framework>.py files\n"
+            "but is not referenced by scripts/check_framework_support_matrix.py):\n"
+        )
+        for pkg in uncovered:
+            sys.stderr.write(f"  - {pkg}\n")
+        sys.stderr.write("\nAdd an OperationSpec for each, then rerun the script.\n")
+        return 1
 
     collected = [collect_operation(op) for op in OPERATIONS]
     generated = render_generated_block(collected)
