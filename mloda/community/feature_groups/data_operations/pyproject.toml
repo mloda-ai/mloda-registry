@@ -15,7 +15,7 @@ dependencies = ["mloda>=0.6.1"]
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
-dev = ["mloda-testing", "pytest"]
+dev = ["mloda-testing", "pytest>=9.0.3"]
 all = ["mloda-community-window-aggregation", "mloda-community-aggregation", "mloda-community-rank", "mloda-community-offset", "mloda-community-frame-aggregate", "mloda-community-scalar-aggregate", "mloda-community-datetime", "mloda-community-string", "mloda-community-binning", "mloda-community-percentile"]
 
 [project.urls]

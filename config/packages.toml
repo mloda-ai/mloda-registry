@@ -8,9 +8,9 @@ path = "mloda/registry"
 
 [packages.mloda-testing]
 description = "Test utilities for mloda plugin development"
-dependencies = ["mloda>=0.6.1", "pytest"]
+dependencies = ["mloda>=0.6.1", "pytest>=9.0.3"]
 path = "mloda/testing"
-optional_dependencies = { dev = ["pytest"] }
+optional_dependencies = { dev = ["pytest>=9.0.3"] }
 
 [packages.mloda-community]
 description = "All community plugins for mloda"

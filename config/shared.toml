@@ -16,4 +16,4 @@ build-backend = "setuptools.build_meta"
 
 [defaults]
 license = "Apache-2.0"
-optional_dependencies = { dev = ["mloda-testing", "pytest"] }
+optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
