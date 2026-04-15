@@ -19,6 +19,7 @@ import pytest
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.collision import CollisionTestMixin
 
 __all__ = [
     "EXPECTED_FIRST_VALUE",
@@ -52,7 +53,7 @@ EXPECTED_FIRST_VALUE = [-5, -5, -5, -5, 30, 30, 30, 30, 15, 15, 15, -10]
 EXPECTED_LAST_VALUE = [20, 20, 20, 20, 60, 60, 60, 60, 40, 40, 40, -10]
 
 
-class OffsetTestBase(DataOpsTestBase):
+class OffsetTestBase(CollisionTestMixin, DataOpsTestBase):
     """Abstract base class for offset framework tests."""
 
     ALL_OFFSET_TYPES = {"lag", "lead", "diff", "pct_change", "first_value", "last_value"}
@@ -61,6 +62,20 @@ class OffsetTestBase(DataOpsTestBase):
     def supported_offset_types(cls) -> set[str]:
         """Offset types this framework supports. Override to restrict."""
         return cls.ALL_OFFSET_TYPES
+
+    # -- CollisionTestMixin configuration -------------------------------------
+
+    @classmethod
+    def collision_feature_name(cls) -> str:
+        return "value_int__lag_1_offset"
+
+    @classmethod
+    def collision_partition_by(cls) -> list[str] | None:
+        return ["region"]
+
+    @classmethod
+    def collision_order_by(cls) -> str | None:
+        return "value_int"
 
     @classmethod
     def reference_implementation_class(cls) -> Any:

@@ -23,3 +23,17 @@ class TestDuckdbWindowAggregation(DuckdbTestMixin, WindowAggregationTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return DuckdbWindowAggregation
+
+    def test_collision_rn(self) -> None:
+        """User column named __mloda_rn__ must survive DuckdbWindowAggregation first/last.
+
+        The __mloda_rn__ helper is only materialized by the first/last code
+        paths, so this test uses the ``first`` aggregation rather than the
+        default ``sum`` baseline.
+        """
+        self._run_collision_case(
+            "__mloda_rn__",
+            feature_name="value_int__first_window",
+            partition_by=["region"],
+            order_by="value_int",
+        )

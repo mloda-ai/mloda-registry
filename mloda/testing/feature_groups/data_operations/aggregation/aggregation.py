@@ -21,6 +21,7 @@ import pytest
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.collision import CollisionTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 
 
@@ -55,7 +56,7 @@ def _build_result_map(
 # ---------------------------------------------------------------------------
 
 
-class AggregationTestBase(MaskTestMixin, DataOpsTestBase):
+class AggregationTestBase(CollisionTestMixin, MaskTestMixin, DataOpsTestBase):
     """Abstract base class for aggregation framework tests.
 
     Subclasses implement 5 abstract methods to wire up their framework,

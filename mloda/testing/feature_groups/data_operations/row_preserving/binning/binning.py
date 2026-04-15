@@ -19,6 +19,7 @@ import pytest
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.collision import CollisionTestMixin
 
 
 # ---------------------------------------------------------------------------
@@ -68,12 +69,28 @@ EXPECTED_QBIN_5: list[Any] = [1, 0, 0, 2, None, 4, 3, 4, 1, 2, 3, 0]
 # ---------------------------------------------------------------------------
 
 
-class BinningTestBase(DataOpsTestBase):
+class BinningTestBase(CollisionTestMixin, DataOpsTestBase):
     """Abstract base class for binning framework tests."""
 
     @classmethod
     def supported_ops(cls) -> set[str]:
         return {"bin", "qbin"}
+
+    # -- CollisionTestMixin configuration -------------------------------------
+    # qbin is the only binning path that materializes a helper column, so use
+    # it as the canonical collision feature.
+
+    @classmethod
+    def collision_feature_name(cls) -> str:
+        return "value_int__qbin_3"
+
+    @classmethod
+    def collision_partition_by(cls) -> list[str] | None:
+        return None
+
+    @classmethod
+    def collision_order_by(cls) -> str | None:
+        return None
 
     @classmethod
     def reference_implementation_class(cls) -> Any:

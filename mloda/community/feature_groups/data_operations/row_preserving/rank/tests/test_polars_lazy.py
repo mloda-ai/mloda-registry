@@ -23,3 +23,7 @@ class TestPolarsLazyRank(PolarsLazyTestMixin, RankTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PolarsLazyRank
+
+    def test_collision_rank_null_flag(self) -> None:
+        """User column named __mloda_rank_null_flag__ must survive PolarsLazyRank."""
+        self._run_collision_case("__mloda_rank_null_flag__")

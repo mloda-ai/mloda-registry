@@ -17,3 +17,7 @@ class TestDuckdbOffset(DuckdbTestMixin, OffsetTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return DuckdbOffset
+
+    def test_collision_orig_rn(self) -> None:
+        """User column named __mloda_orig_rn__ must survive DuckdbOffset."""
+        self._run_collision_case("__mloda_orig_rn__")

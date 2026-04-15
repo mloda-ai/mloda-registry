@@ -17,6 +17,7 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.collision import CollisionTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.user import Feature
 
@@ -56,7 +57,7 @@ EXPECTED_P100_BY_REGION: list[float] = [20.0, 20.0, 20.0, 20.0, 60.0, 60.0, 60.0
 # ---------------------------------------------------------------------------
 
 
-class PercentileTestBase(MaskTestMixin, DataOpsTestBase):
+class PercentileTestBase(CollisionTestMixin, MaskTestMixin, DataOpsTestBase):
     """Abstract base class for percentile framework tests."""
 
     # -- MaskTestMixin configuration -------------------------------------------

@@ -20,6 +20,7 @@ import pytest
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.collision import CollisionTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 
 
@@ -66,7 +67,7 @@ NULL_GROUP_SUM_EXPECTED: int = -10
 # ---------------------------------------------------------------------------
 
 
-class WindowAggregationTestBase(MaskTestMixin, DataOpsTestBase):
+class WindowAggregationTestBase(CollisionTestMixin, MaskTestMixin, DataOpsTestBase):
     """Abstract base class for window aggregation framework tests."""
 
     ALL_AGG_TYPES = {

@@ -17,3 +17,7 @@ class TestPandasOffset(PandasTestMixin, OffsetTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PandasOffset
+
+    def test_collision_null_sort(self) -> None:
+        """User column named __mloda_null_sort must survive PandasOffset."""
+        self._run_collision_case("__mloda_null_sort")

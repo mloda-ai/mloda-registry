@@ -23,3 +23,7 @@ class TestPolarsLazyWindowAggregation(PolarsLazyTestMixin, WindowAggregationTest
     @classmethod
     def implementation_class(cls) -> Any:
         return PolarsLazyWindowAggregation
+
+    def test_collision_masked_src(self) -> None:
+        """User column named __mloda_masked_src__ must survive the mask-enabled path."""
+        self._run_collision_case("__mloda_masked_src__", use_mask=True)

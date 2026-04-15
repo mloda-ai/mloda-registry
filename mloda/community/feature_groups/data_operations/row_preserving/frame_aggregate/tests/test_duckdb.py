@@ -27,3 +27,7 @@ class TestDuckdbFrameAggregate(DuckdbTestMixin, FrameAggregateTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return DuckdbFrameAggregate
+
+    def test_collision_rn(self) -> None:
+        """User column named __mloda_rn__ must survive DuckdbFrameAggregate."""
+        self._run_collision_case("__mloda_rn__")

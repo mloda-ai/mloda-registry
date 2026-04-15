@@ -23,3 +23,7 @@ class TestPolarsLazyAggregation(PolarsLazyTestMixin, AggregationTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PolarsLazyAggregation
+
+    def test_collision_masked_src(self) -> None:
+        """User column named __mloda_masked_src__ must not leak into the grouped result."""
+        self._run_collision_case("__mloda_masked_src__", use_mask=True)

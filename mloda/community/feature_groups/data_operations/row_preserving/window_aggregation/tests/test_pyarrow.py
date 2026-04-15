@@ -39,3 +39,7 @@ class TestPyArrowWindowAggregation(PyArrowTestMixin, WindowAggregationTestBase):
             "first",
             "last",
         }
+
+    def test_collision_wa_idx(self) -> None:
+        """User column named __mloda_wa_idx__ must survive PyArrowWindowAggregation."""
+        self._run_collision_case("__mloda_wa_idx__")

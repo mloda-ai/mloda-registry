@@ -17,3 +17,7 @@ class TestPolarsLazyOffset(PolarsLazyTestMixin, OffsetTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PolarsLazyOffset
+
+    def test_collision_orig_idx(self) -> None:
+        """User column named __mloda_orig_idx must survive PolarsLazyOffset."""
+        self._run_collision_case("__mloda_orig_idx")

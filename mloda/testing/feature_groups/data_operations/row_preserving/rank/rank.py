@@ -24,6 +24,7 @@ import pyarrow as pa
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.collision import CollisionTestMixin
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +71,7 @@ EXPECTED_BOTTOM_2 = [False, True, True, False, False, True, True, False, True, T
 # ---------------------------------------------------------------------------
 
 
-class RankTestBase(DataOpsTestBase):
+class RankTestBase(CollisionTestMixin, DataOpsTestBase):
     """Abstract base class for rank framework tests.
 
     Subclasses implement the abstract adapter methods from ``DataOpsTestBase``
@@ -83,6 +84,20 @@ class RankTestBase(DataOpsTestBase):
     def supported_rank_types(cls) -> set[str]:
         """Rank types this framework supports. Override to restrict."""
         return cls.ALL_RANK_TYPES
+
+    # -- CollisionTestMixin configuration -------------------------------------
+
+    @classmethod
+    def collision_feature_name(cls) -> str:
+        return "value_int__row_number_ranked"
+
+    @classmethod
+    def collision_partition_by(cls) -> list[str] | None:
+        return ["region"]
+
+    @classmethod
+    def collision_order_by(cls) -> str | None:
+        return "value_int"
 
     # -- Reference implementation override --------------------------------------------
 

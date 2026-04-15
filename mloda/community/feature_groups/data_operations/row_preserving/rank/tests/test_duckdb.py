@@ -23,3 +23,7 @@ class TestDuckdbRank(DuckdbTestMixin, RankTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return DuckdbRank
+
+    def test_collision_orig_rn(self) -> None:
+        """User column named __mloda_orig_rn must survive DuckdbRank."""
+        self._run_collision_case("__mloda_orig_rn")
