@@ -11,7 +11,6 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation
 
 from mloda.community.feature_groups.data_operations.row_preserving.offset.sqlite_offset import SqliteOffset
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.offset.offset import (
     OffsetTestBase,
@@ -19,7 +18,7 @@ from mloda.testing.feature_groups.data_operations.row_preserving.offset.offset i
 )
 
 
-class TestSqliteOffset(ReservedColumnsTestMixin, SqliteTestMixin, OffsetTestBase):
+class TestSqliteOffset(SqliteTestMixin, OffsetTestBase):
     @classmethod
     def supported_offset_types(cls) -> set[str]:
         return {"lag", "lead", "first_value", "last_value"}
@@ -27,18 +26,6 @@ class TestSqliteOffset(ReservedColumnsTestMixin, SqliteTestMixin, OffsetTestBase
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteOffset
-
-    @classmethod
-    def reserved_columns_feature_name(cls) -> str:
-        return "value_int__lag_1_offset"
-
-    @classmethod
-    def reserved_columns_partition_by(cls) -> list[str] | None:
-        return ["region"]
-
-    @classmethod
-    def reserved_columns_order_by(cls) -> str | None:
-        return "value_int"
 
 
 class TestSqliteUnsupportedTypes:

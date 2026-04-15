@@ -28,7 +28,3 @@ class TestSqliteDateTimeExtraction(ReservedColumnsTestMixin, SqliteTestMixin, Da
     @classmethod
     def reserved_columns_partition_by(cls) -> list[str] | None:
         return None
-
-    @classmethod
-    def reserved_columns_order_by(cls) -> str | None:
-        return None

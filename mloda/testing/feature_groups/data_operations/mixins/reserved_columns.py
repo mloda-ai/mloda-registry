@@ -40,12 +40,22 @@ class ReservedColumnsTestMixin:
 
     @classmethod
     def reserved_columns_partition_by(cls) -> list[str] | None:
-        """Partition key(s) for the reserved-columns test. None if not applicable."""
-        raise NotImplementedError
+        """Partition key(s) for the reserved-columns test.
+
+        Defaults to ``["region"]``, the canonical partition column in the shared
+        data-operations test dataset. Override to return ``None`` for ops that
+        do not partition (e.g. scalar aggregate, binning, datetime, string) or
+        to a different column list when the op uses a non-standard partition.
+        """
+        return ["region"]
 
     @classmethod
     def reserved_columns_order_by(cls) -> str | None:
-        """Order key for the reserved-columns test. None if not applicable."""
+        """Order key for the reserved-columns test.
+
+        Defaults to ``None``. Override for ops that require an order key
+        (e.g. frame aggregate, offset).
+        """
         return None
 
     # -- Concrete test method --------------------------------------------------

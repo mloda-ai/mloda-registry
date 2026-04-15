@@ -30,9 +30,5 @@ class TestPolarsLazyRank(ReservedColumnsTestMixin, PolarsLazyTestMixin, RankTest
         return "value_int__row_number_ranked"
 
     @classmethod
-    def reserved_columns_partition_by(cls) -> list[str] | None:
-        return ["region"]
-
-    @classmethod
     def reserved_columns_order_by(cls) -> str | None:
         return "value_int"

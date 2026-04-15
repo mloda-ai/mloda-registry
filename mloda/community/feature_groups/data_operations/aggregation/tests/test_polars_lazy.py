@@ -28,11 +28,3 @@ class TestPolarsLazyAggregation(ReservedColumnsTestMixin, PolarsLazyTestMixin, A
     @classmethod
     def reserved_columns_feature_name(cls) -> str:
         return "value_int__sum_agg"
-
-    @classmethod
-    def reserved_columns_partition_by(cls) -> list[str] | None:
-        return ["region"]
-
-    @classmethod
-    def reserved_columns_order_by(cls) -> str | None:
-        return None
