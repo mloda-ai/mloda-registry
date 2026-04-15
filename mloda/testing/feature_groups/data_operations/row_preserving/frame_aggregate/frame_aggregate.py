@@ -25,6 +25,7 @@ from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.user import Feature
 
 
@@ -143,8 +144,18 @@ def _assert_values_with_nulls(actual: list[Any], expected: list[Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-class FrameAggregateTestBase(MaskTestMixin, DataOpsTestBase):
+class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTestBase):
     """Abstract base class for frame aggregate framework tests."""
+
+    # -- ReservedColumnsTestMixin configuration --------------------------------
+
+    @classmethod
+    def reserved_columns_feature_name(cls) -> str:
+        return "value_int__sum_rolling_3"
+
+    @classmethod
+    def reserved_columns_order_by(cls) -> str | None:
+        return "timestamp"
 
     # -- MaskTestMixin configuration -------------------------------------------
 

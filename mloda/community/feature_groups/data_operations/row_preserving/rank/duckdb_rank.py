@@ -9,6 +9,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
+from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
@@ -37,6 +38,8 @@ class DuckdbRank(RankFeatureGroup):
         order_by: str,
         rank_type: str,
     ) -> DuckdbRelation:
+        assert_no_reserved_columns(data.columns, framework="DuckDB", operation="rank")
+
         quoted_order = quote_ident(order_by)
         quoted_feature = quote_ident(feature_name)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)

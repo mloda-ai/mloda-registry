@@ -65,6 +65,8 @@ sorted_rel = with_qbin.order(qrn)
 
 This pattern generalizes. Any time a framework's native operator reorders rows, the implementation must record positions before the operator runs and restore them afterward.
 
+The `__mloda_` prefix is reserved across the data-operations package. Every guarded `_compute_*` calls `assert_no_reserved_columns()` (defined in `mloda/community/feature_groups/data_operations/reserved_columns.py`) on its input and raises `ValueError` if any user column shares the prefix. New helper columns must keep the `__mloda_` prefix so the guard covers them automatically. See [Known divergences](known-divergences.md) for the full entry.
+
 ---
 
 ## How to verify a new implementation honors the contract

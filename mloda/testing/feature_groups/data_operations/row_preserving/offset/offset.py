@@ -19,6 +19,7 @@ import pytest
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 
 __all__ = [
     "EXPECTED_FIRST_VALUE",
@@ -52,8 +53,18 @@ EXPECTED_FIRST_VALUE = [-5, -5, -5, -5, 30, 30, 30, 30, 15, 15, 15, -10]
 EXPECTED_LAST_VALUE = [20, 20, 20, 20, 60, 60, 60, 60, 40, 40, 40, -10]
 
 
-class OffsetTestBase(DataOpsTestBase):
+class OffsetTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
     """Abstract base class for offset framework tests."""
+
+    # -- ReservedColumnsTestMixin configuration --------------------------------
+
+    @classmethod
+    def reserved_columns_feature_name(cls) -> str:
+        return "value_int__lag_1_offset"
+
+    @classmethod
+    def reserved_columns_order_by(cls) -> str | None:
+        return "value_int"
 
     ALL_OFFSET_TYPES = {"lag", "lead", "diff", "pct_change", "first_value", "last_value"}
 

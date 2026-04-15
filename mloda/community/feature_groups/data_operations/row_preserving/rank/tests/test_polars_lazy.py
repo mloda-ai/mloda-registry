@@ -12,14 +12,23 @@ from mloda.community.feature_groups.data_operations.row_preserving.rank.polars_l
     PolarsLazyRank,
 )
 from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import (
     RankTestBase,
 )
 
 
-class TestPolarsLazyRank(PolarsLazyTestMixin, RankTestBase):
+class TestPolarsLazyRank(ReservedColumnsTestMixin, PolarsLazyTestMixin, RankTestBase):
     """All tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:
         return PolarsLazyRank
+
+    @classmethod
+    def reserved_columns_feature_name(cls) -> str:
+        return "value_int__row_number_ranked"
+
+    @classmethod
+    def reserved_columns_order_by(cls) -> str | None:
+        return "value_int"

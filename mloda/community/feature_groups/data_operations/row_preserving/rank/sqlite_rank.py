@@ -10,6 +10,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
+from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
@@ -62,6 +63,8 @@ class SqliteRank(RankFeatureGroup):
         order_by: str,
         rank_type: str,
     ) -> SqliteRelation:
+        assert_no_reserved_columns(data.columns, framework="SQLite", operation="rank")
+
         quoted_order = quote_ident(order_by)
         quoted_feature = quote_ident(feature_name)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)

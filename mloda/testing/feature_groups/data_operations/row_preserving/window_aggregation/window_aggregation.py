@@ -21,6 +21,7 @@ import pytest
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 
 
 # ---------------------------------------------------------------------------
@@ -66,8 +67,14 @@ NULL_GROUP_SUM_EXPECTED: int = -10
 # ---------------------------------------------------------------------------
 
 
-class WindowAggregationTestBase(MaskTestMixin, DataOpsTestBase):
+class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTestBase):
     """Abstract base class for window aggregation framework tests."""
+
+    # -- ReservedColumnsTestMixin configuration --------------------------------
+
+    @classmethod
+    def reserved_columns_feature_name(cls) -> str:
+        return "value_int__sum_window"
 
     ALL_AGG_TYPES = {
         "sum",

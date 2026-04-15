@@ -10,6 +10,7 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
+from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (
     PercentileFeatureGroup,
 )
@@ -30,6 +31,8 @@ class PolarsLazyPercentile(PercentileFeatureGroup):
         percentile: float,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pl.LazyFrame:
+        assert_no_reserved_columns(data.collect_schema().names(), framework="Polars", operation="percentile")
+
         actual_source = source_col
         if mask_spec is not None:
             data, actual_source = apply_polars_mask(data, source_col, mask_spec)
