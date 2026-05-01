@@ -55,6 +55,18 @@ addopts = "--import-mode=importlib"
 namespace_packages = true
 explicit_package_bases = true
 
+[[tool.mypy.overrides]]
+# pyarrow.compute registers functions dynamically from the C++ kernel
+# registry, so its type stubs cannot fully enumerate `pc.*` attributes.
+# pyarrow 24 narrowed its stub exports for ~28 commonly-used compute
+# functions (sum, if_else, year, divide, VarianceOptions, ...) — they
+# still exist at runtime. `follow_imports = skip` treats the module as
+# untyped so callers can access `pc.*` without `attr-defined` failures;
+# typing of pyarrow itself (`pa.Table`, etc.) is unaffected. Remove when
+# stubs restore the explicit exports.
+module = ["pyarrow.compute", "pyarrow.compute.*"]
+follow_imports = "skip"
+
 [tool.bandit]
 exclude_dirs = [
     "venv",
