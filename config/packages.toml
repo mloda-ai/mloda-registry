@@ -1,5 +1,69 @@
-# Package-specific configuration for mloda-registry packages
-# Edit this file and run: python scripts/generate_pyproject.py
+# Package-specific configuration for mloda-registry packages.
+#
+# This file is the canonical declaration of every package that exists in this
+# repository. `scripts/generate_pyproject.py` reads it to (re)generate per-
+# package `pyproject.toml` files and the `[tool.uv.workspace]` member list in
+# the root `pyproject.toml`.
+#
+# Edit this file, then run: python scripts/generate_pyproject.py
+#
+# -----------------------------------------------------------------------------
+# Released vs bundle-only packages
+# -----------------------------------------------------------------------------
+# Not every package declared here is published as a standalone PyPI artifact.
+# The release pipeline (`.github/workflows/release.yaml`) carries a hardcoded
+# subset, and so do the post-release verify recipes in `tox.ini` and the local
+# build-sanity check in `scripts/verify_builds.py`. Until the single-source-of-
+# truth refactor lands, you must hand-edit each of those when adding a new
+# *production* (released) package. See the checklist below.
+#
+# Released as standalone PyPI artifacts (17 packages):
+#   - 4 bundles: mloda-registry, mloda-testing, mloda-community, mloda-enterprise
+#   - 11 community data-operations: mloda-community-data-operations and the 10
+#     leaves (aggregation, rank, offset, window-aggregation, frame-aggregate,
+#     scalar-aggregate, datetime, string, binning, percentile)
+#   - 2 examples kept released to exercise the cross-package dependency
+#     mechanism on real PyPI installs: mloda-community-example and
+#     mloda-community-example-a
+#
+# Bundle-only, NOT released standalone (6 packages):
+#   - mloda-community-example-b
+#   - mloda-enterprise-example
+#   - mloda-community-compute-frameworks-example
+#   - mloda-community-extenders-example
+#   - mloda-enterprise-compute-frameworks-example
+#   - mloda-enterprise-extenders-example
+# These are demo / test-scaffold packages. Their code reaches users only as
+# part of the `mloda-community` and `mloda-enterprise` bundle wheels, never as
+# standalone `pip install <name>` artifacts. Do not add them to release.yaml.
+#
+# -----------------------------------------------------------------------------
+# Checklist when adding a new *production* (released) package
+# -----------------------------------------------------------------------------
+# 1. Add a `[packages.<name>]` section in this file.
+# 2. Run `python scripts/generate_pyproject.py`.
+# 3. Add the package name to:
+#      - `.github/workflows/release.yaml` (build/upload bash array, ~line 111)
+#      - `tox.ini` `[testenv:verify-published]` install line (~line 91) and
+#        add a corresponding `python -c "import ..."` smoke-test line.
+#      - `tox.ini` `[testenv:security]` uninstall + install lines (~164-165)
+#      - `scripts/verify_builds.py` `PACKAGES` list (~line 18)
+# Example-only packages (listed above) skip step 3.
+#
+# -----------------------------------------------------------------------------
+# Pending cleanup (tracked, not addressed here)
+# -----------------------------------------------------------------------------
+# - `tox.ini [testenv:verify-published-independent]` only isolates the 4
+#   bundles; the 11 data-ops leaves should also be tested standalone.
+# - `tox.ini [testenv:verify-extras]` only smoke-tests
+#   `mloda-community-example[all]`; data-ops packages declare `[pyarrow]`,
+#   `[polars]`, `[pandas]`, `[duckdb]`, `[all]` extras (and
+#   `mloda-community-data-operations[all]` is structurally analogous) but none
+#   are exercised post-release.
+# - `memory-bank/release-pypi.md` still describes the legacy 6-package release.
+# - The duplicated package lists above should ultimately derive from this file
+#   via a `scripts/list_packages.py` helper so adding a package here cascades
+#   automatically and this drift class is eliminated.
 
 [packages.mloda-registry]
 description = "Plugin discovery and search for mloda"
