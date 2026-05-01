@@ -28,13 +28,28 @@ PACKAGES = [
     ("mloda-community-aggregation", "mloda/community/feature_groups/data_operations/aggregation/pyproject.toml"),
     ("mloda-community-rank", "mloda/community/feature_groups/data_operations/row_preserving/rank/pyproject.toml"),
     ("mloda-community-offset", "mloda/community/feature_groups/data_operations/row_preserving/offset/pyproject.toml"),
-    ("mloda-community-window-aggregation", "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/pyproject.toml"),
-    ("mloda-community-frame-aggregate", "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pyproject.toml"),
-    ("mloda-community-scalar-aggregate", "mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/pyproject.toml"),
-    ("mloda-community-datetime", "mloda/community/feature_groups/data_operations/row_preserving/datetime/pyproject.toml"),
+    (
+        "mloda-community-window-aggregation",
+        "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/pyproject.toml",
+    ),
+    (
+        "mloda-community-frame-aggregate",
+        "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pyproject.toml",
+    ),
+    (
+        "mloda-community-scalar-aggregate",
+        "mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/pyproject.toml",
+    ),
+    (
+        "mloda-community-datetime",
+        "mloda/community/feature_groups/data_operations/row_preserving/datetime/pyproject.toml",
+    ),
     ("mloda-community-string", "mloda/community/feature_groups/data_operations/string/pyproject.toml"),
     ("mloda-community-binning", "mloda/community/feature_groups/data_operations/row_preserving/binning/pyproject.toml"),
-    ("mloda-community-percentile", "mloda/community/feature_groups/data_operations/row_preserving/percentile/pyproject.toml"),
+    (
+        "mloda-community-percentile",
+        "mloda/community/feature_groups/data_operations/row_preserving/percentile/pyproject.toml",
+    ),
 ]
 
 
