@@ -73,9 +73,12 @@ class PandasAggregation(AggregationFeatureGroup):
     ) -> pd.DataFrame:
         """Insertion-order tie-breaking for PyArrow parity."""
         partition_by = list(partition_by)
+
         if source_col in partition_by:
             unique_parts = data[partition_by].drop_duplicates().reset_index(drop=True).copy()
-            unique_parts[feature_name] = unique_parts[source_col].where(unique_parts[source_col].notna(), pd.NA)
+            unique_parts[feature_name] = unique_parts[source_col].where(
+                unique_parts[source_col].notna(), pd.NA
+            )
             return unique_parts
 
         winners = compute_mode_winners(data, source_col, partition_by)
@@ -84,5 +87,23 @@ class PandasAggregation(AggregationFeatureGroup):
         all_partitions = data[partition_by].drop_duplicates().copy()
         all_partitions[feature_name] = pd.NA
 
-        combined = pd.concat([winners, all_partitions], ignore_index=True, sort=False)
-        return combined.groupby(partition_by, dropna=False, as_index=False)[feature_name].first().reset_index(drop=True)
+        frames = [winners, all_partitions]
+
+        # ✅ FIX 1: align dtype (prevents FutureWarning)
+        for df in frames:
+            if df is not None and feature_name in df.columns:
+                df[feature_name] = df[feature_name].astype("object")
+
+        # ✅ FIX 2: only remove empty frames (NOT all-NaN)
+        filtered_frames = [
+            df for df in frames
+            if df is not None and not df.empty
+        ]
+
+        combined = pd.concat(filtered_frames, ignore_index=True, sort=False)
+
+        return (
+            combined.groupby(partition_by, dropna=False, as_index=False)[feature_name]
+            .first()
+            .reset_index(drop=True)
+        )

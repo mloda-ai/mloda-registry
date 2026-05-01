@@ -39,6 +39,7 @@ class PandasScalarAggregate(ScalarAggregateFeatureGroup):
             data[source_col] = data[source_col].where(mask)
         else:
             data = data.copy()
+
         col = data[source_col]
 
         if agg_type == "sum":
@@ -60,7 +61,11 @@ class PandasScalarAggregate(ScalarAggregateFeatureGroup):
         elif agg_type == "var_samp":
             result = col.var(ddof=1)
         elif agg_type == "median":
-            result = col.median()
+            # ✅ FIX: avoid RuntimeWarning for all-NaN column
+            if col.isna().all():
+                result = None
+            else:
+                result = col.median()
         else:
             raise unsupported_agg_type_error(agg_type, cls._SUPPORTED_AGG_TYPES, framework="Pandas")
 

@@ -83,6 +83,7 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
     ) -> pd.DataFrame:
         """Insertion-order tie-breaking for PyArrow parity."""
         partition_by = list(partition_by)
+
         if source_col in partition_by:
             data = data.copy()
             data[feature_name] = data[source_col]
@@ -100,13 +101,30 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
         winners_for_merge = winners.copy()
         winners_for_merge[is_data_col] = False
 
-        combined = pd.concat([winners_for_merge, carrier], ignore_index=True, sort=False)
-        combined[feature_name] = combined.groupby(partition_by, dropna=False)[feature_name].transform("first")
+        frames = [winners_for_merge, carrier]
+
+        # ✅ FIX 1: ensure same dtype (MAIN FIX)
+        for df in frames:
+            if df is not None and feature_name in df.columns:
+                df[feature_name] = df[feature_name].astype("object")
+
+        # ✅ FIX 2: only remove EMPTY (not all-NaN)
+        filtered_frames = [
+            df for df in frames
+            if df is not None and not df.empty
+        ]
+
+        combined = pd.concat(filtered_frames, ignore_index=True, sort=False)
+
+        combined[feature_name] = (
+            combined.groupby(partition_by, dropna=False)[feature_name].transform("first")
+        )
 
         broadcast = combined.loc[combined[is_data_col], feature_name]
 
         data = data.copy()
         data[feature_name] = broadcast.to_numpy()
+
         return data
 
     @classmethod
@@ -119,8 +137,6 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
         agg_type: str,
         order_by: str,
     ) -> pd.DataFrame:
-        """PyArrow parity: sort within each partition for first/last semantics,
-        then restore input row order via sort_index()."""
         pandas_func = PANDAS_AGG_FUNCS[agg_type]
         sorted_data = data.sort_values(order_by, na_position="last")
         grouped = null_safe_groupby(sorted_data, partition_by, source_col)
