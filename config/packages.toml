@@ -1,5 +1,12 @@
 # Package-specific configuration for mloda-registry packages
 # Edit this file and run: python scripts/generate_pyproject.py
+#
+# Some packages declared here are example/demo only and intentionally NOT
+# released as standalone PyPI artifacts; they reach users via the
+# mloda-community / mloda-enterprise bundle wheels. Do not add them to the
+# build/upload list in .github/workflows/release.yaml:
+#   mloda-community-example-b, mloda-enterprise-example,
+#   mloda-{community,enterprise}-{compute-frameworks,extenders}-example
 
 [packages.mloda-registry]
 description = "Plugin discovery and search for mloda"

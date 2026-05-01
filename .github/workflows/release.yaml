@@ -105,9 +105,18 @@ jobs:
 
       - name: Build packages
         run: |
-          # Build bundle packages + example packages for regression testing
-          # Using --wheel --no-build-isolation because the monorepo layout
-          # requires access to parent directories during build
+          # Released set: 4 bundles + 11 community data-operations packages +
+          # 2 examples kept for end-to-end PyPI dependency-resolution coverage
+          # (mloda-community-example, mloda-community-example-a).
+          #
+          # Other example/demo packages declared in config/packages.toml are
+          # intentionally NOT published standalone; their code ships inside
+          # the mloda-community / mloda-enterprise bundle wheels. See the
+          # header comment in config/packages.toml for the full policy and
+          # the checklist for adding a new released package.
+          #
+          # `--wheel --no-build-isolation` is required by the monorepo layout
+          # (build needs access to parent directories).
           packages=(
             "mloda-registry"
             "mloda-testing"
@@ -115,6 +124,17 @@ jobs:
             "mloda-enterprise"
             "mloda-community-example"
             "mloda-community-example-a"
+            "mloda-community-data-operations"
+            "mloda-community-aggregation"
+            "mloda-community-rank"
+            "mloda-community-offset"
+            "mloda-community-window-aggregation"
+            "mloda-community-frame-aggregate"
+            "mloda-community-scalar-aggregate"
+            "mloda-community-datetime"
+            "mloda-community-string"
+            "mloda-community-binning"
+            "mloda-community-percentile"
           )
 
           mkdir -p dist
