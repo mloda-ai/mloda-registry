@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community-window-aggregation"
-version = "0.2.12"
+version = "0.3.0"
 description = "Window aggregation feature group (broadcast, partition_by, row-preserving)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]

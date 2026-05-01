@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community-string"
-version = "0.2.12"
+version = "0.3.0"
 description = "String operation feature group (element-wise, row-preserving)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
