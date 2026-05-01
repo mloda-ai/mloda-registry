@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community-percentile"
-version = "0.3.0"
+version = "0.3.1"
 description = "Percentile feature group (PERCENTILE_CONT, partition_by, row-preserving)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]

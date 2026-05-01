@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community-frame-aggregate"
-version = "0.3.0"
+version = "0.3.1"
 description = "Frame aggregate feature group (rolling, cumulative, expanding, time window, row-preserving)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
