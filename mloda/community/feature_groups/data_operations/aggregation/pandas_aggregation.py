@@ -87,10 +87,8 @@ class PandasAggregation(AggregationFeatureGroup):
 
         frames = [winners, all_partitions]
 
-        # ensure consistent dtype before concat
         for df in frames:
             df[feature_name] = df[feature_name].astype("object")
 
         combined = pd.concat(frames, ignore_index=True, sort=False)
-
         return combined.groupby(partition_by, dropna=False, as_index=False)[feature_name].first().reset_index(drop=True)

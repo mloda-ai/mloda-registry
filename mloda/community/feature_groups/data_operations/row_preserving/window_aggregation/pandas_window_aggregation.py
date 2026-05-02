@@ -136,4 +136,5 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
 
         data = data.copy()
         data[feature_name] = result_series.sort_index()
+
         return data
