@@ -76,9 +76,7 @@ class PandasAggregation(AggregationFeatureGroup):
 
         if source_col in partition_by:
             unique_parts = data[partition_by].drop_duplicates().reset_index(drop=True).copy()
-            unique_parts[feature_name] = unique_parts[source_col].where(
-                unique_parts[source_col].notna(), pd.NA
-            )
+            unique_parts[feature_name] = unique_parts[source_col].where(unique_parts[source_col].notna(), pd.NA)
             return unique_parts
 
         winners = compute_mode_winners(data, source_col, partition_by)
@@ -95,8 +93,4 @@ class PandasAggregation(AggregationFeatureGroup):
 
         combined = pd.concat(frames, ignore_index=True, sort=False)
 
-        return (
-            combined.groupby(partition_by, dropna=False, as_index=False)[feature_name]
-            .first()
-            .reset_index(drop=True)
-        )
+        return combined.groupby(partition_by, dropna=False, as_index=False)[feature_name].first().reset_index(drop=True)
