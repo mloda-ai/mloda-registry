@@ -50,6 +50,10 @@ namespaces = true
 testpaths = ["tests", "mloda/**/tests"]
 pythonpath = ["."]
 addopts = "--import-mode=importlib"
+filterwarnings = [
+    "error:The behavior of DataFrame concatenation with empty or all-NA entries:FutureWarning",
+    "error:Mean of empty slice:RuntimeWarning",
+]
 
 [tool.mypy]
 namespace_packages = true

@@ -143,4 +143,8 @@ def compute_mode_winners(
         kind="mergesort",
     )
     winners = counts.groupby(partition_by, dropna=False, as_index=False).head(1)
-    return winners[partition_by + [source_col]].reset_index(drop=True)
+    winners = winners[partition_by + [source_col]].reset_index(drop=True)
+    # Cast to object so callers can pd.concat with all-NA frames without
+    # tripping the pandas 2.x FutureWarning / pandas 3.0 dtype reconciliation.
+    winners[source_col] = winners[source_col].astype(object)
+    return winners
