@@ -89,18 +89,11 @@ class PandasAggregation(AggregationFeatureGroup):
 
         frames = [winners, all_partitions]
 
-        # ✅ FIX 1: align dtype (prevents FutureWarning)
+        # ensure consistent dtype before concat
         for df in frames:
-            if df is not None and feature_name in df.columns:
-                df[feature_name] = df[feature_name].astype("object")
+            df[feature_name] = df[feature_name].astype("object")
 
-        # ✅ FIX 2: only remove empty frames (NOT all-NaN)
-        filtered_frames = [
-            df for df in frames
-            if df is not None and not df.empty
-        ]
-
-        combined = pd.concat(filtered_frames, ignore_index=True, sort=False)
+        combined = pd.concat(frames, ignore_index=True, sort=False)
 
         return (
             combined.groupby(partition_by, dropna=False, as_index=False)[feature_name]

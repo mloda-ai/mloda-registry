@@ -61,9 +61,8 @@ class PandasScalarAggregate(ScalarAggregateFeatureGroup):
         elif agg_type == "var_samp":
             result = col.var(ddof=1)
         elif agg_type == "median":
-            # ✅ FIX: avoid RuntimeWarning for all-NaN column
             if col.isna().all():
-                result = None
+                result = float("nan")
             else:
                 result = col.median()
         else:
