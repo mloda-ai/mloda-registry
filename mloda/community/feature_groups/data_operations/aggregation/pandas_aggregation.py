@@ -73,7 +73,6 @@ class PandasAggregation(AggregationFeatureGroup):
     ) -> pd.DataFrame:
         """Insertion-order tie-breaking for PyArrow parity."""
         partition_by = list(partition_by)
-
         if source_col in partition_by:
             unique_parts = data[partition_by].drop_duplicates().reset_index(drop=True).copy()
             unique_parts[feature_name] = unique_parts[source_col].where(unique_parts[source_col].notna(), pd.NA)
@@ -85,12 +84,5 @@ class PandasAggregation(AggregationFeatureGroup):
         all_partitions = data[partition_by].drop_duplicates().copy()
         all_partitions[feature_name] = pd.NA
 
-        frames = [winners, all_partitions]
-
-        # ensure consistent dtype before concat
-        for df in frames:
-            df[feature_name] = df[feature_name].astype("object")
-
-        combined = pd.concat(frames, ignore_index=True, sort=False)
-
+        combined = pd.concat([winners, all_partitions], ignore_index=True, sort=False)
         return combined.groupby(partition_by, dropna=False, as_index=False)[feature_name].first().reset_index(drop=True)

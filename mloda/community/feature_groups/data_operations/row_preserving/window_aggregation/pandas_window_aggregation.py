@@ -83,7 +83,6 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
     ) -> pd.DataFrame:
         """Insertion-order tie-breaking for PyArrow parity."""
         partition_by = list(partition_by)
-
         if source_col in partition_by:
             data = data.copy()
             data[feature_name] = data[source_col]
@@ -101,20 +100,13 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
         winners_for_merge = winners.copy()
         winners_for_merge[is_data_col] = False
 
-        frames = [winners_for_merge, carrier]
-
-        for df in frames:
-            df[feature_name] = df[feature_name].astype("object")
-
-        combined = pd.concat(frames, ignore_index=True, sort=False)
-
+        combined = pd.concat([winners_for_merge, carrier], ignore_index=True, sort=False)
         combined[feature_name] = combined.groupby(partition_by, dropna=False)[feature_name].transform("first")
 
         broadcast = combined.loc[combined[is_data_col], feature_name]
 
         data = data.copy()
         data[feature_name] = broadcast.to_numpy()
-
         return data
 
     @classmethod

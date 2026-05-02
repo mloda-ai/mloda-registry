@@ -39,7 +39,6 @@ class PandasScalarAggregate(ScalarAggregateFeatureGroup):
             data[source_col] = data[source_col].where(mask)
         else:
             data = data.copy()
-
         col = data[source_col]
 
         if agg_type == "sum":
