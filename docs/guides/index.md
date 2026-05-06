@@ -43,7 +43,23 @@ Extend mloda's capabilities with custom plugins.
 
 ---
 
-## 5. Data Operation Patterns
+## 5. Feature Group Patterns
+
+Reusable patterns and guides for feature engineering, joins, validation, streaming, masking, and feature organization.
+
+- [Feature group patterns index](feature-group-patterns/index.md) - Start here for feature group design and implementation patterns
+
+---
+
+## 6. Compute Framework Patterns
+
+Execution models, framework abstractions, dependency handling, and compute engine implementation guides.
+
+- [Compute framework patterns index](compute-framework-patterns/index.md) - Start here for compute framework architecture and execution patterns
+
+---
+
+## 7. Data Operation Patterns
 
 Contracts, cross-framework semantics, and extension path for the built-in data operations (row-preserving, aggregation, string).
 
