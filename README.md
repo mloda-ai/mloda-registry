@@ -64,3 +64,15 @@ uv venv && source .venv/bin/activate && uv sync --all-extras
 # Run all checks via tox
 uv run tox
 ```
+
+## Contributing
+
+We welcome contributions: new plugins, plugin improvements, guide clarifications, and fixes to registry tooling.
+
+**Plugin contributors:** start with the [Plugin Journey overview](docs/guides/index.md) to find the right guide for your level. To scaffold a new standalone plugin package, use the [mloda-plugin-template](https://github.com/mloda-ai/mloda-plugin-template).
+
+**Bug reports and feature requests:** [open an issue](https://github.com/mloda-ai/mloda-registry/issues/new/choose). The issue template prompts for a summary, reproduction or motivation, optional code pointers, and an optional definition of done.
+
+Looking for somewhere to start? Browse [`good first issue`](https://github.com/mloda-ai/mloda-registry/labels/good%20first%20issue) and [`help wanted`](https://github.com/mloda-ai/mloda-registry/labels/help%20wanted).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full PR workflow and code style, and the [Code of Conduct](CODE_OF_CONDUCT.md).

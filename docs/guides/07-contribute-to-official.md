@@ -2,6 +2,8 @@
 
 Improve existing community plugins with bug fixes or new features.
 
+> For general PR mechanics, code style, and the full review process, see [CONTRIBUTING.md](../../CONTRIBUTING.md). This guide focuses on the workflow specific to contributing to official plugins.
+
 ## Steps
 
 1. **Fork and clone** mloda-registry:
