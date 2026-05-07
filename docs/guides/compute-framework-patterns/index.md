@@ -1,6 +1,5 @@
 # Compute Framework Patterns
 
-# Compute Framework Patterns
 
 Compute framework patterns describe execution strategies, dependency handling, filtering, transformations, and testing approaches across supported processing engines.
 
