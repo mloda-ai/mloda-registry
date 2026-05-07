@@ -58,9 +58,9 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
     ) -> DuckdbRelation:
         assert_no_reserved_columns(data.columns, framework="DuckDB", operation="window aggregation")
 
-        # Safety: _raw_sql is composed entirely from quote_ident()-quoted identifiers
-        # and hardcoded SQL function names from _DUCKDB_AGG_FUNCS. No user-controlled
-        # strings are interpolated without quoting.
+        # Safety: the projection string is composed entirely from quote_ident()-quoted
+        # identifiers and hardcoded SQL function names from _DUCKDB_AGG_FUNCS. No
+        # user-controlled strings are interpolated without quoting.
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
         partition_clause = ", ".join(quote_ident(col) for col in partition_by)
@@ -71,7 +71,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
 
         if agg_type == "nunique":
             raw_sql = f"*, COUNT(DISTINCT {source_sql}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}"
-            result: DuckdbRelation = data.select(_raw_sql=raw_sql)
+            result: DuckdbRelation = data.project(raw_sql)
             return result
 
         if agg_type in ("first", "last"):
@@ -81,7 +81,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         if agg_func is None:
             raise unsupported_agg_type_error(agg_type, _DUCKDB_AGG_FUNCS.keys(), framework="DuckDB")
         raw_sql = f"*, {agg_func}({source_sql}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}"
-        result = data.select(_raw_sql=raw_sql)
+        result = data.project(raw_sql)
         return result
 
     @classmethod

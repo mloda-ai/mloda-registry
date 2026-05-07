@@ -65,7 +65,7 @@ optional_dependencies = { dev = ["mloda-testing", "pytest"] }
 ```toml
 [packages.mloda-community]
 description = "All community plugins for mloda"
-dependencies = ["mloda>=0.4.3"]
+dependencies = ["mloda>=X.Y.Z"]
 path = "mloda/community"
 # Generates: package-dir = {"" = "../.."}, packages = ["mloda.community.*"]
 ```

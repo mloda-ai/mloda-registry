@@ -44,5 +44,5 @@ class DuckdbPercentile(PercentileFeatureGroup):
         raw_sql = (
             f"*, QUANTILE_CONT({source_sql}, {percentile}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}"
         )
-        result: DuckdbRelation = data.select(_raw_sql=raw_sql)
+        result: DuckdbRelation = data.project(raw_sql)
         return result

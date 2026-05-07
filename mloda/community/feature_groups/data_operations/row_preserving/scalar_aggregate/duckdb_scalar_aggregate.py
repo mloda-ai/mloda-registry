@@ -58,5 +58,5 @@ class DuckdbScalarAggregate(ScalarAggregateFeatureGroup):
             source_sql = build_sql_case_when(mask_spec, quoted_source)
 
         raw_sql = f"*, {agg_func}({source_sql}) OVER () AS {quoted_feature}"
-        result: DuckdbRelation = data.select(_raw_sql=raw_sql)
+        result: DuckdbRelation = data.project(raw_sql)
         return result

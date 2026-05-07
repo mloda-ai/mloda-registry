@@ -69,10 +69,10 @@ The `PARTITION BY CASE WHEN ...` clause is what ensures NULL/NaN rows do not par
 ```python
 # Paraphrased from duckdb_binning.py
 qrn = quote_ident("__mloda_rn__")
-with_rn    = data.select(_raw_sql=f"*, ROW_NUMBER() OVER () AS {qrn}")
-with_qbin  = with_rn.select(_raw_sql=f"*, {ntile_expression} AS {quoted_feature}")
+with_rn    = data.project(f"*, ROW_NUMBER() OVER () AS {qrn}")
+with_qbin  = with_rn.project(f"*, {ntile_expression} AS {quoted_feature}")
 sorted_rel = with_qbin.order(qrn)
-# project out __mloda_rn__ in the final select
+# project out __mloda_rn__ in the final projection
 ```
 
 1. Tag each input row with `ROW_NUMBER() OVER ()` before the window runs.
