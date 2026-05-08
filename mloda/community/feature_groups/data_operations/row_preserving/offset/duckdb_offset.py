@@ -63,11 +63,11 @@ class DuckdbOffset(OffsetFeatureGroup):
                 f"ROW_NUMBER() OVER () AS {qrn} "
                 f"FROM __t ORDER BY {qrn}"
             )
-            new_rel = data._relation.query("__t", sql)
+            new_rel = data.query("__t", sql)
             result_rel = new_rel.project(
                 ", ".join(quote_ident(c) for c in [col for col in new_rel.columns if col != _RN_COL])
             )
-            return DuckdbRelation(data.connection, result_rel)
+            return result_rel
         elif offset_type == "first_value":
             offset_expr = f"FIRST_VALUE({quoted_source} IGNORE NULLS)"
             # PyArrow parity: the reference scans the entire partition for
@@ -92,8 +92,8 @@ class DuckdbOffset(OffsetFeatureGroup):
             f"ROW_NUMBER() OVER () AS {qrn} "
             f"FROM __t ORDER BY {qrn}"
         )
-        new_rel = data._relation.query("__t", sql)
+        new_rel = data.query("__t", sql)
         result_rel = new_rel.project(
             ", ".join(quote_ident(c) for c in [col for col in new_rel.columns if col != _RN_COL])
         )
-        return DuckdbRelation(data.connection, result_rel)
+        return result_rel

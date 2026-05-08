@@ -47,7 +47,7 @@ class DuckdbBinning(BinningFeatureGroup):
                 f") AS INTEGER), {n_bins - 1}) END"
             )
             raw_sql = f"*, {expr} AS {quoted_feature}"
-            result: DuckdbRelation = data.select(_raw_sql=raw_sql)
+            result: DuckdbRelation = data.project(raw_sql)
             return result
 
         if op == "qbin":
@@ -63,11 +63,11 @@ class DuckdbBinning(BinningFeatureGroup):
                 f"AND NOT isnan({quoted_source}) THEN 1 END "
                 f"ORDER BY {quoted_source}) - 1, {n_bins - 1}) END"
             )
-            with_rn = data.select(_raw_sql=f"*, ROW_NUMBER() OVER () AS {qrn}")
-            with_qbin = with_rn.select(_raw_sql=f"*, {expr} AS {quoted_feature}")
+            with_rn = data.project(f"*, ROW_NUMBER() OVER () AS {qrn}")
+            with_qbin = with_rn.project(f"*, {expr} AS {quoted_feature}")
             sorted_rel = with_qbin.order(qrn)
             keep = ", ".join(quote_ident(c) for c in sorted_rel.columns if c != "__mloda_rn__")
-            qbin_result: DuckdbRelation = sorted_rel.select(_raw_sql=keep)
+            qbin_result: DuckdbRelation = sorted_rel.project(keep)
             return qbin_result
 
         raise ValueError(f"Unsupported binning operation for DuckDB: {op}")

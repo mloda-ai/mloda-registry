@@ -45,5 +45,5 @@ class DuckdbStringOps(StringFeatureGroup):
         quoted_feature = quote_ident(feature_name)
 
         raw_sql = f"*, {expr} AS {quoted_feature}"
-        result: DuckdbRelation = data.select(_raw_sql=raw_sql)
+        result: DuckdbRelation = data.project(raw_sql)
         return result

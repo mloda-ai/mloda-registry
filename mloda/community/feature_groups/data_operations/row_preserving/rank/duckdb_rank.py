@@ -85,9 +85,9 @@ class DuckdbRank(RankFeatureGroup):
                 f"ROW_NUMBER() OVER () AS {qrn} "
                 f"FROM __t ORDER BY {qrn}"
             )
-        new_rel = data._relation.query("__t", sql)
+        new_rel: DuckdbRelation = data.query("__t", sql)
         # Drop the helper column
         result_rel = new_rel.project(
             ", ".join(quote_ident(c) for c in [col for col in new_rel.columns if col != _RN_COL])
         )
-        return DuckdbRelation(data.connection, result_rel)
+        return result_rel

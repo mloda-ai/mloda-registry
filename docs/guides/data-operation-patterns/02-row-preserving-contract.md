@@ -57,8 +57,8 @@ From `mloda/community/feature_groups/data_operations/row_preserving/binning/duck
 # reorders rows via ORDER BY; tag positions with ROW_NUMBER()
 # and restore via .order() to match PyArrow output.
 qrn = quote_ident("__mloda_rn__")
-with_rn   = data.select(_raw_sql=f"*, ROW_NUMBER() OVER () AS {qrn}")
-with_qbin = with_rn.select(_raw_sql=f"*, {expr} AS {quoted_feature}")
+with_rn   = data.project(f"*, ROW_NUMBER() OVER () AS {qrn}")
+with_qbin = with_rn.project(f"*, {expr} AS {quoted_feature}")
 sorted_rel = with_qbin.order(qrn)
 # drop __mloda_rn__ from the final projection
 ```
