@@ -107,7 +107,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         order_clause = f"ORDER BY {quote_ident(order_by)}" if order_by else ""
 
         # Step 1: tag rows with their original position
-        rel = data._relation.project(f"*, ROW_NUMBER() OVER () AS {qrn}")
+        rel = data.project(f"*, ROW_NUMBER() OVER () AS {qrn}")
 
         # Step 2: compute with full frame and ORDER BY for deterministic results
         rel = rel.project(
@@ -121,4 +121,4 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         keep = ", ".join(quote_ident(c) for c in rel.columns if c != _RN_COL)
         rel = rel.project(keep)
 
-        return DuckdbRelation(data.connection, rel)
+        return rel
