@@ -242,13 +242,13 @@ wheels = [
 
 [[package]]
 name = "mloda"
-version = "0.6.2"
+version = "0.6.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyarrow" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/10/7a/ccca4ed4bb16817bd4e9b2b5f85e34a3a930332ea3a37c159a9034102c2c/mloda-0.6.2-py3-none-any.whl", hash = "sha256:a97efe7dbb547f7d1b9e53a2a7765c45990feffc4111f0088aa133a49a69a64a", size = 406590, upload-time = "2026-05-07T22:47:16.359Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/d0/04ff1b40da71dca553966b09421e590dd95d856a3c88d916fc8f9e8f4047/mloda-0.6.3-py3-none-any.whl", hash = "sha256:cd0df13cdcbfce7c57006fd468b75931f5676c0091da9335ed4b60430bbb743c", size = 406589, upload-time = "2026-05-13T16:59:21.929Z" },
 ]
 
 [[package]]
@@ -260,7 +260,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mloda", specifier = ">=0.6.2" }]
+requires-dist = [{ name = "mloda", specifier = ">=0.6.3" }]
 
 [[package]]
 name = "mloda-community-aggregation"
@@ -378,7 +378,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.6.2" },
+    { name = "mloda", specifier = ">=0.6.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -412,7 +412,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.6.2" },
+    { name = "mloda", specifier = ">=0.6.3" },
     { name = "mloda-community-aggregation", marker = "extra == 'all'" },
     { name = "mloda-community-binning", marker = "extra == 'all'" },
     { name = "mloda-community-datetime", marker = "extra == 'all'" },
@@ -470,7 +470,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.6.2" },
+    { name = "mloda", specifier = ">=0.6.3" },
     { name = "mloda-community-example-a", marker = "extra == 'all'" },
     { name = "mloda-community-example-b", marker = "extra == 'all'" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
@@ -538,7 +538,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.6.2" },
+    { name = "mloda", specifier = ">=0.6.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -851,7 +851,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mloda", specifier = ">=0.6.2" }]
+requires-dist = [{ name = "mloda", specifier = ">=0.6.3" }]
 
 [[package]]
 name = "mloda-enterprise-compute-frameworks-example"
@@ -869,7 +869,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.6.2" },
+    { name = "mloda", specifier = ">=0.6.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -891,7 +891,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.6.2" },
+    { name = "mloda", specifier = ">=0.6.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -913,7 +913,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.6.2" },
+    { name = "mloda", specifier = ">=0.6.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -935,7 +935,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.6.2" },
+    { name = "mloda", specifier = ">=0.6.3" },
     { name = "mloda-testing", marker = "extra == 'dev'", editable = "mloda/testing" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -971,7 +971,7 @@ dev = [
 requires-dist = [
     { name = "bandit", marker = "extra == 'dev'" },
     { name = "duckdb", marker = "extra == 'dev'" },
-    { name = "mloda", specifier = ">=0.6.2" },
+    { name = "mloda", specifier = ">=0.6.3" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'dev'" },
     { name = "polars", marker = "extra == 'dev'" },
@@ -1002,7 +1002,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.6.2" },
+    { name = "mloda", specifier = ">=0.6.3" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
