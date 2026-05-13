@@ -25,6 +25,8 @@ jobs:
             toxenv: python312
           - python-version: "3.13"
             toxenv: python313
+          - python-version: "3.14"
+            toxenv: python314
 
     steps:
     - uses: actions/checkout@v4
@@ -32,6 +34,7 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+        allow-prereleases: true
     - name: Install tox
       run: |
         python -m pip install --upgrade pip
