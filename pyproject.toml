@@ -7,9 +7,9 @@ name = "mloda-registry-workspace"
 version = "0.2.0"
 description = "Development workspace for mloda registry packages"
 readme = { file = "README.md", content-type = "text/markdown" }
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.10"
 dependencies = [
-    "mloda>=0.6.2",
+    "mloda>=0.6.3",
 ]
 authors = [
     { name = "Tom Kaltofen", email = "info@mloda.ai" }

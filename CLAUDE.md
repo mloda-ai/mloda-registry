@@ -62,7 +62,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `tox` is the gate. It runs `pytest -n {env:PYTEST_WORKERS:2}` (default 2 workers, no timeout), then `ruff format --check --line-length 120 .`, `ruff check .`, `mypy --strict --ignore-missing-imports .`, and `bandit -c pyproject.toml -r -q .`. All of these must pass before a PR is mergeable.
 
-- **Python**: supported range is `>=3.10,<3.14`; tox envs cover `python310`, `python311`, `python312`, `python313`.
+- **Python**: supported range is `>=3.10`; tox envs cover `python310`, `python311`, `python312`, `python313`, `python314`.
 - **Type hints**: use modern forms (`list[str]`, `dict[str, int]`, `X | None`). Ruff enforces this via `UP006` and `UP007` (extend-selected in `pyproject.toml`).
 - **Formatting**: ruff format with line length 120.
 - **Tests**: parallel-safe (pytest-xdist). Per-package envs are available for isolated runs: `tox -e testing`, `tox -e community-example`, `tox -e registry`, `tox -e enterprise-example`.
