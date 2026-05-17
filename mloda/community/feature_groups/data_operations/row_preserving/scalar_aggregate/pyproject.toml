@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community-scalar-aggregate"
-version = "0.3.1"
+version = "0.3.2"
 description = "Scalar aggregate feature group (single-column global aggregate broadcast)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
