@@ -9,11 +9,15 @@ Pattern: ``{col}__{op}_constant``
 
 Example: ``value_int__divide_constant`` with ``constant=2`` divides every
 non-null value in ``value_int`` by 2.
+
+The ``constant`` option carries ``strict_validation=False`` so that
+pattern-only matches (``{col}__{op}_constant``) succeed without it; the
+missing-constant check then fires at compute time with a clear error.
 """
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any
 
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
@@ -39,8 +43,6 @@ class ScalarArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     ARITHMETIC_OP = "arithmetic_op"
     CONSTANT = "constant"
-
-    _SUPPORTED_OPS: ClassVar[frozenset[str]] = frozenset(ARITHMETIC_OPERATIONS)
 
     PROPERTY_MAPPING = {
         ARITHMETIC_OP: {
@@ -144,6 +146,11 @@ class ScalarArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             constant = feature.options.get(cls.CONSTANT)
             if constant is None:
                 raise ValueError(f"Missing required option 'constant' for feature {feature_name!r}")
+            if not isinstance(constant, (int, float)):
+                raise ValueError(
+                    f"Option 'constant' for feature {feature_name!r} must be int or float, "
+                    f"got {type(constant).__name__}"
+                )
             if op == "divide" and constant == 0:
                 raise ValueError(f"Cannot divide by zero for feature {feature_name!r}")
 

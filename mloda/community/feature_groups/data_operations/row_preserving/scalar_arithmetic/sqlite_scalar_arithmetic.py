@@ -7,6 +7,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
+from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ScalarArithmeticFeatureGroup,
 )
@@ -35,18 +36,25 @@ class SqliteScalarArithmetic(ScalarArithmeticFeatureGroup):
     ) -> SqliteRelation:
         sql_op = _SQLITE_ARITHMETIC_OPS.get(op)
         if sql_op is None:
-            raise ValueError(
-                f"Unsupported arithmetic operation for SQLite: {op!r}. Supported: {sorted(_SQLITE_ARITHMETIC_OPS)}."
-            )
+            raise unsupported_op_error(op, _SQLITE_ARITHMETIC_OPS, framework="SQLite")
 
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
-        literal = float(constant)
+        # Preserve int-vs-float in SQL literal so int + int stays int.
+        literal = repr(constant) if type(constant) is int else repr(float(constant))
+
+        # Cast only for divide, to avoid SQL integer-division truncation
+        # (e.g. 10 / 3 -> 3). For add/subtract/multiply, native arithmetic
+        # preserves the source dtype and matches the columnar backends.
+        if op == "divide":
+            source_expr = f"CAST({quoted_source} AS REAL)"
+        else:
+            source_expr = quoted_source
 
         sql = " ".join(
             [
                 "SELECT",
-                f"(CAST({quoted_source} AS REAL) {sql_op} {literal}) AS {quoted_feature}",
+                f"({source_expr} {sql_op} {literal}) AS {quoted_feature}",
                 "FROM",
                 f"{quote_ident(data.table_name)}",
             ]

@@ -8,6 +8,7 @@ import pyarrow.compute as pc
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
     ScalarArithmeticFeatureGroup,
@@ -40,8 +41,6 @@ class PyArrowScalarArithmetic(ScalarArithmeticFeatureGroup):
         elif op == "divide":
             result = pc.divide(column, scalar)
         else:
-            raise ValueError(
-                f"Unsupported arithmetic operation for PyArrow: {op!r}. Supported: {sorted(ARITHMETIC_OPERATIONS)}."
-            )
+            raise unsupported_op_error(op, ARITHMETIC_OPERATIONS, framework="PyArrow")
 
         return data.append_column(feature_name, result)

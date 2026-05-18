@@ -9,6 +9,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
+from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ScalarArithmeticFeatureGroup,
 )
@@ -37,14 +38,21 @@ class DuckdbScalarArithmetic(ScalarArithmeticFeatureGroup):
     ) -> DuckdbRelation:
         sql_op = _DUCKDB_ARITHMETIC_OPS.get(op)
         if sql_op is None:
-            raise ValueError(
-                f"Unsupported arithmetic operation for DuckDB: {op!r}. Supported: {sorted(_DUCKDB_ARITHMETIC_OPS)}."
-            )
+            raise unsupported_op_error(op, _DUCKDB_ARITHMETIC_OPS, framework="DuckDB")
 
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
-        literal = float(constant)
+        # Preserve int-vs-float in SQL literal so int + int stays int.
+        literal = repr(constant) if type(constant) is int else repr(float(constant))
 
-        raw_sql = f"*, (CAST({quoted_source} AS DOUBLE) {sql_op} {literal}) AS {quoted_feature}"
+        # Cast only for divide, to avoid SQL integer-division truncation
+        # (e.g. 10 / 3 -> 3). For add/subtract/multiply, native arithmetic
+        # preserves the source dtype and matches the columnar backends.
+        if op == "divide":
+            source_expr = f"CAST({quoted_source} AS DOUBLE)"
+        else:
+            source_expr = quoted_source
+
+        raw_sql = f"*, ({source_expr} {sql_op} {literal}) AS {quoted_feature}"
         result: DuckdbRelation = data.project(raw_sql)
         return result

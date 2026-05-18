@@ -66,3 +66,25 @@ def unsupported_frame_type_error(
         prefix += f" for {framework}"
     supported_list = ", ".join(sorted(set(supported)))
     return ValueError(f"{prefix}: {frame_type!r}. Supported types: {supported_list}.")
+
+
+def unsupported_op_error(
+    op: str,
+    supported: Iterable[str],
+    *,
+    framework: str | None = None,
+) -> ValueError:
+    """Build a ``ValueError`` describing an unsupported operation.
+
+    Args:
+        op: The value the caller provided.
+        supported: All ``op`` values the caller *could* have used.
+            Deduplicated and sorted alphabetically in the message.
+        framework: Optional framework label, included in the message when
+            provided.
+    """
+    prefix = "Unsupported operation"
+    if framework is not None:
+        prefix += f" for {framework}"
+    supported_list = ", ".join(sorted(set(supported)))
+    return ValueError(f"{prefix}: {op!r}. Supported operations: {supported_list}.")
