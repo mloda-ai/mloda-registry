@@ -4,7 +4,7 @@ Use this guide to find the right pattern for your feature group.
 
 ## Decision Tree
 
-```
+```text
 Q1: Does it load external data (file, DB, external API)?
     YES → Pattern 1: Root Feature (if data passed at runtime, also see Q18)
     NO  → Continue

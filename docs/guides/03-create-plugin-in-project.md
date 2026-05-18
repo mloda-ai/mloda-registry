@@ -12,7 +12,7 @@ Add feature groups directly to your existing project without creating a separate
 
 Create a folder structure in your project:
 
-```
+```text
 my-project/
 ├── src/
 │   └── my_app/

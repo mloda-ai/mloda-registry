@@ -130,7 +130,7 @@ The test methods call `_compare_with_reference`, which runs both the implementat
 
 One file per framework, all subclassing `YourOpFeatureGroup`:
 
-```
+```text
 {category}/{your_op}/
   base.py
   pyarrow_{your_op}.py

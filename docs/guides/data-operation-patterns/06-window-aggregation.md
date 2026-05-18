@@ -14,7 +14,7 @@ Window aggregation computes a group aggregate (sum, avg, etc.) and broadcasts it
 
 The matcher accepts any token that falls inside the name regex `r".*__([\w]+)_window$"` and is also present in the supported set:
 
-```
+```text
 sum, avg, mean, count, min, max,
 std, var, std_pop, std_samp, var_pop, var_samp,
 median, mode, nunique, first, last

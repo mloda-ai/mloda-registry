@@ -4,7 +4,7 @@ Use this guide to add support for a new data processing library to mloda.
 
 ## Decision Tree
 
-```
+```text
 Q1: Does your framework require a connection/session object?
     YES → Q2
     NO  → Q3

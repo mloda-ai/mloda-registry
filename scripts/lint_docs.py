@@ -161,6 +161,23 @@ def find_orphan_guides(docs_dir: Path, contents: dict[Path, str] | None = None) 
     return errors
 
 
+def check_bare_fence_openers(md_file: Path, content: str) -> list[str]:
+    """Flag fenced-code openers (```) that lack a language tag.
+
+    GitHub renders bare openers as plain monospace with no syntax highlighting.
+    Use `text` for ASCII trees/diagrams when no real language applies.
+    """
+    errors = []
+    in_block = False
+    for lineno, line in enumerate(content.splitlines(), start=1):
+        if line.startswith("```"):
+            opening = not in_block
+            in_block = not in_block
+            if opening and line.rstrip() == "```":
+                errors.append(f"{md_file}:{lineno}: bare fenced-code opener (missing language tag)")
+    return errors
+
+
 def main() -> int:
     if not DOCS_DIR.is_dir():
         print(f"Docs directory not found: {DOCS_DIR}")
@@ -175,6 +192,7 @@ def main() -> int:
         contents[md_file.resolve()] = content
         link_errors.extend(check_relative_links_and_anchors(md_file, content))
         all_errors.extend(check_internal_imports(md_file, content))
+        all_errors.extend(check_bare_fence_openers(md_file, content))
 
     all_errors.extend(link_errors)
 

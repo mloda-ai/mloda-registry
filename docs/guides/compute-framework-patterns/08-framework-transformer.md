@@ -12,7 +12,7 @@ Framework transformers enable cross-framework data conversion.
 
 PyArrow serves as the interchange format. Any framework can convert to any other through PyArrow:
 
-```
+```text
 Pandas ←→ PyArrow ←→ Polars
               ↕
            DuckDB
