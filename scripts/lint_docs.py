@@ -17,7 +17,11 @@ RELATIVE_LINK_RE = re.compile(r"\[.*?\]\((?!https?://|mailto:)([^)#\s]+\.md)(?:#
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 
+MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)#\s]+\.md)(?:#[^)]*)?\)")
+
 CODE_BLOCK_RE = re.compile(r"^```", re.MULTILINE)
+
+INDEX_FILENAME = "index.md"
 
 
 def find_code_blocks(content: str) -> list[str]:
@@ -77,6 +81,57 @@ def check_internal_imports(md_file: Path, content: str) -> list[str]:
     return errors
 
 
+def _collect_linked_md(md_file: Path) -> set[Path]:
+    """Return the set of .md files linked from md_file (resolved absolute paths)."""
+    linked: set[Path] = set()
+    content = md_file.read_text()
+    for match in MARKDOWN_LINK_RE.finditer(content):
+        target = match.group(1)
+        if target.startswith(("http://", "https://", "mailto:")):
+            continue
+        resolved = (md_file.parent / target).resolve()
+        linked.add(resolved)
+    return linked
+
+
+def find_orphan_guides(docs_dir: Path) -> list[str]:
+    """Flag any .md file under docs_dir that is unreachable from docs_dir/index.md.
+
+    Reachability is transitive via inline markdown links. Files named ``index.md`` are
+    exempt from the "must be linked" requirement (a section index does not need an
+    inbound link from itself), but they do participate as relay hops in the walk.
+    """
+    errors = []
+    root_index = docs_dir / INDEX_FILENAME
+    if not root_index.is_file():
+        return [f"{root_index}: missing root index for orphan check"]
+
+    reachable: set[Path] = {root_index.resolve()}
+    frontier = [root_index.resolve()]
+    while frontier:
+        current = frontier.pop()
+        for linked in _collect_linked_md(current):
+            if linked in reachable:
+                continue
+            if not linked.is_file():
+                continue
+            try:
+                linked.relative_to(docs_dir.resolve())
+            except ValueError:
+                continue
+            reachable.add(linked)
+            frontier.append(linked)
+
+    for md_file in sorted(docs_dir.rglob("*.md")):
+        resolved = md_file.resolve()
+        if md_file.name == INDEX_FILENAME:
+            continue
+        if resolved not in reachable:
+            rel = md_file.relative_to(docs_dir)
+            errors.append(f"{md_file}: orphan guide not reachable from {INDEX_FILENAME} (rel: {rel})")
+    return errors
+
+
 def main() -> int:
     if not DOCS_DIR.is_dir():
         print(f"Docs directory not found: {DOCS_DIR}")
@@ -88,6 +143,8 @@ def main() -> int:
         content = md_file.read_text()
         all_errors.extend(check_relative_links_and_anchors(md_file, content))
         all_errors.extend(check_internal_imports(md_file, content))
+
+    all_errors.extend(find_orphan_guides(DOCS_DIR))
 
     if all_errors:
         print(f"Found {len(all_errors)} doc issue(s):\n")
