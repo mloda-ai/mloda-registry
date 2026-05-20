@@ -39,7 +39,7 @@ class PyArrowScalarArithmetic(ScalarArithmeticFeatureGroup):
         elif op == "multiply":
             result = pc.multiply(column, scalar)
         elif op == "divide":
-            result = pc.divide(column, scalar)
+            result = pc.divide(pc.cast(column, pa.float64()), scalar)
         else:
             raise unsupported_op_error(op, ARITHMETIC_OPERATIONS, framework="PyArrow")
 

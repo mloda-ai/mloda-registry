@@ -12,7 +12,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
     ScalarArithmeticFeatureGroup,
 )
 
-_SQLITE_ARITHMETIC_OPS: dict[str, str] = {
+SQLITE_ARITHMETIC_OPS: dict[str, str] = {
     "add": "+",
     "subtract": "-",
     "multiply": "*",
@@ -34,14 +34,14 @@ class SqliteScalarArithmetic(ScalarArithmeticFeatureGroup):
         op: str,
         constant: int | float,
     ) -> SqliteRelation:
-        sql_op = _SQLITE_ARITHMETIC_OPS.get(op)
+        sql_op = SQLITE_ARITHMETIC_OPS.get(op)
         if sql_op is None:
-            raise unsupported_op_error(op, _SQLITE_ARITHMETIC_OPS, framework="SQLite")
+            raise unsupported_op_error(op, SQLITE_ARITHMETIC_OPS, framework="SQLite")
 
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
         # Preserve int-vs-float in SQL literal so int + int stays int.
-        literal = repr(constant) if type(constant) is int else repr(float(constant))
+        literal = repr(constant) if isinstance(constant, int) else repr(float(constant))
 
         # Cast only for divide, to avoid SQL integer-division truncation
         # (e.g. 10 / 3 -> 3). For add/subtract/multiply, native arithmetic

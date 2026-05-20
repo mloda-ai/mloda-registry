@@ -14,7 +14,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
     ScalarArithmeticFeatureGroup,
 )
 
-_DUCKDB_ARITHMETIC_OPS: dict[str, str] = {
+DUCKDB_ARITHMETIC_OPS: dict[str, str] = {
     "add": "+",
     "subtract": "-",
     "multiply": "*",
@@ -36,14 +36,14 @@ class DuckdbScalarArithmetic(ScalarArithmeticFeatureGroup):
         op: str,
         constant: int | float,
     ) -> DuckdbRelation:
-        sql_op = _DUCKDB_ARITHMETIC_OPS.get(op)
+        sql_op = DUCKDB_ARITHMETIC_OPS.get(op)
         if sql_op is None:
-            raise unsupported_op_error(op, _DUCKDB_ARITHMETIC_OPS, framework="DuckDB")
+            raise unsupported_op_error(op, DUCKDB_ARITHMETIC_OPS, framework="DuckDB")
 
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
         # Preserve int-vs-float in SQL literal so int + int stays int.
-        literal = repr(constant) if type(constant) is int else repr(float(constant))
+        literal = repr(constant) if isinstance(constant, int) else repr(float(constant))
 
         # Cast only for divide, to avoid SQL integer-division truncation
         # (e.g. 10 / 3 -> 3). For add/subtract/multiply, native arithmetic

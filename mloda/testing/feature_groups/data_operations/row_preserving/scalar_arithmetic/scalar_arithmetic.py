@@ -278,3 +278,23 @@ class ScalarArithmeticTestBase(DataOpsTestBase):
 
     def test_cross_framework_divide(self) -> None:
         self._compare_arithmetic_with_reference("value_int__divide_constant", 2.0)
+
+    def test_divide_by_integer_constant_returns_float(self) -> None:
+        """Cross-backend: dividing by an INT constant must still produce float results.
+
+        Regression guard: PyArrow's pc.divide truncates int÷int to int; SQL
+        backends cast to DOUBLE/REAL; Pandas/Polars use Python /. All five
+        must agree on the float-output semantics.
+        """
+        fs = _make_arithmetic_feature_set("value_int__divide_constant", 3)  # int constant
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        result_col = self.extract_column(result, "value_int__divide_constant")
+        # value_int = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
+        # Expected: each non-null v / 3 as float
+        expected = [None if v is None else v / 3 for v in VALUE_INT]
+        for actual, exp in zip(result_col, expected):
+            if exp is None:
+                assert actual is None
+            else:
+                assert actual == pytest.approx(exp, rel=1e-6), f"divide-by-3 expected {exp} got {actual}"

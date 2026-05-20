@@ -92,7 +92,7 @@ class ScalarArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         prefix_patterns = self._get_prefix_patterns()
         operation_config, source_feature = FeatureChainParser.parse_feature_name(_feature_name, prefix_patterns)
 
-        if operation_config is not None and source_feature is not None and source_feature:
+        if operation_config and source_feature:
             return {Feature(source_feature)}
 
         in_features_set = options.get_in_features()
@@ -112,7 +112,7 @@ class ScalarArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
         operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
 
-        if operation_config is not None and source_feature is not None and source_feature:
+        if operation_config and source_feature:
             return [source_feature]
 
         in_features_set = feature.options.get_in_features()
@@ -146,7 +146,7 @@ class ScalarArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             constant = feature.options.get(cls.CONSTANT)
             if constant is None:
                 raise ValueError(f"Missing required option 'constant' for feature {feature_name!r}")
-            if not isinstance(constant, (int, float)):
+            if isinstance(constant, bool) or not isinstance(constant, (int, float)):
                 raise ValueError(
                     f"Option 'constant' for feature {feature_name!r} must be int or float, "
                     f"got {type(constant).__name__}"
