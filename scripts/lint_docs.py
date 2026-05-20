@@ -166,6 +166,10 @@ def check_bare_fence_openers(md_file: Path, content: str) -> list[str]:
 
     GitHub renders bare openers as plain monospace with no syntax highlighting.
     Use `text` for ASCII trees/diagrams when no real language applies.
+
+    Known limitations: does not handle indented fences (CommonMark allows up to
+    3 leading spaces), tilde fences (``~~~``), or nested-fence weirdness inside
+    the same delimiter.
     """
     errors = []
     in_block = False
@@ -173,8 +177,12 @@ def check_bare_fence_openers(md_file: Path, content: str) -> list[str]:
         if line.startswith("```"):
             opening = not in_block
             in_block = not in_block
+            # Trailing whitespace alone does not qualify as a language tag, so rstrip before comparing.
             if opening and line.rstrip() == "```":
-                errors.append(f"{md_file}:{lineno}: bare fenced-code opener (missing language tag)")
+                errors.append(
+                    f"{md_file}:{lineno}:1: bare fenced-code opener (missing language tag)"
+                    " - use ```text for plain blocks"
+                )
     return errors
 
 
