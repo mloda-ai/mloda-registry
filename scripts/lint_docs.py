@@ -14,11 +14,9 @@ DOCS_DIR = Path(__file__).resolve().parent.parent / "docs" / "guides"
 
 INTERNAL_IMPORT_RE = re.compile(r"from mloda\.core\.")
 
-RELATIVE_LINK_RE = re.compile(r"\[.*?\]\((?!https?://|mailto:)([^)#\s]+\.md)(?:#([^)\s]+))?\)")
+MD_LINK_RE = re.compile(r"\[[^\]]*\]\((?!https?://|mailto:)([^)#\s]+\.md)(?:#([^)\s]+))?\)")
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
-
-MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)#\s]+\.md)(?:#[^)]*)?\)")
 
 CODE_BLOCK_RE = re.compile(r"^```", re.MULTILINE)
 
@@ -53,7 +51,7 @@ def _heading_slugs(md_file: Path) -> frozenset[str]:
 def check_relative_links_and_anchors(md_file: Path, content: str) -> list[str]:
     """Validate relative markdown links and their optional anchor fragments."""
     errors = []
-    for match in RELATIVE_LINK_RE.finditer(content):
+    for match in MD_LINK_RE.finditer(content):
         rel_path = match.group(1)
         anchor = match.group(2)
         target = (md_file.parent / rel_path).resolve()
@@ -90,10 +88,8 @@ def _collect_linked_md(md_file: Path) -> set[Path]:
     """
     linked: set[Path] = set()
     content = "".join(CODE_BLOCK_RE.split(md_file.read_text())[::2])
-    for match in MARKDOWN_LINK_RE.finditer(content):
+    for match in MD_LINK_RE.finditer(content):
         target = match.group(1)
-        if target.startswith(("http://", "https://", "mailto:")):
-            continue
         resolved = (md_file.parent / target).resolve()
         linked.add(resolved)
     return linked
