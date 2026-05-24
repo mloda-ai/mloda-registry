@@ -42,18 +42,28 @@ class SqliteOffset(OffsetFeatureGroup):
 
         if offset_type.startswith("lag_"):
             offset_n = int(offset_type[len("lag_") :])
-            offset_expr = f"LAG({quoted_source}, {offset_n})"
+            offset_expr = f"LAG({quoted_source}, {offset_n}) OVER ({window_clause})"
         elif offset_type.startswith("lead_"):
             offset_n = int(offset_type[len("lead_") :])
-            offset_expr = f"LEAD({quoted_source}, {offset_n})"
+            offset_expr = f"LEAD({quoted_source}, {offset_n}) OVER ({window_clause})"
+        elif offset_type.startswith("diff_"):
+            offset_n = int(offset_type[len("diff_") :])
+            prev = f"LAG({quoted_source}, {offset_n}) OVER ({window_clause})"
+            offset_expr = f"{quoted_source} - {prev}"
+        elif offset_type.startswith("pct_change_"):
+            offset_n = int(offset_type[len("pct_change_") :])
+            prev = f"LAG({quoted_source}, {offset_n}) OVER ({window_clause})"
+            offset_expr = (
+                f"CASE WHEN {prev} IS NOT NULL AND {prev} != 0 THEN ({quoted_source} - {prev}) * 1.0 / {prev} END"
+            )
         elif offset_type in ("first_value", "last_value"):
             return cls._compute_first_last(data, feature_name, source_col, partition_by, order_by, offset_type)
         else:
-            supported = "lag, lead, first_value, last_value"
+            supported = "lag, lead, diff, pct_change, first_value, last_value"
             raise ValueError(f"Unsupported offset type for SQLite: {offset_type}. Supported types: {supported}")
 
         sql = (
-            f"SELECT {offset_expr} OVER ({window_clause}) AS {quoted_feature}, "  # nosec
+            f"SELECT {offset_expr} AS {quoted_feature}, "  # nosec
             f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn} "
             f"FROM {quote_ident(data.table_name)} ORDER BY {qrn}"
         )
