@@ -39,9 +39,17 @@ def make_feature_set(
     partition_by: list[str] | None = None,
     order_by: str | None = None,
     mask: tuple[Any, ...] | list[tuple[Any, ...]] | None = None,
+    **extra_context: Any,
 ) -> FeatureSet:
-    """Build a FeatureSet with optional partition_by, order_by, and mask options."""
-    context: dict[str, Any] = {}
+    """Build a FeatureSet with optional partition_by, order_by, mask, and extra context.
+
+    Any additional keyword arguments are merged into the same Options context dict
+    used by the explicit ``partition_by`` / ``order_by`` / ``mask`` arguments,
+    enabling callers to pass operation-specific keys (e.g. ``constant=5``) without
+    constructing ``Feature``/``Options`` manually. The explicit keyword arguments
+    take precedence over ``extra_context`` on key collision.
+    """
+    context: dict[str, Any] = dict(extra_context)
     if partition_by is not None:
         context["partition_by"] = partition_by
     if order_by is not None:

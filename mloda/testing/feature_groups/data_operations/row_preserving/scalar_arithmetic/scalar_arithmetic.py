@@ -19,6 +19,7 @@ import pytest
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.user import Feature
 
 
@@ -45,14 +46,6 @@ EXPECTED_DIVIDE_2: list[Any] = _apply(VALUE_INT, lambda v: v / 2.0)
 # ---------------------------------------------------------------------------
 
 
-def _make_arithmetic_feature_set(feature_name: str, constant: int | float) -> FeatureSet:
-    """Build a FeatureSet for an arithmetic feature with the required constant."""
-    feature = Feature(feature_name, options=Options(context={"constant": constant}))
-    fs = FeatureSet()
-    fs.add(feature)
-    return fs
-
-
 class ScalarArithmeticTestBase(DataOpsTestBase):
     """Abstract base class for scalar arithmetic framework tests."""
 
@@ -75,7 +68,7 @@ class ScalarArithmeticTestBase(DataOpsTestBase):
 
     def test_add_constant(self) -> None:
         """value_int + 5, null preserved."""
-        fs = _make_arithmetic_feature_set("value_int__add_constant", 5)
+        fs = make_feature_set("value_int__add_constant", constant=5)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
@@ -90,7 +83,7 @@ class ScalarArithmeticTestBase(DataOpsTestBase):
 
     def test_subtract_constant(self) -> None:
         """value_int - 10, null preserved."""
-        fs = _make_arithmetic_feature_set("value_int__subtract_constant", 10)
+        fs = make_feature_set("value_int__subtract_constant", constant=10)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__subtract_constant")
@@ -102,7 +95,7 @@ class ScalarArithmeticTestBase(DataOpsTestBase):
 
     def test_multiply_constant(self) -> None:
         """value_int * 2, null preserved."""
-        fs = _make_arithmetic_feature_set("value_int__multiply_constant", 2)
+        fs = make_feature_set("value_int__multiply_constant", constant=2)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__multiply_constant")
@@ -114,7 +107,7 @@ class ScalarArithmeticTestBase(DataOpsTestBase):
 
     def test_divide_constant(self) -> None:
         """value_int / 2.0, null preserved."""
-        fs = _make_arithmetic_feature_set("value_int__divide_constant", 2.0)
+        fs = make_feature_set("value_int__divide_constant", constant=2.0)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__divide_constant")
@@ -125,19 +118,19 @@ class ScalarArithmeticTestBase(DataOpsTestBase):
                 assert actual == pytest.approx(expected, rel=1e-6)
 
     def test_output_rows_equal_input_rows(self) -> None:
-        fs = _make_arithmetic_feature_set("value_int__add_constant", 5)
+        fs = make_feature_set("value_int__add_constant", constant=5)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         assert self.get_row_count(result) == 12
 
     def test_result_has_correct_type(self) -> None:
-        fs = _make_arithmetic_feature_set("value_int__multiply_constant", 2)
+        fs = make_feature_set("value_int__multiply_constant", constant=2)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         assert isinstance(result, self.get_expected_type())
 
     def test_new_column_added(self) -> None:
-        fs = _make_arithmetic_feature_set("value_int__add_constant", 5)
+        fs = make_feature_set("value_int__add_constant", constant=5)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__add_constant")
@@ -145,7 +138,7 @@ class ScalarArithmeticTestBase(DataOpsTestBase):
 
     def test_null_values_preserved(self) -> None:
         """A null in the source must remain null in the result, regardless of op."""
-        fs = _make_arithmetic_feature_set("value_int__multiply_constant", 7)
+        fs = make_feature_set("value_int__multiply_constant", constant=7)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__multiply_constant")
@@ -154,7 +147,7 @@ class ScalarArithmeticTestBase(DataOpsTestBase):
 
     def test_divide_by_zero_raises(self) -> None:
         """Dividing by zero must raise ValueError."""
-        fs = _make_arithmetic_feature_set("value_int__divide_constant", 0)
+        fs = make_feature_set("value_int__divide_constant", constant=0)
         with pytest.raises(ValueError, match="[Dd]ivide|[Zz]ero|0"):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -252,7 +245,7 @@ class ScalarArithmeticTestBase(DataOpsTestBase):
         constant: int | float,
     ) -> None:
         """Compute the feature on this framework and on the reference; assert equal."""
-        fs = _make_arithmetic_feature_set(feature_name, constant)
+        fs = make_feature_set(feature_name, constant=constant)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
 
@@ -286,7 +279,7 @@ class ScalarArithmeticTestBase(DataOpsTestBase):
         backends cast to DOUBLE/REAL; Pandas/Polars use Python /. All five
         must agree on the float-output semantics.
         """
-        fs = _make_arithmetic_feature_set("value_int__divide_constant", 3)  # int constant
+        fs = make_feature_set("value_int__divide_constant", constant=3)  # int constant
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         result_col = self.extract_column(result, "value_int__divide_constant")
