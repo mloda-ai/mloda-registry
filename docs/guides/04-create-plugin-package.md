@@ -19,7 +19,7 @@ Or use the "Use this template" button on GitHub.
 
 The template provides a ready-to-use structure:
 
-```
+```text
 placeholder/
 ├── feature_groups/
 │   └── my_plugin/

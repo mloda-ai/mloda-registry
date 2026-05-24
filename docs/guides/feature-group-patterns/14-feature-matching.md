@@ -17,7 +17,7 @@ When you request a feature (e.g., `Feature.not_typed("price__scaled")`), mloda c
 
 The default `match_feature_group_criteria()` checks in order:
 
-```
+```text
 1. Input data match     → Root features with matching input_data()
 2. Data access match    → ConnectionMatcherMixin with data connection
 3. Exact class name     → "MyFeature" == class MyFeature

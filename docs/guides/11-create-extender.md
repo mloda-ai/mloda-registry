@@ -4,7 +4,7 @@ Add cross-cutting concerns (logging, tracing, metrics) to mloda pipelines.
 
 ## Decision Tree
 
-```
+```text
 Q1: What do you want to wrap?
     Feature calculation → FEATURE_GROUP_CALCULATE_FEATURE
     Input validation   → VALIDATE_INPUT_FEATURE

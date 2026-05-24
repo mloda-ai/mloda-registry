@@ -34,7 +34,7 @@ class DatabaseFeature(ConnectionMatcherMixin, FeatureGroup):
 
 In `match_feature_group_criteria()`, data access matching is checked early:
 
-```
+```text
 1. Input data match     → Root features
 2. Data access match    → ConnectionMatcherMixin ← HERE
 3. Exact class name     → Default matching
