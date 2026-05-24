@@ -17,6 +17,30 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 
+def _build_unsupported_value_error(
+    value: str,
+    supported: Iterable[str],
+    *,
+    value_label: str,
+    supported_plural: str,
+    framework: str | None = None,
+    operation: str | None = None,
+) -> ValueError:
+    """Build a ``ValueError`` for an unsupported value of a given label.
+
+    Internal helper. All three public ``unsupported_*_error`` functions
+    delegate to this; they exist as thin wrappers that fix the
+    ``value_label`` and ``supported_plural`` strings.
+    """
+    prefix = f"Unsupported {value_label}"
+    if framework is not None:
+        prefix += f" for {framework}"
+    if operation is not None:
+        prefix += f" {operation}"
+    supported_list = ", ".join(sorted(set(supported)))
+    return ValueError(f"{prefix}: {value!r}. Supported {supported_plural}: {supported_list}.")
+
+
 def unsupported_agg_type_error(
     agg_type: str,
     supported: Iterable[str],
@@ -37,13 +61,14 @@ def unsupported_agg_type_error(
             ``"cumulative/expanding"``, ...) that disambiguates frameworks
             that implement more than one operation.
     """
-    prefix = "Unsupported aggregation type"
-    if framework is not None:
-        prefix += f" for {framework}"
-    if operation is not None:
-        prefix += f" {operation}"
-    supported_list = ", ".join(sorted(set(supported)))
-    return ValueError(f"{prefix}: {agg_type!r}. Supported types: {supported_list}.")
+    return _build_unsupported_value_error(
+        agg_type,
+        supported,
+        value_label="aggregation type",
+        supported_plural="types",
+        framework=framework,
+        operation=operation,
+    )
 
 
 def unsupported_frame_type_error(
@@ -61,11 +86,13 @@ def unsupported_frame_type_error(
         framework: Optional framework label, included in the message when
             provided.
     """
-    prefix = "Unsupported frame type"
-    if framework is not None:
-        prefix += f" for {framework}"
-    supported_list = ", ".join(sorted(set(supported)))
-    return ValueError(f"{prefix}: {frame_type!r}. Supported types: {supported_list}.")
+    return _build_unsupported_value_error(
+        frame_type,
+        supported,
+        value_label="frame type",
+        supported_plural="types",
+        framework=framework,
+    )
 
 
 def unsupported_op_error(
@@ -83,8 +110,10 @@ def unsupported_op_error(
         framework: Optional framework label, included in the message when
             provided.
     """
-    prefix = "Unsupported operation"
-    if framework is not None:
-        prefix += f" for {framework}"
-    supported_list = ", ".join(sorted(set(supported)))
-    return ValueError(f"{prefix}: {op!r}. Supported operations: {supported_list}.")
+    return _build_unsupported_value_error(
+        op,
+        supported,
+        value_label="operation",
+        supported_plural="operations",
+        framework=framework,
+    )
