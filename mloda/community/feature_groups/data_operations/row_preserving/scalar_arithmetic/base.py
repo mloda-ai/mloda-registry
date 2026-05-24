@@ -27,6 +27,8 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
+
 ARITHMETIC_OPERATIONS: dict[str, str] = {
     "add": "Element-wise addition of a constant",
     "subtract": "Element-wise subtraction of a constant",
@@ -126,6 +128,111 @@ class ScalarArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
         return source_names
 
+    @staticmethod
+    def _input_columns_and_framework(data: Any) -> tuple[list[str], str]:
+        """Return ``(column_names, framework_label)`` polymorphically across backends.
+
+        Probes in this order so each branch lands on its native accessor:
+
+        - ``data.column_names`` (a ``list``) for PyArrow tables.
+        - ``data.collect_schema().names()`` for Polars lazy frames.
+        - ``data.columns`` for Pandas DataFrames (an ``Index``) and the
+          DuckDB / SQLite relation wrappers (each exposes ``list[str]``).
+
+        Keeping the probe local avoids importing the optional backends
+        (``pyarrow``, ``polars``, ``pandas``, ``duckdb``) into this base
+        module, which would tie the package to dependencies it does not need.
+        The framework label is best-effort: for SQL relation wrappers it
+        falls back to ``"SQL"`` since DuckDB and SQLite share the same
+        ``columns: list[str]`` shape.
+        """
+        column_names = getattr(data, "column_names", None)
+        if isinstance(column_names, list):
+            return column_names, "PyArrow"
+
+        collect_schema = getattr(data, "collect_schema", None)
+        if callable(collect_schema):
+            return list(collect_schema().names()), "Polars"
+
+        columns = getattr(data, "columns", None)
+        if columns is not None:
+            try:
+                import pandas as pd
+
+                if isinstance(data, pd.DataFrame):
+                    return list(columns), "Pandas"
+            except ImportError:  # pragma: no cover - defensive
+                pass
+            type_name = type(data).__name__
+            if type_name == "DuckdbRelation":
+                return list(columns), "DuckDB"
+            if type_name == "SqliteRelation":
+                return list(columns), "SQLite"
+            return list(columns), "SQL"
+
+        raise TypeError(
+            f"Cannot determine column names for object of type {type(data).__name__}; "
+            "scalar arithmetic supports PyArrow, Polars (lazy), Pandas, DuckDB, and SQLite inputs."
+        )
+
+    @staticmethod
+    def _assert_source_column_is_numeric(data: Any, source_col: str) -> None:
+        """Reject non-numeric source columns with a clear ``ValueError``.
+
+        Covers the in-memory backends (PyArrow, Pandas, Polars lazy) where the
+        column dtype is cheap to inspect. SQL relations (DuckDB, SQLite) are
+        left to fail at compute time with their native error, since pulling a
+        dtype from a relation wrapper is not uniformly available; the columnar
+        backends carry the meaningful guard.
+
+        Branch order matters: Polars is checked before Pandas because Polars
+        LazyFrame also exposes ``.dtypes`` / ``.columns`` (each triggering a
+        ``PerformanceWarning`` about schema resolution).
+        """
+        # Polars LazyFrame: schema via ``collect_schema``.
+        if callable(getattr(data, "collect_schema", None)):
+            try:
+                import polars as pl
+            except ImportError:  # pragma: no cover - defensive
+                return
+            dtype = data.collect_schema()[source_col]
+            if dtype == pl.Boolean or not dtype.is_numeric():
+                raise ValueError(f"Source column {source_col!r} must be numeric for scalar arithmetic; got {dtype}.")
+            return
+
+        # PyArrow Table: detect via ``column_names`` (a ``list``) plus ``column`` accessor.
+        if isinstance(getattr(data, "column_names", None), list) and callable(getattr(data, "column", None)):
+            try:
+                import pyarrow as pa
+            except ImportError:  # pragma: no cover - defensive
+                return
+            arrow_type = data.column(source_col).type
+            if pa.types.is_boolean(arrow_type) or not (
+                pa.types.is_integer(arrow_type) or pa.types.is_floating(arrow_type)
+            ):
+                raise ValueError(
+                    f"Source column {source_col!r} must be numeric for scalar arithmetic; got {arrow_type}."
+                )
+            return
+
+        # Pandas DataFrame: detect via ``dtypes`` plus ``columns``.
+        if hasattr(data, "dtypes") and hasattr(data, "columns"):
+            try:
+                import pandas as pd
+            except ImportError:  # pragma: no cover - defensive
+                return
+            if isinstance(data, pd.DataFrame):
+                series = data[source_col]
+                if pd.api.types.is_bool_dtype(series) or not pd.api.types.is_numeric_dtype(series):
+                    raise ValueError(
+                        f"Source column {source_col!r} must be numeric for scalar arithmetic; got {series.dtype}."
+                    )
+                return
+
+        # SQL relations (DuckDB, SQLite): fall through; the native error at
+        # compute time is acceptable per the comment above.
+        return
+
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         """Compute an element-wise arithmetic operation per source column.
@@ -133,7 +240,14 @@ class ScalarArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         Each feature produces one new column containing ``source {op} constant``.
         Null values in the source propagate to the result. Divide-by-zero and
         missing constant are rejected before dispatching to the backend.
+
+        Reserved-column guard runs first so callers that omit ``constant`` (such
+        as the shared ``ReservedColumnsTestMixin``) see the reserved-column
+        error rather than the missing-constant one.
         """
+        column_names, framework_label = cls._input_columns_and_framework(data)
+        assert_no_reserved_columns(column_names, framework=framework_label, operation="scalar arithmetic")
+
         table = data
 
         for feature in features.features:
@@ -142,6 +256,8 @@ class ScalarArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             source_features = cls._extract_source_features(feature)
             source_col = source_features[0]
             op = cls._extract_arithmetic_op(feature)
+
+            cls._assert_source_column_is_numeric(data, source_col)
 
             constant = feature.options.get(cls.CONSTANT)
             if constant is None:
