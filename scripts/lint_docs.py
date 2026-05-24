@@ -83,9 +83,13 @@ def check_internal_imports(md_file: Path, content: str) -> list[str]:
 
 
 def _collect_linked_md(md_file: Path) -> set[Path]:
-    """Return the set of .md files linked from md_file (resolved absolute paths)."""
+    """Return the set of .md files linked from md_file (resolved absolute paths).
+
+    Links inside fenced code blocks are ignored so illustrative snippets do not
+    fabricate reachability edges.
+    """
     linked: set[Path] = set()
-    content = md_file.read_text()
+    content = "".join(CODE_BLOCK_RE.split(md_file.read_text())[::2])
     for match in MARKDOWN_LINK_RE.finditer(content):
         target = match.group(1)
         if target.startswith(("http://", "https://", "mailto:")):
@@ -98,13 +102,9 @@ def _collect_linked_md(md_file: Path) -> set[Path]:
 def find_orphan_guides(docs_dir: Path) -> list[str]:
     """Flag any .md file under docs_dir that is unreachable from docs_dir/index.md.
 
-    Reachability is transitive via inline markdown links. Files named ``index.md`` are
-    exempt from the "must be linked" requirement (a section index does not need an
-    inbound link from itself), but they do participate as relay hops in the walk.
-
-    Caveat: a subdirectory whose only file is ``index.md`` and which has no inbound
-    link from any parent is still considered reachable, because ``index.md`` files
-    are exempt from the inbound-link check.
+    Reachability is transitive via inline markdown links. Only the root ``index.md``
+    is exempt from the inbound-link check (it is the BFS source); subdirectory
+    ``index.md`` files must themselves be linked from somewhere reachable.
     """
     errors = []
     docs_root = docs_dir.resolve()
@@ -112,8 +112,9 @@ def find_orphan_guides(docs_dir: Path) -> list[str]:
     if not root_index.is_file():
         return [f"{root_index}: missing root index for orphan check"]
 
-    reachable: set[Path] = {root_index.resolve()}
-    frontier: deque[Path] = deque([root_index.resolve()])
+    root_resolved = root_index.resolve()
+    reachable: set[Path] = {root_resolved}
+    frontier: deque[Path] = deque([root_resolved])
     while frontier:
         current = frontier.popleft()
         for linked in _collect_linked_md(current):
@@ -130,7 +131,7 @@ def find_orphan_guides(docs_dir: Path) -> list[str]:
 
     for md_file in sorted(docs_dir.rglob("*.md")):
         resolved = md_file.resolve()
-        if md_file.name == INDEX_FILENAME:
+        if resolved == root_resolved:
             continue
         if resolved not in reachable:
             rel = md_file.relative_to(docs_dir)
@@ -144,13 +145,17 @@ def main() -> int:
         return 1
 
     all_errors: list[str] = []
+    link_errors: list[str] = []
 
     for md_file in sorted(DOCS_DIR.rglob("*.md")):
         content = md_file.read_text()
-        all_errors.extend(check_relative_links_and_anchors(md_file, content))
+        link_errors.extend(check_relative_links_and_anchors(md_file, content))
         all_errors.extend(check_internal_imports(md_file, content))
 
-    all_errors.extend(find_orphan_guides(DOCS_DIR))
+    all_errors.extend(link_errors)
+
+    if not link_errors:
+        all_errors.extend(find_orphan_guides(DOCS_DIR))
 
     if all_errors:
         print(f"Found {len(all_errors)} doc issue(s):\n")
