@@ -1,12 +1,12 @@
-# Scalar and Frame Aggregate
+# Scalar Aggregate, Frame Aggregate, and Scalar Arithmetic
 
-Two row-preserving aggregate families. Scalar aggregate broadcasts one value across the whole table. Frame aggregate broadcasts a value computed over a bounded window (rolling, time-window, cumulative, or expanding).
+Three row-preserving single-column families. Scalar aggregate broadcasts one value across the whole table. Frame aggregate broadcasts a value computed over a bounded window (rolling, time-window, cumulative, or expanding). Scalar arithmetic combines each value with a numeric constant element-wise.
 
-**What**: `ScalarAggregateFeatureGroup` and `FrameAggregateFeatureGroup` compute aggregates without reducing rows.
-**When**: You need a reference value on every row (scalar) or a moving aggregate (frame).
-**Why**: Both preserve row count, which lets them chain with other row-preserving ops. The group-reducing variant lives in `aggregation/` and is covered separately.
-**Where**: `mloda/community/feature_groups/data_operations/row_preserving/{scalar_aggregate,frame_aggregate}/`.
-**How**: Encode the agg type in the feature name. Frame variants also encode the window kind and size.
+**What**: `ScalarAggregateFeatureGroup`, `FrameAggregateFeatureGroup`, and `ScalarArithmeticFeatureGroup` compute single-column transforms without reducing rows.
+**When**: You need a reference value on every row (scalar), a moving aggregate (frame), or a per-row arithmetic combination with a constant (scalar arithmetic).
+**Why**: All three preserve row count, which lets them chain with other row-preserving ops. The group-reducing variant lives in `aggregation/` and is covered separately.
+**Where**: `mloda/community/feature_groups/data_operations/row_preserving/{scalar_aggregate,frame_aggregate,scalar_arithmetic}/`.
+**How**: Encode the operation in the feature name. Aggregate variants also encode the window kind and size; scalar arithmetic carries the constant in `Options(context={"constant": <number>})`.
 
 ---
 
@@ -28,6 +28,36 @@ feature = Feature("value_int__max_scalar")
 Supported aggregations are `sum`, `min`, `max`, `avg`/`mean`, `count`, `std`/`std_pop`/`std_samp`, `var`/`var_pop`/`var_samp`, and `median`. `mode`, `nunique`, `first`, and `last` are not supported on scalar aggregate, only on [window aggregation](06-window-aggregation.md); they need ordering or group structure that a single global scalar does not provide.
 
 Scalar aggregate accepts the `mask` option. Masked rows have their source value replaced with NULL before the aggregate computes; the output still has the same row count.
+
+---
+
+## Scalar arithmetic
+
+Pattern: `{col}__{op}_constant` (regex `r"(.+?)__(add|subtract|multiply|divide)_constant$"`).
+
+Each row gets `source {op} constant`. Null in the source propagates to the result. Single source column only (`MIN_IN_FEATURES = MAX_IN_FEATURES = 1`).
+
+```python
+from mloda.user import Feature, Options, PluginLoader, mloda
+
+PluginLoader.all()
+
+# value_int / 2 element-wise, null preserved
+feature = Feature("value_int__divide_constant", Options(context={"constant": 2}))
+```
+
+Supported operations are `add`, `subtract`, `multiply`, and `divide`. The constant is carried in `Options(context={"constant": <number>})` and must be `int` or `float` (`bool` is rejected explicitly because it is an `int` subclass that almost certainly indicates a user mistake). `divide` rejects `constant == 0` at validation, before dispatch to any backend.
+
+The source column must be numeric; passing a string or boolean column raises `ValueError` at validation.
+
+`constant` carries `strict_validation=False` on its `PROPERTY_MAPPING` entry so that pattern-only matches (`value_int__add_constant`) succeed without it; the missing-constant check then fires at compute time with a clear error. This lets feature names compose into chains before the constant is bound.
+
+Type semantics across backends:
+
+- `add`, `subtract`, `multiply`: source dtype is preserved. `int + int` stays int on all five backends.
+- `divide`: result is always `float64`. PyArrow casts the source via `pc.cast`, DuckDB and SQLite wrap the source in `CAST(... AS DOUBLE/REAL)`, and Pandas / Polars rely on Python's `/` semantics. This is the [cross-backend type-drift mitigation](known-divergences.md) for integer division.
+
+Scalar arithmetic does **not** accept the `mask` option in this initial cut; the source column is passed through unfiltered.
 
 ---
 
@@ -79,18 +109,19 @@ All frame-aggregate variants accept:
 
 ---
 
-## Scalar vs frame vs window vs aggregation
+## Scalar vs scalar arithmetic vs frame vs window vs aggregation
 
-Four nearby concepts; easy to mix up.
+Five nearby concepts; easy to mix up.
 
 | Feature group | Pattern suffix | Row behavior | Scope |
 |---|---|---|---|
 | Scalar aggregate | `_scalar` | Preserves (broadcasts one value globally) | Whole table |
+| Scalar arithmetic | `_constant` | Preserves (per-row source `op` constant) | Each row independently |
 | Window aggregation | `_window` | Preserves (broadcasts per partition) | Partition |
 | Frame aggregate | `_rolling_N`, `_{size}_{unit}_window`, `cum*`, `expanding_*` | Preserves (broadcasts per bounded window) | Row-relative window |
 | Aggregation | `_agg` | Reduces to one row per group | Partition |
 
-Pick by what your downstream step needs: same row count and a reference value (scalar), same row count and per-partition context (window), same row count with a moving window (frame), or a collapsed group-by table (aggregation).
+Pick by what your downstream step needs: same row count and a reference value (scalar), same row count with an element-wise arithmetic adjustment by a constant (scalar arithmetic), same row count and per-partition context (window), same row count with a moving window (frame), or a collapsed group-by table (aggregation).
 
 ---
 
