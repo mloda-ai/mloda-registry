@@ -31,7 +31,7 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the te
 | binning | full | full | full | full | full |
 | datetime | full | full | full | full | full |
 | frame_aggregate | -- | full | full | full | full |
-| offset | -- | full | full | full | partial (4/6) |
+| offset | -- | full | full | full | full |
 | percentile | -- | full | full | full | -- |
 | rank | -- | full | full | full | full |
 | scalar_aggregate | full | full | full | full | partial (6/13) |
@@ -89,8 +89,8 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the te
 |---|---|---|---|---|---|
 | `lag` | -- | ✓ | ✓ | ✓ | ✓ |
 | `lead` | -- | ✓ | ✓ | ✓ | ✓ |
-| `diff` | -- | ✓ | ✓ | ✓ | ✗ |
-| `pct_change` | -- | ✓ | ✓ | ✓ | ✗ |
+| `diff` | -- | ✓ | ✓ | ✓ | ✓ |
+| `pct_change` | -- | ✓ | ✓ | ✓ | ✓ |
 | `first_value` | -- | ✓ | ✓ | ✓ | ✓ |
 | `last_value` | -- | ✓ | ✓ | ✓ | ✓ |
 
@@ -167,7 +167,7 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the te
 
 The three divergence kinds in [Known divergences](known-divergences.md) map to the detail tables as follows:
 
-- **Excluded subtype → ✗** (SQLite `upper` / `lower` / `reverse`, SQLite `percentile`, SQLite offset `diff` / `pct_change`, PyArrow aggregation/window `median` / `mode`): the framework has a test class for this operation, but the implementation refuses to match at resolution time and the test class's `supported_*()` override mirrors the refusal so inherited tests skip cleanly.
+- **Excluded subtype → ✗** (SQLite `upper` / `lower` / `reverse`, SQLite `percentile`, PyArrow aggregation/window `median` / `mode`): the framework has a test class for this operation, but the implementation refuses to match at resolution time and the test class's `supported_*()` override mirrors the refusal so inherited tests skip cleanly.
 - **Missing framework → `--`** (PyArrow `frame_aggregate`, `offset`, `percentile`, `rank`): no production implementation exists, and the framework has no test class for the operation. The operation requires native rolling / LAG / percentile / rank that PyArrow does not provide, and the reference implementation lives in pure Python over PyArrow arrays. Adding it requires a real framework implementation, not just relaxing an exclusion.
 - **Tolerance constrained, not marked**: float-accumulation tolerance is not exposed as ✗ or `--`; it shows up as `use_approx=True` on the relevant cross-framework assertions. See the "Float accumulation order" entry in Known divergences.
 
