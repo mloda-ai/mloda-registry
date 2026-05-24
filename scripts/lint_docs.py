@@ -4,6 +4,7 @@ Run: python scripts/lint_docs.py
 Exit code: 1 if any issues found, 0 otherwise.
 """
 
+import functools
 import re
 import sys
 from pathlib import Path
@@ -12,7 +13,9 @@ DOCS_DIR = Path(__file__).resolve().parent.parent / "docs" / "guides"
 
 INTERNAL_IMPORT_RE = re.compile(r"from mloda\.core\.")
 
-RELATIVE_LINK_RE = re.compile(r"\[.*?\]\((\.[^)]+\.md)\)")
+RELATIVE_LINK_RE = re.compile(r"\[.*?\]\((?!https?://|mailto:)([^)#\s]+\.md)(?:#([^)\s]+))?\)")
+
+HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 
 CODE_BLOCK_RE = re.compile(r"^```", re.MULTILINE)
 
@@ -26,14 +29,37 @@ def find_code_blocks(content: str) -> list[str]:
     return blocks
 
 
-def check_relative_links(md_file: Path, content: str) -> list[str]:
+def _slugify_heading(text: str) -> str:
+    """GFM-style slug; ignores duplicate-heading disambiguation and inline formatting beyond backticks."""
+    text = text.lower().replace("`", "")
+    text = text.replace(" ", "-")
+    return re.sub(r"[^\w-]", "", text)
+
+
+@functools.lru_cache(maxsize=None)
+def _heading_slugs(md_file: Path) -> frozenset[str]:
+    slugs: set[str] = set()
+    content = "".join(CODE_BLOCK_RE.split(md_file.read_text())[::2])
+    for match in HEADING_RE.finditer(content):
+        slugs.add(_slugify_heading(match.group(2)))
+    return frozenset(slugs)
+
+
+def check_relative_links_and_anchors(md_file: Path, content: str) -> list[str]:
+    """Validate relative markdown links and their optional anchor fragments."""
     errors = []
     for match in RELATIVE_LINK_RE.finditer(content):
         rel_path = match.group(1)
+        anchor = match.group(2)
         target = (md_file.parent / rel_path).resolve()
+        line_num = content[: match.start()].count("\n") + 1
         if not target.exists():
-            line_num = content[: match.start()].count("\n") + 1
             errors.append(f"{md_file}:{line_num}: broken link -> {rel_path}")
+            continue
+        if anchor:
+            slug = _slugify_heading(anchor)
+            if slug not in _heading_slugs(target):
+                errors.append(f"{md_file}:{line_num}: broken anchor -> {rel_path}#{anchor}")
     return errors
 
 
@@ -60,7 +86,7 @@ def main() -> int:
 
     for md_file in sorted(DOCS_DIR.rglob("*.md")):
         content = md_file.read_text()
-        all_errors.extend(check_relative_links(md_file, content))
+        all_errors.extend(check_relative_links_and_anchors(md_file, content))
         all_errors.extend(check_internal_imports(md_file, content))
 
     if all_errors:
