@@ -30,7 +30,7 @@ def find_code_blocks(content: str) -> list[str]:
 
 
 def _slugify_heading(text: str) -> str:
-    """Simplified GFM-style slug: lowercase, strip backticks, spaces->hyphens, drop non-[\\w-]. Does NOT handle duplicate-heading disambiguation (`-1`, `-2`) or stripping of inline markdown formatting beyond backticks."""
+    """GFM-style slug; ignores duplicate-heading disambiguation and inline formatting beyond backticks."""
     text = text.lower().replace("`", "")
     text = text.replace(" ", "-")
     return re.sub(r"[^\w-]", "", text)
@@ -39,7 +39,8 @@ def _slugify_heading(text: str) -> str:
 @functools.lru_cache(maxsize=None)
 def _heading_slugs(md_file: Path) -> frozenset[str]:
     slugs: set[str] = set()
-    for match in HEADING_RE.finditer(md_file.read_text()):
+    content = "".join(CODE_BLOCK_RE.split(md_file.read_text())[::2])
+    for match in HEADING_RE.finditer(content):
         slugs.add(_slugify_heading(match.group(2)))
     return frozenset(slugs)
 
@@ -51,14 +52,13 @@ def check_relative_links_and_anchors(md_file: Path, content: str) -> list[str]:
         rel_path = match.group(1)
         anchor = match.group(2)
         target = (md_file.parent / rel_path).resolve()
+        line_num = content[: match.start()].count("\n") + 1
         if not target.exists():
-            line_num = content[: match.start()].count("\n") + 1
             errors.append(f"{md_file}:{line_num}: broken link -> {rel_path}")
             continue
-        if anchor and target.is_file():
+        if anchor:
             slug = _slugify_heading(anchor)
             if slug not in _heading_slugs(target):
-                line_num = content[: match.start()].count("\n") + 1
                 errors.append(f"{md_file}:{line_num}: broken anchor -> {rel_path}#{anchor}")
     return errors
 
