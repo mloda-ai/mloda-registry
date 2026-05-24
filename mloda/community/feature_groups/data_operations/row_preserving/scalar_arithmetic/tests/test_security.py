@@ -253,3 +253,178 @@ class TestMissingConstant:
                 SqliteScalarArithmetic.calculate_feature(relation, fs)
         finally:
             conn.close()
+
+
+def _make_fs_with_constant(name: str, constant: Any) -> FeatureSet:
+    """Build a FeatureSet allowing any constant type (used by type-validation tests).
+
+    The narrower ``_make_fs`` helper restricts ``constant`` to ``int | float | None``;
+    these tests deliberately pass bools, strings, and lists to verify rejection.
+    """
+    feature = Feature(name, options=Options(context={"constant": constant}))
+    fs = FeatureSet()
+    fs.add(feature)
+    return fs
+
+
+class TestConstantTypeValidation:
+    """Regression guards: ``constant`` must be a real int or float (bool is rejected)."""
+
+    def test_constant_true_rejected(self) -> None:
+        """``constant=True`` must be rejected even though ``bool`` is an ``int`` subclass."""
+        arrow_table = PyArrowDataOpsTestDataCreator.create()
+        fs = _make_fs_with_constant("value_int__add_constant", True)
+        with pytest.raises(ValueError, match=r"int or float|bool"):
+            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
+
+    def test_constant_false_rejected(self) -> None:
+        """``constant=False`` must be rejected, not silently coerced to ``0`` (which would
+        collapse into a divide-by-zero on op=divide). Use op=add so this asserts the
+        type check fires, independent of the divide-by-zero check.
+        """
+        arrow_table = PyArrowDataOpsTestDataCreator.create()
+        fs = _make_fs_with_constant("value_int__add_constant", False)
+        with pytest.raises(ValueError, match=r"int or float|bool"):
+            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
+
+    def test_constant_string_rejected(self) -> None:
+        arrow_table = PyArrowDataOpsTestDataCreator.create()
+        fs = _make_fs_with_constant("value_int__add_constant", "five")
+        with pytest.raises(ValueError, match=r"int or float"):
+            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
+
+    def test_constant_list_rejected(self) -> None:
+        arrow_table = PyArrowDataOpsTestDataCreator.create()
+        fs = _make_fs_with_constant("value_int__add_constant", [5])
+        with pytest.raises(ValueError, match=r"int or float"):
+            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
+
+    def test_option_based_missing_constant_rejected(self) -> None:
+        """Option-based feature (no string-pattern suffix) with no ``constant`` must raise.
+
+        Complements ``TestMissingConstant`` which only covers the string-pattern path.
+        """
+        arrow_table = PyArrowDataOpsTestDataCreator.create()
+        fs = _make_fs("my_result", op="add")
+        with pytest.raises(ValueError, match="constant"):
+            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
+
+
+class TestReservedColumnGuardAllBackends:
+    """The ``__mloda_`` reserved-column guard must fire on every backend.
+
+    Today only the Polars-lazy override calls ``assert_no_reserved_columns``.
+    The Green Agent will move the guard into ``base.calculate_feature`` so the
+    other four backends also reject inputs that collide with the internal
+    helper namespace. The Polars test currently passes; the other four fail.
+    """
+
+    @staticmethod
+    def _arrow_with_reserved_col() -> Any:
+        import pyarrow as pa
+
+        arrow_table = PyArrowDataOpsTestDataCreator.create()
+        return arrow_table.append_column("__mloda_rn__", pa.array([0] * 12, type=pa.int64()))
+
+    def test_pandas_rejects_reserved_column(self) -> None:
+        pytest.importorskip("pandas")
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pandas_scalar_arithmetic import (
+            PandasScalarArithmetic,
+        )
+
+        arrow_table = self._arrow_with_reserved_col()
+        df = arrow_table.to_pandas()
+        fs = _make_fs("value_int__add_constant", constant=5)
+        with pytest.raises(ValueError, match=r"(?i)reserved") as exc_info:
+            PandasScalarArithmetic.calculate_feature(df, fs)
+        assert "__mloda_" in str(exc_info.value)
+
+    def test_pyarrow_rejects_reserved_column(self) -> None:
+        arrow_table = self._arrow_with_reserved_col()
+        fs = _make_fs("value_int__add_constant", constant=5)
+        with pytest.raises(ValueError, match=r"(?i)reserved") as exc_info:
+            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
+        assert "__mloda_" in str(exc_info.value)
+
+    def test_polars_rejects_reserved_column(self) -> None:
+        polars = pytest.importorskip("polars")
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.polars_lazy_scalar_arithmetic import (
+            PolarsLazyScalarArithmetic,
+        )
+
+        arrow_table = self._arrow_with_reserved_col()
+        lf = polars.from_arrow(arrow_table).lazy()
+        fs = _make_fs("value_int__add_constant", constant=5)
+        with pytest.raises(ValueError, match=r"(?i)reserved") as exc_info:
+            PolarsLazyScalarArithmetic.calculate_feature(lf, fs)
+        assert "__mloda_" in str(exc_info.value)
+
+    def test_duckdb_rejects_reserved_column(self) -> None:
+        duckdb = pytest.importorskip("duckdb")
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.duckdb_scalar_arithmetic import (
+            DuckdbScalarArithmetic,
+        )
+
+        arrow_table = self._arrow_with_reserved_col()
+        conn = duckdb.connect(":memory:")
+        try:
+            relation = conn.from_arrow(arrow_table)
+            fs = _make_fs("value_int__add_constant", constant=5)
+            with pytest.raises(ValueError, match=r"(?i)reserved") as exc_info:
+                DuckdbScalarArithmetic.calculate_feature(relation, fs)
+            assert "__mloda_" in str(exc_info.value)
+        finally:
+            conn.close()
+
+    def test_sqlite_rejects_reserved_column(self) -> None:
+        import sqlite3
+
+        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
+
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.sqlite_scalar_arithmetic import (
+            SqliteScalarArithmetic,
+        )
+
+        arrow_table = self._arrow_with_reserved_col()
+        conn = sqlite3.connect(":memory:")
+        try:
+            relation = SqliteRelation.from_arrow(conn, arrow_table)
+            fs = _make_fs("value_int__add_constant", constant=5)
+            with pytest.raises(ValueError, match=r"(?i)reserved") as exc_info:
+                SqliteScalarArithmetic.calculate_feature(relation, fs)
+            assert "__mloda_" in str(exc_info.value)
+        finally:
+            conn.close()
+
+
+class TestSourceColumnTypeValidation:
+    """The source column must be numeric; non-numeric sources must be rejected with a clear
+    ``ValueError`` in ``base.calculate_feature`` rather than surfacing the backend's
+    ``ArrowNotImplementedError`` / ``TypeError`` from the compute step.
+    """
+
+    def test_string_source_column_rejected(self) -> None:
+        """``name`` is a string column in the canonical fixture; arithmetic must be rejected.
+
+        The error must name the source column. Using a quoted form (``'name'`` or
+        ``"name"``) keeps the assertion from accidentally matching against the
+        ``name__add_constant`` feature name in the message. Most existing mloda
+        errors quote column names via ``!r`` or ``repr``.
+        """
+        import re
+
+        arrow_table = PyArrowDataOpsTestDataCreator.create()
+        fs = _make_fs("name__add_constant", constant=5)
+        with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
+            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
+        assert re.search(r"['\"]name['\"]", str(exc_info.value)), (
+            f"Expected source column 'name' to be named (quoted) in the error message, got: {exc_info.value!r}"
+        )
+
+    def test_boolean_source_column_rejected(self) -> None:
+        """``is_active`` is a boolean column; arithmetic must be rejected."""
+        arrow_table = PyArrowDataOpsTestDataCreator.create()
+        fs = _make_fs("is_active__add_constant", constant=5)
+        with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
+            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
+        assert "is_active" in str(exc_info.value)

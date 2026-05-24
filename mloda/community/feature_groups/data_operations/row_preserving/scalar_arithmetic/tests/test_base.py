@@ -108,6 +108,26 @@ class TestPatternParsing:
         source_features = ScalarArithmeticFeatureGroup._extract_source_features(feature)
         assert source_features == ["my_value"]
 
+    def test_greedy_regex_for_chained_op_tokens(self) -> None:
+        """Pin the greedy-parse contract shared with sibling families.
+
+        ``rsplit("__", 1)`` plus the greedy ``.*__([\\w]+)_constant$`` pattern
+        means that for a chained name like ``value_int__add__subtract_constant``
+        the source is ``value_int__add`` and the captured op token is
+        ``subtract``. Scalar aggregate's ``.*__([\\w]+)_scalar$`` regex behaves
+        identically, and chained feature names such as
+        ``value_int__sum_scalar__add_constant`` rely on this exact split.
+
+        A future regex tightening must be a deliberate decision; this test
+        exists to surface any silent change to the parse contract.
+        """
+        feature = Feature(
+            "value_int__add__subtract_constant",
+            options=Options(context={"constant": 5}),
+        )
+        assert ScalarArithmeticFeatureGroup._extract_source_features(feature) == ["value_int__add"]
+        assert ScalarArithmeticFeatureGroup._extract_arithmetic_op(feature) == "subtract"
+
 
 class TestConfigBasedFeatures:
     def test_config_based_match(self) -> None:
