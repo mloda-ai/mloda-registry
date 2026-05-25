@@ -53,6 +53,16 @@ _CALENDAR_CEIL_ALWAYS_ADVANCES: frozenset[str] = frozenset({"week", "month", "ye
 _SQLITE_TIMESTAMP_AFFINITIES: frozenset[str] = frozenset({"TEXT", "DATETIME", "TIMESTAMP", "DATE"})
 
 
+def _zero_pad_two(int_expr: str) -> str:
+    """SQL expression that left-pads a non-negative integer expression to two digits.
+
+    SQLite has no ``printf('%02d', ...)`` shorthand here so we synthesize it via
+    ``substr('00' || x, -2, 2)``. Extracted because the minute and hour
+    ``n > 1`` floor branches both need it.
+    """
+    return f"substr('00' || {int_expr}, -2, 2)"
+
+
 # Map a (unit, n) pair to the strftime / date / datetime expression that
 # yields the bucket-aligned timestamp string for floor. Calendar-unit n=1
 # cases use strftime-style truncation. Fixed-freq (n > 1) cases use bucket
@@ -70,12 +80,12 @@ def _floor_expr(quoted_source: str, n: int, unit: str) -> str:
             return f"strftime('%Y-%m-%d %H:%M:00', {quoted_source})"
         # Floor minutes to multiples of n.
         bucket_minute = f"((cast(strftime('%M', {quoted_source}) as integer) / {n}) * {n})"
-        return f"strftime('%Y-%m-%d %H:', {quoted_source}) || substr('00' || {bucket_minute}, -2, 2) || ':00'"
+        return f"strftime('%Y-%m-%d %H:', {quoted_source}) || {_zero_pad_two(bucket_minute)} || ':00'"
     if unit == "hour":
         if n == 1:
             return f"strftime('%Y-%m-%d %H:00:00', {quoted_source})"
         bucket_hour = f"((cast(strftime('%H', {quoted_source}) as integer) / {n}) * {n})"
-        return f"strftime('%Y-%m-%d ', {quoted_source}) || substr('00' || {bucket_hour}, -2, 2) || ':00:00'"
+        return f"strftime('%Y-%m-%d ', {quoted_source}) || {_zero_pad_two(bucket_hour)} || ':00:00'"
     if unit == "day":
         if n == 1:
             return f"strftime('%Y-%m-%d 00:00:00', {quoted_source})"
@@ -177,7 +187,11 @@ class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
             cls._raise_non_timestamp_source(source_col, f"SQLite affinity {affinity!r}")
 
         # Probe a sample non-null value via ``julianday`` to weed out
-        # TEXT-affinity columns that hold non-timestamp content.
+        # TEXT-affinity columns that hold non-timestamp content. ``LIMIT 1``
+        # is intentional: scanning every row to validate would dominate the
+        # cost of bucketization itself. A column whose first non-null parses
+        # but whose later rows don't will fail at compute time with the
+        # underlying SQL error -- accepted trade-off.
         quoted_source = quote_ident(source_col)
         quoted_table = quote_ident(data.table_name)
         probe_sql = (
