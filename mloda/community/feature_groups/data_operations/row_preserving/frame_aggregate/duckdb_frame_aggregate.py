@@ -34,7 +34,7 @@ _RN_COL = "__mloda_rn__"
 
 
 class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
-    SUPPORTED_FRAME_TYPES = {"rolling", "cumulative", "expanding"}
+    SUPPORTED_FRAME_TYPES = {"rolling", "time", "cumulative", "expanding"}
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
@@ -74,8 +74,12 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         quoted_order = quote_ident(order_by)
         qrn = quote_ident(_RN_COL)
 
-        null_sort = f"CASE WHEN {quoted_order} IS NULL THEN 1 ELSE 0 END"
-        order_clause = f"{null_sort}, {quoted_order}"
+        if frame_type == "time":
+            # DuckDB RANGE frames require a single ORDER BY expression.
+            order_clause = quoted_order
+        else:
+            null_sort = f"CASE WHEN {quoted_order} IS NULL THEN 1 ELSE 0 END"
+            order_clause = f"{null_sort}, {quoted_order}"
 
         if frame_type in ("cumulative", "expanding"):
             frame_clause = "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
@@ -83,7 +87,9 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
             window_size = int(frame_size) if frame_size is not None else 1
             frame_clause = f"ROWS BETWEEN {window_size - 1} PRECEDING AND CURRENT ROW"
         elif frame_type == "time":
-            raise ValueError("DuckDB time-based frame windows require RANGE which needs timestamp columns")
+            size = int(frame_size) if frame_size is not None else 1
+            unit = str(frame_unit or "day").upper()
+            frame_clause = f"RANGE BETWEEN INTERVAL '{size}' {unit} PRECEDING AND CURRENT ROW"
         else:
             raise unsupported_frame_type_error(
                 frame_type,

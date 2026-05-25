@@ -23,7 +23,10 @@ import pytest
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    extract_column as _extract_column,
+    make_feature_set,
+)
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.user import Feature
@@ -221,9 +224,9 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
         return ReferenceFrameAggregate
 
     @classmethod
-    def supports_time_frame(cls) -> bool:
-        """Whether this framework supports frame_type='time'. Default: False."""
-        return False
+    def supported_frame_types(cls) -> set[str]:
+        """Frame types this framework's test class supports. Default excludes 'time'."""
+        return {"rolling", "cumulative", "expanding"}
 
     # -- Rolling tests -------------------------------------------------------
 
@@ -295,7 +298,7 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
 
     def test_time_frame_match_rejected_when_unsupported(self) -> None:
         """Frameworks that do not support time frames must reject them at match time."""
-        if self.supports_time_frame():
+        if "time" in self.supported_frame_types():
             pytest.skip("This framework supports time frames")
 
         options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
@@ -303,7 +306,7 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
 
     def test_time_frame_config_rejected_when_unsupported(self) -> None:
         """Config-based time frame features must be rejected at match time when unsupported."""
-        if self.supports_time_frame():
+        if "time" in self.supported_frame_types():
             pytest.skip("This framework supports time frames")
 
         options = Options(
@@ -322,7 +325,7 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
 
     def test_month_window_handles_variable_length_months(self) -> None:
         """A 1-month window should use calendar months, not a fixed 30-day offset."""
-        if not self.supports_time_frame():
+        if "time" not in self.supported_frame_types():
             pytest.skip("This framework does not support time frames")
 
         table = pa.table(
@@ -364,7 +367,7 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
 
     def test_year_window_handles_leap_year(self) -> None:
         """A 1-year window should use calendar years, not a fixed 365-day offset."""
-        if not self.supports_time_frame():
+        if "time" not in self.supported_frame_types():
             pytest.skip("This framework does not support time frames")
 
         table = pa.table(
@@ -464,6 +467,127 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
         self._compare_with_reference(
             "value_int__avg_rolling_2", partition_by=["region"], order_by="value_int", use_approx=True
         )
+
+    def test_cross_framework_time_window_day(self) -> None:
+        """A 3-day time window must match the reference on integer sums."""
+        table = pa.table(
+            {
+                "region": ["A", "A", "A", "A", "A"],
+                "ts": [
+                    datetime(2023, 1, 1, tzinfo=timezone.utc),
+                    datetime(2023, 1, 3, tzinfo=timezone.utc),
+                    datetime(2023, 1, 5, tzinfo=timezone.utc),
+                    datetime(2023, 1, 7, tzinfo=timezone.utc),
+                    datetime(2023, 1, 10, tzinfo=timezone.utc),
+                ],
+                "value": [10, 20, 30, 40, 50],
+            }
+        )
+        data = self.create_test_data(table)
+        feature_name = "value__sum_3_day_window"
+        feature = Feature(
+            feature_name,
+            options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+
+        result = self.implementation_class().calculate_feature(data, fs)
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+
+        result_col = self.extract_column(result, feature_name)
+        ref_col = _extract_column(ref, feature_name)
+        assert result_col == ref_col
+
+    def test_cross_framework_time_window_week(self) -> None:
+        """A 1-week time window must match the reference on integer sums."""
+        table = pa.table(
+            {
+                "region": ["A", "A", "A", "A"],
+                "ts": [
+                    datetime(2023, 1, 1, tzinfo=timezone.utc),
+                    datetime(2023, 1, 8, tzinfo=timezone.utc),
+                    datetime(2023, 1, 15, tzinfo=timezone.utc),
+                    datetime(2023, 1, 22, tzinfo=timezone.utc),
+                ],
+                "value": [1, 2, 3, 4],
+            }
+        )
+        data = self.create_test_data(table)
+        feature_name = "value__sum_1_week_window"
+        feature = Feature(
+            feature_name,
+            options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+
+        result = self.implementation_class().calculate_feature(data, fs)
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+
+        result_col = self.extract_column(result, feature_name)
+        ref_col = _extract_column(ref, feature_name)
+        assert result_col == ref_col
+
+    def test_cross_framework_time_window_month(self) -> None:
+        """A 1-month time window must match the reference on integer sums."""
+        table = pa.table(
+            {
+                "region": ["A", "A", "A", "A"],
+                "ts": [
+                    datetime(2023, 1, 1, tzinfo=timezone.utc),
+                    datetime(2023, 1, 31, tzinfo=timezone.utc),
+                    datetime(2023, 3, 1, tzinfo=timezone.utc),
+                    datetime(2023, 4, 30, tzinfo=timezone.utc),
+                ],
+                "value": [10, 20, 30, 40],
+            }
+        )
+        data = self.create_test_data(table)
+        feature_name = "value__sum_1_month_window"
+        feature = Feature(
+            feature_name,
+            options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+
+        result = self.implementation_class().calculate_feature(data, fs)
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+
+        result_col = self.extract_column(result, feature_name)
+        ref_col = _extract_column(ref, feature_name)
+        assert result_col == ref_col
+
+    def test_cross_framework_time_window_year(self) -> None:
+        """A 1-year time window must match the reference on integer sums."""
+        table = pa.table(
+            {
+                "region": ["A", "A", "A", "A"],
+                "ts": [
+                    datetime(2023, 1, 1, tzinfo=timezone.utc),
+                    datetime(2023, 6, 1, tzinfo=timezone.utc),
+                    datetime(2024, 1, 1, tzinfo=timezone.utc),
+                    datetime(2025, 1, 1, tzinfo=timezone.utc),
+                ],
+                "value": [100, 200, 300, 400],
+            }
+        )
+        data = self.create_test_data(table)
+        feature_name = "value__sum_1_year_window"
+        feature = Feature(
+            feature_name,
+            options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+
+        result = self.implementation_class().calculate_feature(data, fs)
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+
+        result_col = self.extract_column(result, feature_name)
+        ref_col = _extract_column(ref, feature_name)
+        assert result_col == ref_col
 
     # -- Edge case tests -----------------------------------------------------
 

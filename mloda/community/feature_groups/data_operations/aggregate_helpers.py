@@ -1,8 +1,10 @@
-"""Shared aggregation helpers for test reference implementations.
+"""Shared pure-Python aggregation helpers.
 
-The helper functions below compute scalar aggregates over plain Python lists.
-They are used by frame_aggregate (per-window aggregation) and as a fallback
-for operations that PyArrow's native group_by API does not support directly.
+Used by the reference implementation and by per-row community implementations
+that need calendar-anchored windowing. The helper functions below compute
+scalar aggregates over plain Python lists. They are used by frame_aggregate
+(per-window aggregation) and as a fallback for operations that PyArrow's
+native group_by API does not support directly.
 """
 
 from __future__ import annotations

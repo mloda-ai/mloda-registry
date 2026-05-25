@@ -29,7 +29,7 @@ _SQLITE_AGG_FUNCS: dict[str, str] = {
 
 
 class SqliteFrameAggregate(FrameAggregateFeatureGroup):
-    SUPPORTED_FRAME_TYPES = {"rolling", "cumulative", "expanding"}
+    SUPPORTED_FRAME_TYPES = {"rolling", "time", "cumulative", "expanding"}
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
@@ -72,13 +72,24 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         null_sort = f"CASE WHEN {quoted_order} IS NULL THEN 1 ELSE 0 END"
         order_clause = f"{null_sort}, {quoted_order}"
 
+        if frame_type == "time":
+            return cls._compute_time_frame(
+                data=data,
+                feature_name=feature_name,
+                quoted_source=quoted_source,
+                partition_by=partition_by,
+                quoted_order=quoted_order,
+                agg_func=agg_func,
+                frame_size=frame_size,
+                frame_unit=frame_unit,
+                mask_spec=mask_spec,
+            )
+
         if frame_type in ("cumulative", "expanding"):
             frame_clause = "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
         elif frame_type == "rolling":
             window_size = int(frame_size) if frame_size is not None else 1
             frame_clause = f"ROWS BETWEEN {window_size - 1} PRECEDING AND CURRENT ROW"
-        elif frame_type == "time":
-            raise ValueError("SQLite does not support RANGE-based time windows natively")
         else:
             raise unsupported_frame_type_error(
                 frame_type,
@@ -96,6 +107,78 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
                 f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn}",
                 "FROM",
                 f"{quote_ident(data.table_name)}",
+                "ORDER BY",
+                qrn,
+            ]
+        )
+        cursor = data.connection.execute(sql)
+        rows = cursor.fetchall()
+
+        result_values = [row[0] for row in rows]
+        return data.append_column(feature_name, result_values)
+
+    @classmethod
+    def _compute_time_frame(
+        cls,
+        data: SqliteRelation,
+        feature_name: str,
+        quoted_source: str,
+        partition_by: list[str],
+        quoted_order: str,
+        agg_func: str,
+        frame_size: int | None,
+        frame_unit: str | None,
+        mask_spec: list[tuple[str, str, Any]] | None,
+    ) -> SqliteRelation:
+        """Compute a time-based window aggregate via a correlated subquery.
+
+        SQLite lacks RANGE BETWEEN INTERVAL window frames, so for each row ``t``
+        the inner SELECT aggregates rows ``s`` in the same partition whose
+        ``order_by`` value falls in ``[t.order_by - delta, t.order_by]``.
+        Both sides of the BETWEEN are wrapped in ``datetime(...)`` to normalize
+        format differences: Python's sqlite3 datetime adapter stores values
+        like ``'2023-01-01 00:00:00+00:00'`` while ``datetime(ts, '-N days')``
+        returns format without the offset.
+        """
+        size = int(frame_size) if frame_size is not None else 1
+        unit = str(frame_unit or "day")
+        if unit == "week":
+            modifier = f"'-{size * 7} days'"
+        else:
+            modifier = f"'-{size} {unit}s'"
+
+        # Build the inner aggregate expression with the ``s.`` alias prefix.
+        inner_source = f"s.{quoted_source}"
+        inner_source_sql = build_sql_case_when(mask_spec, inner_source) if mask_spec is not None else inner_source
+
+        if partition_by:
+            partition_eq = " AND ".join(
+                f"(s.{quote_ident(col)} = t.{quote_ident(col)} "
+                f"OR (s.{quote_ident(col)} IS NULL AND t.{quote_ident(col)} IS NULL))"
+                for col in partition_by
+            )
+        else:
+            partition_eq = "1=1"
+
+        quoted_feature = quote_ident(feature_name)
+        qrn = quote_ident("__mloda_rn__")
+        quoted_table = quote_ident(data.table_name)
+
+        # Safety: identifiers via quote_ident(); agg_func from whitelist; modifier is
+        # built from sanitized integer/unit values.
+        sql = " ".join(  # nosec
+            [
+                "SELECT",
+                "(SELECT",
+                f"{agg_func}({inner_source_sql})",
+                f"FROM {quoted_table} s",
+                f"WHERE {partition_eq}",
+                f"AND s.{quoted_order} IS NOT NULL",
+                f"AND datetime(s.{quoted_order}) BETWEEN datetime(t.{quoted_order}, {modifier})",
+                f"AND datetime(t.{quoted_order})",
+                f") AS {quoted_feature},",
+                f"ROW_NUMBER() OVER (ORDER BY t.rowid) AS {qrn}",
+                f"FROM {quoted_table} t",
                 "ORDER BY",
                 qrn,
             ]

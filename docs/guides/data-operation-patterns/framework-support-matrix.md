@@ -81,7 +81,10 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the te
 
 | Frame type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
 |---|---|---|---|---|---|
-| (all) | -- | ✓ | ✓ | ✓ | ✓ |
+| `rolling` | -- | ✓ | ✓ | ✓ | ✓ |
+| `time` | -- | ✓ | ✓ | ✓ | ✓ |
+| `cumulative` | -- | ✓ | ✓ | ✓ | ✓ |
+| `expanding` | -- | ✓ | ✓ | ✓ | ✓ |
 
 ### offset
 

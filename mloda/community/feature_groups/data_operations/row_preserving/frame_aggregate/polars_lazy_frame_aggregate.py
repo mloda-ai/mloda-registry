@@ -26,7 +26,7 @@ _ROLLING_AGG_TYPES = {"sum", "avg", "min", "max", "std", "var", "median", "count
 
 
 class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
-    SUPPORTED_FRAME_TYPES = {"rolling", "cumulative", "expanding"}
+    SUPPORTED_FRAME_TYPES = {"rolling", "time", "cumulative", "expanding"}
 
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
@@ -118,6 +118,78 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
                     _ROLLING_AGG_TYPES,
                     framework="Polars",
                     operation="rolling",
+                )
+        elif frame_type == "time":
+            size = int(frame_size) if frame_size is not None else 1
+            unit = str(frame_unit or "day")
+            # Polars duration strings: 's', 'm', 'h', 'd', 'w', 'mo', 'y'.
+            unit_code = {
+                "second": "s",
+                "minute": "m",
+                "hour": "h",
+                "day": "d",
+                "week": "w",
+                "month": "mo",
+                "year": "y",
+            }[unit]
+            window_str = f"{size}{unit_code}"
+            # closed="both" matches reference semantics: window is [ts - size, ts] inclusive.
+            if agg_type == "sum":
+                expr = (
+                    col.rolling_sum_by(order_by, window_size=window_str, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            elif agg_type == "avg":
+                expr = (
+                    col.rolling_mean_by(order_by, window_size=window_str, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            elif agg_type == "min":
+                expr = (
+                    col.rolling_min_by(order_by, window_size=window_str, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            elif agg_type == "max":
+                expr = (
+                    col.rolling_max_by(order_by, window_size=window_str, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            elif agg_type == "std":
+                expr = (
+                    col.rolling_std_by(order_by, window_size=window_str, ddof=0, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            elif agg_type == "var":
+                expr = (
+                    col.rolling_var_by(order_by, window_size=window_str, ddof=0, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            elif agg_type == "median":
+                expr = (
+                    col.rolling_median_by(order_by, window_size=window_str, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            elif agg_type == "count":
+                expr = (
+                    col.is_not_null()
+                    .cast(pl.Int64)
+                    .rolling_sum_by(order_by, window_size=window_str, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            else:
+                raise unsupported_agg_type_error(
+                    agg_type,
+                    _ROLLING_AGG_TYPES,
+                    framework="Polars",
+                    operation="time",
                 )
         else:
             raise unsupported_frame_type_error(

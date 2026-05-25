@@ -27,3 +27,7 @@ class TestPandasFrameAggregate(PandasTestMixin, FrameAggregateTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PandasFrameAggregate
+
+    @classmethod
+    def supported_frame_types(cls) -> set[str]:
+        return {"rolling", "time", "cumulative", "expanding"}

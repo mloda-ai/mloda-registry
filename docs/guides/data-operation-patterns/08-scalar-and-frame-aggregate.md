@@ -55,7 +55,7 @@ Feature(
 
 ### Time window
 
-`value__avg_7_day_window` computes an average over all rows whose `order_by` timestamp falls within the last 7 days of the current row's timestamp. Supported units include `day`, `hour`, `minute`, `second`. The `order_by` column must be a timestamp.
+`value__avg_7_day_window` computes an average over all rows whose `order_by` timestamp falls within the last 7 days of the current row's timestamp. Supported units are `second`, `minute`, `hour`, `day`, `week`, `month`, `year`. `month` and `year` use calendar arithmetic (a 1-month window from Mar 31 reaches back to Feb 28, not 30 days). The `order_by` column must be a timestamp.
 
 ### Cumulative
 

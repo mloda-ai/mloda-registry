@@ -23,3 +23,7 @@ class TestSqliteFrameAggregate(SqliteTestMixin, FrameAggregateTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteFrameAggregate
+
+    @classmethod
+    def supported_frame_types(cls) -> set[str]:
+        return {"rolling", "time", "cumulative", "expanding"}

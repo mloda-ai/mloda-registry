@@ -45,6 +45,7 @@ FRAMEWORKS: list[tuple[str, str]] = [
 SUPPORT_METHODS = (
     "supported_agg_types",
     "supported_ops",
+    "supported_frame_types",
     "supported_offset_types",
     "supported_rank_types",
 )
@@ -115,6 +116,7 @@ OPERATIONS: list[OperationSpec] = [
         base_module="mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate",
         base_class="FrameAggregateTestBase",
         subtype_label="frame type",
+        order_hint=("rolling", "time", "cumulative", "expanding"),
     ),
     OperationSpec(
         key="offset",

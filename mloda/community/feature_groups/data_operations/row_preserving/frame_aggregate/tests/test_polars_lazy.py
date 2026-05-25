@@ -27,3 +27,7 @@ class TestPolarsLazyFrameAggregate(PolarsLazyTestMixin, FrameAggregateTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PolarsLazyFrameAggregate
+
+    @classmethod
+    def supported_frame_types(cls) -> set[str]:
+        return {"rolling", "time", "cumulative", "expanding"}

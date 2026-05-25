@@ -17,7 +17,7 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
-from mloda.testing.feature_groups.data_operations.aggregation_helpers import aggregate
+from mloda.community.feature_groups.data_operations.aggregate_helpers import aggregate
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )

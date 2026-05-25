@@ -394,7 +394,7 @@ class TestFrameAggregateErrors:
 
 class TestReferenceAggregationHelperError:
     def test_reference_aggregation_helper_error(self) -> None:
-        from mloda.testing.feature_groups.data_operations.aggregation_helpers import aggregate
+        from mloda.community.feature_groups.data_operations.aggregate_helpers import aggregate
 
         with pytest.raises(ValueError) as exc:
             aggregate([1, 2, 3], "not_a_real_agg")
