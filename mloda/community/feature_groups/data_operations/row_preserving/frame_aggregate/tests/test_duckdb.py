@@ -27,7 +27,3 @@ class TestDuckdbFrameAggregate(DuckdbTestMixin, FrameAggregateTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return DuckdbFrameAggregate
-
-    @classmethod
-    def supported_frame_types(cls) -> set[str]:
-        return {"rolling", "time", "cumulative", "expanding"}

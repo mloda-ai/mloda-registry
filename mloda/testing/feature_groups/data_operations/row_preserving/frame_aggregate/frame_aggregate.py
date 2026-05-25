@@ -223,10 +223,12 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
 
         return ReferenceFrameAggregate
 
+    ALL_FRAME_TYPES = {"rolling", "time", "cumulative", "expanding"}
+
     @classmethod
     def supported_frame_types(cls) -> set[str]:
-        """Frame types this framework's test class supports. Default excludes 'time'."""
-        return {"rolling", "cumulative", "expanding"}
+        """Frame types this framework supports. Override to restrict."""
+        return cls.ALL_FRAME_TYPES
 
     # -- Rolling tests -------------------------------------------------------
 
