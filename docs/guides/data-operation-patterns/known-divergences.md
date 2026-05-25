@@ -104,6 +104,28 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 - **How**: `supported_ops()` / `supported_agg_types()` on each SQLite test class restricts the covered set. See `row_preserving/percentile/tests/test_sqlite.py` and `string/tests/test_sqlite.py`.
 - **Related**: Category 1 of issue #146.
 
+### SQLite time-frame uses a correlated subquery (O(N^2) per partition)
+
+- **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type).
+- **Where it lives**: `mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/sqlite_frame_aggregate.py`.
+- **Reference behavior**: PyArrow reference computes per-row time windows in O(N) per partition by walking sorted rows and admitting source values whose timestamp falls in the calendar window.
+- **Native SQLite behavior**: SQLite has window functions but does NOT support `RANGE BETWEEN INTERVAL '{N}' {unit}`; the `RANGE` clause requires a numeric expression, not a time interval. DuckDB, Polars lazy, and Pandas all have native time-aware windowing.
+- **Mitigation kind**: Accepted complexity (not divergence); correctness is preserved.
+- **How**: the SQLite implementation issues a correlated subquery `SELECT agg(s.{col}) FROM t s WHERE s.{partition} = t.{partition} AND s.{ts} BETWEEN datetime(t.{ts}, '-N units') AND t.{ts}`. Both BETWEEN bounds are wrapped in `datetime()` to canonicalize the tz-offset suffix that Python's `sqlite3` adapter writes. Per-row evaluation makes the shape O(N^2) per partition rather than O(N).
+- **Regression signal**: the new `test_cross_framework_time_window_*` tests in `frame_aggregate.py` cover small fixtures; performance is not asserted. If a future change introduces a real RANGE-INTERVAL alternative on SQLite, drop this entry.
+- **Related**: parent issue #183, implementing PR #202.
+
+### Pandas / Polars-lazy native time-rolling rejects null `order_by`
+
+- **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type, on `day`/`week`/`hour`/`minute`/`second` units).
+- **Where it lives**: `mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pandas_frame_aggregate.py` (`_compute_fixed_freq_time`); `.../polars_lazy_frame_aggregate.py` (`rolling_*_by`).
+- **Reference behavior**: PyArrow reference returns the current row's source value when its `order_by` is NULL (`reference.py:115-116`).
+- **Native Pandas / Polars behavior**: `pandas.DataFrame.groupby(...).rolling(on=ts)` raises `ValueError: ts values must not have NaT`; Polars `rolling_*_by(ts)` panics with `chunked array is not contiguous`. Both refuse to operate when the time column carries nulls.
+- **Mitigation kind**: Excluded test.
+- **How**: the `FrameAggregateTestBase.supports_null_order_in_time_window()` hook defaults to `True`; the Pandas and Polars-lazy test classes override it to `False`, so `test_cross_framework_time_window_with_null_cutoff` is skipped on those backends. DuckDB and SQLite implement the correct reference behavior and run the test for real.
+- **Regression signal**: a future implementation that splits null `order_by` rows out of the native rolling input would let the override flip back to `True`; the cross-framework test would then enforce parity.
+- **Related**: parent issue #183, implementing PR #202.
+
 ---
 
 ## Audit coverage (2026-04-13)

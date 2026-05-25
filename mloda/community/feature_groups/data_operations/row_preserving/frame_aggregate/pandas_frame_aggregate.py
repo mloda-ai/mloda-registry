@@ -211,7 +211,13 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
             delta = relativedelta(years=size)
 
         by: str | list[str] = partition_by[0] if len(partition_by) == 1 else partition_by
-        result = pd.Series(index=data.index, dtype=object)
+        # Build a positional list aligned with ``data.index`` and construct the Series
+        # once at the end so pandas can infer a numeric dtype (float64 for numeric
+        # aggs, int for count via ``coerce_count_dtype``). Initialising
+        # ``pd.Series(..., dtype=object)`` and assigning row-by-row would pin object
+        # dtype, even when every value happens to be numeric.
+        result_values: list[Any] = [None] * len(data)
+        positions = {idx: pos for pos, idx in enumerate(data.index)}
 
         for _, group in data.groupby(by, dropna=False, sort=False):
             sorted_group = group.sort_values(
@@ -231,5 +237,5 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
                     window = [
                         source_vals[i] for i in range(pos + 1) if not pd.isna(order_vals[i]) and order_vals[i] >= cutoff
                     ]
-                result.at[idx] = aggregate(window, agg_type)
-        return result
+                result_values[positions[idx]] = aggregate(window, agg_type)
+        return pd.Series(result_values, index=data.index)

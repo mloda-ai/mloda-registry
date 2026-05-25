@@ -230,6 +230,17 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
         """Frame types this framework supports. Override to restrict."""
         return cls.ALL_FRAME_TYPES
 
+    @classmethod
+    def supports_null_order_in_time_window(cls) -> bool:
+        """Whether the framework's time-window primitive tolerates null order_by values.
+
+        Pandas ``groupby().rolling(on=ts)`` and Polars ``rolling_*_by(ts)`` both
+        reject NaT/null timestamps in their native time-aware rolling primitives.
+        DuckDB and SQLite do not have this limitation. Override to ``False`` to
+        skip the null-cutoff cross-framework test for affected backends.
+        """
+        return True
+
     # -- Rolling tests -------------------------------------------------------
 
     def test_rolling_sum_window_3(self) -> None:
@@ -583,6 +594,69 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
         )
         fs = FeatureSet()
         fs.add(feature)
+
+        result = self.implementation_class().calculate_feature(data, fs)
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+
+        result_col = self.extract_column(result, feature_name)
+        ref_col = _extract_column(ref, feature_name)
+        assert result_col == ref_col
+
+    def test_cross_framework_time_window_with_null_cutoff(self) -> None:
+        """A row whose order_by is NULL should aggregate to its own source value (reference parity)."""
+        if "time" not in self.supported_frame_types():
+            pytest.skip("This framework does not support time frames")
+        if not self.supports_null_order_in_time_window():
+            pytest.skip("Native time-window primitive rejects null order_by")
+
+        table = pa.table(
+            {
+                "region": ["A", "A", "A"],
+                "ts": [
+                    datetime(2023, 1, 1, tzinfo=timezone.utc),
+                    None,
+                    datetime(2023, 1, 10, tzinfo=timezone.utc),
+                ],
+                "value": [10, 99, 30],
+            }
+        )
+        data = self.create_test_data(table)
+        feature_name = "value__sum_3_day_window"
+        feature = Feature(
+            feature_name,
+            options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+
+        result = self.implementation_class().calculate_feature(data, fs)
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+
+        result_col = self.extract_column(result, feature_name)
+        ref_col = _extract_column(ref, feature_name)
+        assert result_col == ref_col
+
+    def test_cross_framework_time_window_with_mask(self) -> None:
+        """A masked time window must match the reference (predicate columns must scope correctly)."""
+        if "time" not in self.supported_frame_types():
+            pytest.skip("This framework does not support time frames")
+
+        table = pa.table(
+            {
+                "region": ["A"] * 5,
+                "ts": [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
+                "category": ["X", "Y", "X", "X", "Y"],
+                "value": [10, 20, 30, 40, 50],
+            }
+        )
+        data = self.create_test_data(table)
+        feature_name = "value__sum_3_day_window"
+        fs = make_feature_set(
+            feature_name,
+            partition_by=["region"],
+            order_by="ts",
+            mask=("category", "equal", "X"),
+        )
 
         result = self.implementation_class().calculate_feature(data, fs)
         ref = self.reference_implementation_class().calculate_feature(table, fs)

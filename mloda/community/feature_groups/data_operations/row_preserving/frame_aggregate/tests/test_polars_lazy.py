@@ -27,3 +27,8 @@ class TestPolarsLazyFrameAggregate(PolarsLazyTestMixin, FrameAggregateTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PolarsLazyFrameAggregate
+
+    @classmethod
+    def supports_null_order_in_time_window(cls) -> bool:
+        # polars rolling_*_by(ts) panics on null timestamps in the order_by column.
+        return False

@@ -166,6 +166,12 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
 
         # Safety: identifiers via quote_ident(); agg_func from whitelist; modifier is
         # built from sanitized integer/unit values.
+        #
+        # When the outer row's order_by is NULL, ``datetime(NULL, ...)`` is NULL and the
+        # BETWEEN short-circuits to NULL, which would leave the row with a NULL aggregate.
+        # The PyArrow reference returns the source value of just the current row in that
+        # case (see reference.py:115-116). The OR branch below matches the self-row only
+        # when ``t.{order_by}`` is NULL, restoring reference parity.
         sql = " ".join(  # nosec
             [
                 "SELECT",
@@ -173,9 +179,12 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
                 f"{agg_func}({inner_source_sql})",
                 f"FROM {quoted_table} s",
                 f"WHERE {partition_eq}",
-                f"AND s.{quoted_order} IS NOT NULL",
+                "AND (",
+                f"(t.{quoted_order} IS NOT NULL AND s.{quoted_order} IS NOT NULL",
                 f"AND datetime(s.{quoted_order}) BETWEEN datetime(t.{quoted_order}, {modifier})",
-                f"AND datetime(t.{quoted_order})",
+                f"AND datetime(t.{quoted_order}))",
+                f"OR (t.{quoted_order} IS NULL AND s.rowid = t.rowid)",
+                ")",
                 f") AS {quoted_feature},",
                 f"ROW_NUMBER() OVER (ORDER BY t.rowid) AS {qrn}",
                 f"FROM {quoted_table} t",

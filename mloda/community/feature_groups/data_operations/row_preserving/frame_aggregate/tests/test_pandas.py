@@ -27,3 +27,9 @@ class TestPandasFrameAggregate(PandasTestMixin, FrameAggregateTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PandasFrameAggregate
+
+    @classmethod
+    def supports_null_order_in_time_window(cls) -> bool:
+        # pandas groupby().rolling(on=ts) raises "ts values must not have NaT"
+        # when the order_by column contains null timestamps.
+        return False
