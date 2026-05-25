@@ -151,11 +151,7 @@ def _local_src_expr(quoted_source: str) -> str:
 
 def _tz_suffix_expr(quoted_source: str) -> str:
     """SQL expression that yields the trailing ``+HH:MM`` / ``-HH:MM`` suffix or ``''``."""
-    return (
-        f"(CASE WHEN substr({quoted_source}, -6, 1) IN ('+', '-') "
-        f"THEN substr({quoted_source}, -6) "
-        f"ELSE '' END)"
-    )
+    return f"(CASE WHEN substr({quoted_source}, -6, 1) IN ('+', '-') THEN substr({quoted_source}, -6) ELSE '' END)"
 
 
 class SqliteTimeBucketization(TimeBucketizationFeatureGroup):

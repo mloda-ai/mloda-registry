@@ -32,8 +32,7 @@ class PyArrowTimeBucketization(TimeBucketizationFeatureGroup):
     def _assert_source_column_is_timestamp(cls, data: pa.Table, source_col: str) -> None:
         if source_col not in data.schema.names:
             raise ValueError(
-                f"Source column {source_col!r} is not present in the PyArrow table; "
-                f"available: {data.schema.names}."
+                f"Source column {source_col!r} is not present in the PyArrow table; available: {data.schema.names}."
             )
         arrow_type = data.column(source_col).type
         if not pa.types.is_timestamp(arrow_type):

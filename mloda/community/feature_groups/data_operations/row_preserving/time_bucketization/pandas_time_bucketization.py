@@ -82,8 +82,7 @@ class PandasTimeBucketization(TimeBucketizationFeatureGroup):
     def _assert_source_column_is_timestamp(cls, data: pd.DataFrame, source_col: str) -> None:
         if source_col not in data.columns:
             raise ValueError(
-                f"Source column {source_col!r} is not present in the Pandas DataFrame; "
-                f"available: {list(data.columns)}."
+                f"Source column {source_col!r} is not present in the Pandas DataFrame; available: {list(data.columns)}."
             )
         series = data[source_col]
         if not pd.api.types.is_datetime64_any_dtype(series):
