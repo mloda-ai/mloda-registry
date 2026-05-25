@@ -41,6 +41,10 @@ PACKAGES = [
         "mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/pyproject.toml",
     ),
     (
+        "mloda-community-scalar-arithmetic",
+        "mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/pyproject.toml",
+    ),
+    (
         "mloda-community-datetime",
         "mloda/community/feature_groups/data_operations/row_preserving/datetime/pyproject.toml",
     ),

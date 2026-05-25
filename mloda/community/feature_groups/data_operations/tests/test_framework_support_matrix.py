@@ -166,6 +166,15 @@ OPERATIONS: list[OperationSpec] = [
         ),
     ),
     OperationSpec(
+        key="scalar_arithmetic",
+        display="scalar_arithmetic",
+        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.tests",
+        base_module="mloda.testing.feature_groups.data_operations.row_preserving.scalar_arithmetic.scalar_arithmetic",
+        base_class="ScalarArithmeticTestBase",
+        subtype_label="op",
+        order_hint=("add", "subtract", "multiply", "divide"),
+    ),
+    OperationSpec(
         key="window_aggregation",
         display="window_aggregation",
         tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.tests",

@@ -14,7 +14,7 @@ Data operations are feature groups that transform existing columns using declara
 
 | Category | Location | Row behavior | Examples |
 |---|---|---|---|
-| Row-preserving | `row_preserving/` | Output row count and order match input | binning, window aggregation, rank, offset, percentile, scalar aggregate, frame aggregate, datetime |
+| Row-preserving | `row_preserving/` | Output row count and order match input | binning, window aggregation, rank, offset, percentile, scalar aggregate, scalar arithmetic, frame aggregate, datetime |
 | Aggregation | `aggregation/` | Reduces to one row per group | sum, avg, count, min, max, std, var, median, mode, nunique, first, last |
 | String | `string/` | Row-preserving, element-wise on strings | upper, lower, trim, length, reverse |
 
@@ -31,6 +31,7 @@ Every data operation encodes its parameters directly in the feature name. The pr
 | Aggregation | `{col}__{agg}_agg` | `value_int__sum_agg` |
 | Window aggregation | `{col}__{agg}_window` | `value_int__avg_window` |
 | Scalar aggregate | `{col}__{agg}_scalar` | `value_int__max_scalar` |
+| Scalar arithmetic | `{col}__{op}_constant` | `value_int__divide_constant` (with `constant=2` in Options) |
 | Rank | `{col}__{rank_type}_ranked` | `score__dense_rank_ranked` |
 | Offset | `{col}__{offset_type}_offset` | `value__lag_1_offset` |
 | Percentile | `{col}__p{N}_percentile` | `latency__p95_percentile` |

@@ -105,7 +105,7 @@ jobs:
 
       - name: Build packages
         run: |
-          # Released set: 4 bundles + 11 community data-operations packages +
+          # Released set: 4 bundles + 12 community data-operations packages +
           # 2 examples kept for end-to-end PyPI dependency-resolution coverage
           # (mloda-community-example, mloda-community-example-a).
           #
@@ -131,6 +131,7 @@ jobs:
             "mloda-community-window-aggregation"
             "mloda-community-frame-aggregate"
             "mloda-community-scalar-aggregate"
+            "mloda-community-scalar-arithmetic"
             "mloda-community-datetime"
             "mloda-community-string"
             "mloda-community-binning"

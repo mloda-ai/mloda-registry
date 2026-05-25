@@ -3,7 +3,7 @@
 Row-preserving operations must return an output whose row count and row order match the input. This invariant is what lets users chain analytic transforms without surprise reshuffles.
 
 **What**: For every row-preserving operation, `len(output) == len(input)` and row *i* in the output corresponds to row *i* in the input.
-**When**: Applies to every feature group under `data_operations/row_preserving/`: binning, window aggregation, rank, offset, percentile, scalar aggregate, frame aggregate, datetime.
+**When**: Applies to every feature group under `data_operations/row_preserving/`: binning, window aggregation, rank, offset, percentile, scalar aggregate, scalar arithmetic, frame aggregate, datetime.
 **Why**: Row-preserving ops broadcast a computed value back onto each row. If the framework reorders rows (some SQL window functions do), downstream joins on index position break silently.
 **Where**: The contract is enforced by cross-framework tests. Row count and row order are both asserted in `DataOpsTestBase._compare_with_reference`.
 **How**: Each framework implementation must return rows in the same order they came in. If the native operator reorders (DuckDB `NTILE`), the implementation records original positions and restores them.

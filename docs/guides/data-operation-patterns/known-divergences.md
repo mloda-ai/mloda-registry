@@ -5,7 +5,7 @@ Authoritative list of cases where a non-PyArrow framework would, without interve
 **What**: Every audited case where a framework's native operator diverges from PyArrow semantics.
 **When**: Read this before adding a new data-operation implementation, a new framework, or changing null or tie-breaking behavior in an existing one.
 **Why**: Divergences of this kind are the most dangerous class of bug: the feature resolves, the pipeline succeeds, the output is silently wrong. Keeping a single list prevents that category from growing unnoticed.
-**Where**: Audit of the 10 data operations under `mloda/community/feature_groups/data_operations/`.
+**Where**: Audit of the 11 data operations under `mloda/community/feature_groups/data_operations/`.
 **How**: Each entry records the divergence, the mitigation, and the test (or `supported_ops()` exclusion) that keeps it from silently regressing.
 
 ---
@@ -89,7 +89,7 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 
 ### Reserved `__mloda_` prefix for internal helper columns
 
-- **Operations**: `aggregation` (Polars Lazy), `binning` (DuckDB, SQLite), `datetime` (SQLite), `frame_aggregate` (all frameworks), `offset` (all frameworks), `percentile` (Polars Lazy), `rank` (DuckDB, Polars Lazy, SQLite), `scalar_aggregate` (Polars Lazy), `string` (SQLite), `window_aggregation` (all frameworks).
+- **Operations**: `aggregation` (Polars Lazy), `binning` (DuckDB, SQLite), `datetime` (SQLite), `frame_aggregate` (all frameworks), `offset` (all frameworks), `percentile` (Polars Lazy), `rank` (DuckDB, Polars Lazy, SQLite), `scalar_aggregate` (Polars Lazy), `scalar_arithmetic` (all frameworks; applied at the base class for cross-backend consistency even though no implementation currently adds helper columns), `string` (SQLite), `window_aggregation` (all frameworks).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/reserved_columns.py` defines `RESERVED_PREFIX = "__mloda_"` and the `assert_no_reserved_columns()` validator. Each guarded implementation calls it as the first statement of its `_compute_*` method.
 - **Reference behavior**: PyArrow's reference implementation does not need helper columns and is silent about column names starting with `__mloda_`.
 - **Native framework behavior**: Several row-preserving implementations add an internal helper column (for example `__mloda_rn__` to record original row order before a reordering window function). The helper name is hardcoded. If an input already carries a column with the same name, the helper would either overwrite user data or be dropped together with the helper at the end of the method, all without a diagnostic.
@@ -108,7 +108,7 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 
 ## Audit coverage (2026-04-13)
 
-The full audit covered all ten data operations: `binning`, `datetime`, `frame_aggregate`, `offset`, `percentile`, `rank`, `scalar_aggregate`, `window_aggregation`, `aggregation`, `string`. Every implementation file and every `*TestBase` was read.
+The full audit covered all eleven data operations: `binning`, `datetime`, `frame_aggregate`, `offset`, `percentile`, `rank`, `scalar_aggregate`, `scalar_arithmetic`, `window_aggregation`, `aggregation`, `string`. Every implementation file and every `*TestBase` was read.
 
 | Operation | Frameworks audited | New divergence found? |
 |---|---|---|
@@ -120,6 +120,7 @@ The full audit covered all ten data operations: `binning`, `datetime`, `frame_ag
 | percentile | Pandas, Polars lazy, DuckDB | No (float tolerance already accepted) |
 | rank | Pandas, Polars lazy, DuckDB, SQLite | No (all mitigated above) |
 | scalar_aggregate | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | No |
+| scalar_arithmetic | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | No (PyArrow int÷int truncation mitigated by explicit float cast) |
 | string | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | No (SQLite ASCII mitigated) |
 | window_aggregation | Pandas, Polars lazy, DuckDB, SQLite | No (all mitigated above) |
 
