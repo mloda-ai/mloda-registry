@@ -63,3 +63,68 @@ Q11: Ready to test your implementation?
 | [07-filter-engine](compute-framework-patterns/07-filter-engine.md) | Filter operations (range, equal, regex, categorical) |
 | [08-framework-transformer](compute-framework-patterns/08-framework-transformer.md) | Cross-framework conversion (PyArrow as hub) |
 | [09-testing-guide](compute-framework-patterns/09-testing-guide.md) | Testing your implementation |
+
+## Column Data Type Extraction
+
+Compute framework plugins should implement `_extract_column_data_type(data, column_name) -> DataType | None`
+when they can inspect native column types. `return_data_type_rule()` declares the expected feature output type,
+and mloda uses `_extract_column_data_type()` to validate that expectation against the actual framework result.
+Without this hook, strict `return_data_type_rule` checks cannot verify plugin-authored framework outputs end-to-end.
+
+Return a concrete `DataType` when the framework exposes enough precision to map the native type reliably. Return
+`None` when the column is missing, schema inspection is unavailable without executing an unsafe or expensive query,
+or the native type system is too ambiguous to validate. For collapsed native types, return the closest safe
+mloda type only when that is stable for the framework; otherwise return `None`.
+
+```python
+from typing import Any
+
+from mloda.user import DataType
+
+
+def _extract_column_data_type(self, data: Any, column_name: str) -> DataType | None:
+    if column_name not in data.columns:
+        return None
+
+    dtype = data[column_name].dtype
+
+    if is_int32_dtype(dtype):
+        return DataType.INT32
+    if is_integer_dtype(dtype):
+        return DataType.INT64
+    if is_float32_dtype(dtype):
+        return DataType.FLOAT
+    if is_float_dtype(dtype):
+        return DataType.DOUBLE
+    if is_bool_dtype(dtype):
+        return DataType.BOOLEAN
+    if is_string_dtype(dtype):
+        return DataType.STRING
+
+    return None
+```
+
+Common mapping decisions:
+
+- Use the narrowest exact type when the framework exposes precision, such as `int32` to `DataType.INT32` and
+  `int64` to `DataType.INT64`.
+- Use safe widening when the framework collapses widths, such as an integer-only type system returning
+  `DataType.INT64` for integer columns.
+- For timestamp systems with one native timestamp type, such as Spark or Iceberg, document the chosen
+  `TIMESTAMP_MILLIS` or `TIMESTAMP_MICROS` mapping and keep it consistent with the framework's runtime behavior.
+- For affinity-based systems such as SQLite, return a `DataType` only when the concrete value or declared type is
+  reliable enough; otherwise return `None` so validation does not claim false precision.
+
+Short collapsed-precision example:
+
+```python
+def _extract_column_data_type(self, data: Any, column_name: str) -> DataType | None:
+    native_type = data.schema[column_name]
+
+    if native_type == "INTEGER":
+        return DataType.INT64  # Framework does not distinguish INT32 from INT64.
+    if native_type == "TIMESTAMP":
+        return DataType.TIMESTAMP_MICROS  # Chosen framework convention.
+
+    return None
+```
