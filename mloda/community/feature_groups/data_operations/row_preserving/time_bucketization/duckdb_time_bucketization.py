@@ -38,10 +38,12 @@ _DUCKDB_TRUNC_UNIT: dict[str, str] = {
 
 # DuckDB type names that imply a timestamp source. Parameterized variants
 # (``TIMESTAMP_NS``, ``TIMESTAMP WITH TIME ZONE``) are matched as prefixes.
+# Bare DATE is intentionally NOT accepted: round at sub-day units fails
+# inside the SQL with a cryptic BinderException about epoch(BIGINT). Users
+# with DATE columns should cast to TIMESTAMP before bucketing.
 _DUCKDB_TIMESTAMP_PREFIXES: tuple[str, ...] = (
     "TIMESTAMP",
     "DATETIME",
-    "DATE",
 )
 
 
