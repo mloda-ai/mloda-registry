@@ -36,8 +36,12 @@ _PANDAS_FRAME_AGG_FUNCS: dict[str, str] = {
 
 
 class PandasFrameAggregate(FrameAggregateFeatureGroup):
-    # Pandas .rolling(window="...", on=ts) only accepts these fixed-frequency units.
-    # Month/year are calendar-anchored and require a per-row Python loop instead.
+    # Pandas .rolling(window="...", on=ts) only accepts fixed-frequency units. Month/year
+    # are calendar-anchored and would require a per-row Python loop, which defeats the
+    # point of running inside pandas. They are rejected at match time. See
+    # known-divergences.md.
+    SUPPORTED_TIME_UNITS: set[str] = {"second", "minute", "hour", "day", "week"}
+
     _FIXED_FREQ_CODES: dict[str, str] = {
         "second": "s",
         "minute": "min",
@@ -86,24 +90,34 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         # PyArrow parity: the reference applies masks before aggregation but
         # sorts on unmasked values. Apply mask AFTER sorting so that sort
         # order uses original (unmasked) values to match this behavior.
-        # This matters when order_by == source_col.
         # Safe to mutate: data was already copied above (data = data.copy()).
         #
-        # Collision case: when source_col == order_by and the mask is applied,
-        # the mask writes null into source_col (= order_by). For the time-based
-        # frame_type the reference treats those rows as having null order, and
-        # ``current_order is None`` in ``_compute_calendar_time`` triggers the
-        # ``[source_vals[k]]`` (= [None]) branch, matching reference semantics.
-        # Force the Python calendar-time path in that case because pandas
-        # ``rolling(on=order_by)`` rejects NaT in the on-column.
-        force_calendar_time = False
+        # Collision case: when source_col == order_by and a mask is applied,
+        # the reference treats masked rows as having null ``order_by`` (because
+        # mask writes null into source_col, which is also order_by). Pandas'
+        # native ``rolling(on=ts)`` cannot simulate this without a Python loop
+        # (which would defeat the point of running inside pandas). For non-time
+        # frames the order_by clobber would also break the sort; reject the
+        # combo for time frames at runtime. See known-divergences.md.
+        agg_col = source_col
         if mask_spec is not None:
             mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
-            data[source_col] = data[source_col].where(mask)
-            if source_col == order_by and frame_type == "time":
-                force_calendar_time = True
+            if source_col == order_by:
+                if frame_type == "time":
+                    raise ValueError(
+                        "Pandas frame aggregate (time frame): mask + source_col == order_by "
+                        f"({source_col!r}) is unsupported. The reference semantic requires "
+                        "treating masked rows as having null order_by, which pandas "
+                        "rolling(on=...) cannot express natively. See known-divergences.md."
+                    )
+                # Non-time frames: aggregate the masked values in a temp column;
+                # order_by is preserved because the sort already happened above.
+                agg_col = "__mloda_masked_source__"
+                data[agg_col] = data[source_col].where(mask)
+            else:
+                data[source_col] = data[source_col].where(mask)
 
-        grouped = null_safe_groupby(data, partition_by, source_col)
+        grouped = null_safe_groupby(data, partition_by, agg_col)
 
         # std/var require at least 2 observations for a meaningful result
         min_periods = 2 if agg_type in ("std", "var") else 1
@@ -117,17 +131,33 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         elif frame_type == "time":
             size = int(frame_size) if frame_size is not None else 1
             unit = str(frame_unit or "day")
-            if unit in cls._FIXED_FREQ_CODES and not force_calendar_time:
-                data[feature_name] = cls._compute_fixed_freq_time(
-                    data, source_col, partition_by, order_by, agg_type, size, unit, min_periods
+            if unit not in cls._FIXED_FREQ_CODES:
+                # Defense-in-depth: month/year are rejected at match time via
+                # SUPPORTED_TIME_UNITS. Hitting this path means a caller bypassed
+                # match_feature_group_criteria.
+                raise unsupported_frame_type_error(
+                    f"time:{unit}",
+                    {f"time:{u}" for u in cls._FIXED_FREQ_CODES},
+                    framework="Pandas",
                 )
-            else:
-                data[feature_name] = cls._compute_calendar_time(
-                    data, source_col, partition_by, order_by, agg_type, size, unit
+            if data[order_by].isna().any():
+                # pandas groupby().rolling(on=ts) raises "ts values must not have NaT".
+                # Convert that cryptic error into an explicit refusal naming the column.
+                # See known-divergences.md.
+                raise ValueError(
+                    f"Pandas frame aggregate (time frame): order_by column {order_by!r} "
+                    "contains null/NaT values, which pandas groupby().rolling(on=...) does "
+                    "not support. See known-divergences.md."
                 )
+            data[feature_name] = cls._compute_fixed_freq_time(
+                data, agg_col, partition_by, order_by, agg_type, size, unit, min_periods
+            )
             coerce_count_dtype(data, feature_name, agg_type)
             data = data.sort_values(by=rn_col)
-            data = data.drop(columns=[rn_col])
+            drop_cols = [rn_col]
+            if mask_spec is not None and source_col == order_by:
+                drop_cols.append(agg_col)
+            data = data.drop(columns=drop_cols)
             return data
         else:
             raise unsupported_frame_type_error(
@@ -144,9 +174,12 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         data[feature_name] = result
         coerce_count_dtype(data, feature_name, agg_type)
 
-        # Restore original row order and drop helper column
+        # Restore original row order and drop helper columns
         data = data.sort_values(by=rn_col)
-        data = data.drop(columns=[rn_col])
+        drop_cols = [rn_col]
+        if mask_spec is not None and source_col == order_by:
+            drop_cols.append(agg_col)
+        data = data.drop(columns=drop_cols)
 
         return data
 
@@ -192,73 +225,3 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         else:
             rolled = getattr(rolling_obj, pandas_func)()
         return pd.Series(rolled.values, index=data.index)
-
-    @classmethod
-    def _compute_calendar_time(
-        cls,
-        data: pd.DataFrame,
-        source_col: str,
-        partition_by: list[str],
-        order_by: str,
-        agg_type: str,
-        size: int,
-        unit: str,
-    ) -> pd.Series:
-        """Calendar-anchored time window.
-
-        Used for month/year units (where pandas .rolling does not accept
-        non-fixed offsets) and as a fallback whenever the order_by column may
-        contain NaT (e.g. when source_col == order_by and a mask sets some
-        rows to null). Calendar units (month/year) use ``relativedelta``;
-        all other units use ``timedelta``.
-        """
-        from datetime import timedelta
-
-        from dateutil.relativedelta import relativedelta
-
-        from mloda.community.feature_groups.data_operations.aggregate_helpers import aggregate
-
-        unit_map: dict[str, Any] = {
-            "second": timedelta(seconds=size),
-            "minute": timedelta(minutes=size),
-            "hour": timedelta(hours=size),
-            "day": timedelta(days=size),
-            "week": timedelta(weeks=size),
-            "month": relativedelta(months=size),
-            "year": relativedelta(years=size),
-        }
-        delta = unit_map.get(unit, timedelta(days=size))
-
-        by: str | list[str] = partition_by[0] if len(partition_by) == 1 else partition_by
-        # Build a positional list aligned with ``data.index`` and construct the Series
-        # once at the end so pandas can infer a numeric dtype (float64 for numeric
-        # aggs, int for count via ``coerce_count_dtype``). Initialising
-        # ``pd.Series(..., dtype=object)`` and assigning row-by-row would pin object
-        # dtype, even when every value happens to be numeric.
-        #
-        # Use an explicit positional column (``__mloda_pos__``) rather than a
-        # ``{label: position}`` dict so duplicate index labels (e.g. from
-        # ``pd.concat``) do not collapse and overwrite each other.
-        result_values: list[Any] = [None] * len(data)
-        data_with_pos = data.assign(__mloda_pos__=range(len(data)))
-
-        for _, group in data_with_pos.groupby(by, dropna=False, sort=False):
-            sorted_group = group.sort_values(
-                by=order_by,
-                na_position="last",
-                kind="mergesort",
-            )
-            order_vals = sorted_group[order_by].tolist()
-            source_vals = [None if pd.isna(v) else v for v in sorted_group[source_col].tolist()]
-            pos_vals = sorted_group["__mloda_pos__"].tolist()
-            for k, pos in enumerate(pos_vals):
-                current = order_vals[k]
-                if pd.isna(current):
-                    window = [source_vals[k]]
-                else:
-                    cutoff = current - delta
-                    window = [
-                        source_vals[i] for i in range(k + 1) if not pd.isna(order_vals[i]) and order_vals[i] >= cutoff
-                    ]
-                result_values[pos] = aggregate(window, agg_type)
-        return pd.Series(result_values, index=data.index)

@@ -111,18 +111,25 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 - **How**: SQLite has no `RANGE BETWEEN INTERVAL`; `sqlite_frame_aggregate.py` issues a correlated subquery `SELECT agg(s.{col}) FROM t s WHERE s.{partition}=t.{partition} AND julianday(s.{ts}) BETWEEN julianday(t.{ts}) - n_days AND julianday(t.{ts})`. `julianday()` preserves sub-second precision; `datetime()` would truncate it.
 - **Related**: parent #183, implementing #202.
 
-### SQLite rejects month/year time windows
+### SQLite + Pandas reject month/year time windows
 
 - **Operations**: `row_preserving/frame_aggregate` (only `time` frame type with `month`/`year` units).
 - **Mitigation kind**: Excluded unit.
-- **How**: SQLite's native `datetime(ts, '-N months')` uses day-of-month rollover (Mar 31 -1mo = Mar 3), diverging from `dateutil.relativedelta` (= Feb 28) used by the PyArrow reference. Rather than fall back to a Python loop (which would defeat the point of running inside the SQLite engine), `SqliteFrameAggregate.SUPPORTED_TIME_UNITS` excludes `month`/`year`, so features like `value__sum_1_month_window` are rejected at `match_feature_group_criteria` time. `SqliteFrameAggregate` `supports` `second`/`minute`/`hour`/`day`/`week`.
+- **How**: SQLite's native `datetime(ts, '-N months')` uses day-of-month rollover (Mar 31 -1mo = Mar 3), diverging from `dateutil.relativedelta` (= Feb 28) used by the PyArrow reference. Pandas `.rolling(window="...", on=ts)` only accepts fixed-frequency offsets and has no native calendar-anchored option. Rather than fall back to a Python loop (which would defeat the point of running inside the engine), both `SqliteFrameAggregate.SUPPORTED_TIME_UNITS` and `PandasFrameAggregate.SUPPORTED_TIME_UNITS` exclude `month`/`year`, so features like `value__sum_1_month_window` are rejected at `match_feature_group_criteria` time. Both support `second`/`minute`/`hour`/`day`/`week`. Polars and DuckDB express month/year natively and remain ✓ for those units.
+- **Related**: parent #183, implementing #202.
+
+### Pandas rejects mask + `source_col == order_by` in time frames
+
+- **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type, with `source_col == order_by` and a mask present).
+- **Mitigation kind**: Excluded shape.
+- **How**: The PyArrow reference applies the mask to `source_col` before computing the window. When `source_col == order_by`, mask-write clobbers the order column with null, and the reference's `current_order is None` branch returns just `[self]`. Pandas' native `rolling(on=ts)` cannot simulate this without a Python loop (which would defeat the point of running inside pandas), so `PandasFrameAggregate._compute_frame` raises a `ValueError` when this combo is detected at runtime. Non-time frames continue to work via a separate temp column for the masked source.
 - **Related**: parent #183, implementing #202.
 
 ### Pandas / Polars-lazy native time-rolling rejects null `order_by`
 
 - **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type).
-- **Mitigation kind**: Excluded test.
-- **How**: `pandas.DataFrame.groupby(...).rolling(on=ts)` raises on NaT; Polars `rolling_*_by` panics. `FrameAggregateTestBase.supports_null_order_in_time_window()` defaults `True`; pandas + polars-lazy override to `False`, skipping `test_cross_framework_time_window_with_null_cutoff`. DuckDB and SQLite implement the reference behavior (window = `[self]`) and run the test.
+- **Mitigation kind**: Excluded test + explicit runtime error.
+- **How**: `pandas.DataFrame.groupby(...).rolling(on=ts)` raises `"ts values must not have NaT"`; Polars `rolling_*_by` panics. Both `PandasFrameAggregate._compute_frame` and `PolarsLazyFrameAggregate._compute_frame` pre-check the `order_by` column for nulls when `frame_type == "time"` and raise a `ValueError` naming the framework and column, turning the cryptic native error into an explicit refusal. `FrameAggregateTestBase.supports_null_order_in_time_window()` defaults `True`; pandas + polars-lazy override to `False`, skipping `test_cross_framework_time_window_with_null_cutoff`. DuckDB and SQLite implement the reference behavior (window = `[self]`) and run the test.
 - **Related**: parent #183, implementing #202.
 
 ---

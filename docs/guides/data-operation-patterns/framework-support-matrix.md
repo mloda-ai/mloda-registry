@@ -15,7 +15,7 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the te
 - The **summary** shows, per framework, whether an operation is fully covered (`full`), only partially covered (`partial (k/n)`), or absent (`--`).
 - The **per-operation detail** tables show every subtype that any framework supports, with ✓ / ✗ per cell. `--` means that framework has no test class (and therefore no implementation) for this operation.
 - A ✗ is not a bug. It is a deliberate exclusion documented in [Known divergences](known-divergences.md) or recorded by a `supported_*()` override in `*/tests/test_{framework}.py`. See the matching entry there before attempting to add support.
-- The matrix does not list every percentile quantile or frame-aggregate window kind. For those the op either ships in full or does not ship at all: see the detail tables for `percentile`, `datetime`, and `frame_aggregate`, where the single "(all)" row reflects that absence of a `supported_*()` method.
+- The matrix does not list every percentile quantile. For `percentile` and `datetime` the op either ships in full or does not ship at all: see the detail tables, where the single "(all)" row reflects that absence of a `supported_*()` method. For `frame_aggregate` the per-frame-type detail breaks out time-window units (`time:second`, ..., `time:year`) so framework-specific unit gaps (e.g. SQLite/Pandas rejecting `time:month`) surface as ✗ rather than being hidden behind a single `time` row.
 
 ---
 
@@ -30,7 +30,7 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the te
 | aggregation | partial (15/17) | partial (16/17) | partial (16/17) | partial (16/17) | partial (5/17) |
 | binning | full | full | full | full | full |
 | datetime | full | full | full | full | full |
-| frame_aggregate | -- | full | full | full | full |
+| frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) |
 | offset | -- | full | full | full | full |
 | percentile | -- | full | full | full | -- |
 | rank | -- | full | full | full | full |
@@ -82,7 +82,13 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the te
 | Frame type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
 |---|---|---|---|---|---|
 | `rolling` | -- | ✓ | ✓ | ✓ | ✓ |
-| `time` | -- | ✓ | ✓ | ✓ | ✓ |
+| `time:second` | -- | ✓ | ✓ | ✓ | ✓ |
+| `time:minute` | -- | ✓ | ✓ | ✓ | ✓ |
+| `time:hour` | -- | ✓ | ✓ | ✓ | ✓ |
+| `time:day` | -- | ✓ | ✓ | ✓ | ✓ |
+| `time:week` | -- | ✓ | ✓ | ✓ | ✓ |
+| `time:month` | -- | ✗ | ✓ | ✓ | ✗ |
+| `time:year` | -- | ✗ | ✓ | ✓ | ✗ |
 | `cumulative` | -- | ✓ | ✓ | ✓ | ✓ |
 | `expanding` | -- | ✓ | ✓ | ✓ | ✓ |
 

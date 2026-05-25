@@ -51,6 +51,28 @@ SUPPORT_METHODS = (
 )
 
 
+def _frame_aggregate_subtypes(cls: type) -> set[str]:
+    """Flatten frame_aggregate's two-dimensional support into a single subtype set.
+
+    ``frame_aggregate`` is the only operation whose capability is governed by two
+    orthogonal axes: ``supported_frame_types()`` (rolling / time / cumulative /
+    expanding) and ``supported_time_units()`` (second / minute / ... / year, applied
+    only when ``time`` is in the frame-type set). Flatten to ``rolling``,
+    ``time:second``, ..., ``time:year``, ``cumulative``, ``expanding`` so a framework
+    that excludes ``time:month`` shows up as partial in the summary table.
+    """
+    frame_types: set[str] = set(cls.supported_frame_types())  # type: ignore[attr-defined]
+    time_units: set[str] = set(cls.supported_time_units())  # type: ignore[attr-defined]
+    out: set[str] = set()
+    for ft in frame_types:
+        if ft == "time":
+            for unit in time_units:
+                out.add(f"time:{unit}")
+        else:
+            out.add(ft)
+    return out
+
+
 @dataclass(frozen=True)
 class OperationSpec:
     """Where to find an operation's test classes and its full subtype set."""
@@ -62,6 +84,9 @@ class OperationSpec:
     base_class: str
     subtype_label: str
     order_hint: tuple[str, ...] = ()
+    # Optional callable that overrides the default ``supported_*`` lookup. Used by
+    # frame_aggregate to flatten (frame_type, time_unit) into compound subtypes.
+    subtype_extractor: Any = None
 
 
 OPERATIONS: list[OperationSpec] = [
@@ -116,7 +141,19 @@ OPERATIONS: list[OperationSpec] = [
         base_module="mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate",
         base_class="FrameAggregateTestBase",
         subtype_label="frame type",
-        order_hint=("rolling", "time", "cumulative", "expanding"),
+        order_hint=(
+            "rolling",
+            "time:second",
+            "time:minute",
+            "time:hour",
+            "time:day",
+            "time:week",
+            "time:month",
+            "time:year",
+            "cumulative",
+            "expanding",
+        ),
+        subtype_extractor=_frame_aggregate_subtypes,
     ),
     OperationSpec(
         key="offset",
@@ -232,8 +269,18 @@ def import_test_class(tests_pkg: str, framework: str, base_cls: type) -> type | 
     return None
 
 
-def supported_set(cls: type) -> tuple[str | None, set[str] | None]:
-    """Return (method_name, set) for the first supported_* method defined on *cls*."""
+def supported_set(cls: type, extractor: Any = None) -> tuple[str | None, set[str] | None]:
+    """Return (method_name, set) for the support set on *cls*.
+
+    If *extractor* is provided it overrides the default ``supported_*`` lookup
+    (used by frame_aggregate to combine ``supported_frame_types`` and
+    ``supported_time_units`` into compound subtypes).
+    """
+    if extractor is not None:
+        try:
+            return extractor.__name__, set(extractor(cls))
+        except Exception:  # pragma: no cover - defensive
+            return extractor.__name__, None
     for attr in SUPPORT_METHODS:
         method = getattr(cls, attr, None)
         if method is None:
@@ -290,7 +337,7 @@ def collect_operation(op: OperationSpec) -> dict[str, Any]:
         if cls is None:
             per_framework[fw_key] = {"present": False, "subtypes": None, "method": None}
             continue
-        attr, support = supported_set(cls)
+        attr, support = supported_set(cls, op.subtype_extractor)
         per_framework[fw_key] = {"present": True, "subtypes": support, "method": attr}
         if support is not None:
             union_subtypes.update(support)

@@ -118,6 +118,16 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
                     operation="rolling",
                 )
         elif frame_type == "time":
+            # polars rolling_*_by(ts) panics when ``order_by`` contains nulls. Surface
+            # this as an explicit ValueError so users see a clean message instead of a
+            # cryptic panic. See known-divergences.md.
+            null_count = sorted_data.select(pl.col(order_by).is_null().sum()).collect().item()
+            if null_count:
+                raise ValueError(
+                    f"Polars frame aggregate (time frame): order_by column {order_by!r} "
+                    "contains null values, which polars rolling_*_by() does not support. "
+                    "See known-divergences.md."
+                )
             size = int(frame_size) if frame_size is not None else 1
             unit = str(frame_unit or "day")
             # Polars duration strings: 's', 'm', 'h', 'd', 'w', 'mo', 'y'.
