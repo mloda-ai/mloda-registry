@@ -179,11 +179,16 @@ class ScalarArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     def _assert_source_column_is_numeric(data: Any, source_col: str) -> None:
         """Reject non-numeric source columns with a clear ``ValueError``.
 
-        Covers the in-memory backends (PyArrow, Pandas, Polars lazy) where the
-        column dtype is cheap to inspect. SQL relations (DuckDB, SQLite) are
-        left to fail at compute time with their native error, since pulling a
-        dtype from a relation wrapper is not uniformly available; the columnar
-        backends carry the meaningful guard.
+        Covers PyArrow, Polars (lazy), Pandas, DuckDB, and SQLite. Each backend is
+        inspected at its native API: ``collect_schema`` for Polars LazyFrame,
+        ``.column().type`` for PyArrow, ``.dtypes`` for Pandas, ``_relation.types``
+        for DuckDB, and ``PRAGMA table_info`` for SQLite.
+
+        SQLite caveat: ``SqliteRelation.from_arrow`` stores boolean columns with
+        SQLite ``INTEGER`` affinity, so a boolean source column is indistinguishable
+        from ``int64`` after materialization. The columnar backends and DuckDB
+        preserve the boolean type and reject it; SQLite accepts it and performs
+        arithmetic on the 0/1 storage.
 
         Branch order matters: Polars is checked before Pandas because Polars
         LazyFrame also exposes ``.dtypes`` / ``.columns`` (each triggering a
@@ -229,8 +234,78 @@ class ScalarArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
                     )
                 return
 
-        # SQL relations (DuckDB, SQLite): fall through; the native error at
-        # compute time is acceptable per the comment above.
+        # DuckDB: inspect the wrapped relation's declared types directly. Cheap
+        # (~4 microseconds) vs. ``data.to_arrow_table().schema`` which materializes.
+        if type(data).__name__ == "DuckdbRelation":
+            underlying = getattr(data, "_relation", None)
+            if underlying is not None:
+                try:
+                    duckdb_types = [str(t) for t in underlying.types]
+                    duckdb_columns = list(underlying.columns)
+                except Exception:  # pragma: no cover - defensive
+                    return
+                type_by_column = dict(zip(duckdb_columns, duckdb_types))
+                dtype_str = type_by_column.get(source_col)
+                if dtype_str is not None:
+                    numeric_prefixes = (
+                        "TINYINT",
+                        "SMALLINT",
+                        "INTEGER",
+                        "BIGINT",
+                        "HUGEINT",
+                        "UTINYINT",
+                        "USMALLINT",
+                        "UINTEGER",
+                        "UBIGINT",
+                        "UHUGEINT",
+                        "FLOAT",
+                        "DOUBLE",
+                        "REAL",
+                        "DECIMAL",
+                        "NUMERIC",
+                        "BIGNUM",
+                    )
+                    if not any(dtype_str == p or dtype_str.startswith(p + "(") for p in numeric_prefixes):
+                        raise ValueError(
+                            f"Source column {source_col!r} must be numeric for scalar arithmetic; got {dtype_str}."
+                        )
+            return
+
+        # SQLite: inspect ``PRAGMA table_info`` for declared affinity. Cheap
+        # (~15 microseconds) vs. ``to_arrow_table().schema`` which fully
+        # materializes the relation. Caveat: ``SqliteRelation.from_arrow`` maps
+        # arrow booleans to SQLite INTEGER affinity, so a boolean source column
+        # is indistinguishable from int64 at the relation level. The shared test
+        # ``test_boolean_source_column_rejected`` is correspondingly skipped for
+        # SQLite via the ``detects_non_numeric_source`` test-class override.
+        if type(data).__name__ == "SqliteRelation":
+            conn = getattr(data, "connection", None)
+            table_name = getattr(data, "table_name", None)
+            if conn is not None and table_name is not None:
+                # Identifier escape: double internal double-quotes; never user-controlled
+                # since SqliteRelation generates the name itself.
+                safe_table = '"' + str(table_name).replace('"', '""') + '"'
+                try:
+                    rows = conn.execute(f"PRAGMA table_info({safe_table})").fetchall()
+                except Exception:  # pragma: no cover - defensive
+                    return
+                affinity_by_column = {row[1]: (row[2] or "").upper() for row in rows}
+                affinity = affinity_by_column.get(source_col)
+                if affinity is not None:
+                    if (
+                        "INT" in affinity
+                        or "REAL" in affinity
+                        or "FLOA" in affinity
+                        or "DOUB" in affinity
+                        or "NUMERIC" in affinity
+                    ):
+                        return
+                    raise ValueError(
+                        f"Source column {source_col!r} must be numeric for scalar arithmetic; "
+                        f"got SQLite affinity {affinity!r}."
+                    )
+            return
+
         return
 
     @classmethod

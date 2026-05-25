@@ -395,36 +395,3 @@ class TestReservedColumnGuardAllBackends:
             assert "__mloda_" in str(exc_info.value)
         finally:
             conn.close()
-
-
-class TestSourceColumnTypeValidation:
-    """The source column must be numeric; non-numeric sources must be rejected with a clear
-    ``ValueError`` in ``base.calculate_feature`` rather than surfacing the backend's
-    ``ArrowNotImplementedError`` / ``TypeError`` from the compute step.
-    """
-
-    def test_string_source_column_rejected(self) -> None:
-        """``name`` is a string column in the canonical fixture; arithmetic must be rejected.
-
-        The error must name the source column. Using a quoted form (``'name'`` or
-        ``"name"``) keeps the assertion from accidentally matching against the
-        ``name__add_constant`` feature name in the message. Most existing mloda
-        errors quote column names via ``!r`` or ``repr``.
-        """
-        import re
-
-        arrow_table = PyArrowDataOpsTestDataCreator.create()
-        fs = _make_fs("name__add_constant", constant=5)
-        with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
-            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
-        assert re.search(r"['\"]name['\"]", str(exc_info.value)), (
-            f"Expected source column 'name' to be named (quoted) in the error message, got: {exc_info.value!r}"
-        )
-
-    def test_boolean_source_column_rejected(self) -> None:
-        """``is_active`` is a boolean column; arithmetic must be rejected."""
-        arrow_table = PyArrowDataOpsTestDataCreator.create()
-        fs = _make_fs("is_active__add_constant", constant=5)
-        with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
-            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
-        assert "is_active" in str(exc_info.value)

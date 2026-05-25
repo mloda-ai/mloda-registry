@@ -17,3 +17,11 @@ class TestSqliteScalarArithmetic(SqliteTestMixin, ScalarArithmeticTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteScalarArithmetic
+
+    @classmethod
+    def detects_non_numeric_source(cls) -> set[str]:
+        # SqliteRelation.from_arrow stores boolean columns with SQLite INTEGER
+        # affinity (see mloda_plugins ``_arrow_type_to_sqlite``), so a boolean
+        # source column is indistinguishable from int64 at the relation level.
+        # We can still reject TEXT-affinity (string) columns.
+        return {"string"}

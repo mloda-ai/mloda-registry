@@ -237,6 +237,44 @@ class ScalarArithmeticTestBase(DataOpsTestBase):
         with pytest.raises(ValueError, match="at most 1"):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
+    # ---- Source-column dtype contract (shared across backends) ----
+
+    @classmethod
+    def detects_non_numeric_source(cls) -> set[str]:
+        """Types of non-numeric source columns the backend can reject.
+
+        Default is ``{"string", "boolean"}``. Backends override when a dtype
+        cannot be distinguished from numeric at the relation level (e.g.
+        SQLite collapses booleans to INTEGER affinity through ``from_arrow``).
+        """
+        return {"string", "boolean"}
+
+    def test_string_source_column_rejected(self) -> None:
+        """A non-numeric (string) source column must raise ValueError with a clear
+        message naming the column."""
+        if "string" not in self.detects_non_numeric_source():
+            pytest.skip("Backend cannot distinguish string source columns at relation level")
+        import re
+
+        fs = make_feature_set("name__add_constant", constant=5)
+        with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
+            self.implementation_class().calculate_feature(self.test_data, fs)
+        # Quoted form keeps the assertion from accidentally matching against the
+        # ``name__add_constant`` feature name. Most existing mloda errors quote column
+        # names via ``!r`` or ``repr``.
+        assert re.search(r"['\"]name['\"]", str(exc_info.value)), (
+            f"Expected source column 'name' to be named (quoted) in the error message, got: {exc_info.value!r}"
+        )
+
+    def test_boolean_source_column_rejected(self) -> None:
+        """A boolean source column must raise ValueError."""
+        if "boolean" not in self.detects_non_numeric_source():
+            pytest.skip("Backend cannot distinguish boolean source columns at relation level")
+        fs = make_feature_set("is_active__add_constant", constant=5)
+        with pytest.raises(ValueError, match=r"(?i)numeric") as exc_info:
+            self.implementation_class().calculate_feature(self.test_data, fs)
+        assert "is_active" in str(exc_info.value)
+
     # -- Cross-framework comparison -----------------------------------------
 
     def _compare_arithmetic_with_reference(
