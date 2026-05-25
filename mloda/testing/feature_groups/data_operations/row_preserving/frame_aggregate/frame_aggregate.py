@@ -621,6 +621,44 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
         ref_col = _extract_column(ref, feature_name)
         assert result_col == ref_col
 
+    def test_cross_framework_time_window_with_same_ts_peers(self) -> None:
+        """Same-timestamp peers must match the reference (positional / stable-sort order).
+
+        The reference uses ``rows[:pos+1]`` semantics: a peer at the same ts but
+        later physical position is NOT in the current row's window. SQL RANGE
+        windows and ``polars.rolling_*_by`` natively include all peers, which
+        diverges from the reference; backends must compensate. See known-divergences.md.
+        """
+        table = pa.table(
+            {
+                "region": ["A", "A", "A"],
+                "ts": [
+                    datetime(2023, 1, 1, tzinfo=timezone.utc),
+                    datetime(2023, 1, 1, tzinfo=timezone.utc),
+                    datetime(2023, 1, 6, tzinfo=timezone.utc),
+                ],
+                "value": [10, 20, 30],
+            }
+        )
+        data = self.create_test_data(table)
+        feature_name = "value__sum_3_day_window"
+        feature = Feature(
+            feature_name,
+            options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+
+        result = self.implementation_class().calculate_feature(data, fs)
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+
+        result_col = self.extract_column(result, feature_name)
+        ref_col = _extract_column(ref, feature_name)
+        # Reference: row 0 sees only itself (10); row 1 sees both peers (10+20=30);
+        # row 2 sees only itself because 2023-01-06 - 3d = 2023-01-03 > peers' ts.
+        assert ref_col == [10, 30, 30]
+        assert result_col == ref_col
+
     def test_cross_framework_time_window_with_null_cutoff(self) -> None:
         """A row whose order_by is NULL should aggregate to its own source value (reference parity)."""
         if "time" not in self.supported_frame_types():
@@ -654,6 +692,40 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
         assert result_col == ref_col
+
+    def test_time_window_source_equals_order_with_mask_rejected(self) -> None:
+        """source_col == order_by + mask + time frame is rejected at runtime.
+
+        All four backends reject this combo. The reference semantic treats masked
+        rows as having null ``order_by`` (mask writes null into source_col, which
+        is also order_by). None of the native time-window primitives can express
+        this without falling back to a Python loop, so each backend raises a
+        clear ``ValueError`` instead of producing a silently-wrong result. See
+        known-divergences.md.
+        """
+        if "time" not in self.supported_frame_types():
+            pytest.skip("This framework does not support time frames")
+
+        table = pa.table(
+            {
+                "region": ["A"] * 5,
+                "ts": [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
+                "category": ["X", "Y", "X", "X", "Y"],
+            }
+        )
+        data = self.create_test_data(table)
+        # source == order == "ts"; mask on a third column.
+        feature_name = "ts__count_3_day_window"
+        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set as _mfs
+
+        fs = _mfs(
+            feature_name,
+            partition_by=["region"],
+            order_by="ts",
+            mask=("category", "equal", "X"),
+        )
+        with pytest.raises(ValueError, match="source_col == order_by"):
+            self.implementation_class().calculate_feature(data, fs)
 
     def test_cross_framework_time_window_with_mask(self) -> None:
         """A masked time window must match the reference (predicate columns must scope correctly)."""

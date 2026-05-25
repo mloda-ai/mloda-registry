@@ -104,11 +104,18 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 - **How**: `supported_ops()` / `supported_agg_types()` on each SQLite test class restricts the covered set. See `row_preserving/percentile/tests/test_sqlite.py` and `string/tests/test_sqlite.py`.
 - **Related**: Category 1 of issue #146.
 
-### SQLite time-frame uses a correlated subquery (O(N^2) per partition)
+### SQLite and DuckDB time-frame use correlated subqueries (O(N^2) per partition)
 
 - **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type).
 - **Mitigation kind**: Accepted complexity (correctness preserved).
-- **How**: SQLite has no `RANGE BETWEEN INTERVAL`; `sqlite_frame_aggregate.py` issues a correlated subquery `SELECT agg(s.{col}) FROM t s WHERE s.{partition}=t.{partition} AND julianday(s.{ts}) BETWEEN julianday(t.{ts}) - n_days AND julianday(t.{ts})`. `julianday()` preserves sub-second precision; `datetime()` would truncate it.
+- **How**: Both backends issue a correlated subquery `SELECT agg(s.{col}) FROM t s WHERE s.{partition}=t.{partition} AND s.{ts} >= t.{ts} - delta AND (s.{ts} < t.{ts} OR (s.{ts}=t.{ts} AND s.{tiebreak}<=t.{tiebreak}))`. SQLite uses `julianday()` arithmetic (preserves sub-second precision; `datetime()` would truncate) with `rowid` as the peer tiebreaker. DuckDB uses `INTERVAL '{N}' {unit}` arithmetic with `ROW_NUMBER()` as the tiebreaker. The tiebreaker is required to match the PyArrow reference's positional `rows[:pos+1]` semantics on same-ts peers; SQL `RANGE` windows and `BETWEEN` predicates without a tiebreaker include all peers (both earlier and later in physical position).
+- **Related**: parent #183, implementing #202.
+
+### Polars time-frame adds 1ns-per-row offset to break same-ts peer ties
+
+- **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type).
+- **Mitigation kind**: Accepted complexity (correctness preserved).
+- **How**: Polars `rolling_*_by` with `closed="both"` is value-based and includes every row whose `by` value equals the current row's value, even peers that come later in physical position. The PyArrow reference uses `rows[:pos+1]` after a stable sort, excluding later peers. `polars_lazy_frame_aggregate.py` casts the `order_by` column to `datetime[ns]` and adds `pl.duration(nanoseconds=row_index)` into a temporary `__mloda_synth_ts__` column, then runs `rolling_*_by` on the synthetic column. The window string is extended by `{N}ns` (where N is total row count) so a peer at the exact lower bound is not lost to the offset. The synthetic column is dropped before returning. See `polars_lazy_frame_aggregate.py`.
 - **Related**: parent #183, implementing #202.
 
 ### SQLite + Pandas reject month/year time windows
@@ -118,11 +125,11 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 - **How**: SQLite's native `datetime(ts, '-N months')` uses day-of-month rollover (Mar 31 -1mo = Mar 3), diverging from `dateutil.relativedelta` (= Feb 28) used by the PyArrow reference. Pandas `.rolling(window="...", on=ts)` only accepts fixed-frequency offsets and has no native calendar-anchored option. Rather than fall back to a Python loop (which would defeat the point of running inside the engine), both `SqliteFrameAggregate.SUPPORTED_TIME_UNITS` and `PandasFrameAggregate.SUPPORTED_TIME_UNITS` exclude `month`/`year`, so features like `value__sum_1_month_window` are rejected at `match_feature_group_criteria` time. Both support `second`/`minute`/`hour`/`day`/`week`. Polars and DuckDB express month/year natively and remain ✓ for those units.
 - **Related**: parent #183, implementing #202.
 
-### Pandas rejects mask + `source_col == order_by` in time frames
+### All backends reject mask + `source_col == order_by` in time frames
 
 - **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type, with `source_col == order_by` and a mask present).
 - **Mitigation kind**: Excluded shape.
-- **How**: The PyArrow reference applies the mask to `source_col` before computing the window. When `source_col == order_by`, mask-write clobbers the order column with null, and the reference's `current_order is None` branch returns just `[self]`. Pandas' native `rolling(on=ts)` cannot simulate this without a Python loop (which would defeat the point of running inside pandas), so `PandasFrameAggregate._compute_frame` raises a `ValueError` when this combo is detected at runtime. Non-time frames continue to work via a separate temp column for the masked source.
+- **How**: The PyArrow reference applies the mask to `source_col` before computing the window. When `source_col == order_by`, mask-write clobbers the order column with null, and the reference's `current_order is None` branch returns just `[self]`. None of the native time-window primitives can simulate this: pandas `rolling(on=ts)` cannot; polars `rolling_*_by` uses the unmasked `order_by` for window bounds even when the masked source is a temp column; the DuckDB and SQLite correlated subqueries wrap only the aggregate expression in `CASE WHEN ... THEN source END`, leaving the bounds operating on the unmasked column. Each backend raises a `ValueError` when this combo is detected at runtime instead of silently producing a wrong result. Non-time frames continue to work via a separate temp column for the masked source.
 - **Related**: parent #183, implementing #202.
 
 ### Pandas / Polars-lazy native time-rolling rejects null `order_by`

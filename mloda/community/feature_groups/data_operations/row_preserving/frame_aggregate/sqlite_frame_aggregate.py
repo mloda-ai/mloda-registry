@@ -79,6 +79,19 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         order_clause = f"{null_sort}, {quoted_order}"
 
         if frame_type == "time":
+            # Mask + source_col == order_by: the reference treats masked rows as having
+            # null order_by (mask writes null into source_col, which is also order_by).
+            # The SQLite correlated subquery uses the unmasked order_by for window bounds
+            # even when ``CASE WHEN ... THEN source END`` wraps the aggregate expression,
+            # so this combo cannot be expressed natively. Reject to match pandas.
+            # See known-divergences.md.
+            if mask_spec is not None and source_col == order_by:
+                raise ValueError(
+                    "SQLite frame aggregate (time frame): mask + source_col == order_by "
+                    f"({source_col!r}) is unsupported. The reference semantic requires "
+                    "treating masked rows as having null order_by, which the correlated "
+                    "subquery cannot express natively. See known-divergences.md."
+                )
             return cls._compute_time_frame(
                 data=data,
                 feature_name=feature_name,
@@ -185,11 +198,19 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         # computed in Python from sanitized integer/unit values, embedded as a
         # numeric literal.
         #
+        # Peer handling: the PyArrow reference uses ``rows[:pos+1]`` after a stable
+        # sort by order_by, so peers at the same order_by but later physical position
+        # are excluded from the current row's window. SQL ``BETWEEN`` would include
+        # all same-ts peers (both earlier and later), so the upper bound is split into
+        # ``s.ts < t.ts`` plus an explicit rowid tiebreaker for the equal case. ``rowid``
+        # is the stable insertion order in SQLite, matching the reference's stable-sort
+        # tie-break behaviour.
+        #
         # When the outer row's order_by is NULL, ``julianday(NULL)`` is NULL and the
-        # BETWEEN short-circuits to NULL, which would leave the row with a NULL aggregate.
-        # The PyArrow reference returns the source value of just the current row in that
-        # case (see reference.py:115-116). The OR branch below matches the self-row only
-        # when ``t.{order_by}`` is NULL, restoring reference parity.
+        # comparison short-circuits to NULL, which would leave the row with a NULL
+        # aggregate. The PyArrow reference returns the source value of just the current
+        # row in that case (see reference.py:115-116). The OR branch matches the
+        # self-row only when ``t.{order_by}`` is NULL, restoring reference parity.
         sql = " ".join(  # nosec
             [
                 "SELECT",
@@ -199,8 +220,9 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
                 f"WHERE {partition_eq}",
                 "AND (",
                 f"(t.{quoted_order} IS NOT NULL AND s.{quoted_order} IS NOT NULL",
-                f"AND julianday(s.{quoted_order}) BETWEEN julianday(t.{quoted_order}) - {n_days}",
-                f"AND julianday(t.{quoted_order}))",
+                f"AND julianday(s.{quoted_order}) >= julianday(t.{quoted_order}) - {n_days}",
+                f"AND (julianday(s.{quoted_order}) < julianday(t.{quoted_order})",
+                f"OR (julianday(s.{quoted_order}) = julianday(t.{quoted_order}) AND s.rowid <= t.rowid)))",
                 f"OR (t.{quoted_order} IS NULL AND s.rowid = t.rowid)",
                 ")",
                 f") AS {quoted_feature},",

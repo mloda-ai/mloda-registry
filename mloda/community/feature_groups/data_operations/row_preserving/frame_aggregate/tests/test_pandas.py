@@ -5,16 +5,13 @@ Uses the unified FrameAggregateTestBase.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
-import pyarrow as pa
 import pytest
 
 pytest.importorskip("pandas")
 
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
     FrameAggregateTestBase,
@@ -60,7 +57,10 @@ class TestPandasFrameAggregate(PandasTestMixin, FrameAggregateTestBase):
 
     def test_pandas_dep_pinned_to_22_for_lowercase_freq_codes(self) -> None:
         """_FIXED_FREQ_CODES uses lowercase 's','min','h' which require pandas>=2.2."""
-        import tomllib
+        try:
+            import tomllib  # py311+
+        except ModuleNotFoundError:
+            import tomli as tomllib  # type: ignore[no-redef]
         from pathlib import Path
 
         repo_root = Path(__file__).resolve()
@@ -74,30 +74,3 @@ class TestPandasFrameAggregate(PandasTestMixin, FrameAggregateTestBase):
         assert any(">=2.2" in d or ">=2.3" in d for d in pandas_deps), (
             f"frame-aggregate pandas dep should pin >=2.2 for lowercase freq codes; got {pandas_deps}"
         )
-
-    def test_pandas_time_window_source_equals_order_with_mask_rejected(self) -> None:
-        """source_col == order_by + mask + time frame is rejected at runtime.
-
-        The reference semantic treats masked rows as having null ``order_by`` (because
-        mask writes null into source_col, which is also order_by). Pandas' native
-        ``rolling(on=ts)`` cannot simulate this without a Python loop, so the
-        implementation refuses the combo with a clear ValueError.
-        """
-        table = pa.table(
-            {
-                "region": ["A"] * 5,
-                "ts": [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
-                "category": ["X", "Y", "X", "X", "Y"],
-            }
-        )
-        data = self.create_test_data(table)
-        # source == order == "ts"; mask on a third column.
-        feature_name = "ts__count_3_day_window"
-        fs = make_feature_set(
-            feature_name,
-            partition_by=["region"],
-            order_by="ts",
-            mask=("category", "equal", "X"),
-        )
-        with pytest.raises(ValueError, match="source_col == order_by"):
-            self.implementation_class().calculate_feature(data, fs)
