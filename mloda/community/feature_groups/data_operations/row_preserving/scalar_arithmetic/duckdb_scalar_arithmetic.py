@@ -21,11 +21,51 @@ DUCKDB_ARITHMETIC_OPS: dict[str, str] = {
     "divide": "/",
 }
 
+# DuckDB type names that count as numeric for scalar arithmetic.
+# Parameterized variants (DECIMAL(p, s)) are matched via ``startswith(p + "(")``.
+_DUCKDB_NUMERIC_PREFIXES: tuple[str, ...] = (
+    "TINYINT",
+    "SMALLINT",
+    "INTEGER",
+    "BIGINT",
+    "HUGEINT",
+    "UTINYINT",
+    "USMALLINT",
+    "UINTEGER",
+    "UBIGINT",
+    "UHUGEINT",
+    "FLOAT",
+    "DOUBLE",
+    "REAL",
+    "DECIMAL",
+    "NUMERIC",
+    "BIGNUM",
+)
+
 
 class DuckdbScalarArithmetic(ScalarArithmeticFeatureGroup):
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {DuckDBFramework}
+
+    @classmethod
+    def _input_columns_and_framework(cls, data: DuckdbRelation) -> tuple[list[str], str]:
+        return list(data.columns), "DuckDB"
+
+    @classmethod
+    def _assert_source_column_is_numeric(cls, data: DuckdbRelation, source_col: str) -> None:
+        # ``DuckdbRelation`` wraps a ``DuckDBPyRelation`` exposing aligned
+        # ``.columns`` and ``.types`` (~4 microseconds; cheaper than
+        # ``data.to_arrow_table().schema`` which materializes the relation).
+        # Tests sometimes pass a raw ``DuckDBPyRelation`` directly; fall back
+        # to ``data`` itself in that case since it exposes the same accessors.
+        underlying: Any = getattr(data, "_relation", data)
+        type_by_column = dict(zip(list(underlying.columns), [str(t) for t in underlying.types]))
+        dtype_str = type_by_column.get(source_col)
+        if dtype_str is None:
+            return
+        if not any(dtype_str == p or dtype_str.startswith(p + "(") for p in _DUCKDB_NUMERIC_PREFIXES):
+            cls._raise_non_numeric_source(source_col, dtype_str)
 
     @classmethod
     def _compute_arithmetic(

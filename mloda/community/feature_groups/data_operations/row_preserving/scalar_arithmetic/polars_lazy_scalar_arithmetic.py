@@ -20,6 +20,16 @@ class PolarsLazyScalarArithmetic(ScalarArithmeticFeatureGroup):
         return {PolarsLazyDataFrame}
 
     @classmethod
+    def _input_columns_and_framework(cls, data: pl.LazyFrame) -> tuple[list[str], str]:
+        return list(data.collect_schema().names()), "Polars"
+
+    @classmethod
+    def _assert_source_column_is_numeric(cls, data: pl.LazyFrame, source_col: str) -> None:
+        dtype = data.collect_schema()[source_col]
+        if dtype == pl.Boolean or not dtype.is_numeric():
+            cls._raise_non_numeric_source(source_col, dtype)
+
+    @classmethod
     def _compute_arithmetic(
         cls,
         data: pl.LazyFrame,

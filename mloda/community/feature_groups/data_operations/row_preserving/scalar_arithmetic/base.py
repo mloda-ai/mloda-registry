@@ -129,184 +129,34 @@ class ScalarArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return source_names
 
     @staticmethod
-    def _input_columns_and_framework(data: Any) -> tuple[list[str], str]:
-        """Return ``(column_names, framework_label)`` polymorphically across backends.
+    def _raise_non_numeric_source(source_col: str, got: object) -> None:
+        """Shared error format for the numeric-source contract.
 
-        Probes in this order so each branch lands on its native accessor:
-
-        - ``data.column_names`` (a ``list``) for PyArrow tables.
-        - ``data.collect_schema().names()`` for Polars lazy frames.
-        - ``data.columns`` for Pandas DataFrames (an ``Index``) and the
-          DuckDB / SQLite relation wrappers (each exposes ``list[str]``).
-
-        Keeping the probe local avoids importing the optional backends
-        (``pyarrow``, ``polars``, ``pandas``, ``duckdb``) into this base
-        module, which would tie the package to dependencies it does not need.
-        The framework label is best-effort: for SQL relation wrappers it
-        falls back to ``"SQL"`` since DuckDB and SQLite share the same
-        ``columns: list[str]`` shape.
+        Backend overrides of ``_assert_source_column_is_numeric`` call this
+        helper so the message stays uniform across all backends. ``got`` is
+        inlined verbatim, allowing backends to pass a native dtype, an
+        affinity string, or any other descriptor.
         """
-        column_names = getattr(data, "column_names", None)
-        if isinstance(column_names, list):
-            return column_names, "PyArrow"
+        raise ValueError(f"Source column {source_col!r} must be numeric for scalar arithmetic; got {got}.")
 
-        collect_schema = getattr(data, "collect_schema", None)
-        if callable(collect_schema):
-            return list(collect_schema().names()), "Polars"
+    @classmethod
+    def _input_columns_and_framework(cls, data: Any) -> tuple[list[str], str]:
+        """Return ``(column_names, framework_label)`` for ``data``.
 
-        columns = getattr(data, "columns", None)
-        if columns is not None:
-            try:
-                import pandas as pd
+        Backend-specific; implemented per backend so the base class has no
+        compile-time or import-time dependency on any compute framework.
+        """
+        raise NotImplementedError
 
-                if isinstance(data, pd.DataFrame):
-                    return list(columns), "Pandas"
-            except ImportError:  # pragma: no cover - defensive
-                pass
-            type_name = type(data).__name__
-            if type_name == "DuckdbRelation":
-                return list(columns), "DuckDB"
-            if type_name == "SqliteRelation":
-                return list(columns), "SQLite"
-            return list(columns), "SQL"
-
-        raise TypeError(
-            f"Cannot determine column names for object of type {type(data).__name__}; "
-            "scalar arithmetic supports PyArrow, Polars (lazy), Pandas, DuckDB, and SQLite inputs."
-        )
-
-    @staticmethod
-    def _assert_source_column_is_numeric(data: Any, source_col: str) -> None:
+    @classmethod
+    def _assert_source_column_is_numeric(cls, data: Any, source_col: str) -> None:
         """Reject non-numeric source columns with a clear ``ValueError``.
 
-        Covers PyArrow, Polars (lazy), Pandas, DuckDB, and SQLite. Each backend is
-        inspected at its native API: ``collect_schema`` for Polars LazyFrame,
-        ``.column().type`` for PyArrow, ``.dtypes`` for Pandas, ``_relation.types``
-        for DuckDB, and ``PRAGMA table_info`` for SQLite.
-
-        SQLite caveat: ``SqliteRelation.from_arrow`` stores boolean columns with
-        SQLite ``INTEGER`` affinity, so a boolean source column is indistinguishable
-        from ``int64`` after materialization. The columnar backends and DuckDB
-        preserve the boolean type and reject it; SQLite accepts it and performs
-        arithmetic on the 0/1 storage.
-
-        Branch order matters: Polars is checked before Pandas because Polars
-        LazyFrame also exposes ``.dtypes`` / ``.columns`` (each triggering a
-        ``PerformanceWarning`` about schema resolution).
+        Backend-specific; implemented per backend. Implementations should
+        call ``cls._raise_non_numeric_source(source_col, <native dtype>)`` to
+        keep the message format uniform.
         """
-        # Polars LazyFrame: schema via ``collect_schema``.
-        if callable(getattr(data, "collect_schema", None)):
-            try:
-                import polars as pl
-            except ImportError:  # pragma: no cover - defensive
-                return
-            dtype = data.collect_schema()[source_col]
-            if dtype == pl.Boolean or not dtype.is_numeric():
-                raise ValueError(f"Source column {source_col!r} must be numeric for scalar arithmetic; got {dtype}.")
-            return
-
-        # PyArrow Table: detect via ``column_names`` (a ``list``) plus ``column`` accessor.
-        if isinstance(getattr(data, "column_names", None), list) and callable(getattr(data, "column", None)):
-            try:
-                import pyarrow as pa
-            except ImportError:  # pragma: no cover - defensive
-                return
-            arrow_type = data.column(source_col).type
-            if pa.types.is_boolean(arrow_type) or not (
-                pa.types.is_integer(arrow_type) or pa.types.is_floating(arrow_type)
-            ):
-                raise ValueError(
-                    f"Source column {source_col!r} must be numeric for scalar arithmetic; got {arrow_type}."
-                )
-            return
-
-        # Pandas DataFrame: detect via ``dtypes`` plus ``columns``.
-        if hasattr(data, "dtypes") and hasattr(data, "columns"):
-            try:
-                import pandas as pd
-            except ImportError:  # pragma: no cover - defensive
-                return
-            if isinstance(data, pd.DataFrame):
-                series = data[source_col]
-                if pd.api.types.is_bool_dtype(series) or not pd.api.types.is_numeric_dtype(series):
-                    raise ValueError(
-                        f"Source column {source_col!r} must be numeric for scalar arithmetic; got {series.dtype}."
-                    )
-                return
-
-        # DuckDB: inspect the wrapped relation's declared types directly. Cheap
-        # (~4 microseconds) vs. ``data.to_arrow_table().schema`` which materializes.
-        if type(data).__name__ == "DuckdbRelation":
-            underlying = getattr(data, "_relation", None)
-            if underlying is not None:
-                try:
-                    duckdb_types = [str(t) for t in underlying.types]
-                    duckdb_columns = list(underlying.columns)
-                except Exception:  # pragma: no cover - defensive
-                    return
-                type_by_column = dict(zip(duckdb_columns, duckdb_types))
-                dtype_str = type_by_column.get(source_col)
-                if dtype_str is not None:
-                    numeric_prefixes = (
-                        "TINYINT",
-                        "SMALLINT",
-                        "INTEGER",
-                        "BIGINT",
-                        "HUGEINT",
-                        "UTINYINT",
-                        "USMALLINT",
-                        "UINTEGER",
-                        "UBIGINT",
-                        "UHUGEINT",
-                        "FLOAT",
-                        "DOUBLE",
-                        "REAL",
-                        "DECIMAL",
-                        "NUMERIC",
-                        "BIGNUM",
-                    )
-                    if not any(dtype_str == p or dtype_str.startswith(p + "(") for p in numeric_prefixes):
-                        raise ValueError(
-                            f"Source column {source_col!r} must be numeric for scalar arithmetic; got {dtype_str}."
-                        )
-            return
-
-        # SQLite: inspect ``PRAGMA table_info`` for declared affinity. Cheap
-        # (~15 microseconds) vs. ``to_arrow_table().schema`` which fully
-        # materializes the relation. Caveat: ``SqliteRelation.from_arrow`` maps
-        # arrow booleans to SQLite INTEGER affinity, so a boolean source column
-        # is indistinguishable from int64 at the relation level. The shared test
-        # ``test_boolean_source_column_rejected`` is correspondingly skipped for
-        # SQLite via the ``detects_non_numeric_source`` test-class override.
-        if type(data).__name__ == "SqliteRelation":
-            conn = getattr(data, "connection", None)
-            table_name = getattr(data, "table_name", None)
-            if conn is not None and table_name is not None:
-                # Identifier escape: double internal double-quotes; never user-controlled
-                # since SqliteRelation generates the name itself.
-                safe_table = '"' + str(table_name).replace('"', '""') + '"'
-                try:
-                    rows = conn.execute(f"PRAGMA table_info({safe_table})").fetchall()
-                except Exception:  # pragma: no cover - defensive
-                    return
-                affinity_by_column = {row[1]: (row[2] or "").upper() for row in rows}
-                affinity = affinity_by_column.get(source_col)
-                if affinity is not None:
-                    if (
-                        "INT" in affinity
-                        or "REAL" in affinity
-                        or "FLOA" in affinity
-                        or "DOUB" in affinity
-                        or "NUMERIC" in affinity
-                    ):
-                        return
-                    raise ValueError(
-                        f"Source column {source_col!r} must be numeric for scalar arithmetic; "
-                        f"got SQLite affinity {affinity!r}."
-                    )
-            return
-
-        return
+        raise NotImplementedError
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

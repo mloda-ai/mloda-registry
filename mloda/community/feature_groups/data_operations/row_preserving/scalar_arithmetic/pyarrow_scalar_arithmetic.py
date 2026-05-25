@@ -21,6 +21,16 @@ class PyArrowScalarArithmetic(ScalarArithmeticFeatureGroup):
         return {PyArrowTable}
 
     @classmethod
+    def _input_columns_and_framework(cls, data: pa.Table) -> tuple[list[str], str]:
+        return list(data.column_names), "PyArrow"
+
+    @classmethod
+    def _assert_source_column_is_numeric(cls, data: pa.Table, source_col: str) -> None:
+        arrow_type = data.column(source_col).type
+        if pa.types.is_boolean(arrow_type) or not (pa.types.is_integer(arrow_type) or pa.types.is_floating(arrow_type)):
+            cls._raise_non_numeric_source(source_col, arrow_type)
+
+    @classmethod
     def _compute_arithmetic(
         cls,
         data: pa.Table,

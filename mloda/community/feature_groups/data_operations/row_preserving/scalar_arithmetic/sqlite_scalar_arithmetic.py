@@ -26,6 +26,30 @@ class SqliteScalarArithmetic(ScalarArithmeticFeatureGroup):
         return {SqliteFramework}
 
     @classmethod
+    def _input_columns_and_framework(cls, data: SqliteRelation) -> tuple[list[str], str]:
+        return list(data.columns), "SQLite"
+
+    @classmethod
+    def _assert_source_column_is_numeric(cls, data: SqliteRelation, source_col: str) -> None:
+        """Reject non-numeric source columns via ``PRAGMA table_info`` declared affinity.
+
+        Caveat: ``SqliteRelation.from_arrow`` maps arrow booleans to SQLite
+        ``INTEGER`` affinity (see ``mloda_plugins`` ``_arrow_type_to_sqlite``),
+        so a boolean source column is indistinguishable from ``int64`` at the
+        relation level. The shared test ``test_boolean_source_column_rejected``
+        is correspondingly skipped for SQLite via the
+        ``detects_non_numeric_source`` test-class override.
+        """
+        rows = data.connection.execute(f"PRAGMA table_info({quote_ident(data.table_name)})").fetchall()
+        affinity_by_column = {row[1]: (row[2] or "").upper() for row in rows}
+        affinity = affinity_by_column.get(source_col)
+        if affinity is None:
+            return
+        if "INT" in affinity or "REAL" in affinity or "FLOA" in affinity or "DOUB" in affinity or "NUMERIC" in affinity:
+            return
+        cls._raise_non_numeric_source(source_col, f"SQLite affinity {affinity!r}")
+
+    @classmethod
     def _compute_arithmetic(
         cls,
         data: SqliteRelation,

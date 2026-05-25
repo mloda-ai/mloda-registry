@@ -20,6 +20,16 @@ class PandasScalarArithmetic(ScalarArithmeticFeatureGroup):
         return {PandasDataFrame}
 
     @classmethod
+    def _input_columns_and_framework(cls, data: pd.DataFrame) -> tuple[list[str], str]:
+        return list(data.columns), "Pandas"
+
+    @classmethod
+    def _assert_source_column_is_numeric(cls, data: pd.DataFrame, source_col: str) -> None:
+        series = data[source_col]
+        if pd.api.types.is_bool_dtype(series) or not pd.api.types.is_numeric_dtype(series):
+            cls._raise_non_numeric_source(source_col, series.dtype)
+
+    @classmethod
     def _compute_arithmetic(
         cls,
         data: pd.DataFrame,
