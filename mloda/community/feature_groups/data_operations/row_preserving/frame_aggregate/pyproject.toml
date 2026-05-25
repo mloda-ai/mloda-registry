@@ -19,8 +19,8 @@ dev = ["mloda-testing", "pytest>=9.0.3"]
 sqlite = []
 duckdb = ["duckdb"]
 polars = ["polars"]
-pandas = ["pandas"]
-all = ["polars", "pandas", "duckdb"]
+pandas = ["pandas>=2.2"]
+all = ["polars", "pandas>=2.2", "duckdb"]
 
 [project.urls]
 Homepage = "https://mloda.ai"

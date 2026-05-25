@@ -106,7 +106,7 @@ optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"
 description = "Frame aggregate feature group (rolling, cumulative, expanding, time window, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate"
-optional_dependencies = { sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["polars", "pandas", "duckdb"] }
+optional_dependencies = { sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas>=2.2"], all = ["polars", "pandas>=2.2", "duckdb"] }
 
 [packages.mloda-community-scalar-aggregate]
 description = "Scalar aggregate feature group (single-column global aggregate broadcast)"

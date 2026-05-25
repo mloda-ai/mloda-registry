@@ -88,9 +88,20 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         # order uses original (unmasked) values to match this behavior.
         # This matters when order_by == source_col.
         # Safe to mutate: data was already copied above (data = data.copy()).
+        #
+        # Collision case: when source_col == order_by and the mask is applied,
+        # the mask writes null into source_col (= order_by). For the time-based
+        # frame_type the reference treats those rows as having null order, and
+        # ``current_order is None`` in ``_compute_calendar_time`` triggers the
+        # ``[source_vals[k]]`` (= [None]) branch, matching reference semantics.
+        # Force the Python calendar-time path in that case because pandas
+        # ``rolling(on=order_by)`` rejects NaT in the on-column.
+        force_calendar_time = False
         if mask_spec is not None:
             mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
             data[source_col] = data[source_col].where(mask)
+            if source_col == order_by and frame_type == "time":
+                force_calendar_time = True
 
         grouped = null_safe_groupby(data, partition_by, source_col)
 
@@ -106,7 +117,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         elif frame_type == "time":
             size = int(frame_size) if frame_size is not None else 1
             unit = str(frame_unit or "day")
-            if unit in cls._FIXED_FREQ_CODES:
+            if unit in cls._FIXED_FREQ_CODES and not force_calendar_time:
                 data[feature_name] = cls._compute_fixed_freq_time(
                     data, source_col, partition_by, order_by, agg_type, size, unit, min_periods
                 )
@@ -193,20 +204,30 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         size: int,
         unit: str,
     ) -> pd.Series:
-        """Calendar-anchored time window for month/year units.
+        """Calendar-anchored time window.
 
-        Pandas .rolling does not accept non-fixed offsets; iterate per
-        partition and compute each window via ``relativedelta`` so months
-        and years respect calendar boundaries.
+        Used for month/year units (where pandas .rolling does not accept
+        non-fixed offsets) and as a fallback whenever the order_by column may
+        contain NaT (e.g. when source_col == order_by and a mask sets some
+        rows to null). Calendar units (month/year) use ``relativedelta``;
+        all other units use ``timedelta``.
         """
+        from datetime import timedelta
+
         from dateutil.relativedelta import relativedelta
 
         from mloda.community.feature_groups.data_operations.aggregate_helpers import aggregate
 
-        if unit == "month":
-            delta = relativedelta(months=size)
-        else:
-            delta = relativedelta(years=size)
+        unit_map: dict[str, Any] = {
+            "second": timedelta(seconds=size),
+            "minute": timedelta(minutes=size),
+            "hour": timedelta(hours=size),
+            "day": timedelta(days=size),
+            "week": timedelta(weeks=size),
+            "month": relativedelta(months=size),
+            "year": relativedelta(years=size),
+        }
+        delta = unit_map.get(unit, timedelta(days=size))
 
         by: str | list[str] = partition_by[0] if len(partition_by) == 1 else partition_by
         # Build a positional list aligned with ``data.index`` and construct the Series
@@ -214,10 +235,14 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         # aggs, int for count via ``coerce_count_dtype``). Initialising
         # ``pd.Series(..., dtype=object)`` and assigning row-by-row would pin object
         # dtype, even when every value happens to be numeric.
+        #
+        # Use an explicit positional column (``__mloda_pos__``) rather than a
+        # ``{label: position}`` dict so duplicate index labels (e.g. from
+        # ``pd.concat``) do not collapse and overwrite each other.
         result_values: list[Any] = [None] * len(data)
-        positions = {idx: pos for pos, idx in enumerate(data.index)}
+        data_with_pos = data.assign(__mloda_pos__=range(len(data)))
 
-        for _, group in data.groupby(by, dropna=False, sort=False):
+        for _, group in data_with_pos.groupby(by, dropna=False, sort=False):
             sorted_group = group.sort_values(
                 by=order_by,
                 na_position="last",
@@ -225,15 +250,15 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
             )
             order_vals = sorted_group[order_by].tolist()
             source_vals = [None if pd.isna(v) else v for v in sorted_group[source_col].tolist()]
-            indices = sorted_group.index.tolist()
-            for pos, idx in enumerate(indices):
-                current = order_vals[pos]
+            pos_vals = sorted_group["__mloda_pos__"].tolist()
+            for k, pos in enumerate(pos_vals):
+                current = order_vals[k]
                 if pd.isna(current):
-                    window = [source_vals[pos]]
+                    window = [source_vals[k]]
                 else:
                     cutoff = current - delta
                     window = [
-                        source_vals[i] for i in range(pos + 1) if not pd.isna(order_vals[i]) and order_vals[i] >= cutoff
+                        source_vals[i] for i in range(k + 1) if not pd.isna(order_vals[i]) and order_vals[i] >= cutoff
                     ]
-                result_values[positions[idx]] = aggregate(window, agg_type)
+                result_values[pos] = aggregate(window, agg_type)
         return pd.Series(result_values, index=data.index)
