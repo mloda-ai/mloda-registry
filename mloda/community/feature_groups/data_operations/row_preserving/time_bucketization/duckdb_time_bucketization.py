@@ -95,7 +95,10 @@ class DuckdbTimeBucketization(TimeBucketizationFeatureGroup):
         type_by_column = dict(zip(list(underlying.columns), [str(t) for t in underlying.types]))
         dtype_str = type_by_column.get(source_col)
         if dtype_str is None:
-            return
+            raise ValueError(
+                f"Source column {source_col!r} is not present in the DuckDB relation; "
+                f"available: {list(type_by_column)}."
+            )
         upper = dtype_str.upper()
         if not any(upper == p or upper.startswith(p) for p in _DUCKDB_TIMESTAMP_PREFIXES):
             cls._raise_non_timestamp_source(source_col, dtype_str)

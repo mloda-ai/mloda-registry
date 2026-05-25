@@ -52,7 +52,13 @@ class PolarsLazyTimeBucketization(TimeBucketizationFeatureGroup):
 
     @classmethod
     def _assert_source_column_is_timestamp(cls, data: pl.LazyFrame, source_col: str) -> None:
-        dtype = data.collect_schema()[source_col]
+        schema = data.collect_schema()
+        if source_col not in schema:
+            raise ValueError(
+                f"Source column {source_col!r} is not present in the Polars LazyFrame; "
+                f"available: {list(schema)}."
+            )
+        dtype = schema[source_col]
         if not (dtype == pl.Datetime or (hasattr(dtype, "base_type") and dtype.base_type() == pl.Datetime)):
             cls._raise_non_timestamp_source(source_col, dtype)
 

@@ -538,6 +538,28 @@ class TimeBucketizationTestBase(DataOpsTestBase):
             f"Expected source column 'name' to be named in the error, got: {exc_info.value!r}"
         )
 
+    def test_missing_source_column_raises_value_error(self) -> None:
+        """All backends must raise ValueError (not KeyError or silent SQL error) when source col is absent.
+
+        Today the behaviour diverges by backend:
+        - DuckDB / SQLite: ``_assert_source_column_is_timestamp`` looks up a
+          dtype map keyed on the column name; the missing key gives ``None``
+          which fails the timestamp check silently (returns early), letting
+          downstream SQL raise an opaque engine error.
+        - Polars: ``data.collect_schema()[source_col]`` raises ``KeyError``.
+        - Pandas: ``data[source_col]`` raises ``KeyError``.
+        - PyArrow: ``data.column(source_col)`` raises ``KeyError`` /
+          ``ArrowKeyError``.
+
+        We want every backend to raise a clear ``ValueError`` naming the
+        missing column.
+        """
+        other_table = pa.table({"not_timestamp": pa.array([1, 2, 3], type=pa.int64())})
+        data = self.create_test_data(other_table)
+        fs = make_feature_set("timestamp__floor_1_day")
+        with pytest.raises(ValueError, match=r"(?i)timestamp|missing|column"):
+            self.implementation_class().calculate_feature(data, fs)
+
     def test_multi_column_in_features_rejected_at_calculate(self) -> None:
         """calculate_feature must reject features with multiple in_features."""
         feature = Feature(

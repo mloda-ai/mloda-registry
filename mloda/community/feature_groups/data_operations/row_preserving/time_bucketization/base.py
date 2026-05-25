@@ -225,6 +225,12 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         in_features_set = feature.options.get_in_features()
         source_names: list[str] = [str(f.name) for f in in_features_set]
 
+        if len(source_names) < cls.MIN_IN_FEATURES:
+            raise ValueError(
+                f"Time bucketization requires at least {cls.MIN_IN_FEATURES} source feature, "
+                f"but got {len(source_names)} (in_features is empty)."
+            )
+
         if len(source_names) > cls.MAX_IN_FEATURES:
             raise ValueError(
                 f"Time bucketization supports at most {cls.MAX_IN_FEATURES} source feature, "
