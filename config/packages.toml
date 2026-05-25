@@ -76,7 +76,7 @@ path = "mloda/enterprise/extenders/example"
 description = "Shared base classes for data operation feature groups"
 dependencies = ["mloda>=0.7.0"]
 path = "mloda/community/feature_groups/data_operations"
-optional_dependencies = { all = ["mloda-community-window-aggregation", "mloda-community-aggregation", "mloda-community-rank", "mloda-community-offset", "mloda-community-frame-aggregate", "mloda-community-scalar-aggregate", "mloda-community-scalar-arithmetic", "mloda-community-point-arithmetic", "mloda-community-datetime", "mloda-community-string", "mloda-community-binning", "mloda-community-percentile"] }
+optional_dependencies = { all = ["mloda-community-window-aggregation", "mloda-community-aggregation", "mloda-community-rank", "mloda-community-offset", "mloda-community-frame-aggregate", "mloda-community-scalar-aggregate", "mloda-community-scalar-arithmetic", "mloda-community-point-arithmetic", "mloda-community-datetime", "mloda-community-string", "mloda-community-binning", "mloda-community-percentile", "mloda-community-time-bucketization"] }
 
 [packages.mloda-community-aggregation]
 description = "Aggregation feature group (reduce, partition_by, one row per group)"
@@ -147,3 +147,9 @@ description = "Percentile feature group (PERCENTILE_CONT, partition_by, row-pres
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/percentile"
 optional_dependencies = { duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["polars", "pandas", "duckdb"] }
+
+[packages.mloda-community-time-bucketization]
+description = "Time bucketization feature group (floor, ceil, round a timestamp to a bucket interval, row-preserving)"
+dependencies = ["mloda-community-data-operations>=0.2.12"]
+path = "mloda/community/feature_groups/data_operations/row_preserving/time_bucketization"
+optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }

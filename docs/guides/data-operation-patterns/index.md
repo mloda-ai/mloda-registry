@@ -18,5 +18,6 @@ Read them after you are comfortable with the [feature-group patterns](../feature
 8. [Scalar aggregate, frame aggregate, scalar arithmetic, and point arithmetic](08-scalar-and-frame-aggregate.md) - Global broadcast, rolling/expanding windows, element-wise column-vs-constant arithmetic, and element-wise column-vs-column arithmetic
 9. [String operations](09-string-operations.md) - Element-wise string transforms
 10. [Adding a new data operation](10-adding-new-operation.md) - End-to-end recipe
-11. [Known divergences](known-divergences.md) - Audited cases where a framework would diverge from the PyArrow reference, with the mitigation for each
-12. [Framework support matrix](framework-support-matrix.md) - Operation x framework capability table, generated from `supported_*()` test overrides
+11. [Time bucketization](11-time-bucketization.md) - `floor` / `ceil` / `round` a timestamp to a bucket interval (minute / hour / day / week / month / year)
+12. [Known divergences](known-divergences.md) - Audited cases where a framework would diverge from the PyArrow reference, with the mitigation for each
+13. [Framework support matrix](framework-support-matrix.md) - Operation x framework capability table, generated from `supported_*()` test overrides
