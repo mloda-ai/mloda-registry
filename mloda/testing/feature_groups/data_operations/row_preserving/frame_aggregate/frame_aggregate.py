@@ -224,11 +224,22 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
         return ReferenceFrameAggregate
 
     ALL_FRAME_TYPES = {"rolling", "time", "cumulative", "expanding"}
+    ALL_TIME_UNITS = {"second", "minute", "hour", "day", "week", "month", "year"}
 
     @classmethod
     def supported_frame_types(cls) -> set[str]:
         """Frame types this framework supports. Override to restrict."""
         return cls.ALL_FRAME_TYPES
+
+    @classmethod
+    def supported_time_units(cls) -> set[str]:
+        """Time-window units this framework supports. Override to restrict.
+
+        SQLite, for example, excludes ``month``/``year`` because its native
+        ``datetime(ts, '-N months')`` uses day-of-month rollover (Mar 31 -1mo
+        = Mar 3) rather than ``relativedelta`` semantics (= Feb 28).
+        """
+        return cls.ALL_TIME_UNITS
 
     @classmethod
     def supports_null_order_in_time_window(cls) -> bool:
@@ -340,6 +351,8 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
         """A 1-month window should use calendar months, not a fixed 30-day offset."""
         if "time" not in self.supported_frame_types():
             pytest.skip("This framework does not support time frames")
+        if "month" not in self.supported_time_units():
+            pytest.skip("This framework does not support month time units")
 
         table = pa.table(
             {
@@ -382,6 +395,8 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
         """A 1-year window should use calendar years, not a fixed 365-day offset."""
         if "time" not in self.supported_frame_types():
             pytest.skip("This framework does not support time frames")
+        if "year" not in self.supported_time_units():
+            pytest.skip("This framework does not support year time units")
 
         table = pa.table(
             {
@@ -544,6 +559,8 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
 
     def test_cross_framework_time_window_month(self) -> None:
         """A 1-month time window must match the reference on integer sums."""
+        if "month" not in self.supported_time_units():
+            pytest.skip("This framework does not support month time units")
         table = pa.table(
             {
                 "region": ["A", "A", "A", "A"],
@@ -574,6 +591,8 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
 
     def test_cross_framework_time_window_year(self) -> None:
         """A 1-year time window must match the reference on integer sums."""
+        if "year" not in self.supported_time_units():
+            pytest.skip("This framework does not support year time units")
         table = pa.table(
             {
                 "region": ["A", "A", "A", "A"],

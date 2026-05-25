@@ -31,35 +31,25 @@ class TestSqliteFrameAggregate(SqliteTestMixin, FrameAggregateTestBase):
     def implementation_class(cls) -> Any:
         return SqliteFrameAggregate
 
+    @classmethod
+    def supported_time_units(cls) -> set[str]:
+        # SQLite's native ``datetime(ts, '-N months')`` rolls over by day-of-month
+        # (Mar 31 -1mo = Mar 3) whereas the reference uses ``relativedelta``
+        # (= Feb 28). Rather than fall back to a Python loop (which would defeat
+        # the point of running inside the SQLite engine), we reject month/year
+        # at match time. See known-divergences.md.
+        return {"second", "minute", "hour", "day", "week"}
+
     # -- Regression tests for PR #202 review bugs -----------------------------
 
-    def test_sqlite_month_window_end_of_month_matches_reference(self) -> None:
-        """Mar 31 -1 month should be Feb 28 (relativedelta), not Mar 3 (SQLite native)."""
-        table = pa.table(
-            {
-                "region": ["A", "A", "A", "A"],
-                "ts": [
-                    datetime(2023, 2, 28, tzinfo=timezone.utc),
-                    datetime(2023, 3, 1, tzinfo=timezone.utc),
-                    datetime(2023, 3, 15, tzinfo=timezone.utc),
-                    datetime(2023, 3, 31, tzinfo=timezone.utc),
-                ],
-                "value": [1, 2, 4, 8],
-            }
-        )
-        data = self.create_test_data(table)
-        feature_name = "value__sum_1_month_window"
-        feature = Feature(
-            feature_name,
-            options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        result = self.implementation_class().calculate_feature(data, fs)
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
-        result_col = self.extract_column(result, feature_name)
-        ref_col = _extract_column(ref, feature_name)
-        assert result_col == ref_col, f"got {result_col}, expected {ref_col}"
+    def test_sqlite_rejects_month_time_window_at_match_time(self) -> None:
+        """SQLite rejects month/year time windows because its calendar arithmetic diverges from the reference."""
+        options = Options(context={"partition_by": ["region"], "order_by": "ts"})
+        assert not self.implementation_class().match_feature_group_criteria("value__sum_1_month_window", options)
+        assert not self.implementation_class().match_feature_group_criteria("value__sum_1_year_window", options)
+        # day/week still match
+        assert self.implementation_class().match_feature_group_criteria("value__sum_3_day_window", options)
+        assert self.implementation_class().match_feature_group_criteria("value__sum_1_week_window", options)
 
     def test_sqlite_second_window_preserves_subsecond_precision(self) -> None:
         """3-second window should respect sub-second precision.

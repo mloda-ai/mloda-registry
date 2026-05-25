@@ -9,12 +9,11 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
-from mloda.community.feature_groups.data_operations.aggregate_helpers import aggregate
 from mloda.community.feature_groups.data_operations.errors import (
     unsupported_agg_type_error,
     unsupported_frame_type_error,
 )
-from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask, build_sql_case_when
+from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
@@ -30,6 +29,14 @@ _SQLITE_AGG_FUNCS: dict[str, str] = {
 
 
 class SqliteFrameAggregate(FrameAggregateFeatureGroup):
+    # SQLite has no native calendar-anchored INTERVAL arithmetic: ``datetime(ts, '-N months')``
+    # uses fixed-day-of-month rollover (Mar 31 -1mo = Mar 3) which diverges from the
+    # ``dateutil.relativedelta`` semantics (Mar 31 -1mo = Feb 28) used by the reference
+    # implementation. Rather than fall back to Python-side calendar arithmetic (which
+    # would defeat the point of running inside the SQLite engine), month/year units are
+    # rejected at match time. See known-divergences.md.
+    SUPPORTED_TIME_UNITS: set[str] = {"second", "minute", "hour", "day", "week"}
+
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {SqliteFramework}
@@ -72,23 +79,6 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         order_clause = f"{null_sort}, {quoted_order}"
 
         if frame_type == "time":
-            unit = str(frame_unit or "day")
-            if unit in ("month", "year"):
-                # Month/year use calendar arithmetic (relativedelta) for end-of-month
-                # parity with the reference. SQLite's native ``datetime(ts, '-N months')``
-                # uses fixed-day-of-month rollover (Mar 31 -1mo = Mar 3) which diverges
-                # from ``dateutil.relativedelta`` (Mar 31 -1mo = Feb 28). Compute in Python.
-                return cls._compute_time_frame_python(
-                    data=data,
-                    feature_name=feature_name,
-                    source_col=source_col,
-                    partition_by=partition_by,
-                    order_by=order_by,
-                    agg_type=agg_type,
-                    frame_size=frame_size,
-                    frame_unit=unit,
-                    mask_spec=mask_spec,
-                )
             return cls._compute_time_frame(
                 data=data,
                 feature_name=feature_name,
@@ -157,8 +147,10 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         seconds and would lose sub-second precision; the former preserves
         microseconds via the fractional component of the Julian day.
 
-        Only second/minute/hour/day/week units reach this path; month/year are
-        routed to ``_compute_time_frame_python`` for calendar-anchored arithmetic.
+        Only second/minute/hour/day/week units reach this path. Month/year are
+        rejected at ``match_feature_group_criteria`` time via
+        ``SUPPORTED_TIME_UNITS`` because SQLite's native month/year arithmetic
+        diverges from ``relativedelta``. See known-divergences.md.
         """
         size = int(frame_size) if frame_size is not None else 1
         unit = str(frame_unit or "day")
@@ -222,76 +214,4 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         rows = cursor.fetchall()
 
         result_values = [row[0] for row in rows]
-        return data.append_column(feature_name, result_values)
-
-    @classmethod
-    def _compute_time_frame_python(
-        cls,
-        data: SqliteRelation,
-        feature_name: str,
-        source_col: str,
-        partition_by: list[str],
-        order_by: str,
-        agg_type: str,
-        frame_size: int | None,
-        frame_unit: str,
-        mask_spec: list[tuple[str, str, Any]] | None,
-    ) -> SqliteRelation:
-        """Calendar-anchored time window (month/year) computed in Python.
-
-        SQLite's ``datetime(ts, '-N months')`` uses native rollover (Mar 31 -1mo
-        = Mar 3) which diverges from ``dateutil.relativedelta`` (Mar 31 -1mo =
-        Feb 28) used by the PyArrow reference. Read the table into Arrow, apply
-        the mask, group by partition, sort each group with nulls last, then for
-        each row compute the relativedelta-based window and aggregate in pure
-        Python (mirrors ``reference.py:_time_window``).
-        """
-        from datetime import date, datetime
-
-        from dateutil.relativedelta import relativedelta
-
-        size = int(frame_size) if frame_size is not None else 1
-        delta = relativedelta(months=size) if frame_unit == "month" else relativedelta(years=size)
-
-        table = data.to_arrow_table()
-        if mask_spec is not None:
-            table = apply_pyarrow_mask(table, source_col, mask_spec)
-
-        num_rows = table.num_rows
-        partition_lists = {col: table.column(col).to_pylist() for col in partition_by}
-
-        # SQLite stores datetimes via its text adapter, so ``to_arrow_table()``
-        # returns them as ISO-8601 strings. Parse back to ``datetime`` so that
-        # ``relativedelta`` arithmetic works.
-        def _parse_ts(v: Any) -> Any:
-            if v is None or isinstance(v, (datetime, date)):
-                return v
-            if isinstance(v, str):
-                try:
-                    return datetime.fromisoformat(v)
-                except ValueError:
-                    return v
-            return v
-
-        order_vals = [_parse_ts(v) for v in table.column(order_by).to_pylist()]
-        source_vals = table.column(source_col).to_pylist()
-
-        groups: dict[tuple[Any, ...], list[tuple[int, Any, Any]]] = {}
-        for i in range(num_rows):
-            key = tuple(partition_lists[col][i] for col in partition_by)
-            groups.setdefault(key, []).append((i, order_vals[i], source_vals[i]))
-
-        for key in groups:
-            groups[key].sort(key=lambda t: (t[1] is None, t[1] if t[1] is not None else 0))
-
-        result_values: list[Any] = [None] * num_rows
-        for rows in groups.values():
-            for pos, (orig_idx, order_val, _) in enumerate(rows):
-                if order_val is None:
-                    window = [rows[pos][2]]
-                else:
-                    cutoff = order_val - delta
-                    window = [r[2] for r in rows[: pos + 1] if r[1] is not None and r[1] >= cutoff]
-                result_values[orig_idx] = aggregate(window, agg_type)
-
         return data.append_column(feature_name, result_values)

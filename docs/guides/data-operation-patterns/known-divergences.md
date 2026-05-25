@@ -108,7 +108,14 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 
 - **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type).
 - **Mitigation kind**: Accepted complexity (correctness preserved).
-- **How**: SQLite has no `RANGE BETWEEN INTERVAL`; `sqlite_frame_aggregate.py` issues a correlated subquery `SELECT agg(s.{col}) FROM t s WHERE s.{partition}=t.{partition} AND s.{ts} BETWEEN datetime(t.{ts}, '-N units') AND datetime(t.{ts})`. Both BETWEEN bounds wrapped in `datetime()` to canonicalize Python `sqlite3`'s tz-offset suffix.
+- **How**: SQLite has no `RANGE BETWEEN INTERVAL`; `sqlite_frame_aggregate.py` issues a correlated subquery `SELECT agg(s.{col}) FROM t s WHERE s.{partition}=t.{partition} AND julianday(s.{ts}) BETWEEN julianday(t.{ts}) - n_days AND julianday(t.{ts})`. `julianday()` preserves sub-second precision; `datetime()` would truncate it.
+- **Related**: parent #183, implementing #202.
+
+### SQLite rejects month/year time windows
+
+- **Operations**: `row_preserving/frame_aggregate` (only `time` frame type with `month`/`year` units).
+- **Mitigation kind**: Excluded unit.
+- **How**: SQLite's native `datetime(ts, '-N months')` uses day-of-month rollover (Mar 31 -1mo = Mar 3), diverging from `dateutil.relativedelta` (= Feb 28) used by the PyArrow reference. Rather than fall back to a Python loop (which would defeat the point of running inside the SQLite engine), `SqliteFrameAggregate.SUPPORTED_TIME_UNITS` excludes `month`/`year`, so features like `value__sum_1_month_window` are rejected at `match_feature_group_criteria` time. `SqliteFrameAggregate` `supports` `second`/`minute`/`hour`/`day`/`week`.
 - **Related**: parent #183, implementing #202.
 
 ### Pandas / Polars-lazy native time-rolling rejects null `order_by`
