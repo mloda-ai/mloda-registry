@@ -27,9 +27,9 @@ on it before fetching, mirroring the tag-and-restore pattern in
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
 
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
@@ -162,18 +162,14 @@ class _TimeBucketizationSqliteResult(SqliteRelation):
         for col_name in table.column_names:
             if col_name not in self._timestamp_result_columns:
                 continue
-            string_values = table.column(col_name).to_pylist()
-            datetime_values: list[datetime | None] = []
-            for raw in string_values:
-                if raw is None:
-                    datetime_values.append(None)
-                    continue
-                # SQLite strftime never embeds the tz suffix; input was UTC,
-                # so attach UTC explicitly.
-                datetime_values.append(datetime.fromisoformat(str(raw)).replace(tzinfo=timezone.utc))
-            new_array = pa.array(datetime_values, type=pa.timestamp("us", tz="UTC"))
+            # Vectorized TEXT -> tz-aware timestamp via pyarrow.compute.
+            # SQLite's strftime emits 'YYYY-MM-DD HH:MM:SS' without a tz
+            # suffix; the source was UTC, so we attach UTC after parsing.
+            text_array = result_table.column(col_name)
+            naive = pc.strptime(text_array, format="%Y-%m-%d %H:%M:%S", unit="us", error_is_null=True)
+            ts_array = pc.assume_timezone(naive, "UTC")
             col_index = result_table.column_names.index(col_name)
-            result_table = result_table.set_column(col_index, col_name, new_array)
+            result_table = result_table.set_column(col_index, col_name, ts_array)
         return result_table
 
 
