@@ -152,6 +152,8 @@ class TestDivideByZero:
 
     def test_duckdb_divide_by_zero_raises(self) -> None:
         duckdb = pytest.importorskip("duckdb")
+        from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
+
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.duckdb_scalar_arithmetic import (
             DuckdbScalarArithmetic,
         )
@@ -159,7 +161,7 @@ class TestDivideByZero:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         conn = duckdb.connect(":memory:")
         try:
-            relation = conn.from_arrow(arrow_table)
+            relation = DuckdbRelation.from_arrow(conn, arrow_table)
             fs = _make_fs("value_int__divide_constant", constant=0)
             with pytest.raises(ValueError, match="[Dd]ivide|[Zz]ero|0"):
                 DuckdbScalarArithmetic.calculate_feature(relation, fs)
@@ -221,6 +223,8 @@ class TestMissingConstant:
 
     def test_duckdb_missing_constant_raises(self) -> None:
         duckdb = pytest.importorskip("duckdb")
+        from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
+
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.duckdb_scalar_arithmetic import (
             DuckdbScalarArithmetic,
         )
@@ -228,7 +232,7 @@ class TestMissingConstant:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         conn = duckdb.connect(":memory:")
         try:
-            relation = conn.from_arrow(arrow_table)
+            relation = DuckdbRelation.from_arrow(conn, arrow_table)
             fs = _make_fs("value_int__add_constant")
             with pytest.raises(ValueError, match="constant"):
                 DuckdbScalarArithmetic.calculate_feature(relation, fs)

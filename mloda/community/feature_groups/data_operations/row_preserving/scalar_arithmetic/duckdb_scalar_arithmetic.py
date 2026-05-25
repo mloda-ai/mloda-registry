@@ -57,9 +57,7 @@ class DuckdbScalarArithmetic(ScalarArithmeticFeatureGroup):
         # ``DuckdbRelation`` wraps a ``DuckDBPyRelation`` exposing aligned
         # ``.columns`` and ``.types`` (~4 microseconds; cheaper than
         # ``data.to_arrow_table().schema`` which materializes the relation).
-        # Tests sometimes pass a raw ``DuckDBPyRelation`` directly; fall back
-        # to ``data`` itself in that case since it exposes the same accessors.
-        underlying: Any = getattr(data, "_relation", data)
+        underlying = data._relation
         type_by_column = dict(zip(list(underlying.columns), [str(t) for t in underlying.types]))
         dtype_str = type_by_column.get(source_col)
         if dtype_str is None:
