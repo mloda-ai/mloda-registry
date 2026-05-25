@@ -36,8 +36,6 @@ _PANDAS_FRAME_AGG_FUNCS: dict[str, str] = {
 
 
 class PandasFrameAggregate(FrameAggregateFeatureGroup):
-    SUPPORTED_FRAME_TYPES = {"rolling", "time", "cumulative", "expanding"}
-
     # Pandas .rolling(window="...", on=ts) only accepts these fixed-frequency units.
     # Month/year are calendar-anchored and require a per-row Python loop instead.
     _FIXED_FREQ_CODES: dict[str, str] = {

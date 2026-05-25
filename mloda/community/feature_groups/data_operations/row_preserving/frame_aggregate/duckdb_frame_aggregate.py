@@ -34,8 +34,6 @@ _RN_COL = "__mloda_rn__"
 
 
 class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
-    SUPPORTED_FRAME_TYPES = {"rolling", "time", "cumulative", "expanding"}
-
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {DuckDBFramework}

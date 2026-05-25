@@ -26,8 +26,6 @@ _ROLLING_AGG_TYPES = {"sum", "avg", "min", "max", "std", "var", "median", "count
 
 
 class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
-    SUPPORTED_FRAME_TYPES = {"rolling", "time", "cumulative", "expanding"}
-
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PolarsLazyDataFrame}
