@@ -255,6 +255,9 @@ class TimeBucketizationTestBase(DataOpsTestBase):
             if e is None:
                 assert a is None, f"row {i}: expected None, got {a!r}"
             else:
+                # Accept ISO strings from SQLite (TEXT-stored timestamps).
+                if isinstance(a, str):
+                    a = datetime.fromisoformat(a)
                 assert a == e, f"row {i}: {a!r} != {e!r}"
 
     def test_floor_5_minute(self) -> None:

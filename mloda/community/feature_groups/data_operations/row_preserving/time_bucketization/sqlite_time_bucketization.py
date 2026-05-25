@@ -7,13 +7,14 @@ math is expressed with ``strftime`` / ``date`` / ``datetime`` / ``julianday``.
 Result-type fidelity
 --------------------
 
-The shared test contract requires the new column to come back from
-``to_arrow_table()`` as a list of ``datetime`` objects, but SqliteRelation's
-``to_arrow_table`` infers ``pa.string()`` for TEXT columns. The lightweight
-:class:`_TimeBucketizationSqliteResult` subclass overrides ``to_arrow_table``
-to re-parse the result columns (and only those columns) into
-``pa.timestamp("us", tz="UTC")`` arrays. The original timestamp column is
-left as a string, matching the rest of SQLite's read contract.
+The SQL emits tz-aware ISO 8601 strings directly: bucket math runs on the
+source-local wall-clock portion of the timestamp (the input with any
+``+HH:MM`` / ``-HH:MM`` suffix stripped), then the original tz suffix is
+concatenated back onto the result. The output column comes back from
+``to_arrow_table()`` as ``pa.string()`` -- there is no Python-side re-parse
+into ``pa.timestamp`` and no ``SqliteRelation`` subclass. Null sources
+propagate as ``NULL`` (Python ``None``) end-to-end, because SQLite's
+``NULL || anything`` is ``NULL``.
 
 Ordering
 --------
@@ -25,11 +26,6 @@ on it before fetching, mirroring the tag-and-restore pattern in
 """
 
 from __future__ import annotations
-
-import sqlite3
-
-import pyarrow as pa
-import pyarrow.compute as pc
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
@@ -65,7 +61,9 @@ def _floor_expr(quoted_source: str, n: int, unit: str) -> str:
     """SQL expression that floors ``quoted_source`` to a ``(n, unit)`` bucket.
 
     All branches return a ``YYYY-MM-DD HH:MM:SS`` string (no tz suffix);
-    null input propagates because ``strftime`` of null is null.
+    null input propagates because ``strftime`` of null is null. ``quoted_source``
+    is expected to be a *local-time* expression (tz suffix already stripped by
+    the caller).
     """
     if unit == "minute":
         if n == 1:
@@ -128,49 +126,26 @@ def _bucket_seconds(n: int, unit: str) -> int:
     raise ValueError(f"Bucket-seconds helper called for non-fixed-freq unit: {unit!r}")
 
 
-class _TimeBucketizationSqliteResult(SqliteRelation):
-    """SqliteRelation subclass that recovers timestamp typing for result columns.
+def _local_src_expr(quoted_source: str) -> str:
+    """SQL expression that strips a trailing ``+HH:MM`` / ``-HH:MM`` tz suffix.
 
-    SQLite stores all timestamps as TEXT. The base
-    ``SqliteRelation.to_arrow_table`` therefore returns the result column as
-    ``pa.string()``, but the cross-framework time-bucketization tests
-    compare against tz-aware ``datetime`` objects. This subclass re-parses
-    the listed result columns into ``pa.timestamp("us", tz="UTC")`` so
-    downstream consumers see a real timestamp type.
+    SQLite has no inline ``LET``, so the caller substitutes this expression
+    everywhere a wall-clock view of the source is needed.
     """
+    return (
+        f"(CASE WHEN substr({quoted_source}, -6, 1) IN ('+', '-') "
+        f"THEN substr({quoted_source}, 1, length({quoted_source}) - 6) "
+        f"ELSE {quoted_source} END)"
+    )
 
-    def __init__(
-        self,
-        connection: sqlite3.Connection,
-        table_name: str,
-        timestamp_result_columns: frozenset[str],
-        _is_view: bool = False,
-    ) -> None:
-        super().__init__(connection, table_name, _is_view=_is_view)
-        self._timestamp_result_columns: frozenset[str] = timestamp_result_columns
 
-    @property
-    def timestamp_result_columns(self) -> frozenset[str]:
-        return self._timestamp_result_columns
-
-    def to_arrow_table(self) -> pa.Table:
-        table = super().to_arrow_table()
-        if not self._timestamp_result_columns:
-            return table
-
-        result_table = table
-        for col_name in table.column_names:
-            if col_name not in self._timestamp_result_columns:
-                continue
-            # Vectorized TEXT -> tz-aware timestamp via pyarrow.compute.
-            # SQLite's strftime emits 'YYYY-MM-DD HH:MM:SS' without a tz
-            # suffix; the source was UTC, so we attach UTC after parsing.
-            text_array = result_table.column(col_name)
-            naive = pc.strptime(text_array, format="%Y-%m-%d %H:%M:%S", unit="us", error_is_null=True)
-            ts_array = pc.assume_timezone(naive, "UTC")
-            col_index = result_table.column_names.index(col_name)
-            result_table = result_table.set_column(col_index, col_name, ts_array)
-        return result_table
+def _tz_suffix_expr(quoted_source: str) -> str:
+    """SQL expression that yields the trailing ``+HH:MM`` / ``-HH:MM`` suffix or ``''``."""
+    return (
+        f"(CASE WHEN substr({quoted_source}, -6, 1) IN ('+', '-') "
+        f"THEN substr({quoted_source}, -6) "
+        f"ELSE '' END)"
+    )
 
 
 class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
@@ -233,14 +208,22 @@ class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
             raise ValueError(f"Unsupported bucket op {op!r} for SQLite; supported: {sorted(TIME_BUCKETIZATION_OPS)}.")
 
         quoted_source = quote_ident(source_col)
-        floor_expr = _floor_expr(quoted_source, n, unit)
+        local_src = _local_src_expr(quoted_source)
+        tz_suffix = _tz_suffix_expr(quoted_source)
+        floor_expr = _floor_expr(local_src, n, unit)
 
         if op == "floor":
-            result_expr = floor_expr
+            # Floor has no internal null guard, so wrap it here. Note that
+            # ``NULL || tz_suffix`` is NULL in SQLite, so this guard primarily
+            # documents intent for callers reading the SQL.
+            bucket_expr = f"CASE WHEN {quoted_source} IS NULL THEN NULL ELSE {floor_expr} || {tz_suffix} END"
         elif op == "ceil":
-            result_expr = cls._ceil_expression(quoted_source, n, unit, floor_expr)
+            ceil_expr = cls._ceil_expression(local_src, n, unit, floor_expr)
+            # ceil_expr already returns NULL for null input; NULL || tz_suffix is NULL.
+            bucket_expr = f"({ceil_expr}) || {tz_suffix}"
         else:  # round
-            result_expr = cls._round_expression(quoted_source, n, unit, floor_expr)
+            round_expr = cls._round_expression(local_src, n, unit, floor_expr)
+            bucket_expr = f"({round_expr}) || {tz_suffix}"
 
         # Compute the result via a tag-and-restore SQL projection. ROW_NUMBER
         # over rowid preserves input order; the outer SELECT sorts on it.
@@ -251,7 +234,7 @@ class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
         existing_cols = ", ".join(quote_ident(c) for c in data.columns)
 
         sql = (
-            f"SELECT {existing_cols}, {result_expr} AS {quoted_feature} "  # nosec
+            f"SELECT {existing_cols}, {bucket_expr} AS {quoted_feature} "  # nosec
             f"FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn} FROM {quoted_table}) "
             f"ORDER BY {qrn}"
         )
@@ -259,25 +242,13 @@ class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
         rows = cursor.fetchall()
         result_values = [row[-1] for row in rows]
 
-        appended = data.append_column(feature_name, result_values)
-
-        # Carry forward any timestamp result columns from a chained call.
-        existing_ts: frozenset[str]
-        if isinstance(data, _TimeBucketizationSqliteResult):
-            existing_ts = data.timestamp_result_columns
-        else:
-            existing_ts = frozenset()
-
-        return _TimeBucketizationSqliteResult(
-            connection=appended.connection,
-            table_name=appended.table_name,
-            timestamp_result_columns=existing_ts | {feature_name},
-            _is_view=appended._is_view,
-        )
+        return data.append_column(feature_name, result_values)
 
     @classmethod
     def _ceil_expression(cls, quoted_source: str, n: int, unit: str, floor_expr: str) -> str:
         """SQL expression for ceil bucketization.
+
+        ``quoted_source`` here is the *local-time* expression (tz suffix stripped).
 
         Matches PyArrow's ``ceil_temporal(..., ceil_is_strictly_greater=False)``,
         which is unit-dependent:
@@ -295,9 +266,8 @@ class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
             f"CASE "
             f"WHEN {quoted_source} IS NULL THEN NULL "
             # Compare the input timestamp (after coercion to YYYY-MM-DD HH:MM:SS via datetime())
-            # against the floored value. The input may carry a tz suffix that the floor expression
-            # strips, so coerce the source through datetime() so the comparison is between
-            # equivalent local-time strings.
+            # against the floored value. ``quoted_source`` is already local-time, so this
+            # produces an apples-to-apples comparison with the floor expression.
             f"WHEN datetime({quoted_source}) = {floor_expr} THEN {floor_expr} "
             f"ELSE {ceil_next} "
             f"END"
@@ -306,6 +276,8 @@ class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
     @classmethod
     def _round_expression(cls, quoted_source: str, n: int, unit: str, floor_expr: str) -> str:
         """SQL expression for round-half-up bucketization.
+
+        ``quoted_source`` here is the *local-time* expression (tz suffix stripped).
 
         For fixed-freq units (minute / hour / day) the midpoint compares
         the offset from the floor against half the bucket length in seconds.
