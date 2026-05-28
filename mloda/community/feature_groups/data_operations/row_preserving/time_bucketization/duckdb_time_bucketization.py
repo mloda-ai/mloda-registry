@@ -70,7 +70,13 @@ def _floor_expr(quoted_source: str, n: int, unit: str) -> str:
         return f"DATE_TRUNC('{_DUCKDB_TRUNC_UNIT[unit]}', {quoted_source})"
     # ``n > 1`` is only valid for fixed-freq units (minute/hour/day).
     interval = _interval_literal(n, unit)
-    return f"time_bucket({interval}, {quoted_source})"
+    # Pin the origin to 1970-01-01 to match PyArrow's bucket alignment
+    # (multiples since the epoch). Without an explicit origin, DuckDB's
+    # ``time_bucket`` anchors sub-month widths at 2000-01-03, which
+    # diverges from PyArrow on multi-day buckets. DATE auto-casts to both
+    # TIMESTAMP and TIMESTAMPTZ so the same literal works for either
+    # source column type.
+    return f"time_bucket({interval}, {quoted_source}, DATE '1970-01-01')"
 
 
 def _bucket_seconds_for_fixed_freq(n: int, unit: str) -> int:

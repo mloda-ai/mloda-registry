@@ -441,6 +441,20 @@ class TimeBucketizationTestBase(DataOpsTestBase):
     def test_cross_framework_floor_1_day(self) -> None:
         self._compare_bucket_with_reference("timestamp__floor_1_day")
 
+    def test_cross_framework_floor_2_day(self) -> None:
+        """Multi-day fixed-freq floor must agree with PyArrow's epoch-anchored buckets.
+
+        Backends that use a built-in ``time_bucket`` (DuckDB) anchor sub-month
+        widths at 2000-01-03 by default, which diverges from PyArrow's
+        epoch-anchored (multiples since 1970-01-01) buckets. This test pins
+        agreement and would catch a regression on that anchor.
+        """
+        self._compare_bucket_with_reference("timestamp__floor_2_day")
+
+    def test_cross_framework_floor_3_day(self) -> None:
+        """3-day floor: extra coverage for multi-day anchor alignment with PyArrow."""
+        self._compare_bucket_with_reference("timestamp__floor_3_day")
+
     def test_cross_framework_ceil_1_day(self) -> None:
         self._compare_bucket_with_reference("timestamp__ceil_1_day")
 
