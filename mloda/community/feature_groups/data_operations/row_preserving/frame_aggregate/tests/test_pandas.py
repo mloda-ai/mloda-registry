@@ -60,7 +60,7 @@ class TestPandasFrameAggregate(PandasTestMixin, FrameAggregateTestBase):
         try:
             import tomllib  # py311+
         except ModuleNotFoundError:
-            import tomli as tomllib  # type: ignore[no-redef]
+            import tomli as tomllib  # type: ignore[no-redef,unused-ignore]
         from pathlib import Path
 
         repo_root = Path(__file__).resolve()
