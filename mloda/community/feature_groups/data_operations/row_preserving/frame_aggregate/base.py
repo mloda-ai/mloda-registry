@@ -102,6 +102,7 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     PREFIX_PATTERN = r".*__([\w]+)_rolling_\d+$"
 
     SUPPORTED_FRAME_TYPES: set[str] = {"rolling", "time", "cumulative", "expanding"}
+    SUPPORTED_TIME_UNITS: set[str] = _TIME_UNITS
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -262,6 +263,8 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
                 return False
             if parsed["frame_type"] not in cls.SUPPORTED_FRAME_TYPES:
                 return False
+            if parsed["frame_type"] == "time" and parsed["frame_unit"] not in cls.SUPPORTED_TIME_UNITS:
+                return False
         else:
             agg_type = options.get(cls.AGGREGATION_TYPE)
             frame_type = options.get(cls.FRAME_TYPE)
@@ -277,6 +280,8 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             if frame_type_str == "time":
                 frame_unit = options.get(cls.FRAME_UNIT)
                 if frame_unit is None or str(frame_unit) not in _TIME_UNITS:
+                    return False
+                if str(frame_unit) not in cls.SUPPORTED_TIME_UNITS:
                     return False
 
         partition_by = options.get(cls.PARTITION_BY)

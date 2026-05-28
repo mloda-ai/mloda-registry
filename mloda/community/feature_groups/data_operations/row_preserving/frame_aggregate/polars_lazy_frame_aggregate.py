@@ -20,14 +20,13 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 )
 
 _RN_COL = "__mloda_rn__"
+_SYNTH_TS_COL = "__mloda_synth_ts__"
 
 _CUMULATIVE_AGG_TYPES = {"sum", "min", "max", "count", "avg"}
 _ROLLING_AGG_TYPES = {"sum", "avg", "min", "max", "std", "var", "median", "count"}
 
 
 class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
-    SUPPORTED_FRAME_TYPES = {"rolling", "cumulative", "expanding"}
-
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PolarsLazyDataFrame}
@@ -119,6 +118,119 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
                     framework="Polars",
                     operation="rolling",
                 )
+        elif frame_type == "time":
+            # polars rolling_*_by(ts) panics when ``order_by`` contains nulls. Surface
+            # this as an explicit ValueError so users see a clean message instead of a
+            # cryptic panic. See known-divergences.md.
+            null_count = sorted_data.select(pl.col(order_by).is_null().sum()).collect().item()
+            if null_count:
+                raise ValueError(
+                    f"Polars frame aggregate (time frame): order_by column {order_by!r} "
+                    "contains null values, which polars rolling_*_by() does not support. "
+                    "See known-divergences.md."
+                )
+            # Mask + source_col == order_by: the reference treats masked rows as having
+            # null order_by (mask writes null into source_col, which is also order_by).
+            # Polars rolling_*_by uses the unmasked order_by for window boundaries even
+            # when the masked source is a temp column, so this combo cannot be expressed
+            # natively. Reject to match pandas. See known-divergences.md.
+            if mask_spec is not None and source_col == order_by:
+                raise ValueError(
+                    "Polars frame aggregate (time frame): mask + source_col == order_by "
+                    f"({source_col!r}) is unsupported. The reference semantic requires "
+                    "treating masked rows as having null order_by, which polars "
+                    "rolling_*_by() cannot express natively. See known-divergences.md."
+                )
+            size = int(frame_size) if frame_size is not None else 1
+            unit = str(frame_unit or "day")
+            # Polars duration strings: 's', 'm', 'h', 'd', 'w', 'mo', 'y'.
+            unit_code = {
+                "second": "s",
+                "minute": "m",
+                "hour": "h",
+                "day": "d",
+                "week": "w",
+                "month": "mo",
+                "year": "y",
+            }[unit]
+            # Peer handling: polars ``rolling_*_by`` with ``closed="both"`` is value-based
+            # and includes every row whose ``by`` value equals the current row's value,
+            # even peers that come later in physical position. The PyArrow reference uses
+            # ``rows[:pos+1]`` after a stable sort, excluding later peers. To match, add a
+            # 1-nanosecond offset proportional to physical row position (cast to ns precision
+            # first so the offset is representable) and extend the window by N nanoseconds
+            # so a peer exactly at the lower bound is not lost to the offset.
+            schema = sorted_data.collect_schema()
+            ts_dtype = schema[order_by]
+            tz = getattr(ts_dtype, "time_zone", None)
+            target_dtype = pl.Datetime("ns", time_zone=tz)
+            row_count = sorted_data.select(pl.len()).collect().item()
+            sorted_data = sorted_data.with_columns(
+                pl.col(order_by)
+                .cast(target_dtype)
+                .add(pl.duration(nanoseconds=pl.int_range(pl.len()).cast(pl.Int64)))
+                .alias(_SYNTH_TS_COL)
+            )
+            by_col = _SYNTH_TS_COL
+            window_str = f"{size}{unit_code}{row_count}ns"
+            # closed="both" matches reference semantics: window is [ts - size, ts] inclusive.
+            if agg_type == "sum":
+                expr = (
+                    col.rolling_sum_by(by_col, window_size=window_str, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            elif agg_type == "avg":
+                expr = (
+                    col.rolling_mean_by(by_col, window_size=window_str, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            elif agg_type == "min":
+                expr = (
+                    col.rolling_min_by(by_col, window_size=window_str, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            elif agg_type == "max":
+                expr = (
+                    col.rolling_max_by(by_col, window_size=window_str, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            elif agg_type == "std":
+                expr = (
+                    col.rolling_std_by(by_col, window_size=window_str, ddof=0, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            elif agg_type == "var":
+                expr = (
+                    col.rolling_var_by(by_col, window_size=window_str, ddof=0, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            elif agg_type == "median":
+                expr = (
+                    col.rolling_median_by(by_col, window_size=window_str, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            elif agg_type == "count":
+                expr = (
+                    col.is_not_null()
+                    .cast(pl.Int64)
+                    .rolling_sum_by(by_col, window_size=window_str, closed="both")
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
+            else:
+                raise unsupported_agg_type_error(
+                    agg_type,
+                    _ROLLING_AGG_TYPES,
+                    framework="Polars",
+                    operation="time",
+                )
         else:
             raise unsupported_frame_type_error(
                 frame_type,
@@ -133,6 +245,8 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
         drop_cols = [_RN_COL]
         if mask_spec is not None:
             drop_cols.append(_POLARS_MASK_TMP)
+        if frame_type == "time":
+            drop_cols.append(_SYNTH_TS_COL)
         result = result.drop(drop_cols)
 
         return result

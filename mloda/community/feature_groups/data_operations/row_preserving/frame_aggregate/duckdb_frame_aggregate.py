@@ -34,8 +34,6 @@ _RN_COL = "__mloda_rn__"
 
 
 class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
-    SUPPORTED_FRAME_TYPES = {"rolling", "cumulative", "expanding"}
-
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {DuckDBFramework}
@@ -74,6 +72,32 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         quoted_order = quote_ident(order_by)
         qrn = quote_ident(_RN_COL)
 
+        if frame_type == "time":
+            # Mask + source_col == order_by: the reference treats masked rows as having
+            # null order_by (mask writes null into source_col, which is also order_by).
+            # The DuckDB correlated subquery uses the unmasked order_by for window bounds
+            # even when ``CASE WHEN ... THEN source END`` wraps the aggregate expression,
+            # so this combo cannot be expressed natively. Reject to match pandas.
+            # See known-divergences.md.
+            if mask_spec is not None and source_col == order_by:
+                raise ValueError(
+                    "DuckDB frame aggregate (time frame): mask + source_col == order_by "
+                    f"({source_col!r}) is unsupported. The reference semantic requires "
+                    "treating masked rows as having null order_by, which the correlated "
+                    "subquery cannot express natively. See known-divergences.md."
+                )
+            return cls._compute_time_frame(
+                data=data,
+                feature_name=feature_name,
+                quoted_source=quoted_source,
+                partition_by=partition_by,
+                quoted_order=quoted_order,
+                agg_func=agg_func,
+                frame_size=frame_size,
+                frame_unit=frame_unit,
+                mask_spec=mask_spec,
+            )
+
         null_sort = f"CASE WHEN {quoted_order} IS NULL THEN 1 ELSE 0 END"
         order_clause = f"{null_sort}, {quoted_order}"
 
@@ -82,8 +106,6 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         elif frame_type == "rolling":
             window_size = int(frame_size) if frame_size is not None else 1
             frame_clause = f"ROWS BETWEEN {window_size - 1} PRECEDING AND CURRENT ROW"
-        elif frame_type == "time":
-            raise ValueError("DuckDB time-based frame windows require RANGE which needs timestamp columns")
         else:
             raise unsupported_frame_type_error(
                 frame_type,
@@ -111,3 +133,74 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         rel = rel.project(keep)
 
         return rel
+
+    @classmethod
+    def _compute_time_frame(
+        cls,
+        data: DuckdbRelation,
+        feature_name: str,
+        quoted_source: str,
+        partition_by: list[str],
+        quoted_order: str,
+        agg_func: str,
+        frame_size: int | None,
+        frame_unit: str | None,
+        mask_spec: list[tuple[str, str, Any]] | None,
+    ) -> DuckdbRelation:
+        """Compute a time-based window aggregate via a correlated subquery.
+
+        DuckDB ``RANGE BETWEEN INTERVAL '{N}' {unit} PRECEDING AND CURRENT ROW``
+        is a clean one-liner but uses peer-set semantics: it includes every row
+        whose ``order_by`` equals the current row's ``order_by``, even peers
+        that come later in physical position. The PyArrow reference uses
+        ``rows[:pos+1]`` after a stable sort, excluding later peers. To match
+        the reference, this method tags rows with ``ROW_NUMBER() OVER ()`` and
+        uses that tag as a tiebreaker in a correlated subquery.
+
+        When the outer row's ``order_by`` is NULL, the reference returns just
+        the row's own source value (see reference.py:115-116). The NULL branch
+        below matches only the self-row for that case.
+        """
+        size = int(frame_size) if frame_size is not None else 1
+        unit = str(frame_unit or "day").upper()
+        qrn = quote_ident(_RN_COL)
+
+        # Step 1: tag rows with original position; this is also the tiebreaker.
+        tagged = data.project(f"*, ROW_NUMBER() OVER () AS {qrn}")  # nosec
+
+        inner_source = f"s.{quoted_source}"
+        inner_source_sql = build_sql_case_when(mask_spec, inner_source) if mask_spec is not None else inner_source
+
+        if partition_by:
+            partition_eq = " AND ".join(
+                f"(s.{quote_ident(col)} = t.{quote_ident(col)} "
+                f"OR (s.{quote_ident(col)} IS NULL AND t.{quote_ident(col)} IS NULL))"
+                for col in partition_by
+            )
+        else:
+            partition_eq = "1=1"
+
+        quoted_feature = quote_ident(feature_name)
+        keep = ", ".join(quote_ident(c) for c in data.columns)
+
+        # Safety: identifiers via quote_ident(); agg_func from whitelist; size/unit
+        # are sanitized integer/whitelisted-string values.
+        sql = " ".join(  # nosec
+            [
+                f"SELECT {keep},",
+                f"(SELECT {agg_func}({inner_source_sql})",
+                "FROM tagged s",
+                f"WHERE {partition_eq}",
+                "AND (",
+                f"(t.{quoted_order} IS NOT NULL AND s.{quoted_order} IS NOT NULL",
+                f"AND s.{quoted_order} >= t.{quoted_order} - INTERVAL '{size}' {unit}",
+                f"AND (s.{quoted_order} < t.{quoted_order}",
+                f"OR (s.{quoted_order} = t.{quoted_order} AND s.{qrn} <= t.{qrn})))",
+                f"OR (t.{quoted_order} IS NULL AND s.{qrn} = t.{qrn})",
+                ")",
+                f") AS {quoted_feature}",
+                "FROM tagged t",
+                f"ORDER BY t.{qrn}",
+            ]
+        )
+        return tagged.query("tagged", sql)
