@@ -104,6 +104,24 @@ class TestSqliteResultTypeContract:
         # Naive source: no tz offset suffix after seconds; last char must be a digit.
         assert values[0][-1].isdigit(), f"expected digit at end (no tz suffix), got {values[0]!r}"
 
+    def test_malformed_later_row_rejected(self) -> None:
+        """A TEXT column whose first non-null row parses but a later row doesn't must be rejected.
+
+        SQLite's ``julianday`` returns NULL (rather than raising) for
+        unparsable input, so a LIMIT 1 probe would let the malformed row
+        slip past validation and silently emit NULL at compute time. The
+        validator must scan the whole column.
+        """
+        con = sqlite3.connect(":memory:")
+        # Build a relation via from_arrow so the rest of the contract is intact,
+        # then sneak in a malformed row by direct INSERT.
+        tbl = pa.table({"timestamp": pa.array(["2023-01-01 00:00:00"], type=pa.string())})
+        rel = SqliteRelation.from_arrow(con, tbl)
+        con.execute(f'INSERT INTO "{rel.table_name}" VALUES (?)', ("not-a-date",))  # nosec
+        fs = make_feature_set("timestamp__floor_1_day")
+        with pytest.raises(ValueError, match=r"(?i)timestamp|datetime|parse"):
+            SqliteTimeBucketization().calculate_feature(rel, fs)
+
     def test_null_propagates(self) -> None:
         tbl = pa.table(
             {

@@ -167,8 +167,8 @@ class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
 
         SQLite stores both string and timestamp arrow inputs as ``TEXT``,
         so PRAGMA affinity alone is insufficient to distinguish them. We
-        additionally probe with ``julianday(value)`` on the first non-null
-        value: a parseable timestamp returns a real number, anything else
+        additionally probe every non-null value via ``julianday(value)``:
+        a parseable timestamp returns a real number, anything else
         returns NULL. An all-null column is accepted (no rows to validate).
         """
         rows = data.connection.execute(f"PRAGMA table_info({quote_ident(data.table_name)})").fetchall()
@@ -182,28 +182,30 @@ class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
         if affinity not in _SQLITE_TIMESTAMP_AFFINITIES:
             cls._raise_non_timestamp_source(source_col, f"SQLite affinity {affinity!r}")
 
-        # Probe a sample non-null value via ``julianday`` to weed out
-        # TEXT-affinity columns that hold non-timestamp content. ``LIMIT 1``
-        # is intentional: scanning every row to validate would dominate the
-        # cost of bucketization itself. A column whose first non-null parses
-        # but whose later rows don't will fail at compute time with the
-        # underlying SQL error -- accepted trade-off.
+        # Probe every non-null value via ``julianday`` to weed out
+        # TEXT-affinity columns that hold non-timestamp content. A LIMIT 1
+        # probe is unsafe here: SQLite's date functions return NULL for
+        # unparsable input (rather than raising), so a column whose first
+        # row parses but whose later rows are malformed would slip past
+        # validation and silently emit NULL bucketed values at compute
+        # time. We scan the whole column once for any non-null row whose
+        # julianday is NULL, and reject if found.
         quoted_source = quote_ident(source_col)
         quoted_table = quote_ident(data.table_name)
         probe_sql = (
-            f"SELECT {quoted_source}, julianday({quoted_source}) "  # nosec
+            f"SELECT {quoted_source} "  # nosec
             f"FROM {quoted_table} "
-            f"WHERE {quoted_source} IS NOT NULL LIMIT 1"
+            f"WHERE {quoted_source} IS NOT NULL AND julianday({quoted_source}) IS NULL "
+            f"LIMIT 1"
         )
         cursor = data.connection.execute(probe_sql)
         row = cursor.fetchone()
         if row is None:
             return
-        raw_value, julian = row
-        if julian is None:
-            cls._raise_non_timestamp_source(
-                source_col, f"SQLite affinity {affinity!r} (sample value {raw_value!r} does not parse as timestamp)"
-            )
+        (raw_value,) = row
+        cls._raise_non_timestamp_source(
+            source_col, f"SQLite affinity {affinity!r} (value {raw_value!r} does not parse as timestamp)"
+        )
 
     @classmethod
     def _compute_bucket(
