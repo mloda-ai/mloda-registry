@@ -55,7 +55,7 @@ Feature(
 
 ### Time window
 
-`value__avg_7_day_window` computes an average over all rows whose `order_by` timestamp falls within the last 7 days of the current row's timestamp. Supported units are `second`, `minute`, `hour`, `day`, `week`, `month`, `year`. `month` and `year` use calendar arithmetic (a 1-month window from Mar 31 reaches back to Feb 28, not 30 days). The `order_by` column must be a timestamp.
+`value__avg_7_day_window` computes an average over all rows whose `order_by` timestamp falls within the last 7 days of the current row's timestamp. Units `second`, `minute`, `hour`, `day`, `week` are supported on every framework. `month` and `year` use calendar arithmetic (a 1-month window from Mar 31 reaches back to Feb 28, not 30 days) and are only available on Polars-lazy and DuckDB; Pandas and SQLite reject those units at match time because neither engine has a native calendar-anchored window primitive that matches the reference. See [Known divergences: SQLite + Pandas reject month/year time windows](known-divergences.md#sqlite--pandas-reject-monthyear-time-windows) and the [framework support matrix](framework-support-matrix.md). The `order_by` column must be a timestamp.
 
 ### Cumulative
 
