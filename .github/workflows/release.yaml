@@ -132,6 +132,7 @@ jobs:
             "mloda-community-frame-aggregate"
             "mloda-community-scalar-aggregate"
             "mloda-community-scalar-arithmetic"
+            "mloda-community-point-arithmetic"
             "mloda-community-datetime"
             "mloda-community-string"
             "mloda-community-binning"

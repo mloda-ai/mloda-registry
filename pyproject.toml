@@ -109,6 +109,7 @@ members = [
     "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate",
     "mloda/community/feature_groups/data_operations/row_preserving/offset",
     "mloda/community/feature_groups/data_operations/row_preserving/percentile",
+    "mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic",
     "mloda/community/feature_groups/data_operations/row_preserving/rank",
     "mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate",
     "mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic",

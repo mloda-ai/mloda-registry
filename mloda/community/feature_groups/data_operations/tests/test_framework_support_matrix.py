@@ -214,6 +214,15 @@ OPERATIONS: list[OperationSpec] = [
         order_hint=("add", "subtract", "multiply", "divide"),
     ),
     OperationSpec(
+        key="point_arithmetic",
+        display="point_arithmetic",
+        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.tests",
+        base_module="mloda.testing.feature_groups.data_operations.row_preserving.point_arithmetic.point_arithmetic",
+        base_class="PointArithmeticTestBase",
+        subtype_label="op",
+        order_hint=("add", "subtract", "multiply", "divide"),
+    ),
+    OperationSpec(
         key="window_aggregation",
         display="window_aggregation",
         tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.tests",

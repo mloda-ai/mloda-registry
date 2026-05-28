@@ -15,7 +15,7 @@ Read them after you are comfortable with the [feature-group patterns](../feature
 5. [Binning](05-binning.md) - `bin` vs `qbin`, NTILE vs rank, NULL handling
 6. [Window aggregation](06-window-aggregation.md) - Partitioned aggregates broadcast per row
 7. [Percentile, rank, offset](07-percentile-rank-offset.md) - The analytic window family
-8. [Scalar aggregate, frame aggregate, and scalar arithmetic](08-scalar-and-frame-aggregate.md) - Global broadcast, rolling/expanding windows, and element-wise column-vs-constant arithmetic
+8. [Scalar aggregate, frame aggregate, scalar arithmetic, and point arithmetic](08-scalar-and-frame-aggregate.md) - Global broadcast, rolling/expanding windows, element-wise column-vs-constant arithmetic, and element-wise column-vs-column arithmetic
 9. [String operations](09-string-operations.md) - Element-wise string transforms
 10. [Adding a new data operation](10-adding-new-operation.md) - End-to-end recipe
 11. [Known divergences](known-divergences.md) - Audited cases where a framework would diverge from the PyArrow reference, with the mitigation for each

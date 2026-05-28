@@ -76,7 +76,7 @@ path = "mloda/enterprise/extenders/example"
 description = "Shared base classes for data operation feature groups"
 dependencies = ["mloda>=0.7.0"]
 path = "mloda/community/feature_groups/data_operations"
-optional_dependencies = { all = ["mloda-community-window-aggregation", "mloda-community-aggregation", "mloda-community-rank", "mloda-community-offset", "mloda-community-frame-aggregate", "mloda-community-scalar-aggregate", "mloda-community-scalar-arithmetic", "mloda-community-datetime", "mloda-community-string", "mloda-community-binning", "mloda-community-percentile"] }
+optional_dependencies = { all = ["mloda-community-window-aggregation", "mloda-community-aggregation", "mloda-community-rank", "mloda-community-offset", "mloda-community-frame-aggregate", "mloda-community-scalar-aggregate", "mloda-community-scalar-arithmetic", "mloda-community-point-arithmetic", "mloda-community-datetime", "mloda-community-string", "mloda-community-binning", "mloda-community-percentile"] }
 
 [packages.mloda-community-aggregation]
 description = "Aggregation feature group (reduce, partition_by, one row per group)"
@@ -118,6 +118,12 @@ optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"
 description = "Scalar arithmetic feature group (element-wise column op constant: add, subtract, multiply, divide)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic"
+optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+
+[packages.mloda-community-point-arithmetic]
+description = "Point arithmetic feature group (element-wise two-column op: add, subtract, multiply, divide; PyArrow-reference null/IEEE-754 semantics on divide-by-zero; SQLite returns NULL)"
+dependencies = ["mloda-community-data-operations>=0.2.12"]
+path = "mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
 
 [packages.mloda-community-datetime]
