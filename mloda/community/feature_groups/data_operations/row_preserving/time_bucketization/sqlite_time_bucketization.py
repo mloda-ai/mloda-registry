@@ -4,17 +4,29 @@ SQLite has no native timestamp type: timestamps are stored as TEXT in ISO
 8601 form (``2023-01-01 00:00:00+00:00`` for tz-aware input). Bucketization
 math is expressed with ``strftime`` / ``date`` / ``datetime`` / ``julianday``.
 
+Timezone restriction
+--------------------
+
+Only **UTC** and **naive** (no tz) sources are accepted. Non-UTC tz-aware
+sources are rejected up-front with a clear ``ValueError``: once a tz-aware
+Arrow timestamp is stored as TEXT the IANA zone name is lost and only the
+numeric offset survives, which is not enough to do DST-correct bucket math.
+For example, ``Europe/Berlin 2023-03-31 14:00+02:00`` floors to
+``2023-03-01 00:00+01:00`` in PyArrow (the March 1 offset, pre-DST), but a
+wall-clock-and-reattach strategy on the stored TEXT would produce
+``+02:00`` for the result. Rather than silently mis-compute, SQLite refuses
+the input and the caller is expected to convert to UTC before storing.
+
 Result-type fidelity
 --------------------
 
-The SQL emits tz-aware ISO 8601 strings directly: bucket math runs on the
-source-local wall-clock portion of the timestamp (the input with any
-``+HH:MM`` / ``-HH:MM`` suffix stripped), then the original tz suffix is
-concatenated back onto the result. The output column comes back from
-``to_arrow_table()`` as ``pa.string()`` -- there is no Python-side re-parse
-into ``pa.timestamp`` and no ``SqliteRelation`` subclass. Null sources
-propagate as ``NULL`` (Python ``None``) end-to-end, because SQLite's
-``NULL || anything`` is ``NULL``.
+The SQL emits ISO 8601 strings directly: bucket math runs on the wall-clock
+portion of the timestamp (UTC ``+00:00`` suffix stripped if present), then
+the original suffix is concatenated back onto the result. The output column
+comes back from ``to_arrow_table()`` as ``pa.string()`` -- there is no
+Python-side re-parse into ``pa.timestamp`` and no ``SqliteRelation``
+subclass. Null sources propagate as ``NULL`` (Python ``None``) end-to-end,
+because SQLite's ``NULL || anything`` is ``NULL``.
 
 Ordering
 --------
@@ -163,13 +175,20 @@ class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
 
     @classmethod
     def _assert_source_column_is_timestamp(cls, data: SqliteRelation, source_col: str) -> None:
-        """Reject non-timestamp source columns.
+        """Reject non-timestamp and non-UTC tz-aware source columns.
 
-        SQLite stores both string and timestamp arrow inputs as ``TEXT``,
-        so PRAGMA affinity alone is insufficient to distinguish them. We
-        additionally probe every non-null value via ``julianday(value)``:
-        a parseable timestamp returns a real number, anything else
-        returns NULL. An all-null column is accepted (no rows to validate).
+        Three checks, all required for correct SQLite bucketization:
+
+        1. Column must exist with a timestamp-like affinity (TEXT included,
+           since ``SqliteRelation.from_arrow`` maps Arrow timestamps to TEXT).
+        2. Every non-null value must parse via ``julianday``. SQLite's date
+           functions return NULL for unparsable input rather than raising,
+           so a LIMIT 1 probe would let later malformed rows slip past and
+           silently emit NULL at compute time.
+        3. No row may carry a non-UTC offset suffix. SQLite's TEXT storage
+           keeps the numeric ``+HH:MM`` but loses the IANA zone, which is
+           insufficient for DST-correct bucketization. UTC (``+00:00``)
+           and naive (no suffix) are accepted.
         """
         rows = data.connection.execute(f"PRAGMA table_info({quote_ident(data.table_name)})").fetchall()
         affinity_by_column = {row[1]: (row[2] or "").upper() for row in rows}
@@ -200,12 +219,39 @@ class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
         )
         cursor = data.connection.execute(probe_sql)
         row = cursor.fetchone()
-        if row is None:
-            return
-        (raw_value,) = row
-        cls._raise_non_timestamp_source(
-            source_col, f"SQLite affinity {affinity!r} (value {raw_value!r} does not parse as timestamp)"
+        if row is not None:
+            (raw_value,) = row
+            cls._raise_non_timestamp_source(
+                source_col, f"SQLite affinity {affinity!r} (value {raw_value!r} does not parse as timestamp)"
+            )
+
+        # Reject non-UTC tz-aware sources. SQLite stores tz-aware Arrow
+        # timestamps as ISO TEXT with a numeric ``+HH:MM`` / ``-HH:MM``
+        # suffix and loses the IANA zone name; without the zone we cannot
+        # do DST-correct floor / ceil / round (the result offset depends
+        # on the bucketed instant's offset, not the source row's offset).
+        # Accept ``+00:00`` (UTC) and naive (no suffix). For anything else
+        # we fail loudly rather than silently mis-compute across DST.
+        tz_probe_sql = (
+            f"SELECT {quoted_source} "  # nosec
+            f"FROM {quoted_table} "
+            f"WHERE {quoted_source} IS NOT NULL "
+            f"AND substr({quoted_source}, -6, 1) IN ('+', '-') "
+            f"AND substr({quoted_source}, -6) != '+00:00' "
+            f"LIMIT 1"
         )
+        cursor = data.connection.execute(tz_probe_sql)
+        row = cursor.fetchone()
+        if row is not None:
+            (raw_value,) = row
+            raise ValueError(
+                f"Source column {source_col!r} has a non-UTC timezone offset "
+                f"(sample value {raw_value!r}); SQLite stores tz-aware timestamps "
+                f"as TEXT with only the numeric offset, which is insufficient for "
+                f"DST-correct time bucketization. Convert the column to UTC before "
+                f"computing bucketization (or use a backend that preserves IANA "
+                f"timezones, e.g. PyArrow, Pandas, Polars, DuckDB)."
+            )
 
     @classmethod
     def _compute_bucket(

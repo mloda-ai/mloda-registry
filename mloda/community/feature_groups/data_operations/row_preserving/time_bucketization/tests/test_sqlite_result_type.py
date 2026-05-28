@@ -72,7 +72,17 @@ class TestSqliteResultTypeContract:
         values = result.to_arrow_table().column("timestamp__floor_1_day").to_pylist()
         assert values[0] == "2023-01-01 00:00:00+00:00"
 
-    def test_non_utc_tz_suffix_preserved(self) -> None:
+    def test_non_utc_tz_aware_rejected(self) -> None:
+        """Non-UTC tz-aware sources must be rejected up-front.
+
+        SQLite stores tz-aware Arrow timestamps as TEXT with only the
+        numeric ``+HH:MM`` offset, losing the IANA zone. Wall-clock floor
+        with the source row's offset reattached silently mis-computes
+        across DST transitions (e.g. ``Europe/Berlin 2023-03-31 14:00+02:00``
+        month-floor should yield ``2023-03-01 00:00+01:00`` per PyArrow,
+        but a stored-offset strategy would yield ``+02:00``). Refuse the
+        input instead of returning a subtly wrong result.
+        """
         tbl = pa.table(
             {
                 "timestamp": pa.array(
@@ -83,9 +93,30 @@ class TestSqliteResultTypeContract:
         )
         rel = SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
         fs = make_feature_set("timestamp__floor_1_day")
-        result = SqliteTimeBucketization().calculate_feature(rel, fs)
-        values = result.to_arrow_table().column("timestamp__floor_1_day").to_pylist()
-        assert values[0] == "2023-01-01 00:00:00+01:00"
+        with pytest.raises(ValueError, match=r"(?i)non-utc|timezone|tz"):
+            SqliteTimeBucketization().calculate_feature(rel, fs)
+
+    def test_dst_zone_month_floor_rejected(self) -> None:
+        """Direct regression for the DST-crossing month-floor bug.
+
+        ``Europe/Berlin 2023-03-31 12:00:00`` is stored as ``+02:00`` (CEST).
+        PyArrow floors the month to ``2023-03-01 00:00:00+01:00`` (CET).
+        A wall-clock floor with the source offset reattached would emit
+        ``+02:00`` -- a 1-hour error in UTC instant. Rejection at validation
+        is the correct response under SQLite's TEXT-only storage.
+        """
+        tbl = pa.table(
+            {
+                "timestamp": pa.array(
+                    [datetime(2023, 3, 31, 12, 0, 0)],
+                    type=pa.timestamp("us", tz="Europe/Berlin"),
+                ),
+            }
+        )
+        rel = SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
+        fs = make_feature_set("timestamp__floor_1_month")
+        with pytest.raises(ValueError, match=r"(?i)non-utc|timezone|tz"):
+            SqliteTimeBucketization().calculate_feature(rel, fs)
 
     def test_tz_naive_source(self) -> None:
         tbl = pa.table(
