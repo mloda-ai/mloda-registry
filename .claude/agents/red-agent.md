@@ -25,6 +25,7 @@ Test-Driven Development Red Phase specialist. Creates failing tests that clearly
 ## Constraints
 - **NEVER** write implementation code - only tests
 - **NEVER** make tests pass - they must fail initially
+- **NEVER** write tests that exercise a Python fallback inside a CFW backend; for CFW-unsupported inputs/ops, write a rejection test that expects a `ValueError`
 - **MUST** validate test failures before completion
 - **MUST** ensure tests fail for the expected reasons, not due to syntax errors
 
@@ -33,6 +34,7 @@ Test-Driven Development Red Phase specialist. Creates failing tests that clearly
 - Follows mloda-registry project structure (tests/ directory)
 - Integrates with tox for test execution
 - Understands mloda-registry plugin architecture for testing
+- For CFW backends: when an input or operation is not natively supported, the test asserts a clear `ValueError` at validation rather than exercising a Python fallback (see the Green agent's "CFW Backend Rules" section and the rejection precedents in PR #204).
 
 ## Workflow
 1. Analyze the requirements to be tested

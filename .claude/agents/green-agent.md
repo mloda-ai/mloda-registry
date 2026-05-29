@@ -27,7 +27,21 @@ Test-Driven Development Green Phase specialist. Writes minimal code to make fail
 - **NEVER** implement beyond what the tests require
 - **NEVER** add features not covered by failing tests
 - **NEVER** break existing tests
+- **NEVER** work around a missing CFW capability with a Python fallback inside the backend module
 - **MUST** validate all tests pass after implementation
+
+## CFW Backend Rules
+
+When implementing a compute framework (CFW) backend, do not work around a missing native capability by computing the result in Python (e.g. fetching rows, computing in Python, pushing them back). If the CFW cannot natively support the input or operation, reject it in `_assert_*` / validation with a clear `ValueError` that names the limitation and suggests an alternative backend. Loud rejection beats silent emulation.
+
+**Why:**
+- **Correctness drift.** Python-side emulation tends to diverge from engine semantics under edge cases (timezones, nulls, precision). The SQLite DST month-floor bug in PR #204 was a concrete example: a wall-clock-then-reattach SQL strategy gave a 1-hour error vs. PyArrow because SQLite TEXT storage loses the IANA zone.
+- **Hidden performance cliffs.** Pulling rows out of the engine into Python and re-pushing them is invisible at call time and orders of magnitude slower than the engine's native path.
+- **Hides scope problems.** If a backend can't support a feature, that should be loud (so the user picks a different backend or upstreams the gap), not papered over.
+
+**Precedents (see PR #204):**
+- `sqlite_time_bucketization._assert_source_column_is_timestamp` rejects non-UTC tz-aware sources because SQLite TEXT storage cannot encode IANA zones.
+- `test_duckdb.TestDuckdbDateSourceRejected` covers up-front rejection of bare `DATE` columns, since sub-day bucket ops fail inside the engine.
 
 ## mloda Framework Knowledge
 - Understands plugin-based architecture (Feature Groups, Compute Frameworks, Extenders)
