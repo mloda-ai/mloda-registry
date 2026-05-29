@@ -16,6 +16,7 @@ See also: [Create a compute framework plugin](../10-create-compute-framework.md)
 7. [Filter engine](07-filter-engine.md) - Filtering and conditional processing pipelines
 8. [Framework transformer](08-framework-transformer.md) - Cross-framework transformation and compatibility patterns
 9. [Testing guide](09-testing-guide.md) - Testing standards and validation approaches for compute frameworks
+10. [Data type extraction](10-data-type-extraction.md) - Mapping native column types to mloda `DataType`
 
 ## Related Guides
 
