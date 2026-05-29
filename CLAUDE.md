@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**Keep in sync:** `AGENTS.md` is a 1:1 copy of this file. When you change one, update the other so tool-agnostic agents and Claude see identical guidance.
+
 **Core mloda project:** https://github.com/mloda-ai/mloda | **Docs:** https://mloda-ai.github.io/mloda/
 
 **Skills available:**
