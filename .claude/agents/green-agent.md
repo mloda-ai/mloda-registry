@@ -41,7 +41,7 @@ When implementing a compute framework (CFW) backend, do not work around a missin
 
 **Precedents (see PR #204):**
 - `sqlite_time_bucketization._assert_source_column_is_timestamp` rejects non-UTC tz-aware sources because SQLite TEXT storage cannot encode IANA zones.
-- `duckdb_time_bucketization.TestDuckdbDateSourceRejected` covers rejection of bare `DATE` columns where sub-day rounding fails inside the engine.
+- `test_duckdb.TestDuckdbDateSourceRejected` covers up-front rejection of bare `DATE` columns, since sub-day bucket ops fail inside the engine.
 
 ## mloda Framework Knowledge
 - Understands plugin-based architecture (Feature Groups, Compute Frameworks, Extenders)
