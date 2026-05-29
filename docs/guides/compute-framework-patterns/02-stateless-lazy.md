@@ -51,6 +51,5 @@ def transform(self, data: Any, feature_names: set[str]) -> Any:
 - **Category 1**: Inherits base structure
 - **Merge Engine** (Concept 6): Lazy join operations
 - **Transformer** (Concept 8): Cross-framework conversion
-- **Data type extraction**: Implement `_extract_column_data_type()` from lazy schema metadata when it is available
-  without materializing data; see
-  [Create a Compute Framework Plugin](../10-create-compute-framework.md#column-data-type-extraction)
+- **Data type extraction** (Concept 10): Implement `_extract_column_data_type()` from lazy schema metadata when
+  it is available without materializing data; see [Data Type Extraction](10-data-type-extraction.md)

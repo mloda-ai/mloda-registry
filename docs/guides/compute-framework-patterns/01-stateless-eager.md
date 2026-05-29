@@ -81,5 +81,5 @@ def test_my_eager_framework():
 - **Merge Engine** (Concept 6): Join operations
 - **Filter Engine** (Concept 7): Filter operations
 - **Transformer** (Concept 8): Cross-framework conversion
-- **Data type extraction**: Implement `_extract_column_data_type()` when native column types are available; see
-  [Create a Compute Framework Plugin](../10-create-compute-framework.md#column-data-type-extraction)
+- **Data type extraction** (Concept 10): Implement `_extract_column_data_type()` when native column types are
+  available; see [Data Type Extraction](10-data-type-extraction.md)
