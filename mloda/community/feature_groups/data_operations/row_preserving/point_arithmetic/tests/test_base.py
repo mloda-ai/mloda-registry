@@ -261,6 +261,83 @@ class TestUnorderedInFeaturesRejected:
             PointArithmeticFeatureGroup._extract_source_features(feature)
 
 
+class TestMalformedInFeaturesShapeRejectedAtMatch:
+    """Unordered ``in_features`` must fail to match, not match-then-fail-late.
+
+    ``in_features`` carries a ``type_validator`` that only accepts ordered
+    containers (list/tuple). A hashable but unordered collection (frozenset)
+    must therefore cause ``match_feature_group_criteria`` to return False up
+    front, since operand order is significant for subtract/divide; before the
+    validator was added it matched as True. A valid ordered list must still
+    match (control).
+
+    A mapping (dict) is intentionally not asserted here: an unhashable value
+    raises ``TypeError`` inside the core property-mapping parser before the
+    ``type_validator`` runs, independently of this feature group. The mapping
+    case is pinned at the extract layer instead (see
+    ``TestNonOrderedInFeaturesRejectedOnExtract``).
+    """
+
+    def test_match_rejects_unordered_frozenset_in_features(self) -> None:
+        options = Options(
+            context={
+                "arithmetic_op": "subtract",
+                "in_features": frozenset({"value_int", "amount"}),
+            }
+        )
+        result = PointArithmeticFeatureGroup.match_feature_group_criteria("my_diff", options, None)
+        assert result is False
+
+    def test_match_accepts_ordered_list_in_features(self) -> None:
+        options = Options(
+            context={
+                "arithmetic_op": "subtract",
+                "in_features": ["value_int", "amount"],
+            }
+        )
+        result = PointArithmeticFeatureGroup.match_feature_group_criteria("my_diff", options, None)
+        assert result is True
+
+
+class TestNonOrderedInFeaturesRejectedOnExtract:
+    """The ``_extract_source_features`` fallback must match its own error message.
+
+    Its message promises an "ordered list or tuple"; arbitrary iterables and
+    mappings (dict, generator) must therefore raise ValueError rather than
+    being silently iterated, defending the contract at compute time.
+    """
+
+    def test_extract_source_features_rejects_mapping(self) -> None:
+        feature = Feature(
+            "my_result",
+            options=Options(
+                context={
+                    "arithmetic_op": "subtract",
+                    "in_features": {"value_int": 1, "amount": 2},
+                }
+            ),
+        )
+        with pytest.raises(ValueError, match="ordered list or tuple"):
+            PointArithmeticFeatureGroup._extract_source_features(feature)
+
+    def test_extract_source_features_rejects_generator(self) -> None:
+        def gen() -> Any:
+            yield "value_int"
+            yield "amount"
+
+        feature = Feature(
+            "my_result",
+            options=Options(
+                context={
+                    "arithmetic_op": "subtract",
+                    "in_features": gen(),
+                }
+            ),
+        )
+        with pytest.raises(ValueError, match="ordered list or tuple"):
+            PointArithmeticFeatureGroup._extract_source_features(feature)
+
+
 class TestPointArithmeticMatchValidation(MatchValidationTestBase):
     """Shared match-validation tests adapted for point arithmetic."""
 
