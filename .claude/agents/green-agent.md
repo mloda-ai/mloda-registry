@@ -39,9 +39,9 @@ When implementing a compute framework (CFW) backend, do not work around a missin
 - **Hidden performance cliffs.** Pulling rows out of the engine into Python and re-pushing them is invisible at call time and orders of magnitude slower than the engine's native path.
 - **Hides scope problems.** If a backend can't support a feature, that should be loud (so the user picks a different backend or upstreams the gap), not papered over.
 
-**Precedents (see PR #204):**
-- `sqlite_time_bucketization._assert_source_column_is_timestamp` rejects non-UTC tz-aware sources because SQLite TEXT storage cannot encode IANA zones.
-- `test_duckdb.TestDuckdbDateSourceRejected` covers up-front rejection of bare `DATE` columns, since sub-day bucket ops fail inside the engine.
+**Precedents:**
+- `sqlite_time_bucketization._assert_source_column_is_timestamp` (`mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/sqlite_time_bucketization.py`) rejects non-UTC tz-aware sources because SQLite TEXT storage cannot encode IANA zones.
+- `test_duckdb.TestDuckdbDateSourceRejected` (`mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_duckdb.py`) covers up-front rejection of bare `DATE` columns, since sub-day bucket ops fail inside the engine.
 
 ## mloda Framework Knowledge
 - Understands plugin-based architecture (Feature Groups, Compute Frameworks, Extenders)
