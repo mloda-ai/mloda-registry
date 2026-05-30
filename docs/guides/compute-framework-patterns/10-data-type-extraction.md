@@ -90,3 +90,48 @@ def _extract_column_data_type(self, data: Any, column_name: str) -> DataType | N
 
     return None
 ```
+
+## Validation and Mismatches
+
+After a feature is computed, mloda's `DataTypeValidator` compares the feature's declared
+`data_type` (from `return_data_type_rule()`) against the type your hook reports for the produced
+column. Validation is **skipped** whenever the feature declares no `data_type` or your hook returns
+`None`, so a framework that never overrides the hook silently performs no enforcement.
+
+When both types are present, a mismatch raises `DataTypeMismatchError`:
+
+```text
+Feature 'price': declared STRING, got INT64, coercion not supported
+```
+
+Compatibility is checked in one of two modes, selected per run via `strict_type_enforcement` on
+`mloda.run_all` (default `False`):
+
+| Mode | Flag | Rule |
+|------|------|------|
+| Lenient (default) | `strict_type_enforcement=False` | Any numeric type (`INT32`, `INT64`, `FLOAT`, `DOUBLE`) is interchangeable with any other numeric type; any timestamp type is interchangeable with any other timestamp type; every other type must match exactly. |
+| Strict | `strict_type_enforcement=True` | Only safe widening is allowed — a declared type accepts a narrower actual type: declared `INT64` accepts actual `INT32`; declared `DOUBLE` accepts actual `INT32`/`INT64`/`FLOAT`; declared `TIMESTAMP_MICROS` accepts actual `TIMESTAMP_MILLIS`. Every other pairing, including narrowing, must match exactly. |
+
+### Worked Example
+
+A feature declares `DataType.INT32` and the framework produces a `DOUBLE` column:
+
+```python
+result = mloda.run_all(features)                              # lenient: INT32 vs DOUBLE → OK (both numeric)
+result = mloda.run_all(features, strict_type_enforcement=True)  # strict: DOUBLE is a narrowing of INT32 → DataTypeMismatchError
+```
+
+Because your hook is the only thing that reports the *actual* produced type, returning an accurate
+`DataType` is what makes strict end-to-end enforcement possible; returning `None` opts the column out
+of the check entirely.
+
+## Real Implementations
+
+| File | Description |
+|------|-------------|
+| [compute_framework.py](https://github.com/mloda-ai/mloda/blob/main/mloda/core/abstract_plugins/compute_framework.py) | `_extract_column_data_type` hook + `run_validate_output_features` |
+| [datatype_validator.py](https://github.com/mloda-ai/mloda/blob/main/mloda/core/abstract_plugins/components/validators/datatype_validator.py) | `DataTypeValidator`, `DataTypeMismatchError`, strict/lenient rules |
+| [python_dict_framework.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/compute_framework/base_implementations/python_dict/python_dict_framework.py) | Canonical minimal `_extract_column_data_type` override |
+
+See the companion core-docs ticket [mloda-ai/mloda#465](https://github.com/mloda-ai/mloda/issues/465)
+for the conceptual reference on the hook and `return_data_type_rule` enforcement.
