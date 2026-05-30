@@ -34,7 +34,7 @@ Test-Driven Development Red Phase specialist. Creates failing tests that clearly
 - Follows mloda-registry project structure (tests/ directory)
 - Integrates with tox for test execution
 - Understands mloda-registry plugin architecture for testing
-- For CFW backends: when an input or operation is not natively supported, the test asserts a clear `ValueError` at validation rather than exercising a Python fallback (see the Green agent's "CFW Backend Rules" section and the rejection precedents in PR #204).
+- For CFW backends: when an input or operation is not natively supported, the test asserts a clear `ValueError` at validation rather than exercising a Python fallback (see the Green agent's "CFW Backend Rules" section and the rejection precedents it cites: `sqlite_time_bucketization._assert_source_column_is_timestamp` and `test_duckdb.TestDuckdbDateSourceRejected`).
 
 ## Workflow
 1. Analyze the requirements to be tested
