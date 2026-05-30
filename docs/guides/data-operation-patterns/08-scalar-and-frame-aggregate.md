@@ -1,12 +1,12 @@
-# Scalar Aggregate, Frame Aggregate, and Scalar Arithmetic
+# Scalar Aggregate, Frame Aggregate, Scalar Arithmetic, and Point Arithmetic
 
-Three row-preserving single-column families. Scalar aggregate broadcasts one value across the whole table. Frame aggregate broadcasts a value computed over a bounded window (rolling, time-window, cumulative, or expanding). Scalar arithmetic combines each value with a numeric constant element-wise.
+Four row-preserving single-column-or-pair families. Scalar aggregate broadcasts one value across the whole table. Frame aggregate broadcasts a value computed over a bounded window (rolling, time-window, cumulative, or expanding). Scalar arithmetic combines each value with a numeric constant element-wise. Point arithmetic combines two source columns element-wise.
 
-**What**: `ScalarAggregateFeatureGroup`, `FrameAggregateFeatureGroup`, and `ScalarArithmeticFeatureGroup` compute single-column transforms without reducing rows.
-**When**: You need a reference value on every row (scalar), a moving aggregate (frame), or a per-row arithmetic combination with a constant (scalar arithmetic).
-**Why**: All three preserve row count, which lets them chain with other row-preserving ops. The group-reducing variant lives in `aggregation/` and is covered separately.
-**Where**: `mloda/community/feature_groups/data_operations/row_preserving/{scalar_aggregate,frame_aggregate,scalar_arithmetic}/`.
-**How**: Encode the operation in the feature name. Aggregate variants also encode the window kind and size; scalar arithmetic carries the constant in `Options(context={"constant": <number>})`.
+**What**: `ScalarAggregateFeatureGroup`, `FrameAggregateFeatureGroup`, `ScalarArithmeticFeatureGroup`, and `PointArithmeticFeatureGroup` compute single-column-or-pair transforms without reducing rows.
+**When**: You need a reference value on every row (scalar), a moving aggregate (frame), a per-row arithmetic combination with a constant (scalar arithmetic), or a per-row arithmetic combination between two columns (point arithmetic).
+**Why**: All four preserve row count, which lets them chain with other row-preserving ops. The group-reducing variant lives in `aggregation/` and is covered separately.
+**Where**: `mloda/community/feature_groups/data_operations/row_preserving/{scalar_aggregate,frame_aggregate,scalar_arithmetic,point_arithmetic}/`.
+**How**: Encode the operation in the feature name. Aggregate variants also encode the window kind and size; scalar arithmetic carries the constant in `Options(context={"constant": <number>})`; point arithmetic uses the `&` separator to name two source columns.
 
 ---
 
@@ -61,6 +61,43 @@ Scalar arithmetic does **not** accept the `mask` option in this initial cut; the
 
 ---
 
+## Point arithmetic
+
+Pattern: `{col_a}&{col_b}__{op}_point` (regex `r".*__([\w]+)_point$"`).
+
+Each row gets `col_a {op} col_b`. Null in either source propagates to the result. Exactly two source columns (`MIN_IN_FEATURES = MAX_IN_FEATURES = 2`); the `&` between column names is mloda's standard `INPUT_SEPARATOR` for multi-source feature names (the same one used by chained patterns like `point1&point2__haversine_distance`).
+
+```python
+from mloda.user import Feature, Options, PluginLoader, mloda
+
+PluginLoader.all()
+
+# String form: parsed via mloda's chain parser
+f1 = Feature("value_int&amount__add_point")
+
+# Option-based form: feature name is arbitrary
+f2 = Feature(
+    "my_diff",
+    Options(
+        context={
+            "arithmetic_op": "subtract",
+            "in_features": ["value_int", "amount"],
+        }
+    ),
+)
+```
+
+Supported operations are `add`, `subtract`, `multiply`, and `divide`. Both source columns must be numeric; passing a string or boolean column raises `ValueError` at validation. The error names the offending column. Missing source columns are rejected with a `ValueError` naming the missing column.
+
+Type semantics across backends:
+
+- `add`, `subtract`, `multiply`: each backend's native operator is used. Integer + integer stays integer; mixed int/float promotes to float on every backend.
+- `divide`: both operands are cast to float (`float64` on PyArrow, `DOUBLE` on DuckDB, `REAL` on SQLite). Per-row divide-by-zero is allowed, with the contract that PyArrow / Pandas / Polars lazy / DuckDB return IEEE-754 `inf` / `-inf` / `NaN` and propagate `null` from null operands. **SQLite returns `NULL` for any divide-by-zero**, because SQLite has no native IEEE-754 inf/nan storage; this is documented as a known divergence in [Known divergences](known-divergences.md). The cross-framework test base exposes `divide_zero_propagates_inf()` so the SQLite test class can override the expectation to `NULL` and the other backends inherit the `inf` expectation.
+
+Point arithmetic does **not** accept the `mask` option in this initial cut, for parity with scalar arithmetic.
+
+---
+
 ## Frame aggregate
 
 Frame aggregate supports four window kinds. The feature name encodes which kind and its size.
@@ -109,19 +146,20 @@ All frame-aggregate variants accept:
 
 ---
 
-## Scalar vs scalar arithmetic vs frame vs window vs aggregation
+## Scalar vs scalar arithmetic vs point arithmetic vs frame vs window vs aggregation
 
-Five nearby concepts; easy to mix up.
+Six nearby concepts; easy to mix up.
 
 | Feature group | Pattern suffix | Row behavior | Scope |
 |---|---|---|---|
 | Scalar aggregate | `_scalar` | Preserves (broadcasts one value globally) | Whole table |
 | Scalar arithmetic | `_constant` | Preserves (per-row source `op` constant) | Each row independently |
+| Point arithmetic | `_point` | Preserves (per-row col_a `op` col_b) | Each row independently |
 | Window aggregation | `_window` | Preserves (broadcasts per partition) | Partition |
 | Frame aggregate | `_rolling_N`, `_{size}_{unit}_window`, `cum*`, `expanding_*` | Preserves (broadcasts per bounded window) | Row-relative window |
 | Aggregation | `_agg` | Reduces to one row per group | Partition |
 
-Pick by what your downstream step needs: same row count and a reference value (scalar), same row count with an element-wise arithmetic adjustment by a constant (scalar arithmetic), same row count and per-partition context (window), same row count with a moving window (frame), or a collapsed group-by table (aggregation).
+Pick by what your downstream step needs: same row count and a reference value (scalar), same row count with an element-wise arithmetic adjustment by a constant (scalar arithmetic) or by another column (point arithmetic), same row count and per-partition context (window), same row count with a moving window (frame), or a collapsed group-by table (aggregation).
 
 ---
 

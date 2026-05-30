@@ -6,7 +6,7 @@ End-to-end recipe for introducing a new data operation: base class, framework im
 **When**: You want a declarative transform that behaves identically on PyArrow, Pandas, Polars, DuckDB, and SQLite.
 **Why**: The existing pattern enforces the row-preserving contract, reference-implementation comparison, and supported-ops skipping for free. Following it gets you coverage without reinventing test harnesses.
 **Where**: Code in `mloda/community/feature_groups/data_operations/{your_category}/`, test bases in `mloda/testing/feature_groups/data_operations/{your_category}/`.
-**How**: Follow the seven steps below in order. Every existing category (binning, window_aggregation, rank, offset, percentile, scalar_aggregate, scalar_arithmetic, frame_aggregate, string, aggregation) was built the same way.
+**How**: Follow the seven steps below in order. Every existing category (binning, window_aggregation, rank, offset, percentile, scalar_aggregate, scalar_arithmetic, point_arithmetic, frame_aggregate, string, aggregation) was built the same way.
 
 ---
 

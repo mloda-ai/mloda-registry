@@ -57,6 +57,17 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 - **How**: Both frameworks explicitly rank candidate values by `(count desc, first_occurrence_index asc)` and take the head. The Polars Lazy implementation stays inside the lazy / vectorised path: it adds per-`(partition, value)` count and first-index columns via `.over()`, then uses `sort_by([cnt, first_idx], descending=[True, False], maintain_order=True).first()` (no Python callback). On Pandas this is a single vectorized groupby over `(partition_by, value)` that aggregates count and first-occurrence index, avoiding a per-group Python reducer.
 - **Regression signal**: The canonical fixture has values that tie; mode tests compare against the PyArrow reference via `_compare_with_reference`.
 
+### SQLite divide-by-zero returns NULL instead of IEEE-754 inf/nan
+
+- **Operations**: `point_arithmetic` (`divide` op).
+- **Where it lives**: `mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/sqlite_point_arithmetic.py`.
+- **Reference behavior**: PyArrow's `pc.divide` on float64 operands returns IEEE-754 `inf` / `-inf` for `N/0` (sign of `N`) and `NaN` for `0/0`. Pandas, Polars lazy, and DuckDB all match this when both operands are cast to float / DOUBLE.
+- **Native SQLite behavior**: `CAST(a AS REAL) / CAST(b AS REAL)` returns `NULL` for any divide-by-zero or null operand. SQLite has no native IEEE-754 inf/nan storage; the engine substitutes `NULL` for results that would otherwise be a non-finite float.
+- **Mitigation kind**: Accepted divergence (no mitigation attempted; the contract is documented and the test base accommodates both behaviors).
+- **How**: `PointArithmeticTestBase.divide_zero_propagates_inf()` is `True` by default. `TestSqlitePointArithmetic` overrides it to `False`, so the cross-framework divide-by-zero row at index 5 of the canonical fixture (`value_int=50, amount=0.0`) is asserted as `inf` on the four other backends and `None` on SQLite. Forcing SQLite into inf-emitting behavior would require an out-of-band float library; the cost outweighs the benefit for an operation whose primary callers will pick a non-SQLite backend when they need IEEE-754 semantics anyway.
+- **Regression signal**: `TestDivideByZeroPerRow.test_sqlite_divide_by_zero_returns_null` in `mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_security.py` pins the SQLite-specific `NULL` expectation; the corresponding four backends pin `inf`/`-inf`/`nan` per the truth table. If a future SQLite implementation begins returning a different non-NULL value, the assertion fails.
+- **Scope note**: `scalar_arithmetic` does not appear here because its divisor is a validated `Options` constant; `divide_by_zero` is rejected up front before dispatch reaches any backend, so the per-row divergence cannot arise there.
+
 ### SQLite `UPPER`/`LOWER` are ASCII-only; no native `REVERSE`
 
 - **Operations**: `string` (`upper`, `lower`, `reverse`).
@@ -89,7 +100,7 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 
 ### Reserved `__mloda_` prefix for internal helper columns
 
-- **Operations**: `aggregation` (Polars Lazy), `binning` (DuckDB, SQLite), `datetime` (SQLite), `frame_aggregate` (all frameworks), `offset` (all frameworks), `percentile` (Polars Lazy), `rank` (DuckDB, Polars Lazy, SQLite), `scalar_aggregate` (Polars Lazy), `scalar_arithmetic` (all frameworks; applied at the base class for cross-backend consistency even though no implementation currently adds helper columns), `string` (SQLite), `window_aggregation` (all frameworks).
+- **Operations**: `aggregation` (Polars Lazy), `binning` (DuckDB, SQLite), `datetime` (SQLite), `frame_aggregate` (all frameworks), `offset` (all frameworks), `percentile` (Polars Lazy), `point_arithmetic` (all frameworks; applied at the base class for cross-backend consistency even though no implementation currently adds helper columns), `rank` (DuckDB, Polars Lazy, SQLite), `scalar_aggregate` (Polars Lazy), `scalar_arithmetic` (all frameworks; applied at the base class for cross-backend consistency even though no implementation currently adds helper columns), `string` (SQLite), `window_aggregation` (all frameworks).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/reserved_columns.py` defines `RESERVED_PREFIX = "__mloda_"` and the `assert_no_reserved_columns()` validator. Each guarded implementation calls it as the first statement of its `_compute_*` method.
 - **Reference behavior**: PyArrow's reference implementation does not need helper columns and is silent about column names starting with `__mloda_`.
 - **Native framework behavior**: Several row-preserving implementations add an internal helper column (for example `__mloda_rn__` to record original row order before a reordering window function). The helper name is hardcoded. If an input already carries a column with the same name, the helper would either overwrite user data or be dropped together with the helper at the end of the method, all without a diagnostic.
@@ -141,9 +152,9 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 
 ---
 
-## Audit coverage (2026-04-13)
+## Audit coverage (2026-05-28)
 
-The full audit covered all eleven data operations: `binning`, `datetime`, `frame_aggregate`, `offset`, `percentile`, `rank`, `scalar_aggregate`, `scalar_arithmetic`, `window_aggregation`, `aggregation`, `string`. Every implementation file and every `*TestBase` was read.
+The full audit covered all twelve data operations: `binning`, `datetime`, `frame_aggregate`, `offset`, `percentile`, `point_arithmetic`, `rank`, `scalar_aggregate`, `scalar_arithmetic`, `window_aggregation`, `aggregation`, `string`. Every implementation file and every `*TestBase` was read.
 
 | Operation | Frameworks audited | New divergence found? |
 |---|---|---|
@@ -153,13 +164,14 @@ The full audit covered all eleven data operations: `binning`, `datetime`, `frame
 | frame_aggregate | Pandas, Polars lazy, DuckDB, SQLite | No |
 | offset | Pandas, Polars lazy, DuckDB, SQLite | No |
 | percentile | Pandas, Polars lazy, DuckDB | No (float tolerance already accepted) |
+| point_arithmetic | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | Yes — SQLite divide-by-zero returns NULL instead of inf/nan (documented as accepted divergence above) |
 | rank | Pandas, Polars lazy, DuckDB, SQLite | No (all mitigated above) |
 | scalar_aggregate | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | No |
 | scalar_arithmetic | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | No (PyArrow int÷int truncation mitigated by explicit float cast) |
 | string | PyArrow, Pandas, Polars lazy, DuckDB, SQLite | No (SQLite ASCII mitigated) |
 | window_aggregation | Pandas, Polars lazy, DuckDB, SQLite | No (all mitigated above) |
 
-No unmitigated divergences were found. The `expected_*()` hooks defined on `StringTestBase` (`expected_upper`, `expected_lower`, `expected_trim`, `expected_length`, `expected_reverse`) are present for future use but are not currently overridden by any framework: after #147, SQLite no longer matches the unicode-unsafe ops instead of returning a divergent result.
+One unmitigated divergence is documented above (SQLite `point_arithmetic` divide-by-zero), with a per-backend test hook (`divide_zero_propagates_inf()`) so the cross-framework regression guard pins the expected behavior on each backend. The `expected_*()` hooks defined on `StringTestBase` (`expected_upper`, `expected_lower`, `expected_trim`, `expected_length`, `expected_reverse`) are present for future use but are not currently overridden by any framework: after #147, SQLite no longer matches the unicode-unsafe ops instead of returning a divergent result.
 
 ---
 
