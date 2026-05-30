@@ -17,6 +17,10 @@ class TestSqliteWindowAggregation(SqliteTestMixin, WindowAggregationTestBase):
     """All tests inherited from the base class."""
 
     @classmethod
+    def reserved_columns_enforced(cls) -> bool:
+        return False
+
+    @classmethod
     def supported_agg_types(cls) -> set[str]:
         return {"sum", "avg", "count", "min", "max"}
 

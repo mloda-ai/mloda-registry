@@ -7,11 +7,11 @@ from typing import Any
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_window import Unbounded, WindowFrame
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
@@ -37,8 +37,6 @@ _DUCKDB_AGG_FUNCS: dict[str, str] = {
     "last": "LAST_VALUE",
 }
 
-_RN_COL = "__mloda_rn__"
-
 
 class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
     @classmethod
@@ -56,22 +54,19 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         order_by: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> DuckdbRelation:
-        assert_no_reserved_columns(data.columns, framework="DuckDB", operation="window aggregation")
-
         # Safety: the projection string is composed entirely from quote_ident()-quoted
         # identifiers and hardcoded SQL function names from _DUCKDB_AGG_FUNCS. No
         # user-controlled strings are interpolated without quoting.
         quoted_source = quote_ident(source_col)
-        quoted_feature = quote_ident(feature_name)
-        partition_clause = ", ".join(quote_ident(col) for col in partition_by)
 
         source_sql = quoted_source
         if mask_spec is not None:
             source_sql = build_sql_case_when(mask_spec, quoted_source)
 
         if agg_type == "nunique":
-            raw_sql = f"*, COUNT(DISTINCT {source_sql}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}"
-            result: DuckdbRelation = data.project(raw_sql)
+            result: DuckdbRelation = data.window(
+                f"COUNT(DISTINCT {source_sql})", feature_name, partition_by=partition_by
+            )
             return result
 
         if agg_type in ("first", "last"):
@@ -80,8 +75,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         agg_func = _DUCKDB_AGG_FUNCS.get(agg_type)
         if agg_func is None:
             raise unsupported_agg_type_error(agg_type, _DUCKDB_AGG_FUNCS.keys(), framework="DuckDB")
-        raw_sql = f"*, {agg_func}({source_sql}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature}"
-        result = data.project(raw_sql)
+        result = data.window(f"{agg_func}({source_sql})", feature_name, partition_by=partition_by)
         return result
 
     @classmethod
@@ -99,26 +93,25 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         LAST_VALUE return the current row instead of the partition-wide
         last. Explicit UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING restores
         full-partition visibility to match PyArrow group_by().aggregate()."""
-        quoted_feature = quote_ident(feature_name)
-        partition_clause = ", ".join(quote_ident(col) for col in partition_by)
-        qrn = quote_ident(_RN_COL)
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+        qrn = quote_ident(rn)
         agg_func = _DUCKDB_AGG_FUNCS[agg_type]
 
-        order_clause = f"ORDER BY {quote_ident(order_by)}" if order_by else ""
-
         # Step 1: tag rows with their original position
-        rel = data.project(f"*, ROW_NUMBER() OVER () AS {qrn}")
+        rel = data.with_row_number(rn)
 
         # Step 2: compute with full frame and ORDER BY for deterministic results
-        rel = rel.project(
-            f"*, {agg_func}({source_sql} IGNORE NULLS) "
-            f"OVER (PARTITION BY {partition_clause} {order_clause} "
-            f"ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS {quoted_feature}"
+        rel = rel.window(
+            f"{agg_func}({source_sql} IGNORE NULLS)",
+            feature_name,
+            partition_by=partition_by,
+            order_by=([order_by] if order_by else ()),
+            frame=WindowFrame("rows", Unbounded(), Unbounded()),
         )
 
         # Step 3: restore original row order, drop helper column
         rel = rel.order(qrn)
-        keep = ", ".join(quote_ident(c) for c in rel.columns if c != _RN_COL)
+        keep = ", ".join(quote_ident(c) for c in rel.columns if c != rn)
         rel = rel.project(keep)
 
         return rel

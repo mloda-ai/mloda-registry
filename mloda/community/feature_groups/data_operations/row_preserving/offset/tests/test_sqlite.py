@@ -13,5 +13,9 @@ from mloda.testing.feature_groups.data_operations.row_preserving.offset.offset i
 
 class TestSqliteOffset(SqliteTestMixin, OffsetTestBase):
     @classmethod
+    def reserved_columns_enforced(cls) -> bool:
+        return False
+
+    @classmethod
     def implementation_class(cls) -> Any:
         return SqliteOffset

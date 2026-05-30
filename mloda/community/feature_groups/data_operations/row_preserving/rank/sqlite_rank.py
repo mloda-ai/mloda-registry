@@ -6,11 +6,11 @@ from __future__ import annotations
 import pyarrow as pa
 
 from mloda.provider import ComputeFramework
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_window import OrderBy
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
@@ -63,54 +63,51 @@ class SqliteRank(RankFeatureGroup):
         order_by: str,
         rank_type: str,
     ) -> SqliteRelation:
-        assert_no_reserved_columns(data.columns, framework="SQLite", operation="rank")
+        # NullPolicy.NULLS_LAST: ``OrderBy(order_by, nulls="last")`` renders
+        # ``ORDER BY ... NULLS LAST``, equivalent to the old
+        # ``CASE WHEN order IS NULL THEN 1 ELSE 0 END, order`` sort key.
+        original_cols = list(data.columns)
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+        rel = data.with_row_number(rn, order_by=["rowid"])
 
-        quoted_order = quote_ident(order_by)
-        quoted_feature = quote_ident(feature_name)
-        partition_clause = ", ".join(quote_ident(col) for col in partition_by)
-        qrn = quote_ident("__mloda_rn__")
-
-        # NullPolicy.NULLS_LAST: add CASE WHEN to ORDER BY
-        null_sort = f"CASE WHEN {quoted_order} IS NULL THEN 1 ELSE 0 END"
-        order_clause = f"{null_sort}, {quoted_order}"
-
-        if rank_type.startswith("ntile_"):
-            ntile_n = int(rank_type[len("ntile_") :])
-            rank_expr = f"NTILE({ntile_n})"
-        elif rank_type.startswith(("top_", "bottom_")):
+        if rank_type.startswith(("top_", "bottom_")):
+            # The window result is wrapped in a boolean comparison, so compute
+            # ROW_NUMBER() into a helper column, then apply the wrapper via a raw
+            # projection (Pattern W). ``descending`` follows the top/bottom direction.
             is_top = rank_type.startswith("top_")
             prefix = "top_" if is_top else "bottom_"
             n_val = int(rank_type[len(prefix) :])
-            direction = "DESC" if is_top else "ASC"
-            top_bottom_order = f"{null_sort}, {quoted_order} {direction}"
-            rank_expr = f"(ROW_NUMBER() OVER (PARTITION BY {partition_clause} ORDER BY {top_bottom_order}) <= {n_val})"
-        else:
-            rank_func = _SQLITE_RANK_FUNCS.get(rank_type)
-            if rank_func is None:
-                raise ValueError(f"Unsupported rank type for SQLite: {rank_type}")
-            rank_expr = rank_func
-
-        # Safety: all identifiers use quote_ident(), rank_expr from whitelist
-        if rank_type.startswith(("top_", "bottom_")):
-            # rank_expr already contains full window expression with boolean comparison
-            sql = (
-                f"SELECT {rank_expr} AS {quoted_feature}, "  # nosec
-                f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn} "
-                f"FROM {quote_ident(data.table_name)} ORDER BY {qrn}"
+            helper = pick_helper_column_name(taken=set(data.columns) | {feature_name, rn})
+            rel = rel.window(
+                "ROW_NUMBER()",
+                helper,
+                partition_by=partition_by,
+                order_by=[OrderBy(order_by, descending=is_top, nulls="last")],
             )
-        else:
-            sql = (
-                f"SELECT {rank_expr} OVER "  # nosec
-                f"(PARTITION BY {partition_clause} ORDER BY {order_clause}) AS {quoted_feature}, "
-                f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn} "
-                f"FROM {quote_ident(data.table_name)} ORDER BY {qrn}"
+            qhelper = quote_ident(helper)
+            proj = (
+                ", ".join(quote_ident(c) for c in original_cols)
+                + f", {quote_ident(rn)}, ({qhelper} <= {n_val}) AS {quote_ident(feature_name)}"
             )
-        cursor = data.connection.execute(sql)
-        rows = cursor.fetchall()
-
-        result_values = [row[0] for row in rows]
-        result = data.append_column(feature_name, result_values)
-
-        if rank_type.startswith(("top_", "bottom_")):
+            rel = rel.select(_raw_sql=proj)
+            rel = rel.order(rn)
+            result = rel.select(*original_cols, feature_name)
             return _BoolCastRelation(result, {feature_name})
-        return result
+
+        if rank_type.startswith("ntile_"):
+            ntile_n = int(rank_type[len("ntile_") :])
+            rank_func = f"NTILE({ntile_n})"
+        else:
+            standard_func = _SQLITE_RANK_FUNCS.get(rank_type)
+            if standard_func is None:
+                raise ValueError(f"Unsupported rank type for SQLite: {rank_type}")
+            rank_func = standard_func
+
+        rel = rel.window(
+            rank_func,
+            feature_name,
+            partition_by=partition_by,
+            order_by=[OrderBy(order_by, nulls="last")],
+        )
+        rel = rel.order(rn)
+        return rel.select(*original_cols, feature_name)

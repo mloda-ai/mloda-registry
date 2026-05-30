@@ -47,25 +47,25 @@ Two assertions, one invariant:
 
 ## The DuckDB NTILE workaround
 
-DuckDB's `NTILE()` window function requires an `ORDER BY` clause and emits rows in that order, not in input order. PyArrow's rank-based `qbin` assigns labels by index and preserves the original sequence. To make the two match, DuckDB tags each input row with `ROW_NUMBER() OVER ()` before the window runs, then re-sorts on that column to restore the original sequence.
+DuckDB's `NTILE()` window function requires an `ORDER BY` clause and emits rows in that order, not in input order. PyArrow's rank-based `qbin` assigns labels by index and preserves the original sequence. To make the two match, DuckDB tags each input row with a row-number column before the window runs, then re-sorts on that column to restore the original sequence.
 
-From `mloda/community/feature_groups/data_operations/row_preserving/binning/duckdb_binning.py`:
+The SQL plugins use the typed `DuckdbRelation` / `SqliteRelation` API (`with_row_number`, `window`) rather than hand-written `OVER (...)` strings, and choose a collision-free helper-column name at runtime with `pick_helper_column_name`. From `mloda/community/feature_groups/data_operations/row_preserving/binning/duckdb_binning.py`:
 
 ```python
 # PyArrow parity: PyArrow _quantile_bin() assigns bins via index
 # mapping and naturally preserves row order. DuckDB NTILE()
-# reorders rows via ORDER BY; tag positions with ROW_NUMBER()
-# and restore via .order() to match PyArrow output.
-qrn = quote_ident("__mloda_rn__")
-with_rn   = data.project(f"*, ROW_NUMBER() OVER () AS {qrn}")
-with_qbin = with_rn.project(f"*, {expr} AS {quoted_feature}")
-sorted_rel = with_qbin.order(qrn)
-# drop __mloda_rn__ from the final projection
+# reorders rows via ORDER BY; tag positions with a row-number
+# column and restore via .order() to match PyArrow output.
+rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+tagged     = data.with_row_number(rn)
+with_qbin  = tagged.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
+sorted_rel = with_qbin.order(quote_ident(rn))
+# drop the helper columns from the final projection
 ```
 
 This pattern generalizes. Any time a framework's native operator reorders rows, the implementation must record positions before the operator runs and restore them afterward.
 
-The `__mloda_` prefix is reserved across the data-operations package. Every guarded `_compute_*` calls `assert_no_reserved_columns()` (defined in `mloda/community/feature_groups/data_operations/reserved_columns.py`) on its input and raises `ValueError` if any user column shares the prefix. New helper columns must keep the `__mloda_` prefix so the guard covers them automatically. See [Known divergences](known-divergences.md) for the full entry.
+Because the SQL backends now pick provably collision-free helper names via `pick_helper_column_name`, they accept user columns of any name (including the `__mloda_` prefix). The pandas, polars and pyarrow plugins still use hardcoded helper names, so they call `assert_no_reserved_columns()` (defined in `mloda/community/feature_groups/data_operations/reserved_columns.py`) on their input and raise `ValueError` if any user column starts with the reserved `__mloda_` prefix. See [Known divergences](known-divergences.md) for the full entry.
 
 ---
 

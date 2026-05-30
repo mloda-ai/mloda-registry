@@ -5,7 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from mloda.provider import ComputeFramework
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_window import (
+    CurrentRow,
+    OrderBy,
+    Preceding,
+    Unbounded,
+    WindowFrame,
+)
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
@@ -14,7 +21,6 @@ from mloda.community.feature_groups.data_operations.errors import (
     unsupported_frame_type_error,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -55,8 +61,6 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         frame_unit: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> SqliteRelation:
-        assert_no_reserved_columns(data.columns, framework="SQLite", operation="frame aggregate")
-
         agg_func = _SQLITE_AGG_FUNCS.get(agg_type)
         if agg_func is None:
             raise unsupported_agg_type_error(
@@ -71,12 +75,6 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         if mask_spec is not None:
             source_sql = build_sql_case_when(mask_spec, quoted_source)
         quoted_order = quote_ident(order_by)
-        partition_clause = ", ".join(quote_ident(col) for col in partition_by)
-        quoted_feature = quote_ident(feature_name)
-        qrn = quote_ident("__mloda_rn__")
-
-        null_sort = f"CASE WHEN {quoted_order} IS NULL THEN 1 ELSE 0 END"
-        order_clause = f"{null_sort}, {quoted_order}"
 
         if frame_type == "time":
             # Mask + source_col == order_by: the reference treats masked rows as having
@@ -104,11 +102,12 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
                 mask_spec=mask_spec,
             )
 
+        frame: WindowFrame
         if frame_type in ("cumulative", "expanding"):
-            frame_clause = "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
+            frame = WindowFrame("rows", Unbounded(), CurrentRow())
         elif frame_type == "rolling":
             window_size = int(frame_size) if frame_size is not None else 1
-            frame_clause = f"ROWS BETWEEN {window_size - 1} PRECEDING AND CURRENT ROW"
+            frame = WindowFrame("rows", Preceding(window_size - 1), CurrentRow())
         else:
             raise unsupported_frame_type_error(
                 frame_type,
@@ -116,25 +115,21 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
                 framework="SQLite",
             )
 
-        # Safety: all identifiers use quote_ident(), agg_func from whitelist
-        sql = " ".join(  # nosec
-            [
-                "SELECT",
-                f"{agg_func}({source_sql}) OVER",
-                f"(PARTITION BY {partition_clause} ORDER BY {order_clause} {frame_clause})",
-                f"AS {quoted_feature},",
-                f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn}",
-                "FROM",
-                f"{quote_ident(data.table_name)}",
-                "ORDER BY",
-                qrn,
-            ]
+        # NullPolicy.NULLS_LAST: ``OrderBy(order_by, nulls="last")`` renders
+        # ``ORDER BY ... NULLS LAST``, equivalent to the old
+        # ``CASE WHEN order IS NULL THEN 1 ELSE 0 END, order`` sort key.
+        original_cols = list(data.columns)
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+        rel = data.with_row_number(rn, order_by=["rowid"])
+        rel = rel.window(
+            f"{agg_func}({source_sql})",
+            feature_name,
+            partition_by=partition_by,
+            order_by=[OrderBy(order_by, nulls="last")],
+            frame=frame,
         )
-        cursor = data.connection.execute(sql)
-        rows = cursor.fetchall()
-
-        result_values = [row[0] for row in rows]
-        return data.append_column(feature_name, result_values)
+        rel = rel.order(rn)
+        return rel.select(*original_cols, feature_name)
 
     @classmethod
     def _compute_time_frame(
@@ -191,7 +186,6 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
             partition_eq = "1=1"
 
         quoted_feature = quote_ident(feature_name)
-        qrn = quote_ident("__mloda_rn__")
         quoted_table = quote_ident(data.table_name)
 
         # Safety: identifiers via quote_ident(); agg_func from whitelist; n_days is
@@ -225,11 +219,9 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
                 f"OR (julianday(s.{quoted_order}) = julianday(t.{quoted_order}) AND s.rowid <= t.rowid)))",
                 f"OR (t.{quoted_order} IS NULL AND s.rowid = t.rowid)",
                 ")",
-                f") AS {quoted_feature},",
-                f"ROW_NUMBER() OVER (ORDER BY t.rowid) AS {qrn}",
+                f") AS {quoted_feature}",
                 f"FROM {quoted_table} t",
-                "ORDER BY",
-                qrn,
+                "ORDER BY t.rowid",
             ]
         )
         cursor = data.connection.execute(sql)

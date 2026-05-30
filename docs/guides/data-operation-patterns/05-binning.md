@@ -64,21 +64,23 @@ The `PARTITION BY CASE WHEN ...` clause is what ensures NULL/NaN rows do not par
 
 ## The DuckDB row-order workaround
 
-`NTILE` requires `ORDER BY col`, which produces rows sorted by `col`, not by original input order. The row-preserving contract requires input order. The fix:
+`NTILE` requires `ORDER BY col`, which produces rows sorted by `col`, not by original input order. The row-preserving contract requires input order. The fix uses the typed `with_row_number` / `window` API and a collision-free helper name from `pick_helper_column_name`:
 
 ```python
 # Paraphrased from duckdb_binning.py
-qrn = quote_ident("__mloda_rn__")
-with_rn    = data.project(f"*, ROW_NUMBER() OVER () AS {qrn}")
-with_qbin  = with_rn.project(f"*, {ntile_expression} AS {quoted_feature}")
-sorted_rel = with_qbin.order(qrn)
-# project out __mloda_rn__ in the final projection
+rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+tagged     = data.with_row_number(rn)
+# partition key is a CASE expression, so project it into a column first
+tagged     = tagged.project(f"*, {part_case} AS {quote_ident(qbin_part)}")
+with_qbin  = tagged.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
+sorted_rel = with_qbin.order(quote_ident(rn))
+# project out the helper columns in the final projection
 ```
 
-1. Tag each input row with `ROW_NUMBER() OVER ()` before the window runs.
-2. Apply the NTILE-based expression.
+1. Tag each input row with a `with_row_number` column before the window runs.
+2. Apply the NTILE window, then the bin-label expression.
 3. Re-sort by the tagged row number to restore input order.
-4. Drop the temporary column from the projection.
+4. Drop the temporary helper columns from the projection.
 
 Any framework whose native operation reorders will need an analogous workaround. Pandas and PyArrow do not, because both assign by index directly. See [the row-preserving contract](02-row-preserving-contract.md) for the general rule.
 

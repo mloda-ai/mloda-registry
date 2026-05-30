@@ -7,7 +7,6 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
     DateTimeFeatureGroup,
 )
@@ -41,8 +40,6 @@ class SqliteDateTimeExtraction(DateTimeFeatureGroup):
         source_col: str,
         op: str,
     ) -> SqliteRelation:
-        assert_no_reserved_columns(data.columns, framework="SQLite", operation="datetime")
-
         expr_template = _SQLITE_DATETIME_EXPRS.get(op)
         if expr_template is None:
             raise ValueError(f"Unsupported datetime operation for SQLite: {op}")
@@ -50,17 +47,14 @@ class SqliteDateTimeExtraction(DateTimeFeatureGroup):
         quoted_source = quote_ident(source_col)
         expr = expr_template.format(col=quoted_source)
         quoted_feature = quote_ident(feature_name)
-        qrn = quote_ident("__mloda_rn__")
 
         sql = " ".join(
             [
                 "SELECT",
-                f"{expr} AS {quoted_feature},",
-                f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn}",
+                f"{expr} AS {quoted_feature}",
                 "FROM",
                 f"{quote_ident(data.table_name)}",
-                "ORDER BY",
-                qrn,
+                "ORDER BY rowid",
             ]
         )
         cursor = data.connection.execute(sql)

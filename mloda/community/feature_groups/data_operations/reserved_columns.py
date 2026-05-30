@@ -1,17 +1,22 @@
 """Guard that keeps user-supplied columns out of the internal ``__mloda_`` namespace.
 
 Several row-preserving implementations tag rows with a helper column (for
-example ``__mloda_rn__`` to restore input order after a reordering window
-function). The helper name is hardcoded, so if an input already carries a
-column with the same name the helper would either overwrite user data or
-collide with the generated column silently.
+example to restore input order after a reordering window function). When the
+helper name is hardcoded, an input already carrying a column with that name
+would either overwrite user data or collide with the generated column silently.
 
-This module reserves the ``__mloda_`` prefix for internal use and provides a
-single validator that every implementation using such helpers calls at entry.
+The SQL backends (DuckDB, SQLite) no longer rely on this guard: they choose
+collision-free helper-column names at runtime via
+``pick_helper_column_name`` (in ``sql_utils``), which picks the lowest
+``__mloda_rnN__`` name not already present in the input, so reserved-prefixed
+USER columns are accepted and processed safely.
+
+The pandas, polars and pyarrow plugins (and the ``scalar_arithmetic`` base)
+still use hardcoded helper names, so they call the validator below at entry.
 The check is a whole-prefix ban rather than a per-name check so that new
 helpers added in the future are covered automatically. The prefix match is
 case-insensitive because SQLite and DuckDB fold unquoted identifiers, so a
-user column like ``__MLODA_RN__`` would silently collide with the internal
+user column like ``__MLODA_RN__`` would silently collide with an internal
 ``__mloda_rn__`` helper.
 """
 

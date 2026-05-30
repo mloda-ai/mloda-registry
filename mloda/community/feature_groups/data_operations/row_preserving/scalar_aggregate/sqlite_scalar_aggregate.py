@@ -44,22 +44,11 @@ class SqliteScalarAggregate(ScalarAggregateFeatureGroup):
             raise unsupported_agg_type_error(agg_type, _SQLITE_AGG_FUNCS.keys(), framework="SQLite")
 
         quoted_source = quote_ident(source_col)
-        quoted_feature = quote_ident(feature_name)
 
         source_sql = quoted_source
         if mask_spec is not None:
             source_sql = build_sql_case_when(mask_spec, quoted_source)
 
-        sql = " ".join(
-            [
-                "SELECT",
-                f"{agg_func}({source_sql}) OVER () AS {quoted_feature}",
-                "FROM",
-                f"{quote_ident(data.table_name)}",
-            ]
-        )
-        cursor = data.connection.execute(sql)
-        rows = cursor.fetchall()
-
-        result_values = [row[0] for row in rows]
-        return data.append_column(feature_name, result_values)
+        # No partition_by/order_by: the empty window broadcasts the global aggregate
+        # to every row; ordering is irrelevant.
+        return data.window(f"{agg_func}({source_sql})", feature_name)
