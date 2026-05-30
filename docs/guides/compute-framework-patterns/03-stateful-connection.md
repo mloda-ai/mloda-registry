@@ -69,4 +69,4 @@ result = mloda.run_all(
 
 - **Category 1**: Inherits base structure
 - **Merge Engine** (Concept 6): Connection passed to merge engine
-- **ConnectionMatcherMixin**: Match feature groups to connections
+- **MatchData**: Match feature groups to connections
