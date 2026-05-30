@@ -80,6 +80,11 @@ data_access = DataAccessCollection(folders={"/path/to/data/"})
 features = [Feature("customer_id"), Feature("name")]
 ```
 
+The set form above auto-names each resource. When a collection holds multiple
+resources of the same kind, name them with a `dict[handle, value]` and pick one per
+feature via `Options(context={"data_access_handle": ...})`. See
+[Data Connection Matching](17-data-connection-matching.md#named-handles-and-multi-source-disambiguation).
+
 ## Real Implementations
 
 | File | Description |
