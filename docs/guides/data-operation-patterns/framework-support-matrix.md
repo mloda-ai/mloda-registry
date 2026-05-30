@@ -1,6 +1,6 @@
 # Framework Support Matrix
 
-One-page lookup for "does operation *X* work on framework *Y*?". Rows are the ten data operations (and their subtypes, where applicable); columns are the five compute frameworks mloda ships: PyArrow, Pandas, Polars lazy, DuckDB, SQLite.
+One-page lookup for "does operation *X* work on framework *Y*?". Rows are the eleven data operations (and their subtypes, where applicable); columns are the five compute frameworks mloda ships: PyArrow, Pandas, Polars lazy, DuckDB, SQLite.
 
 **What**: A capability matrix that mirrors the `supported_*()` class methods declared on every framework test class. If a cell is ✓, the shared reference-based test suite runs that subtype against that framework and compares the result to PyArrow. If a cell is ✗, the framework either cannot express that subtype or has been deliberately excluded (see [Known divergences](known-divergences.md)).
 **When**: Use before picking an op/framework pair, before adding a new framework implementation for an existing op, or while debugging why a feature resolves on one framework but skips on another.
@@ -37,6 +37,7 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the te
 | scalar_aggregate | full | full | full | full | partial (6/13) |
 | scalar_arithmetic | full | full | full | full | full |
 | point_arithmetic | full | full | full | full | full |
+| time_bucketization | full | full | full | full | full |
 | window_aggregation | partial (15/17) | partial (16/17) | partial (16/17) | partial (16/17) | partial (5/17) |
 | string | full | full | full | full | partial (2/5) |
 
@@ -155,6 +156,14 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the te
 | `subtract` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `multiply` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `divide` | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+### time_bucketization
+
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
+|---|---|---|---|---|---|
+| `floor` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `ceil` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `round` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ### window_aggregation
 

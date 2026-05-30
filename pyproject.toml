@@ -113,6 +113,7 @@ members = [
     "mloda/community/feature_groups/data_operations/row_preserving/rank",
     "mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate",
     "mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic",
+    "mloda/community/feature_groups/data_operations/row_preserving/time_bucketization",
     "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation",
     "mloda/community/feature_groups/data_operations/string",
     "mloda/community/feature_groups/example",

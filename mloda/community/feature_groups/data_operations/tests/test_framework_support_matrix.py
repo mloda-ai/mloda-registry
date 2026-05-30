@@ -223,6 +223,15 @@ OPERATIONS: list[OperationSpec] = [
         order_hint=("add", "subtract", "multiply", "divide"),
     ),
     OperationSpec(
+        key="time_bucketization",
+        display="time_bucketization",
+        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.tests",
+        base_module="mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.time_bucketization",
+        base_class="TimeBucketizationTestBase",
+        subtype_label="op",
+        order_hint=("floor", "ceil", "round"),
+    ),
+    OperationSpec(
         key="window_aggregation",
         display="window_aggregation",
         tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.tests",
