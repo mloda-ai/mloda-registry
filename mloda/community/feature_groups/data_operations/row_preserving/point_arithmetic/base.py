@@ -38,6 +38,17 @@ ARITHMETIC_OPERATIONS: dict[str, str] = {
 }
 
 
+def _is_ordered_in_features(value: object) -> bool:
+    """Accept only ordered containers (list/tuple) for in_features.
+
+    Operand order is significant for subtract and divide, so unordered
+    collections (set/frozenset), mappings, and other iterables are
+    rejected at match time rather than slipping through to fail (or
+    behave unexpectedly) later in calculate_feature.
+    """
+    return isinstance(value, (list, tuple))
+
+
 class PointArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     PREFIX_PATTERN = r".*__([\w]+)_point$"
 
@@ -56,6 +67,7 @@ class PointArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             "explanation": "Two source feature columns for the element-wise arithmetic operation",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.type_validator: _is_ordered_in_features,
         },
     }
 
@@ -110,14 +122,12 @@ class PointArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
                 source_names = [str(item.name) if hasattr(item, "name") else str(item) for item in raw]
             elif isinstance(raw, str):
                 source_names = [raw]
-            elif isinstance(raw, (set, frozenset)):
+            else:
                 raise ValueError(
                     f"Feature '{feature_name}': in_features for point arithmetic must be an "
                     f"ordered list or tuple (got {type(raw).__name__}); operand order is "
                     f"significant for subtract and divide."
                 )
-            else:
-                source_names = [str(item.name) if hasattr(item, "name") else str(item) for item in raw]
 
         count = len(source_names)
         if count < cls.MIN_IN_FEATURES:
