@@ -8,6 +8,13 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_window import (
+    CurrentRow,
+    OrderBy,
+    Preceding,
+    Unbounded,
+    WindowFrame,
+)
 
 from mloda.community.feature_groups.data_operations.errors import (
     unsupported_agg_type_error,
@@ -67,10 +74,7 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         source_sql = quoted_source
         if mask_spec is not None:
             source_sql = build_sql_case_when(mask_spec, quoted_source)
-        quoted_feature = quote_ident(feature_name)
-        partition_clause = ", ".join(quote_ident(col) for col in partition_by)
         quoted_order = quote_ident(order_by)
-        qrn = quote_ident(_RN_COL)
 
         if frame_type == "time":
             # Mask + source_col == order_by: the reference treats masked rows as having
@@ -98,14 +102,15 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
                 mask_spec=mask_spec,
             )
 
-        null_sort = f"CASE WHEN {quoted_order} IS NULL THEN 1 ELSE 0 END"
-        order_clause = f"{null_sort}, {quoted_order}"
+        # NULLS LAST is equivalent to the old CASE WHEN order IS NULL THEN 1 ELSE 0 END
+        # tiebreaker that sorted nulls after non-nulls within an ascending order.
+        order_spec: list[OrderBy] = [OrderBy(order_by, nulls="last")]
 
         if frame_type in ("cumulative", "expanding"):
-            frame_clause = "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
+            frame = WindowFrame("rows", Unbounded(), CurrentRow())
         elif frame_type == "rolling":
             window_size = int(frame_size) if frame_size is not None else 1
-            frame_clause = f"ROWS BETWEEN {window_size - 1} PRECEDING AND CURRENT ROW"
+            frame = WindowFrame("rows", Preceding(window_size - 1), CurrentRow())
         else:
             raise unsupported_frame_type_error(
                 frame_type,
@@ -114,21 +119,22 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
             )
 
         # PyArrow parity: the reference preserves input row order. DuckDB
-        # ORDER BY in the window frame reorders rows; tag with ROW_NUMBER(),
-        # compute, then .order(qrn) to restore original order.
+        # ORDER BY in the window frame reorders rows; tag with a row-number
+        # column, compute, then .order() to restore original order.
         # Step 1: tag rows with original position
-        rel = data.project(f"*, ROW_NUMBER() OVER () AS {qrn}")  # nosec
+        rel = data.with_row_number(_RN_COL)
 
         # Step 2: compute window function with frame
-        raw_sql = (  # nosec
-            f"*, {agg_func}({source_sql}) OVER "
-            f"(PARTITION BY {partition_clause} ORDER BY {order_clause} {frame_clause}) "
-            f"AS {quoted_feature}"
+        rel = rel.window(
+            f"{agg_func}({source_sql})",
+            feature_name,
+            partition_by=partition_by,
+            order_by=order_spec,
+            frame=frame,
         )
-        rel = rel.project(raw_sql)
 
         # Step 3: restore original order, drop helper
-        rel = rel.order(qrn)
+        rel = rel.order(quote_ident(_RN_COL))
         keep = ", ".join(quote_ident(c) for c in rel.columns if c != _RN_COL)
         rel = rel.project(keep)
 
@@ -154,8 +160,8 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         whose ``order_by`` equals the current row's ``order_by``, even peers
         that come later in physical position. The PyArrow reference uses
         ``rows[:pos+1]`` after a stable sort, excluding later peers. To match
-        the reference, this method tags rows with ``ROW_NUMBER() OVER ()`` and
-        uses that tag as a tiebreaker in a correlated subquery.
+        the reference, this method tags rows with a ``with_row_number`` column
+        and uses that tag as a tiebreaker in a correlated subquery.
 
         When the outer row's ``order_by`` is NULL, the reference returns just
         the row's own source value (see reference.py:115-116). The NULL branch
@@ -166,7 +172,7 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         qrn = quote_ident(_RN_COL)
 
         # Step 1: tag rows with original position; this is also the tiebreaker.
-        tagged = data.project(f"*, ROW_NUMBER() OVER () AS {qrn}")  # nosec
+        tagged = data.with_row_number(_RN_COL)
 
         inner_source = f"s.{quoted_source}"
         inner_source_sql = build_sql_case_when(mask_spec, inner_source) if mask_spec is not None else inner_source

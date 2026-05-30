@@ -51,12 +51,10 @@ class DuckdbScalarAggregate(ScalarAggregateFeatureGroup):
             raise unsupported_agg_type_error(agg_type, _DUCKDB_AGG_FUNCS.keys(), framework="DuckDB")
 
         quoted_source = quote_ident(source_col)
-        quoted_feature = quote_ident(feature_name)
 
         source_sql = quoted_source
         if mask_spec is not None:
             source_sql = build_sql_case_when(mask_spec, quoted_source)
 
-        raw_sql = f"*, {agg_func}({source_sql}) OVER () AS {quoted_feature}"
-        result: DuckdbRelation = data.project(raw_sql)
+        result: DuckdbRelation = data.window(f"{agg_func}({source_sql})", feature_name)
         return result
