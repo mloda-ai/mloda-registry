@@ -32,8 +32,8 @@ Ordering
 --------
 
 ``calculate_feature`` is invoked many times in a single mloda run, so the
-SQL projection assigns ``ROW_NUMBER() OVER (ORDER BY rowid)`` and re-sorts
-on it before fetching, mirroring the tag-and-restore pattern in
+SQL projection re-sorts on ``rowid`` (``ORDER BY rowid``) before fetching to
+return results in input order, mirroring the tag-and-restore pattern in
 ``sqlite_datetime.py``.
 """
 
@@ -286,22 +286,20 @@ class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
             round_expr = cls._round_expression(local_src, n, unit, floor_expr)
             bucket_expr = f"({round_expr}) || {tz_suffix}"
 
-        # Compute the result via a tag-and-restore SQL projection. ROW_NUMBER
-        # over rowid preserves input order; the outer SELECT sorts on it.
-        rn = "__mloda_rn__"
-        qrn = quote_ident(rn)
+        # Project the bucket value directly and re-sort on ``rowid`` so the
+        # results come back in input order, mirroring the tag-and-restore
+        # pattern in ``sqlite_datetime.py``. No window function is needed: the
+        # ordering is fully expressed by ``ORDER BY rowid``.
         quoted_feature = quote_ident(feature_name)
         quoted_table = quote_ident(data.table_name)
-        existing_cols = ", ".join(quote_ident(c) for c in data.columns)
 
         sql = (
-            f"SELECT {existing_cols}, {bucket_expr} AS {quoted_feature} "  # nosec
-            f"FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn} FROM {quoted_table}) "
-            f"ORDER BY {qrn}"
+            f"SELECT {bucket_expr} AS {quoted_feature} "  # nosec
+            f"FROM {quoted_table} "
+            f"ORDER BY rowid"
         )
         cursor = data.connection.execute(sql)
-        rows = cursor.fetchall()
-        result_values = [row[-1] for row in rows]
+        result_values = [row[0] for row in cursor.fetchall()]
 
         return data.append_column(feature_name, result_values)
 
