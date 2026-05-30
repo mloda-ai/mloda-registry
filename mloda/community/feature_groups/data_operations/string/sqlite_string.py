@@ -52,17 +52,14 @@ class SqliteStringOps(StringFeatureGroup):
         quoted_source = quote_ident(source_col)
         expr = expr_template.format(col=quoted_source)
         quoted_feature = quote_ident(feature_name)
-        qrn = quote_ident("__mloda_rn__")
 
         sql = " ".join(
             [
                 "SELECT",
-                f"{expr} AS {quoted_feature},",
-                f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn}",
+                f"{expr} AS {quoted_feature}",
                 "FROM",
                 f"{quote_ident(data.table_name)}",
-                "ORDER BY",
-                qrn,
+                "ORDER BY rowid",
             ]
         )
         cursor = data.connection.execute(sql)

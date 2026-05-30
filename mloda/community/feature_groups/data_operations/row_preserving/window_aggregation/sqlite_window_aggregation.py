@@ -50,30 +50,17 @@ class SqliteWindowAggregation(WindowAggregationFeatureGroup):
             raise unsupported_agg_type_error(agg_type, _SQLITE_AGG_FUNCS.keys(), framework="SQLite")
 
         quoted_source = quote_ident(source_col)
-        partition_clause = ", ".join(quote_ident(col) for col in partition_by)
-        quoted_feature = quote_ident(feature_name)
-        qrn = quote_ident("__mloda_rn__")
 
         source_sql = quoted_source
         if mask_spec is not None:
             source_sql = build_sql_case_when(mask_spec, quoted_source)
 
-        # Safety: no user-supplied values, only quote_ident()-quoted identifiers
-        # and whitelisted SQL keywords. PEP 249 qmark parametrization does not
-        # apply (identifiers cannot be parameterized per the SQL standard).
-        sql = " ".join(
-            [
-                "SELECT",
-                f"{agg_func}({source_sql}) OVER (PARTITION BY {partition_clause}) AS {quoted_feature},",
-                f"ROW_NUMBER() OVER (ORDER BY rowid) AS {qrn}",
-                "FROM",
-                f"{quote_ident(data.table_name)}",
-                "ORDER BY",
-                qrn,
-            ]
-        )
-        cursor = data.connection.execute(sql)
-        rows = cursor.fetchall()
-
-        result_values = [row[0] for row in rows]
-        return data.append_column(feature_name, result_values)
+        # Tag each row with its original (rowid) order so the partitioned aggregate
+        # can be reordered back to the input order, matching the previous append_column
+        # behaviour. The window itself is computed natively by SqliteRelation.window().
+        original_cols = list(data.columns)
+        rn = "__mloda_rn__"
+        rel = data.with_row_number(rn, order_by=["rowid"])
+        rel = rel.window(f"{agg_func}({source_sql})", feature_name, partition_by=partition_by)
+        rel = rel.order(rn)
+        return rel.select(*original_cols, feature_name)
