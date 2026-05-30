@@ -5,20 +5,16 @@ from __future__ import annotations
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import (
     OrderBy,
     Unbounded,
     WindowFrame,
 )
 
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
-
-_RN_COL = "__mloda_orig_rn__"
-_PREV_COL = "__mloda_prev_val__"
 
 
 class DuckdbOffset(OffsetFeatureGroup):
@@ -36,7 +32,7 @@ class DuckdbOffset(OffsetFeatureGroup):
         order_by: str,
         offset_type: str,
     ) -> DuckdbRelation:
-        assert_no_reserved_columns(data.columns, framework="DuckDB", operation="offset")
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
 
         quoted_source = quote_ident(source_col)
         order_spec = [OrderBy(order_by, nulls="last")]
@@ -59,13 +55,14 @@ class DuckdbOffset(OffsetFeatureGroup):
             # The LAG window is referenced multiple times inside the CASE, so it
             # cannot be a single window func. Precompute LAG into a helper column,
             # then project the CASE referencing that helper (no OVER).
-            qprev = quote_ident(_PREV_COL)
+            prev = pick_helper_column_name(taken=set(data.columns) | {feature_name, rn})
+            qprev = quote_ident(prev)
             # PyArrow parity: tag original physical order before windowing so it
             # can be restored after DuckDB reorders rows.
-            rel = data.with_row_number(_RN_COL)
+            rel = data.with_row_number(rn)
             rel = rel.window(
                 f"LAG({quoted_source}, {offset_n})",
-                _PREV_COL,
+                prev,
                 partition_by=partition_by,
                 order_by=order_spec,
             )
@@ -74,8 +71,8 @@ class DuckdbOffset(OffsetFeatureGroup):
                 f"THEN ({quoted_source} - {qprev}) / CAST({qprev} AS DOUBLE) END"
             )
             rel = rel.project(f"*, {case_expr} AS {quote_ident(feature_name)}")
-            rel = rel.order(quote_ident(_RN_COL))
-            keep = ", ".join(quote_ident(c) for c in rel.columns if c not in (_RN_COL, _PREV_COL))
+            rel = rel.order(quote_ident(rn))
+            keep = ", ".join(quote_ident(c) for c in rel.columns if c not in (rn, prev))
             return rel.project(keep)
         elif offset_type == "first_value":
             offset_expr = f"FIRST_VALUE({quoted_source} IGNORE NULLS)"
@@ -94,7 +91,7 @@ class DuckdbOffset(OffsetFeatureGroup):
         # PyArrow parity: the reference returns results in original row order.
         # DuckDB window functions with ORDER BY reorder rows; tag positions with
         # ROW_NUMBER() and restore the original order afterwards.
-        rel = data.with_row_number(_RN_COL)
+        rel = data.with_row_number(rn)
         rel = rel.window(
             offset_expr,
             feature_name,
@@ -102,6 +99,6 @@ class DuckdbOffset(OffsetFeatureGroup):
             order_by=order_spec,
             frame=frame,
         )
-        rel = rel.order(quote_ident(_RN_COL))
-        keep = ", ".join(quote_ident(c) for c in rel.columns if c != _RN_COL)
+        rel = rel.order(quote_ident(rn))
+        keep = ", ".join(quote_ident(c) for c in rel.columns if c != rn)
         return rel.project(keep)

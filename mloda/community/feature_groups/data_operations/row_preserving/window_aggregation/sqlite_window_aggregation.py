@@ -5,13 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from mloda.provider import ComputeFramework
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
@@ -43,8 +42,6 @@ class SqliteWindowAggregation(WindowAggregationFeatureGroup):
         order_by: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> SqliteRelation:
-        assert_no_reserved_columns(data.columns, framework="SQLite", operation="window aggregation")
-
         agg_func = _SQLITE_AGG_FUNCS.get(agg_type)
         if agg_func is None:
             raise unsupported_agg_type_error(agg_type, _SQLITE_AGG_FUNCS.keys(), framework="SQLite")
@@ -59,7 +56,7 @@ class SqliteWindowAggregation(WindowAggregationFeatureGroup):
         # can be reordered back to the input order, matching the previous append_column
         # behaviour. The window itself is computed natively by SqliteRelation.window().
         original_cols = list(data.columns)
-        rn = "__mloda_rn__"
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
         rel = data.with_row_number(rn, order_by=["rowid"])
         rel = rel.window(f"{agg_func}({source_sql})", feature_name, partition_by=partition_by)
         rel = rel.order(rn)

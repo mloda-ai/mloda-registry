@@ -4,11 +4,10 @@ from __future__ import annotations
 
 
 from mloda.provider import ComputeFramework
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BinningFeatureGroup,
 )
@@ -28,8 +27,6 @@ class SqliteBinning(BinningFeatureGroup):
         op: str,
         n_bins: int,
     ) -> SqliteRelation:
-        assert_no_reserved_columns(data.columns, framework="SQLite", operation="binning")
-
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
         table_name = quote_ident(data.table_name)
@@ -70,9 +67,9 @@ class SqliteBinning(BinningFeatureGroup):
         # key into a helper column, run NTILE, then apply the wrapper via a raw
         # projection (Pattern W). ``MIN(a, b)`` here is the 2-arg scalar min.
         original_cols = list(data.columns)
-        rn = "__mloda_rn__"
-        part = "__mloda_qbin_part__"
-        ntile = "__mloda_qbin_ntile__"
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+        part = pick_helper_column_name(taken=set(data.columns) | {feature_name, rn})
+        ntile = pick_helper_column_name(taken=set(data.columns) | {feature_name, rn, part})
         rel = data.with_row_number(rn, order_by=["rowid"])
         rel = rel.select(_raw_sql=f"*, CASE WHEN {quoted_source} IS NOT NULL THEN 1 END AS {quote_ident(part)}")
         rel = rel.window(f"NTILE({n_bins})", ntile, partition_by=[part], order_by=[source_col])

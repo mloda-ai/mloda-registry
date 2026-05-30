@@ -6,12 +6,11 @@ from __future__ import annotations
 import pyarrow as pa
 
 from mloda.provider import ComputeFramework
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import OrderBy
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
@@ -64,13 +63,11 @@ class SqliteRank(RankFeatureGroup):
         order_by: str,
         rank_type: str,
     ) -> SqliteRelation:
-        assert_no_reserved_columns(data.columns, framework="SQLite", operation="rank")
-
         # NullPolicy.NULLS_LAST: ``OrderBy(order_by, nulls="last")`` renders
         # ``ORDER BY ... NULLS LAST``, equivalent to the old
         # ``CASE WHEN order IS NULL THEN 1 ELSE 0 END, order`` sort key.
         original_cols = list(data.columns)
-        rn = "__mloda_rn__"
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
         rel = data.with_row_number(rn, order_by=["rowid"])
 
         if rank_type.startswith(("top_", "bottom_")):
@@ -80,7 +77,7 @@ class SqliteRank(RankFeatureGroup):
             is_top = rank_type.startswith("top_")
             prefix = "top_" if is_top else "bottom_"
             n_val = int(rank_type[len(prefix) :])
-            helper = "__mloda_rank_rn__"
+            helper = pick_helper_column_name(taken=set(data.columns) | {feature_name, rn})
             rel = rel.window(
                 "ROW_NUMBER()",
                 helper,

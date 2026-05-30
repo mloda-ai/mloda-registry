@@ -58,13 +58,30 @@ class ReservedColumnsTestMixin:
         """
         return None
 
+    @classmethod
+    def reserved_columns_enforced(cls) -> bool:
+        """Whether this framework still rejects reserved ``__mloda_``-prefixed USER columns.
+
+        SQL backends (DuckDB/SQLite) now choose collision-free helper-column names via
+        ``pick_helper_column_name``, so they ACCEPT reserved-prefixed user columns. pandas,
+        polars and pyarrow still rely on the reserved-prefix guard, so they reject.
+        """
+        return True
+
     # -- Concrete test method --------------------------------------------------
 
     def test_mixin_reserved_column_collision_rejected(self) -> None:
-        """Mixin: input column matching the reserved ``__mloda_`` prefix is rejected.
+        """Mixin: behaviour for an input column matching the reserved ``__mloda_`` prefix.
 
-        Uses an uppercase column name to verify the guard is case-insensitive
-        (SQLite and DuckDB unquoted identifiers fold case).
+        Uses an uppercase column name to verify case handling (SQLite and DuckDB
+        unquoted identifiers fold case).
+
+        When ``reserved_columns_enforced()`` is True (pandas/polars/pyarrow), the
+        column is rejected with a ``ValueError`` naming the offending column.
+
+        When ``reserved_columns_enforced()`` is False (SQL backends that pick
+        collision-free helper-column names), the column is ACCEPTED and processed,
+        so the call returns a non-``None`` result.
         """
         colliding_name = "__MLODA_USER_COL__"
         base_table: pa.Table = self._arrow_table  # type: ignore[attr-defined]
@@ -78,5 +95,9 @@ class ReservedColumnsTestMixin:
             partition_by=self.reserved_columns_partition_by(),
             order_by=self.reserved_columns_order_by(),
         )
-        with pytest.raises(ValueError, match=r"__MLODA_USER_COL__"):
-            self.implementation_class().calculate_feature(colliding_data, fs)  # type: ignore[attr-defined]
+        if self.reserved_columns_enforced():
+            with pytest.raises(ValueError, match=r"__MLODA_USER_COL__"):
+                self.implementation_class().calculate_feature(colliding_data, fs)  # type: ignore[attr-defined]
+        else:
+            result = self.implementation_class().calculate_feature(colliding_data, fs)  # type: ignore[attr-defined]
+            assert result is not None

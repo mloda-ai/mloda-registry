@@ -7,7 +7,7 @@ from typing import Any
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import (
     CurrentRow,
     OrderBy,
@@ -21,7 +21,6 @@ from mloda.community.feature_groups.data_operations.errors import (
     unsupported_frame_type_error,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -36,8 +35,6 @@ _DUCKDB_AGG_FUNCS: dict[str, str] = {
     "var": "VAR_POP",
     "median": "MEDIAN",
 }
-
-_RN_COL = "__mloda_rn__"
 
 
 class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
@@ -59,7 +56,7 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         frame_unit: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> DuckdbRelation:
-        assert_no_reserved_columns(data.columns, framework="DuckDB", operation="frame aggregate")
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
 
         agg_func = _DUCKDB_AGG_FUNCS.get(agg_type)
         if agg_func is None:
@@ -122,7 +119,7 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         # ORDER BY in the window frame reorders rows; tag with a row-number
         # column, compute, then .order() to restore original order.
         # Step 1: tag rows with original position
-        rel = data.with_row_number(_RN_COL)
+        rel = data.with_row_number(rn)
 
         # Step 2: compute window function with frame
         rel = rel.window(
@@ -134,8 +131,8 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         )
 
         # Step 3: restore original order, drop helper
-        rel = rel.order(quote_ident(_RN_COL))
-        keep = ", ".join(quote_ident(c) for c in rel.columns if c != _RN_COL)
+        rel = rel.order(quote_ident(rn))
+        keep = ", ".join(quote_ident(c) for c in rel.columns if c != rn)
         rel = rel.project(keep)
 
         return rel
@@ -169,10 +166,11 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         """
         size = int(frame_size) if frame_size is not None else 1
         unit = str(frame_unit or "day").upper()
-        qrn = quote_ident(_RN_COL)
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+        qrn = quote_ident(rn)
 
         # Step 1: tag rows with original position; this is also the tiebreaker.
-        tagged = data.with_row_number(_RN_COL)
+        tagged = data.with_row_number(rn)
 
         inner_source = f"s.{quoted_source}"
         inner_source_sql = build_sql_case_when(mask_spec, inner_source) if mask_spec is not None else inner_source

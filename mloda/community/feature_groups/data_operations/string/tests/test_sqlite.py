@@ -24,6 +24,10 @@ class TestSqliteStringOps(ReservedColumnsTestMixin, SqliteTestMixin, StringTestB
     """
 
     @classmethod
+    def reserved_columns_enforced(cls) -> bool:
+        return False
+
+    @classmethod
     def supported_ops(cls) -> set[str]:
         return {"trim", "length"}
 

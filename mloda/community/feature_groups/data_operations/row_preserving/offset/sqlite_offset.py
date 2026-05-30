@@ -3,18 +3,14 @@
 from __future__ import annotations
 
 from mloda.provider import ComputeFramework
-from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import OrderBy
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import (
     OffsetFeatureGroup,
 )
-
-# Helper column holding the prior value for ``pct_change`` (covered by the __mloda_ reserved guard).
-_PREV_COL = "__mloda_prev_val__"
 
 
 class SqliteOffset(OffsetFeatureGroup):
@@ -32,8 +28,6 @@ class SqliteOffset(OffsetFeatureGroup):
         order_by: str,
         offset_type: str,
     ) -> SqliteRelation:
-        assert_no_reserved_columns(data.columns, framework="SQLite", operation="offset")
-
         if offset_type in ("first_value", "last_value"):
             return cls._compute_first_last(data, feature_name, source_col, partition_by, order_by, offset_type)
 
@@ -45,20 +39,21 @@ class SqliteOffset(OffsetFeatureGroup):
         order_spec = [OrderBy(order_by, nulls="last")]
 
         original_cols = list(data.columns)
-        rn = "__mloda_rn__"
+        rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
         rel = data.with_row_number(rn, order_by=["rowid"])
 
         if offset_type.startswith("pct_change_"):
             # The window result is wrapped in a CASE expression, so compute LAG into a
             # helper column, then apply the wrapper via a raw projection (Pattern W).
             offset_n = int(offset_type[len("pct_change_") :])
+            prev = pick_helper_column_name(taken=set(data.columns) | {feature_name, rn})
             rel = rel.window(
                 f"LAG({quoted_source}, {offset_n})",
-                _PREV_COL,
+                prev,
                 partition_by=partition_by,
                 order_by=order_spec,
             )
-            qhelper = quote_ident(_PREV_COL)
+            qhelper = quote_ident(prev)
             wrapper = (
                 f"CASE WHEN {qhelper} IS NOT NULL AND {qhelper} != 0 "
                 f"THEN ({quoted_source} - {qhelper}) * 1.0 / {qhelper} END"
