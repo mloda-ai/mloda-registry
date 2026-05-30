@@ -100,8 +100,9 @@ class PointArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         if operation_config and source_feature:
             source_names: list[str] = source_feature.split(cls.IN_FEATURE_SEPARATOR)
         else:
-            # Read the raw in_features value to preserve order (get_in_features
-            # returns a frozenset, which loses element ordering).
+            # Read the raw in_features value to preserve order. Unordered
+            # collections (set/frozenset) are rejected because operand order
+            # is significant for non-commutative ops (subtract, divide).
             raw = feature.options.get(DefaultOptionKeys.in_features)
             if raw is None:
                 source_names = []
@@ -109,8 +110,13 @@ class PointArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
                 source_names = [str(item.name) if hasattr(item, "name") else str(item) for item in raw]
             elif isinstance(raw, str):
                 source_names = [raw]
+            elif isinstance(raw, (set, frozenset)):
+                raise ValueError(
+                    f"Feature '{feature_name}': in_features for point arithmetic must be an "
+                    f"ordered list or tuple (got {type(raw).__name__}); operand order is "
+                    f"significant for subtract and divide."
+                )
             else:
-                # Fallback for set/frozenset inputs; order is undefined but count is preserved.
                 source_names = [str(item.name) if hasattr(item, "name") else str(item) for item in raw]
 
         count = len(source_names)

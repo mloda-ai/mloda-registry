@@ -231,6 +231,36 @@ class TestArithmeticOpExtraction:
         assert result == op
 
 
+class TestUnorderedInFeaturesRejected:
+    """Unordered ``in_features`` (set/frozenset) must be rejected.
+
+    Operand order (col_a, col_b) is undefined for an unordered collection,
+    which is wrong for non-commutative ops (subtract/divide). The raw
+    ``in_features`` option must therefore be an ordered list/tuple; a set or
+    frozenset must raise ValueError in ``_extract_source_features``.
+    """
+
+    @pytest.mark.parametrize(
+        "in_features",
+        [
+            {"value_int", "amount"},
+            frozenset({"value_int", "amount"}),
+        ],
+    )
+    def test_extract_source_features_rejects_unordered_in_features(self, in_features: Any) -> None:
+        feature = Feature(
+            "my_result",
+            options=Options(
+                context={
+                    "arithmetic_op": "subtract",
+                    "in_features": in_features,
+                }
+            ),
+        )
+        with pytest.raises(ValueError, match="ordered"):
+            PointArithmeticFeatureGroup._extract_source_features(feature)
+
+
 class TestPointArithmeticMatchValidation(MatchValidationTestBase):
     """Shared match-validation tests adapted for point arithmetic."""
 

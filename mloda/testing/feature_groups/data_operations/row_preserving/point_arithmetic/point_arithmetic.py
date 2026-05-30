@@ -389,8 +389,13 @@ class PointArithmeticTestBase(DataOpsTestBase):
 
     # -- Cross-framework comparison -----------------------------------------
 
-    def _compare_arithmetic_with_reference(self, feature_name: str) -> None:
-        """Compute the feature on this framework and on the reference; assert equal."""
+    def _compare_arithmetic_with_reference(self, feature_name: str, skip_rows: set[int] | None = None) -> None:
+        """Compute the feature on this framework and on the reference; assert equal.
+
+        ``skip_rows`` lists row indices to exclude from the comparison (e.g. the
+        divide-by-zero row, which legitimately diverges between SQLite and the
+        IEEE-754 backends). Default ``None`` compares every row.
+        """
         fs = make_feature_set(feature_name)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
@@ -401,6 +406,8 @@ class PointArithmeticTestBase(DataOpsTestBase):
 
         assert len(result_col) == len(ref_col)
         for i, (ref_val, fw_val) in enumerate(zip(ref_col, result_col)):
+            if skip_rows is not None and i in skip_rows:
+                continue
             if ref_val is None:
                 assert fw_val is None, f"row {i}: expected None, got {fw_val}"
             else:
@@ -414,6 +421,19 @@ class PointArithmeticTestBase(DataOpsTestBase):
 
     def test_cross_framework_multiply(self) -> None:
         self._compare_arithmetic_with_reference("value_int&amount__multiply_point")
+
+    def test_cross_framework_divide(self) -> None:
+        """Cross-framework divide parity, excluding the zero-divisor row.
+
+        Row 5 (50 / 0.0) legitimately diverges between backends (SQLite NULL
+        vs PyArrow inf); that row is pinned per-backend by
+        ``test_divide_by_zero_returns_inf_or_null_per_backend`` and is excluded
+        here.
+        """
+        self._compare_arithmetic_with_reference(
+            "value_int&amount__divide_point",
+            skip_rows={i for i, b in enumerate(AMOUNT) if b == 0},
+        )
 
     # -- Divide-by-zero per-backend semantics -------------------------------
 
