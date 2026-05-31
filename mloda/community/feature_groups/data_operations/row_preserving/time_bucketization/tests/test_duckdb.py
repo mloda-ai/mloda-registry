@@ -28,13 +28,14 @@ class TestDuckdbTimeBucketization(DuckdbTestMixin, TimeBucketizationTestBase):
 
 
 class TestDuckdbDateSourceRejected:
-    """DATE source columns are rejected with a clear ValueError.
+    """DATE source columns are rejected up-front with a clear ValueError.
 
-    DuckDB has a native DATE type. The current code accepts DATE because of
-    the 'DATE' entry in _DUCKDB_TIMESTAMP_PREFIXES, but round at sub-day
-    units fails inside the SQL with a cryptic BinderException about
-    epoch(BIGINT). Reject up-front instead and leave timestamp coercion
-    to the caller.
+    DuckDB has a native DATE type, but it is intentionally absent from
+    _DUCKDB_TIMESTAMP_PREFIXES, so _assert_source_column_is_timestamp
+    rejects a DATE column before any SQL runs. This avoids the cryptic
+    BinderException about epoch(BIGINT) that DuckDB would otherwise raise
+    when rounding a DATE at sub-day units. Users with DATE columns should
+    cast to TIMESTAMP before bucketing.
     """
 
     def test_date_column_rejected(self) -> None:

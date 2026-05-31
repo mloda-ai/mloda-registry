@@ -40,8 +40,16 @@ Two assertions, one invariant:
 | PyArrow | Operates on columnar arrays by index; naturally preserves row order | No |
 | Pandas | Index-aligned assignments (`df[col] = ...`) preserve order | No, as long as you avoid `groupby(...).apply()` patterns that reset index |
 | Polars (lazy) | `pl.when/then/otherwise` and `over(...)` preserve order | No |
-| SQLite | SQL result order is undefined unless `ORDER BY` is specified, but the implementations re-select columns rather than applying `ORDER BY` | No |
+| SQLite | SQL result order is undefined unless `ORDER BY` is specified, but the implementations re-select columns rather than applying `ORDER BY` | No, but see the positional-append note below |
 | DuckDB | Most operators preserve order. `NTILE()` reorders by its `ORDER BY` clause | Yes, see below |
+
+---
+
+## The SQLite positional-append assumption
+
+The SQLite arithmetic backends (`scalar_arithmetic`, `point_arithmetic`) compute the new column with a bare `SELECT (expr) AS feat FROM <table>` and then call `data.append_column(feature_name, result_values)`. `append_column` aligns `result_values` to the existing rows **by position**, so correctness depends on the unordered `SELECT` returning rows in the relation's stored order. SQLite does return rows in `rowid` order for such a simple scan, which matches the stored order, so the invariant holds today.
+
+The dependency is implicit, so each `_compute_arithmetic` carries a comment stating it: the `SELECT` must stay free of `ORDER BY`, `JOIN`, `GROUP BY`, or `DISTINCT`. Adding any of those could reorder rows and silently misalign the appended column. By contrast the DuckDB backend stays in a single relation via `data.project("*, (expr) AS feat")`, so it has no equivalent positional assumption.
 
 ---
 
