@@ -124,6 +124,10 @@ class DuckdbTimeBucketization(TimeBucketizationFeatureGroup):
         if op not in TIME_BUCKETIZATION_OPS:
             raise ValueError(f"Unsupported bucket op {op!r} for DuckDB; supported: {sorted(TIME_BUCKETIZATION_OPS)}.")
 
+        # Pin the session timezone to UTC so DATE_TRUNC/time_bucket stay
+        # UTC-anchored regardless of the host/session zone (issue #238).
+        data.connection.execute("SET TimeZone='UTC'")
+
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
         floor_expr = _floor_expr(quoted_source, n, unit)
