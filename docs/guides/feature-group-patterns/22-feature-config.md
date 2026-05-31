@@ -44,7 +44,7 @@ Items can be plain strings (`"feature_name"`) or feature objects. `options` and 
 
 ## Window / Rank / Percentile Requests
 
-Row-preserving `data_operations` (window aggregation, rank, percentile) cannot be requested by a bare name: the matcher only resolves the FeatureGroup when the request also carries the partition/order options it needs. Put those in `context_options`. The feature name encodes the operation (`{source}__{operation}`); the matcher reads the rest from `context_options`.
+Row-preserving `data_operations` (window aggregation, rank, percentile) cannot be requested by a bare name: the matcher only resolves the FeatureGroup when the request also carries the partition/order options it needs. The feature name encodes the operation (`{source}__{operation}`); the matcher then requires those options to be present. It reads them via `options.get` (group first, then context), so they resolve from either side, but `context_options` is the right home.
 
 ```python
 config = '''
