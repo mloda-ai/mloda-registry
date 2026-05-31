@@ -13,8 +13,8 @@ from mloda.community.feature_groups.data_operations.errors import (
     unsupported_agg_type_error,
     unsupported_frame_type_error,
 )
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -68,8 +68,6 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         frame_unit: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pd.DataFrame:
-        assert_no_reserved_columns(data.columns, framework="Pandas", operation="frame aggregate")
-
         pandas_func = _PANDAS_FRAME_AGG_FUNCS.get(agg_type)
         if pandas_func is None:
             raise unsupported_agg_type_error(
@@ -81,8 +79,11 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
 
         data = data.copy()
 
+        taken = set(data.columns) | {feature_name}
+
         # Save original row order so we can restore it after sorting
-        rn_col = "__mloda_rn__"
+        rn_col = unique_helper_name("__mloda_rn__", taken)
+        taken = taken | {rn_col}
         data[rn_col] = range(len(data))
 
         data = data.sort_values(by=[*partition_by, order_by], na_position="last")
@@ -112,7 +113,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
                     )
                 # Non-time frames: aggregate the masked values in a temp column;
                 # order_by is preserved because the sort already happened above.
-                agg_col = "__mloda_masked_source__"
+                agg_col = unique_helper_name("__mloda_masked_source__", taken)
                 data[agg_col] = data[source_col].where(mask)
             else:
                 data[source_col] = data[source_col].where(mask)

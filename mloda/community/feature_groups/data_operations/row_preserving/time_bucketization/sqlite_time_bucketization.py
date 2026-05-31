@@ -44,7 +44,6 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
     TIME_BUCKETIZATION_OPS,
     TimeBucketizationFeatureGroup,
@@ -263,8 +262,6 @@ class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
         n: int,
         unit: str,
     ) -> SqliteRelation:
-        assert_no_reserved_columns(data.columns, framework="SQLite", operation="time bucketization")
-
         if op not in TIME_BUCKETIZATION_OPS:
             raise ValueError(f"Unsupported bucket op {op!r} for SQLite; supported: {sorted(TIME_BUCKETIZATION_OPS)}.")
 

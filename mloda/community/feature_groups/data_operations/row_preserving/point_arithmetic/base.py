@@ -24,7 +24,6 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.provider import DefaultOptionKeys
 
 from mloda.community.feature_groups.data_operations.arithmetic_base import ArithmeticFeatureGroupBase
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 
 ARITHMETIC_OPERATIONS: dict[str, str] = {
     "add": "Element-wise addition of two columns",
@@ -123,12 +122,8 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
 
         Each feature produces one new column containing ``col_a {op} col_b``.
         Null values in either source propagate to the result.
-
-        Reserved-column guard runs first so callers see the reserved-column
-        error before any source-column validation.
         """
-        column_names, framework_label = cls._input_columns_and_framework(data)
-        assert_no_reserved_columns(column_names, framework=framework_label, operation="point arithmetic")
+        column_names, _framework_label = cls._input_columns_and_framework(data)
 
         table = data
 

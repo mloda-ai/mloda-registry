@@ -11,8 +11,8 @@ from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe 
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.polars_mode_helpers import (
+    ModeHelperCols,
     add_mode_helper_cols,
     drop_mode_helper_cols,
     mode_window_expr,
@@ -59,15 +59,15 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
         order_by: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pl.LazyFrame:
-        assert_no_reserved_columns(data.collect_schema().names(), framework="Polars", operation="window aggregation")
-
         actual_source = source_col
         if mask_spec is not None:
             data, actual_source = apply_polars_mask(data, source_col, mask_spec)
 
+        mode_cols: ModeHelperCols | None = None
         if agg_type == "mode":
-            data = add_mode_helper_cols(data, actual_source, partition_by)
-            expr = mode_window_expr(actual_source, partition_by, feature_name)
+            mode_cols = ModeHelperCols.pick(set(data.collect_schema().names()) | {feature_name})
+            data = add_mode_helper_cols(data, actual_source, partition_by, mode_cols)
+            expr = mode_window_expr(actual_source, partition_by, feature_name, mode_cols)
         elif agg_type in ("first", "last"):
             expr = cls._build_first_last_expr(actual_source, partition_by, agg_type, order_by, feature_name)
         elif agg_type in _POLARS_AGG_EXPRS:
@@ -84,8 +84,8 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
             raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Polars")
 
         result = data.with_columns(expr)
-        if agg_type == "mode":
-            result = drop_mode_helper_cols(result)
+        if mode_cols is not None:
+            result = drop_mode_helper_cols(result, mode_cols)
         if mask_spec is not None:
             result = result.drop(_POLARS_MASK_TMP)
         return result

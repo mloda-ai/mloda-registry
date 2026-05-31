@@ -10,14 +10,13 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
-    _unique_temp_name,
     apply_null_safe_agg,
     coerce_count_dtype,
     compute_mode_winners,
@@ -46,8 +45,6 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
         order_by: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pd.DataFrame:
-        assert_no_reserved_columns(data.columns, framework="Pandas", operation="window aggregation")
-
         if mask_spec is not None:
             mask = build_mask_from_spec(PandasMaskEngine, data, mask_spec)
             data = data.copy()
@@ -88,7 +85,7 @@ class PandasWindowAggregation(WindowAggregationFeatureGroup):
             data[feature_name] = data[source_col]
             return data
 
-        is_data_col = _unique_temp_name("__mloda_mode_is_data__", data.columns)
+        is_data_col = unique_helper_name("__mloda_mode_is_data__", data.columns)
 
         winners = compute_mode_winners(data, source_col, partition_by)
         winners = winners.rename(columns={source_col: feature_name})

@@ -314,13 +314,12 @@ class TestConstantTypeValidation:
             PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
 
 
-class TestReservedColumnGuardAllBackends:
-    """The ``__mloda_`` reserved-column guard must fire on every backend.
+class TestReservedColumnAcceptedAllBackends:
+    """A ``__mloda_``-prefixed USER column is accepted on every backend.
 
-    Today only the Polars-lazy override calls ``assert_no_reserved_columns``.
-    The Green Agent will move the guard into ``base.calculate_feature`` so the
-    other four backends also reject inputs that collide with the internal
-    helper namespace. The Polars test currently passes; the other four fail.
+    There is no reserved-column guard any more: internal helper columns are
+    made collision-free at runtime, so an input column whose name starts with
+    ``__mloda_`` is processed normally and survives in the output.
     """
 
     @staticmethod
@@ -330,7 +329,7 @@ class TestReservedColumnGuardAllBackends:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
         return arrow_table.append_column("__mloda_rn__", pa.array([0] * 12, type=pa.int64()))
 
-    def test_pandas_rejects_reserved_column(self) -> None:
+    def test_pandas_accepts_reserved_column(self) -> None:
         pytest.importorskip("pandas")
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pandas_scalar_arithmetic import (
             PandasScalarArithmetic,
@@ -339,18 +338,16 @@ class TestReservedColumnGuardAllBackends:
         arrow_table = self._arrow_with_reserved_col()
         df = arrow_table.to_pandas()
         fs = _make_fs("value_int__add_constant", constant=5)
-        with pytest.raises(ValueError, match=r"(?i)reserved") as exc_info:
-            PandasScalarArithmetic.calculate_feature(df, fs)
-        assert "__mloda_" in str(exc_info.value)
+        result = PandasScalarArithmetic.calculate_feature(df, fs)
+        assert "__mloda_rn__" in result.columns
 
-    def test_pyarrow_rejects_reserved_column(self) -> None:
+    def test_pyarrow_accepts_reserved_column(self) -> None:
         arrow_table = self._arrow_with_reserved_col()
         fs = _make_fs("value_int__add_constant", constant=5)
-        with pytest.raises(ValueError, match=r"(?i)reserved") as exc_info:
-            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
-        assert "__mloda_" in str(exc_info.value)
+        result = PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
+        assert "__mloda_rn__" in result.column_names
 
-    def test_polars_rejects_reserved_column(self) -> None:
+    def test_polars_accepts_reserved_column(self) -> None:
         polars = pytest.importorskip("polars")
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.polars_lazy_scalar_arithmetic import (
             PolarsLazyScalarArithmetic,
@@ -359,12 +356,13 @@ class TestReservedColumnGuardAllBackends:
         arrow_table = self._arrow_with_reserved_col()
         lf = polars.from_arrow(arrow_table).lazy()
         fs = _make_fs("value_int__add_constant", constant=5)
-        with pytest.raises(ValueError, match=r"(?i)reserved") as exc_info:
-            PolarsLazyScalarArithmetic.calculate_feature(lf, fs)
-        assert "__mloda_" in str(exc_info.value)
+        result = PolarsLazyScalarArithmetic.calculate_feature(lf, fs)
+        assert "__mloda_rn__" in result.collect_schema().names()
 
-    def test_duckdb_rejects_reserved_column(self) -> None:
+    def test_duckdb_accepts_reserved_column(self) -> None:
         duckdb = pytest.importorskip("duckdb")
+        from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
+
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.duckdb_scalar_arithmetic import (
             DuckdbScalarArithmetic,
         )
@@ -372,15 +370,14 @@ class TestReservedColumnGuardAllBackends:
         arrow_table = self._arrow_with_reserved_col()
         conn = duckdb.connect(":memory:")
         try:
-            relation = conn.from_arrow(arrow_table)
+            relation = DuckdbRelation.from_arrow(conn, arrow_table)
             fs = _make_fs("value_int__add_constant", constant=5)
-            with pytest.raises(ValueError, match=r"(?i)reserved") as exc_info:
-                DuckdbScalarArithmetic.calculate_feature(relation, fs)
-            assert "__mloda_" in str(exc_info.value)
+            result = DuckdbScalarArithmetic.calculate_feature(relation, fs)
+            assert "__mloda_rn__" in result.to_arrow_table().column_names
         finally:
             conn.close()
 
-    def test_sqlite_rejects_reserved_column(self) -> None:
+    def test_sqlite_accepts_reserved_column(self) -> None:
         import sqlite3
 
         from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
@@ -394,8 +391,7 @@ class TestReservedColumnGuardAllBackends:
         try:
             relation = SqliteRelation.from_arrow(conn, arrow_table)
             fs = _make_fs("value_int__add_constant", constant=5)
-            with pytest.raises(ValueError, match=r"(?i)reserved") as exc_info:
-                SqliteScalarArithmetic.calculate_feature(relation, fs)
-            assert "__mloda_" in str(exc_info.value)
+            result = SqliteScalarArithmetic.calculate_feature(relation, fs)
+            assert "__mloda_rn__" in result.to_arrow_table().column_names
         finally:
             conn.close()

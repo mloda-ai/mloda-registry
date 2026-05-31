@@ -27,7 +27,6 @@ from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
 
 from mloda.community.feature_groups.data_operations.arithmetic_base import ArithmeticFeatureGroupBase
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 
 ARITHMETIC_OPERATIONS: dict[str, str] = {
     "add": "Element-wise addition of a constant",
@@ -111,14 +110,7 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
         Each feature produces one new column containing ``source {op} constant``.
         Null values in the source propagate to the result. Divide-by-zero and
         missing constant are rejected before dispatching to the backend.
-
-        Reserved-column guard runs first so callers that omit ``constant`` (such
-        as the shared ``ReservedColumnsTestMixin``) see the reserved-column
-        error rather than the missing-constant one.
         """
-        column_names, framework_label = cls._input_columns_and_framework(data)
-        assert_no_reserved_columns(column_names, framework=framework_label, operation="scalar arithmetic")
-
         table = data
 
         for feature in features.features:
