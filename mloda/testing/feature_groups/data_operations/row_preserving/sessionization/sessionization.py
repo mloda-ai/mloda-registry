@@ -123,8 +123,8 @@ def _create_sessionization_arrow_table() -> pa.Table:
 # session_id = cumsum(is_new) - 1 over the sorted frame, in ORIGINAL ROW order.
 #
 # Per-user, 30-minute threshold. New-session boundaries (sorted by user then ts):
-#   B: 09:01(new s0) 10:02(+61>30 new s1) 10:27(+25 same s1) 12:03(+96>30 new s2)
-#   A: 10:00(new s3) 10:20(+20 same s3) 10:50(+30 same s3) 11:30(+40>30 new s4) 11:35(+5 same s4)
+#   A: 10:00(new s0) 10:20(+20 same s0) 10:50(+30 same s0) 11:30(+40>30 new s1) 11:35(+5 same s1)
+#   B: 09:01(new s2) 10:02(+61>30 new s3) 10:27(+25 same s3) 12:03(+96>30 new s4)
 # cumsum over [*partition_by="user", "ts"] sorts users alphabetically (B's "B"
 # > "A"? no: "A" < "B"), so the global new-session order is A's stream then B's.
 # Mapping ids back to row order [0..8]:
@@ -240,6 +240,58 @@ class SessionizationTestBase(DataOpsTestBase):
         normalized = [int(v) for v in col]
         assert normalized == EXPECTED_SESSION_30_MINUTE, f"per-partition mismatch: {normalized!r}"
         assert normalized != EXPECTED_SESSION_30_MINUTE_WHOLE, "sessionization bled across partitions"
+
+    def test_non_microsecond_resolution_timestamps(self) -> None:
+        """Second-resolution (``timestamp("s")``) timestamps must sessionize correctly.
+
+        A single user / whole-table stream of three rows at 10:00:00, 10:00:30,
+        10:02:00 (gaps 30s then 90s) under a 60s threshold yields ``[0, 0, 1]``
+        (30s <= 60 same session, 90s > 60 new session). Backends that hardcode a
+        microsecond gap unit collapse a second-resolution column to all-zero.
+        """
+        table = pa.table(
+            {
+                "user": pa.array(["A", "A", "A"], type=pa.string()),
+                "ts": pa.array(
+                    [
+                        datetime(2023, 1, 1, 10, 0, 0, tzinfo=_U),
+                        datetime(2023, 1, 1, 10, 0, 30, tzinfo=_U),
+                        datetime(2023, 1, 1, 10, 2, 0, tzinfo=_U),
+                    ],
+                    type=pa.timestamp("s", tz="UTC"),
+                ),
+            }
+        )
+        data = self.create_test_data(table)
+        fs = make_feature_set("ts__sessionize_1_minute", partition_by=[], order_by="ts")
+        result = self.implementation_class().calculate_feature(data, fs)
+        col = self.extract_column(result, "ts__sessionize_1_minute")
+        self._assert_int_list(col, [0, 0, 1])
+
+    def test_helper_column_name_collision(self) -> None:
+        """Passthrough columns named ``is_new`` / ``sid`` must not collide with internal aliases.
+
+        Backends that build internal SQL with literal ``AS is_new`` / ``AS sid``
+        aliases produce a duplicate / ambiguous column when the input already
+        carries those names. The session ids must still be correct and the
+        passthrough columns must survive unchanged.
+        """
+        table = pa.table(
+            {
+                "id": pa.array(_SESSION_IDS, type=pa.int64()),
+                "user": pa.array(_SESSION_USERS, type=pa.string()),
+                "ts": pa.array(_SESSION_TIMESTAMPS, type=pa.timestamp("us", tz="UTC")),
+                "is_new": pa.array(list(range(100, 109)), type=pa.int64()),
+                "sid": pa.array(list(range(200, 209)), type=pa.int64()),
+            }
+        )
+        data = self.create_test_data(table)
+        fs = self._session_feature_set(30, "minute")
+        result = self.implementation_class().calculate_feature(data, fs)
+        col = self.extract_column(result, "ts__sessionize_30_minute")
+        self._assert_int_list(col, EXPECTED_SESSION_30_MINUTE)
+        is_new = [int(v) for v in self.extract_column(result, "is_new")]
+        assert is_new == list(range(100, 109)), f"is_new passthrough changed: {is_new!r}"
 
     # -- Row-preserving semantics -------------------------------------------
 

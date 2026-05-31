@@ -43,6 +43,10 @@ class PyArrowSessionization(SessionizationFeatureGroup):
         threshold_seconds: int,
         partition_by: list[str],
     ) -> pa.Table:
+        order_type = data.column(order_col).type
+        if not pa.types.is_timestamp(order_type):
+            raise ValueError(f"Order column {order_col!r} must be a timestamp for sessionization; got {order_type}.")
+
         n = data.num_rows
         if n == 0:
             return data.append_column(feature_name, pa.array([], type=pa.int64()))
@@ -51,8 +55,11 @@ class PyArrowSessionization(SessionizationFeatureGroup):
         perm = pc.sort_indices(data, sort_keys=sort_keys)
         sorted_tbl = data.take(perm)
 
-        # Timestamps cast to int64 are microseconds since epoch (timestamp("us")).
-        ts_int = pc.cast(sorted_tbl.column(order_col), pa.int64())
+        # Normalize to microsecond resolution before the int64 view so any input
+        # resolution (s/ms/us/ns) yields microseconds since epoch.
+        col = sorted_tbl.column(order_col)
+        col_us = pc.cast(col, pa.timestamp("us", tz=col.type.tz))
+        ts_int = pc.cast(col_us, pa.int64())
         threshold_us = threshold_seconds * 1_000_000
 
         if n == 1:

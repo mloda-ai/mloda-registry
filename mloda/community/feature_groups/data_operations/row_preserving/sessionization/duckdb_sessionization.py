@@ -43,6 +43,7 @@ class DuckdbSessionization(SessionizationFeatureGroup):
     ) -> DuckdbRelation:
         original_cols = list(data.columns)
         rn = pick_helper_column_name(taken=set(original_cols) | {feature_name})
+        is_new = pick_helper_column_name(taken=set(original_cols) | {feature_name, rn})
 
         # Tag the original row order so the result can be reordered back to input order.
         rel = data.with_row_number(rn)
@@ -52,6 +53,7 @@ class DuckdbSessionization(SessionizationFeatureGroup):
         # integer threshold_seconds. No user-controlled string is inlined unquoted.
         q_order = quote_ident(order_col)
         q_rn = quote_ident(rn)
+        q_is_new = quote_ident(is_new)
         q_feature = quote_ident(feature_name)
         partition_cols = [quote_ident(c) for c in partition_by]
 
@@ -65,7 +67,7 @@ class DuckdbSessionization(SessionizationFeatureGroup):
             f"THEN 1 ELSE 0 END"
         )
         session_expr = (
-            f"CAST(SUM(is_new) OVER ("
+            f"CAST(SUM({q_is_new}) OVER ("
             f"ORDER BY {order_keys} ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
             f") - 1 AS BIGINT)"
         )
@@ -73,7 +75,7 @@ class DuckdbSessionization(SessionizationFeatureGroup):
         select_cols = ", ".join(quote_ident(c) for c in original_cols)
         sql = (
             f"SELECT {select_cols}, {session_expr} AS {q_feature} "  # nosec
-            f"FROM (SELECT *, {is_new_expr} AS is_new FROM session_src WINDOW {window_def}) "
+            f"FROM (SELECT *, {is_new_expr} AS {q_is_new} FROM session_src WINDOW {window_def}) "
             f"ORDER BY {q_rn}"
         )
         return rel.query("session_src", sql)
