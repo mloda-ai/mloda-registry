@@ -9,7 +9,7 @@ import pytest
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
-from mloda.user import Feature
+from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     AGGREGATION_TYPES,
@@ -244,8 +244,6 @@ class TestReturnDataTypeRule:
     """
 
     def test_count_returns_int64(self) -> None:
-        from mloda.user import DataType
-
         feature = Feature("value_int__count_scalar", options=Options())
         assert ScalarAggregateFeatureGroup.return_data_type_rule(feature) == DataType.INT64
 

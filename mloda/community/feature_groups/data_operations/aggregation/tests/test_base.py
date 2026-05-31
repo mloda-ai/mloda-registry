@@ -8,6 +8,7 @@ import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
@@ -308,8 +309,6 @@ class TestReturnDataTypeRule:
 
     @pytest.mark.parametrize("operation", ["count", "nunique"])
     def test_deterministic_ops_return_int64(self, operation: str) -> None:
-        from mloda.user import DataType, Feature
-
         feature = Feature(
             f"value_int__{operation}_agg",
             options=Options(context={"partition_by": ["region"]}),
@@ -318,8 +317,6 @@ class TestReturnDataTypeRule:
 
     @pytest.mark.parametrize("operation", ["sum", "avg"])
     def test_input_dependent_ops_return_none(self, operation: str) -> None:
-        from mloda.user import Feature
-
         feature = Feature(
             f"value_int__{operation}_agg",
             options=Options(context={"partition_by": ["region"]}),

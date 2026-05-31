@@ -330,7 +330,7 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         """Declare INT64 for count (a counting op); other aggregates stay open."""
         try:
             agg_type = cls._extract_params(feature)["agg_type"]
-        except Exception:
+        except Exception:  # best-effort during planning; failure leaves the type undeclared
             return None
         if agg_type == "count":
             return DataType.INT64

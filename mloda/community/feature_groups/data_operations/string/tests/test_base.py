@@ -8,7 +8,7 @@ import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
-from mloda.user import Feature
+from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.string.base import (
     STRING_OPS,
@@ -149,8 +149,6 @@ class TestReturnDataTypeRule:
     """
 
     def test_length_returns_int64(self) -> None:
-        from mloda.user import DataType
-
         feature = Feature("name__length", options=Options())
         assert StringFeatureGroup.return_data_type_rule(feature) == DataType.INT64
 

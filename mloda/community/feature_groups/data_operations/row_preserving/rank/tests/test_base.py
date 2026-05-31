@@ -9,6 +9,7 @@ import pytest
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
@@ -288,8 +289,6 @@ class TestReturnDataTypeRule:
 
     @pytest.mark.parametrize("rank_type", ["row_number", "rank", "dense_rank", "ntile_4"])
     def test_integer_rank_ops_return_int64(self, rank_type: str) -> None:
-        from mloda.user import DataType, Feature
-
         feature = Feature(
             f"value_int__{rank_type}_ranked",
             options=Options(context={"partition_by": ["region"], "order_by": "value_int"}),
@@ -297,8 +296,6 @@ class TestReturnDataTypeRule:
         assert RankFeatureGroup.return_data_type_rule(feature) == DataType.INT64
 
     def test_percent_rank_returns_double(self) -> None:
-        from mloda.user import DataType, Feature
-
         feature = Feature(
             "value_int__percent_rank_ranked",
             options=Options(context={"partition_by": ["region"], "order_by": "value_int"}),
@@ -307,8 +304,6 @@ class TestReturnDataTypeRule:
 
     @pytest.mark.parametrize("rank_type", ["top_3", "bottom_3"])
     def test_deferred_ops_return_none(self, rank_type: str) -> None:
-        from mloda.user import Feature
-
         feature = Feature(
             f"value_int__{rank_type}_ranked",
             options=Options(context={"partition_by": ["region"], "order_by": "value_int"}),

@@ -192,7 +192,7 @@ class AggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         """Declare INT64 for count/nunique (counting ops); other aggregates stay open."""
         try:
             agg_type = cls._extract_aggregation_type(feature)
-        except Exception:
+        except Exception:  # best-effort during planning; failure leaves the type undeclared
             return None
         if agg_type in {"count", "nunique"}:
             return DataType.INT64

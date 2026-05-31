@@ -212,7 +212,7 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         """
         try:
             rank_type = cls._extract_rank_type(feature)
-        except Exception:
+        except Exception:  # best-effort during planning; failure leaves the type undeclared
             return None
         if rank_type in {"row_number", "rank", "dense_rank"}:
             return DataType.INT64

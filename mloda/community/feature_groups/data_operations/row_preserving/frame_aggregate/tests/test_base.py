@@ -7,6 +7,7 @@ from typing import Any
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
@@ -262,8 +263,6 @@ class TestReturnDataTypeRule:
     """
 
     def test_count_returns_int64(self) -> None:
-        from mloda.user import DataType, Feature
-
         feature = Feature(
             "sales__count_rolling_3",
             options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
@@ -271,8 +270,6 @@ class TestReturnDataTypeRule:
         assert FrameAggregateFeatureGroup.return_data_type_rule(feature) == DataType.INT64
 
     def test_sum_returns_none(self) -> None:
-        from mloda.user import Feature
-
         feature = Feature(
             "sales__sum_rolling_3",
             options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),

@@ -87,7 +87,7 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         """Declare INT64: both bin and qbin emit integer bin indices."""
         try:
             op, _ = cls._extract_binning_params(feature)
-        except Exception:
+        except Exception:  # best-effort during planning; failure leaves the type undeclared
             return None
         if op in {"bin", "qbin"}:
             return DataType.INT64

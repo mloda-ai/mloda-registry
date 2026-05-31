@@ -131,7 +131,7 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         """Declare the deterministic output type: all datetime ops are integer-valued."""
         try:
             cls._extract_datetime_op(feature)
-        except Exception:
+        except Exception:  # best-effort during planning; failure leaves the type undeclared
             return None
         return DataType.INT64
 

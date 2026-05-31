@@ -229,7 +229,7 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         try:
             op_token = cls._extract_resample_op(feature)
             _, _, agg = _parse_resample_op(op_token)
-        except Exception:
+        except Exception:  # best-effort during planning; failure leaves the type undeclared
             return None
         if agg == "count":
             return DataType.INT64

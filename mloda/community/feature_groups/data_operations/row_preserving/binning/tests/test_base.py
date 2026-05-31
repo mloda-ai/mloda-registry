@@ -8,6 +8,7 @@ import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BINNING_OPS,
@@ -131,14 +132,10 @@ class TestReturnDataTypeRule:
     """
 
     def test_bin_returns_int64(self) -> None:
-        from mloda.user import DataType, Feature
-
         feature = Feature("value_int__bin_5", options=Options())
         assert BinningFeatureGroup.return_data_type_rule(feature) == DataType.INT64
 
     def test_qbin_returns_int64(self) -> None:
-        from mloda.user import DataType, Feature
-
         feature = Feature("value_int__qbin_4", options=Options())
         assert BinningFeatureGroup.return_data_type_rule(feature) == DataType.INT64
 

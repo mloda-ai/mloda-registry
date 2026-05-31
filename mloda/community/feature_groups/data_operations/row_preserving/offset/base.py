@@ -190,7 +190,7 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         """Declare DOUBLE for pct_change_N (a ratio); other offsets stay open."""
         try:
             offset_type = cls._extract_offset_type(feature)
-        except Exception:
+        except Exception:  # best-effort during planning; failure leaves the type undeclared
             return None
         if offset_type.startswith("pct_change_"):
             suffix = offset_type[len("pct_change_") :]

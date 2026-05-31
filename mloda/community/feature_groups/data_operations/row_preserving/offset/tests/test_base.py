@@ -8,6 +8,7 @@ import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import OffsetFeatureGroup
 
@@ -183,8 +184,6 @@ class TestReturnDataTypeRule:
     """
 
     def test_pct_change_returns_double(self) -> None:
-        from mloda.user import DataType, Feature
-
         feature = Feature(
             "value_int__pct_change_1_offset",
             options=Options(context={"partition_by": ["region"], "order_by": "value_int"}),
@@ -196,8 +195,6 @@ class TestReturnDataTypeRule:
         ["lag_1", "lead_1", "diff_1", "first_value", "last_value"],
     )
     def test_input_dependent_ops_return_none(self, offset_type: str) -> None:
-        from mloda.user import Feature
-
         feature = Feature(
             f"value_int__{offset_type}_offset",
             options=Options(context={"partition_by": ["region"], "order_by": "value_int"}),

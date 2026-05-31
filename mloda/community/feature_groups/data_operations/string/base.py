@@ -114,7 +114,7 @@ class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         """Declare INT64 for length (an integer-valued op); other ops stay open."""
         try:
             op = cls._extract_string_op(feature)
-        except Exception:
+        except Exception:  # best-effort during planning; failure leaves the type undeclared
             return None
         if op == "length":
             return DataType.INT64
