@@ -1,0 +1,48 @@
+"""Polars lazy implementation of ffill-by-time."""
+
+from __future__ import annotations
+
+import polars as pl
+
+from mloda.provider import ComputeFramework
+from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
+
+from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
+
+_RN_COL = "__mloda_rn__"
+
+
+class PolarsLazyFfill(FfillFeatureGroup):
+    @classmethod
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
+        return {PolarsLazyDataFrame}
+
+    @classmethod
+    def _assert_source_column_present(cls, data: pl.LazyFrame, source_col: str) -> None:
+        names = data.collect_schema().names()
+        if source_col not in names:
+            raise ValueError(f"Source column {source_col!r} is not present in the polars frame; available: {names}.")
+
+    @classmethod
+    def _compute_ffill(
+        cls,
+        data: pl.LazyFrame,
+        feature_name: str,
+        source_col: str,
+        partition_by: list[str],
+        order_by: str,
+    ) -> pl.LazyFrame:
+        # Tag original row order so we can restore it after sorting.
+        data = data.with_row_index(_RN_COL)
+
+        # Sort within partitions by order_by (nulls last).
+        sort_null_last = pl.col(order_by).is_null().cast(pl.Int8)
+        ordered = data.sort(sort_null_last, order_by)
+
+        fill_expr = pl.col(source_col).forward_fill()
+        if partition_by:
+            fill_expr = fill_expr.over(partition_by)
+        ordered = ordered.with_columns(fill_expr.alias(feature_name))
+
+        # Restore original row order and drop the helper column.
+        return ordered.sort(_RN_COL).drop(_RN_COL)

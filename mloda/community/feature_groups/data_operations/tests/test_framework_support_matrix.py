@@ -232,6 +232,22 @@ OPERATIONS: list[OperationSpec] = [
         order_hint=("floor", "ceil", "round"),
     ),
     OperationSpec(
+        key="ffill",
+        display="ffill",
+        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.ffill.tests",
+        base_module="mloda.testing.feature_groups.data_operations.row_preserving.ffill.ffill",
+        base_class="FfillTestBase",
+        subtype_label="op",
+    ),
+    OperationSpec(
+        key="ema",
+        display="ema",
+        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.ema.tests",
+        base_module="mloda.testing.feature_groups.data_operations.row_preserving.ema.ema",
+        base_class="EmaTestBase",
+        subtype_label="op",
+    ),
+    OperationSpec(
         key="window_aggregation",
         display="window_aggregation",
         tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.tests",
@@ -266,6 +282,14 @@ OPERATIONS: list[OperationSpec] = [
         base_class="StringTestBase",
         subtype_label="op",
         order_hint=("upper", "lower", "trim", "length", "reverse"),
+    ),
+    OperationSpec(
+        key="resample",
+        display="resample",
+        tests_pkg="mloda.community.feature_groups.data_operations.row_changing.resample.tests",
+        base_module="mloda.testing.feature_groups.data_operations.row_changing.resample.resample",
+        base_class="ResampleTestBase",
+        subtype_label="op",
     ),
 ]
 
