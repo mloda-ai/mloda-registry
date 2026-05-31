@@ -5,17 +5,18 @@ Data operations are feature groups that transform existing columns using declara
 **What**: Three categories of built-in feature groups: row-preserving analytics, row-reducing aggregations, and element-wise string transforms.
 **When**: You want common analytic transforms (binning, windows, rolling aggregates, group-bys, string cleanup) without writing a custom feature group.
 **Why**: A single feature name like `value_int__sum_agg` produces the same result on PyArrow, Pandas, Polars, DuckDB, and SQLite. Users pick the framework; the operation contract is identical.
-**Where**: `mloda/community/feature_groups/data_operations/{row_preserving,aggregation,string}/`.
+**Where**: `mloda/community/feature_groups/data_operations/{row_preserving,aggregation,row_changing,string}/`.
 **How**: Request the operation as a feature (e.g. `value_int__p95_percentile`), pass any extra parameters via `Options(context=...)`, and call `mloda.run_all()`.
 
 ---
 
-## The three categories
+## The operation categories
 
 | Category | Location | Row behavior | Examples |
 |---|---|---|---|
-| Row-preserving | `row_preserving/` | Output row count and order match input | binning, window aggregation, rank, offset, percentile, scalar aggregate, scalar arithmetic, point arithmetic, frame aggregate, datetime |
+| Row-preserving | `row_preserving/` | Output row count and order match input | binning, window aggregation, rank, offset, percentile, scalar aggregate, scalar arithmetic, point arithmetic, frame aggregate, datetime, time bucketization, ffill, ema |
 | Aggregation | `aggregation/` | Reduces to one row per group | sum, avg, count, min, max, std, var, median, mode, nunique, first, last |
+| Row-changing | `row_changing/` | Output row count differs from input | resample (collapse events onto a regular time grid) |
 | String | `string/` | Row-preserving, element-wise on strings | upper, lower, trim, length, reverse |
 
 Row-preserving is the largest category because analytic transforms that broadcast a computed value back onto each row (ranks, running totals, bin labels) all share the same invariant.
@@ -39,6 +40,10 @@ Every data operation encodes its parameters directly in the feature name. The pr
 | Frame aggregate | multiple forms | `value__sum_rolling_3`, `value__avg_7_day_window`, `value__cumsum`, `value__expanding_avg` |
 | Binning | `{col}__{bin_op}_{N}` | `value_int__bin_5`, `value_int__qbin_10` |
 | DateTime | `{col}__{part}` | `ts__year`, `ts__dayofweek` |
+| Time bucketization | `{col}__{op}_{n}_{unit}` | `ts__floor_1_day`, `ts__ceil_15_minute` |
+| Forward fill | `{col}__ffill` | `price__ffill` (with `order_by` / `partition_by` in Options) |
+| EMA | `{col}__ema_{span}` | `price__ema_10` (with `order_by` / `partition_by` in Options) |
+| Resample | `{col}__resample_{n}_{unit}_{agg}` | `value__resample_1_hour_mean` (with `time_column` in Options) |
 | String | `{col}__{str_op}` | `name__upper`, `text__length` |
 
 The full pattern regex for each category lives in the corresponding `base.py`. For example:

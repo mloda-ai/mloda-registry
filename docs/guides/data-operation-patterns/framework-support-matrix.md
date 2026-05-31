@@ -38,8 +38,11 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the el
 | scalar_arithmetic | full | full | full | full | full |
 | point_arithmetic | full | full | full | full | full |
 | time_bucketization | full | full | full | full | full |
+| ffill | full | full | full | full | full |
+| ema | -- | full | full | -- | -- |
 | window_aggregation | partial (15/17) | partial (16/17) | partial (16/17) | partial (16/17) | partial (5/17) |
 | string | full | full | full | full | partial (2/5) |
+| resample | full | full | full | full | -- |
 
 ## Per-operation detail
 
@@ -165,6 +168,18 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the el
 | `ceil` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `round` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
+### ffill
+
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
+|---|---|---|---|---|---|
+| (all) | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+### ema
+
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
+|---|---|---|---|---|---|
+| (all) | -- | ✓ | ✓ | -- | -- |
+
 ### window_aggregation
 
 | Agg type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
@@ -196,6 +211,12 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the el
 | `trim` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `length` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `reverse` | ✓ | ✓ | ✓ | ✓ | ✗ |
+
+### resample
+
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
+|---|---|---|---|---|---|
+| (all) | ✓ | ✓ | ✓ | ✓ | -- |
 
 <!-- END GENERATED: framework-support-matrix -->
 

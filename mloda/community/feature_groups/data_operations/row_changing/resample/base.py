@@ -62,7 +62,7 @@ RESAMPLE_UNITS: dict[str, str] = {
     "day": "Day-aligned buckets (calendar day, midnight UTC)",
 }
 
-_RESAMPLE_TOKEN = "resample"
+_RESAMPLE_MARKER = "resample"
 
 
 def _parse_resample_op(token: str) -> tuple[int, str, str]:
@@ -151,7 +151,7 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         ``value__resample_1_century_mean``) still yield the source column and
         the raw token, letting ``_parse_resample_op`` raise the SPECIFIC error.
         """
-        marker = f"__{_RESAMPLE_TOKEN}_"
+        marker = f"__{_RESAMPLE_MARKER}_"
         idx = feature_name.find(marker)
         if idx <= 0:
             return None
@@ -160,7 +160,7 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     @classmethod
     def _token_from_name(cls, feature_name: str) -> str | None:
         """Return the raw ``{n}_{unit}_{agg}`` token from the name, else None."""
-        marker = f"__{_RESAMPLE_TOKEN}_"
+        marker = f"__{_RESAMPLE_MARKER}_"
         idx = feature_name.find(marker)
         if idx < 0:
             return None
