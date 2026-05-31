@@ -8,6 +8,7 @@ import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
@@ -263,6 +264,29 @@ class TestConfigBasedFeatures:
         result_col = result.column("my_sum_result").to_pylist()
         expected = [25, 25, 25, 25, 140, 140, 140, 140, 70, 70, 70, -10]
         assert result_col == expected
+
+
+class TestReturnDataTypeRule:
+    """return_data_type_rule should fix the output type only for deterministic ops.
+
+    count/nunique always return INT64. avg depends on the input column type, so
+    the rule must return None for it.
+    """
+
+    @pytest.mark.parametrize("operation", ["count", "nunique"])
+    def test_deterministic_ops_return_int64(self, operation: str) -> None:
+        feature = Feature(
+            f"value_int__{operation}_window",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+        assert WindowAggregationFeatureGroup.return_data_type_rule(feature) == DataType.INT64
+
+    def test_avg_returns_none(self) -> None:
+        feature = Feature(
+            "value_int__avg_window",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+        assert WindowAggregationFeatureGroup.return_data_type_rule(feature) is None
 
 
 class TestWindowAggregationMatchValidation(MatchValidationTestBase):

@@ -9,6 +9,7 @@ import pytest
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
@@ -276,6 +277,38 @@ class TestConfigBasedFeatures:
         assert isinstance(result, pa.Table)
         assert "my_rank_result" in result.column_names
         assert result.num_rows == 12
+
+
+class TestReturnDataTypeRule:
+    """return_data_type_rule should fix the output type for deterministic rank ops.
+
+    row_number / rank / dense_rank / ntile_N are integer ranks (INT64).
+    percent_rank is a fractional rank (DOUBLE). top_N / bottom_N are deferred
+    and not yet declared, so the rule must return None for them.
+    """
+
+    @pytest.mark.parametrize("rank_type", ["row_number", "rank", "dense_rank", "ntile_4"])
+    def test_integer_rank_ops_return_int64(self, rank_type: str) -> None:
+        feature = Feature(
+            f"value_int__{rank_type}_ranked",
+            options=Options(context={"partition_by": ["region"], "order_by": "value_int"}),
+        )
+        assert RankFeatureGroup.return_data_type_rule(feature) == DataType.INT64
+
+    def test_percent_rank_returns_double(self) -> None:
+        feature = Feature(
+            "value_int__percent_rank_ranked",
+            options=Options(context={"partition_by": ["region"], "order_by": "value_int"}),
+        )
+        assert RankFeatureGroup.return_data_type_rule(feature) == DataType.DOUBLE
+
+    @pytest.mark.parametrize("rank_type", ["top_3", "bottom_3"])
+    def test_deferred_ops_return_none(self, rank_type: str) -> None:
+        feature = Feature(
+            f"value_int__{rank_type}_ranked",
+            options=Options(context={"partition_by": ["region"], "order_by": "value_int"}),
+        )
+        assert RankFeatureGroup.return_data_type_rule(feature) is None
 
 
 class TestRankMatchValidation(MatchValidationTestBase):

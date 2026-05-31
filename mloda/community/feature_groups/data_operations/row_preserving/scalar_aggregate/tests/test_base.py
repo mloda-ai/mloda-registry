@@ -9,7 +9,7 @@ import pytest
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
-from mloda.user import Feature
+from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     AGGREGATION_TYPES,
@@ -234,6 +234,22 @@ class TestAggregationTypeExtraction:
         feature_name = f"col__{agg_type}_scalar"
         result = ScalarAggregateFeatureGroup.get_aggregation_type(feature_name)
         assert result == agg_type
+
+
+class TestReturnDataTypeRule:
+    """return_data_type_rule should fix the output type only for deterministic ops.
+
+    count always returns INT64. sum depends on the input column type, so the
+    rule must return None for it.
+    """
+
+    def test_count_returns_int64(self) -> None:
+        feature = Feature("value_int__count_scalar", options=Options())
+        assert ScalarAggregateFeatureGroup.return_data_type_rule(feature) == DataType.INT64
+
+    def test_sum_returns_none(self) -> None:
+        feature = Feature("value_int__sum_scalar", options=Options())
+        assert ScalarAggregateFeatureGroup.return_data_type_rule(feature) is None
 
 
 class TestScalarAggregateMatchValidation(MatchValidationTestBase):

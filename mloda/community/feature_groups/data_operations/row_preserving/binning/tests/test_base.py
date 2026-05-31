@@ -8,6 +8,7 @@ import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BINNING_OPS,
@@ -122,6 +123,21 @@ class TestConfigBasedFeatures:
         )
         result = BinningFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is False
+
+
+class TestReturnDataTypeRule:
+    """return_data_type_rule should fix the output type for deterministic ops.
+
+    Both bin and qbin emit integer bin indices, so the rule returns INT64.
+    """
+
+    def test_bin_returns_int64(self) -> None:
+        feature = Feature("value_int__bin_5", options=Options())
+        assert BinningFeatureGroup.return_data_type_rule(feature) == DataType.INT64
+
+    def test_qbin_returns_int64(self) -> None:
+        feature = Feature("value_int__qbin_4", options=Options())
+        assert BinningFeatureGroup.return_data_type_rule(feature) == DataType.INT64
 
 
 class TestBinningMatchValidation(MatchValidationTestBase):

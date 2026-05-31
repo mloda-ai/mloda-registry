@@ -8,7 +8,7 @@ import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
-from mloda.user import Feature
+from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.string.base import (
     STRING_OPS,
@@ -138,6 +138,24 @@ class TestValidateStringMatch:
     def test_base_class_rejects_unknown_ops(self) -> None:
         """Base class _validate_string_match rejects operations not in STRING_OPS."""
         assert StringFeatureGroup._validate_string_match("name__capitalize", "capitalize", "name") is False
+
+
+class TestReturnDataTypeRule:
+    """return_data_type_rule should fix the output type only for deterministic ops.
+
+    length always returns an integer character count (INT64). upper / lower /
+    trim / reverse are string-returning ops that are deferred for now, so the
+    rule must return None for them.
+    """
+
+    def test_length_returns_int64(self) -> None:
+        feature = Feature("name__length", options=Options())
+        assert StringFeatureGroup.return_data_type_rule(feature) == DataType.INT64
+
+    @pytest.mark.parametrize("operation", ["upper", "lower", "trim", "reverse"])
+    def test_deferred_ops_return_none(self, operation: str) -> None:
+        feature = Feature(f"name__{operation}", options=Options())
+        assert StringFeatureGroup.return_data_type_rule(feature) is None
 
 
 class TestStringMatchValidation(MatchValidationTestBase):

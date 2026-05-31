@@ -8,6 +8,7 @@ import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import (
     DATETIME_OPS,
@@ -112,6 +113,22 @@ class TestConfigBasedFeatures:
         )
         result = DateTimeFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is False
+
+
+class TestReturnDataTypeRule:
+    """return_data_type_rule should fix the output type for deterministic ops.
+
+    All datetime ops are deterministic integer extractions (is_weekend is
+    implemented as integer 1/0, so INT64 rather than BOOLEAN).
+    """
+
+    @pytest.mark.parametrize(
+        "operation",
+        ["year", "month", "day", "hour", "minute", "second", "dayofweek", "is_weekend", "quarter"],
+    )
+    def test_deterministic_ops_return_int64(self, operation: str) -> None:
+        feature = Feature(f"timestamp__{operation}", options=Options())
+        assert DateTimeFeatureGroup.return_data_type_rule(feature) == DataType.INT64
 
 
 class TestDateTimeMatchValidation(MatchValidationTestBase):

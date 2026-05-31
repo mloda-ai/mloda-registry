@@ -38,6 +38,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
@@ -221,6 +222,18 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         if time_column is None:
             raise ValueError("resample requires a 'time_column' in Options context.")
         return str(time_column)
+
+    @classmethod
+    def return_data_type_rule(cls, feature: Feature) -> DataType | None:
+        """Declare INT64 for count buckets; other aggregations stay open."""
+        try:
+            op_token = cls._extract_resample_op(feature)
+            _, _, agg = _parse_resample_op(op_token)
+        except Exception:  # best-effort during planning; failure leaves the type undeclared
+            return None
+        if agg == "count":
+            return DataType.INT64
+        return None
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
