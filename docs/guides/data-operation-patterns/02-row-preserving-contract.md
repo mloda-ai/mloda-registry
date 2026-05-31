@@ -73,7 +73,7 @@ sorted_rel = with_qbin.order(quote_ident(rn))
 
 This pattern generalizes. Any time a framework's native operator reorders rows, the implementation must record positions before the operator runs and restore them afterward.
 
-Because the SQL backends now pick provably collision-free helper names via `pick_helper_column_name`, they accept user columns of any name (including the `__mloda_` prefix). The pandas, polars and pyarrow plugins still use hardcoded helper names, so they call `assert_no_reserved_columns()` (defined in `mloda/community/feature_groups/data_operations/reserved_columns.py`) on their input and raise `ValueError` if any user column starts with the reserved `__mloda_` prefix. See [Known divergences](known-divergences.md) for the full entry.
+Every backend now picks provably collision-free helper names at runtime, so user columns of any name (including the `__mloda_` prefix) are accepted. The SQL backends (DuckDB, SQLite) use `pick_helper_column_name` from `mloda_plugins` `sql_utils`; the pandas, polars and pyarrow backends use `unique_helper_name(base, taken)` from `mloda/community/feature_groups/data_operations/helper_columns.py`. The old `__mloda_` reject-guard (`assert_no_reserved_columns()`) was removed in #221, so no reserved namespace exists. See [Known divergences](known-divergences.md) for the full entry.
 
 ---
 
