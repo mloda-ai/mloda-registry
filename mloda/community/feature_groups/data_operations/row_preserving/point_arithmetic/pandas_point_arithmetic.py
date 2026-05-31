@@ -8,6 +8,7 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
+from mloda.community.feature_groups.data_operations.pandas_numeric_source import pandas_non_numeric_descriptor
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
     PointArithmeticFeatureGroup,
@@ -25,9 +26,9 @@ class PandasPointArithmetic(PointArithmeticFeatureGroup):
 
     @classmethod
     def _assert_source_column_is_numeric(cls, data: pd.DataFrame, source_col: str) -> None:
-        series = data[source_col]
-        if pd.api.types.is_bool_dtype(series) or not pd.api.types.is_numeric_dtype(series):
-            cls._raise_non_numeric_source(source_col, series.dtype)
+        descriptor = pandas_non_numeric_descriptor(data[source_col])
+        if descriptor is not None:
+            cls._raise_non_numeric_source(source_col, descriptor)
 
     @classmethod
     def _compute_arithmetic(
