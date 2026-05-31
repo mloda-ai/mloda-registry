@@ -1,11 +1,13 @@
-"""Reusable reserved-column guard test mixin for data-operations feature groups.
+"""Reusable reserved-column acceptance test mixin for data-operations feature groups.
 
 Provides a single standardized test that verifies input columns whose name
-starts with the reserved ``__mloda_`` prefix are rejected, across every
-framework implementation of a guarded data-operation. Each feature-group
-test base mixes this in and overrides the abstract configuration methods
-to adapt the generic test to its specific semantics (feature name,
-partition keys, order key).
+starts with the (formerly reserved) ``__mloda_`` prefix are ACCEPTED, across
+every framework implementation of a data-operation. There is no reserved
+namespace any more: helper columns are made collision-free at runtime, so a
+user column of any name (including a ``__mloda_``-prefixed one) is processed
+normally. Each feature-group test base mixes this in and overrides the abstract
+configuration methods to adapt the generic test to its specific semantics
+(feature name, partition keys, order key).
 
 The test method uses a ``test_mixin_`` prefix to match the existing
 convention for shared mixin tests (see ``MaskTestMixin``).
@@ -14,16 +16,18 @@ convention for shared mixin tests (see ``MaskTestMixin``).
 from __future__ import annotations
 
 import pyarrow as pa
-import pytest
 
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
 
 class ReservedColumnsTestMixin:
-    """Mixin providing a standardized reserved-column collision test.
+    """Mixin providing a standardized reserved-column acceptance test.
 
     Feature-group test bases mix this in and implement the configuration
     methods below to adapt the generic test to their semantics.
+
+    Every backend now accepts ``__mloda_``-prefixed user columns because helper
+    columns are made collision-free at runtime; no reserved namespace exists.
 
     Requires the host class to provide (from DataOpsTestBase):
     - ``implementation_class()``
@@ -58,30 +62,18 @@ class ReservedColumnsTestMixin:
         """
         return None
 
-    @classmethod
-    def reserved_columns_enforced(cls) -> bool:
-        """Whether this framework still rejects reserved ``__mloda_``-prefixed USER columns.
-
-        SQL backends (DuckDB/SQLite) now choose collision-free helper-column names via
-        ``pick_helper_column_name``, so they ACCEPT reserved-prefixed user columns. pandas,
-        polars and pyarrow still rely on the reserved-prefix guard, so they reject.
-        """
-        return True
-
     # -- Concrete test method --------------------------------------------------
 
-    def test_mixin_reserved_column_collision_rejected(self) -> None:
-        """Mixin: behaviour for an input column matching the reserved ``__mloda_`` prefix.
+    def test_mixin_reserved_column_collision_accepted(self) -> None:
+        """Mixin: a user input column matching the (formerly reserved) prefix is accepted.
 
         Uses an uppercase column name to verify case handling (SQLite and DuckDB
         unquoted identifiers fold case).
 
-        When ``reserved_columns_enforced()`` is True (pandas/polars/pyarrow), the
-        column is rejected with a ``ValueError`` naming the offending column.
-
-        When ``reserved_columns_enforced()`` is False (SQL backends that pick
-        collision-free helper-column names), the column is ACCEPTED and processed,
-        so the call returns a non-``None`` result.
+        No reserved namespace exists any more: helper columns are made
+        collision-free at runtime, so every backend accepts and processes a
+        ``__mloda_``-prefixed user column. The call therefore returns a
+        non-``None`` result.
         """
         colliding_name = "__MLODA_USER_COL__"
         base_table: pa.Table = self._arrow_table  # type: ignore[attr-defined]
@@ -95,9 +87,5 @@ class ReservedColumnsTestMixin:
             partition_by=self.reserved_columns_partition_by(),
             order_by=self.reserved_columns_order_by(),
         )
-        if self.reserved_columns_enforced():
-            with pytest.raises(ValueError, match=r"__MLODA_USER_COL__"):
-                self.implementation_class().calculate_feature(colliding_data, fs)  # type: ignore[attr-defined]
-        else:
-            result = self.implementation_class().calculate_feature(colliding_data, fs)  # type: ignore[attr-defined]
-            assert result is not None
+        result = self.implementation_class().calculate_feature(colliding_data, fs)  # type: ignore[attr-defined]
+        assert result is not None

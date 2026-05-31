@@ -17,9 +17,10 @@ from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketizat
 class TestSqliteTimeBucketization(ReservedColumnsTestMixin, SqliteTestMixin, TimeBucketizationTestBase):
     """All tests inherited from the base class.
 
-    Mirrors datetime sqlite: uses ``ReservedColumnsTestMixin`` because the
-    SQLite compute calls ``assert_no_reserved_columns`` (analogous to
-    ``sqlite_datetime``).
+    Uses ``ReservedColumnsTestMixin`` to assert that a ``__mloda_``-prefixed
+    user column is accepted: there is no reserved-column guard any more, and
+    SQLite time bucketization orders by ``rowid`` without adding a helper
+    column, so such inputs are processed normally.
     """
 
     @classmethod

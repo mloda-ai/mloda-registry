@@ -13,14 +13,11 @@ from mloda.community.feature_groups.data_operations.errors import (
     unsupported_agg_type_error,
     unsupported_frame_type_error,
 )
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
-
-_RN_COL = "__mloda_rn__"
-_SYNTH_TS_COL = "__mloda_synth_ts__"
 
 _CUMULATIVE_AGG_TYPES = {"sum", "min", "max", "count", "avg"}
 _ROLLING_AGG_TYPES = {"sum", "avg", "min", "max", "std", "var", "median", "count"}
@@ -45,7 +42,9 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
         frame_unit: str | None = None,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pl.LazyFrame:
-        assert_no_reserved_columns(data.collect_schema().names(), framework="Polars", operation="frame aggregate")
+        taken = set(data.collect_schema().names()) | {feature_name}
+        rn_col = unique_helper_name("__mloda_rn__", taken)
+        synth_ts_col = unique_helper_name("__mloda_synth_ts__", taken | {rn_col})
 
         actual_source = source_col
         if mask_spec is not None:
@@ -57,7 +56,7 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
             data = data.cast({actual_source: pl.Float64})
 
         # Tag rows with original position
-        data = data.with_row_index(_RN_COL)
+        data = data.with_row_index(rn_col)
 
         # Sort within partitions by order_by (nulls last)
         sort_expr = pl.col(order_by).is_null().cast(pl.Int8)
@@ -169,9 +168,9 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
                 pl.col(order_by)
                 .cast(target_dtype)
                 .add(pl.duration(nanoseconds=pl.int_range(pl.len()).cast(pl.Int64)))
-                .alias(_SYNTH_TS_COL)
+                .alias(synth_ts_col)
             )
-            by_col = _SYNTH_TS_COL
+            by_col = synth_ts_col
             window_str = f"{size}{unit_code}{row_count}ns"
             # closed="both" matches reference semantics: window is [ts - size, ts] inclusive.
             if agg_type == "sum":
@@ -241,12 +240,12 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
         result = sorted_data.with_columns(expr)
 
         # Restore original row order and drop helper columns
-        result = result.sort(_RN_COL)
-        drop_cols = [_RN_COL]
+        result = result.sort(rn_col)
+        drop_cols = [rn_col]
         if mask_spec is not None:
             drop_cols.append(_POLARS_MASK_TMP)
         if frame_type == "time":
-            drop_cols.append(_SYNTH_TS_COL)
+            drop_cols.append(synth_ts_col)
         result = result.drop(drop_cols)
 
         return result

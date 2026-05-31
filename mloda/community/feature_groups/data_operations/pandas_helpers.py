@@ -11,6 +11,8 @@ from typing import Any
 
 import pandas as pd
 
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
+
 PANDAS_AGG_FUNCS: dict[str, str] = {
     "sum": "sum",
     "avg": "mean",
@@ -97,15 +99,6 @@ _MODE_COUNT_COL = "__mloda_mode_count__"
 _MODE_FIRST_IDX_COL = "__mloda_mode_first_idx__"
 
 
-def _unique_temp_name(base: str, existing: Any) -> str:
-    if base not in existing:
-        return base
-    i = 1
-    while f"{base}_{i}" in existing:
-        i += 1
-    return f"{base}_{i}"
-
-
 def compute_mode_winners(
     data: pd.DataFrame,
     source_col: str,
@@ -123,9 +116,9 @@ def compute_mode_winners(
     """
     partition_by = list(partition_by)
     work = data[partition_by + [source_col]].copy()
-    idx_col = _unique_temp_name(_MODE_IDX_COL, work.columns)
-    count_col = _unique_temp_name(_MODE_COUNT_COL, work.columns)
-    first_idx_col = _unique_temp_name(_MODE_FIRST_IDX_COL, work.columns)
+    idx_col = unique_helper_name(_MODE_IDX_COL, work.columns)
+    count_col = unique_helper_name(_MODE_COUNT_COL, work.columns)
+    first_idx_col = unique_helper_name(_MODE_FIRST_IDX_COL, work.columns)
     work[idx_col] = range(len(work))
     work = work[work[source_col].notna()]
     if work.empty:

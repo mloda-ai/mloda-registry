@@ -15,10 +15,10 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
 from mloda.community.feature_groups.data_operations.polars_mode_helpers import (
+    ModeHelperCols,
     add_mode_helper_cols,
     mode_agg_expr,
 )
-from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 
 # Mapping from aggregation type to a Polars expression builder.
 _POLARS_AGG_EXPRS: dict[str, Any] = {
@@ -58,15 +58,14 @@ class PolarsLazyAggregation(AggregationFeatureGroup):
         agg_type: str,
         mask_spec: list[tuple[str, str, Any]] | None = None,
     ) -> pl.LazyFrame:
-        assert_no_reserved_columns(data.collect_schema().names(), framework="Polars", operation="aggregation")
-
         actual_source = source_col
         if mask_spec is not None:
             data, actual_source = apply_polars_mask(data, source_col, mask_spec)
 
         if agg_type == "mode":
-            data = add_mode_helper_cols(data, actual_source, partition_by)
-            expr = mode_agg_expr(actual_source, feature_name)
+            cols = ModeHelperCols.pick(set(data.collect_schema().names()) | {feature_name})
+            data = add_mode_helper_cols(data, actual_source, partition_by, cols)
+            expr = mode_agg_expr(actual_source, feature_name, cols)
         elif agg_type in _POLARS_AGG_EXPRS:
             raw_expr = _POLARS_AGG_EXPRS[agg_type](actual_source).alias(feature_name)
             if agg_type == "sum":

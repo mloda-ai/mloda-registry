@@ -20,9 +20,9 @@ from mloda.testing.feature_groups.data_operations.row_preserving.time_bucketizat
 class TestPolarsLazyTimeBucketization(PolarsLazyTestMixin, TimeBucketizationTestBase):
     """All tests inherited from the base class.
 
-    Mirrors datetime polars_lazy: no ``ReservedColumnsTestMixin`` because the
-    base ``calculate_feature`` does not call ``assert_no_reserved_columns``;
-    only the SQLite backend's compute does (mirroring sqlite_datetime).
+    Mirrors datetime polars_lazy: no ``ReservedColumnsTestMixin`` here. There is
+    no reserved-column guard on any backend; the SQLite test class carries the
+    acceptance mixin for the cross-backend coverage.
     """
 
     @classmethod

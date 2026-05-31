@@ -25,9 +25,5 @@ class TestDuckdbFrameAggregate(DuckdbTestMixin, FrameAggregateTestBase):
     """Unified tests inherited from the base class."""
 
     @classmethod
-    def reserved_columns_enforced(cls) -> bool:
-        return False
-
-    @classmethod
     def implementation_class(cls) -> Any:
         return DuckdbFrameAggregate
