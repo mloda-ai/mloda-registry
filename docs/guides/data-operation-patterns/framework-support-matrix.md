@@ -40,6 +40,7 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the el
 | time_bucketization | full | full | full | full | full |
 | ffill | full | full | full | full | full |
 | ema | -- | full | full | -- | -- |
+| sessionization | full | full | full | full | full |
 | window_aggregation | partial (15/17) | partial (16/17) | partial (16/17) | partial (16/17) | partial (5/17) |
 | string | full | full | full | full | partial (2/5) |
 | resample | full | full | full | full | -- |
@@ -179,6 +180,12 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the el
 | Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
 |---|---|---|---|---|---|
 | (all) | -- | ✓ | ✓ | -- | -- |
+
+### sessionization
+
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
+|---|---|---|---|---|---|
+| (all) | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ### window_aggregation
 
