@@ -10,6 +10,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
+from mloda.community.feature_groups.data_operations.numeric_source import duckdb_non_numeric_descriptor
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ScalarArithmeticFeatureGroup,
 )
@@ -20,27 +21,6 @@ DUCKDB_ARITHMETIC_OPS: dict[str, str] = {
     "multiply": "*",
     "divide": "/",
 }
-
-# DuckDB type names that count as numeric for scalar arithmetic.
-# Parameterized variants (DECIMAL(p, s)) are matched via ``startswith(p + "(")``.
-_DUCKDB_NUMERIC_PREFIXES: tuple[str, ...] = (
-    "TINYINT",
-    "SMALLINT",
-    "INTEGER",
-    "BIGINT",
-    "HUGEINT",
-    "UTINYINT",
-    "USMALLINT",
-    "UINTEGER",
-    "UBIGINT",
-    "UHUGEINT",
-    "FLOAT",
-    "DOUBLE",
-    "REAL",
-    "DECIMAL",
-    "NUMERIC",
-    "BIGNUM",
-)
 
 
 class DuckdbScalarArithmetic(ScalarArithmeticFeatureGroup):
@@ -54,16 +34,9 @@ class DuckdbScalarArithmetic(ScalarArithmeticFeatureGroup):
 
     @classmethod
     def _assert_source_column_is_numeric(cls, data: DuckdbRelation, source_col: str) -> None:
-        # ``DuckdbRelation`` wraps a ``DuckDBPyRelation`` exposing aligned
-        # ``.columns`` and ``.types`` (~4 microseconds; cheaper than
-        # ``data.to_arrow_table().schema`` which materializes the relation).
-        underlying = data._relation
-        type_by_column = dict(zip(list(underlying.columns), [str(t) for t in underlying.types]))
-        dtype_str = type_by_column.get(source_col)
-        if dtype_str is None:
-            return
-        if not any(dtype_str == p or dtype_str.startswith(p + "(") for p in _DUCKDB_NUMERIC_PREFIXES):
-            cls._raise_non_numeric_source(source_col, dtype_str)
+        descriptor = duckdb_non_numeric_descriptor(data, source_col)
+        if descriptor is not None:
+            cls._raise_non_numeric_source(source_col, descriptor)
 
     @classmethod
     def _compute_arithmetic(

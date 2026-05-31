@@ -8,6 +8,7 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framewor
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
+from mloda.community.feature_groups.data_operations.numeric_source import sqlite_non_numeric_descriptor
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     PointArithmeticFeatureGroup,
 )
@@ -40,14 +41,9 @@ class SqlitePointArithmetic(PointArithmeticFeatureGroup):
         is correspondingly skipped for SQLite via the
         ``detects_non_numeric_source`` test-class override.
         """
-        rows = data.connection.execute(f"PRAGMA table_info({quote_ident(data.table_name)})").fetchall()
-        affinity_by_column = {row[1]: (row[2] or "").upper() for row in rows}
-        affinity = affinity_by_column.get(source_col)
-        if affinity is None:
-            return
-        if "INT" in affinity or "REAL" in affinity or "FLOA" in affinity or "DOUB" in affinity or "NUMERIC" in affinity:
-            return
-        cls._raise_non_numeric_source(source_col, f"SQLite affinity {affinity!r}")
+        descriptor = sqlite_non_numeric_descriptor(data, source_col)
+        if descriptor is not None:
+            cls._raise_non_numeric_source(source_col, descriptor)
 
     @classmethod
     def _compute_arithmetic(

@@ -21,12 +21,12 @@ from typing import Any
 
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.provider import DefaultOptionKeys
 
+from mloda.community.feature_groups.data_operations.arithmetic_base import ArithmeticFeatureGroupBase
 from mloda.community.feature_groups.data_operations.reserved_columns import assert_no_reserved_columns
 
 ARITHMETIC_OPERATIONS: dict[str, str] = {
@@ -37,17 +37,17 @@ ARITHMETIC_OPERATIONS: dict[str, str] = {
 }
 
 
-class ScalarArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
     PREFIX_PATTERN = r".*__([\w]+)_constant$"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
 
-    ARITHMETIC_OP = "arithmetic_op"
+    OPERATION_LABEL = "scalar arithmetic"
     CONSTANT = "constant"
 
     PROPERTY_MAPPING = {
-        ARITHMETIC_OP: {
+        ArithmeticFeatureGroupBase.ARITHMETIC_OP: {
             **ARITHMETIC_OPERATIONS,
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
@@ -63,30 +63,6 @@ class ScalarArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             DefaultOptionKeys.strict_validation: False,
         },
     }
-
-    @classmethod
-    def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
-        return operation_config in ARITHMETIC_OPERATIONS
-
-    @classmethod
-    def get_arithmetic_op(cls, feature_name: str) -> str:
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        raise ValueError(f"Could not extract arithmetic operation from feature name: {feature_name}")
-
-    @classmethod
-    def _extract_arithmetic_op(cls, feature: Feature) -> str:
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        op = feature.options.get(cls.ARITHMETIC_OP)
-        if op is None:
-            raise ValueError(f"Could not extract arithmetic operation for {feature_name}")
-        return str(op)
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         _feature_name = str(feature_name)
@@ -127,36 +103,6 @@ class ScalarArithmeticFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             )
 
         return source_names
-
-    @staticmethod
-    def _raise_non_numeric_source(source_col: str, got: object) -> None:
-        """Shared error format for the numeric-source contract.
-
-        Backend overrides of ``_assert_source_column_is_numeric`` call this
-        helper so the message stays uniform across all backends. ``got`` is
-        inlined verbatim, allowing backends to pass a native dtype, an
-        affinity string, or any other descriptor.
-        """
-        raise ValueError(f"Source column {source_col!r} must be numeric for scalar arithmetic; got {got}.")
-
-    @classmethod
-    def _input_columns_and_framework(cls, data: Any) -> tuple[list[str], str]:
-        """Return ``(column_names, framework_label)`` for ``data``.
-
-        Backend-specific; implemented per backend so the base class has no
-        compile-time or import-time dependency on any compute framework.
-        """
-        raise NotImplementedError
-
-    @classmethod
-    def _assert_source_column_is_numeric(cls, data: Any, source_col: str) -> None:
-        """Reject non-numeric source columns with a clear ``ValueError``.
-
-        Backend-specific; implemented per backend. Implementations should
-        call ``cls._raise_non_numeric_source(source_col, <native dtype>)`` to
-        keep the message format uniform.
-        """
-        raise NotImplementedError
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

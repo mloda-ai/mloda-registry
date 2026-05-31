@@ -9,6 +9,7 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
+from mloda.community.feature_groups.data_operations.numeric_source import pyarrow_non_numeric_descriptor
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
     ScalarArithmeticFeatureGroup,
@@ -26,9 +27,9 @@ class PyArrowScalarArithmetic(ScalarArithmeticFeatureGroup):
 
     @classmethod
     def _assert_source_column_is_numeric(cls, data: pa.Table, source_col: str) -> None:
-        arrow_type = data.column(source_col).type
-        if pa.types.is_boolean(arrow_type) or not (pa.types.is_integer(arrow_type) or pa.types.is_floating(arrow_type)):
-            cls._raise_non_numeric_source(source_col, arrow_type)
+        descriptor = pyarrow_non_numeric_descriptor(data.column(source_col).type)
+        if descriptor is not None:
+            cls._raise_non_numeric_source(source_col, descriptor)
 
     @classmethod
     def _compute_arithmetic(
