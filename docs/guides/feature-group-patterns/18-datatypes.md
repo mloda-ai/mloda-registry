@@ -67,6 +67,8 @@ class UserCount(FeatureGroup):
         return DataType.INT64
 ```
 
+The rule is a planning-time hint and must never raise (the engine calls it unguarded). For the failure-handling contract when the type depends on parsing the feature, and how the `data_operations` rules degrade to `None` rather than crash, see [`return_data_type_rule` failure handling](../data-operation-patterns/16-return-data-type-rule.md).
+
 ## Validation Modes
 
 **Lenient (default):** Allows safe type widening (INT32→INT64, FLOAT→DOUBLE)
