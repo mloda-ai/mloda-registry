@@ -49,8 +49,9 @@ def _expected_divide(*, zero_to_null: bool) -> list[Any]:
     """Element-wise divide expected values.
 
     For the canonical (VALUE_INT, AMOUNT) pair, row 5 is ``50 / 0.0``.
-    PyArrow/Pandas/Polars/DuckDB cast to float and propagate IEEE-754
-    inf/nan; SQLite has no IEEE-754 storage and returns NULL instead.
+    Divide always yields float, so PyArrow/Pandas/Polars/DuckDB propagate
+    IEEE-754 inf/nan, while SQLite has no IEEE-754 storage and returns
+    NULL instead.
 
     Set ``zero_to_null=True`` for SQLite expectations, ``False`` for the
     other four backends.
@@ -120,9 +121,10 @@ class PointArithmeticTestBase(DataOpsTestBase):
     def divide_zero_propagates_inf(cls) -> bool:
         """Whether divide-by-zero produces IEEE-754 inf/nan or NULL.
 
-        PyArrow / Pandas / Polars / DuckDB cast operands to float and
-        propagate IEEE-754 special values. SQLite has no IEEE-754 storage
-        and overrides this to ``False`` (NULL for divide-by-zero rows).
+        On divide, PyArrow / Pandas / Polars / DuckDB produce float
+        results and propagate IEEE-754 special values. SQLite has no
+        IEEE-754 storage and overrides this to ``False`` (NULL for
+        divide-by-zero rows).
         """
         return True
 

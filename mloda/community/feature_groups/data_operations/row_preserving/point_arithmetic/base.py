@@ -10,8 +10,12 @@ Example: ``value_int&amount__divide_point`` divides every row of
 ``value_int`` by the corresponding row of ``amount``.
 
 Null values in either source column propagate to None in the output.
-Divide-by-zero follows IEEE-754 float semantics on PyArrow/Pandas/Polars/
-DuckDB (returns inf/nan) and returns NULL on SQLite.
+``add``/``subtract``/``multiply`` use each backend's native operator
+(int + int stays int, mixed int/float promotes); ``divide`` always
+yields float (PyArrow/DuckDB/SQLite cast operands explicitly, while
+Pandas/Polars rely on Python's ``/`` semantics). Divide-by-zero follows
+IEEE-754 float semantics on PyArrow/Pandas/Polars/DuckDB (returns
+inf/nan) and returns NULL on SQLite.
 """
 
 from __future__ import annotations
