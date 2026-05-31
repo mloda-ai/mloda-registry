@@ -12,6 +12,12 @@ same operation) as ``taken``. ``data.columns`` (pandas), a plain ``set``, and
 ``table.column_names`` (pyarrow) all support ``in``, so ``Container[str]`` is
 the right type for ``taken``.
 
+The collision check is case-sensitive: pandas, polars and pyarrow identifiers
+are case-sensitive, so ``"__mloda_x"`` and ``"__MLODA_X"`` are distinct columns
+that cannot collide. (The old reserved-prefix guard was case-insensitive only
+because the case-folding SQL backends shared it; those backends now use their
+own ``pick_helper_column_name`` and are not covered here.)
+
 The SQL backends (DuckDB, SQLite) use their own ``pick_helper_column_name`` in
 the SQL utils and are intentionally not covered here.
 """
@@ -22,7 +28,12 @@ from collections.abc import Container
 
 
 def unique_helper_name(base: str, taken: Container[str]) -> str:
-    """Return ``base`` if absent from ``taken``, else the lowest ``base_N`` (N>=1) not in ``taken``."""
+    """Return ``base`` if absent from ``taken``, else the lowest ``base_N`` (N>=1) not in ``taken``.
+
+    The suffix is appended verbatim, so a ``base`` that already ends in ``_``
+    (e.g. ``"__mloda_mode_idx__"``) yields ``"__mloda_mode_idx___1"``. That double
+    underscore is cosmetic; uniqueness is what matters.
+    """
     if base not in taken:
         return base
     i = 1
