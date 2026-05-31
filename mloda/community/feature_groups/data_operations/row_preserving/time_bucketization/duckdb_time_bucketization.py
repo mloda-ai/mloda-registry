@@ -124,6 +124,16 @@ class DuckdbTimeBucketization(TimeBucketizationFeatureGroup):
         if op not in TIME_BUCKETIZATION_OPS:
             raise ValueError(f"Unsupported bucket op {op!r} for DuckDB; supported: {sorted(TIME_BUCKETIZATION_OPS)}.")
 
+        # Pin the session timezone to UTC and leave it set (issue #238).
+        # DuckDB relations are LAZY: DATE_TRUNC/time_bucket and the TIMESTAMPTZ
+        # rendering are evaluated at materialization (to_arrow_table), which
+        # happens outside this method. They use the connection's session zone,
+        # so on a non-UTC session they produce wrong instants. We must NOT
+        # save+restore the prior zone (it would be restored before lazy
+        # evaluation runs); set it persistently so bucketing stays UTC-anchored
+        # regardless of the host/session zone.
+        data.connection.execute("SET TimeZone='UTC'")
+
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
         floor_expr = _floor_expr(quoted_source, n, unit)
