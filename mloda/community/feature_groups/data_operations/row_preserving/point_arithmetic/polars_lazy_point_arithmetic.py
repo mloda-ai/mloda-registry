@@ -8,7 +8,7 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
-from mloda.community.feature_groups.data_operations.numeric_source import polars_non_numeric_descriptor
+from mloda.community.feature_groups.data_operations.polars_numeric_source import polars_non_numeric_descriptor
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
     PointArithmeticFeatureGroup,
