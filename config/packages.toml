@@ -76,7 +76,7 @@ path = "mloda/enterprise/extenders/example"
 description = "Shared base classes for data operation feature groups"
 dependencies = ["mloda>=0.7.0"]
 path = "mloda/community/feature_groups/data_operations"
-optional_dependencies = { all = ["mloda-community-window-aggregation", "mloda-community-aggregation", "mloda-community-rank", "mloda-community-offset", "mloda-community-frame-aggregate", "mloda-community-scalar-aggregate", "mloda-community-scalar-arithmetic", "mloda-community-point-arithmetic", "mloda-community-datetime", "mloda-community-string", "mloda-community-binning", "mloda-community-percentile", "mloda-community-time-bucketization", "mloda-community-ffill", "mloda-community-ema", "mloda-community-resample"] }
+optional_dependencies = { all = ["mloda-community-window-aggregation", "mloda-community-aggregation", "mloda-community-rank", "mloda-community-offset", "mloda-community-frame-aggregate", "mloda-community-scalar-aggregate", "mloda-community-scalar-arithmetic", "mloda-community-point-arithmetic", "mloda-community-datetime", "mloda-community-string", "mloda-community-binning", "mloda-community-percentile", "mloda-community-time-bucketization", "mloda-community-ffill", "mloda-community-ema", "mloda-community-sessionization", "mloda-community-resample"] }
 
 [packages.mloda-community-aggregation]
 description = "Aggregation feature group (reduce, partition_by, one row per group)"
@@ -164,6 +164,12 @@ optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"
 description = "EMA feature group (exponential moving average, adjust=False, null-skipping recurrence, per partition, row-preserving; pandas/polars native, pyarrow/duckdb/sqlite reject)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/ema"
+optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+
+[packages.mloda-community-sessionization]
+description = "Sessionization feature group (gap-threshold session id on an ordered timestamp, per partition, row-preserving)"
+dependencies = ["mloda-community-data-operations>=0.2.12"]
+path = "mloda/community/feature_groups/data_operations/row_preserving/sessionization"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
 
 [packages.mloda-community-resample]

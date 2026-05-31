@@ -22,5 +22,6 @@ Read them after you are comfortable with the [feature-group patterns](../feature
 12. [Forward fill by time](12-ffill-by-time.md) - Carry the last non-null value forward across time gaps, per partition (row-preserving)
 13. [EMA](13-ema.md) - Exponential moving average (`{col}__ema_{span}`), per partition; pandas / polars native, SQL backends reject
 14. [Resample](14-resample.md) - Collapse events onto a regular time grid (`{col}__resample_{n}_{unit}_{agg}`); the first `row_changing` operation
-15. [Known divergences](known-divergences.md) - Audited cases where a framework would diverge from the PyArrow reference, with the mitigation for each
-16. [Framework support matrix](framework-support-matrix.md) - Operation x framework capability table, generated from `supported_*()` test overrides
+15. [Sessionization](15-sessionization.md) - Assign a gap-threshold session id on an ordered timestamp (`{ts}__sessionize_{n}_{unit}`), per partition (row-preserving)
+16. [Known divergences](known-divergences.md) - Audited cases where a framework would diverge from the PyArrow reference, with the mitigation for each
+17. [Framework support matrix](framework-support-matrix.md) - Operation x framework capability table, generated from `supported_*()` test overrides

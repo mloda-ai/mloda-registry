@@ -248,6 +248,14 @@ OPERATIONS: list[OperationSpec] = [
         subtype_label="op",
     ),
     OperationSpec(
+        key="sessionization",
+        display="sessionization",
+        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.sessionization.tests",
+        base_module="mloda.testing.feature_groups.data_operations.row_preserving.sessionization.sessionization",
+        base_class="SessionizationTestBase",
+        subtype_label="op",
+    ),
+    OperationSpec(
         key="window_aggregation",
         display="window_aggregation",
         tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.tests",
