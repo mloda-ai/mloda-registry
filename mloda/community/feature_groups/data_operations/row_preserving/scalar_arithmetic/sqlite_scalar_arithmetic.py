@@ -71,6 +71,11 @@ class SqliteScalarArithmetic(ScalarArithmeticFeatureGroup):
         else:
             source_expr = quoted_source
 
+        # Row-preserving contract: append_column below aligns result_values to
+        # the existing rows by position, so this bare SELECT must return rows in
+        # the relation's stored order. Keep it free of ORDER BY / JOIN / GROUP BY
+        # / DISTINCT, any of which could reorder rows and silently misalign the
+        # appended column. See docs/guides/data-operation-patterns/02-row-preserving-contract.md.
         sql = " ".join(
             [
                 "SELECT",
