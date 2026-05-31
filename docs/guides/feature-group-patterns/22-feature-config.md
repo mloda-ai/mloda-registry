@@ -42,6 +42,29 @@ result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
 
 Items can be plain strings (`"feature_name"`) or feature objects. `options` and `group_options`/`context_options` are mutually exclusive.
 
+## Window / Rank / Percentile Requests
+
+Row-preserving `data_operations` (window aggregation, rank, percentile) cannot be requested by a bare name: the matcher only resolves the FeatureGroup when the request also carries the partition/order options it needs. Put those in `context_options`. The feature name encodes the operation (`{source}__{operation}`); the matcher reads the rest from `context_options`.
+
+```python
+config = '''
+[
+    {"name": "steps__sum_window", "context_options": {"partition_by": ["subject_id"]}},
+    {"name": "price__last_window", "context_options": {"partition_by": ["region"], "order_by": "timestamp"}},
+    {"name": "sales__row_number_ranked", "context_options": {"partition_by": ["region"], "order_by": "sales"}},
+    {"name": "sales__p95_percentile", "context_options": {"partition_by": ["region"]}}
+]
+'''
+```
+
+| Operation | Name pattern | Required `context_options` |
+|-----------|--------------|----------------------------|
+| Window aggregation | `{source}__{agg}_window` (`sum`, `avg`, `first`, `last`, ...) | `partition_by` (list); `order_by` (string) for order-dependent aggs like `first`/`last` |
+| Rank | `{source}__{rank_type}_ranked` (`row_number`, `dense_rank`, `ntile_N`, ...) | `partition_by` (list), `order_by` (string) |
+| Percentile | `{source}__p{N}_percentile` (e.g. `p50`, `p95`) | `partition_by` (list) |
+
+Use `context_options` (not `group_options`): the partition/order are operation parameters, not identity that should split the FeatureGroup.
+
 ## How Plugins Resolve Config Values
 
 When a JSON config specifies `context_options` like `{"aggregation_type": "sum"}`, the receiving FeatureGroup needs to extract that value at compute time. Plugins using `FeatureChainParserMixin` call `_resolve_operation(feature, config_key)` to handle both string-based names (where the operation is embedded in the feature name) and config-based creation (where the operation comes from options) in one call. See [Chained Features](03-chained-features.md) for the full pattern.
