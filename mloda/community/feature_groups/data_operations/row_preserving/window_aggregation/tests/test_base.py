@@ -265,6 +265,33 @@ class TestConfigBasedFeatures:
         assert result_col == expected
 
 
+class TestReturnDataTypeRule:
+    """return_data_type_rule should fix the output type only for deterministic ops.
+
+    count/nunique always return INT64. avg depends on the input column type, so
+    the rule must return None for it.
+    """
+
+    @pytest.mark.parametrize("operation", ["count", "nunique"])
+    def test_deterministic_ops_return_int64(self, operation: str) -> None:
+        from mloda.user import DataType, Feature
+
+        feature = Feature(
+            f"value_int__{operation}_window",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+        assert WindowAggregationFeatureGroup.return_data_type_rule(feature) == DataType.INT64
+
+    def test_avg_returns_none(self) -> None:
+        from mloda.user import Feature
+
+        feature = Feature(
+            "value_int__avg_window",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+        assert WindowAggregationFeatureGroup.return_data_type_rule(feature) is None
+
+
 class TestWindowAggregationMatchValidation(MatchValidationTestBase):
     @classmethod
     def feature_group_class(cls) -> Any:

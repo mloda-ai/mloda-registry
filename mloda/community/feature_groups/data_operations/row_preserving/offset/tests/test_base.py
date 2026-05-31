@@ -174,6 +174,37 @@ class TestConfigBasedFeatures:
         assert result.num_rows == 12
 
 
+class TestReturnDataTypeRule:
+    """return_data_type_rule should fix the output type only for deterministic ops.
+
+    pct_change_N always returns a fractional ratio (DOUBLE). lag / lead / diff /
+    first_value / last_value preserve the input column type, so the rule must
+    return None for them.
+    """
+
+    def test_pct_change_returns_double(self) -> None:
+        from mloda.user import DataType, Feature
+
+        feature = Feature(
+            "value_int__pct_change_1_offset",
+            options=Options(context={"partition_by": ["region"], "order_by": "value_int"}),
+        )
+        assert OffsetFeatureGroup.return_data_type_rule(feature) == DataType.DOUBLE
+
+    @pytest.mark.parametrize(
+        "offset_type",
+        ["lag_1", "lead_1", "diff_1", "first_value", "last_value"],
+    )
+    def test_input_dependent_ops_return_none(self, offset_type: str) -> None:
+        from mloda.user import Feature
+
+        feature = Feature(
+            f"value_int__{offset_type}_offset",
+            options=Options(context={"partition_by": ["region"], "order_by": "value_int"}),
+        )
+        assert OffsetFeatureGroup.return_data_type_rule(feature) is None
+
+
 class TestOffsetMatchValidation(MatchValidationTestBase):
     @classmethod
     def feature_group_class(cls) -> Any:

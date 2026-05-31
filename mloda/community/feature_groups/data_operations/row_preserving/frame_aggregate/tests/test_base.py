@@ -254,6 +254,32 @@ class TestExtractParams:
         assert params["partition_by"] == ["region"]
 
 
+class TestReturnDataTypeRule:
+    """return_data_type_rule should fix the output type only for deterministic ops.
+
+    A rolling count always returns INT64. A rolling sum depends on the input
+    column type, so the rule must return None for it.
+    """
+
+    def test_count_returns_int64(self) -> None:
+        from mloda.user import DataType, Feature
+
+        feature = Feature(
+            "sales__count_rolling_3",
+            options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
+        )
+        assert FrameAggregateFeatureGroup.return_data_type_rule(feature) == DataType.INT64
+
+    def test_sum_returns_none(self) -> None:
+        from mloda.user import Feature
+
+        feature = Feature(
+            "sales__sum_rolling_3",
+            options=Options(context={"partition_by": ["region"], "order_by": "timestamp"}),
+        )
+        assert FrameAggregateFeatureGroup.return_data_type_rule(feature) is None
+
+
 class TestFrameAggregateMatchValidation(MatchValidationTestBase):
     @classmethod
     def feature_group_class(cls) -> Any:

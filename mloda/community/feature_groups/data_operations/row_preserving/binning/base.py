@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
@@ -80,6 +81,17 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         n_bins = int(n)
         cls._validate_n_bins(n_bins, feature_name)
         return str(op), n_bins
+
+    @classmethod
+    def return_data_type_rule(cls, feature: Feature) -> DataType | None:
+        """Declare INT64: both bin and qbin emit integer bin indices."""
+        try:
+            op, _ = cls._extract_binning_params(feature)
+        except Exception:
+            return None
+        if op in {"bin", "qbin"}:
+            return DataType.INT64
+        return None
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         _feature_name = str(feature_name)

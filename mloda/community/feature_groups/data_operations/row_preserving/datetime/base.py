@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
@@ -124,6 +125,15 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         if op is None:
             raise ValueError(f"Could not extract datetime operation for {feature_name}")
         return str(op)
+
+    @classmethod
+    def return_data_type_rule(cls, feature: Feature) -> DataType | None:
+        """Declare the deterministic output type: all datetime ops are integer-valued."""
+        try:
+            cls._extract_datetime_op(feature)
+        except Exception:
+            return None
+        return DataType.INT64
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         _feature_name = str(feature_name)

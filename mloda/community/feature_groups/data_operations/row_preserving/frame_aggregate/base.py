@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
@@ -323,6 +324,17 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             "partition_by": feature.options.get(cls.PARTITION_BY),
             "order_by": feature.options.get(cls.ORDER_BY),
         }
+
+    @classmethod
+    def return_data_type_rule(cls, feature: Feature) -> DataType | None:
+        """Declare INT64 for count (a counting op); other aggregates stay open."""
+        try:
+            agg_type = cls._extract_params(feature)["agg_type"]
+        except Exception:
+            return None
+        if agg_type == "count":
+            return DataType.INT64
+        return None
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

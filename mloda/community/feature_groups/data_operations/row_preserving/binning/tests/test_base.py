@@ -124,6 +124,25 @@ class TestConfigBasedFeatures:
         assert result is False
 
 
+class TestReturnDataTypeRule:
+    """return_data_type_rule should fix the output type for deterministic ops.
+
+    Both bin and qbin emit integer bin indices, so the rule returns INT64.
+    """
+
+    def test_bin_returns_int64(self) -> None:
+        from mloda.user import DataType, Feature
+
+        feature = Feature("value_int__bin_5", options=Options())
+        assert BinningFeatureGroup.return_data_type_rule(feature) == DataType.INT64
+
+    def test_qbin_returns_int64(self) -> None:
+        from mloda.user import DataType, Feature
+
+        feature = Feature("value_int__qbin_4", options=Options())
+        assert BinningFeatureGroup.return_data_type_rule(feature) == DataType.INT64
+
+
 class TestBinningMatchValidation(MatchValidationTestBase):
     @classmethod
     def feature_group_class(cls) -> Any:

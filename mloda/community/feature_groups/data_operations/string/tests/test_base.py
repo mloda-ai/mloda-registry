@@ -140,6 +140,26 @@ class TestValidateStringMatch:
         assert StringFeatureGroup._validate_string_match("name__capitalize", "capitalize", "name") is False
 
 
+class TestReturnDataTypeRule:
+    """return_data_type_rule should fix the output type only for deterministic ops.
+
+    length always returns an integer character count (INT64). upper / lower /
+    trim / reverse are string-returning ops that are deferred for now, so the
+    rule must return None for them.
+    """
+
+    def test_length_returns_int64(self) -> None:
+        from mloda.user import DataType
+
+        feature = Feature("name__length", options=Options())
+        assert StringFeatureGroup.return_data_type_rule(feature) == DataType.INT64
+
+    @pytest.mark.parametrize("operation", ["upper", "lower", "trim", "reverse"])
+    def test_deferred_ops_return_none(self, operation: str) -> None:
+        feature = Feature(f"name__{operation}", options=Options())
+        assert StringFeatureGroup.return_data_type_rule(feature) is None
+
+
 class TestStringMatchValidation(MatchValidationTestBase):
     @classmethod
     def feature_group_class(cls) -> Any:

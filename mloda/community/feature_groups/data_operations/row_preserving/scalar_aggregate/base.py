@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
@@ -93,6 +94,17 @@ class ScalarAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         if agg_type is None:
             raise ValueError(f"Could not extract aggregation type for {feature_name}")
         return str(agg_type)
+
+    @classmethod
+    def return_data_type_rule(cls, feature: Feature) -> DataType | None:
+        """Declare INT64 for count (a counting op); other aggregates stay open."""
+        try:
+            agg_type = cls._extract_aggregation_type(feature)
+        except Exception:
+            return None
+        if agg_type == "count":
+            return DataType.INT64
+        return None
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         _feature_name = str(feature_name)

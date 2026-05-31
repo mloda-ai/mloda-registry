@@ -299,6 +299,34 @@ class TestConfigBasedFeatures:
         assert result_map[None] == -10
 
 
+class TestReturnDataTypeRule:
+    """return_data_type_rule should fix the output type only for deterministic ops.
+
+    count/nunique always return INT64 regardless of input. sum/avg depend on
+    the input column type, so the rule must return None for them.
+    """
+
+    @pytest.mark.parametrize("operation", ["count", "nunique"])
+    def test_deterministic_ops_return_int64(self, operation: str) -> None:
+        from mloda.user import DataType, Feature
+
+        feature = Feature(
+            f"value_int__{operation}_agg",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+        assert AggregationFeatureGroup.return_data_type_rule(feature) == DataType.INT64
+
+    @pytest.mark.parametrize("operation", ["sum", "avg"])
+    def test_input_dependent_ops_return_none(self, operation: str) -> None:
+        from mloda.user import Feature
+
+        feature = Feature(
+            f"value_int__{operation}_agg",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+        assert AggregationFeatureGroup.return_data_type_rule(feature) is None
+
+
 class TestAggregationMatchValidation(MatchValidationTestBase):
     @classmethod
     def feature_group_class(cls) -> Any:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
@@ -200,6 +201,28 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         if rank_type is None:
             raise ValueError(f"Could not extract rank type for {feature_name}")
         return str(rank_type)
+
+    @classmethod
+    def return_data_type_rule(cls, feature: Feature) -> DataType | None:
+        """Declare deterministic rank output types.
+
+        row_number / rank / dense_rank / ntile_N are integer ranks (INT64);
+        percent_rank is a fractional rank (DOUBLE). top_N / bottom_N (and any
+        unparseable input) stay open and return None.
+        """
+        try:
+            rank_type = cls._extract_rank_type(feature)
+        except Exception:
+            return None
+        if rank_type in {"row_number", "rank", "dense_rank"}:
+            return DataType.INT64
+        if rank_type == "percent_rank":
+            return DataType.DOUBLE
+        if rank_type.startswith("ntile_"):
+            suffix = rank_type[len("ntile_") :]
+            if suffix.isdigit() and int(suffix) >= 1:
+                return DataType.INT64
+        return None
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
@@ -185,6 +186,17 @@ class AggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         if agg_type is None:
             raise ValueError(f"Could not extract aggregation type for {feature_name}")
         return str(agg_type)
+
+    @classmethod
+    def return_data_type_rule(cls, feature: Feature) -> DataType | None:
+        """Declare INT64 for count/nunique (counting ops); other aggregates stay open."""
+        try:
+            agg_type = cls._extract_aggregation_type(feature)
+        except Exception:
+            return None
+        if agg_type in {"count", "nunique"}:
+            return DataType.INT64
+        return None
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
