@@ -9,7 +9,7 @@ description = "Development workspace for mloda registry packages"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
 dependencies = [
-    "mloda>=0.7.0",
+    "mloda>=0.8.0",
 ]
 authors = [
     { name = "Tom Kaltofen", email = "info@mloda.ai" }
@@ -30,6 +30,7 @@ dev = [
     "duckdb",
     "pandas",
     "polars",
+    "pyarrow",
 ]
 
 [tool.ruff]
