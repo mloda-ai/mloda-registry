@@ -17,6 +17,10 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the el
 - A ✗ is not a bug. It is a deliberate exclusion documented in [Known divergences](known-divergences.md) or recorded by a `supported_*()` override in `*/tests/test_{framework}.py`. See the matching entry there before attempting to add support.
 - The matrix does not list every percentile quantile. For `percentile` and `datetime` the op either ships in full or does not ship at all: see the detail tables, where the single "(all)" row reflects that absence of a `supported_*()` method. For `frame_aggregate` the per-frame-type detail breaks out time-window units (`time:second`, ..., `time:year`) so framework-specific unit gaps (e.g. SQLite/Pandas rejecting `time:month`) surface as ✗ rather than being hidden behind a single `time` row.
 
+## Not in this matrix: joins
+
+This matrix only covers data-operation feature groups (single-source column transforms). Joins are a separate concern handled by the compute frameworks' merge engines in core, not by registry feature groups, so they do not appear above. The **as-of (point-in-time) join** added in mloda 0.8.0 has its own per-backend support table and a worked example in [Links and joins](../feature-group-patterns/08-links-joins.md#as-of-point-in-time-joins).
+
 ---
 
 <!-- BEGIN GENERATED: framework-support-matrix -->

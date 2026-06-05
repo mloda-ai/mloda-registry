@@ -62,19 +62,106 @@ def test_input_features_with_link():
 | `Link.union()` | UNION | `union_on()` |
 | `Link.asof()` | ASOF JOIN (point-in-time) | `asof_on()` |
 
-ASOF (point-in-time) joins match each left row to the nearest right row by time.
-`Link.asof()` / `Link.asof_on()` require the keyword args `left_time_column=` and
-`right_time_column=`, and accept `direction` (`"backward"` default, `"forward"`,
-`"nearest"`), `tolerance`, and `allow_exact_matches` (default `True`) — pandas
-`merge_asof` semantics. The by-key `Index` is the equi match; the time columns drive
-the inequality match.
+ASOF (point-in-time) joins match each left row to the right row that was valid at
+the left row's timestamp. See [As-of (point-in-time) joins](#as-of-point-in-time-joins)
+below for the keyword reference, per-backend support, and a runnable end-to-end example.
+
+## As-of (point-in-time) joins
+
+A plain `Link.inner()` / `Link.left()` is an equi-join: rows pair up only when their
+join keys are exactly equal. An as-of join (added in mloda 0.8.0) adds a per-row time
+match on top of that: for each left row, mloda picks the right row that was valid at
+the left row's timestamp. This is the join that recsys, slowly-changing-dimension
+lookups, and event-vs-state pipelines need, and it cannot be expressed as an equi-join.
+
+Two matches happen at once:
+
+- **Equi match on the by-key.** The join `Index` (derived from `index_columns()` when
+  you use `asof_on`, or given explicitly via `JoinSpec` when you use `asof`) is matched
+  for equality, exactly like an inner join. Rows only pair up within the same key.
+- **Inequality match on time.** Within each key, the left row's `left_time_column` is
+  matched against the right row's `right_time_column` according to `direction`.
+
+| Keyword | Default | Meaning |
+|---|---|---|
+| `left_time_column` | required | Time column on the left side. |
+| `right_time_column` | required | Time column on the right side. |
+| `direction` | `"backward"` | `"backward"`: latest right row at or before the left time. `"forward"`: earliest right row at or after it. `"nearest"`: whichever is closest in time. |
+| `tolerance` | `None` | Maximum allowed time gap; a left row with no right match inside the gap gets nulls. Accepts a number or a `timedelta`. |
+| `allow_exact_matches` | `True` | Whether an exactly-equal timestamp counts as a match. |
+
+These follow pandas `merge_asof` semantics. The keyword arguments are keyword-only on
+both factories (`Link.asof(left_spec, right_spec, *, left_time_column=..., ...)` and
+`Link.asof_on(LeftFG, RightFG, *, left_time_column=..., ...)`).
+
+### Backend support
+
+| Backend | As-of | Notes |
+|---|---|---|
+| PyArrow | yes | Runs pandas `merge_asof` on the converted frame. |
+| Pandas | yes | Native `pd.merge_asof`. |
+| Polars (lazy) | yes | Native `join_asof`. |
+| DuckDB | yes | SQL `ASOF JOIN`. Rejects `direction="nearest"` and a `timedelta` tolerance with a `ValueError`; pass a numeric tolerance instead. |
+| SQLite | yes | SQL window functions. Same restriction as DuckDB: no `nearest`, numeric tolerance only. |
+
+`direction="nearest"` and `timedelta` tolerances work on the in-memory backends
+(PyArrow, Pandas, Polars) but are rejected up front on the SQL backends rather than
+emulated in Python. Pick a backend that supports the knobs your join needs.
+
+### Defining the link
+
+With `asof_on`, both sides expose the by-key through `index_columns()`:
 
 ```python
+from mloda.user import Link
+
 link = Link.asof_on(
-    EventFeatureGroup, PriceFeatureGroup,
-    left_time_column="event_ts", right_time_column="quote_ts",
+    EventFeatureGroup,
+    QuoteFeatureGroup,
+    left_time_column="event_ts",
+    right_time_column="quote_ts",
+    direction="backward",
 )
 ```
+
+When a side has no `index_columns()`, name the by-key explicitly with `JoinSpec`:
+
+```python
+from mloda.user import Index, JoinSpec, Link
+
+link = Link.asof(
+    JoinSpec(EventFeatureGroup, Index(("symbol",))),
+    JoinSpec(QuoteFeatureGroup, Index(("symbol",))),
+    left_time_column="event_ts",
+    right_time_column="quote_ts",
+    direction="backward",
+)
+```
+
+### Running it
+
+The join fires when a consumer feature group requests features that resolve to both
+linked sides; mloda hands the merged frame to that group's `calculate_feature`. Pass
+the link to `run_all` (the `links` parameter is a `set`):
+
+```python
+from mloda.user import Feature, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+results = mloda.run_all(
+    [Feature("asof_event_id"), Feature("asof_event_price")],
+    compute_frameworks={PandasDataFrame},
+    links={link},
+    plugin_collector=PluginCollector.enabled_feature_groups(
+        {EventFeatureGroup, QuoteFeatureGroup, EventPriceFeatureGroup}
+    ),
+)
+```
+
+A complete, runnable version (two `DataCreator`-backed source feature groups, a small
+hand-traced dataset, and the backward-join semantics asserted row by row) lives in the
+registry test suite:
+[`tests/test_end2end/test_asof_join_example.py`](https://github.com/mloda-ai/mloda-registry/blob/main/tests/test_end2end/test_asof_join_example.py).
 
 ## Using JoinSpec (Explicit Control)
 
