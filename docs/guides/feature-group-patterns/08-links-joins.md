@@ -60,6 +60,21 @@ def test_input_features_with_link():
 | `Link.outer()` | FULL OUTER JOIN | `outer_on()` |
 | `Link.append()` | UNION ALL | `append_on()` |
 | `Link.union()` | UNION | `union_on()` |
+| `Link.asof()` | ASOF JOIN (point-in-time) | `asof_on()` |
+
+ASOF (point-in-time) joins match each left row to the nearest right row by time.
+`Link.asof()` / `Link.asof_on()` require the keyword args `left_time_column=` and
+`right_time_column=`, and accept `direction` (`"backward"` default, `"forward"`,
+`"nearest"`), `tolerance`, and `allow_exact_matches` (default `True`) — pandas
+`merge_asof` semantics. The by-key `Index` is the equi match; the time columns drive
+the inequality match.
+
+```python
+link = Link.asof_on(
+    EventFeatureGroup, PriceFeatureGroup,
+    left_time_column="event_ts", right_time_column="quote_ts",
+)
+```
 
 ## Using JoinSpec (Explicit Control)
 
