@@ -18,6 +18,21 @@ The merge engine handles join operations between datasets.
 | `merge_full_outer()` | FULL OUTER JOIN | All rows from both |
 | `merge_append()` | UNION ALL | Concatenate (with duplicates) |
 | `merge_union()` | UNION | Concatenate (deduplicated) |
+| `merge_asof()` | ASOF JOIN | Point-in-time / as-of match (by-key equi + nearest-time); opt-in |
+
+`merge_asof()` is opt-in: like every method above, the base implementation raises
+`ValueError` until overridden, so implement it only for frameworks that need
+point-in-time joins. Its signature differs from the others — it takes an extra
+`asof_config: AsOfJoinConfig` (`left_time_column`, `right_time_column`, `direction`,
+`tolerance`, `allow_exact_matches`):
+
+```python
+def merge_asof(self, left_data, right_data, left_index: Index, right_index: Index,
+               asof_config: AsOfJoinConfig) -> Any:
+    ...
+```
+
+See `pandas_merge_engine.py` (linked below) for a reference implementation.
 
 ## Complete Example
 
