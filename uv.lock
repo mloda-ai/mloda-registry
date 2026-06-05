@@ -328,13 +328,10 @@ wheels = [
 
 [[package]]
 name = "mloda"
-version = "0.7.0"
+version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pyarrow" },
-]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f5/2c/6e9f216065dfb4fdba91e2e04e117fb54e38439e781407089f0f4c22a54a/mloda-0.7.0-py3-none-any.whl", hash = "sha256:61d02cb1a59944f219fb1e051ffdd96813cfa23d8d832d35a1772e062e2068a1", size = 419808, upload-time = "2026-05-30T15:45:29.645Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/d8/b4f8beceec599fe75b4956fc8614ead1d40bc0642e6562c18c2c683f2685/mloda-0.8.0-py3-none-any.whl", hash = "sha256:521e0425169a99370b3d1cdf9fd480ebecb3f9a0ec67c62fe6a321ca8e3bcabe", size = 428976, upload-time = "2026-06-05T17:24:09.732Z" },
 ]
 
 [[package]]
@@ -346,7 +343,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mloda", specifier = ">=0.7.0" }]
+requires-dist = [{ name = "mloda", specifier = ">=0.8.0" }]
 
 [[package]]
 name = "mloda-community-aggregation"
@@ -464,7 +461,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.7.0" },
+    { name = "mloda", specifier = ">=0.8.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -505,7 +502,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.7.0" },
+    { name = "mloda", specifier = ">=0.8.0" },
     { name = "mloda-community-aggregation", marker = "extra == 'all'" },
     { name = "mloda-community-binning", marker = "extra == 'all'" },
     { name = "mloda-community-datetime", marker = "extra == 'all'" },
@@ -620,7 +617,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.7.0" },
+    { name = "mloda", specifier = ">=0.8.0" },
     { name = "mloda-community-example-a", marker = "extra == 'all'" },
     { name = "mloda-community-example-b", marker = "extra == 'all'" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
@@ -688,7 +685,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.7.0" },
+    { name = "mloda", specifier = ">=0.8.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1301,7 +1298,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mloda", specifier = ">=0.7.0" }]
+requires-dist = [{ name = "mloda", specifier = ">=0.8.0" }]
 
 [[package]]
 name = "mloda-enterprise-compute-frameworks-example"
@@ -1319,7 +1316,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.7.0" },
+    { name = "mloda", specifier = ">=0.8.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1341,7 +1338,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.7.0" },
+    { name = "mloda", specifier = ">=0.8.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1363,7 +1360,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.7.0" },
+    { name = "mloda", specifier = ">=0.8.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1385,7 +1382,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.7.0" },
+    { name = "mloda", specifier = ">=0.8.0" },
     { name = "mloda-testing", marker = "extra == 'dev'", editable = "mloda/testing" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1407,6 +1404,7 @@ dev = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "polars" },
+    { name = "pyarrow" },
     { name = "pytest" },
     { name = "pytest-xdist" },
     { name = "python-dateutil" },
@@ -1421,10 +1419,11 @@ dev = [
 requires-dist = [
     { name = "bandit", marker = "extra == 'dev'" },
     { name = "duckdb", marker = "extra == 'dev'" },
-    { name = "mloda", specifier = ">=0.7.0" },
+    { name = "mloda", specifier = ">=0.8.0" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'dev'" },
     { name = "polars", marker = "extra == 'dev'" },
+    { name = "pyarrow", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-xdist", marker = "extra == 'dev'" },
     { name = "python-dateutil", marker = "extra == 'dev'" },
@@ -1452,7 +1451,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.7.0" },
+    { name = "mloda", specifier = ">=0.8.0" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
