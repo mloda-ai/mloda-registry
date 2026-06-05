@@ -9,11 +9,10 @@ import polars as pl
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import (
     SessionizationFeatureGroup,
 )
-
-_RN_COL = "__mloda_rn__"
 
 
 class PolarsLazySessionization(SessionizationFeatureGroup):
@@ -36,8 +35,10 @@ class PolarsLazySessionization(SessionizationFeatureGroup):
         threshold_seconds: int,
         partition_by: list[str],
     ) -> pl.LazyFrame:
+        rn_col = unique_helper_name("__mloda_rn__", set(data.collect_schema().names()) | {feature_name})
+
         # Tag original row order so we can restore it after sorting.
-        data = data.with_row_index(_RN_COL)
+        data = data.with_row_index(rn_col)
 
         # Sort within partitions by order_col (nulls last) so each partition is a
         # contiguous, time-ordered slice.
@@ -53,4 +54,4 @@ class PolarsLazySessionization(SessionizationFeatureGroup):
         ordered = ordered.with_columns(session.alias(feature_name))
 
         # Restore original row order and drop the helper column.
-        return ordered.sort(_RN_COL).drop(_RN_COL)
+        return ordered.sort(rn_col).drop(rn_col)

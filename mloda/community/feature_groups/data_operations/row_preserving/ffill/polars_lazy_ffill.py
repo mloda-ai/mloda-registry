@@ -7,9 +7,8 @@ import polars as pl
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
-
-_RN_COL = "__mloda_rn__"
 
 
 class PolarsLazyFfill(FfillFeatureGroup):
@@ -32,8 +31,10 @@ class PolarsLazyFfill(FfillFeatureGroup):
         partition_by: list[str],
         order_by: str,
     ) -> pl.LazyFrame:
+        rn_col = unique_helper_name("__mloda_rn__", set(data.collect_schema().names()) | {feature_name})
+
         # Tag original row order so we can restore it after sorting.
-        data = data.with_row_index(_RN_COL)
+        data = data.with_row_index(rn_col)
 
         # Sort within partitions by order_by (nulls last).
         sort_null_last = pl.col(order_by).is_null().cast(pl.Int8)
@@ -45,4 +46,4 @@ class PolarsLazyFfill(FfillFeatureGroup):
         ordered = ordered.with_columns(fill_expr.alias(feature_name))
 
         # Restore original row order and drop the helper column.
-        return ordered.sort(_RN_COL).drop(_RN_COL)
+        return ordered.sort(rn_col).drop(rn_col)

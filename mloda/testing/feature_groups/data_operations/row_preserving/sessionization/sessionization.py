@@ -76,6 +76,7 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.user import Feature
 
 _U = timezone.utc
@@ -144,7 +145,7 @@ EXPECTED_SESSION_30_MINUTE_WHOLE: list[int] = [2, 0, 1, 2, 1, 1, 2, 1, 1]
 # ---------------------------------------------------------------------------
 
 
-class SessionizationTestBase(DataOpsTestBase):
+class SessionizationTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
     """Abstract base class for sessionization framework tests.
 
     Subclasses combine this with a framework mixin (``PandasTestMixin``,
@@ -155,6 +156,20 @@ class SessionizationTestBase(DataOpsTestBase):
     there is no ``supported_ops`` machinery here. All five backends support
     sessionization natively; there are no rejections of supported inputs.
     """
+
+    # -- ReservedColumnsTestMixin configuration --------------------------------
+
+    @classmethod
+    def reserved_columns_feature_name(cls) -> str:
+        return "ts__sessionize_30_minute"
+
+    @classmethod
+    def reserved_columns_partition_by(cls) -> list[str] | None:
+        return ["user"]
+
+    @classmethod
+    def reserved_columns_order_by(cls) -> str | None:
+        return "ts"
 
     @classmethod
     def reference_implementation_class(cls) -> Any:
@@ -324,6 +339,32 @@ class SessionizationTestBase(DataOpsTestBase):
         fs = self._session_feature_set(30, "minute")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         assert isinstance(result, self.get_expected_type())
+
+    def test_helper_column_name_collision_survives(self) -> None:
+        """A user input column named ``__mloda_rn__`` must survive unchanged.
+
+        The pandas / polars sessionization backends hardcode ``__mloda_rn__`` as
+        an internal row-number helper: pandas overwrites the user column with
+        ``range(len)`` then drops it, and polars ``with_row_index("__mloda_rn__")``
+        raises a DuplicateError. Because sessionization is row-preserving, a user
+        column of any name must pass through with its original values in input
+        row order.
+        """
+        base_table: pa.Table = self._arrow_table
+        n = base_table.num_rows
+        colliding_values = [1000 + i for i in range(n)]
+        colliding_table = base_table.append_column(
+            "__mloda_rn__",
+            pa.array(colliding_values, type=pa.int64()),
+        )
+        data = self.create_test_data(colliding_table)
+        fs = self._session_feature_set(30, "minute", partition_by=["user"], order_by="ts")
+        result = self.implementation_class().calculate_feature(data, fs)
+        assert self.get_row_count(result) == n
+        feature_col = self.extract_column(result, "ts__sessionize_30_minute")
+        assert len(feature_col) == n
+        survived = [int(v) for v in self.extract_column(result, "__mloda_rn__")]
+        assert survived == colliding_values, f"user column __mloda_rn__ changed: {survived!r}"
 
     # -- Option-based configuration -----------------------------------------
 
