@@ -80,6 +80,7 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.user import Feature
 
 _U = timezone.utc
@@ -212,7 +213,7 @@ EXPECTED_EMA_WHOLE_SPAN3: list[Any] = [
 # ---------------------------------------------------------------------------
 
 
-class EmaTestBase(DataOpsTestBase):
+class EmaTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
     """Reusable test base for EMA on backends that compute it NATIVELY.
 
     Subclasses combine this with a framework mixin (``PandasTestMixin``,
@@ -224,6 +225,20 @@ class EmaTestBase(DataOpsTestBase):
     that actually support EMA. The reject backends use ``EmaRejectionTestBase``
     instead and inherit none of these value tests.
     """
+
+    # -- ReservedColumnsTestMixin configuration --------------------------------
+
+    @classmethod
+    def reserved_columns_feature_name(cls) -> str:
+        return "value__ema_2"
+
+    @classmethod
+    def reserved_columns_order_by(cls) -> str | None:
+        return "ts"
+
+    @classmethod
+    def reserved_columns_helper_names(cls) -> set[str]:
+        return {"__mloda_rn__"}
 
     # -- Setup: use the dedicated 12-row EMA fixture ------------------------
 

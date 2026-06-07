@@ -59,6 +59,7 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.user import Feature
 
 _U = timezone.utc
@@ -156,7 +157,7 @@ NAIVE_WHOLE_TABLE_FFILL: list[Any] = [
 # ---------------------------------------------------------------------------
 
 
-class FfillTestBase(DataOpsTestBase):
+class FfillTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
     """Abstract base class for ffill-by-time framework tests.
 
     Subclasses combine this with a framework mixin (``PyArrowTestMixin``,
@@ -167,6 +168,20 @@ class FfillTestBase(DataOpsTestBase):
     ``supported_ops`` machinery here. All five backends support ffill
     natively; there are no rejections of supported inputs.
     """
+
+    # -- ReservedColumnsTestMixin configuration --------------------------------
+
+    @classmethod
+    def reserved_columns_feature_name(cls) -> str:
+        return "value__ffill"
+
+    @classmethod
+    def reserved_columns_order_by(cls) -> str | None:
+        return "ts"
+
+    @classmethod
+    def reserved_columns_helper_names(cls) -> set[str]:
+        return {"__mloda_rn__", "__mloda_rn"}
 
     @classmethod
     def reference_implementation_class(cls) -> Any:

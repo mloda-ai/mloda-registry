@@ -76,6 +76,7 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.user import Feature
 
 _U = timezone.utc
@@ -144,7 +145,7 @@ EXPECTED_SESSION_30_MINUTE_WHOLE: list[int] = [2, 0, 1, 2, 1, 1, 2, 1, 1]
 # ---------------------------------------------------------------------------
 
 
-class SessionizationTestBase(DataOpsTestBase):
+class SessionizationTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
     """Abstract base class for sessionization framework tests.
 
     Subclasses combine this with a framework mixin (``PandasTestMixin``,
@@ -155,6 +156,24 @@ class SessionizationTestBase(DataOpsTestBase):
     there is no ``supported_ops`` machinery here. All five backends support
     sessionization natively; there are no rejections of supported inputs.
     """
+
+    # -- ReservedColumnsTestMixin configuration --------------------------------
+
+    @classmethod
+    def reserved_columns_feature_name(cls) -> str:
+        return "ts__sessionize_30_minute"
+
+    @classmethod
+    def reserved_columns_partition_by(cls) -> list[str] | None:
+        return ["user"]
+
+    @classmethod
+    def reserved_columns_order_by(cls) -> str | None:
+        return "ts"
+
+    @classmethod
+    def reserved_columns_helper_names(cls) -> set[str]:
+        return {"__mloda_rn__", "__mloda_rn"}
 
     @classmethod
     def reference_implementation_class(cls) -> Any:
