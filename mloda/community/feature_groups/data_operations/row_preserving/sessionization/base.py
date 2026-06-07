@@ -54,6 +54,8 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.base import extract_partition_by
+
 # Supported sessionization units mapped to their length in seconds. The four
 # keys also define the units accepted by the feature-name regex.
 SESSIONIZATION_UNITS: dict[str, int] = {
@@ -195,10 +197,7 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     @classmethod
     def _extract_partition_by(cls, feature: Feature) -> list[str]:
         """Return ``partition_by`` as a list (defaulting to ``[]`` when absent)."""
-        partition_by = feature.options.get(cls.PARTITION_BY)
-        if partition_by is None:
-            return []
-        return list(partition_by)
+        return extract_partition_by(feature, cls.PARTITION_BY)
 
     @classmethod
     def _extract_order_by(cls, feature: Feature, source_col: str) -> str:

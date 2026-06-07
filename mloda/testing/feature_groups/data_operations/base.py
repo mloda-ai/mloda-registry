@@ -133,3 +133,12 @@ class DataOpsTestBase(ABC):
                     assert fw_val == pytest.approx(ref_val, rel=rel), f"row {i}: {fw_val} != reference {ref_val}"
         else:
             assert result_col == ref_col
+
+    def _assert_float_list_with_nulls(self, actual: list[Any], expected: list[Any]) -> None:
+        assert len(actual) == len(expected), f"row count {len(actual)} != expected {len(expected)}"
+        for i, (a, e) in enumerate(zip(actual, expected)):
+            if e is None:
+                assert a is None, f"row {i}: expected None, got {a!r}"
+            else:
+                assert a is not None, f"row {i}: expected {e!r}, got None"
+                assert float(a) == pytest.approx(e), f"row {i}: {a!r} != {e!r}"

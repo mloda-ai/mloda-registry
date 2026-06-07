@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from enum import Enum
 
+from mloda.core.abstract_plugins.components.feature import Feature
+
 
 # ---------------------------------------------------------------------------
 # Shared config key constants
@@ -18,6 +20,15 @@ PARTITION_BY = "partition_by"
 
 Used by: window_aggregation, aggregation, rank, offset, frame_aggregate.
 """
+
+
+def extract_partition_by(feature: Feature, partition_by_key: str = PARTITION_BY) -> list[str]:
+    """Return ``partition_by`` as a list (defaulting to ``[]`` when absent)."""
+    partition_by = feature.options.get(partition_by_key)
+    if partition_by is None:
+        return []
+    return list(partition_by)
+
 
 FRAME_TYPE = "frame_type"
 """Config key for frame type in frame_aggregate operations.

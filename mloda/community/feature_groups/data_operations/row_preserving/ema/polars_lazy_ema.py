@@ -8,6 +8,7 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
+from mloda.community.feature_groups.data_operations.polars_helpers import assert_source_col_present
 from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
 
 
@@ -18,9 +19,7 @@ class PolarsLazyEma(EmaFeatureGroup):
 
     @classmethod
     def _assert_source_column_present(cls, data: pl.LazyFrame, source_col: str) -> None:
-        names = data.collect_schema().names()
-        if source_col not in names:
-            raise ValueError(f"Source column {source_col!r} is not present in the polars frame; available: {names}.")
+        assert_source_col_present(data, source_col)
 
     @classmethod
     def _compute_ema(

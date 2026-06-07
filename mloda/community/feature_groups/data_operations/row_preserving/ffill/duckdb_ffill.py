@@ -13,6 +13,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
     WindowFrame,
 )
 
+from mloda.community.feature_groups.data_operations.duckdb_helpers import assert_source_col_present
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 
 
@@ -23,10 +24,7 @@ class DuckdbFfill(FfillFeatureGroup):
 
     @classmethod
     def _assert_source_column_present(cls, data: DuckdbRelation, source_col: str) -> None:
-        if source_col not in data.columns:
-            raise ValueError(
-                f"Source column {source_col!r} is not present in the DuckDB relation; available: {data.columns}."
-            )
+        assert_source_col_present(data, source_col)
 
     @classmethod
     def _compute_ffill(

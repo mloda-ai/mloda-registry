@@ -205,15 +205,6 @@ class FfillTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
 
     # -- Helpers ------------------------------------------------------------
 
-    def _assert_float_list_with_nulls(self, actual: list[Any], expected: list[Any]) -> None:
-        assert len(actual) == len(expected), f"row count {len(actual)} != expected {len(expected)}"
-        for i, (a, e) in enumerate(zip(actual, expected)):
-            if e is None:
-                assert a is None, f"row {i}: expected None, got {a!r}"
-            else:
-                assert a is not None, f"row {i}: expected {e!r}, got None"
-                assert float(a) == pytest.approx(e), f"row {i}: {a!r} != {e!r}"
-
     def _ffill_feature_set(self) -> FeatureSet:
         return make_feature_set("value__ffill", partition_by=["region"], order_by="ts")
 

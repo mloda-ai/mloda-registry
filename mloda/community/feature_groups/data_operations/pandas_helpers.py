@@ -33,6 +33,14 @@ PANDAS_AGG_FUNCS: dict[str, str] = {
 }
 
 
+def assert_source_col_present(data: pd.DataFrame, col: str) -> None:
+    """Reject a missing source column on a pandas DataFrame with a clear ``ValueError``."""
+    if col not in data.columns:
+        raise ValueError(
+            f"Source column {col!r} is not present in the pandas DataFrame; available: {list(data.columns)}."
+        )
+
+
 def null_safe_groupby(df: Any, partition_by: list[str], col: str) -> Any:
     """Group *df* by *partition_by* keeping null keys, then select *col*.
 
