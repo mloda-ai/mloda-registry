@@ -16,38 +16,18 @@ import pyarrow.compute as pc
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.backend_agg_tables import (
+    PYARROW_AGG_FUNCS as _PA_AGG_FUNCS,
+    PYARROW_ORDERED_FUNCS as _ORDERED_FUNCS,
+    PYARROW_SUPPORTED_AGG_TYPES as _SUPPORTED_AGG_TYPES,
+    PYARROW_VARIANCE_FUNCS as _VARIANCE_FUNCS,
+)
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
-
-_PA_AGG_FUNCS: dict[str, str] = {
-    "sum": "sum",
-    "avg": "mean",
-    "mean": "mean",
-    "count": "count",
-    "min": "min",
-    "max": "max",
-    "nunique": "count_distinct",
-}
-
-_VARIANCE_FUNCS: dict[str, tuple[str, int]] = {
-    "std": ("stddev", 0),
-    "var": ("variance", 0),
-    "std_pop": ("stddev", 0),
-    "std_samp": ("stddev", 1),
-    "var_pop": ("variance", 0),
-    "var_samp": ("variance", 1),
-}
-
-_ORDERED_FUNCS: dict[str, str] = {
-    "first": "first",
-    "last": "last",
-}
-
-_SUPPORTED_AGG_TYPES = {*_PA_AGG_FUNCS, *_VARIANCE_FUNCS, *_ORDERED_FUNCS}
 
 
 class PyArrowWindowAggregation(WindowAggregationFeatureGroup):

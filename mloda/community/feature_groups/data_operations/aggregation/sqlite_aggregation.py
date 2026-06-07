@@ -12,18 +12,9 @@ from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
+from mloda.community.feature_groups.data_operations.backend_agg_tables import SQLITE_AGG_FUNCS as _SQLITE_AGG_FUNCS
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
-
-# Aggregation types that SQLite supports natively.
-_SQLITE_AGG_FUNCS: dict[str, str] = {
-    "sum": "SUM",
-    "avg": "AVG",
-    "mean": "AVG",
-    "count": "COUNT",
-    "min": "MIN",
-    "max": "MAX",
-}
 
 
 class SqliteAggregation(AggregationFeatureGroup):
