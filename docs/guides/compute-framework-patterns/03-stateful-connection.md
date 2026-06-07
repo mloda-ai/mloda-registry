@@ -35,7 +35,7 @@ def set_framework_connection_object(self, framework_connection_object: Any | Non
         #     self.framework_connection_object = library.connect()
 ```
 
-And `transform()` must check connection:
+And `transform()` must check the connection:
 
 ```python
 def transform(self, data: Any, feature_names: set[str]) -> Any:
