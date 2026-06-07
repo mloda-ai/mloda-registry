@@ -1,5 +1,6 @@
 [![mloda](https://img.shields.io/badge/built%20with-mloda-blue.svg)](https://github.com/mloda-ai/mloda)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-1400%2B-green.svg)](https://github.com/mloda-ai/mloda-registry)
 
 # mloda-registry
 
