@@ -52,7 +52,7 @@ class MyExtender(Extender):
 
 ## Chaining
 
-Multiple extenders for the same hook chain automatically (sorted by priority, lower first). If one fails, error is logged and chain continues.
+Multiple extenders for the same hook chain automatically (sorted by priority, lower first). If one fails, an error is logged and the chain continues.
 
 ## Pickle Compatibility
 

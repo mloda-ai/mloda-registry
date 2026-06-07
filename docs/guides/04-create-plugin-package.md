@@ -32,7 +32,7 @@ placeholder/
     └── my_extender/
 ```
 
-## Setup Your Plugin
+## Set Up Your Plugin
 
 1. **Rename the namespace** to your organization:
    ```bash
