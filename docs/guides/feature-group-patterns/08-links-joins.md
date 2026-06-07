@@ -98,15 +98,17 @@ both factories (`Link.asof(left_spec, right_spec, *, left_time_column=..., ...)`
 
 | Backend | As-of | Notes |
 |---|---|---|
-| PyArrow | yes | Runs pandas `merge_asof` on the converted frame. |
+| PyArrow | not supported (needs fix) | The current core implementation falls back to pandas (`to_pandas` then `pd.merge_asof` then `from_pandas`): it requires pandas to be installed and is not a native Arrow join. Treated as unsupported pending a native/reject fix, tracked in [mloda#488](https://github.com/mloda-ai/mloda/issues/488). Use Pandas or Polars instead. |
 | Pandas | yes | Native `pd.merge_asof`. |
 | Polars (lazy) | yes | Native `join_asof`. |
 | DuckDB | yes | SQL `ASOF JOIN`. Rejects `direction="nearest"` and a `timedelta` tolerance with a `ValueError`; pass a numeric tolerance instead. |
 | SQLite | yes | SQL window functions. Same restriction as DuckDB: no `nearest`, numeric tolerance only. |
 
-`direction="nearest"` and `timedelta` tolerances work on the in-memory backends
-(PyArrow, Pandas, Polars) but are rejected up front on the SQL backends rather than
-emulated in Python. Pick a backend that supports the knobs your join needs.
+`direction="nearest"` and `timedelta` tolerances work on the Pandas and Polars
+backends but are rejected up front on the SQL backends rather than emulated in Python.
+PyArrow is not a supported target for as-of joins yet (see the note above and
+[mloda#488](https://github.com/mloda-ai/mloda/issues/488)). Pick a backend that
+supports the knobs your join needs.
 
 ### Defining the link
 
