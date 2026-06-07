@@ -89,18 +89,6 @@ VARIED_EXPECTED_IS_WEEKEND: list[Any] = [0, 0, 1, None]
 # Q2, Q3, Q4, None
 VARIED_EXPECTED_QUARTER: list[Any] = [2, 3, 4, None]
 
-VARIED_EXPECTED: dict[str, list[Any]] = {
-    "year": VARIED_EXPECTED_YEAR,
-    "month": VARIED_EXPECTED_MONTH,
-    "day": VARIED_EXPECTED_DAY,
-    "hour": VARIED_EXPECTED_HOUR,
-    "minute": VARIED_EXPECTED_MINUTE,
-    "second": VARIED_EXPECTED_SECOND,
-    "dayofweek": VARIED_EXPECTED_DAYOFWEEK,
-    "is_weekend": VARIED_EXPECTED_IS_WEEKEND,
-    "quarter": VARIED_EXPECTED_QUARTER,
-}
-
 
 def _create_varied_times_arrow_table() -> pa.Table:
     """Create a 4-row PyArrow table with non-midnight UTC timestamps."""

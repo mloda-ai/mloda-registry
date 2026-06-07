@@ -28,19 +28,6 @@ class DataOperationsTestDataCreator(FeatureGroup):
 
     compute_framework: type[ComputeFramework] = PyArrowTable
 
-    NULL_POSITIONS: dict[str, set[int]] = {
-        "region": {11},
-        "category": {6},
-        "timestamp": {10},
-        "event_date": {2},
-        "value_int": {4},
-        "value_float": {2, 11},
-        "amount": {1, 7},
-        "name": {2, 11},
-        "is_active": {3, 9},
-        "score": set(range(12)),
-    }
-
     @classmethod
     def input_data(cls) -> BaseInputData | None:
         return DataCreator(set(cls.get_raw_data().keys()))
