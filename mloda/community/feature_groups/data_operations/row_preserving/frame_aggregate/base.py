@@ -13,6 +13,9 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.aggregation_base import (
+    AGGREGATION_TYPES as _CANONICAL_AGGREGATION_TYPES,
+)
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 
@@ -26,7 +29,10 @@ _TIME_WINDOW_PATTERN = re.compile(r"^(.+)__(\w+)_(\d+)_(\w+)_window$")
 _CUMULATIVE_PATTERN = re.compile(r"^(.+)__cum(\w+)$")
 _EXPANDING_PATTERN = re.compile(r"^(.+)__expanding_(\w+)$")
 
-_AGGREGATION_TYPES = {"sum", "avg", "count", "min", "max", "std", "var", "median"}
+# Frame aggregation supports the order-independent subset of the shared
+# aggregation-type table (no mode/nunique/first/last, no ddof-variant spellings).
+_FRAME_SUPPORTED_AGG_TYPES = {"sum", "avg", "count", "min", "max", "std", "var", "median"}
+_AGGREGATION_TYPES = frozenset(_CANONICAL_AGGREGATION_TYPES.keys() & _FRAME_SUPPORTED_AGG_TYPES)
 _CUMULATIVE_OPS = _AGGREGATION_TYPES
 _TIME_UNITS = {"second", "minute", "hour", "day", "week", "month", "year"}
 
