@@ -115,7 +115,7 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
                 framework="SQLite",
             )
 
-        # NullPolicy.NULLS_LAST: ``OrderBy(order_by, nulls="last")`` renders
+        # Nulls-last: ``OrderBy(order_by, nulls="last")`` renders
         # ``ORDER BY ... NULLS LAST``, equivalent to the old
         # ``CASE WHEN order IS NULL THEN 1 ELSE 0 END, order`` sort key.
         original_cols = list(data.columns)

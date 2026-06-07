@@ -187,7 +187,7 @@ class OffsetTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
         assert result_col[11] is None
 
     def test_null_policy_edge_null(self) -> None:
-        """NullPolicy.EDGE_NULL: lag at start of partition produces null."""
+        """Edge-null: lag at start of partition produces null."""
         fs = make_feature_set("value_int__lag_1_offset", ["region"], "value_int")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 

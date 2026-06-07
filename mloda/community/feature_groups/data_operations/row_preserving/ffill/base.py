@@ -41,8 +41,10 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.base import PartitionByMixin
 
-class FfillFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+
+class FfillFeatureGroup(PartitionByMixin, FeatureChainParserMixin, FeatureGroup):
     """Base class for forward-fill-by-time operations that preserve row count.
 
     ffill is a single-op operation (no op/unit matrix). All backends support it
@@ -118,14 +120,6 @@ class FfillFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             )
 
         return source_names
-
-    @classmethod
-    def _extract_partition_by(cls, feature: Feature) -> list[str]:
-        """Return ``partition_by`` as a list (defaulting to ``[]`` when absent)."""
-        partition_by = feature.options.get(cls.PARTITION_BY)
-        if partition_by is None:
-            return []
-        return list(partition_by)
 
     @classmethod
     def _extract_order_by(cls, feature: Feature) -> str:

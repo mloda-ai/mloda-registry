@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from mloda.core.abstract_plugins.components.feature import Feature
 
 
 # ---------------------------------------------------------------------------
@@ -40,53 +40,24 @@ Valid values: second, minute, hour, day, week, month, year.
 
 
 # ---------------------------------------------------------------------------
-# Null handling policy constants
+# Shared mixins
 # ---------------------------------------------------------------------------
-# These document the data operations null handling contract.
-# Implementations must match these defaults. PyArrow behavior is the reference.
 
 
-class NullPolicy(str, Enum):
-    """Null handling behavior constants for data operations.
+class PartitionByMixin:
+    """Shared ``_extract_partition_by`` for partition-aware row operations.
 
-    Each value describes a null handling rule. Implementations must match
-    PyArrow's behavior as the reference. Where a framework diverges from
-    these defaults, add explicit convergence code (e.g. pandas groupby
-    needs ``dropna=False``; SQLite rank needs an explicit null-last clause).
-
-    These constants are documentation and configuration anchors, not
-    runtime enforcement. Each package's ``calculate_feature`` is responsible
-    for honoring the policy.
+    Mixed into the ffill/ema/sessionization/resample bases, which each define
+    a ``PARTITION_BY`` options key. Reads that key from the feature options,
+    returning ``[]`` when absent.
     """
 
-    PROPAGATE = "propagate"
-    """Element-wise operations return null for null input (null in, null out).
+    PARTITION_BY: str
 
-    Applies to: datetime, string, binning.
-    """
-
-    SKIP = "skip"
-    """Aggregations skip null values (e.g. SUM ignores nulls).
-
-    Applies to: window_aggregation, aggregation, frame_aggregate.
-    """
-
-    NULL_IS_GROUP = "null_is_group"
-    """Null is a valid group key in partitioned operations.
-
-    Applies to: window_aggregation, aggregation, rank, offset, frame_aggregate.
-    Pandas divergence: pass ``dropna=False`` to ``groupby()``.
-    """
-
-    NULLS_LAST = "nulls_last"
-    """Nulls rank last in ordered operations.
-
-    Applies to: rank.
-    SQLite divergence: add ``CASE WHEN col IS NULL THEN 1 ELSE 0 END`` to ORDER BY.
-    """
-
-    EDGE_NULL = "edge_null"
-    """Out-of-range positions produce null (e.g. lag/lead at table edges).
-
-    Applies to: offset.
-    """
+    @classmethod
+    def _extract_partition_by(cls, feature: Feature) -> list[str]:
+        """Return ``partition_by`` as a list (defaulting to ``[]`` when absent)."""
+        partition_by = feature.options.get(cls.PARTITION_BY)
+        if partition_by is None:
+            return []
+        return list(partition_by)

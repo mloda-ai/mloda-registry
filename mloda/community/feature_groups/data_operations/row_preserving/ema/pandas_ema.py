@@ -8,6 +8,7 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
+from mloda.community.feature_groups.data_operations.pandas_helpers import assert_pandas_source_col_present
 from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
 
 
@@ -18,10 +19,7 @@ class PandasEma(EmaFeatureGroup):
 
     @classmethod
     def _assert_source_column_present(cls, data: pd.DataFrame, source_col: str) -> None:
-        if source_col not in data.columns:
-            raise ValueError(
-                f"Source column {source_col!r} is not present in the pandas DataFrame; available: {list(data.columns)}."
-            )
+        assert_pandas_source_col_present(data, source_col)
 
     @classmethod
     def _compute_ema(

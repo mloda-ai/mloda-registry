@@ -13,6 +13,10 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
     WindowFrame,
 )
 
+from mloda.community.feature_groups.data_operations.duckdb_helpers import (
+    assert_duckdb_source_col_present,
+    duckdb_drop_rn_restore,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 
 
@@ -23,10 +27,7 @@ class DuckdbFfill(FfillFeatureGroup):
 
     @classmethod
     def _assert_source_column_present(cls, data: DuckdbRelation, source_col: str) -> None:
-        if source_col not in data.columns:
-            raise ValueError(
-                f"Source column {source_col!r} is not present in the DuckDB relation; available: {data.columns}."
-            )
+        assert_duckdb_source_col_present(data, source_col)
 
     @classmethod
     def _compute_ffill(
@@ -37,7 +38,6 @@ class DuckdbFfill(FfillFeatureGroup):
         partition_by: list[str],
         order_by: str,
     ) -> DuckdbRelation:
-        original_cols = list(data.columns)
         rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
 
         quoted_source = quote_ident(source_col)
@@ -61,6 +61,4 @@ class DuckdbFfill(FfillFeatureGroup):
             order_by=order_spec,
             frame=frame,
         )
-        rel = rel.order(quote_ident(rn))
-        keep = ", ".join(quote_ident(c) for c in (*original_cols, feature_name))
-        return rel.project(keep)
+        return duckdb_drop_rn_restore(rel, rn)

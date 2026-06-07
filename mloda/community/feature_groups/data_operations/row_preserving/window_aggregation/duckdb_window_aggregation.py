@@ -10,29 +10,17 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import Unbounded, WindowFrame
 
+from mloda.community.feature_groups.data_operations.duckdb_agg_constants import DUCKDB_AGG_FUNCS
+from mloda.community.feature_groups.data_operations.duckdb_helpers import duckdb_drop_rn_restore
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
 
-# All aggregation types are natively supported by DuckDB window functions.
+# Window functions use FIRST_VALUE/LAST_VALUE (group aggregation uses FIRST/LAST).
 _DUCKDB_AGG_FUNCS: dict[str, str] = {
-    "sum": "SUM",
-    "avg": "AVG",
-    "mean": "AVG",
-    "count": "COUNT",
-    "min": "MIN",
-    "max": "MAX",
-    "std": "STDDEV_POP",
-    "var": "VAR_POP",
-    "std_pop": "STDDEV_POP",
-    "std_samp": "STDDEV_SAMP",
-    "var_pop": "VAR_POP",
-    "var_samp": "VAR_SAMP",
-    "median": "MEDIAN",
-    "mode": "MODE",
-    "nunique": "COUNT_DISTINCT",  # handled specially: COUNT(DISTINCT col) syntax
+    **DUCKDB_AGG_FUNCS,
     "first": "FIRST_VALUE",
     "last": "LAST_VALUE",
 }
@@ -94,7 +82,6 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         last. Explicit UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING restores
         full-partition visibility to match PyArrow group_by().aggregate()."""
         rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-        qrn = quote_ident(rn)
         agg_func = _DUCKDB_AGG_FUNCS[agg_type]
 
         # Step 1: tag rows with their original position
@@ -110,8 +97,4 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         )
 
         # Step 3: restore original row order, drop helper column
-        rel = rel.order(qrn)
-        keep = ", ".join(quote_ident(c) for c in rel.columns if c != rn)
-        rel = rel.project(keep)
-
-        return rel
+        return duckdb_drop_rn_restore(rel, rn)

@@ -33,7 +33,7 @@ class SqliteOffset(OffsetFeatureGroup):
 
         quoted_source = quote_ident(source_col)
 
-        # NullPolicy.NULLS_LAST: ``OrderBy(order_by, nulls="last")`` renders
+        # Nulls-last: ``OrderBy(order_by, nulls="last")`` renders
         # ``ORDER BY ... NULLS LAST``, equivalent to the old
         # ``CASE WHEN order IS NULL THEN 1 ELSE 0 END, order`` sort key.
         order_spec = [OrderBy(order_by, nulls="last")]

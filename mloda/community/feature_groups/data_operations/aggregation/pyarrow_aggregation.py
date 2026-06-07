@@ -19,35 +19,12 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
-
-# Aggregation types with direct PyArrow group_by support.
-_PA_AGG_FUNCS: dict[str, str] = {
-    "sum": "sum",
-    "avg": "mean",
-    "mean": "mean",
-    "count": "count",
-    "min": "min",
-    "max": "max",
-    "nunique": "count_distinct",
-}
-
-# Variance/stddev operations mapped to (PyArrow func name, ddof).
-_VARIANCE_FUNCS: dict[str, tuple[str, int]] = {
-    "std": ("stddev", 0),
-    "var": ("variance", 0),
-    "std_pop": ("stddev", 0),
-    "std_samp": ("stddev", 1),
-    "var_pop": ("variance", 0),
-    "var_samp": ("variance", 1),
-}
-
-# Ordered aggregates need use_threads=False in PyArrow.
-_ORDERED_FUNCS: dict[str, str] = {
-    "first": "first",
-    "last": "last",
-}
-
-_SUPPORTED_AGG_TYPES = {*_PA_AGG_FUNCS, *_VARIANCE_FUNCS, *_ORDERED_FUNCS}
+from mloda.community.feature_groups.data_operations.pyarrow_agg_constants import (
+    PA_AGG_FUNCS as _PA_AGG_FUNCS,
+    PA_ORDERED_FUNCS as _ORDERED_FUNCS,
+    PA_SUPPORTED_AGG_TYPES as _SUPPORTED_AGG_TYPES,
+    PA_VARIANCE_FUNCS as _VARIANCE_FUNCS,
+)
 
 
 class PyArrowAggregation(AggregationFeatureGroup):

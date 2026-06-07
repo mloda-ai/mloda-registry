@@ -103,6 +103,16 @@ class DataOpsTestBase(ABC):
                 return
         pytest.skip(f"{op} not supported by this framework")
 
+    def _assert_float_list_with_nulls(self, actual: list[Any], expected: list[Any]) -> None:
+        """Assert two float lists match elementwise: ``None`` stays ``None``, others compared via approx."""
+        assert len(actual) == len(expected), f"row count {len(actual)} != expected {len(expected)}"
+        for i, (a, e) in enumerate(zip(actual, expected)):
+            if e is None:
+                assert a is None, f"row {i}: expected None, got {a!r}"
+            else:
+                assert a is not None, f"row {i}: expected {e!r}, got None"
+                assert float(a) == pytest.approx(e), f"row {i}: {a!r} != {e!r}"
+
     # -- Cross-framework comparison --------------------------------------------
 
     def _compare_with_reference(

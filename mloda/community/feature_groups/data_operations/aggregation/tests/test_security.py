@@ -81,13 +81,11 @@ class TestAllowlistCompleteness:
             assert agg_type in _DUCKDB_AGG_FUNCS, f"DuckDB backend missing aggregation type: {agg_type}"
 
     def test_sqlite_covers_supported_types(self) -> None:
-        from mloda.community.feature_groups.data_operations.aggregation.sqlite_aggregation import (
-            _SQLITE_AGG_FUNCS,
-        )
+        from mloda.community.feature_groups.data_operations.sqlite_agg_constants import SQLITE_AGG_FUNCS
 
         basic_types = {"sum", "min", "max", "avg", "count"}
         for agg_type in basic_types:
-            assert agg_type in _SQLITE_AGG_FUNCS, f"SQLite backend missing basic aggregation type: {agg_type}"
+            assert agg_type in SQLITE_AGG_FUNCS, f"SQLite backend missing basic aggregation type: {agg_type}"
 
 
 class TestPartitionByInjection:

@@ -15,6 +15,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 
+from mloda.community.feature_groups.data_operations.duckdb_helpers import assert_duckdb_source_col_present
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import (
     SessionizationFeatureGroup,
 )
@@ -27,10 +28,7 @@ class DuckdbSessionization(SessionizationFeatureGroup):
 
     @classmethod
     def _assert_source_column_present(cls, data: DuckdbRelation, order_col: str) -> None:
-        if order_col not in data.columns:
-            raise ValueError(
-                f"Source column {order_col!r} is not present in the DuckDB relation; available: {data.columns}."
-            )
+        assert_duckdb_source_col_present(data, order_col)
 
     @classmethod
     def _compute_session(

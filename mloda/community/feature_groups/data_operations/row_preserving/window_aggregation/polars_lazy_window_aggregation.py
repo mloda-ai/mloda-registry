@@ -11,6 +11,7 @@ from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe 
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
+from mloda.community.feature_groups.data_operations.polars_agg_constants import POLARS_AGG_EXPRS as _POLARS_AGG_EXPRS
 from mloda.community.feature_groups.data_operations.polars_mode_helpers import (
     ModeHelperCols,
     add_mode_helper_cols,
@@ -20,25 +21,6 @@ from mloda.community.feature_groups.data_operations.polars_mode_helpers import (
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
-
-# Mapping from aggregation type to a Polars expression builder.
-# Each callable takes a column name and returns a Polars Expr.
-_POLARS_AGG_EXPRS: dict[str, Any] = {
-    "sum": lambda col: pl.col(col).sum(),
-    "avg": lambda col: pl.col(col).mean(),
-    "mean": lambda col: pl.col(col).mean(),
-    "count": lambda col: pl.col(col).count(),
-    "min": lambda col: pl.col(col).min(),
-    "max": lambda col: pl.col(col).max(),
-    "std": lambda col: pl.col(col).std(ddof=0),
-    "var": lambda col: pl.col(col).var(ddof=0),
-    "std_pop": lambda col: pl.col(col).std(ddof=0),
-    "std_samp": lambda col: pl.col(col).std(ddof=1),
-    "var_pop": lambda col: pl.col(col).var(ddof=0),
-    "var_samp": lambda col: pl.col(col).var(ddof=1),
-    "median": lambda col: pl.col(col).median(),
-    "nunique": lambda col: pl.col(col).drop_nulls().n_unique(),
-}
 
 _SUPPORTED_AGG_TYPES = {*_POLARS_AGG_EXPRS.keys(), "mode", "first", "last"}
 

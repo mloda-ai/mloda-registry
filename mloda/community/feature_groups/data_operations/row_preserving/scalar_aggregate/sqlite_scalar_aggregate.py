@@ -14,15 +14,7 @@ from mloda.community.feature_groups.data_operations.mask_utils import build_sql_
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
-
-_SQLITE_AGG_FUNCS: dict[str, str] = {
-    "sum": "SUM",
-    "min": "MIN",
-    "max": "MAX",
-    "avg": "AVG",
-    "mean": "AVG",
-    "count": "COUNT",
-}
+from mloda.community.feature_groups.data_operations.sqlite_agg_constants import SQLITE_AGG_FUNCS as _SQLITE_AGG_FUNCS
 
 
 class SqliteScalarAggregate(ScalarAggregateFeatureGroup):

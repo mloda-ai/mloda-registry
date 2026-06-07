@@ -94,6 +94,14 @@ def coerce_count_dtype(data: Any, feature_name: str, agg_type: str) -> None:
         data[feature_name] = data[feature_name].astype("int64")
 
 
+def assert_pandas_source_col_present(data: Any, source_col: str) -> None:
+    """Reject a missing source column on a pandas DataFrame with a clear ``ValueError``."""
+    if source_col not in data.columns:
+        raise ValueError(
+            f"Source column {source_col!r} is not present in the pandas DataFrame; available: {list(data.columns)}."
+        )
+
+
 _MODE_IDX_COL = "__mloda_mode_row_idx__"
 _MODE_COUNT_COL = "__mloda_mode_count__"
 _MODE_FIRST_IDX_COL = "__mloda_mode_first_idx__"

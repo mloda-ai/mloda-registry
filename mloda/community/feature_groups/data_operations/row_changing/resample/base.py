@@ -46,6 +46,8 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.base import PartitionByMixin
+
 # Order-independent aggregations supported in v1. Order-dependent aggregations
 # (e.g. ``first`` / ``last``) and ``median`` are deliberately excluded.
 RESAMPLE_AGGS: dict[str, str] = {
@@ -99,7 +101,7 @@ def _parse_resample_op(token: str) -> tuple[int, str, str]:
     return n, unit, agg
 
 
-class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+class ResampleFeatureGroup(PartitionByMixin, FeatureChainParserMixin, FeatureGroup):
     """Base class for resample operations that CHANGE the row count.
 
     Subclasses must implement ``_compute_resample`` (the backend-specific
@@ -206,14 +208,6 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         if op is None:
             raise ValueError(f"Could not extract resample op for {feature.name}")
         return str(op)
-
-    @classmethod
-    def _extract_partition_by(cls, feature: Feature) -> list[str]:
-        """Return ``partition_by`` as a list (defaulting to ``[]`` when absent)."""
-        partition_by = feature.options.get(cls.PARTITION_BY)
-        if partition_by is None:
-            return []
-        return list(partition_by)
 
     @classmethod
     def _extract_time_column(cls, feature: Feature) -> str:

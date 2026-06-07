@@ -54,6 +54,8 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.base import PartitionByMixin
+
 # Supported sessionization units mapped to their length in seconds. The four
 # keys also define the units accepted by the feature-name regex.
 SESSIONIZATION_UNITS: dict[str, int] = {
@@ -102,7 +104,7 @@ def _sessionize_threshold_seconds(n: int, unit: str) -> int:
     return n * SESSIONIZATION_UNITS[unit]
 
 
-class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+class SessionizationFeatureGroup(PartitionByMixin, FeatureChainParserMixin, FeatureGroup):
     """Base class for gap-threshold sessionization operations that preserve row count."""
 
     PREFIX_PATTERN = r".*__sessionize_\d+_(?:minute|hour|day|week)$"
@@ -191,14 +193,6 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         except IndexError as exc:
             raise ValueError(f"Could not extract a sessionize token from feature name {name!r}.") from exc
         return f"sessionize_{token}"
-
-    @classmethod
-    def _extract_partition_by(cls, feature: Feature) -> list[str]:
-        """Return ``partition_by`` as a list (defaulting to ``[]`` when absent)."""
-        partition_by = feature.options.get(cls.PARTITION_BY)
-        if partition_by is None:
-            return []
-        return list(partition_by)
 
     @classmethod
     def _extract_order_by(cls, feature: Feature, source_col: str) -> str:

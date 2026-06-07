@@ -13,25 +13,12 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
+from mloda.community.feature_groups.data_operations.duckdb_agg_constants import DUCKDB_AGG_FUNCS
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 
-# All aggregation types natively supported by DuckDB.
+# Group aggregation uses FIRST/LAST (window functions need FIRST_VALUE/LAST_VALUE).
 _DUCKDB_AGG_FUNCS: dict[str, str] = {
-    "sum": "SUM",
-    "avg": "AVG",
-    "mean": "AVG",
-    "count": "COUNT",
-    "min": "MIN",
-    "max": "MAX",
-    "std": "STDDEV_POP",
-    "var": "VAR_POP",
-    "std_pop": "STDDEV_POP",
-    "std_samp": "STDDEV_SAMP",
-    "var_pop": "VAR_POP",
-    "var_samp": "VAR_SAMP",
-    "median": "MEDIAN",
-    "mode": "MODE",
-    "nunique": "COUNT_DISTINCT",  # handled specially: COUNT(DISTINCT col) syntax
+    **DUCKDB_AGG_FUNCS,
     "first": "FIRST",
     "last": "LAST",
 }

@@ -153,7 +153,7 @@ class PercentileTestBase(MaskTestMixin, DataOpsTestBase):
         assert result_col == pytest.approx(EXPECTED_P100_BY_REGION, rel=1e-6)
 
     def test_null_policy_skip_p50_with_null_values(self) -> None:
-        """NullPolicy.SKIP: Group B has a null value_int at row 4. P50 should skip it."""
+        """Null-skip: Group B has a null value_int at row 4. P50 should skip it."""
         fs = make_feature_set("value_int__p50_percentile", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -164,7 +164,7 @@ class PercentileTestBase(MaskTestMixin, DataOpsTestBase):
         assert result_col[7] == pytest.approx(50.0, rel=1e-6)
 
     def test_null_policy_null_is_group(self) -> None:
-        """NullPolicy.NULL_IS_GROUP: Row 11 has region=None. It should form its own group."""
+        """Null-as-group: Row 11 has region=None. It should form its own group."""
         fs = make_feature_set("value_int__p50_percentile", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
@@ -194,7 +194,7 @@ class PercentileTestBase(MaskTestMixin, DataOpsTestBase):
         assert isinstance(result, self.get_expected_type())
 
     def test_null_policy_skip_all_null_column(self) -> None:
-        """NullPolicy.SKIP: score column is all null. Percentile should produce all nulls."""
+        """Null-skip: score column is all null. Percentile should produce all nulls."""
         fs = make_feature_set("score__p50_percentile", ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 

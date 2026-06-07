@@ -192,7 +192,7 @@ class RankTestBase(DataOpsTestBase):
         assert result_col == EXPECTED_BOTTOM_2
 
     def test_null_policy_nulls_last(self) -> None:
-        """NullPolicy.NULLS_LAST: null values in order_by column rank last."""
+        """Nulls-last: null values in order_by column rank last."""
         fs = make_feature_set("value_int__row_number_ranked", ["region"], "value_int")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 

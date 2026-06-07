@@ -14,16 +14,7 @@ from mloda.community.feature_groups.data_operations.mask_utils import build_sql_
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
-
-# Aggregation types that SQLite supports natively in window functions.
-_SQLITE_AGG_FUNCS: dict[str, str] = {
-    "sum": "SUM",
-    "avg": "AVG",
-    "mean": "AVG",
-    "count": "COUNT",
-    "min": "MIN",
-    "max": "MAX",
-}
+from mloda.community.feature_groups.data_operations.sqlite_agg_constants import SQLITE_AGG_FUNCS as _SQLITE_AGG_FUNCS
 
 
 class SqliteWindowAggregation(WindowAggregationFeatureGroup):

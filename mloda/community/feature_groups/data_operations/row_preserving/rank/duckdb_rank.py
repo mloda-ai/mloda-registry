@@ -10,6 +10,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import OrderBy
 
+from mloda.community.feature_groups.data_operations.duckdb_helpers import duckdb_drop_rn_restore
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
@@ -83,6 +84,4 @@ class DuckdbRank(RankFeatureGroup):
             partition_by=partition_by,
             order_by=order_spec,
         )
-        rel = rel.order(quote_ident(rn))
-        keep = ", ".join(quote_ident(c) for c in rel.columns if c != rn)
-        return rel.project(keep)
+        return duckdb_drop_rn_restore(rel, rn)

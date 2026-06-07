@@ -82,13 +82,11 @@ class TestAllowlistCompleteness:
             assert f"test_{agg_type}" in collected.columns
 
     def test_sqlite_covers_supported_types(self) -> None:
-        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.sqlite_scalar_aggregate import (
-            _SQLITE_AGG_FUNCS,
-        )
+        from mloda.community.feature_groups.data_operations.sqlite_agg_constants import SQLITE_AGG_FUNCS
 
         basic_types = {"sum", "min", "max", "avg", "mean", "count"}
         for agg_type in basic_types:
-            assert agg_type in _SQLITE_AGG_FUNCS, f"SQLite backend missing basic aggregation type: {agg_type}"
+            assert agg_type in SQLITE_AGG_FUNCS, f"SQLite backend missing basic aggregation type: {agg_type}"
 
 
 class TestSqlUtilities:

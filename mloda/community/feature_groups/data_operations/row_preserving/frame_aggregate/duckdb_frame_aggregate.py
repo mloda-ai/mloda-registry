@@ -16,6 +16,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
     WindowFrame,
 )
 
+from mloda.community.feature_groups.data_operations.duckdb_helpers import duckdb_drop_rn_restore
 from mloda.community.feature_groups.data_operations.errors import (
     unsupported_agg_type_error,
     unsupported_frame_type_error,
@@ -131,11 +132,7 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         )
 
         # Step 3: restore original order, drop helper
-        rel = rel.order(quote_ident(rn))
-        keep = ", ".join(quote_ident(c) for c in rel.columns if c != rn)
-        rel = rel.project(keep)
-
-        return rel
+        return duckdb_drop_rn_restore(rel, rn)
 
     @classmethod
     def _compute_time_frame(
