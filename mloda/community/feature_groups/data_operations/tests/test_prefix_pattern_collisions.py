@@ -15,6 +15,10 @@ Two complementary checks run here:
   ``match_feature_group_criteria`` must accept the name. This uses the real
   router, so a raw-regex overlap that subtype validation disambiguates (e.g.
   ``window_aggregation`` rejecting ``sales__avg_7_day_window``) is not flagged.
+  ``test_routing_is_exhaustive_over_generated_names`` raises the bar from the
+  hand-picked representatives to each family's full vocabulary, generated from
+  the family's own live op-type table (see :data:`NAME_GENERATORS`), so a
+  collision on an unsampled categorical variant cannot slip through.
 
 - ``test_no_unexpected_pattern_overlaps`` is the blunter check the issue asks
   for: it collects every family's ``PREFIX_PATTERN`` and fails if a
@@ -37,7 +41,8 @@ from __future__ import annotations
 import importlib
 import re
 from typing import Any
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from mloda.core.abstract_plugins.components.options import Options
@@ -265,6 +270,186 @@ def _real_classes() -> dict[str, Any]:
     return {spec.key: _load_class(spec) for spec in FAMILIES}
 
 
+# --- exhaustive valid-name generators -----------------------------------------
+
+
+# One generator per ``FamilySpec.key``, each producing that family's full set of
+# valid feature names from the family's OWN live vocabulary (imported, never
+# re-listed here). This lets routing be verified over every categorical op-type
+# variant instead of a hand-picked sample. The ``NAME_GENERATORS`` registry below
+# maps each FAMILIES key to its generator, and ``generate_valid_names`` looks up
+# and calls it.
+def _gen_aggregation() -> tuple[str, ...]:
+    # Vocabulary: AGGREGATION_TYPES (aggregation_base). Names: ``{col}__{type}_agg``.
+    from mloda.community.feature_groups.data_operations.aggregation_base import AGGREGATION_TYPES
+
+    return tuple(f"sales__{t}_agg" for t in AGGREGATION_TYPES)
+
+
+def _gen_window_aggregation() -> tuple[str, ...]:
+    # Vocabulary: window_aggregation.base.AGGREGATION_TYPES. Names: ``{col}__{type}_window``.
+    from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import AGGREGATION_TYPES
+
+    return tuple(f"sales__{t}_window" for t in AGGREGATION_TYPES)
+
+
+def _gen_scalar_aggregate() -> tuple[str, ...]:
+    # Vocabulary: scalar_aggregate.base.AGGREGATION_TYPES. Names: ``{col}__{type}_scalar``.
+    from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import AGGREGATION_TYPES
+
+    return tuple(f"value__{t}_scalar" for t in AGGREGATION_TYPES)
+
+
+def _gen_scalar_arithmetic() -> tuple[str, ...]:
+    # Vocabulary: scalar_arithmetic.base.ARITHMETIC_OPERATIONS. Names: ``{col}__{op}_constant``.
+    from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
+        ARITHMETIC_OPERATIONS,
+    )
+
+    return tuple(f"value__{op}_constant" for op in ARITHMETIC_OPERATIONS)
+
+
+def _gen_point_arithmetic() -> tuple[str, ...]:
+    # Vocabulary: point_arithmetic.base.ARITHMETIC_OPERATIONS. Names: ``{col}__{op}_point``.
+    from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
+        ARITHMETIC_OPERATIONS,
+    )
+
+    return tuple(f"x__{op}_point" for op in ARITHMETIC_OPERATIONS)
+
+
+def _gen_rank() -> tuple[str, ...]:
+    # Vocabulary: RankFeatureGroup.RANK_TYPES (rank/base.py). Names: ``{col}__{type}_ranked``.
+    from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
+
+    return tuple(f"sales__{t}_ranked" for t in RankFeatureGroup.RANK_TYPES)
+
+
+def _gen_offset() -> tuple[str, ...]:
+    # Vocabulary: OffsetFeatureGroup.OFFSET_TYPES (static) plus the inline dynamic prefixes
+    # ``lag_/lead_/diff_/pct_change_`` + digit >= 1 accepted by ``_supports_offset_type``
+    # (offset/base.py:123). Names: ``{col}__{type}_offset``.
+    from mloda.community.feature_groups.data_operations.row_preserving.offset.base import OffsetFeatureGroup
+
+    static = tuple(f"sales__{t}_offset" for t in OffsetFeatureGroup.OFFSET_TYPES)
+    dynamic = tuple(f"sales__{p}1_offset" for p in ("lag_", "lead_", "diff_", "pct_change_"))
+    return static + dynamic
+
+
+def _gen_binning() -> tuple[str, ...]:
+    # Vocabulary: BINNING_OPS (binning/base.py). Names: ``{col}__{op}_{N}``; both rep numerics
+    # (bin_5, qbin_10) are emitted so reps stay a subset of the generated set.
+    from mloda.community.feature_groups.data_operations.row_preserving.binning.base import BINNING_OPS
+
+    return tuple(f"value__{op}_{n}" for op in BINNING_OPS for n in (5, 10))
+
+
+def _gen_datetime() -> tuple[str, ...]:
+    # Vocabulary: DATETIME_OPS (datetime/base.py). The op is the whole suffix: ``{col}__{op}``.
+    from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import DATETIME_OPS
+
+    return tuple(f"ts__{c}" for c in DATETIME_OPS)
+
+
+def _gen_string() -> tuple[str, ...]:
+    # Vocabulary: STRING_OPS (string/base.py). The op is the whole suffix: ``{col}__{op}``.
+    from mloda.community.feature_groups.data_operations.string.base import STRING_OPS
+
+    return tuple(f"name__{op}" for op in STRING_OPS)
+
+
+def _gen_percentile() -> tuple[str, ...]:
+    # Pattern ``(p\d+)_percentile`` (percentile/base.py); numeric slot, one fixed value suffices.
+    return ("sales__p50_percentile",)
+
+
+def _gen_ema() -> tuple[str, ...]:
+    # Pattern ``ema_\d+`` (ema/base.py); numeric slot, one fixed value suffices.
+    return ("price__ema_20",)
+
+
+def _gen_ffill() -> tuple[str, ...]:
+    # Pattern ``__ffill`` (ffill/base.py); no vocabulary.
+    return ("sales__ffill",)
+
+
+def _gen_sessionization() -> tuple[str, ...]:
+    # Vocabulary: SESSIONIZATION_UNITS (sessionization/base.py). Names: ``{col}__sessionize_{N}_{unit}``.
+    from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import SESSIONIZATION_UNITS
+
+    return tuple(f"session__sessionize_30_{unit}" for unit in SESSIONIZATION_UNITS)
+
+
+def _gen_time_bucketization() -> tuple[str, ...]:
+    # Vocabulary: TIME_BUCKETIZATION_OPS x TIME_BUCKETIZATION_UNITS (time_bucketization/base.py).
+    # Names: ``{col}__{op}_{N}_{unit}``; _parse_bucket_op only accepts n=1 for the calendar units
+    # in _CALENDAR_UNITS (base.py:103), so the numeric slot is 1 there and a fixed 30 otherwise.
+    from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
+        _CALENDAR_UNITS,
+        TIME_BUCKETIZATION_OPS,
+        TIME_BUCKETIZATION_UNITS,
+    )
+
+    return tuple(
+        f"ts__{op}_{1 if unit in _CALENDAR_UNITS else 30}_{unit}"
+        for op in TIME_BUCKETIZATION_OPS
+        for unit in TIME_BUCKETIZATION_UNITS
+    )
+
+
+def _gen_resample() -> tuple[str, ...]:
+    # Vocabulary: RESAMPLE_AGGS x RESAMPLE_UNITS (resample/base.py). Names: ``{col}__resample_{N}_{unit}_{agg}``.
+    from mloda.community.feature_groups.data_operations.row_changing.resample.base import RESAMPLE_AGGS, RESAMPLE_UNITS
+
+    return tuple(f"metric__resample_60_{unit}_{agg}" for unit in RESAMPLE_UNITS for agg in RESAMPLE_AGGS)
+
+
+def _gen_frame_aggregate() -> tuple[str, ...]:
+    # Vocabulary: _AGGREGATION_TYPES (and _TIME_UNITS) from frame_aggregate/base.py, expanded over
+    # the four module-level patterns (_ROLLING/_TIME_WINDOW/_CUMULATIVE/_EXPANDING_PATTERN).
+    from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
+        _AGGREGATION_TYPES,
+        _TIME_UNITS,
+    )
+
+    aggs = sorted(_AGGREGATION_TYPES)
+    rolling = tuple(f"sales__{t}_rolling_3" for t in aggs)
+    time_window = tuple(f"sales__{t}_7_{unit}_window" for t in aggs for unit in sorted(_TIME_UNITS))
+    cumulative = tuple(f"sales__cum{t}" for t in aggs)
+    expanding = tuple(f"sales__expanding_{t}" for t in aggs)
+    return rolling + time_window + cumulative + expanding
+
+
+NAME_GENERATORS: dict[str, Callable[[], tuple[str, ...]]] = {
+    "aggregation": _gen_aggregation,
+    "binning": _gen_binning,
+    "datetime": _gen_datetime,
+    "ema": _gen_ema,
+    "ffill": _gen_ffill,
+    "frame_aggregate": _gen_frame_aggregate,
+    "offset": _gen_offset,
+    "percentile": _gen_percentile,
+    "point_arithmetic": _gen_point_arithmetic,
+    "rank": _gen_rank,
+    "resample": _gen_resample,
+    "scalar_aggregate": _gen_scalar_aggregate,
+    "scalar_arithmetic": _gen_scalar_arithmetic,
+    "sessionization": _gen_sessionization,
+    "string": _gen_string,
+    "time_bucketization": _gen_time_bucketization,
+    "window_aggregation": _gen_window_aggregation,
+}
+
+
+def generate_valid_names(spec: FamilySpec) -> tuple[str, ...]:
+    """Exhaustive valid feature names for a family, from its live vocabulary.
+
+    Returns the family's full set of valid feature names from its registered
+    generator, or () if no generator is registered for the key."""
+    gen = NAME_GENERATORS.get(spec.key)
+    return gen() if gen is not None else ()
+
+
 # --- authoritative invariants -------------------------------------------------
 
 
@@ -272,6 +457,47 @@ def test_no_routing_collisions() -> None:
     collisions = find_collisions(FAMILIES, PERMISSIVE_OPTIONS, _real_classes())
     assert collisions == [], "Routing collisions across data-operation families:\n" + "\n".join(
         _format_collision(c) for c in collisions
+    )
+
+
+def test_every_family_has_a_name_generator() -> None:
+    missing = [spec.key for spec in FAMILIES if spec.key not in NAME_GENERATORS]
+    assert missing == [], (
+        "These families have no entry in NAME_GENERATORS (register a generator that builds each "
+        "family's valid feature names from its live vocabulary):\n  " + "\n  ".join(missing)
+    )
+
+
+def test_representative_names_are_generated() -> None:
+    for spec in FAMILIES:
+        generated = set(generate_valid_names(spec))
+        missing = sorted(set(spec.representative_names) - generated)
+        assert missing == [], (
+            f"{spec.key}: representative names {missing} are absent from the generated vocabulary. "
+            "The sampled reps drifted from the exhaustive set; fix the generator or the reps."
+        )
+
+
+def test_routing_is_exhaustive_over_generated_names() -> None:
+    exhaustive = tuple(replace(spec, representative_names=generate_valid_names(spec)) for spec in FAMILIES)
+    total = sum(len(generate_valid_names(s)) for s in FAMILIES)
+    assert total > len(FAMILIES), (
+        "Generated vocabulary is vacuous (expected many names per family); NAME_GENERATORS is empty "
+        "or under-populated, so exhaustive routing would pass trivially."
+    )
+    collisions = find_collisions(exhaustive, PERMISSIVE_OPTIONS, _real_classes())
+    assert collisions == [], "Routing collisions over generated vocabulary:\n" + "\n".join(
+        _format_collision(c) for c in collisions
+    )
+
+
+def test_generator_drift_is_caught_as_owner_rejects() -> None:
+    spec = FAMILIES[0]
+    bad = replace(spec, representative_names=(*generate_valid_names(spec), "col__NOTAREALOP_zzz"))
+    collisions = find_collisions((bad,), PERMISSIVE_OPTIONS, _real_classes())
+    assert any(c.kind == "OWNER_REJECTS" and c.representative_name == "col__NOTAREALOP_zzz" for c in collisions), (
+        "Planted bogus name 'col__NOTAREALOP_zzz' was not flagged as OWNER_REJECTS for its owning "
+        "family; the self-validation proof that generator drift surfaces as a collision does not hold."
     )
 
 
