@@ -4,17 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.core.abstract_plugins.components.data_types import DataType
-from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.provider import DefaultOptionKeys
 
+from mloda.community.feature_groups.data_operations.aggregation_base import (
+    AGGREGATION_TYPES,
+    AggregationFeatureGroupBase,
+)
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 
-class AggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+class AggregationFeatureGroup(AggregationFeatureGroupBase):
     """Base class for aggregation operations that reduce rows.
 
     Aggregation computes an aggregate over partitioned groups and
@@ -85,31 +85,10 @@ class AggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
 
-    AGGREGATION_TYPE = "aggregation_type"
     PARTITION_BY = "partition_by"
 
-    AGGREGATION_TYPES = {
-        "sum": "Sum of values",
-        "avg": "Average of values",
-        "mean": "Average of values",
-        "count": "Count of non-null values",
-        "min": "Minimum value",
-        "max": "Maximum value",
-        "std": "Population standard deviation (ddof=0)",
-        "var": "Population variance (ddof=0)",
-        "std_pop": "Population standard deviation (ddof=0, same as std)",
-        "std_samp": "Sample standard deviation (ddof=1)",
-        "var_pop": "Population variance (ddof=0, same as var)",
-        "var_samp": "Sample variance (ddof=1)",
-        "median": "Median value",
-        "mode": "Most frequent value",
-        "nunique": "Count of unique values",
-        "first": "First value in group",
-        "last": "Last value in group",
-    }
-
     PROPERTY_MAPPING = {
-        AGGREGATION_TYPE: {
+        AggregationFeatureGroupBase.AGGREGATION_TYPE: {
             **AGGREGATION_TYPES,
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
@@ -131,11 +110,6 @@ class AggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             DefaultOptionKeys.default: None,
         },
     }
-
-    @classmethod
-    def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
-        """Validate that the parsed aggregation type is in AGGREGATION_TYPES."""
-        return operation_config in cls.AGGREGATION_TYPES
 
     @classmethod
     def match_feature_group_criteria(
@@ -164,39 +138,6 @@ class AggregationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             return False
 
         return True
-
-    @classmethod
-    def get_aggregation_type(cls, feature_name: str) -> str:
-        """Extract the aggregation type from a feature name string."""
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        raise ValueError(f"Could not extract aggregation type from feature name: {feature_name}")
-
-    @classmethod
-    def _extract_aggregation_type(cls, feature: Feature) -> str:
-        """Extract aggregation type from feature (string-based or config-based)."""
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        agg_type = feature.options.get(cls.AGGREGATION_TYPE)
-        if agg_type is None:
-            raise ValueError(f"Could not extract aggregation type for {feature_name}")
-        return str(agg_type)
-
-    @classmethod
-    def return_data_type_rule(cls, feature: Feature) -> DataType | None:
-        """Declare INT64 for count/nunique (counting ops); other aggregates stay open."""
-        try:
-            agg_type = cls._extract_aggregation_type(feature)
-        except Exception:  # best-effort during planning; failure leaves the type undeclared
-            return None
-        if agg_type in {"count", "nunique"}:
-            return DataType.INT64
-        return None
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

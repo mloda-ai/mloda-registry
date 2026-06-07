@@ -26,7 +26,11 @@ _TIME_WINDOW_PATTERN = re.compile(r"^(.+)__(\w+)_(\d+)_(\w+)_window$")
 _CUMULATIVE_PATTERN = re.compile(r"^(.+)__cum(\w+)$")
 _EXPANDING_PATTERN = re.compile(r"^(.+)__expanding_(\w+)$")
 
-_AGGREGATION_TYPES = {"sum", "avg", "count", "min", "max", "std", "var", "median"}
+# Frame aggregation supports the order-independent subset of the canonical
+# aggregation-type table (no mode/nunique/first/last, no ddof-variant spellings).
+# Frame never uses the canonical descriptions, so this is an explicit set rather
+# than a derivation from the shared table.
+_AGGREGATION_TYPES = frozenset({"sum", "avg", "count", "min", "max", "std", "var", "median"})
 _CUMULATIVE_OPS = _AGGREGATION_TYPES
 _TIME_UNITS = {"second", "minute", "hour", "day", "week", "month", "year"}
 

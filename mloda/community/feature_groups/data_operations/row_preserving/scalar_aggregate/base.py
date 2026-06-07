@@ -14,15 +14,14 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.provider import DefaultOptionKeys
 
+from mloda.community.feature_groups.data_operations.aggregation_base import AggregationFeatureGroupBase
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 AGGREGATION_TYPES = {
@@ -42,18 +41,21 @@ AGGREGATION_TYPES = {
 }
 
 
-class ScalarAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase):
     PREFIX_PATTERN = r".*__([\w]+)_scalar$"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
 
-    AGGREGATION_TYPE = "aggregation_type"
+    AGGREGATION_TYPES = AGGREGATION_TYPES
+
+    # Scalar aggregation declares INT64 only for count (not nunique, which it does not support).
+    _COUNTING_AGG_TYPES = frozenset({"count"})
 
     _SUPPORTED_AGG_TYPES: ClassVar[frozenset[str]] = frozenset(AGGREGATION_TYPES)
 
     PROPERTY_MAPPING = {
-        AGGREGATION_TYPE: {
+        AggregationFeatureGroupBase.AGGREGATION_TYPE: {
             **AGGREGATION_TYPES,
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
@@ -70,41 +72,6 @@ class ScalarAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             DefaultOptionKeys.default: None,
         },
     }
-
-    @classmethod
-    def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
-        return operation_config in AGGREGATION_TYPES
-
-    @classmethod
-    def get_aggregation_type(cls, feature_name: str) -> str:
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        raise ValueError(f"Could not extract aggregation type from feature name: {feature_name}")
-
-    @classmethod
-    def _extract_aggregation_type(cls, feature: Feature) -> str:
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        agg_type = feature.options.get(cls.AGGREGATION_TYPE)
-        if agg_type is None:
-            raise ValueError(f"Could not extract aggregation type for {feature_name}")
-        return str(agg_type)
-
-    @classmethod
-    def return_data_type_rule(cls, feature: Feature) -> DataType | None:
-        """Declare INT64 for count (a counting op); other aggregates stay open."""
-        try:
-            agg_type = cls._extract_aggregation_type(feature)
-        except Exception:  # best-effort during planning; failure leaves the type undeclared
-            return None
-        if agg_type == "count":
-            return DataType.INT64
-        return None
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         _feature_name = str(feature_name)
