@@ -6,7 +6,7 @@ Authoritative list of cases where a non-PyArrow framework would, without interve
 **When**: Read this before adding a new data-operation implementation, a new framework, or changing null or tie-breaking behavior in an existing one.
 **Why**: Divergences of this kind are the most dangerous class of bug: the feature resolves, the pipeline succeeds, the output is silently wrong. Keeping a single list prevents that category from growing unnoticed.
 **Where**: Audit of the 11 data operations under `mloda/community/feature_groups/data_operations/`.
-**How**: Each entry records the divergence, the mitigation, and the test (or `supported_ops()` exclusion) that keeps it from silently regressing.
+**How**: Each entry records the divergence, the mitigation, and the test (or `supported_ops()` exclusion) that keeps it from silently regressing. Every entry also carries a machine-checked block (see [When to add to this page](#when-to-add-to-this-page)) so a `tox` test can verify the cited regression test still exists.
 
 ---
 
@@ -29,6 +29,18 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 
 ### Polars `sum()` on an all-null group returns `0`
 
+<!-- machine-checked
+operation: aggregation, scalar_aggregate, window_aggregation
+framework: polars_lazy
+condition: sum() on an all-null group returns 0 instead of PyArrow's null
+mitigation_location:
+- mloda/community/feature_groups/data_operations/aggregation/polars_lazy_aggregation.py
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/polars_lazy_scalar_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/polars_lazy_window_aggregation.py
+regression_test:
+- mloda/testing/feature_groups/data_operations/aggregation/aggregation.py::AggregationTestBase::test_null_policy_skip_all_null_column
+-->
+
 - **Operations**: `aggregation`, `scalar_aggregate`, `window_aggregation`.
 - **Where it lives**: `mloda/community/feature_groups/data_operations/aggregation/polars_lazy_aggregation.py`, `.../row_preserving/scalar_aggregate/polars_lazy_scalar_aggregate.py`, `.../row_preserving/window_aggregation/polars_lazy_window_aggregation.py`.
 - **Reference behavior**: PyArrow's `pc.sum` returns `null` when every input value in the group is null.
@@ -38,6 +50,19 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 - **Regression signal**: The canonical 12-row fixture has a `score` column that is all-null. `test_null_policy_skip_all_null_column` in `mloda/testing/feature_groups/data_operations/aggregation/aggregation.py` asserts `score__sum_agg` is all-null per region, and fails if this correction is removed.
 
 ### Polars `rank()` returns null for null inputs
+
+<!-- machine-checked
+operation: rank
+framework: polars_lazy
+condition: rank() propagates null instead of assigning a nulls-last integer rank
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/rank/polars_lazy_rank.py
+regression_test:
+- mloda/testing/feature_groups/data_operations/row_preserving/rank/rank.py::RankTestBase::test_row_number_ranked
+- mloda/testing/feature_groups/data_operations/row_preserving/rank/rank.py::RankTestBase::test_rank_ranked
+- mloda/testing/feature_groups/data_operations/row_preserving/rank/rank.py::RankTestBase::test_dense_rank_ranked
+- mloda/testing/feature_groups/data_operations/row_preserving/rank/rank.py::RankTestBase::test_percent_rank_ranked
+-->
 
 - **Operations**: `rank` (all rank types: `row_number`, `rank`, `dense_rank`, `percent_rank`, `ntile_N`, `top_N`, `bottom_N`).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/row_preserving/rank/polars_lazy_rank.py`.
@@ -49,6 +74,18 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 
 ### Mode tie-breaking by first occurrence
 
+<!-- machine-checked
+operation: aggregation, window_aggregation
+framework: polars_lazy, pandas
+condition: native mode() breaks ties differently from PyArrow's first-occurrence rule
+mitigation_location:
+- mloda/community/feature_groups/data_operations/polars_mode_helpers.py
+- mloda/community/feature_groups/data_operations/pandas_helpers.py
+regression_test:
+- mloda/testing/feature_groups/data_operations/aggregation/aggregation.py::AggregationTestBase::test_cross_framework_mode
+- mloda/testing/feature_groups/data_operations/row_preserving/window_aggregation/window_aggregation.py::WindowAggregationTestBase::test_cross_framework_mode
+-->
+
 - **Operations**: `aggregation` (`mode` agg type), `window_aggregation` (`mode` agg type).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/polars_mode_helpers.py` (shared Polars Lazy helpers used by both `polars_lazy_aggregation.py` and `polars_lazy_window_aggregation.py`); Pandas uses the vectorized `compute_mode_winners` helper in `pandas_helpers.py`.
 - **Reference behavior**: PyArrow's `pc.mode` breaks ties by first occurrence in the input ordering.
@@ -59,16 +96,38 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 
 ### SQLite divide-by-zero returns NULL instead of IEEE-754 inf/nan
 
+<!-- machine-checked
+operation: point_arithmetic
+framework: sqlite
+condition: divide-by-zero on float operands returns NULL instead of inf/-inf/nan
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/sqlite_point_arithmetic.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_security.py::TestDivideByZeroPerRow::test_sqlite_divide_by_zero_per_row
+-->
+
 - **Operations**: `point_arithmetic` (`divide` op).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/sqlite_point_arithmetic.py`.
 - **Reference behavior**: PyArrow's `pc.divide` on float64 operands returns IEEE-754 `inf` / `-inf` for `N/0` (sign of `N`) and `NaN` for `0/0`. Pandas, Polars lazy, and DuckDB all match this when both operands are cast to float / DOUBLE.
 - **Native SQLite behavior**: `CAST(a AS REAL) / CAST(b AS REAL)` returns `NULL` for any divide-by-zero or null operand. SQLite has no native IEEE-754 inf/nan storage; the engine substitutes `NULL` for results that would otherwise be a non-finite float.
 - **Mitigation kind**: Accepted divergence (no mitigation attempted; the contract is documented and the test base accommodates both behaviors).
 - **How**: `PointArithmeticTestBase.divide_zero_propagates_inf()` is `True` by default. `TestSqlitePointArithmetic` overrides it to `False`, so the cross-framework divide-by-zero row at index 5 of the canonical fixture (`value_int=50, amount=0.0`) is asserted as `inf` on the four other backends and `None` on SQLite. Forcing SQLite into inf-emitting behavior would require an out-of-band float library; the cost outweighs the benefit for an operation whose primary callers will pick a non-SQLite backend when they need IEEE-754 semantics anyway.
-- **Regression signal**: `TestDivideByZeroPerRow.test_sqlite_divide_by_zero_returns_null` in `mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_security.py` pins the SQLite-specific `NULL` expectation; the corresponding four backends pin `inf`/`-inf`/`nan` per the truth table. If a future SQLite implementation begins returning a different non-NULL value, the assertion fails.
+- **Regression signal**: `TestDivideByZeroPerRow.test_sqlite_divide_by_zero_per_row` in `mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/tests/test_security.py` pins the SQLite-specific `NULL` expectation; the corresponding four backends pin `inf`/`-inf`/`nan` per the truth table. If a future SQLite implementation begins returning a different non-NULL value, the assertion fails.
 - **Scope note**: `scalar_arithmetic` does not appear here because its divisor is a validated `Options` constant; `divide_by_zero` is rejected up front before dispatch reaches any backend, so the per-row divergence cannot arise there.
 
 ### SQLite `UPPER`/`LOWER` are ASCII-only; no native `REVERSE`
+
+<!-- machine-checked
+operation: string
+framework: sqlite
+condition: UPPER/LOWER are ASCII-only and REVERSE has no native function
+mitigation_location:
+- mloda/community/feature_groups/data_operations/string/sqlite_string.py
+regression_test:
+- mloda/community/feature_groups/data_operations/string/tests/test_sqlite.py::TestSqliteUnsupportedOps::test_upper_does_not_match
+- mloda/community/feature_groups/data_operations/string/tests/test_sqlite.py::TestSqliteUnsupportedOps::test_lower_does_not_match
+- mloda/community/feature_groups/data_operations/string/tests/test_sqlite.py::TestSqliteUnsupportedOps::test_reverse_does_not_match
+-->
 
 - **Operations**: `string` (`upper`, `lower`, `reverse`).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/string/sqlite_string.py`.
@@ -81,6 +140,22 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 
 ### Float accumulation order across SQL engines vs. columnar reductions
 
+<!-- machine-checked
+operation: aggregation, scalar_aggregate, window_aggregation, percentile
+framework: duckdb, sqlite
+condition: SQL running-sum accumulation differs from PyArrow's reduction tree (~1e-12 to 1e-8)
+mitigation_location:
+- mloda/community/feature_groups/data_operations/aggregation/tests/test_integration.py
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/tests/test_integration.py
+- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/tests/test_integration.py
+- mloda/community/feature_groups/data_operations/row_preserving/percentile/tests/test_integration.py
+regression_test:
+- mloda/community/feature_groups/data_operations/aggregation/tests/test_integration.py::TestAggregationIntegration
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/tests/test_integration.py::TestScalarAggregateIntegration
+- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/tests/test_integration.py::TestWindowAggregationIntegration
+- mloda/community/feature_groups/data_operations/row_preserving/percentile/tests/test_integration.py::TestPercentileIntegration
+-->
+
 - **Operations**: `aggregation`, `scalar_aggregate`, `window_aggregation`, `percentile` (`avg`, `mean`, `std`, `var`, percentile interpolation).
 - **Where it lives**: Integration tests that flip `use_approx=True` on the cross-framework comparison (e.g. `aggregation/tests/test_integration.py:96`, `scalar_aggregate/tests/test_integration.py:82`, `window_aggregation/tests/test_integration.py:81`, `percentile/tests/test_integration.py:78`).
 - **Reference behavior**: PyArrow computes a columnar mean in a deterministic reduction tree.
@@ -91,6 +166,19 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 
 ### PyArrow lacks native `frame_aggregate`, `offset`, `percentile`, `rank`
 
+<!-- machine-checked
+operation: frame_aggregate, offset, percentile, rank
+framework: pyarrow
+condition: PyArrow has no native rolling/expanding, LAG/LEAD, percentile, or rank operator
+mitigation_location:
+- mloda/community/feature_groups/data_operations/aggregation/tests/test_pyarrow.py
+- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/tests/test_pyarrow.py
+regression_test:
+- mloda/community/feature_groups/data_operations/aggregation/tests/test_pyarrow.py::TestPyArrowAggregation
+- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/tests/test_pyarrow.py::TestPyArrowWindowAggregation
+- mloda/community/feature_groups/data_operations/tests/test_framework_support_matrix.py::test_framework_support_matrix_is_in_sync
+-->
+
 - **Operations**: `row_preserving/frame_aggregate`, `.../offset`, `.../percentile`, `.../rank`.
 - **Reference behavior**: PyArrow is the reference *for correctness semantics*, but it does not provide native rolling/expanding, LAG/LEAD, percentile, or rank. The reference implementations for these ops live in pure Python over PyArrow arrays.
 - **Mitigation kind**: Excluded op (from the test suite, not from routing).
@@ -99,6 +187,19 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 - **Related**: This is the "Category 1" case described in issue #146; listed here for completeness.
 
 ### Internal helper-column name collisions
+
+<!-- machine-checked
+operation: frame_aggregate, offset, rank, window_aggregation, aggregation, scalar_aggregate, binning
+framework: pandas, polars_lazy, pyarrow, duckdb, sqlite
+condition: a hardcoded helper-column name would overwrite or be shadowed by a same-named user column
+mitigation_location:
+- mloda/community/feature_groups/data_operations/helper_columns.py
+regression_test:
+- mloda/community/feature_groups/data_operations/tests/test_helper_columns.py::TestUniqueHelperName::test_returns_base_when_absent
+- mloda/community/feature_groups/data_operations/tests/test_helper_columns.py::TestUniqueHelperName::test_first_collision_appends_suffix_1
+- mloda/testing/feature_groups/data_operations/mixins/reserved_columns.py::ReservedColumnsTestMixin::test_mixin_reserved_column_collision_accepted
+- mloda/testing/feature_groups/data_operations/mixins/reserved_columns.py::ReservedColumnsTestMixin::test_mixin_helper_column_name_collision_survives
+-->
 
 - **Operations**: every row-preserving op that tags rows with an internal helper column, for example `frame_aggregate`, `offset`, `rank`, `window_aggregation`, plus the mode helpers shared by `aggregation` / `scalar_aggregate` / `window_aggregation`, and the SQL `binning` NTILE path.
 - **Where it lives**: the non-SQL backends use `unique_helper_name(base, taken)` in `mloda/community/feature_groups/data_operations/helper_columns.py`; the SQL backends (DuckDB, SQLite) use `pick_helper_column_name(taken=...)` from `mloda_plugins` `sql_utils`.
@@ -110,12 +211,34 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 
 ### SQLite lacks `percentile` and `reverse` (and the string ops above)
 
+<!-- machine-checked
+operation: percentile, string
+framework: sqlite
+condition: SQLite has no percentile implementation and no native reverse
+mitigation_location:
+- mloda/community/feature_groups/data_operations/string/sqlite_string.py
+regression_test:
+- mloda/community/feature_groups/data_operations/string/tests/test_sqlite.py::TestSqliteUnsupportedOps::test_reverse_does_not_match
+- mloda/community/feature_groups/data_operations/tests/test_framework_support_matrix.py::test_framework_support_matrix_is_in_sync
+-->
+
 - **Operations**: `row_preserving/percentile` and `string`.
 - **Mitigation kind**: Excluded op.
-- **How**: `supported_ops()` / `supported_agg_types()` on each SQLite test class restricts the covered set. See `row_preserving/percentile/tests/test_sqlite.py` and `string/tests/test_sqlite.py`.
+- **How**: SQLite has no `percentile` test class at all (`row_preserving/percentile/tests/` ships no `test_sqlite.py`), and `string/tests/test_sqlite.py` uses `supported_ops()` to restrict the covered set. The missing percentile column is pinned by the framework-support-matrix drift check.
 - **Related**: Category 1 of issue #146.
 
 ### SQLite and DuckDB time-frame use correlated subqueries (O(N^2) per partition)
+
+<!-- machine-checked
+operation: frame_aggregate
+framework: sqlite, duckdb
+condition: time-frame windows use a correlated subquery with an explicit same-ts peer tiebreaker
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/sqlite_frame_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/duckdb_frame_aggregate.py
+regression_test:
+- mloda/testing/feature_groups/data_operations/row_preserving/frame_aggregate/frame_aggregate.py::FrameAggregateTestBase::test_cross_framework_time_window_with_same_ts_peers
+-->
 
 - **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type).
 - **Mitigation kind**: Accepted complexity (correctness preserved).
@@ -124,12 +247,34 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 
 ### Polars time-frame adds 1ns-per-row offset to break same-ts peer ties
 
+<!-- machine-checked
+operation: frame_aggregate
+framework: polars_lazy
+condition: rolling_*_by is value-based and includes later same-ts peers unless offset apart
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/polars_lazy_frame_aggregate.py
+regression_test:
+- mloda/testing/feature_groups/data_operations/row_preserving/frame_aggregate/frame_aggregate.py::FrameAggregateTestBase::test_cross_framework_time_window_with_same_ts_peers
+-->
+
 - **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type).
 - **Mitigation kind**: Accepted complexity (correctness preserved).
 - **How**: Polars `rolling_*_by` with `closed="both"` is value-based and includes every row whose `by` value equals the current row's value, even peers that come later in physical position. The PyArrow reference uses `rows[:pos+1]` after a stable sort, excluding later peers. `polars_lazy_frame_aggregate.py` casts the `order_by` column to `datetime[ns]` and adds `pl.duration(nanoseconds=row_index)` into a temporary `__mloda_synth_ts__` column, then runs `rolling_*_by` on the synthetic column. The window string is extended by `{N}ns` (where N is total row count) so a peer at the exact lower bound is not lost to the offset. The synthetic column is dropped before returning. See `polars_lazy_frame_aggregate.py`.
 - **Related**: parent #183, implementing #202.
 
 ### SQLite + Pandas reject month/year time windows
+
+<!-- machine-checked
+operation: frame_aggregate
+framework: sqlite, pandas
+condition: month/year calendar units diverge from relativedelta (SQLite) or are unsupported (Pandas)
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/sqlite_frame_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pandas_frame_aggregate.py
+regression_test:
+- mloda/testing/feature_groups/data_operations/row_preserving/frame_aggregate/frame_aggregate.py::FrameAggregateTestBase::test_time_frame_match_rejected_when_unsupported
+- mloda/testing/feature_groups/data_operations/row_preserving/frame_aggregate/frame_aggregate.py::FrameAggregateTestBase::test_time_frame_config_rejected_when_unsupported
+-->
 
 - **Operations**: `row_preserving/frame_aggregate` (only `time` frame type with `month`/`year` units).
 - **Mitigation kind**: Excluded unit.
@@ -138,12 +283,36 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 
 ### All backends reject mask + `source_col == order_by` in time frames
 
+<!-- machine-checked
+operation: frame_aggregate
+framework: pandas, polars_lazy, duckdb, sqlite
+condition: a mask with source_col == order_by in a time frame cannot be simulated natively
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pandas_frame_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/polars_lazy_frame_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/duckdb_frame_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/sqlite_frame_aggregate.py
+regression_test:
+- mloda/testing/feature_groups/data_operations/row_preserving/frame_aggregate/frame_aggregate.py::FrameAggregateTestBase::test_time_window_source_equals_order_with_mask_rejected
+-->
+
 - **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type, with `source_col == order_by` and a mask present).
 - **Mitigation kind**: Excluded shape.
 - **How**: The PyArrow reference applies the mask to `source_col` before computing the window. When `source_col == order_by`, mask-write clobbers the order column with null, and the reference's `current_order is None` branch returns just `[self]`. None of the native time-window primitives can simulate this: pandas `rolling(on=ts)` cannot; polars `rolling_*_by` uses the unmasked `order_by` for window bounds even when the masked source is a temp column; the DuckDB and SQLite correlated subqueries wrap only the aggregate expression in `CASE WHEN ... THEN source END`, leaving the bounds operating on the unmasked column. Each backend raises a `ValueError` when this combo is detected at runtime instead of silently producing a wrong result. Non-time frames continue to work via a separate temp column for the masked source.
 - **Related**: parent #183, implementing #202.
 
 ### Pandas / Polars-lazy native time-rolling rejects null `order_by`
+
+<!-- machine-checked
+operation: frame_aggregate
+framework: pandas, polars_lazy
+condition: native time-rolling errors on null order_by; both pre-check and raise a clear ValueError
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pandas_frame_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/polars_lazy_frame_aggregate.py
+regression_test:
+- mloda/testing/feature_groups/data_operations/row_preserving/frame_aggregate/frame_aggregate.py::FrameAggregateTestBase::test_cross_framework_time_window_with_null_cutoff
+-->
 
 - **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type).
 - **Mitigation kind**: Excluded test + explicit runtime error.
@@ -184,6 +353,10 @@ Add a new entry here if and only if all three hold:
 3. The decision (fix vs. document vs. exclude) has been made and landed in code.
 
 Do not add speculative entries. If an audit only uncovered a hypothetical divergence, add a failing regression test first so the entry corresponds to something the test suite measures.
+
+Every entry above carries a `<!-- machine-checked ... -->` block right under its heading, with `operation`, `framework`, `condition`, `mitigation_location`, and `regression_test` fields. This block is the authoritative, machine-checked record of each entry; the surrounding prose is explanatory and is not itself verified, so when the two could disagree, trust the block. `mloda/community/feature_groups/data_operations/tests/test_known_divergences.py` runs in `tox` and asserts (a) every entry has such a block with all fields populated, (b) every `regression_test` reference resolves to a real, importable test, (c) every `mitigation_location` path exists, and (d) every `operation` / `framework` token is a name the framework-support-matrix check recognizes. A new entry without a resolvable guard fails the build, so the doc cannot rot silently.
+
+Format rules for the block: `operation`, `framework`, and `condition` are single-line values; `mitigation_location` and `regression_test` are `- ` lists, one item per line. Use repo-relative paths and `path.py::Class[::method]` (or `path.py::test_function`) for the test reference. To reference a guard that lives on a `*TestBase` class, name a specific `::method` (pytest collects base classes only through their per-framework subclasses, so a bare base-class reference is rejected).
 
 ---
 
