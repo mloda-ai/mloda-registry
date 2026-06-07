@@ -67,10 +67,11 @@ class OffsetTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
         return "value_int"
 
     @classmethod
-    def reserved_columns_helper_name(cls) -> str | None:
-        # The pandas / polars backends pick this null-sort helper via
-        # unique_helper_name; a user column of the same name must survive.
-        return "__mloda_null_sort"
+    def reserved_columns_helper_names(cls) -> set[str]:
+        # The two backends pick different row helpers via unique_helper_name:
+        # pandas uses "__mloda_null_sort", polars uses "__mloda_orig_idx".
+        # A user column of either name must survive.
+        return {"__mloda_null_sort", "__mloda_orig_idx"}
 
     ALL_OFFSET_TYPES = {"lag", "lead", "diff", "pct_change", "first_value", "last_value"}
 

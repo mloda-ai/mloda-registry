@@ -172,8 +172,8 @@ class SessionizationTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
         return "ts"
 
     @classmethod
-    def reserved_columns_helper_name(cls) -> str | None:
-        return "__mloda_rn__"
+    def reserved_columns_helper_names(cls) -> set[str]:
+        return {"__mloda_rn__"}
 
     @classmethod
     def reference_implementation_class(cls) -> Any:

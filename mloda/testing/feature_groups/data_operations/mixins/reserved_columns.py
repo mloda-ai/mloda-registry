@@ -7,11 +7,11 @@ helper columns are made collision-free at runtime, so a user column of any name
 
 - ``test_mixin_reserved_column_collision_accepted``: a ``__mloda_``-prefixed
   user column is ACCEPTED (the call returns a non-``None`` result).
-- ``test_mixin_helper_column_name_collision_survives``: a user column named like
-  the FG's actual internal helper SURVIVES unchanged in input row order. This is
+- ``test_mixin_helper_column_name_collision_survives``: user columns named like
+  the FG's actual internal helpers SURVIVE unchanged in input row order. This is
   a real collision regression for row-preserving ops. It is opt-in: it runs only
-  when ``reserved_columns_helper_name`` returns a name (default ``None`` skips),
-  so ops that reduce rows or need extra options are unaffected.
+  when ``reserved_columns_helper_names`` returns a non-empty set (default empty
+  skips), so ops that reduce rows or need extra options are unaffected.
 
 Each feature-group test base mixes this in and overrides the abstract
 configuration methods to adapt the generic tests to its specific semantics
@@ -72,23 +72,27 @@ class ReservedColumnsTestMixin:
         return None
 
     @classmethod
-    def reserved_columns_helper_name(cls) -> str | None:
-        """Internal helper column base name to exercise for collision survival.
+    def reserved_columns_helper_names(cls) -> set[str]:
+        """Internal helper column base names to exercise for collision survival.
 
-        The survival test (below) appends a user column with THIS name and
-        asserts it passes through unchanged. Set it to the base name the FG's
-        pandas / polars backends pick at runtime via ``unique_helper_name`` so
-        the test is a real collision regression for that helper.
+        The survival test (below) appends a user column for EACH name in this
+        set and asserts every one passes through unchanged. Different framework
+        backends of the same op may pick different helper bases (e.g. offset:
+        pandas ``__mloda_null_sort`` vs polars ``__mloda_orig_idx``; window
+        aggregation: pyarrow ``__mloda_wa_idx__`` vs the SQL backends'
+        ``__mloda_rn``). Listing all of them means that whichever backend the
+        concrete test runs, that backend's own helper is among the injected
+        columns and so is a real collision regression, while the others are
+        harmless passthrough checks.
 
-        Defaults to ``None`` (the survival test is skipped). The test is opt-in
-        because it only makes sense for row-preserving ops whose FeatureSet is
-        buildable from ``feature_name`` + ``partition_by`` + ``order_by`` alone;
-        ops that reduce rows or require extra options (e.g. a ``constant``) must
-        leave this ``None``. Override to enable it, e.g. ``"__mloda_rn__"``
-        (ffill / ema / sessionization / frame_aggregate) or
-        ``"__mloda_null_sort"`` (offset).
+        Defaults to an empty set (the survival test is skipped). The test is
+        opt-in because it only makes sense for row-preserving ops whose
+        FeatureSet is buildable from ``feature_name`` + ``partition_by`` +
+        ``order_by`` alone; ops that reduce rows or require extra options (e.g. a
+        ``constant``) must leave this empty. Override to enable it, e.g.
+        ``{"__mloda_rn__"}`` (ffill / ema / sessionization / frame_aggregate).
         """
-        return None
+        return set()
 
     # -- Concrete test method --------------------------------------------------
 
@@ -119,27 +123,30 @@ class ReservedColumnsTestMixin:
         assert result is not None
 
     def test_mixin_helper_column_name_collision_survives(self) -> None:
-        """Mixin: a user input column named like the internal helper survives unchanged.
+        """Mixin: user input columns named like internal helpers survive unchanged.
 
-        The pandas / polars backends pick a runtime row helper via
-        ``unique_helper_name``; a user column sharing that base name used to be
-        clobbered (pandas overwrote it with ``range(len)`` then dropped it,
-        polars ``with_row_index`` raised a DuplicateError). Because these ops
-        are row-preserving, a user column of any name must pass through with its
-        original values in input row order. The exercised helper name comes from
-        ``reserved_columns_helper_name``; ``None`` skips this op.
+        The pandas / polars / pyarrow backends pick a runtime row helper via
+        ``unique_helper_name`` (the SQL backends via ``pick_helper_column_name``);
+        a user column sharing that base name used to be clobbered (pandas
+        overwrote it with ``range(len)`` then dropped it, polars
+        ``with_row_index`` raised a DuplicateError). Because these ops are
+        row-preserving, a user column of any name must pass through with its
+        original values in input row order. The exercised helper names come from
+        ``reserved_columns_helper_names``; an empty set skips this op. All names
+        are injected at once so whichever backend runs sees its own helper among
+        them.
         """
-        helper_name = self.reserved_columns_helper_name()
-        if helper_name is None:
+        helper_names = self.reserved_columns_helper_names()
+        if not helper_names:
             pytest.skip("op opts out of the helper-column survival test")
 
         base_table: pa.Table = self._arrow_table  # type: ignore[attr-defined]
         n = base_table.num_rows
-        colliding_values = [1000 + i for i in range(n)]
-        colliding_table = base_table.append_column(
-            helper_name,
-            pa.array(colliding_values, type=pa.int64()),
-        )
+        # A distinct value range per helper column so a cross-column mix-up is caught too.
+        expected = {name: [1000 * (j + 1) + i for i in range(n)] for j, name in enumerate(sorted(helper_names))}
+        colliding_table = base_table
+        for name, values in expected.items():
+            colliding_table = colliding_table.append_column(name, pa.array(values, type=pa.int64()))
         data = self.create_test_data(colliding_table)  # type: ignore[attr-defined]
         fs = make_feature_set(
             self.reserved_columns_feature_name(),
@@ -148,5 +155,6 @@ class ReservedColumnsTestMixin:
         )
         result = self.implementation_class().calculate_feature(data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == n  # type: ignore[attr-defined]
-        survived = [int(v) for v in self.extract_column(result, helper_name)]  # type: ignore[attr-defined]
-        assert survived == colliding_values, f"user column {helper_name} changed: {survived!r}"
+        for name, values in expected.items():
+            survived = [int(v) for v in self.extract_column(result, name)]  # type: ignore[attr-defined]
+            assert survived == values, f"user column {name} changed: {survived!r}"

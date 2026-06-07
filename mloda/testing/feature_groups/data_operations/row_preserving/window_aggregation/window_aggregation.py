@@ -77,10 +77,12 @@ class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOps
         return "value_int__sum_window"
 
     @classmethod
-    def reserved_columns_helper_name(cls) -> str | None:
-        # The pyarrow backend picks this row-index helper via unique_helper_name;
-        # a user column of the same name must survive unchanged.
-        return "__mloda_wa_idx__"
+    def reserved_columns_helper_names(cls) -> set[str]:
+        # Backends pick different row helpers: pyarrow uses "__mloda_wa_idx__"
+        # (unique_helper_name); duckdb / sqlite use "__mloda_rn"
+        # (pick_helper_column_name default). pandas / polars use no row helper for
+        # the windowed sum. A user column of any of these names must survive.
+        return {"__mloda_wa_idx__", "__mloda_rn"}
 
     ALL_AGG_TYPES = {
         "sum",
