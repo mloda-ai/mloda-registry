@@ -236,6 +236,10 @@ class EmaTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
     def reserved_columns_order_by(cls) -> str | None:
         return "ts"
 
+    @classmethod
+    def reserved_columns_helper_name(cls) -> str | None:
+        return "__mloda_rn__"
+
     # -- Setup: use the dedicated 12-row EMA fixture ------------------------
 
     def setup_method(self) -> None:
@@ -389,31 +393,6 @@ class EmaTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
         fs = self._ema_feature_set(2)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         assert isinstance(result, self.get_expected_type())
-
-    def test_helper_column_name_collision_survives(self) -> None:
-        """A user input column named ``__mloda_rn__`` must survive unchanged.
-
-        The pandas / polars EMA backends hardcode ``__mloda_rn__`` as an
-        internal row-number helper: pandas overwrites the user column with
-        ``range(len)`` then drops it, and polars ``with_row_index("__mloda_rn__")``
-        raises a DuplicateError. Because EMA is row-preserving, a user column
-        of any name must pass through with its original values in input row order.
-        """
-        base_table: pa.Table = self._arrow_table
-        n = base_table.num_rows
-        colliding_values = [1000 + i for i in range(n)]
-        colliding_table = base_table.append_column(
-            "__mloda_rn__",
-            pa.array(colliding_values, type=pa.int64()),
-        )
-        data = self.create_test_data(colliding_table)
-        fs = self._ema_feature_set(2)
-        result = self.implementation_class().calculate_feature(data, fs)
-        assert self.get_row_count(result) == n
-        feature_col = self.extract_column(result, "value__ema_2")
-        assert len(feature_col) == n
-        survived = [int(v) for v in self.extract_column(result, "__mloda_rn__")]
-        assert survived == colliding_values, f"user column __mloda_rn__ changed: {survived!r}"
 
     # -- Option-based configuration -----------------------------------------
 

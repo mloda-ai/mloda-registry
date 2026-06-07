@@ -76,6 +76,12 @@ class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOps
     def reserved_columns_feature_name(cls) -> str:
         return "value_int__sum_window"
 
+    @classmethod
+    def reserved_columns_helper_name(cls) -> str | None:
+        # The pyarrow backend picks this row-index helper via unique_helper_name;
+        # a user column of the same name must survive unchanged.
+        return "__mloda_wa_idx__"
+
     ALL_AGG_TYPES = {
         "sum",
         "avg",

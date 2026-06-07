@@ -160,6 +160,10 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
     def reserved_columns_order_by(cls) -> str | None:
         return "timestamp"
 
+    @classmethod
+    def reserved_columns_helper_name(cls) -> str | None:
+        return "__mloda_rn__"
+
     # -- MaskTestMixin configuration -------------------------------------------
 
     @classmethod

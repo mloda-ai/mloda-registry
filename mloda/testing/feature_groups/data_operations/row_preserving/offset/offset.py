@@ -66,6 +66,12 @@ class OffsetTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
     def reserved_columns_order_by(cls) -> str | None:
         return "value_int"
 
+    @classmethod
+    def reserved_columns_helper_name(cls) -> str | None:
+        # The pandas / polars backends pick this null-sort helper via
+        # unique_helper_name; a user column of the same name must survive.
+        return "__mloda_null_sort"
+
     ALL_OFFSET_TYPES = {"lag", "lead", "diff", "pct_change", "first_value", "last_value"}
 
     @classmethod
