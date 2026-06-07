@@ -18,6 +18,10 @@ To make the link machine-checkable, every entry under ``## Entries`` carries a
     regression_test:
     - <repo-relative path>::<Class>[::<method>]  (or <path>::<test_function>)
 
+The ``operation`` / ``framework`` / ``condition`` values are single-line; the list
+fields use ``- `` items, one per line. A wrapped value or an unrecognized line in
+the block is a parse error, by design, so the block stays trivially machine-readable.
+
 This module parses those blocks and asserts:
 
 - ``test_every_entry_has_machine_block_with_required_keys`` -- every ``###``
@@ -33,6 +37,9 @@ This module parses those blocks and asserts:
   pytest-collection fidelity would be far more fragile.
 - ``test_every_mitigation_location_exists`` -- every ``mitigation_location``
   path points at a file that still exists (DoD item 3).
+- ``test_operation_and_framework_values_are_known`` -- every ``operation`` and
+  ``framework`` token is a name the sibling support-matrix check recognizes, so
+  those two fields cannot silently hold a typo or a stale name.
 
 When this test fails, the doc references a test or file that no longer exists:
 either restore the guard or update the entry's machine block to point at the
@@ -47,8 +54,20 @@ import re
 from pathlib import Path
 from typing import Any
 
+from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import (
+    FRAMEWORKS,
+    OPERATIONS,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[5]
 DOC_PATH = REPO_ROOT / "docs" / "guides" / "data-operation-patterns" / "known-divergences.md"
+
+# Known vocabularies, reused from the sibling support-matrix drift check so the two
+# checks cannot disagree about what a valid framework / operation name is. Validating
+# the machine block's ``framework`` and ``operation`` fields against these turns a typo
+# or a stale name into a failure instead of letting those fields hold arbitrary text.
+KNOWN_FRAMEWORKS: frozenset[str] = frozenset(key for key, _label in FRAMEWORKS)
+KNOWN_OPERATIONS: frozenset[str] = frozenset(op.key for op in OPERATIONS)
 
 ENTRIES_HEADING = "## Entries"
 BLOCK_BEGIN = "<!-- machine-checked"
@@ -176,7 +195,11 @@ def _resolve_test_ref(ref: str) -> None:
     leaf = parts[-1]
     if inspect.isclass(obj):
         if not leaf.startswith("Test"):
-            raise AssertionError(f"class reference must be a pytest Test* class: {ref!r}")
+            raise AssertionError(
+                f"class reference must be a pytest-collected Test* class: {ref!r}. "
+                f"Base classes such as {leaf!r} are collected only via per-framework "
+                "subclasses, so reference a specific '::method' on the base instead."
+            )
     else:
         if not callable(obj):
             raise AssertionError(f"reference leaf is not callable: {ref!r}")
@@ -206,3 +229,23 @@ def test_every_mitigation_location_exists() -> None:
     for title, data in _collected_entries():
         for loc in data.get("mitigation_location", []):
             assert (REPO_ROOT / loc).exists(), f"entry {title!r}: mitigation_location does not exist: {loc!r}"
+
+
+def test_operation_and_framework_values_are_known() -> None:
+    """Each ``operation`` / ``framework`` token must be a name the suite recognizes.
+
+    Without this, the two fields are write-only metadata: ``test_..._required_keys``
+    only checks they are non-empty, so a typo (``polars_lzy``) or a stale operation
+    name would stay green. Validating against the same vocabularies the sibling
+    support-matrix check derives from keeps the fields meaningful and the two drift
+    checks from disagreeing about valid names.
+    """
+    for title, data in _collected_entries():
+        for op in (tok.strip() for tok in str(data["operation"]).split(",")):
+            assert op in KNOWN_OPERATIONS, (
+                f"entry {title!r}: unknown operation {op!r} (known: {sorted(KNOWN_OPERATIONS)})"
+            )
+        for fw in (tok.strip() for tok in str(data["framework"]).split(",")):
+            assert fw in KNOWN_FRAMEWORKS, (
+                f"entry {title!r}: unknown framework {fw!r} (known: {sorted(KNOWN_FRAMEWORKS)})"
+            )
