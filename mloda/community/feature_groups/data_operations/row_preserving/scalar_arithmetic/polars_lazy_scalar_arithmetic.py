@@ -4,32 +4,15 @@ from __future__ import annotations
 
 import polars as pl
 
-from mloda.provider import ComputeFramework
-from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
-
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
-from mloda.community.feature_groups.data_operations.polars_numeric_source import polars_non_numeric_descriptor
+from mloda.community.feature_groups.data_operations.polars_arithmetic_mixin import PolarsArithmeticMixin
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
     ScalarArithmeticFeatureGroup,
 )
 
 
-class PolarsLazyScalarArithmetic(ScalarArithmeticFeatureGroup):
-    @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PolarsLazyDataFrame}
-
-    @classmethod
-    def _input_columns_and_framework(cls, data: pl.LazyFrame) -> tuple[list[str], str]:
-        return list(data.collect_schema().names()), "Polars"
-
-    @classmethod
-    def _assert_source_column_is_numeric(cls, data: pl.LazyFrame, source_col: str) -> None:
-        descriptor = polars_non_numeric_descriptor(data.collect_schema()[source_col])
-        if descriptor is not None:
-            cls._raise_non_numeric_source(source_col, descriptor)
-
+class PolarsLazyScalarArithmetic(PolarsArithmeticMixin, ScalarArithmeticFeatureGroup):
     @classmethod
     def _compute_arithmetic(
         cls,

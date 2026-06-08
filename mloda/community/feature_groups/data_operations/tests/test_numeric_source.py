@@ -30,6 +30,7 @@ from mloda.community.feature_groups.data_operations import (
 
 _POINT = "mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic"
 _SCALAR = "mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic"
+_MIXIN = "mloda.community.feature_groups.data_operations"
 
 
 class TestNumericSourceSingleSourceOfTruth:
@@ -55,45 +56,35 @@ class TestNumericSourceSingleSourceOfTruth:
             )
 
     def test_duckdb_backends_use_shared_descriptor(self) -> None:
-        """Both DuckDB backends bind the one shared ``duckdb_non_numeric_descriptor``."""
+        """The one DuckDB mixin (shared by both families) binds the shared ``duckdb_non_numeric_descriptor``."""
         pytest.importorskip("duckdb")
-        point = importlib.import_module(f"{_POINT}.duckdb_point_arithmetic")
-        scalar = importlib.import_module(f"{_SCALAR}.duckdb_scalar_arithmetic")
+        mixin = importlib.import_module(f"{_MIXIN}.duckdb_arithmetic_mixin")
 
-        assert point.duckdb_non_numeric_descriptor is duckdb_numeric_source.duckdb_non_numeric_descriptor
-        assert scalar.duckdb_non_numeric_descriptor is duckdb_numeric_source.duckdb_non_numeric_descriptor
+        assert mixin.duckdb_non_numeric_descriptor is duckdb_numeric_source.duckdb_non_numeric_descriptor
 
     def test_sqlite_backends_use_shared_descriptor(self) -> None:
-        """Both SQLite backends bind the one shared ``sqlite_non_numeric_descriptor``."""
-        point = importlib.import_module(f"{_POINT}.sqlite_point_arithmetic")
-        scalar = importlib.import_module(f"{_SCALAR}.sqlite_scalar_arithmetic")
+        """The one SQLite mixin (shared by both families) binds the shared ``sqlite_non_numeric_descriptor``."""
+        mixin = importlib.import_module(f"{_MIXIN}.sqlite_arithmetic_mixin")
 
-        assert point.sqlite_non_numeric_descriptor is sqlite_numeric_source.sqlite_non_numeric_descriptor
-        assert scalar.sqlite_non_numeric_descriptor is sqlite_numeric_source.sqlite_non_numeric_descriptor
+        assert mixin.sqlite_non_numeric_descriptor is sqlite_numeric_source.sqlite_non_numeric_descriptor
 
     def test_pandas_backends_use_shared_descriptor(self) -> None:
-        """Both pandas backends bind the one shared ``pandas_non_numeric_descriptor``."""
+        """The one pandas mixin (shared by both families) binds the shared ``pandas_non_numeric_descriptor``."""
         pytest.importorskip("pandas")
-        point = importlib.import_module(f"{_POINT}.pandas_point_arithmetic")
-        scalar = importlib.import_module(f"{_SCALAR}.pandas_scalar_arithmetic")
+        mixin = importlib.import_module(f"{_MIXIN}.pandas_arithmetic_mixin")
 
-        assert point.pandas_non_numeric_descriptor is pandas_numeric_source.pandas_non_numeric_descriptor
-        assert scalar.pandas_non_numeric_descriptor is pandas_numeric_source.pandas_non_numeric_descriptor
+        assert mixin.pandas_non_numeric_descriptor is pandas_numeric_source.pandas_non_numeric_descriptor
 
     def test_polars_backends_use_shared_descriptor(self) -> None:
-        """Both polars backends bind the one shared ``polars_non_numeric_descriptor``."""
+        """The one polars mixin (shared by both families) binds the shared ``polars_non_numeric_descriptor``."""
         pytest.importorskip("polars")
-        point = importlib.import_module(f"{_POINT}.polars_lazy_point_arithmetic")
-        scalar = importlib.import_module(f"{_SCALAR}.polars_lazy_scalar_arithmetic")
+        mixin = importlib.import_module(f"{_MIXIN}.polars_arithmetic_mixin")
 
-        assert point.polars_non_numeric_descriptor is polars_numeric_source.polars_non_numeric_descriptor
-        assert scalar.polars_non_numeric_descriptor is polars_numeric_source.polars_non_numeric_descriptor
+        assert mixin.polars_non_numeric_descriptor is polars_numeric_source.polars_non_numeric_descriptor
 
     def test_pyarrow_backends_use_shared_descriptor(self) -> None:
-        """Both pyarrow backends bind the one shared ``pyarrow_non_numeric_descriptor``."""
+        """The one pyarrow mixin (shared by both families) binds the shared ``pyarrow_non_numeric_descriptor``."""
         pytest.importorskip("pyarrow")
-        point = importlib.import_module(f"{_POINT}.pyarrow_point_arithmetic")
-        scalar = importlib.import_module(f"{_SCALAR}.pyarrow_scalar_arithmetic")
+        mixin = importlib.import_module(f"{_MIXIN}.pyarrow_arithmetic_mixin")
 
-        assert point.pyarrow_non_numeric_descriptor is pyarrow_numeric_source.pyarrow_non_numeric_descriptor
-        assert scalar.pyarrow_non_numeric_descriptor is pyarrow_numeric_source.pyarrow_non_numeric_descriptor
+        assert mixin.pyarrow_non_numeric_descriptor is pyarrow_numeric_source.pyarrow_non_numeric_descriptor
