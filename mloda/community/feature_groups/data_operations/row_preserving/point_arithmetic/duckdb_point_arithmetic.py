@@ -7,7 +7,7 @@ from typing import Any
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
-from mloda.community.feature_groups.data_operations.duckdb_arithmetic_mixin import (
+from mloda.community.feature_groups.data_operations.arithmetic.duckdb_mixin import (
     DUCKDB_ARITHMETIC_OPS as DUCKDB_ARITHMETIC_OPS,  # re-exported for backend-parity tests
     DuckdbArithmeticMixin,
 )

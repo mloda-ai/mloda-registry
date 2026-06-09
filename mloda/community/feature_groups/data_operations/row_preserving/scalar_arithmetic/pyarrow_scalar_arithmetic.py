@@ -6,7 +6,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
-from mloda.community.feature_groups.data_operations.pyarrow_arithmetic_mixin import PyArrowArithmeticMixin
+from mloda.community.feature_groups.data_operations.arithmetic.pyarrow_mixin import PyArrowArithmeticMixin
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
     ScalarArithmeticFeatureGroup,

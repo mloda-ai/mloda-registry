@@ -15,8 +15,10 @@ import polars as pl
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
-from mloda.community.feature_groups.data_operations.arithmetic_base import ArithmeticFeatureGroupBase
-from mloda.community.feature_groups.data_operations.polars_numeric_source import polars_non_numeric_descriptor
+from mloda.community.feature_groups.data_operations.arithmetic.base import ArithmeticFeatureGroupBase
+from mloda.community.feature_groups.data_operations.arithmetic.polars_numeric_source import (
+    polars_non_numeric_descriptor,
+)
 
 
 class PolarsArithmeticMixin(ArithmeticFeatureGroupBase):

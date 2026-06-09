@@ -4,7 +4,7 @@ These tests guard the "exactly one place" Definition of Done for issue #214:
 the per-backend "what counts as numeric" logic lives in exactly one module per
 compute framework (``data_operations/<framework>_numeric_source.py``) and each
 such module is imported by BOTH the point- and scalar-arithmetic families from
-that single per-framework source.
+that single per-framework source (under ``data_operations/arithmetic/``).
 
 They are deliberately structural (constant content, no module-level
 redeclaration, ``is``-identity of the imported descriptor functions). The actual
@@ -20,7 +20,7 @@ import importlib
 
 import pytest
 
-from mloda.community.feature_groups.data_operations import (
+from mloda.community.feature_groups.data_operations.arithmetic import (
     duckdb_numeric_source,
     pandas_numeric_source,
     polars_numeric_source,
@@ -30,7 +30,7 @@ from mloda.community.feature_groups.data_operations import (
 
 _POINT = "mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic"
 _SCALAR = "mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic"
-_MIXIN = "mloda.community.feature_groups.data_operations"
+_MIXIN = "mloda.community.feature_groups.data_operations.arithmetic"
 
 
 class TestNumericSourceSingleSourceOfTruth:
@@ -58,33 +58,33 @@ class TestNumericSourceSingleSourceOfTruth:
     def test_duckdb_backends_use_shared_descriptor(self) -> None:
         """The one DuckDB mixin (shared by both families) binds the shared ``duckdb_non_numeric_descriptor``."""
         pytest.importorskip("duckdb")
-        mixin = importlib.import_module(f"{_MIXIN}.duckdb_arithmetic_mixin")
+        mixin = importlib.import_module(f"{_MIXIN}.duckdb_mixin")
 
         assert mixin.duckdb_non_numeric_descriptor is duckdb_numeric_source.duckdb_non_numeric_descriptor
 
     def test_sqlite_backends_use_shared_descriptor(self) -> None:
         """The one SQLite mixin (shared by both families) binds the shared ``sqlite_non_numeric_descriptor``."""
-        mixin = importlib.import_module(f"{_MIXIN}.sqlite_arithmetic_mixin")
+        mixin = importlib.import_module(f"{_MIXIN}.sqlite_mixin")
 
         assert mixin.sqlite_non_numeric_descriptor is sqlite_numeric_source.sqlite_non_numeric_descriptor
 
     def test_pandas_backends_use_shared_descriptor(self) -> None:
         """The one pandas mixin (shared by both families) binds the shared ``pandas_non_numeric_descriptor``."""
         pytest.importorskip("pandas")
-        mixin = importlib.import_module(f"{_MIXIN}.pandas_arithmetic_mixin")
+        mixin = importlib.import_module(f"{_MIXIN}.pandas_mixin")
 
         assert mixin.pandas_non_numeric_descriptor is pandas_numeric_source.pandas_non_numeric_descriptor
 
     def test_polars_backends_use_shared_descriptor(self) -> None:
         """The one polars mixin (shared by both families) binds the shared ``polars_non_numeric_descriptor``."""
         pytest.importorskip("polars")
-        mixin = importlib.import_module(f"{_MIXIN}.polars_arithmetic_mixin")
+        mixin = importlib.import_module(f"{_MIXIN}.polars_mixin")
 
         assert mixin.polars_non_numeric_descriptor is polars_numeric_source.polars_non_numeric_descriptor
 
     def test_pyarrow_backends_use_shared_descriptor(self) -> None:
         """The one pyarrow mixin (shared by both families) binds the shared ``pyarrow_non_numeric_descriptor``."""
         pytest.importorskip("pyarrow")
-        mixin = importlib.import_module(f"{_MIXIN}.pyarrow_arithmetic_mixin")
+        mixin = importlib.import_module(f"{_MIXIN}.pyarrow_mixin")
 
         assert mixin.pyarrow_non_numeric_descriptor is pyarrow_numeric_source.pyarrow_non_numeric_descriptor

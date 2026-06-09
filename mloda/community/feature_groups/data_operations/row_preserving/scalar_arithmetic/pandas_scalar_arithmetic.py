@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
-from mloda.community.feature_groups.data_operations.pandas_arithmetic_mixin import PandasArithmeticMixin
+from mloda.community.feature_groups.data_operations.arithmetic.pandas_mixin import PandasArithmeticMixin
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
     ScalarArithmeticFeatureGroup,

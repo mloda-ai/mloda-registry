@@ -9,7 +9,7 @@ from mloda.community.feature_groups.data_operations.errors import unsupported_op
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ScalarArithmeticFeatureGroup,
 )
-from mloda.community.feature_groups.data_operations.sqlite_arithmetic_mixin import (
+from mloda.community.feature_groups.data_operations.arithmetic.sqlite_mixin import (
     SQLITE_ARITHMETIC_OPS as SQLITE_ARITHMETIC_OPS,  # re-exported for backend-parity tests
     SqliteArithmeticMixin,
 )

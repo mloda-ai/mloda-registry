@@ -5,7 +5,7 @@ from __future__ import annotations
 import polars as pl
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
-from mloda.community.feature_groups.data_operations.polars_arithmetic_mixin import PolarsArithmeticMixin
+from mloda.community.feature_groups.data_operations.arithmetic.polars_mixin import PolarsArithmeticMixin
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
     ScalarArithmeticFeatureGroup,

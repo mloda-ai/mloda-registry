@@ -16,8 +16,10 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 
-from mloda.community.feature_groups.data_operations.arithmetic_base import ArithmeticFeatureGroupBase
-from mloda.community.feature_groups.data_operations.duckdb_numeric_source import duckdb_non_numeric_descriptor
+from mloda.community.feature_groups.data_operations.arithmetic.base import ArithmeticFeatureGroupBase
+from mloda.community.feature_groups.data_operations.arithmetic.duckdb_numeric_source import (
+    duckdb_non_numeric_descriptor,
+)
 
 DUCKDB_ARITHMETIC_OPS: dict[str, str] = {
     "add": "+",

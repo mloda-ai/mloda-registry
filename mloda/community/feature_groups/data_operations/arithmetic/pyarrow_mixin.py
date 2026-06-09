@@ -15,8 +15,10 @@ import pyarrow as pa
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.data_operations.arithmetic_base import ArithmeticFeatureGroupBase
-from mloda.community.feature_groups.data_operations.pyarrow_numeric_source import pyarrow_non_numeric_descriptor
+from mloda.community.feature_groups.data_operations.arithmetic.base import ArithmeticFeatureGroupBase
+from mloda.community.feature_groups.data_operations.arithmetic.pyarrow_numeric_source import (
+    pyarrow_non_numeric_descriptor,
+)
 
 
 class PyArrowArithmeticMixin(ArithmeticFeatureGroupBase):

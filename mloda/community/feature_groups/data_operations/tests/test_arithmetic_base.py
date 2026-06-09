@@ -1,13 +1,13 @@
 """Structural guard that both arithmetic families share one base class.
 
 The point- and scalar-arithmetic feature groups both subclass a single base
-(``ArithmeticFeatureGroupBase`` in ``data_operations/arithmetic_base.py``) that
+(``ArithmeticFeatureGroupBase`` in ``data_operations/arithmetic/base.py``) that
 holds the common arithmetic-op extraction and numeric-source skeleton.
 """
 
 from __future__ import annotations
 
-from mloda.community.feature_groups.data_operations.arithmetic_base import (
+from mloda.community.feature_groups.data_operations.arithmetic.base import (
     ARITHMETIC_OP_NAMES,
     ArithmeticFeatureGroupBase,
 )
@@ -43,7 +43,7 @@ class TestArithmeticOpNamesSingleSourceOfTruth:
     Each family keeps its own ``ARITHMETIC_OPERATIONS`` dict whose KEYS are the
     op names (mapped to family-specific descriptions), but the matcher accepts
     an op only if it is in the module-level ``ARITHMETIC_OP_NAMES`` frozenset in
-    ``arithmetic_base`` (used by ``_validate_string_match``).
+    ``arithmetic.base`` (used by ``_validate_string_match``).
     If a family added an op to its dict without it being in the shared frozenset
     (or vice versa), the op would be silently rejected at match time: exactly
     the divergence class issue #214 targets. These structural guards pin the

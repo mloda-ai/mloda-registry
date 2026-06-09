@@ -16,8 +16,10 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
-from mloda.community.feature_groups.data_operations.arithmetic_base import ArithmeticFeatureGroupBase
-from mloda.community.feature_groups.data_operations.sqlite_numeric_source import sqlite_non_numeric_descriptor
+from mloda.community.feature_groups.data_operations.arithmetic.base import ArithmeticFeatureGroupBase
+from mloda.community.feature_groups.data_operations.arithmetic.sqlite_numeric_source import (
+    sqlite_non_numeric_descriptor,
+)
 
 SQLITE_ARITHMETIC_OPS: dict[str, str] = {
     "add": "+",
