@@ -10,7 +10,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
     ScalarArithmeticFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.arithmetic.sqlite_mixin import (
-    SQLITE_ARITHMETIC_OPS as SQLITE_ARITHMETIC_OPS,  # re-exported for backend-parity tests
+    SQLITE_ARITHMETIC_OPS,
     SqliteArithmeticMixin,
 )
 

@@ -11,8 +11,9 @@ the two families' ``base.py`` files.
 it and override ``OPERATION_LABEL`` (so the rejection message names the right
 operation) plus the family-specific bits (operand count, constant handling,
 PROPERTY_MAPPING). Per-backend numeric introspection lives in
-``numeric_source``; the per-backend ``_assert_source_column_is_numeric``
-implementations delegate to it and call ``_raise_non_numeric_source`` here.
+``numeric_source``; the per-backend mixins supply the
+``_non_numeric_descriptor`` hook consumed by the
+``_assert_source_column_is_numeric`` template defined here.
 """
 
 from __future__ import annotations
@@ -25,6 +26,9 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.provider import FeatureGroup
 
 ARITHMETIC_OP_NAMES: frozenset[str] = frozenset({"add", "subtract", "multiply", "divide"})
+
+#: Shared SQL operator map; both SQL backends (DuckDB and SQLite) alias this same object.
+SQL_ARITHMETIC_OPS: dict[str, str] = {"add": "+", "subtract": "-", "multiply": "*", "divide": "/"}
 
 
 class ArithmeticFeatureGroupBase(FeatureChainParserMixin, FeatureGroup):
@@ -79,11 +83,23 @@ class ArithmeticFeatureGroupBase(FeatureChainParserMixin, FeatureGroup):
         raise NotImplementedError
 
     @classmethod
+    def _non_numeric_descriptor(cls, data: Any, source_col: str) -> object | None:
+        """Return a native dtype/affinity descriptor when ``source_col`` is NOT numeric.
+
+        Backend-specific hook; implemented per backend mixin. Implementations
+        return a native dtype, affinity string, or any other descriptor when
+        the column is not numeric, and ``None`` when it is numeric.
+        """
+        raise NotImplementedError
+
+    @classmethod
     def _assert_source_column_is_numeric(cls, data: Any, source_col: str) -> None:
         """Reject non-numeric source columns with a clear ``ValueError``.
 
-        Backend-specific; implemented per backend. Implementations should
-        call ``cls._raise_non_numeric_source(source_col, <native dtype>)`` to
-        keep the message format uniform.
+        Template method: calls the per-backend ``_non_numeric_descriptor``
+        hook and, when it reports a non-numeric column, raises via
+        ``_raise_non_numeric_source`` so the message format stays uniform.
         """
-        raise NotImplementedError
+        descriptor = cls._non_numeric_descriptor(data, source_col)
+        if descriptor is not None:
+            cls._raise_non_numeric_source(source_col, descriptor)

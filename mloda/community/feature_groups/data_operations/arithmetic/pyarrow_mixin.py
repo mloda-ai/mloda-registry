@@ -1,27 +1,37 @@
 """Shared pyarrow classmethods for the point- and scalar-arithmetic families.
 
-The pyarrow point and scalar arithmetic backends carry byte-for-byte-identical
-``compute_framework_rule`` / ``_input_columns_and_framework`` /
-``_assert_source_column_is_numeric`` implementations. This mixin holds the one
-copy; the concrete pyarrow backends inherit it (first in their MRO) and supply
-only ``_compute_arithmetic``. Keeping one mixin per module preserves
-optional-dependency isolation: this module imports only pyarrow.
+``PyArrowArithmeticMixin`` is a plain runtime class typed against
+``ArithmeticFeatureGroupBase`` for mypy only, so it stays out of FeatureGroup
+plugin discovery. It supplies ``compute_framework_rule``,
+``_input_columns_and_framework``, and the ``_non_numeric_descriptor`` hook
+consumed by the base's ``_assert_source_column_is_numeric`` template; the
+structural guards live in ``tests/test_numeric_source.py``. Keeping one mixin
+per module preserves optional-dependency isolation: this module imports only
+pyarrow.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.data_operations.arithmetic.base import ArithmeticFeatureGroupBase
 from mloda.community.feature_groups.data_operations.arithmetic.pyarrow_numeric_source import (
     pyarrow_non_numeric_descriptor,
 )
 
+if TYPE_CHECKING:
+    from mloda.community.feature_groups.data_operations.arithmetic.base import ArithmeticFeatureGroupBase
 
-class PyArrowArithmeticMixin(ArithmeticFeatureGroupBase):
+    _ArithmeticMixinBase = ArithmeticFeatureGroupBase
+else:
+    _ArithmeticMixinBase = object
+
+
+class PyArrowArithmeticMixin(_ArithmeticMixinBase):
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PyArrowTable}
@@ -31,7 +41,5 @@ class PyArrowArithmeticMixin(ArithmeticFeatureGroupBase):
         return list(data.column_names), "PyArrow"
 
     @classmethod
-    def _assert_source_column_is_numeric(cls, data: pa.Table, source_col: str) -> None:
-        descriptor = pyarrow_non_numeric_descriptor(data.column(source_col).type)
-        if descriptor is not None:
-            cls._raise_non_numeric_source(source_col, descriptor)
+    def _non_numeric_descriptor(cls, data: pa.Table, source_col: str) -> object | None:
+        return pyarrow_non_numeric_descriptor(data.column(source_col).type)

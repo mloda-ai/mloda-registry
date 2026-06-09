@@ -1,35 +1,40 @@
 """Shared DuckDB classmethods for the point- and scalar-arithmetic families.
 
-The DuckDB point and scalar arithmetic backends carry byte-for-byte-identical
-``compute_framework_rule`` / ``_input_columns_and_framework`` /
-``_assert_source_column_is_numeric`` implementations, plus the same
-``DUCKDB_ARITHMETIC_OPS`` operator map. This mixin holds the one copy; the
-concrete DuckDB backends inherit it (first in their MRO), import
-``DUCKDB_ARITHMETIC_OPS`` from here, and supply only ``_compute_arithmetic``.
-Keeping one mixin per module preserves optional-dependency isolation: this
-module imports only the DuckDB backend.
+``DuckdbArithmeticMixin`` is a plain runtime class typed against
+``ArithmeticFeatureGroupBase`` for mypy only, so it stays out of FeatureGroup
+plugin discovery. It supplies ``compute_framework_rule``,
+``_input_columns_and_framework``, and the ``_non_numeric_descriptor`` hook
+consumed by the base's ``_assert_source_column_is_numeric`` template; the
+structural guards live in ``tests/test_numeric_source.py``. The concrete
+DuckDB backends import ``DUCKDB_ARITHMETIC_OPS`` from here (an alias of the
+shared ``SQL_ARITHMETIC_OPS``). Keeping one mixin per module preserves
+optional-dependency isolation: this module imports only the DuckDB backend.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 
-from mloda.community.feature_groups.data_operations.arithmetic.base import ArithmeticFeatureGroupBase
+from mloda.community.feature_groups.data_operations.arithmetic.base import SQL_ARITHMETIC_OPS
 from mloda.community.feature_groups.data_operations.arithmetic.duckdb_numeric_source import (
     duckdb_non_numeric_descriptor,
 )
 
-DUCKDB_ARITHMETIC_OPS: dict[str, str] = {
-    "add": "+",
-    "subtract": "-",
-    "multiply": "*",
-    "divide": "/",
-}
+if TYPE_CHECKING:
+    from mloda.community.feature_groups.data_operations.arithmetic.base import ArithmeticFeatureGroupBase
+
+    _ArithmeticMixinBase = ArithmeticFeatureGroupBase
+else:
+    _ArithmeticMixinBase = object
+
+DUCKDB_ARITHMETIC_OPS: dict[str, str] = SQL_ARITHMETIC_OPS
 
 
-class DuckdbArithmeticMixin(ArithmeticFeatureGroupBase):
+class DuckdbArithmeticMixin(_ArithmeticMixinBase):
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {DuckDBFramework}
@@ -39,7 +44,5 @@ class DuckdbArithmeticMixin(ArithmeticFeatureGroupBase):
         return list(data.columns), "DuckDB"
 
     @classmethod
-    def _assert_source_column_is_numeric(cls, data: DuckdbRelation, source_col: str) -> None:
-        descriptor = duckdb_non_numeric_descriptor(data, source_col)
-        if descriptor is not None:
-            cls._raise_non_numeric_source(source_col, descriptor)
+    def _non_numeric_descriptor(cls, data: DuckdbRelation, source_col: str) -> object | None:
+        return duckdb_non_numeric_descriptor(data, source_col)

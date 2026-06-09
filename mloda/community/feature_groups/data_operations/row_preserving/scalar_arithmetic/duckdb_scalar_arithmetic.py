@@ -8,7 +8,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
 from mloda.community.feature_groups.data_operations.arithmetic.duckdb_mixin import (
-    DUCKDB_ARITHMETIC_OPS as DUCKDB_ARITHMETIC_OPS,  # re-exported for backend-parity tests
+    DUCKDB_ARITHMETIC_OPS,
     DuckdbArithmeticMixin,
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
