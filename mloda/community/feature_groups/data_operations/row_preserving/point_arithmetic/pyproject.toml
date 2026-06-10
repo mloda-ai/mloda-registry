@@ -11,7 +11,7 @@ version = "0.3.2"
 description = "Point arithmetic feature group (element-wise two-column op: add, subtract, multiply, divide; PyArrow-reference null/IEEE-754 semantics on divide-by-zero; SQLite returns NULL)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda-community-data-operations>=0.2.12"]
+dependencies = ["mloda-community-data-operations>=0.3.3"]
 requires-python = ">=3.10"
 
 [project.optional-dependencies]

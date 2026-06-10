@@ -116,13 +116,15 @@ optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"
 
 [packages.mloda-community-scalar-arithmetic]
 description = "Scalar arithmetic feature group (element-wise column op constant: add, subtract, multiply, divide)"
-dependencies = ["mloda-community-data-operations>=0.2.12"]
+# Floor 0.3.3: first data-operations release shipping the data_operations.arithmetic package.
+dependencies = ["mloda-community-data-operations>=0.3.3"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
 
 [packages.mloda-community-point-arithmetic]
 description = "Point arithmetic feature group (element-wise two-column op: add, subtract, multiply, divide; PyArrow-reference null/IEEE-754 semantics on divide-by-zero; SQLite returns NULL)"
-dependencies = ["mloda-community-data-operations>=0.2.12"]
+# Floor 0.3.3: first data-operations release shipping the data_operations.arithmetic package.
+dependencies = ["mloda-community-data-operations>=0.3.3"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
 

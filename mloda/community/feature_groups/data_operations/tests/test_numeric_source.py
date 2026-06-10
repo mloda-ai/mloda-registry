@@ -104,6 +104,12 @@ class TestMixinHookBindings:
             f"{concrete_cls.__name__} must not override the _assert_source_column_is_numeric "
             "template owned by ArithmeticFeatureGroupBase"
         )
+        assert concrete_cls._input_columns_and_framework.__func__ is mixin_cls._input_columns_and_framework.__func__, (
+            f"{concrete_cls.__name__} must inherit _input_columns_and_framework from {mixin_cls.__name__}"
+        )
+        assert concrete_cls.compute_framework_rule.__func__ is mixin_cls.compute_framework_rule.__func__, (
+            f"{concrete_cls.__name__} must inherit compute_framework_rule from {mixin_cls.__name__}"
+        )
         mro = list(concrete_cls.__mro__)
         assert mro.index(mixin_cls) < mro.index(family_base), (
             f"{mixin_cls.__name__} must precede {family_base.__name__} in {concrete_cls.__name__}.__mro__"
