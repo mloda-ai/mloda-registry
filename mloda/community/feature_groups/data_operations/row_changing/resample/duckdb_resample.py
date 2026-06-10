@@ -81,6 +81,10 @@ class DuckdbResample(ResampleFeatureGroup):
         quoted_source = quote_ident(source_col)
         quoted_time = quote_ident(time_column)
         quoted_feature = quote_ident(feature_name)
+        # Pin the session timezone to UTC so the DATE_TRUNC / time_bucket floor
+        # stays UTC-anchored regardless of the host/session zone, matching
+        # time_bucketization (issue #238, re-applied for resample in #265).
+        data.connection.execute("SET TimeZone='UTC'")
         floor_expr = _floor_expr(quoted_time, n, unit)
 
         # Group keys: partition columns first, then the floored bucket. The
