@@ -19,12 +19,12 @@ import pyarrow as pa
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.data_operations.arithmetic.pyarrow_numeric_source import (
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.pyarrow_numeric_source import (
     pyarrow_non_numeric_descriptor,
 )
 
 if TYPE_CHECKING:
-    from mloda.community.feature_groups.data_operations.arithmetic.base import ArithmeticFeatureGroupBase
+    from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
 
     _ArithmeticMixinBase = ArithmeticFeatureGroupBase
 else:

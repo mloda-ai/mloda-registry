@@ -4,7 +4,7 @@ These tests guard the "exactly one place" Definition of Done for issue #214:
 the per-backend "what counts as numeric" logic lives in exactly one module per
 compute framework (``data_operations/<framework>_numeric_source.py``) and each
 such module is wired in by ONE per-backend mixin (under
-``data_operations/arithmetic/``) that BOTH the point- and scalar-arithmetic
+``data_operations/row_preserving/arithmetic/``) that BOTH the point- and scalar-arithmetic
 families inherit.
 
 The target shape they pin:
@@ -36,14 +36,14 @@ import pytest
 
 from mloda.provider import FeatureGroup
 
-from mloda.community.feature_groups.data_operations.arithmetic import (
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic import (
     duckdb_numeric_source,
     pandas_numeric_source,
     polars_numeric_source,
     pyarrow_numeric_source,
     sqlite_numeric_source,
 )
-from mloda.community.feature_groups.data_operations.arithmetic.base import ArithmeticFeatureGroupBase
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     PointArithmeticFeatureGroup,
 )
@@ -53,7 +53,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
 
 _POINT = "mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic"
 _SCALAR = "mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic"
-_MIXIN = "mloda.community.feature_groups.data_operations.arithmetic"
+_MIXIN = "mloda.community.feature_groups.data_operations.row_preserving.arithmetic"
 
 
 class TestNumericSourceSingleSourceOfTruth:

@@ -19,13 +19,13 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 
-from mloda.community.feature_groups.data_operations.arithmetic.base import SQL_ARITHMETIC_OPS
-from mloda.community.feature_groups.data_operations.arithmetic.duckdb_numeric_source import (
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import SQL_ARITHMETIC_OPS
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.duckdb_numeric_source import (
     duckdb_non_numeric_descriptor,
 )
 
 if TYPE_CHECKING:
-    from mloda.community.feature_groups.data_operations.arithmetic.base import ArithmeticFeatureGroupBase
+    from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
 
     _ArithmeticMixinBase = ArithmeticFeatureGroupBase
 else:

@@ -1,13 +1,13 @@
 """Structural guard that both arithmetic families share one base class.
 
 The point- and scalar-arithmetic feature groups both subclass a single base
-(``ArithmeticFeatureGroupBase`` in ``data_operations/arithmetic/base.py``) that
+(``ArithmeticFeatureGroupBase`` in ``data_operations/row_preserving/arithmetic/base.py``) that
 holds the common arithmetic-op extraction and numeric-source skeleton.
 """
 
 from __future__ import annotations
 
-from mloda.community.feature_groups.data_operations.arithmetic.base import (
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import (
     ARITHMETIC_OP_NAMES,
     ArithmeticFeatureGroupBase,
 )

@@ -9,7 +9,7 @@ from mloda.community.feature_groups.data_operations.errors import unsupported_op
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     PointArithmeticFeatureGroup,
 )
-from mloda.community.feature_groups.data_operations.arithmetic.sqlite_mixin import (
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.sqlite_mixin import (
     SQLITE_ARITHMETIC_OPS,
     SqliteArithmeticMixin,
 )
