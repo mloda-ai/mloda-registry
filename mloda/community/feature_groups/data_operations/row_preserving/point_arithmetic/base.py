@@ -27,7 +27,7 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.provider import DefaultOptionKeys
 
-from mloda.community.feature_groups.data_operations.arithmetic_base import ArithmeticFeatureGroupBase
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
 
 ARITHMETIC_OPERATIONS: dict[str, str] = {
     "add": "Element-wise addition of two columns",

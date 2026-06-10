@@ -4,40 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import ComputeFramework
-from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.duckdb_mixin import (
+    DUCKDB_ARITHMETIC_OPS,
+    DuckdbArithmeticMixin,
+)
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
-from mloda.community.feature_groups.data_operations.duckdb_numeric_source import duckdb_non_numeric_descriptor
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ScalarArithmeticFeatureGroup,
 )
 
-DUCKDB_ARITHMETIC_OPS: dict[str, str] = {
-    "add": "+",
-    "subtract": "-",
-    "multiply": "*",
-    "divide": "/",
-}
 
-
-class DuckdbScalarArithmetic(ScalarArithmeticFeatureGroup):
-    @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {DuckDBFramework}
-
-    @classmethod
-    def _input_columns_and_framework(cls, data: DuckdbRelation) -> tuple[list[str], str]:
-        return list(data.columns), "DuckDB"
-
-    @classmethod
-    def _assert_source_column_is_numeric(cls, data: DuckdbRelation, source_col: str) -> None:
-        descriptor = duckdb_non_numeric_descriptor(data, source_col)
-        if descriptor is not None:
-            cls._raise_non_numeric_source(source_col, descriptor)
-
+class DuckdbScalarArithmetic(DuckdbArithmeticMixin, ScalarArithmeticFeatureGroup):
     @classmethod
     def _compute_arithmetic(
         cls,

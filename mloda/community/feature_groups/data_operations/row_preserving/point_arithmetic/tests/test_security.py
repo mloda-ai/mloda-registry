@@ -104,7 +104,7 @@ class TestAllowlistCompleteness:
 
     def test_duckdb_covers_all_ops(self) -> None:
         pytest.importorskip("duckdb")
-        from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.duckdb_point_arithmetic import (
+        from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.duckdb_mixin import (
             DUCKDB_ARITHMETIC_OPS,
         )
 
@@ -112,7 +112,7 @@ class TestAllowlistCompleteness:
             assert op in DUCKDB_ARITHMETIC_OPS, f"DuckDB backend missing arithmetic op: {op}"
 
     def test_sqlite_covers_all_ops(self) -> None:
-        from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.sqlite_point_arithmetic import (
+        from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.sqlite_mixin import (
             SQLITE_ARITHMETIC_OPS,
         )
 
