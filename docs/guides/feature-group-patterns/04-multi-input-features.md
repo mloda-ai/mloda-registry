@@ -72,3 +72,4 @@ def test_diff_feature():
 
 - **Pattern 3 (Chained)**: Add `FeatureChainParserMixin` for reusable pattern matching
 - **Pattern 7 (Index)**: For time-aligned calculations
+- **Pattern 26 (Consuming feature groups)**: When an input is another group's feature that needs selector options forwarded

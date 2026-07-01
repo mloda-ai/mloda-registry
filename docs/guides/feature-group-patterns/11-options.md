@@ -56,7 +56,9 @@ feature = Feature("price__scaled", Options(
 | Default (no propagation) | Context stays local to the feature where it's defined |
 | With `propagate_context_keys` | Listed keys are passed to all input features in the chain |
 
-Use propagation sparingly—most context should remain local. Common use cases include trace IDs for debugging, tenant identifiers, or configuration that genuinely needs to flow through the entire pipeline.
+Use propagation sparingly, most context should remain local. Common use cases include trace IDs for debugging, tenant identifiers, or configuration that genuinely needs to flow through the entire pipeline.
+
+> **Plugin-author side**: When your feature group consumes another group's feature via `input_features`, group options merge down automatically but context options do not. To forward a selector a caller passed as context, set it explicitly on the child feature. See [Consuming feature groups](26-consuming-feature-groups.md).
 
 ## Validation and Conditional Requirements
 
