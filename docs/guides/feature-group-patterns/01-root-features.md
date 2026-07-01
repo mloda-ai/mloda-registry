@@ -98,3 +98,4 @@ feature via `Options(context={"data_access_handle": ...})`. See
 
 - **Pattern 6 (Artifact)**: Cache expensive API responses
 - **Pattern 5 (Multi-output)**: Return multiple columns
+- **Pattern 26 (Consuming feature groups)**: When another group depends on this source and forwards it a selector
