@@ -198,3 +198,49 @@ def test_matching_feature_never_raises(feature_group_class: type[FeatureGroup], 
     """
     result = feature_group_class.return_data_type_rule(feature)
     assert result is None or isinstance(result, DataType)
+
+
+# Pattern-BOUNDARY inputs: names/options that sit right at the edge of each pattern
+# (zero bucket sizes, zero bins, a config feature missing in_features). These are the
+# exact shapes where a loose pattern would SELECT a feature that the extractor then
+# cannot handle. The contract under test: whatever matching SELECTS, the rule must be
+# able to type without raising. If a case does not match, the framework never routes
+# it to the rule, so it is out of scope (skipped implicitly by the guard).
+BOUNDARY_CASES: list[tuple[type[FeatureGroup], str, Options]] = [
+    (ResampleFeatureGroup, "value__resample_0_hour_mean", _opts(time_column="timestamp")),
+    (ResampleFeatureGroup, "value__resample_00_hour_count", _opts(time_column="timestamp")),
+    (BinningFeatureGroup, "value_int__bin_0", Options()),
+    (BinningFeatureGroup, "value_int__qbin_0", Options()),
+    (
+        FrameAggregateFeatureGroup,
+        "my_frame_agg",
+        _opts(
+            aggregation_type="count",
+            frame_type="rolling",
+            frame_size=3,
+            partition_by=["region"],
+            order_by="timestamp",
+        ),
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "feature_group_class, feature_name, options",
+    BOUNDARY_CASES,
+    ids=[f"{cls.__name__}:{name}" for cls, name, _options in BOUNDARY_CASES],
+)
+def test_matched_boundary_feature_never_raises(
+    feature_group_class: type[FeatureGroup], feature_name: str, options: Options
+) -> None:
+    """Guards the pattern/extractor-alignment contract this change depends on.
+
+    For each boundary input: if ``match_feature_group_criteria`` SELECTS it, then
+    ``return_data_type_rule`` must type it without raising (``None`` or a ``DataType``).
+    A pattern that selects a feature its extractor cannot handle would raise here.
+    Inputs that do not match are never routed to the rule, so they pass trivially.
+    """
+    if not feature_group_class.match_feature_group_criteria(feature_name, options, None):
+        return
+    result = feature_group_class.return_data_type_rule(Feature(feature_name, options=options))
+    assert result is None or isinstance(result, DataType)

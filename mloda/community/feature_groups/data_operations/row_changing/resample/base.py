@@ -117,7 +117,7 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     floor + group-by + aggregate) and the two presence guards.
     """
 
-    PREFIX_PATTERN = r".*__resample_\d+_(?:minute|hour|day)_(?:mean|sum|count|min|max)$"
+    PREFIX_PATTERN = r".*__resample_[1-9]\d*_(?:minute|hour|day)_(?:mean|sum|count|min|max)$"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -171,6 +171,9 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         """
         marker = f"__{_RESAMPLE_MARKER}_"
         idx = feature_name.rfind(marker)
+        # Intentionally stricter than _token_from_name: idx == 0 means the name
+        # begins with the marker and carries no source column, so return None
+        # (whereas _token_from_name still yields the trailing token).
         if idx <= 0:
             return None
         return feature_name[:idx]

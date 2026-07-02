@@ -288,6 +288,9 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
                     return False
                 if str(frame_unit) not in cls.SUPPORTED_TIME_UNITS:
                     return False
+            # Config features must carry a source column; name-based features encode it in the name.
+            if not options.get(DefaultOptionKeys.in_features):
+                return False
 
         partition_by = options.get(cls.PARTITION_BY)
         if not isinstance(partition_by, (list, tuple)):

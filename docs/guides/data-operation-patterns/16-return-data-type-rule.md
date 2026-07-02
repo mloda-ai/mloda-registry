@@ -6,7 +6,7 @@ Why the `data_operations` rules no longer wrap op-extraction in a broad `except 
 **When**: Read this before adding a type rule to a new operation, before adding any defensive catch to one, or before touching the matching/validation of an operation whose rule extracts from the feature.
 **Why**: The rule is a planning-time hint that runs only *after* a feature group is already selected, and mloda core calls it unguarded. The contract is therefore fail-fast: a rule that raises signals a real bug in a committed component and must surface, not be swallowed. This page records that decision and how it superseded the earlier "keep a broad catch" position.
 **Where**: `return_data_type_rule` on the base classes under `mloda/community/feature_groups/data_operations/`, the framework call site `engine.set_data_type` in mloda core, and the cross-cutting guard test `tests/test_return_data_type_rule_invariants.py`.
-**How**: This page states the contract, explains why a selected feature's extraction cannot raise (and how the two families that could were fixed), and records the decision trail.
+**How**: This page states the contract, explains why a selected feature's extraction cannot raise (and how the three families that could were fixed), and records the decision trail.
 
 ---
 
@@ -50,12 +50,13 @@ The catch was safe to remove because, for every op the framework can actually ro
 - `match_feature_group_criteria` (via `FeatureChainParserMixin`) wraps matching in `except ValueError: return False`, and `parse_feature_name` raises on "pattern-but-no-source." So any name that would make the name-based `parse_feature_name` throw can never be selected.
 - On the config path, the discriminator key is a **required** `PROPERTY_MAPPING` entry, so a selected config feature always carries a valid op.
 
-Two families were exceptions where a *selected* feature could still reach a raising extraction. Both were fixed at the matching/validation layer (not by re-adding a catch), as part of [#265](https://github.com/mloda-ai/mloda-registry/issues/265):
+Three families were exceptions where a *selected* feature could still reach a raising extraction. All were fixed at the matching/validation layer (not by re-adding a catch), as part of [#265](https://github.com/mloda-ai/mloda-registry/issues/265):
 
 - **binning.** `PREFIX_PATTERN` was `.*__(bin|qbin)_\d+$`, which matched `value__bin_0`; `_validate_n_bins` then raised on `n_bins < 1`, and config `n_bins` had no validator, so a non-positive or non-numeric value also matched and threw. Fixed by tightening the pattern to `.*__(bin|qbin)_[1-9]\d*$` and adding a positive-integer `type_validator` on the `n_bins` config option. A selected binning feature now always has `n_bins >= 1`.
-- **resample.** `resample_op` was not a `PROPERTY_MAPPING` key, so config matching never validated it; and `_token_from_name` used a first-marker `find`, which diverged from the anchored `PREFIX_PATTERN` and mis-parsed a chained `..__resample_..__resample_..` name into an unparseable token. Fixed by adding `resample_op` to `PROPERTY_MAPPING` with a token `type_validator`, and by anchoring `_token_from_name` / `_source_from_name` to the last marker (`rfind`) so they agree with the end-anchored pattern.
+- **resample.** `PREFIX_PATTERN` used `\d+`, so `value__resample_0_hour_mean` matched and `_parse_resample_op` then raised on `n <= 0`; `resample_op` was not a `PROPERTY_MAPPING` key, so config matching never validated it; and `_token_from_name` used a first-marker `find`, which diverged from the anchored `PREFIX_PATTERN` and mis-parsed a chained `..__resample_..__resample_..` name into an unparseable token. Fixed by tightening the bucket-size group to `[1-9]\d*` (the same rejection binning got), adding `resample_op` to `PROPERTY_MAPPING` with a token `type_validator`, and anchoring `_token_from_name` / `_source_from_name` to the last marker (`rfind`) so they agree with the end-anchored pattern. A selected resample feature now always has `n >= 1` and a parseable token.
+- **frame_aggregate.** The config match branch validated the aggregation and frame options but not `in_features`, so a config feature with no source column was selected and the rule's `_extract_params` then raised from `get_in_features()`. Fixed by requiring `in_features` on the config match branch (name-based features are unaffected, since they encode the source in the name). A selected config frame_aggregate feature now always has a source column.
 
-With those two fixes in place, removing all ten catches keeps the fail-fast contract intact: matched features do not raise, and genuinely broken code does.
+With those three fixes in place, removing all ten catches keeps the fail-fast contract intact: matched features do not raise, and genuinely broken code does.
 
 ## Guarding against silent regressions
 
@@ -74,4 +75,4 @@ Removing the runtime catch does not weaken observability of the "hidden bug" cas
 
 - `test_completeness` fails if any deterministic op stops returning its declared type (catches extraction bugs in CI).
 - `test_matching_feature_never_raises` fails if a rule raises for a feature its group matches (the fail-fast contract only tolerates raises on inputs that would never be selected).
-- The binning and resample matching tests fail if the tightened pattern / added validators regress, which is what keeps a selected feature from reaching a raising extraction.
+- The binning, resample, and frame_aggregate matching tests fail if the tightened patterns / added validators / config `in_features` guard regress, which is what keeps a selected feature from reaching a raising extraction.

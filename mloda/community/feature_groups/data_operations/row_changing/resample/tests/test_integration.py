@@ -105,6 +105,16 @@ class TestResampleMatchFeatureGroupCriteria:
         assert not PyArrowResample.match_feature_group_criteria("value_float__resample_1_hour_median", options)
         assert not PyArrowResample.match_feature_group_criteria("value_float__ffill", options)
 
+    def test_zero_bucket_names_do_not_match(self) -> None:
+        # n must be a positive integer (n >= 1); a zero bucket size is not selectable,
+        # so a resample_0 / resample_00 name must not match the tightened pattern.
+        options = Options(context={"time_column": "timestamp", "partition_by": ["region"]})
+        assert not PyArrowResample.match_feature_group_criteria("value_float__resample_0_hour_mean", options)
+        assert not PyArrowResample.match_feature_group_criteria("value_float__resample_0_minute_count", options)
+        assert not PyArrowResample.match_feature_group_criteria("value_float__resample_00_hour_sum", options)
+        # Regression guard: a positive bucket size still matches.
+        assert PyArrowResample.match_feature_group_criteria("value_float__resample_1_hour_mean", options)
+
     def test_config_garbage_resample_op_does_not_match(self) -> None:
         # A config-style feature carrying an unparseable resample_op token must be
         # rejected by the resample_op validator (never routed to this FG).
@@ -112,11 +122,10 @@ class TestResampleMatchFeatureGroupCriteria:
         assert ResampleFeatureGroup.match_feature_group_criteria("my_resampled", opts_bad, None) is False
 
     def test_config_valid_resample_op_not_rejected_by_validator(self) -> None:
-        # A valid resample_op token must NOT be the cause of a non-match. Config-based
-        # selection of resample may or may not be wired end-to-end; if matching returns
-        # False here it must be for some OTHER reason, never because a valid token like
-        # "1_hour_mean" was rejected by the resample_op validator. We therefore only
-        # assert the token itself parses cleanly (the contract the validator enforces).
-        from mloda.community.feature_groups.data_operations.row_changing.resample.base import _parse_resample_op
+        # Exercise the actual type_validator wired into PROPERTY_MAPPING: a valid token
+        # passes, a garbage token and a non-string are rejected.
+        from mloda.community.feature_groups.data_operations.row_changing.resample.base import _is_valid_resample_op
 
-        assert _parse_resample_op("1_hour_mean") == (1, "hour", "mean")
+        assert _is_valid_resample_op("1_hour_mean") is True
+        assert _is_valid_resample_op("not_a_token") is False
+        assert _is_valid_resample_op(123) is False
