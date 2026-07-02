@@ -1,26 +1,27 @@
 """Cross-cutting guards for ``return_data_type_rule`` across all ten data operations.
 
-These two tests codify the decision recorded in
-``docs/guides/data-operation-patterns/16-return-data-type-rule.md`` for issue
-`#244 <https://github.com/mloda-ai/mloda-registry/issues/244>`_. They consolidate
-the per-operation ``TestReturnDataTypeRule`` spot checks into two contracts that
-span every base class that declares a deterministic output type.
+Decision (mloda core `PR #493 <https://github.com/mloda-ai/mloda/pull/493>`_):
+``return_data_type_rule`` runs only AFTER a feature group has been SELECTED, and
+mloda core calls it UNGUARDED (fail-fast). A raise from the rule is therefore a
+bug in a committed component that SHOULD surface, not something to swallow. The
+per-rule ``except Exception: return None`` catches in the data-operation bases
+have been REMOVED. Core does NOT wrap the call.
 
-Two guarantees:
+These tests consolidate the per-operation ``TestReturnDataTypeRule`` spot checks
+into two contracts that span every base class declaring a deterministic output
+type, framed around the post-selection reality:
 
-- ``test_completeness`` (doc option 5): for every supported *deterministic* op,
-  a representative feature must make ``return_data_type_rule`` return its expected
-  non-``None`` ``DataType``. This is the spine that catches the "hidden bug" path:
-  a broken ``_extract_*`` helper that the broad ``except Exception`` would silently
-  swallow into ``None``, disabling output-type validation with no signal. If an
-  extraction regression ships, this test fails in CI rather than degrading quietly.
+- ``test_completeness`` (the CI guard): for every supported *deterministic* op, a
+  representative feature must make ``return_data_type_rule`` return its expected
+  non-``None`` ``DataType``. With the catches removed, this is the spine that
+  catches an extraction regression (a broken ``_extract_*`` helper) directly, as a
+  CI failure, rather than the type quietly degrading to ``None``.
 
-- ``test_invariant_never_raises`` (the explicit invariant): ``return_data_type_rule``
-  is a planning-time hint that mloda core calls unguarded in ``engine.set_data_type``.
-  A rule that raises crashes planning for the whole graph, so the rule must always
-  RETURN (``None`` is an acceptable answer) and NEVER raise, even for malformed or
-  garbage features. This pins the reason the broad catch exists so a future narrow
-  cannot quietly regress it.
+- ``test_matching_feature_never_raises`` (the post-selection invariant): because
+  the rule is only ever called for a SELECTED (matching) feature, it must, for its
+  representative MATCHING feature(s), return ``None`` or a ``DataType`` and never
+  raise. Feeding unselected garbage directly is out of scope by construction: such
+  features never reach the rule.
 
 The (base class, representative feature, expected ``DataType``) tuples mirror the
 existing ``TestReturnDataTypeRule`` classes in each operation's ``tests/test_base.py``;
@@ -174,39 +175,26 @@ def test_completeness_covers_every_base_class() -> None:
 def test_completeness(feature_group_class: type[FeatureGroup], feature: Feature, expected: DataType) -> None:
     """Every supported deterministic op returns its declared non-None DataType.
 
-    A broken ``_extract_*`` helper would be swallowed by the rule's broad catch and
-    silently return ``None`` (doc path 3). This assertion turns that into a CI failure.
+    With the per-rule catches removed, a broken ``_extract_*`` helper no longer
+    degrades the output type to ``None`` silently; this assertion is the CI guard
+    that turns such an extraction regression into a visible failure.
     """
     result = feature_group_class.return_data_type_rule(feature)
     assert result == expected
 
 
-# Malformed / garbage features: a name that matches no pattern, plus a config-style
-# feature whose empty Options drives frame_aggregate's _extract_params through
-# get_in_features() (which raises ValueError/TypeError) -- confirming the broad catch
-# holds rather than letting the exception propagate.
-MALFORMED_FEATURES: list[Feature] = [
-    Feature("totally_unparseable_name"),
-    # Empty in_features: frame_aggregate._extract_source_features -> get_in_features()
-    # raises ValueError ("Input features not found in options"). Other rules just miss.
-    Feature("frame_agg_no_in_features", options=Options()),
-    # A garbage name with an explicit (empty-context) Options object.
-    Feature("__bad__", options=Options()),
-]
-
-
 @pytest.mark.parametrize(
-    "feature_group_class",
-    ALL_BASE_CLASSES,
-    ids=[cls.__name__ for cls in ALL_BASE_CLASSES],
+    "feature_group_class, feature",
+    [(cls, feature) for cls, feature, _expected in COMPLETENESS_CASES],
+    ids=[f"{cls.__name__}:{feature.name}" for cls, feature, _expected in COMPLETENESS_CASES],
 )
-def test_invariant_never_raises(feature_group_class: type[FeatureGroup]) -> None:
-    """``return_data_type_rule`` must return (``None`` is acceptable) and never raise.
+def test_matching_feature_never_raises(feature_group_class: type[FeatureGroup], feature: Feature) -> None:
+    """For a SELECTED (matching) feature, the rule returns None-or-DataType, never raises.
 
-    Planning calls the rule unguarded; a raise crashes the whole graph. For every
-    base class and every malformed feature, the rule must degrade to ``None`` or a
-    ``DataType`` instead of propagating an exception.
+    The rule is only ever invoked post-selection (mloda core PR #493), so the
+    relevant contract is over MATCHING features, not unselected garbage. Every base
+    class in ``ALL_BASE_CLASSES`` is exercised here because ``COMPLETENESS_CASES``
+    covers all ten (guarded by ``test_completeness_covers_every_base_class``).
     """
-    for feature in MALFORMED_FEATURES:
-        result = feature_group_class.return_data_type_rule(feature)
-        assert result is None or isinstance(result, DataType)
+    result = feature_group_class.return_data_type_rule(feature)
+    assert result is None or isinstance(result, DataType)

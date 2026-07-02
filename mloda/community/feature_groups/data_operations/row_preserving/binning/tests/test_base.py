@@ -66,6 +66,19 @@ class TestPatternMatching:
         result = BinningFeatureGroup.match_feature_group_criteria("bin_3", options, None)
         assert result is False
 
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            "value_int__bin_0",
+            "value_int__qbin_0",
+        ],
+    )
+    def test_no_match_zero_bins(self, feature_name: str) -> None:
+        # n_bins must be >= 1, so the prefix pattern rejects a trailing 0.
+        options = Options()
+        result = BinningFeatureGroup.match_feature_group_criteria(feature_name, options, None)
+        assert result is False, f"Should not match (n_bins must be >= 1): {feature_name}"
+
 
 class TestPatternParsing:
     def test_parse_bin_operation(self) -> None:
@@ -79,11 +92,13 @@ class TestPatternParsing:
         assert n_bins == 10
 
     def test_n_bins_zero_raises(self) -> None:
-        with pytest.raises(ValueError, match="n_bins must be >= 1"):
+        # bin_0 no longer matches the prefix pattern (n_bins must be >= 1), so the
+        # parameters cannot be extracted at all.
+        with pytest.raises(ValueError, match="Could not extract binning parameters"):
             BinningFeatureGroup.get_binning_params("value_int__bin_0")
 
     def test_n_bins_zero_qbin_raises(self) -> None:
-        with pytest.raises(ValueError, match="n_bins must be >= 1"):
+        with pytest.raises(ValueError, match="Could not extract binning parameters"):
             BinningFeatureGroup.get_binning_params("value_int__qbin_0")
 
     def test_parse_source_feature(self) -> None:
@@ -118,6 +133,19 @@ class TestConfigBasedFeatures:
             context={
                 "binning_op": "invalid_op",
                 "n_bins": 5,
+                "in_features": "value_int",
+            }
+        )
+        result = BinningFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False
+
+    @pytest.mark.parametrize("invalid_n_bins", [0, -1, "abc"])
+    def test_config_based_match_rejects_invalid_n_bins(self, invalid_n_bins: Any) -> None:
+        # n_bins must be a positive integer; 0, negatives and non-ints must not match.
+        options = Options(
+            context={
+                "binning_op": "bin",
+                "n_bins": invalid_n_bins,
                 "in_features": "value_int",
             }
         )

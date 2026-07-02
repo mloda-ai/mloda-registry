@@ -210,10 +210,7 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         percent_rank is a fractional rank (DOUBLE). top_N / bottom_N (and any
         unparseable input) stay open and return None.
         """
-        try:
-            rank_type = cls._extract_rank_type(feature)
-        except Exception:  # best-effort during planning; failure leaves the type undeclared
-            return None
+        rank_type = cls._extract_rank_type(feature)
         if rank_type in {"row_number", "rank", "dense_rank"}:
             return DataType.INT64
         if rank_type == "percent_rank":

@@ -67,7 +67,7 @@ class UserCount(FeatureGroup):
         return DataType.INT64
 ```
 
-The rule is a planning-time hint and must never raise (the engine calls it unguarded). For the failure-handling contract when the type depends on parsing the feature, and how the `data_operations` rules degrade to `None` rather than crash, see [`return_data_type_rule` failure handling](../data-operation-patterns/16-return-data-type-rule.md).
+The rule is a planning-time hint that runs only after a feature group is selected, and the engine calls it unguarded. The contract is fail-fast: it returns a `DataType` or `None` for any feature the group matched, and a raise (a bug in a committed component) surfaces as a planning error rather than being swallowed. For the full contract when the type depends on parsing the feature, see [`return_data_type_rule` failure handling](../data-operation-patterns/16-return-data-type-rule.md).
 
 ## Validation Modes
 

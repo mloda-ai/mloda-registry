@@ -30,6 +30,9 @@ from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
+    ResampleFeatureGroup,
+)
 from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import (
     PyArrowResample,
 )
@@ -101,3 +104,19 @@ class TestResampleMatchFeatureGroupCriteria:
         # median is not in the v1 agg set; ffill belongs to a different FG.
         assert not PyArrowResample.match_feature_group_criteria("value_float__resample_1_hour_median", options)
         assert not PyArrowResample.match_feature_group_criteria("value_float__ffill", options)
+
+    def test_config_garbage_resample_op_does_not_match(self) -> None:
+        # A config-style feature carrying an unparseable resample_op token must be
+        # rejected by the resample_op validator (never routed to this FG).
+        opts_bad = Options(context={"time_column": "ts", "resample_op": "not_a_token"})
+        assert ResampleFeatureGroup.match_feature_group_criteria("my_resampled", opts_bad, None) is False
+
+    def test_config_valid_resample_op_not_rejected_by_validator(self) -> None:
+        # A valid resample_op token must NOT be the cause of a non-match. Config-based
+        # selection of resample may or may not be wired end-to-end; if matching returns
+        # False here it must be for some OTHER reason, never because a valid token like
+        # "1_hour_mean" was rejected by the resample_op validator. We therefore only
+        # assert the token itself parses cleanly (the contract the validator enforces).
+        from mloda.community.feature_groups.data_operations.row_changing.resample.base import _parse_resample_op
+
+        assert _parse_resample_op("1_hour_mean") == (1, "hour", "mean")

@@ -99,6 +99,17 @@ def _parse_resample_op(token: str) -> tuple[int, str, str]:
     return n, unit, agg
 
 
+def _is_valid_resample_op(value: object) -> bool:
+    """True when value is a parseable '{n}_{unit}_{agg}' resample token."""
+    if not isinstance(value, str):
+        return False
+    try:
+        _parse_resample_op(value)
+    except ValueError:
+        return False
+    return True
+
+
 class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for resample operations that CHANGE the row count.
 
@@ -131,6 +142,12 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
         },
+        RESAMPLE_OP: {
+            "explanation": "Resample token '{n}_{unit}_{agg}' (e.g. '1_hour_mean') when the op is not encoded in the feature name.",
+            DefaultOptionKeys.context: True,
+            DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.type_validator: _is_valid_resample_op,
+        },
     }
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
@@ -147,13 +164,13 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     def _source_from_name(cls, feature_name: str) -> str | None:
         """Return the source column from a ``{src}__resample_...`` name, else None.
 
-        Permissive on purpose: it splits on the ``__resample_`` marker so that
-        invalid-unit / invalid-agg / n=0 feature names (e.g.
+        Permissive on purpose: it splits on the LAST ``__resample_`` marker so
+        that invalid-unit / invalid-agg / n=0 feature names (e.g.
         ``value__resample_1_century_mean``) still yield the source column and
         the raw token, letting ``_parse_resample_op`` raise the SPECIFIC error.
         """
         marker = f"__{_RESAMPLE_MARKER}_"
-        idx = feature_name.find(marker)
+        idx = feature_name.rfind(marker)
         if idx <= 0:
             return None
         return feature_name[:idx]
@@ -162,7 +179,7 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     def _token_from_name(cls, feature_name: str) -> str | None:
         """Return the raw ``{n}_{unit}_{agg}`` token from the name, else None."""
         marker = f"__{_RESAMPLE_MARKER}_"
-        idx = feature_name.find(marker)
+        idx = feature_name.rfind(marker)
         if idx < 0:
             return None
         return feature_name[idx + len(marker) :]
@@ -226,11 +243,8 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:
         """Declare INT64 for count buckets; other aggregations stay open."""
-        try:
-            op_token = cls._extract_resample_op(feature)
-            _, _, agg = _parse_resample_op(op_token)
-        except Exception:  # best-effort during planning; failure leaves the type undeclared
-            return None
+        op_token = cls._extract_resample_op(feature)
+        _, _, agg = _parse_resample_op(op_token)
         if agg == "count":
             return DataType.INT64
         return None

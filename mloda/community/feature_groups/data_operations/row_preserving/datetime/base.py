@@ -129,10 +129,7 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:
         """Declare the deterministic output type: all datetime ops are integer-valued."""
-        try:
-            cls._extract_datetime_op(feature)
-        except Exception:  # best-effort during planning; failure leaves the type undeclared
-            return None
+        cls._extract_datetime_op(feature)
         return DataType.INT64
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:

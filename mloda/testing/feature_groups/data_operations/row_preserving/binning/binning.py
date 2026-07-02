@@ -245,8 +245,8 @@ class BinningTestBase(DataOpsTestBase):
                 assert 0 <= val < 3, f"Qbin value {val} out of range [0, 2]"
 
     def test_n_bins_zero_rejected(self) -> None:
-        """n_bins=0 must raise ValueError."""
-        with pytest.raises(ValueError, match="n_bins must be >= 1"):
+        """A zero-bin name (bin_0) no longer matches the pattern, so params cannot be extracted."""
+        with pytest.raises(ValueError, match="Could not extract binning parameters"):
             self.implementation_class().get_binning_params("value_int__bin_0")
 
     def test_qbin_single_value(self) -> None:

@@ -188,10 +188,7 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:
         """Declare DOUBLE for pct_change_N (a ratio); other offsets stay open."""
-        try:
-            offset_type = cls._extract_offset_type(feature)
-        except Exception:  # best-effort during planning; failure leaves the type undeclared
-            return None
+        offset_type = cls._extract_offset_type(feature)
         if offset_type.startswith("pct_change_"):
             suffix = offset_type[len("pct_change_") :]
             if suffix.isdigit() and int(suffix) >= 1:
