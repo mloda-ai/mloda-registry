@@ -112,10 +112,7 @@ class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:
         """Declare INT64 for length (an integer-valued op); other ops stay open."""
-        try:
-            op = cls._extract_string_op(feature)
-        except Exception:  # best-effort during planning; failure leaves the type undeclared
-            return None
+        op = cls._extract_string_op(feature)
         if op == "length":
             return DataType.INT64
         return None

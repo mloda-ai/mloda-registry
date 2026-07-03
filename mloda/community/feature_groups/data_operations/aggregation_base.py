@@ -85,10 +85,7 @@ class AggregationFeatureGroupBase(FeatureChainParserMixin, FeatureGroup):
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:
         """Declare INT64 for counting ops; other aggregates stay open."""
-        try:
-            agg_type = cls._extract_aggregation_type(feature)
-        except Exception:  # best-effort during planning; failure leaves the type undeclared
-            return None
+        agg_type = cls._extract_aggregation_type(feature)
         if agg_type in cls._COUNTING_AGG_TYPES:
             return DataType.INT64
         return None

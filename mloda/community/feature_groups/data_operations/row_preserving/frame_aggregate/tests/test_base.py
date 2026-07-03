@@ -214,6 +214,43 @@ class TestConfigBasedMatching:
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is False
 
+    def test_config_rejects_missing_in_features(self) -> None:
+        # A config-based feature has no source column in its name, so in_features is
+        # required; without it, extraction (get_in_features) would raise post-selection.
+        options = Options(
+            context={
+                "aggregation_type": "count",
+                "frame_type": "rolling",
+                "frame_size": 3,
+                "partition_by": ["region"],
+                "order_by": "timestamp",
+            }
+        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_frame_agg", options, None)
+        assert result is False
+
+    def test_config_with_in_features_matches(self) -> None:
+        # Regression guard: the same options plus in_features must match.
+        options = Options(
+            context={
+                "aggregation_type": "count",
+                "frame_type": "rolling",
+                "frame_size": 3,
+                "in_features": "sales",
+                "partition_by": ["region"],
+                "order_by": "timestamp",
+            }
+        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_frame_agg", options, None)
+        assert result is True
+
+    def test_name_based_matches_without_in_features(self) -> None:
+        # The in_features requirement applies ONLY to the config path: a name-based
+        # feature carries its source column in the name, so no in_features is needed.
+        options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__count_rolling_3", options, None)
+        assert result is True
+
 
 class TestExtractParams:
     """Tests for _extract_params."""

@@ -19,8 +19,13 @@ BINNING_OPS = {
 }
 
 
+def _is_positive_int(value: object) -> bool:
+    """True only for a positive int (rejects bool, non-int, and n < 1)."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
 class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
-    PREFIX_PATTERN = r".*__(bin|qbin)_\d+$"
+    PREFIX_PATTERN = r".*__(bin|qbin)_[1-9]\d*$"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -38,6 +43,7 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             "explanation": "Number of bins (positive integer)",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.type_validator: _is_positive_int,
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Source numeric column",
@@ -85,10 +91,7 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:
         """Declare INT64: both bin and qbin emit integer bin indices."""
-        try:
-            op, _ = cls._extract_binning_params(feature)
-        except Exception:  # best-effort during planning; failure leaves the type undeclared
-            return None
+        op, _ = cls._extract_binning_params(feature)
         if op in {"bin", "qbin"}:
             return DataType.INT64
         return None

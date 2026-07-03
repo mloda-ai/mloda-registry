@@ -288,6 +288,9 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
                     return False
                 if str(frame_unit) not in cls.SUPPORTED_TIME_UNITS:
                     return False
+            # Config features must carry a source column; name-based features encode it in the name.
+            if not options.get(DefaultOptionKeys.in_features):
+                return False
 
         partition_by = options.get(cls.PARTITION_BY)
         if not isinstance(partition_by, (list, tuple)):
@@ -332,10 +335,7 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:
         """Declare INT64 for count (a counting op); other aggregates stay open."""
-        try:
-            agg_type = cls._extract_params(feature)["agg_type"]
-        except Exception:  # best-effort during planning; failure leaves the type undeclared
-            return None
+        agg_type = cls._extract_params(feature)["agg_type"]
         if agg_type == "count":
             return DataType.INT64
         return None
