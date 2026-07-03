@@ -23,6 +23,22 @@ type, framed around the post-selection reality:
   raise. Feeding unselected garbage directly is out of scope by construction: such
   features never reach the rule.
 
+- ``test_matched_numeric_boundary_never_raises`` (the generalized numeric-boundary
+  fuzzer): the same post-selection invariant, but proven for EVERY family instead of
+  a hand-picked few. It reuses the ``FAMILIES`` registry from
+  ``test_prefix_pattern_collisions.py``, takes each family's generated valid feature
+  names, mutates every numeric slot to a non-positive/zero count (``0`` and ``00``),
+  and asserts that any variant a family still SELECTS also types without raising. This
+  replaces the old hand-picked ``BOUNDARY_CASES`` numeric rows (binning/resample), so
+  a future op with a loose ``\\d+`` name pattern cannot silently reintroduce the gap.
+  A family's numeric-axis coverage depends on its generator (``generate_valid_names``)
+  emitting a digit-bearing exemplar; ``offset`` and ``rank`` do so explicitly for their
+  dynamic ``lag_/lead_`` and ``ntile_/top_/bottom_`` numeric forms (whose ``>= 1`` guard
+  lives in the extractor, not the pattern).
+  The config-only axis that is not derivable from the name registry (a
+  ``frame_aggregate`` config feature missing ``in_features``) stays explicit in
+  ``test_matched_config_boundary_never_raises``.
+
 The (base class, representative feature, expected ``DataType``) tuples mirror the
 existing ``TestReturnDataTypeRule`` classes in each operation's ``tests/test_base.py``;
 they are not invented here.
@@ -30,12 +46,26 @@ they are not invented here.
 
 from __future__ import annotations
 
+import re
+from typing import Any
+
 import pytest
 
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.core.abstract_plugins.feature_group import FeatureGroup
 from mloda.user import DataType
+
+# Reuse the sibling module's family registry (DRY): the same FAMILIES tuple, valid-name
+# generators, class loader, and name-driven Options that drive the routing-collision lint.
+# Importing the module-private ``_load_class`` from within the same test package is fine;
+# the underscore only marks it module-private, not import-forbidden.
+from mloda.community.feature_groups.data_operations.tests.test_prefix_pattern_collisions import (
+    FAMILIES,
+    PERMISSIVE_OPTIONS,
+    _load_class,
+    generate_valid_names,
+)
 
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import ResampleFeatureGroup
@@ -200,17 +230,184 @@ def test_matching_feature_never_raises(feature_group_class: type[FeatureGroup], 
     assert result is None or isinstance(result, DataType)
 
 
-# Pattern-BOUNDARY inputs: names/options that sit right at the edge of each pattern
-# (zero bucket sizes, zero bins, a config feature missing in_features). These are the
-# exact shapes where a loose pattern would SELECT a feature that the extractor then
-# cannot handle. The contract under test: whatever matching SELECTS, the rule must be
-# able to type without raising. If a case does not match, the framework never routes
-# it to the rule, so it is out of scope (skipped implicitly by the guard).
+# --- generalized numeric-boundary fuzzer (registry-driven) --------------------
+#
+# The numeric axis of the pattern/extractor-alignment contract, generalized across
+# EVERY family via the reused FAMILIES registry (was a hand-picked binning/resample
+# list). For each family we take its generated valid feature names and mutate every
+# maximal digit-run to a non-positive/zero count. A loose ``\d+`` pattern would still
+# SELECT such a name, but its extractor (needing a positive count/size) may not be
+# able to type it. The contract under test: whatever matching SELECTS, the rule must
+# type without raising. Variants a family does not select are out of scope, because
+# the framework never routes them to the rule.
+
+_DIGIT_RUN = re.compile(r"\d+")
+
+
+def numeric_boundary_variants(name: str) -> set[str]:
+    """Boundary variants of a valid feature name: each maximal digit-run replaced
+    by a non-positive/zero-count value ('0' and '00') that a loose \\d+ pattern
+    would still select but whose extractor (needing a positive count/size) cannot
+    handle. Names with no digit-run yield the empty set."""
+    variants: set[str] = set()
+    for match in _DIGIT_RUN.finditer(name):
+        for boundary in ("0", "00"):
+            variants.add(name[: match.start()] + boundary + name[match.end() :])
+    return variants
+
+
+def _build_numeric_boundary_cases() -> tuple[list[tuple[str, Any, str]], frozenset[str]]:
+    """Enumerate ``(family_key, class, variant)`` boundary cases over ALL families.
+
+    Iterates every family in ``FAMILIES`` (recording the iterated keys so the
+    coverage guard can prove no family is skipped), generates each family's valid
+    names, and dedups their numeric-boundary variants per family. Families whose
+    generated names carry no digit contribute zero variants; that is expected and
+    guarded against becoming universal by ``test_numeric_boundary_fuzz_is_not_vacuous``.
+    """
+    cases: list[tuple[str, Any, str]] = []
+    iterated: set[str] = set()
+    for spec in FAMILIES:
+        iterated.add(spec.key)
+        cls = _load_class(spec)
+        variants: set[str] = set()
+        for name in generate_valid_names(spec):
+            variants |= numeric_boundary_variants(name)
+        for variant in sorted(variants):
+            cases.append((spec.key, cls, variant))
+    return cases, frozenset(iterated)
+
+
+_NUMERIC_BOUNDARY_CASES, _FUZZED_FAMILY_KEYS = _build_numeric_boundary_cases()
+
+# Families whose live vocabulary is known to contain a numeric slot (verified against
+# generate_valid_names before hard-coding). Each MUST contribute at least one boundary
+# variant; a zero here signals the generator or the family vocabulary drifted, which the
+# non-vacuity guard turns into a loud failure rather than silently shrinking coverage.
+_KNOWN_NUMERIC_FAMILIES: frozenset[str] = frozenset(
+    {
+        "binning",
+        "resample",
+        "frame_aggregate",
+        "offset",
+        "rank",
+        "ema",
+        "percentile",
+        "sessionization",
+        "time_bucketization",
+    }
+)
+
+
+def _boundary_case_raises(cls: Any, variant: str) -> bool:
+    """Run the post-selection contract for one boundary variant; return True iff it is a gap.
+
+    If the family does not SELECT the variant it is out of scope (the framework never
+    routes it to the rule), so return ``False``. If it is selected, ``return_data_type_rule``
+    must type it (``None`` or a ``DataType``) without raising: a raise returns ``True`` (the
+    gap), and a non-``DataType``/non-``None`` return trips the inner assertion. Selection uses
+    ``PERMISSIVE_OPTIONS`` so matching stays name-driven (the axis this fuzzer covers).
+
+    Shared by the real parametrized guard and the self-proof negative test so the two
+    cannot diverge.
+    """
+    if not cls.match_feature_group_criteria(variant, PERMISSIVE_OPTIONS):
+        return False
+    try:
+        result = cls.return_data_type_rule(Feature(variant, options=PERMISSIVE_OPTIONS))
+    except Exception:
+        return True
+    assert result is None or isinstance(result, DataType)
+    return False
+
+
+def test_numeric_boundary_fuzz_covers_every_family() -> None:
+    """The fuzzer must iterate EVERY family in the registry (no family silently skipped).
+
+    Piggybacks on ``test_prefix_pattern_collisions.test_every_family_is_covered``, which
+    forces ``FAMILIES`` to stay complete as new op families are added.
+    """
+    assert _FUZZED_FAMILY_KEYS == {spec.key for spec in FAMILIES}, (
+        "The numeric-boundary fuzzer did not iterate every family in FAMILIES; a family "
+        "was skipped during case generation."
+    )
+
+
+def test_numeric_boundary_fuzz_is_not_vacuous() -> None:
+    """The fuzzer must not silently collapse to (near) zero cases.
+
+    Asserts a comfortably large total variant count and that each known-numeric family
+    contributes at least one boundary variant. If a known-numeric key yields zero, that
+    is a real drift signal in the generator or the family vocabulary; the assertion fails
+    loudly rather than weakening coverage.
+    """
+    assert len(_NUMERIC_BOUNDARY_CASES) > 15, (
+        f"Numeric-boundary fuzz is near-vacuous ({len(_NUMERIC_BOUNDARY_CASES)} cases); the "
+        "generators or vocabularies likely lost their numeric slots."
+    )
+    per_family: dict[str, int] = {}
+    for family_key, _cls, _variant in _NUMERIC_BOUNDARY_CASES:
+        per_family[family_key] = per_family.get(family_key, 0) + 1
+    missing = sorted(key for key in _KNOWN_NUMERIC_FAMILIES if per_family.get(key, 0) < 1)
+    assert missing == [], (
+        f"Known-numeric families produced no boundary variant: {missing}. Their generated valid "
+        "names lost a digit slot (generator or vocabulary drift); fix the generator, do not drop the key."
+    )
+
+
+@pytest.mark.parametrize(
+    "family_key, feature_group_class, variant",
+    _NUMERIC_BOUNDARY_CASES,
+    ids=[f"{family_key}:{variant}" for family_key, _cls, variant in _NUMERIC_BOUNDARY_CASES],
+)
+def test_matched_numeric_boundary_never_raises(family_key: str, feature_group_class: Any, variant: str) -> None:
+    """Every family: a numeric-boundary variant it still SELECTS must type without raising.
+
+    This is the generalized, registry-driven replacement for the old hand-picked numeric
+    ``BOUNDARY_CASES``. A raise here is a REAL product gap (a loose numeric pattern selects a
+    name whose extractor cannot handle a zero count/size); the fix belongs at the
+    matching/validation layer (tighten the pattern or reject the input up front), not in a
+    re-added catch. Variants a family does not select are out of scope and pass trivially.
+    """
+    assert not _boundary_case_raises(feature_group_class, variant), (
+        f"{family_key}: matched numeric-boundary feature {variant!r} raised in return_data_type_rule. "
+        "A loose numeric pattern selected a name whose extractor cannot handle a zero count/size. "
+        "Fix at the matching/validation layer (tighten the pattern or reject the input), not with a catch."
+    )
+
+
+# --- self-proof: the boundary guard must actually fire ------------------------
+#
+# Mirrors test_prefix_pattern_collisions.test_find_collisions_detects_multi_match: feed a
+# planted family that SELECTS a boundary variant and then raises, and assert the SHARED
+# check flags it. This proves the guard is not trivially green.
+
+
+class _AcceptsZeroAndRaises:
+    @classmethod
+    def match_feature_group_criteria(cls, feature_name: object, options: object, _dac: object = None) -> bool:
+        return str(feature_name).endswith("_0")
+
+    @classmethod
+    def return_data_type_rule(cls, feature: object) -> DataType | None:
+        raise ValueError("boom: extractor cannot handle n=0")
+
+
+def test_boundary_guard_detects_a_selecting_raising_family() -> None:
+    """A family that SELECTS a ``_0`` variant and raises must be flagged by the shared check."""
+    assert _boundary_case_raises(_AcceptsZeroAndRaises, "value__bin_0"), (
+        "The boundary guard did not flag a family that selects a numeric-boundary name and raises; "
+        "the shared _boundary_case_raises check is not proving the guard fires."
+    )
+
+
+# --- config-only boundary axis (not derivable from the name registry) ---------
+#
+# The numeric axis above is now handled generically by the registry-driven fuzzer. This
+# retained case covers the ONE boundary shape the name registry cannot express: a
+# frame_aggregate CONFIG feature carrying a valid op/frame but NO in_features (source
+# column). It stays explicit because it is options-driven, not name-driven.
 BOUNDARY_CASES: list[tuple[type[FeatureGroup], str, Options]] = [
-    (ResampleFeatureGroup, "value__resample_0_hour_mean", _opts(time_column="timestamp")),
-    (ResampleFeatureGroup, "value__resample_00_hour_count", _opts(time_column="timestamp")),
-    (BinningFeatureGroup, "value_int__bin_0", Options()),
-    (BinningFeatureGroup, "value_int__qbin_0", Options()),
     (
         FrameAggregateFeatureGroup,
         "my_frame_agg",
@@ -230,15 +427,15 @@ BOUNDARY_CASES: list[tuple[type[FeatureGroup], str, Options]] = [
     BOUNDARY_CASES,
     ids=[f"{cls.__name__}:{name}" for cls, name, _options in BOUNDARY_CASES],
 )
-def test_matched_boundary_feature_never_raises(
+def test_matched_config_boundary_never_raises(
     feature_group_class: type[FeatureGroup], feature_name: str, options: Options
 ) -> None:
-    """Guards the pattern/extractor-alignment contract this change depends on.
+    """Config-axis boundary: a frame_aggregate config feature missing ``in_features``.
 
-    For each boundary input: if ``match_feature_group_criteria`` SELECTS it, then
-    ``return_data_type_rule`` must type it without raising (``None`` or a ``DataType``).
-    A pattern that selects a feature its extractor cannot handle would raise here.
-    Inputs that do not match are never routed to the rule, so they pass trivially.
+    If ``match_feature_group_criteria`` SELECTS it, ``return_data_type_rule`` must type it
+    without raising (``None`` or a ``DataType``). If it does not match, the framework never
+    routes it to the rule, so it passes trivially. This axis is options-driven and cannot
+    be generated from the name registry, so it stays explicit alongside the numeric fuzzer.
     """
     if not feature_group_class.match_feature_group_criteria(feature_name, options, None):
         return
