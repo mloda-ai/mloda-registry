@@ -319,10 +319,15 @@ def _gen_point_arithmetic() -> tuple[str, ...]:
 
 
 def _gen_rank() -> tuple[str, ...]:
-    # Vocabulary: RankFeatureGroup.RANK_TYPES (rank/base.py). Names: ``{col}__{type}_ranked``.
+    # Vocabulary: RankFeatureGroup.RANK_TYPES (static) plus the dynamic numeric forms
+    # ``ntile_N/top_N/bottom_N`` + digit >= 1 accepted by ``_supports_rank_type``
+    # (rank/base.py; the >= 1 guard lives there, not in PREFIX_PATTERN). Names:
+    # ``{col}__{type}_ranked``.
     from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
 
-    return tuple(f"sales__{t}_ranked" for t in RankFeatureGroup.RANK_TYPES)
+    static = tuple(f"sales__{t}_ranked" for t in RankFeatureGroup.RANK_TYPES)
+    dynamic = tuple(f"sales__{t}_ranked" for t in ("ntile_4", "top_5", "bottom_3"))
+    return static + dynamic
 
 
 def _gen_offset() -> tuple[str, ...]:
