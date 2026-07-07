@@ -7,12 +7,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community-example-b"
-version = "0.3.2"
+version = "0.3.3"
 description = "Example B FeatureGroup extending community example base"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
 dependencies = ["mloda-community-example>=0.2.0"]
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.15"
 
 [project.optional-dependencies]
 dev = ["mloda-testing", "pytest>=9.0.3"]

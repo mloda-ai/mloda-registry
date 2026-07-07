@@ -7,12 +7,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community-point-arithmetic"
-version = "0.3.2"
+version = "0.3.3"
 description = "Point arithmetic feature group (element-wise two-column op: add, subtract, multiply, divide; PyArrow-reference null/IEEE-754 semantics on divide-by-zero; SQLite returns NULL)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
 dependencies = ["mloda-community-data-operations>=0.3.3"]
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.15"
 
 [project.optional-dependencies]
 dev = ["mloda-testing", "pytest>=9.0.3"]
