@@ -116,8 +116,10 @@ def generate_pyproject(
     author_strs = [f'{{ name = "{a["name"]}", email = "{a["email"]}" }}' for a in authors]
     lines.append(f"authors = [{', '.join(author_strs)}]")
 
-    # Dependencies
-    deps = pkg_config.get("dependencies", [])
+    # Dependencies - substitute the shared core dependency placeholder so the
+    # mloda-core pin lives in exactly one place (config/shared.toml).
+    core_dep = defaults.get("core_dependency", "")
+    deps = [dep.replace("{core_dependency}", core_dep) for dep in pkg_config.get("dependencies", [])]
     lines.append(f"dependencies = {to_toml_list(deps)}")
 
     lines.append(f'requires-python = "{shared["project"]["requires-python"]}"')
@@ -255,6 +257,47 @@ def update_workspace_members(packages: dict[str, Any], check: bool = False) -> t
     return True, "updated"
 
 
+def update_root_core_dependency(shared: dict[str, Any], check: bool = False) -> tuple[bool, str]:
+    """Update or check the mloda-core dependency in root pyproject.toml.
+
+    Rewrites the single ``[project].dependencies`` entry whose package name is
+    exactly ``mloda`` (never ``mloda-...``) to the shared ``core_dependency``
+    value, so the pin lives in one place. Idempotent and byte-stable.
+    Returns (success, message) tuple.
+    """
+    if not ROOT_PYPROJECT.exists():
+        return False, f"{ROOT_PYPROJECT}: missing"
+
+    core_dep = shared.get("defaults", {}).get("core_dependency", "")
+    if not core_dep:
+        return False, f"{ROOT_PYPROJECT}: core_dependency missing from config/shared.toml"
+
+    content = ROOT_PYPROJECT.read_text()
+
+    # Match a dependency array entry for the exact package name ``mloda``
+    # followed by a version specifier (``>=``, ``==`` ...). Requiring a version
+    # operator excludes ``mloda-...`` names and workspace paths like
+    # ``"mloda/community"``. Preserve indentation/quoting so the file is byte-stable.
+    pattern = re.compile(r'(?P<indent>[ \t]*)"mloda(?=[<>=!~])[^"]*"')
+
+    def _replace(match: re.Match[str]) -> str:
+        return f'{match.group("indent")}"{core_dep}"'
+
+    new_content, count = pattern.subn(_replace, content)
+
+    if count == 0:
+        return False, f"{ROOT_PYPROJECT}: mloda-core dependency entry not found"
+
+    if new_content == content:
+        return True, "up-to-date"
+
+    if check:
+        return False, f"{ROOT_PYPROJECT}: mloda-core dependency out of date"
+
+    ROOT_PYPROJECT.write_text(new_content)
+    return True, "updated"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate pyproject.toml files")
     parser.add_argument("--check", action="store_true", help="Check if files are up-to-date")
@@ -287,9 +330,14 @@ def main() -> int:
     # Handle workspace members
     workspace_ok, workspace_msg = update_workspace_members(packages, check=args.check)
 
+    # Handle root pyproject.toml mloda-core dependency (single source of truth)
+    core_ok, core_msg = update_root_core_dependency(shared, check=args.check)
+
     if args.check:
         if not workspace_ok:
             errors.append(workspace_msg)
+        if not core_ok:
+            errors.append(core_msg)
         if errors:
             print("❌ Files out of date:")
             for e in errors:
@@ -298,10 +346,14 @@ def main() -> int:
             return 1
         print(f"✅ All {len(packages)} pyproject.toml files are up-to-date")
         print("✅ Workspace members are up-to-date")
+        print("✅ Root mloda-core dependency is up-to-date")
         return 0
 
     if workspace_ok and workspace_msg == "updated":
         print(f"  ✓ {ROOT_PYPROJECT} (workspace members)")
+
+    if core_ok and core_msg == "updated":
+        print(f"  ✓ {ROOT_PYPROJECT} (mloda-core dependency)")
 
     print(f"\n✅ Generated {len(updated)} pyproject.toml files")
     return 0
