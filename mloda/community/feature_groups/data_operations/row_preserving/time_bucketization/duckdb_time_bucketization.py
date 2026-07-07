@@ -64,8 +64,16 @@ def _interval_literal(n: int, unit: str) -> str:
     raise ValueError(f"Unsupported time bucketization unit for DuckDB: {unit!r}")
 
 
-def _floor_expr(quoted_source: str, n: int, unit: str) -> str:
-    """SQL expression that floors ``quoted_source`` to the ``(n, unit)`` bucket."""
+def floor_expr(quoted_source: str, n: int, unit: str) -> str:
+    """SQL that floors a DuckDB timestamp to the ``(n, unit)`` bucket.
+
+    PRECONDITION: correct, UTC-anchored results REQUIRE the connection's
+    session timezone to be UTC. mloda's ``DuckDBFramework`` guarantees this at
+    its framework chokepoint (``set_framework_connection_object``, mloda
+    >= 0.9.0), so callers must NOT add their own ``SET TimeZone`` pin. This is
+    the single shared entry point that both the time_bucketization and resample
+    DuckDB backends use to floor timestamps.
+    """
     if n == 1:
         return f"DATE_TRUNC('{_DUCKDB_TRUNC_UNIT[unit]}', {quoted_source})"
     # ``n > 1`` is only valid for fixed-freq units (minute/hour/day).
@@ -124,18 +132,14 @@ class DuckdbTimeBucketization(TimeBucketizationFeatureGroup):
         if op not in TIME_BUCKETIZATION_OPS:
             raise ValueError(f"Unsupported bucket op {op!r} for DuckDB; supported: {sorted(TIME_BUCKETIZATION_OPS)}.")
 
-        # Pin the session timezone to UTC so DATE_TRUNC/time_bucket stay
-        # UTC-anchored regardless of the host/session zone (issue #238).
-        data.connection.execute("SET TimeZone='UTC'")
-
         quoted_source = quote_ident(source_col)
         quoted_feature = quote_ident(feature_name)
-        floor_expr = _floor_expr(quoted_source, n, unit)
+        floor_sql = floor_expr(quoted_source, n, unit)
         interval = _interval_literal(n, unit)
-        ceil_next = f"({floor_expr} + {interval})"
+        ceil_next = f"({floor_sql} + {interval})"
 
         if op == "floor":
-            result_expr = floor_expr
+            result_expr = floor_sql
         elif op == "ceil":
             if unit in _CALENDAR_CEIL_ALWAYS_ADVANCES:
                 # Calendar units always advance.
@@ -144,12 +148,12 @@ class DuckdbTimeBucketization(TimeBucketizationFeatureGroup):
                 result_expr = (
                     f"CASE "
                     f"WHEN {quoted_source} IS NULL THEN NULL "
-                    f"WHEN {quoted_source} = {floor_expr} THEN {floor_expr} "
+                    f"WHEN {quoted_source} = {floor_sql} THEN {floor_sql} "
                     f"ELSE {ceil_next} "
                     f"END"
                 )
         else:  # round
-            result_expr = cls._round_expression(quoted_source, n, unit, floor_expr, ceil_next)
+            result_expr = cls._round_expression(quoted_source, n, unit, floor_sql, ceil_next)
 
         raw_sql = f"*, {result_expr} AS {quoted_feature}"
         result: DuckdbRelation = data.project(raw_sql)
@@ -161,7 +165,7 @@ class DuckdbTimeBucketization(TimeBucketizationFeatureGroup):
         quoted_source: str,
         n: int,
         unit: str,
-        floor_expr: str,
+        floor_sql: str,
         ceil_next: str,
     ) -> str:
         """SQL expression for round-half-up bucketization.
@@ -170,17 +174,17 @@ class DuckdbTimeBucketization(TimeBucketizationFeatureGroup):
         units, and ``EPOCH(col - floored) * 2 >= EPOCH(ceil_next - floored)``
         for calendar units (whose bucket lengths vary per row).
         """
-        offset_seconds = f"EPOCH({quoted_source} - {floor_expr})"
+        offset_seconds = f"EPOCH({quoted_source} - {floor_sql})"
         if unit in {"minute", "hour", "day"}:
             half = _bucket_seconds_for_fixed_freq(n, unit) / 2.0
             return (
                 f"CASE "
                 f"WHEN {quoted_source} IS NULL THEN NULL "
                 f"WHEN {offset_seconds} >= {half} THEN {ceil_next} "
-                f"ELSE {floor_expr} "
+                f"ELSE {floor_sql} "
                 f"END"
             )
-        bucket_seconds = f"EPOCH({ceil_next} - {floor_expr})"
+        bucket_seconds = f"EPOCH({ceil_next} - {floor_sql})"
         return (
             f"CASE "
             f"WHEN {quoted_source} IS NULL THEN NULL "

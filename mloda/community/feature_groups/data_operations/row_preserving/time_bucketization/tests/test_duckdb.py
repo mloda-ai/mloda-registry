@@ -54,17 +54,20 @@ class TestDuckdbDateSourceRejected:
 
 
 class TestDuckdbTimeBucketizationNonUtcSession:
-    """Bucketization must produce UTC-anchored instants regardless of session TZ (issue #238).
+    """Bucketization stays UTC-anchored regardless of session TZ, via the core chokepoint.
 
     DuckDB's ``DATE_TRUNC`` / ``time_bucket`` operate in the connection's
     session timezone. On a non-UTC session, a UTC input such as
-    ``2023-01-01 00:00 UTC`` floors to *local* midnight (a different instant)
-    instead of UTC midnight. The feature group must pin the session timezone
-    to UTC inside ``_compute_bucket`` so the result is correct no matter what
-    the session timezone was preset to.
+    ``2023-01-01 00:00 UTC`` would floor to local midnight (a different instant)
+    instead of UTC midnight. The feature group no longer pins the session
+    timezone itself; UTC anchoring now comes from the core framework chokepoint
+    (``DuckDBFramework.set_framework_connection_object``, mloda 0.9.0), which
+    pins the session to UTC on first connection assignment.
 
     This test builds its own connection (rather than the mixin's) so it can
-    deterministically reproduce the bug by setting a non-UTC session timezone,
+    preset a non-UTC session timezone, then routes that connection through the
+    core chokepoint (as production does) to reproduce the real guarantee. It is
+    the standing regression guard that UTC anchoring holds via the core guarantee,
     independent of the host OS timezone.
     """
 
@@ -73,10 +76,13 @@ class TestDuckdbTimeBucketizationNonUtcSession:
         from datetime import datetime
         from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+        from mloda.testing.feature_groups.data_operations.mixins.duckdb import pin_connection_utc_via_core
 
         con = duckdb.connect()
-        # Preset a NON-UTC session timezone; this is what triggers the bug.
+        # Preset a NON-UTC session timezone; without the core guarantee this would misfloor.
         con.execute("SET TimeZone='America/New_York'")
+        # Route through the real core chokepoint, exactly as production does.
+        pin_connection_utc_via_core(con)
 
         rel = DuckdbRelation.from_arrow(con, _create_bucket_arrow_table())
         fs = make_feature_set("timestamp__floor_1_day")
