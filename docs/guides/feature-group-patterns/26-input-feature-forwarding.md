@@ -4,7 +4,7 @@ When a feature group declares **another group's** feature in `input_features()`,
 
 **What**: Controlling which of a consumer's options flow to an input feature it does not own.
 **When**: A feature group consumes a source/corpus/connector feature published by a different group (e.g. a RAG connector consuming a `knowledge_graph` source).
-**Why**: Options set on the consumer forward to input features by default; an upstream that does not recognise a forwarded key rejects the feature.
+**Why**: Options set on the consumer forward to input features by default; an upstream that does not recognize a forwarded key rejects the feature.
 **Where**: `input_features()` return values, on the `Feature(...)` objects you construct there.
 **How**: Leave children at the default to inherit everything, or use the typed opt-outs `forward_group`, `forward_group_exclude`, and the context pull/push pair `inherit_context_keys` / `propagate_context_keys`.
 
@@ -12,7 +12,7 @@ When a feature group declares **another group's** feature in `input_features()`,
 
 ## The Default: Group Options Forward
 
-A consumer's **group** options flow onto every input feature by default. **Context** options never flow implicitly. `in_features` itself never flows.
+A consumer's **group** options flow onto every input feature by default. **Context** options never flow through this forwarding merge (the one exception is a bare-string child, which shares the consumer's `Options` outright: see the caveat below). `in_features` itself never flows.
 
 | Consumer option category | Flows to input features by default? | How to change it |
 |--------------------------|-------------------------------------|------------------|
@@ -54,7 +54,7 @@ Set these on the `Feature(...)` you return from `input_features()`:
 ```python
 from typing import Any, Optional
 
-from mloda.provider import DefaultOptionKeys, FeatureGroup, FeatureSet
+from mloda.provider import FeatureGroup, FeatureSet
 from mloda.user import Feature, FeatureName, Options
 
 
@@ -104,15 +104,14 @@ The engine forwards by default, so a child left at `forward_group=None` already 
 
 If a forwarded group key already exists on the child with a **different** value, forwarding raises `ValueError` (naming the key, both values, and the opt-out remedies). If the child already holds the **same** value, forwarding is a silent no-op. So a child may safely pre-set a key to the value the consumer would forward; it may not silently override it.
 
-## Caveat: Bare-String Children Ignore These Directives
+## Caveat: Bare-String Children Share the Consumer's Options
 
-The directives above only take effect on children returned as explicit `Feature(...)` objects. A child returned as a **bare string** from `input_features()` (e.g. `return {"knowledge_graph"}`) bypasses the forwarding merge entirely, so `forward_group`, `forward_group_exclude`, and `inherit_context_keys` are ignored on it (mloda logs a warning if you pass them). To carve a key out or pull context, return an explicit `Feature("knowledge_graph", forward_group_exclude={...})`, not the string.
+The directives above only take effect on children returned as explicit `Feature(...)` objects. A child returned as a **bare string** from `input_features()` (e.g. `return {"knowledge_graph"}`) is constructed with the consumer's own `Options` instance, so it already carries the consumer's **entire** group and context, and the forwarding directives (`forward_group`, `forward_group_exclude`, `inherit_context_keys`) are no-ops on it (mloda logs a warning if you pass them). Because everything is already shared, there is no way to carve a consumer-local key off a bare-string child. To control what the upstream sees, whether that means excluding a key, isolating the child, or selecting which context reaches it, return an explicit `Feature("knowledge_graph", forward_group_exclude={...})`, not the string.
 
 ## Test
 
 ```python
-from mloda.provider import DefaultOptionKeys
-from mloda.user import Feature, FeatureName, Options
+from mloda.user import FeatureName, Options
 
 
 def test_connector_carves_local_key_and_pulls_context():
@@ -128,8 +127,8 @@ def test_connector_carves_local_key_and_pulls_context():
 
 | File | Description |
 |------|-------------|
-| [test_input_features_forward_group_defaults.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/feature_group/experimental/test_input_features_forward_group_defaults.py) | Plugin `input_features()` leaving children at the default sentinel; explicit directives preserved |
-| [test_feature_collection_forwarding.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_core/test_abstract_plugins/test_components/test_feature_collection_forwarding.py) | `forward_group` / `forward_group_exclude` allowlist and carve-out semantics |
+| [test_input_features_forward_group_defaults.py](https://github.com/mloda-ai/mloda/blob/0.9.0/tests/test_plugins/feature_group/experimental/test_input_features_forward_group_defaults.py) | Plugin `input_features()` leaving children at the default sentinel; explicit directives preserved |
+| [test_feature_collection_forwarding.py](https://github.com/mloda-ai/mloda/blob/0.9.0/tests/test_core/test_abstract_plugins/test_components/test_feature_collection_forwarding.py) | `forward_group` / `forward_group_exclude` allowlist and carve-out semantics |
 | [Options API](https://mloda-ai.github.io/mloda/in_depth/options/) | Group vs context, propagation |
 
 ## Combines With
