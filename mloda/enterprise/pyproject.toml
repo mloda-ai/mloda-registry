@@ -18,6 +18,15 @@ requires-python = ">=3.10,<3.15"
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
+[project.entry-points."mloda.feature_groups"]
+mloda-enterprise-example = "mloda.enterprise.feature_groups.example.manifest:FEATURE_GROUPS"
+
+[project.entry-points."mloda.compute_frameworks"]
+mloda-enterprise-compute-frameworks-example = "mloda.enterprise.compute_frameworks.example.manifest:COMPUTE_FRAMEWORKS"
+
+[project.entry-points."mloda.extenders"]
+mloda-enterprise-extenders-example = "mloda.enterprise.extenders.example.manifest:EXTENDERS"
+
 [tool.setuptools]
 package-dir = {"" = "../.."}
 packages = ["mloda.enterprise.compute_frameworks.example", "mloda.enterprise.extenders.example", "mloda.enterprise.feature_groups.example"]

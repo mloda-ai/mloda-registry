@@ -23,52 +23,62 @@ optional_dependencies = { dev = ["pytest>=9.0.3"] }
 description = "All community plugins for mloda"
 dependencies = ["{core_dependency}"]
 path = "mloda/community"
+entry_point_bundle = true
 
 [packages.mloda-enterprise]
 description = "All enterprise plugins for mloda (License required: https://mloda.ai/enterprise)"
 dependencies = ["{core_dependency}"]
 path = "mloda/enterprise"
+entry_point_bundle = true
 
 [packages.mloda-community-example]
 description = "Example community FeatureGroup plugin for mloda"
 dependencies = ["{core_dependency}"]
 path = "mloda/community/feature_groups/example"
 optional_dependencies = { all = ["mloda-community-example-a", "mloda-community-example-b"] }
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-enterprise-example]
 description = "Example enterprise FeatureGroup plugin for mloda"
 dependencies = ["{core_dependency}"]
 path = "mloda/enterprise/feature_groups/example"
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-example-a]
 description = "Example A FeatureGroup extending community example base"
 dependencies = ["mloda-community-example>=0.2.0"]
 path = "mloda/community/feature_groups/example/example_a"
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-example-b]
 description = "Example B FeatureGroup extending community example base"
 dependencies = ["mloda-community-example>=0.2.0"]
 path = "mloda/community/feature_groups/example/example_b"
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-compute-frameworks-example]
 description = "Example community ComputeFramework plugin for mloda"
 dependencies = ["{core_dependency}"]
 path = "mloda/community/compute_frameworks/example"
+entry_point_groups = ["mloda.compute_frameworks"]
 
 [packages.mloda-community-extenders-example]
 description = "Example community Extender plugin for mloda"
 dependencies = ["{core_dependency}"]
 path = "mloda/community/extenders/example"
+entry_point_groups = ["mloda.extenders"]
 
 [packages.mloda-enterprise-compute-frameworks-example]
 description = "Example enterprise ComputeFramework plugin for mloda"
 dependencies = ["{core_dependency}"]
 path = "mloda/enterprise/compute_frameworks/example"
+entry_point_groups = ["mloda.compute_frameworks"]
 
 [packages.mloda-enterprise-extenders-example]
 description = "Example enterprise Extender plugin for mloda"
 dependencies = ["{core_dependency}"]
 path = "mloda/enterprise/extenders/example"
+entry_point_groups = ["mloda.extenders"]
 
 # --- Data Operations ---
 
@@ -83,36 +93,42 @@ description = "Aggregation feature group (reduce, partition_by, one row per grou
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/aggregation"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-rank]
 description = "Rank feature group (row_number, rank, dense_rank, percent_rank, ntile, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/rank"
 optional_dependencies = { sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["polars", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-offset]
 description = "Offset feature group (lag, lead, diff, pct_change, first_value, last_value, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/offset"
 optional_dependencies = { sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["polars", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-window-aggregation]
 description = "Window aggregation feature group (broadcast, partition_by, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-frame-aggregate]
 description = "Frame aggregate feature group (rolling, cumulative, expanding, time window, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate"
 optional_dependencies = { sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas>=2.2"], all = ["polars", "pandas>=2.2", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-scalar-aggregate]
 description = "Scalar aggregate feature group (single-column global aggregate broadcast)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-scalar-arithmetic]
 description = "Scalar arithmetic feature group (element-wise column op constant: add, subtract, multiply, divide)"
@@ -120,6 +136,7 @@ description = "Scalar arithmetic feature group (element-wise column op constant:
 dependencies = ["mloda-community-data-operations>=0.3.3"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-point-arithmetic]
 description = "Point arithmetic feature group (element-wise two-column op: add, subtract, multiply, divide; PyArrow-reference null/IEEE-754 semantics on divide-by-zero; SQLite returns NULL)"
@@ -127,55 +144,65 @@ description = "Point arithmetic feature group (element-wise two-column op: add, 
 dependencies = ["mloda-community-data-operations>=0.3.3"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-datetime]
 description = "Datetime extraction feature group (element-wise, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/datetime"
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-string]
 description = "String operation feature group (element-wise, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/string"
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-binning]
 description = "Binning feature group (equal-width, quantile, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/binning"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-percentile]
 description = "Percentile feature group (PERCENTILE_CONT, partition_by, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/percentile"
 optional_dependencies = { duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["polars", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-time-bucketization]
 description = "Time bucketization feature group (floor, ceil, round a timestamp to a bucket interval, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/time_bucketization"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-ffill]
 description = "Forward-fill feature group (ffill a value column across time gaps, per partition, ordered by time, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/ffill"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-ema]
 description = "EMA feature group (exponential moving average, adjust=False, null-skipping recurrence, per partition, row-preserving; pandas/polars native, pyarrow/duckdb/sqlite reject)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/ema"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-sessionization]
 description = "Sessionization feature group (gap-threshold session id on an ordered timestamp, per partition, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/sessionization"
 optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-resample]
 description = "Resample feature group (collapse events onto a regular time grid: floor to bucket, group, aggregate; one row per non-empty bucket, row-changing)"
 dependencies = ["mloda-community-data-operations>=0.2.12"]
 path = "mloda/community/feature_groups/data_operations/row_changing/resample"
 optional_dependencies = { pyarrow = ["pyarrow"], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+entry_point_groups = ["mloda.feature_groups"]

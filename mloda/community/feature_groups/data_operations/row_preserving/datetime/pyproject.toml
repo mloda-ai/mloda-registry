@@ -21,6 +21,9 @@ dev = ["mloda-testing", "pytest>=9.0.3"]
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
+[project.entry-points."mloda.feature_groups"]
+mloda-community-datetime = "mloda.community.feature_groups.data_operations.row_preserving.datetime.manifest:FEATURE_GROUPS"
+
 [tool.setuptools]
 package-dir = {"" = "../../../../../.."}
 packages = ["mloda.community.feature_groups.data_operations.row_preserving.datetime"]

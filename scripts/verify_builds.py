@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import configparser
 import shutil
 import subprocess
 import sys
@@ -15,50 +16,44 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
-PACKAGES = [
-    ("mloda-registry", "mloda/registry/pyproject.toml"),
-    ("mloda-testing", "mloda/testing/pyproject.toml"),
-    ("mloda-community", "mloda/community/pyproject.toml"),
-    ("mloda-enterprise", "mloda/enterprise/pyproject.toml"),
-    ("mloda-community-example", "mloda/community/feature_groups/example/pyproject.toml"),
-    ("mloda-enterprise-example", "mloda/enterprise/feature_groups/example/pyproject.toml"),
-    ("mloda-community-example-a", "mloda/community/feature_groups/example/example_a/pyproject.toml"),
-    ("mloda-community-example-b", "mloda/community/feature_groups/example/example_b/pyproject.toml"),
-    ("mloda-community-data-operations", "mloda/community/feature_groups/data_operations/pyproject.toml"),
-    ("mloda-community-aggregation", "mloda/community/feature_groups/data_operations/aggregation/pyproject.toml"),
-    ("mloda-community-rank", "mloda/community/feature_groups/data_operations/row_preserving/rank/pyproject.toml"),
-    ("mloda-community-offset", "mloda/community/feature_groups/data_operations/row_preserving/offset/pyproject.toml"),
-    (
-        "mloda-community-window-aggregation",
-        "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/pyproject.toml",
-    ),
-    (
-        "mloda-community-frame-aggregate",
-        "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pyproject.toml",
-    ),
-    (
-        "mloda-community-scalar-aggregate",
-        "mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/pyproject.toml",
-    ),
-    (
-        "mloda-community-scalar-arithmetic",
-        "mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic/pyproject.toml",
-    ),
-    (
-        "mloda-community-point-arithmetic",
-        "mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic/pyproject.toml",
-    ),
-    (
-        "mloda-community-datetime",
-        "mloda/community/feature_groups/data_operations/row_preserving/datetime/pyproject.toml",
-    ),
-    ("mloda-community-string", "mloda/community/feature_groups/data_operations/string/pyproject.toml"),
-    ("mloda-community-binning", "mloda/community/feature_groups/data_operations/row_preserving/binning/pyproject.toml"),
-    (
-        "mloda-community-percentile",
-        "mloda/community/feature_groups/data_operations/row_preserving/percentile/pyproject.toml",
-    ),
-]
+CONFIG_DIR = Path("config")
+PACKAGES_CONFIG = CONFIG_DIR / "packages.toml"
+
+# Valid manifest attributes for the mloda plugin entry-point groups (issue #271).
+_VALID_ENTRY_POINT_ATTRS = {"FEATURE_GROUPS", "COMPUTE_FRAMEWORKS", "EXTENDERS"}
+
+
+def load_packages_from_config() -> list[tuple[str, str]]:
+    """Return [(pkg_name, pyproject_path), ...] for every configured package, in config order."""
+    with open(PACKAGES_CONFIG, "rb") as f:
+        data = tomllib.load(f)
+    packages = data.get("packages", {})
+    return [(name, f"{cfg['path']}/pyproject.toml") for name, cfg in packages.items()]
+
+
+PACKAGES = load_packages_from_config()
+
+
+def namespaced_entry_point_error(group: str, name: str, value: str) -> str | None:
+    """Return an error message if an entry-point target is not a valid namespaced manifest, else None."""
+    if ":" not in value:
+        return f"{group}: entry point {name!r} value {value!r} has no ':' manifest-attribute separator"
+
+    module, _, attr = value.partition(":")
+
+    if not (module.startswith("mloda.community.") or module.startswith("mloda.enterprise.")):
+        return (
+            f"{group}: entry point {name!r} module {module!r} is not under the "
+            "'mloda.community.' or 'mloda.enterprise.' namespace"
+        )
+
+    if not module.endswith(".manifest"):
+        return f"{group}: entry point {name!r} module {module!r} does not end with '.manifest'"
+
+    if attr not in _VALID_ENTRY_POINT_ATTRS:
+        return f"{group}: entry point {name!r} attribute {attr!r} is not one of {sorted(_VALID_ENTRY_POINT_ATTRS)}"
+
+    return None
 
 
 def get_versions_from_pyproject() -> dict[str, str]:
@@ -141,6 +136,62 @@ def verify_wheel_metadata(wheels: dict[str, Path]) -> list[str]:
             init_file = f"{ns_dir}__init__.py"
             if init_file in files:
                 errors.append(f"{pkg_name}: contains {init_file} (breaks PEP 420 namespace package)")
+
+    return errors
+
+
+def get_wheel_entry_points(wheel_path: Path) -> dict[str, dict[str, str]]:
+    """Read a wheel's dist-info entry_points.txt, returning only mloda.* groups.
+
+    Returns {group: {name: value}} for every entry-point group whose name starts
+    with ``mloda.``. Returns {} if the wheel has no entry_points.txt.
+    """
+    with zipfile.ZipFile(wheel_path) as zf:
+        entry_points_name = None
+        for name in zf.namelist():
+            if name.endswith(".dist-info/entry_points.txt"):
+                entry_points_name = name
+                break
+        if entry_points_name is None:
+            return {}
+        content = zf.read(entry_points_name).decode()
+
+    parser = configparser.ConfigParser()
+    parser.read_string(content)
+
+    result: dict[str, dict[str, str]] = {}
+    for group in parser.sections():
+        if not group.startswith("mloda."):
+            continue
+        result[group] = {name: value for name, value in parser.items(group)}
+    return result
+
+
+def verify_entry_points(built_wheels: dict[str, Path]) -> list[str]:
+    """Verify built wheels declare the mloda.* entry points from their generated pyproject.toml."""
+    errors: list[str] = []
+    pyproject_paths = dict(load_packages_from_config())
+
+    for pkg_name, wheel_path in built_wheels.items():
+        pyproject_path = pyproject_paths.get(pkg_name)
+        if pyproject_path is None or not Path(pyproject_path).exists():
+            continue
+
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+        all_entry_points = data.get("project", {}).get("entry-points", {})
+        expected = {group: mapping for group, mapping in all_entry_points.items() if group.startswith("mloda.")}
+
+        actual = get_wheel_entry_points(wheel_path)
+
+        if expected != actual:
+            errors.append(f"{pkg_name}: entry points mismatch (expected {expected}, wheel has {actual})")
+
+        for group, mapping in actual.items():
+            for name, value in mapping.items():
+                error = namespaced_entry_point_error(group, name, value)
+                if error is not None:
+                    errors.append(f"{pkg_name}: {error}")
 
     return errors
 
@@ -272,6 +323,14 @@ def main() -> int:
             errors.extend(metadata_errors)
         else:
             print("  ✓ wheel metadata correct")
+
+        # Verify mloda plugin entry points (issue #271)
+        print("\nVerifying entry points...")
+        entry_point_errors = verify_entry_points(built_wheels)
+        if entry_point_errors:
+            errors.extend(entry_point_errors)
+        else:
+            print("  ✓ entry points correct")
 
     # Verify PEP 420 source compliance (outside temp dir context)
     print("\nVerifying PEP 420 source compliance...")

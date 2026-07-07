@@ -21,6 +21,9 @@ dev = ["mloda-testing", "pytest>=9.0.3"]
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
+[project.entry-points."mloda.extenders"]
+mloda-enterprise-extenders-example = "mloda.enterprise.extenders.example.manifest:EXTENDERS"
+
 [tool.setuptools]
 package-dir = {"" = "../../../.."}
 packages = ["mloda.enterprise.extenders.example"]

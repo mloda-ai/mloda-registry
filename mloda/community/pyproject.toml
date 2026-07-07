@@ -18,6 +18,34 @@ requires-python = ">=3.10,<3.15"
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
+[project.entry-points."mloda.feature_groups"]
+mloda-community-aggregation = "mloda.community.feature_groups.data_operations.aggregation.manifest:FEATURE_GROUPS"
+mloda-community-binning = "mloda.community.feature_groups.data_operations.row_preserving.binning.manifest:FEATURE_GROUPS"
+mloda-community-datetime = "mloda.community.feature_groups.data_operations.row_preserving.datetime.manifest:FEATURE_GROUPS"
+mloda-community-ema = "mloda.community.feature_groups.data_operations.row_preserving.ema.manifest:FEATURE_GROUPS"
+mloda-community-example = "mloda.community.feature_groups.example.manifest:FEATURE_GROUPS"
+mloda-community-example-a = "mloda.community.feature_groups.example.example_a.manifest:FEATURE_GROUPS"
+mloda-community-example-b = "mloda.community.feature_groups.example.example_b.manifest:FEATURE_GROUPS"
+mloda-community-ffill = "mloda.community.feature_groups.data_operations.row_preserving.ffill.manifest:FEATURE_GROUPS"
+mloda-community-frame-aggregate = "mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.manifest:FEATURE_GROUPS"
+mloda-community-offset = "mloda.community.feature_groups.data_operations.row_preserving.offset.manifest:FEATURE_GROUPS"
+mloda-community-percentile = "mloda.community.feature_groups.data_operations.row_preserving.percentile.manifest:FEATURE_GROUPS"
+mloda-community-point-arithmetic = "mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.manifest:FEATURE_GROUPS"
+mloda-community-rank = "mloda.community.feature_groups.data_operations.row_preserving.rank.manifest:FEATURE_GROUPS"
+mloda-community-resample = "mloda.community.feature_groups.data_operations.row_changing.resample.manifest:FEATURE_GROUPS"
+mloda-community-scalar-aggregate = "mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.manifest:FEATURE_GROUPS"
+mloda-community-scalar-arithmetic = "mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.manifest:FEATURE_GROUPS"
+mloda-community-sessionization = "mloda.community.feature_groups.data_operations.row_preserving.sessionization.manifest:FEATURE_GROUPS"
+mloda-community-string = "mloda.community.feature_groups.data_operations.string.manifest:FEATURE_GROUPS"
+mloda-community-time-bucketization = "mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.manifest:FEATURE_GROUPS"
+mloda-community-window-aggregation = "mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.manifest:FEATURE_GROUPS"
+
+[project.entry-points."mloda.compute_frameworks"]
+mloda-community-compute-frameworks-example = "mloda.community.compute_frameworks.example.manifest:COMPUTE_FRAMEWORKS"
+
+[project.entry-points."mloda.extenders"]
+mloda-community-extenders-example = "mloda.community.extenders.example.manifest:EXTENDERS"
+
 [tool.setuptools]
 package-dir = {"" = "../.."}
 packages = ["mloda.community.compute_frameworks.example", "mloda.community.extenders.example", "mloda.community.feature_groups.data_operations", "mloda.community.feature_groups.data_operations.aggregation", "mloda.community.feature_groups.data_operations.row_changing", "mloda.community.feature_groups.data_operations.row_changing.resample", "mloda.community.feature_groups.data_operations.row_preserving", "mloda.community.feature_groups.data_operations.row_preserving.arithmetic", "mloda.community.feature_groups.data_operations.row_preserving.binning", "mloda.community.feature_groups.data_operations.row_preserving.datetime", "mloda.community.feature_groups.data_operations.row_preserving.ema", "mloda.community.feature_groups.data_operations.row_preserving.ffill", "mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate", "mloda.community.feature_groups.data_operations.row_preserving.offset", "mloda.community.feature_groups.data_operations.row_preserving.percentile", "mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic", "mloda.community.feature_groups.data_operations.row_preserving.rank", "mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate", "mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic", "mloda.community.feature_groups.data_operations.row_preserving.sessionization", "mloda.community.feature_groups.data_operations.row_preserving.time_bucketization", "mloda.community.feature_groups.data_operations.row_preserving.window_aggregation", "mloda.community.feature_groups.data_operations.string", "mloda.community.feature_groups.example", "mloda.community.feature_groups.example.example_a", "mloda.community.feature_groups.example.example_b"]

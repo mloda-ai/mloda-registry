@@ -27,6 +27,9 @@ all = ["pyarrow", "polars", "pandas", "duckdb"]
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
+[project.entry-points."mloda.feature_groups"]
+mloda-community-ffill = "mloda.community.feature_groups.data_operations.row_preserving.ffill.manifest:FEATURE_GROUPS"
+
 [tool.setuptools]
 package-dir = {"" = "../../../../../.."}
 packages = ["mloda.community.feature_groups.data_operations.row_preserving.ffill"]

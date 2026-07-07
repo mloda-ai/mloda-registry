@@ -21,6 +21,9 @@ dev = ["mloda-testing", "pytest>=9.0.3"]
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
+[project.entry-points."mloda.feature_groups"]
+mloda-community-example-a = "mloda.community.feature_groups.example.example_a.manifest:FEATURE_GROUPS"
+
 [tool.setuptools]
 package-dir = {"" = "../../../../.."}
 packages = ["mloda.community.feature_groups.example.example_a"]

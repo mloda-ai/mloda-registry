@@ -26,6 +26,9 @@ all = ["polars", "pandas>=2.2", "duckdb"]
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
+[project.entry-points."mloda.feature_groups"]
+mloda-community-frame-aggregate = "mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.manifest:FEATURE_GROUPS"
+
 [tool.setuptools]
 package-dir = {"" = "../../../../../.."}
 packages = ["mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate"]

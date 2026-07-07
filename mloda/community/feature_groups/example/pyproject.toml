@@ -22,6 +22,9 @@ all = ["mloda-community-example-a", "mloda-community-example-b"]
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
+[project.entry-points."mloda.feature_groups"]
+mloda-community-example = "mloda.community.feature_groups.example.manifest:FEATURE_GROUPS"
+
 [tool.setuptools]
 package-dir = {"" = "../../../.."}
 packages = ["mloda.community.feature_groups.example"]
