@@ -11,8 +11,8 @@ Scenario (tiny and hand-traceable)
 ----------------------------------
 Two source feature groups, both backed by ``DataCreator``:
 
-* ``AsofEventSource`` (LEFT / events): columns ``id``, ``symbol``, ``event_ts``.
-* ``AsofQuoteSource`` (RIGHT / quotes): columns ``symbol``, ``quote_ts``, ``price``.
+* the event source (LEFT / events): columns ``id``, ``symbol``, ``event_ts``.
+* the quote source (RIGHT / quotes): columns ``symbol``, ``quote_ts``, ``price``.
 
 Both declare ``index_columns() -> [Index(("symbol",))]`` so the ASOF link can
 derive the equi by-key (``symbol``) automatically. ``Link.asof_on(...)`` then
@@ -48,14 +48,23 @@ from typing import Any, Optional
 import pytest
 
 pd = pytest.importorskip("pandas")
-pa = pytest.importorskip("pyarrow")
+
+# pandas is the baseline (always required); pyarrow is optional. Guard both the
+# module and the compute-framework import so the pandas parametrization still
+# runs when pyarrow is absent (only the pyarrow param is skipped, see below).
+try:
+    import pyarrow as pa
+
+    from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+except ImportError:  # pragma: no cover - exercised only without pyarrow installed
+    pa = None  # type: ignore[assignment]
+    PyArrowTable = None  # type: ignore[assignment,misc]
 
 from mloda.core.abstract_plugins.components.input_data.base_input_data import BaseInputData
 from mloda.core.abstract_plugins.components.input_data.creator.data_creator import DataCreator
 from mloda.provider import ComputeFramework, FeatureGroup, FeatureSet
 from mloda.user import Feature, FeatureName, Index, Link, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
-from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 _U = timezone.utc
 
@@ -214,17 +223,26 @@ class AsofEventPricePyArrow(_AsofEventPrice):
     compute_framework: type[ComputeFramework] = PyArrowTable
 
 
-def _extract_asof_prices(results: list[Any]) -> dict[int, int]:
-    """Read the ``{id: price}`` mapping from the pandas or PyArrow result frame."""
+def _extract_asof_prices(results: list[Any], framework: type[ComputeFramework]) -> dict[int, int]:
+    """Read the ``{id: price}`` mapping, asserting the result is the native frame type.
+
+    The type check is framework-aware: a pandas result is only accepted for the
+    pandas backend and a PyArrow result only for the PyArrow backend. This guards
+    the native compute path, so a regression where ``run_all`` satisfied a
+    PyArrow request with a pandas frame (or vice versa) fails loudly instead of
+    silently passing.
+    """
     for table in results:
         if isinstance(table, pd.DataFrame) and "asof_event_price" in table.columns:
+            assert framework is PandasDataFrame, f"Expected a {framework.__name__} result frame, got pandas.DataFrame"
             return {int(i): int(p) for i, p in zip(table["asof_event_id"], table["asof_event_price"])}
-        if isinstance(table, pa.Table) and "asof_event_price" in table.column_names:
+        if pa is not None and isinstance(table, pa.Table) and "asof_event_price" in table.column_names:
+            assert framework is PyArrowTable, f"Expected a {framework.__name__} result frame, got pyarrow.Table"
             ids = table.column("asof_event_id").to_pylist()
             prices = table.column("asof_event_price").to_pylist()
             return {int(i): int(p) for i, p in zip(ids, prices)}
 
-    raise AssertionError("No result frame with asof_event_price found")
+    raise AssertionError(f"No native {framework.__name__} result frame with asof_event_price found")
 
 
 def _run_asof_backward(
@@ -250,7 +268,7 @@ def _run_asof_backward(
         plugin_collector=plugin_collector,
     )
 
-    return _extract_asof_prices(results)
+    return _extract_asof_prices(results, framework)
 
 
 class TestAsofJoinExample:
@@ -272,6 +290,7 @@ class TestAsofJoinExample:
                 AsofQuoteSourcePyArrow,
                 AsofEventPricePyArrow,
                 id="pyarrow",
+                marks=pytest.mark.skipif(pa is None or PyArrowTable is None, reason="pyarrow not installed"),
             ),
         ],
     )

@@ -101,7 +101,7 @@ both factories (`Link.asof(left_spec, right_spec, *, left_time_column=..., ...)`
 |---|---|---|
 | Pandas | yes | Native `pd.merge_asof`. Supports `direction="nearest"` and `timedelta` tolerances. |
 | Polars (lazy) | yes | Native `join_asof`. Supports `direction="nearest"` and `timedelta` tolerances. |
-| PyArrow | yes | Native Acero `Table.join_asof` (mloda 0.9.0, [mloda#489](https://github.com/mloda-ai/mloda/pull/489): no more pandas round-trip). Like the SQL backends it rejects `direction="nearest"` and `allow_exact_matches=False` with a `ValueError`, and requires an integer tolerance (a `timedelta` or non-integer tolerance is rejected). |
+| PyArrow | yes | Native Acero `Table.join_asof` (mloda 0.9.0, [mloda#489](https://github.com/mloda-ai/mloda/pull/489): no more pandas round-trip). Like the SQL backends it rejects `direction="nearest"` with a `ValueError`; it is stricter than they are in two ways, also rejecting `allow_exact_matches=False` (Acero's match range always includes exact matches) and requiring an integer tolerance (a `timedelta` or non-integer tolerance is rejected). |
 | DuckDB | yes | SQL `ASOF JOIN`. Rejects `direction="nearest"` and a `timedelta` tolerance with a `ValueError`; pass a numeric tolerance instead. |
 | SQLite | yes | SQL window functions. Same restriction as DuckDB: no `nearest`, numeric tolerance only. |
 
