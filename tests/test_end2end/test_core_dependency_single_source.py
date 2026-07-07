@@ -34,10 +34,11 @@ _ROOT_PYPROJECT = _REPO_ROOT / "pyproject.toml"
 # followed by a floor version constraint.
 _CORE_PIN_RE = re.compile(r"^mloda\b.*>=")
 
-# Matches a literal core pin ``mloda>=`` where ``mloda`` is NOT part of a longer
-# hyphenated name like ``mloda-community-...``. This must NOT match
+# Matches a literal core pin such as ``mloda>=`` or the spaced form
+# ``mloda >= 0.9.0`` (any comparison operator), where ``mloda`` is NOT part of a
+# longer hyphenated name like ``mloda-community-...``. This must NOT match
 # ``mloda-community-data-operations>=0.2.12`` or ``mloda-testing``.
-_CORE_LITERAL_RE = re.compile(r"(?<![\w-])mloda>=")
+_CORE_LITERAL_RE = re.compile(r"(?<![\w-])mloda\s*(>=|==|~=|!=|<=|<|>)")
 
 
 def _load_toml(path: Path) -> dict[str, Any]:

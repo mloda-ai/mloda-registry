@@ -118,8 +118,14 @@ def generate_pyproject(
 
     # Dependencies - substitute the shared core dependency placeholder so the
     # mloda-core pin lives in exactly one place (config/shared.toml).
+    raw_deps = pkg_config.get("dependencies", [])
     core_dep = defaults.get("core_dependency", "")
-    deps = [dep.replace("{core_dependency}", core_dep) for dep in pkg_config.get("dependencies", [])]
+    if not core_dep and any("{core_dependency}" in dep for dep in raw_deps):
+        raise ValueError(
+            f"{pkg_name}: dependency uses {{core_dependency}} placeholder but "
+            "[defaults].core_dependency is not set in config/shared.toml"
+        )
+    deps = [dep.replace("{core_dependency}", core_dep) for dep in raw_deps]
     lines.append(f"dependencies = {to_toml_list(deps)}")
 
     lines.append(f'requires-python = "{shared["project"]["requires-python"]}"')
@@ -348,6 +354,14 @@ def main() -> int:
         print("✅ Workspace members are up-to-date")
         print("✅ Root mloda-core dependency is up-to-date")
         return 0
+
+    if not workspace_ok or not core_ok:
+        print("❌ Failed to sync root pyproject.toml:")
+        if not workspace_ok:
+            print(f"  - {workspace_msg}")
+        if not core_ok:
+            print(f"  - {core_msg}")
+        return 1
 
     if workspace_ok and workspace_msg == "updated":
         print(f"  ✓ {ROOT_PYPROJECT} (workspace members)")
