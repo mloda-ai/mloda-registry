@@ -13,6 +13,12 @@ Contract notes for the Green agent implementing scripts/lint_credentials.py:
 - Stable assertion phrase pinned below: every violation string must contain the
   substring ``"HashableDict"`` AND the substring ``"credential"`` (lowercase),
   plus the ``{rel_path}:{lineno}:`` locator.
+- Detection is marker-anchored and bracket-span based (there is NO ``window``
+  parameter): from each construction-shaped credential marker
+  (``credentials=``, ``add_credentials(``, or a quoted ``BaseInputData`` group
+  key), walk forward tracking bracket depth and flag any ``HashableDict`` token
+  that falls inside that enclosing construct, reported at the token's 1-based
+  line (deduped, one error per HashableDict line).
 - ``main()`` must scan a module-level, rebindable root named ``SCAN_ROOT``
   (defaulting to ``REPO_ROOT``); these tests monkeypatch
   ``lint_credentials.SCAN_ROOT`` to point at a tmp tree.
@@ -75,14 +81,28 @@ def test_scan_flags_base_input_data_group_key_form() -> None:
     assert "credential" in errors[0]
 
 
-def test_scan_flags_marker_within_window_across_blank_line() -> None:
-    """Proves the ±window scan works: DataAccessCollection marker, a blank line,
-    then the HashableDict line (2 lines apart, within default window=2)."""
-    content = "DataAccessCollection(\n\n    credentials=[HashableDict({})]\n)\n"
+def test_scan_flags_hashable_dict_on_later_line_of_same_construct() -> None:
+    """Cross-line: marker and HashableDict on DIFFERENT lines, both inside the
+    same bracket construct. Pins forward bracket-span detection (a per-line-only
+    impl would miss it)."""
+    content = "    credentials=[\n        HashableDict({}),\n    ]\n"
     errors = lint_credentials.scan_content("mod.py", content)
     assert len(errors) == 1
-    # The HashableDict token is on line 3.
-    assert "mod.py:3:" in errors[0]
+    # The HashableDict token is on line 2, inside the credentials=[...] span.
+    assert "mod.py:2:" in errors[0]
+    assert "HashableDict" in errors[0]
+    assert "credential" in errors[0]
+
+
+def test_scan_flags_wrapped_credential_construction() -> None:
+    """Deeply wrapped: the HashableDict token sits several lines below the marker,
+    still inside the enclosing brackets. Proves wrapping beyond 2 lines no longer
+    slips through a fixed proximity window."""
+    content = "credentials=[\n    some_factory(\n        extra_arg,\n        HashableDict({}),\n    ),\n]\n"
+    errors = lint_credentials.scan_content("mod.py", content)
+    assert len(errors) == 1
+    # The HashableDict token is on line 4.
+    assert "mod.py:4:" in errors[0]
     assert "HashableDict" in errors[0]
     assert "credential" in errors[0]
 
@@ -97,15 +117,27 @@ def test_scan_ignores_legit_options_group_value() -> None:
     assert lint_credentials.scan_content("mod.py", content) == []
 
 
+def test_scan_ignores_hashable_dict_near_unrelated_marker_mention() -> None:
+    """Bare prose ``credentials`` and a bare ``DataAccessCollection`` mention are
+    NOT markers; a legit Options-group HashableDict nearby must NOT be flagged."""
+    content = (
+        "You can also pass credentials to the reader.\n"
+        "from mloda.user import DataAccessCollection\n"
+        'opts = Options(group={"MyReader": HashableDict({"path": "/x"})})\n'
+    )
+    assert lint_credentials.scan_content("mod.py", content) == []
+
+
 def test_scan_ignores_hashable_dict_far_from_marker() -> None:
-    """HashableDict more than `window` lines from any credential marker is clean."""
+    """HashableDict outside the ``credentials = load_credentials()`` statement's
+    span (the marker's construct already ended) is clean."""
     lines = [
-        "credentials = load_credentials()",  # marker on line 1
+        "credentials = load_credentials()",  # marker's statement ends on line 1
         "a = 1",
         "b = 2",
         "c = 3",
         "d = 4",
-        'value = HashableDict({"path": "/x"})',  # line 6, > window from marker
+        'value = HashableDict({"path": "/x"})',  # line 6, outside the marker span
     ]
     content = "\n".join(lines) + "\n"
     assert lint_credentials.scan_content("mod.py", content) == []
@@ -171,7 +203,7 @@ def test_main_clean_tree_returns_zero(
     rc = lint_credentials.main()
     out = capsys.readouterr().out
     assert rc == 0
-    assert out != ""
+    assert "No credential-context" in out
 
 
 def test_main_flags_planted_violation_returns_one(
