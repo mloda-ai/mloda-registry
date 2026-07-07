@@ -1,23 +1,23 @@
 """Entry-point manifest for mloda-community-sessionization.
 
 Lists the concrete FeatureGroup classes that mloda discovers via the
-``mloda.feature_groups`` entry point. See issue #271.
+``mloda.feature_groups`` entry point. Backends whose optional framework is not
+installed are skipped so the rest still register. See issue #271.
 """
 
 from __future__ import annotations
 
 from mloda.provider import FeatureGroup
 
-from .duckdb_sessionization import DuckdbSessionization
-from .pandas_sessionization import PandasSessionization
-from .polars_lazy_sessionization import PolarsLazySessionization
-from .pyarrow_sessionization import PyArrowSessionization
-from .sqlite_sessionization import SqliteSessionization
+from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
-FEATURE_GROUPS: list[type[FeatureGroup]] = [
-    DuckdbSessionization,
-    PandasSessionization,
-    PolarsLazySessionization,
-    PyArrowSessionization,
-    SqliteSessionization,
-]
+FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
+    __package__ or __name__.rpartition(".")[0],
+    [
+        ("duckdb_sessionization", "DuckdbSessionization"),
+        ("pandas_sessionization", "PandasSessionization"),
+        ("polars_lazy_sessionization", "PolarsLazySessionization"),
+        ("pyarrow_sessionization", "PyArrowSessionization"),
+        ("sqlite_sessionization", "SqliteSessionization"),
+    ],
+)

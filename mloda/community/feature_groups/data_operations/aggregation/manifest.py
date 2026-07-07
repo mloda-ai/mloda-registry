@@ -1,23 +1,23 @@
 """Entry-point manifest for mloda-community-aggregation.
 
 Lists the concrete FeatureGroup classes that mloda discovers via the
-``mloda.feature_groups`` entry point. See issue #271.
+``mloda.feature_groups`` entry point. Backends whose optional framework is not
+installed are skipped so the rest still register. See issue #271.
 """
 
 from __future__ import annotations
 
 from mloda.provider import FeatureGroup
 
-from .duckdb_aggregation import DuckdbAggregation
-from .pandas_aggregation import PandasAggregation
-from .polars_lazy_aggregation import PolarsLazyAggregation
-from .pyarrow_aggregation import PyArrowAggregation
-from .sqlite_aggregation import SqliteAggregation
+from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
-FEATURE_GROUPS: list[type[FeatureGroup]] = [
-    DuckdbAggregation,
-    PandasAggregation,
-    PolarsLazyAggregation,
-    PyArrowAggregation,
-    SqliteAggregation,
-]
+FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
+    __package__ or __name__.rpartition(".")[0],
+    [
+        ("duckdb_aggregation", "DuckdbAggregation"),
+        ("pandas_aggregation", "PandasAggregation"),
+        ("polars_lazy_aggregation", "PolarsLazyAggregation"),
+        ("pyarrow_aggregation", "PyArrowAggregation"),
+        ("sqlite_aggregation", "SqliteAggregation"),
+    ],
+)

@@ -1,21 +1,22 @@
 """Entry-point manifest for mloda-community-offset.
 
 Lists the concrete FeatureGroup classes that mloda discovers via the
-``mloda.feature_groups`` entry point. See issue #271.
+``mloda.feature_groups`` entry point. Backends whose optional framework is not
+installed are skipped so the rest still register. See issue #271.
 """
 
 from __future__ import annotations
 
 from mloda.provider import FeatureGroup
 
-from .duckdb_offset import DuckdbOffset
-from .pandas_offset import PandasOffset
-from .polars_lazy_offset import PolarsLazyOffset
-from .sqlite_offset import SqliteOffset
+from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
-FEATURE_GROUPS: list[type[FeatureGroup]] = [
-    DuckdbOffset,
-    PandasOffset,
-    PolarsLazyOffset,
-    SqliteOffset,
-]
+FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
+    __package__ or __name__.rpartition(".")[0],
+    [
+        ("duckdb_offset", "DuckdbOffset"),
+        ("pandas_offset", "PandasOffset"),
+        ("polars_lazy_offset", "PolarsLazyOffset"),
+        ("sqlite_offset", "SqliteOffset"),
+    ],
+)

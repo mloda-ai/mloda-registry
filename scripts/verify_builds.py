@@ -156,7 +156,9 @@ def get_wheel_entry_points(wheel_path: Path) -> dict[str, dict[str, str]]:
             return {}
         content = zf.read(entry_points_name).decode()
 
-    parser = configparser.ConfigParser()
+    # interpolation=None so a literal "%" in an entry-point value (e.g. a module
+    # path or object ref) cannot raise InterpolationSyntaxError.
+    parser = configparser.ConfigParser(interpolation=None)
     parser.read_string(content)
 
     result: dict[str, dict[str, str]] = {}

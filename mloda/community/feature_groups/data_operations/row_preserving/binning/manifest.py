@@ -1,23 +1,23 @@
 """Entry-point manifest for mloda-community-binning.
 
 Lists the concrete FeatureGroup classes that mloda discovers via the
-``mloda.feature_groups`` entry point. See issue #271.
+``mloda.feature_groups`` entry point. Backends whose optional framework is not
+installed are skipped so the rest still register. See issue #271.
 """
 
 from __future__ import annotations
 
 from mloda.provider import FeatureGroup
 
-from .duckdb_binning import DuckdbBinning
-from .pandas_binning import PandasBinning
-from .polars_lazy_binning import PolarsLazyBinning
-from .pyarrow_binning import PyArrowBinning
-from .sqlite_binning import SqliteBinning
+from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
-FEATURE_GROUPS: list[type[FeatureGroup]] = [
-    DuckdbBinning,
-    PandasBinning,
-    PolarsLazyBinning,
-    PyArrowBinning,
-    SqliteBinning,
-]
+FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
+    __package__ or __name__.rpartition(".")[0],
+    [
+        ("duckdb_binning", "DuckdbBinning"),
+        ("pandas_binning", "PandasBinning"),
+        ("polars_lazy_binning", "PolarsLazyBinning"),
+        ("pyarrow_binning", "PyArrowBinning"),
+        ("sqlite_binning", "SqliteBinning"),
+    ],
+)

@@ -1,23 +1,23 @@
 """Entry-point manifest for mloda-community-ema.
 
 Lists the concrete FeatureGroup classes that mloda discovers via the
-``mloda.feature_groups`` entry point. See issue #271.
+``mloda.feature_groups`` entry point. Backends whose optional framework is not
+installed are skipped so the rest still register. See issue #271.
 """
 
 from __future__ import annotations
 
 from mloda.provider import FeatureGroup
 
-from .duckdb_ema import DuckdbEma
-from .pandas_ema import PandasEma
-from .polars_lazy_ema import PolarsLazyEma
-from .pyarrow_ema import PyArrowEma
-from .sqlite_ema import SqliteEma
+from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
-FEATURE_GROUPS: list[type[FeatureGroup]] = [
-    DuckdbEma,
-    PandasEma,
-    PolarsLazyEma,
-    PyArrowEma,
-    SqliteEma,
-]
+FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
+    __package__ or __name__.rpartition(".")[0],
+    [
+        ("duckdb_ema", "DuckdbEma"),
+        ("pandas_ema", "PandasEma"),
+        ("polars_lazy_ema", "PolarsLazyEma"),
+        ("pyarrow_ema", "PyArrowEma"),
+        ("sqlite_ema", "SqliteEma"),
+    ],
+)
