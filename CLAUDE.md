@@ -32,6 +32,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 When a compute framework backend cannot natively support an input or operation, reject it up-front with a clear `ValueError` rather than computing the result in Python inside the backend module. Both Red and Green agents must follow this rule (see `.claude/agents/green-agent.md` "CFW Backend Rules" for the full statement, rationale, and precedents; the Red agent writes a rejection test, not a fallback test). Reviewers should enforce it as well.
 
+Signal an unsupported backend by its shape:
+
+- **Per-input gap** (backend supports the op but not a specific input value): raise a clear `ValueError` in `_assert_*` / validation.
+- **Whole-backend gap** (the op has no native implementation on a framework at all): ship no backend class for it (absence). This is the repo-wide convention: a request that resolves only to that framework fails with mloda core's generic no-feature-group error, which is a loud failure, not silent emulation. Do not add per-framework reject shell classes whose only job is to raise. Examples: EMA has no pyarrow / duckdb / sqlite backend; resample has no sqlite backend; offset / rank / percentile / frame_aggregate have no pyarrow backend.
+- **Correct-fallback gap** (the unsupported engine's native primitive would diverge while another framework is correct): refuse to match via `_validate_*_match` so the resolver falls back to the correct engine (e.g. SQLite `upper`/`lower`/`reverse`).
+
 ## Deadlock Protection
 
 **CRITICAL**: If Red or Green agents get stuck or fail repeatedly:
