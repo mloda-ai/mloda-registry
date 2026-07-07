@@ -101,27 +101,17 @@ both factories (`Link.asof(left_spec, right_spec, *, left_time_column=..., ...)`
 |---|---|---|
 | Pandas | yes | Native `pd.merge_asof`. Supports `direction="nearest"` and `timedelta` tolerances. |
 | Polars (lazy) | yes | Native `join_asof`. Supports `direction="nearest"` and `timedelta` tolerances. |
-| PyArrow | yes | Native Acero `Table.join_asof` (mloda 0.9.0, [mloda#489](https://github.com/mloda-ai/mloda/pull/489): no more pandas round-trip). Like the SQL backends it rejects `direction="nearest"` with a `ValueError`; it is stricter than they are in two ways, also rejecting `allow_exact_matches=False` (Acero's match range always includes exact matches) and requiring an integer tolerance (a `timedelta` or non-integer tolerance is rejected). |
+| PyArrow | yes | Native Acero `Table.join_asof` ([mloda#489](https://github.com/mloda-ai/mloda/pull/489), 0.9.0). Rejects `direction="nearest"`, `allow_exact_matches=False`, and non-integer tolerances (integer only). |
 | DuckDB | yes | SQL `ASOF JOIN`. Rejects `direction="nearest"` and a `timedelta` tolerance with a `ValueError`; pass a numeric tolerance instead. |
 | SQLite | yes | SQL window functions. Same restriction as DuckDB: no `nearest`, numeric tolerance only. |
 
-`direction="nearest"` and `timedelta` tolerances work on the Pandas and Polars
-backends but are rejected up front (with a `ValueError`) on the PyArrow, DuckDB, and
-SQLite backends rather than emulated in Python: PyArrow's native Acero join has no
-symmetric "nearest" mode and takes an integer tolerance, and the SQL backends want a
-numeric tolerance. Pick a backend that supports the knobs your join needs.
-
-Two guards apply uniformly across every backend (mloda 0.9.0):
-
-- **Ordered time columns ([mloda#529](https://github.com/mloda-ai/mloda/pull/529)).**
-  As-of time columns must be ordered (datetime, numeric, or timedelta). A non-ordered
-  column (for example ISO-8601 date *strings* / object dtype) raises a clear
-  `ValueError` naming the column instead of silently producing wrong matches. Cast it
-  to a real datetime or numeric before joining.
-- **Opt-in string coercion ([mloda#548](https://github.com/mloda-ai/mloda/pull/548)).**
-  Passing `coerce_time_columns=True` to `Link.asof(...)` / `Link.asof_on(...)` opts in
-  to coercing ISO-8601 string time columns to native timestamps per backend; the
-  default (`False`) keeps the strict error above.
+`direction="nearest"` and `timedelta` tolerances work only on the Pandas and Polars
+backends; PyArrow and the SQL backends reject them (see the table). Two guards apply to
+every backend (mloda 0.9.0): as-of time columns must be ordered, so a non-ordered
+(e.g. string) column raises a clear `ValueError` naming it
+([mloda#529](https://github.com/mloda-ai/mloda/pull/529)); and `coerce_time_columns=True`
+opts in to coercing ISO-8601 string columns per backend
+([mloda#548](https://github.com/mloda-ai/mloda/pull/548)).
 
 ### Defining the link
 

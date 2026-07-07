@@ -1,43 +1,12 @@
-"""End-to-end worked example of mloda's ASOF (point-in-time) join.
+"""Runnable example of mloda's ASOF (point-in-time) join, linked from the as-of
+join guide. It passes on first run and is exercised on both the pandas and
+PyArrow backends (mloda 0.9.0 does PyArrow ASOF natively via Acero).
 
-This module is a *readable* example, not a red-phase failing test: mloda already
-implements the ASOF join in core, so the test PASSES on first run. It is kept as
-a regression/example that pins the point-in-time semantics, and the ASOF join
-guide links to it. The same scenario is exercised on two compute frameworks,
-pandas and PyArrow, via a single parametrized test; mloda 0.9.0 implements the
-PyArrow ASOF join natively (Acero), so both backends pass.
+Backward join keyed by ``symbol``: each event picks the latest quote with
+``quote_ts <= event_ts`` (exact match allowed). Expected price per event id::
 
-Scenario (tiny and hand-traceable)
-----------------------------------
-Two source feature groups, both backed by ``DataCreator``:
-
-* the event source (LEFT / events): columns ``id``, ``symbol``, ``event_ts``.
-* the quote source (RIGHT / quotes): columns ``symbol``, ``quote_ts``, ``price``.
-
-Both declare ``index_columns() -> [Index(("symbol",))]`` so the ASOF link can
-derive the equi by-key (``symbol``) automatically. ``Link.asof_on(...)`` then
-performs a *backward* as-of join: for each event row it picks the quote with the
-same ``symbol`` whose ``quote_ts`` is the latest value ``<= event_ts``.
-``allow_exact_matches=True`` (the default) means an event whose timestamp equals
-a quote timestamp matches that quote.
-
-Quote price timelines (per symbol)::
-
-    AAA:  10:00 -> 100      BBB:  10:00 -> 200
-          10:30 -> 110            10:30 -> 220
-
-Hand-traced expected price in effect at each event (backward, exact allowed)::
-
-    id  symbol  event_ts   reasoning                                  -> price
-    0   AAA     10:00      exact match on AAA@10:00                    -> 100
-    1   AAA     10:15      latest AAA quote <= 10:15 is AAA@10:00      -> 100
-    2   AAA     10:45      latest AAA quote <= 10:45 is AAA@10:30      -> 110
-    3   BBB     10:30      exact match on BBB@10:30                    -> 220
-    4   BBB     11:00      latest BBB quote <= 11:00 is BBB@10:30      -> 220
-
-The join is keyed by ``symbol`` (the by-key), so AAA events never see BBB quotes
-and vice versa. Every event sits at or after its symbol's first quote, so there
-are no null matches in this example.
+    0 AAA@10:00 -> 100   1 AAA@10:15 -> 100   2 AAA@10:45 -> 110
+    3 BBB@10:30 -> 220   4 BBB@11:00 -> 220
 """
 
 from __future__ import annotations
@@ -73,26 +42,14 @@ _ASOF_BACKWARD_EXPECTED: dict[int, int] = {0: 100, 1: 100, 2: 110, 3: 220, 4: 22
 
 
 def _to_frame(framework: type[ComputeFramework], columns: dict[str, Any]) -> Any:
-    """Materialize a column dict into the native frame of ``framework``.
-
-    Both source and consumer feature groups produce their output this way so the
-    per-backend difference is confined to a single place: pandas builds a
-    ``DataFrame`` and PyArrow builds a ``Table``. ``columns`` may hold plain
-    Python lists (from the sources) or already-native columns such as a PyArrow
-    ``ChunkedArray`` (from the merged frame in the consumer).
-    """
+    """Build the native frame for ``framework`` (pandas ``DataFrame`` / PyArrow ``Table``)."""
     if framework is PandasDataFrame:
         return pd.DataFrame(columns)
     return pa.table(columns)
 
 
 class _AsofEventSource(FeatureGroup):
-    """LEFT side base: event rows carrying the entity (``symbol``) and event time.
-
-    All backend-agnostic wiring lives here; concrete subclasses only pin the
-    ``compute_framework`` so ``calculate_feature`` materializes the matching
-    native frame via :func:`_to_frame`.
-    """
+    """LEFT side (events); subclasses only pin ``compute_framework``."""
 
     compute_framework: type[ComputeFramework]
 
@@ -128,7 +85,7 @@ class _AsofEventSource(FeatureGroup):
 
 
 class _AsofQuoteSource(FeatureGroup):
-    """RIGHT side base: a per-symbol price timeline keyed by quote time."""
+    """RIGHT side (per-symbol price timeline); subclasses only pin ``compute_framework``."""
 
     compute_framework: type[ComputeFramework]
 
@@ -163,16 +120,8 @@ class _AsofQuoteSource(FeatureGroup):
 
 
 class _AsofEventPrice(FeatureGroup):
-    """Consumer base that pulls columns from both sources, triggering the ASOF link.
-
-    Requesting features from two different feature groups that have a ``Link``
-    between them is what makes mloda apply the join: the merged frame is handed
-    to ``calculate_feature`` as ``data``. This group then exposes the event id
-    and the as-of price as two named features so the test can assert keyed by id
-    (the merge engine sorts the result by ``event_ts``, so a positional list
-    would not be in input order). The output frame is materialized in the
-    subclass's ``compute_framework`` so the result matches the requested backend.
-    """
+    """Consumer that pulls from both sources (triggering the ASOF link) and exposes
+    ``asof_event_id`` / ``asof_event_price`` so the test can assert keyed by id."""
 
     compute_framework: type[ComputeFramework]
 
@@ -224,14 +173,8 @@ class AsofEventPricePyArrow(_AsofEventPrice):
 
 
 def _extract_asof_prices(results: list[Any], framework: type[ComputeFramework]) -> dict[int, int]:
-    """Read the ``{id: price}`` mapping, asserting the result is the native frame type.
-
-    The type check is framework-aware: a pandas result is only accepted for the
-    pandas backend and a PyArrow result only for the PyArrow backend. This guards
-    the native compute path, so a regression where ``run_all`` satisfied a
-    PyArrow request with a pandas frame (or vice versa) fails loudly instead of
-    silently passing.
-    """
+    """Read ``{id: price}`` from the result, asserting it is ``framework``'s native
+    frame type so a wrong-backend result (e.g. a pandas fallback) fails loudly."""
     for table in results:
         if isinstance(table, pd.DataFrame) and "asof_event_price" in table.columns:
             assert framework is PandasDataFrame, f"Expected a {framework.__name__} result frame, got pandas.DataFrame"
