@@ -189,6 +189,6 @@ class DuckdbTimeBucketization(TimeBucketizationFeatureGroup):
             f"CASE "
             f"WHEN {quoted_source} IS NULL THEN NULL "
             f"WHEN {offset_seconds} * 2 >= {bucket_seconds} THEN {ceil_next} "
-            f"ELSE {floor_expr} "
+            f"ELSE {floor_sql} "
             f"END"
         )
