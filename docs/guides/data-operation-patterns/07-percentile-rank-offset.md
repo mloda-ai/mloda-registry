@@ -21,7 +21,7 @@ Three related row-preserving families for analytic windows: percentile (value-at
 ```python
 from mloda.user import Feature, Options, PluginLoader, mloda
 
-PluginLoader.all()
+PluginLoader.all()  # cached & shared; force_reload=True to pick up newly installed plugins
 
 feature = Feature(
     "latency__p95_percentile",

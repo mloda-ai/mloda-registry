@@ -91,7 +91,7 @@ Any framework whose native operation reorders will need an analogous workaround.
 ```python
 from mloda.user import Feature, PluginLoader, mloda
 
-PluginLoader.all()
+PluginLoader.all()  # cached & shared; force_reload=True to pick up newly installed plugins
 
 features = [
     Feature("value_int__bin_5"),    # equal-width, 5 bins

@@ -305,7 +305,7 @@ Use `resolve_feature()` to verify your FeatureGroup matches correctly:
 from mloda.user import PluginLoader
 from mloda.steward import resolve_feature
 
-PluginLoader.all()
+PluginLoader.all()  # cached & shared; force_reload=True to pick up newly installed plugins
 
 # Verify your pattern matches
 result = resolve_feature("price__standard_scaled")

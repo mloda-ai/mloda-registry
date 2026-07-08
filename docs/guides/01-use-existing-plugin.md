@@ -20,6 +20,16 @@ PluginLoader.all()
 result = mloda.run_all([Feature("example_feature")])
 ```
 
+> **Loading is cached.** `PluginLoader.all()` builds the plugin set once and
+> returns the same shared loader on every later call, so calling it repeatedly is
+> cheap. Two consequences matter in long-lived processes such as notebooks:
+>
+> - If you `pip install` a new plugin package after the first `all()` call, pass
+>   `PluginLoader.all(force_reload=True)` (or call `PluginLoader.reset_cache()`
+>   first) to pick up its entry points in the same process.
+> - Never call `PluginLoader.all()` at plugin-module import time. A re-entrant
+>   call from inside plugin / entry-point loading raises `RuntimeError`.
+
 ## Column Ordering
 
 Control result column arrangement with the `column_ordering` parameter:

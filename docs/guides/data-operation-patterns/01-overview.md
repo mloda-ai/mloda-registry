@@ -63,7 +63,7 @@ StringFeatureGroup.PREFIX_PATTERN       # r".+__(upper|lower|trim|length|reverse
 ```python
 from mloda.user import Feature, Options, PluginLoader, mloda
 
-PluginLoader.all()
+PluginLoader.all()  # cached & shared; force_reload=True to pick up newly installed plugins
 
 features = [
     Feature("value_int__sum_agg", Options(context={"partition_by": ["region"]})),

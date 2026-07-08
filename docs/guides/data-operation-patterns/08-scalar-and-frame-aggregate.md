@@ -19,7 +19,7 @@ Every row receives the same aggregate value. No partitioning, no windowing.
 ```python
 from mloda.user import Feature, PluginLoader, mloda
 
-PluginLoader.all()
+PluginLoader.all()  # cached & shared; force_reload=True to pick up newly installed plugins
 
 # Every row gets the global max
 feature = Feature("value_int__max_scalar")

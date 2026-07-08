@@ -24,6 +24,13 @@ from mloda.user import PluginLoader
 PluginLoader.all()
 ```
 
+> **`all()` is cached and shared.** The first call builds the plugin set; later
+> calls return the same loader without rescanning. If you install a new plugin
+> package in the same running process (a common notebook workflow), pass
+> `PluginLoader.all(force_reload=True)` (or call `PluginLoader.reset_cache()`
+> first) so its entry points are discovered. Do not call `all()` at
+> plugin-module import time: a re-entrant call raises `RuntimeError`.
+
 ### List Feature Groups
 
 ```python

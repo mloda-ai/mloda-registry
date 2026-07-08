@@ -116,7 +116,7 @@ For SQLite, all timestamps are stored as TEXT in ISO 8601. The cross-framework t
 ```python
 from mloda.user import Feature, PluginLoader, mloda
 
-PluginLoader.all()
+PluginLoader.all()  # cached & shared; force_reload=True to pick up newly installed plugins
 
 features = [
     Feature("event_time__floor_1_hour"),     # bucket events per hour

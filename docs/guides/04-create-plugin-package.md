@@ -59,6 +59,12 @@ See the [template README](https://github.com/mloda-ai/mloda-plugin-template#setu
 pip install -e .
 ```
 
+> **Re-scanning after install.** `PluginLoader.all()` caches the plugin set on
+> first use. If you install (or reinstall) this package into a Python process
+> that has already called `all()`, pass `PluginLoader.all(force_reload=True)`
+> (or call `PluginLoader.reset_cache()` first) so its entry points are picked up.
+> A fresh process needs no flag.
+
 ## Next Steps
 
 - [Share with your team](05-share-with-team.md)

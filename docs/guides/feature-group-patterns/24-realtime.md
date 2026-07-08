@@ -13,7 +13,7 @@ Build the execution plan once at startup and reuse it for repeated calls with fr
 ```python
 from mloda.user import PluginLoader, mloda, Feature
 
-PluginLoader.all()
+PluginLoader.all()  # cached & shared; force_reload=True to pick up newly installed plugins
 
 # 1. Prepare once (expensive — builds execution plan)
 session = mloda.prepare(
