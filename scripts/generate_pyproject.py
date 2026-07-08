@@ -29,6 +29,54 @@ HEADER = """\
 # Do not edit directly - modify config/shared.toml or config/packages.toml instead
 """
 
+# Entry-point group -> manifest attribute exposing the concrete plugin classes.
+# mloda 0.9.0 discovers installed plugins through these entry-point groups; each
+# plugin package ships a ``manifest.py`` listing its concrete plugin classes
+# under the mapped attribute. See issue #271.
+ENTRY_POINT_ATTRS = {
+    "mloda.feature_groups": "FEATURE_GROUPS",
+    "mloda.compute_frameworks": "COMPUTE_FRAMEWORKS",
+    "mloda.extenders": "EXTENDERS",
+}
+
+
+def compute_entry_points(
+    pkg_name: str,
+    pkg_config: dict[str, Any],
+    all_packages: dict[str, dict[str, Any]],
+) -> dict[str, list[tuple[str, str]]]:
+    """Compute entry-point tables for a package.
+
+    Returns a mapping of entry-point group -> sorted list of ``(label, value)``
+    pairs, where ``value`` is the canonical ``<dotted>.manifest:<ATTR>`` target.
+
+    Bundle packages (``entry_point_bundle = true``) aggregate the entry points of
+    every nested plugin package whose path lives under the bundle path. Regular
+    plugin packages emit their own declared ``entry_point_groups``.
+    """
+    if pkg_config.get("entry_point_bundle") and pkg_config.get("entry_point_groups"):
+        raise ValueError(f"{pkg_name}: entry_point_bundle and entry_point_groups are mutually exclusive")
+
+    result: dict[str, list[tuple[str, str]]] = {}
+
+    if pkg_config.get("entry_point_bundle"):
+        bundle_prefix = pkg_config["path"].rstrip("/") + "/"
+        for name, cfg in all_packages.items():
+            groups = cfg.get("entry_point_groups")
+            if not groups:
+                continue
+            if not cfg["path"].startswith(bundle_prefix):
+                continue
+            for group in groups:
+                value = f"{cfg['path'].replace('/', '.')}.manifest:{ENTRY_POINT_ATTRS[group]}"
+                result.setdefault(group, []).append((name, value))
+    else:
+        for group in pkg_config.get("entry_point_groups", []):
+            value = f"{pkg_config['path'].replace('/', '.')}.manifest:{ENTRY_POINT_ATTRS[group]}"
+            result.setdefault(group, []).append((pkg_name, value))
+
+    return {group: sorted(pairs, key=lambda pair: pair[0]) for group, pairs in result.items() if pairs}
+
 
 def to_toml_list(items: list[str]) -> str:
     """Format a list as TOML with double quotes."""
@@ -148,6 +196,19 @@ def generate_pyproject(
     for key, value in shared["project"]["urls"].items():
         lines.append(f'{key} = "{value}"')
     lines.append("")
+
+    # Entry points - mloda plugin discovery (issue #271). Emit groups in the
+    # stable ENTRY_POINT_ATTRS insertion order; entry-point labels are
+    # distribution names containing hyphens, which are valid bare TOML keys.
+    entry_points = compute_entry_points(pkg_name, pkg_config, all_packages)
+    for group in ENTRY_POINT_ATTRS:
+        pairs = entry_points.get(group)
+        if not pairs:
+            continue
+        lines.append(f'[project.entry-points."{group}"]')
+        for label, value in pairs:
+            lines.append(f'{label} = "{value}"')
+        lines.append("")
 
     # Setuptools config - infer meta-package from workspace_deps
     if "workspace_deps" in pkg_config:
