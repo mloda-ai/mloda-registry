@@ -93,6 +93,46 @@ def test_merge_engine():
     assert len(result) == 1  # Only idx=2 matches
 ```
 
+## Timezone / Unit Validation (Opt-In)
+
+Since mloda 0.9.0, `BaseMergeEngine.merge()` can guard equi-joins (inner/left/right/outer) against
+timezone-incompatible key pairs. The guard is opt-in via a class attribute:
+
+```python
+class MyMergeEngine(BaseMergeEngine):
+    provides_column_semantics = True
+
+    def _column_semantics(self, data, column) -> "ColumnSemantics":
+        dtype = data[column].dtype
+        return ColumnSemantics(
+            is_ordered=...,   # datetime / numeric / timedelta dtype
+            is_temporal=...,  # datetime-like dtype
+            is_numeric=...,
+            unit=...,         # e.g. "ns", or None if unknown
+            is_tz_aware=...,  # tz-aware datetime dtype
+        )
+```
+
+`ColumnSemantics` is not yet re-exported from `mloda.provider`; import it from the internal
+`comparison_contract` module (see the pandas implementation linked below for the exact path).
+
+Behavior:
+
+- `provides_column_semantics` defaults to `False`: the equi-join guard is skipped entirely, so a
+  time-agnostic framework never has to implement `_column_semantics`.
+- When opted in, aligned key pairs are checked only if **both** columns are temporal; string,
+  numeric, or id keys are never affected. Mixing timezone-aware and timezone-naive keys raises a
+  clear `ValueError`.
+- Opting in without implementing the hook raises `NotImplementedError`, so a forgotten override
+  fails loudly.
+- As-of caveat: `merge_asof()` validates its time columns through `_column_semantics` regardless of
+  the flag, so an engine that implements as-of joins must implement the hook either way.
+
+See the upstream
+[comparison contract](https://github.com/mloda-ai/mloda/blob/main/docs/docs/in_depth/comparison-contract.md)
+doc for the full model, and [07-filter-engine](07-filter-engine.md#timezone--unit-validation-opt-in)
+for the filter-side guard.
+
 ## Stateful Connection
 
 For frameworks with connections, use `self.framework_connection`:

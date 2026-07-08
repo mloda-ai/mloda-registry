@@ -81,6 +81,35 @@ class MyFilterEngine(BaseFilterEngine):
         return [row for row in data if row.get(col) in values]
 ```
 
+## Timezone / Unit Validation (Opt-In)
+
+Since mloda 0.9.0, `BaseFilterEngine` can guard range/min/max filters whose bound is a native
+`datetime`: the bound's timezone-awareness must match the filtered column. The guard is opt-in via
+a class attribute, mirroring the merge-engine flag:
+
+```python
+class MyFilterEngine(BaseFilterEngine):
+    provides_column_semantics = True
+
+    @classmethod
+    def _column_semantics(cls, data, column) -> "ColumnSemantics":
+        ...  # report the column's native semantics, see 06-merge-engine
+```
+
+Behavior:
+
+- `provides_column_semantics` defaults to `False`: the guard is skipped entirely, so a
+  time-agnostic filter engine never has to implement `_column_semantics`.
+- When opted in, the hook is only consulted when a filter bound is actually a `datetime`
+  (pandas `Timestamp` counts); numeric and string filters never touch it.
+- Opting in without implementing the hook raises `NotImplementedError`, so a forgotten override
+  fails loudly.
+
+See [06-merge-engine](06-merge-engine.md#timezone--unit-validation-opt-in) for the hook contract
+and example, and the upstream
+[comparison contract](https://github.com/mloda-ai/mloda/blob/main/docs/docs/in_depth/comparison-contract.md)
+doc for the full model.
+
 ## FeatureGroup Override
 
 Individual FeatureGroups can override filter behavior per-class by defining `final_filters()` on the FeatureGroup itself. This takes precedence over the FilterEngine's `final_filters()` setting.
