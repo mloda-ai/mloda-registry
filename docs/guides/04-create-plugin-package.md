@@ -60,10 +60,12 @@ pip install -e .
 ```
 
 > **Re-scanning after install.** `PluginLoader.all()` caches the plugin set on
-> first use. If you install (or reinstall) this package into a Python process
+> first use. If you install this package for the first time into a Python process
 > that has already called `all()`, pass `PluginLoader.all(force_reload=True)`
 > (or call `PluginLoader.reset_cache()` first) so its entry points are picked up.
-> A fresh process needs no flag.
+> A fresh process needs no flag. Reinstalling or upgrading a package whose modules
+> are already imported still needs a process restart: `force_reload` rescans entry
+> points but does not reload already-imported code.
 
 ## Next Steps
 

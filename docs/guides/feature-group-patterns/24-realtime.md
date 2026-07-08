@@ -15,13 +15,13 @@ from mloda.user import PluginLoader, mloda, Feature
 
 PluginLoader.all()  # cached & shared; force_reload=True to pick up newly installed plugins
 
-# 1. Prepare once (expensive — builds execution plan)
+# 1. Prepare once (expensive: builds execution plan)
 session = mloda.prepare(
     [Feature("my_feature")],
     compute_frameworks=["PandasDataFrame"],
 )
 
-# 2. Run many times (cheap — reuses plan)
+# 2. Run many times (cheap: reuses plan)
 result_1 = session.run(api_data={"MyKey": {"col": [1, 2]}})
 result_2 = session.run(api_data={"MyKey": {"col": [3, 4]}})
 ```
