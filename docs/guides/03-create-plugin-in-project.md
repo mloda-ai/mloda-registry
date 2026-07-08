@@ -62,13 +62,6 @@ PluginLoader.all()
 result = mloda.run_all([Feature("CustomerScoring")])
 ```
 
-> **Do not call `PluginLoader.all()` at import time.** `all()` is cached and
-> shared, so call it once from your application or notebook code, not from inside
-> a plugin module: a re-entrant call during plugin / entry-point loading raises
-> `RuntimeError`. When you install a new plugin package into an already-running
-> process, pass `PluginLoader.all(force_reload=True)` (or call
-> `PluginLoader.reset_cache()` first) to discover it.
-
 **Tip**: For incremental results when requesting multiple features, use [`stream_all`](feature-group-patterns/23-streaming.md) instead of `run_all`.
 
 ## Next Steps

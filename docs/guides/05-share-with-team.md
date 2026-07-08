@@ -36,12 +36,6 @@ Then use in code:
 from acme.feature_groups.scoring import CustomerScoring
 ```
 
-> **Notebook tip.** If a teammate installs the package into a running kernel that
-> already called `PluginLoader.all()`, the new plugin will not appear until they
-> re-scan with `PluginLoader.all(force_reload=True)` (or `PluginLoader.reset_cache()`
-> first). Restarting the process also works. Direct imports like the one above are
-> unaffected.
-
 ## Step 3: Version and Update
 
 Tag releases so team members can pin versions:
