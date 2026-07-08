@@ -8,6 +8,9 @@ tuple, now raises ``ValueError`` (use ``Credential(...)`` or a plain dict).
 so this guard only flags ``HashableDict`` usages near a credential /
 data-access marker. The registry is currently clean; this trips loudly if such
 a usage ever reappears.
+
+This is a best-effort proximity heuristic and can miss a reintroduction where
+``HashableDict`` is bound to an intermediate variable far from the marker.
 """
 
 from pathlib import Path
@@ -16,7 +19,27 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 _SKIP_DIRS = {"__pycache__", "site-packages", "node_modules"}
-_MARKERS = ("credentials", "add_credentials", "DataAccessCollection", "BaseInputData")
+_MARKERS = ("credentials", "DataAccessCollection", "BaseInputData")
+
+
+def _in_scope_indices(path: Path, lines: list[str]) -> set[int]:
+    """Return the set of line indices whose content is in scope for marker matching.
+
+    For ``.py`` files every line is in scope. For ``.md`` files only lines inside
+    triple-backtick fenced code blocks count (prose is ignored); the fence
+    delimiter lines themselves are excluded. Mirrors scripts/lint_docs.py.
+    """
+    if path.suffix != ".md":
+        return set(range(len(lines)))
+    scope: set[int] = set()
+    in_block = False
+    for i, line in enumerate(lines):
+        if line.startswith("```"):
+            in_block = not in_block
+            continue
+        if in_block:
+            scope.add(i)
+    return scope
 
 
 def find_hashabledict_credential_usages(root: Path) -> list[str]:
@@ -32,7 +55,10 @@ def find_hashabledict_credential_usages(root: Path) -> list[str]:
             lines = path.read_text(encoding="utf-8").splitlines()
         except (UnicodeDecodeError, OSError):
             continue
+        scope = _in_scope_indices(path, lines)
         for i, line in enumerate(lines):
+            if i not in scope:
+                continue
             if "HashableDict" not in line:
                 continue
             window = lines[max(0, i - 3) : i + 4]
@@ -95,6 +121,22 @@ def test_hashabledict_far_from_marker_not_flagged(tmp_path: Path) -> None:
 def test_guard_module_self_excluded(tmp_path: Path) -> None:
     """A file named like this guard module is skipped even with a flaggable pattern."""
     _write(tmp_path / "test_no_hashabledict_credentials.py", "credentials=[HashableDict({'host': 'h'})]\n")
+    assert find_hashabledict_credential_usages(tmp_path) == []
+
+
+def test_md_fenced_credential_hashabledict_flagged(tmp_path: Path) -> None:
+    """A flaggable credential HashableDict line inside a fenced python block in .md is flagged."""
+    body = "Migration example:\n\n```python\ncredentials=[HashableDict({'host': 'h'})]\n```\n"
+    _write(tmp_path / "guide.md", body)
+    hits = find_hashabledict_credential_usages(tmp_path)
+    assert len(hits) == 1
+    assert "guide.md" in hits[0]
+
+
+def test_md_prose_credential_hashabledict_not_flagged(tmp_path: Path) -> None:
+    """A HashableDict + credentials mention only in .md prose (no fenced block) is not flagged."""
+    body = "Previously you passed a HashableDict as credentials; now use Credential.\n"
+    _write(tmp_path / "guide.md", body)
     assert find_hashabledict_credential_usages(tmp_path) == []
 
 
