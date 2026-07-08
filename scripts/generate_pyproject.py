@@ -54,6 +54,9 @@ def compute_entry_points(
     every nested plugin package whose path lives under the bundle path. Regular
     plugin packages emit their own declared ``entry_point_groups``.
     """
+    if pkg_config.get("entry_point_bundle") and pkg_config.get("entry_point_groups"):
+        raise ValueError(f"{pkg_name}: entry_point_bundle and entry_point_groups are mutually exclusive")
+
     result: dict[str, list[tuple[str, str]]] = {}
 
     if pkg_config.get("entry_point_bundle"):

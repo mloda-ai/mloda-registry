@@ -212,6 +212,52 @@ def test_manifest_modules_list_only_concrete_plugins() -> None:
                 )
 
 
+def test_bundle_and_groups_are_mutually_exclusive() -> None:
+    """A package config declaring both entry_point_bundle and entry_point_groups must be rejected."""
+    pkg_config: dict[str, Any] = {
+        "path": "mloda/community",
+        "entry_point_bundle": True,
+        "entry_point_groups": ["mloda.feature_groups"],
+    }
+    all_packages: dict[str, dict[str, Any]] = {"mloda-bogus": pkg_config}
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        gen.compute_entry_points("mloda-bogus", pkg_config, all_packages)
+
+
+# 0.3.3 is the first registry release shipping manifest_utils, which the
+# data_operations manifest.py files import; older floors permit installs
+# whose entry points fail silently at discovery time.
+_MANIFEST_UTILS_MIN = (0, 3, 3)
+
+_DATA_OPERATIONS_PREFIX = "mloda/community/feature_groups/data_operations/"
+_DATA_OPERATIONS_DEP_PREFIX = "mloda-community-data-operations>="
+
+
+def test_data_operations_plugins_require_manifest_utils_capable_floor() -> None:
+    """data_operations plugin packages must require a manifest_utils-capable base package."""
+    _shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+
+    checked = 0
+    for pkg_name, pkg_config in packages.items():
+        if not pkg_config.get("entry_point_groups"):
+            continue
+        if not pkg_config["path"].startswith(_DATA_OPERATIONS_PREFIX):
+            continue
+        for dep in pkg_config.get("dependencies", []):
+            if not dep.startswith(_DATA_OPERATIONS_DEP_PREFIX):
+                continue
+            checked += 1
+            floor = tuple(int(part) for part in dep.removeprefix(_DATA_OPERATIONS_DEP_PREFIX).split("."))
+            assert floor >= _MANIFEST_UTILS_MIN, (
+                f"{pkg_name}: dependency {dep!r} permits versions without manifest_utils; "
+                f"the floor must be >= {'.'.join(str(p) for p in _MANIFEST_UTILS_MIN)}"
+            )
+
+    assert checked, "expected at least one data_operations plugin package with a base-package dependency"
+
+
 def test_verify_builds_namespace_helper() -> None:
     """verify_builds must expose namespaced_entry_point_error validating entry-point targets."""
     helper = getattr(vb, "namespaced_entry_point_error", None)
