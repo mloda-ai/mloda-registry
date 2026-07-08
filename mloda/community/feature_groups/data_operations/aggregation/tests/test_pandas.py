@@ -26,6 +26,10 @@ class TestPandasAggregation(PandasTestMixin, AggregationTestBase):
     def implementation_class(cls) -> Any:
         return PandasAggregation
 
+    @classmethod
+    def supported_agg_types(cls) -> set[str]:
+        return {*cls.ALL_AGG_TYPES, "mean"}
+
 
 class TestPandasModeVectorized:
     """Targeted tests for the vectorized ``_compute_mode`` implementation.

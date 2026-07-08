@@ -56,6 +56,8 @@ AggregationFeatureGroup.PREFIX_PATTERN  # r".*__([\w]+)_agg$"
 StringFeatureGroup.PREFIX_PATTERN       # r".+__(upper|lower|trim|length|reverse)$"
 ```
 
+All patterns, subtypes, and per-framework support are also queryable at runtime via `DataOperationsCatalog`; see [Framework support matrix](framework-support-matrix.md#querying-capabilities-at-runtime).
+
 ---
 
 ## A minimal example

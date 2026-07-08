@@ -1,31 +1,18 @@
-"""Drift check: the framework support matrix doc must match supported_*() sets.
+"""Drift check: the framework support matrix doc must match DataOperationsCatalog.
 
-The matrix page at ``docs/guides/data-operation-patterns/framework-support-matrix.md``
-lists, per data operation and per framework, which subtypes (agg_type /
-offset_type / rank_type / op) are supported. Its source of truth is the
-``supported_*()`` classmethods on the framework test classes under
-``mloda/community/feature_groups/data_operations/**/tests/test_{framework}.py``.
-
-Two tests live here:
-
-- ``test_framework_support_matrix_is_in_sync`` asserts the generated block
-  between the ``BEGIN GENERATED`` / ``END GENERATED`` markers in the doc
-  matches what the current ``supported_*()`` sets produce.
-- ``test_operations_list_covers_every_data_operation_on_disk`` guards against
-  a new data-operation directory being added without extending ``OPERATIONS``.
-
-When the drift test fails, regenerate the block between the markers with a
-coding agent so its contents match what this test produces, then rerun.
+The source of truth for ``docs/guides/data-operation-patterns/framework-support-matrix.md``
+is the production capability declared by the concrete classes (``compute_framework_rule``,
+the ``supports_compute_framework`` hook, and match-time restrictions), queried via
+``DataOperationsCatalog``. When ``test_framework_support_matrix_is_in_sync`` fails,
+regenerate the block between the ``BEGIN GENERATED`` / ``END GENERATED`` markers so it
+matches what this module renders, then rerun.
 """
 
 from __future__ import annotations
 
-import importlib
-import inspect
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
 
+from mloda.community.feature_groups.data_operations import DataOperationsCatalog, OperationInfo
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 DOC_PATH = REPO_ROOT / "docs" / "guides" / "data-operation-patterns" / "framework-support-matrix.md"
@@ -34,6 +21,7 @@ DATA_OPERATIONS_ROOT = REPO_ROOT / "mloda" / "community" / "feature_groups" / "d
 BEGIN_MARKER = "<!-- BEGIN GENERATED: framework-support-matrix -->"
 END_MARKER = "<!-- END GENERATED: framework-support-matrix -->"
 
+#: Doc column order: (framework key, doc column label).
 FRAMEWORKS: list[tuple[str, str]] = [
     ("pyarrow", "PyArrow"),
     ("pandas", "Pandas"),
@@ -42,463 +30,122 @@ FRAMEWORKS: list[tuple[str, str]] = [
     ("sqlite", "SQLite"),
 ]
 
-SUPPORT_METHODS = (
-    "supported_agg_types",
-    "supported_ops",
-    "supported_frame_types",
-    "supported_offset_types",
-    "supported_rank_types",
-)
+#: Catalog framework key (``OperationInfo.frameworks``) per framework key.
+FRAMEWORK_CATALOG_KEYS: dict[str, str] = {
+    "pyarrow": "PyArrowTable",
+    "pandas": "PandasDataFrame",
+    "polars_lazy": "PolarsLazyDataFrame",
+    "duckdb": "DuckDBFramework",
+    "sqlite": "SqliteFramework",
+}
 
-
-def _frame_aggregate_subtypes(cls: type) -> set[str]:
-    """Flatten frame_aggregate's two-dimensional support into a single subtype set.
-
-    ``frame_aggregate`` is the only operation whose capability is governed by two
-    orthogonal axes: ``supported_frame_types()`` (rolling / time / cumulative /
-    expanding) and ``supported_time_units()`` (second / minute / ... / year, applied
-    only when ``time`` is in the frame-type set). Flatten to ``rolling``,
-    ``time:second``, ..., ``time:year``, ``cumulative``, ``expanding`` so a framework
-    that excludes ``time:month`` shows up as partial in the summary table.
-    """
-    frame_types: set[str] = set(cls.supported_frame_types())  # type: ignore[attr-defined]
-    time_units: set[str] = set(cls.supported_time_units())  # type: ignore[attr-defined]
-    out: set[str] = set()
-    for ft in frame_types:
-        if ft == "time":
-            for unit in time_units:
-                out.add(f"time:{unit}")
-        else:
-            out.add(ft)
-    return out
-
-
-@dataclass(frozen=True)
-class OperationSpec:
-    """Where to find an operation's test classes and its full subtype set."""
-
-    key: str
-    display: str
-    tests_pkg: str
-    base_module: str
-    base_class: str
-    subtype_label: str
-    order_hint: tuple[str, ...] = ()
-    # Optional callable that overrides the default ``supported_*`` lookup. Used by
-    # frame_aggregate to flatten (frame_type, time_unit) into compound subtypes.
-    subtype_extractor: Any = None
-
-
-OPERATIONS: list[OperationSpec] = [
-    OperationSpec(
-        key="aggregation",
-        display="aggregation",
-        tests_pkg="mloda.community.feature_groups.data_operations.aggregation.tests",
-        base_module="mloda.testing.feature_groups.data_operations.aggregation.aggregation",
-        base_class="AggregationTestBase",
-        subtype_label="agg type",
-        order_hint=(
-            "sum",
-            "avg",
-            "mean",
-            "count",
-            "min",
-            "max",
-            "std",
-            "var",
-            "std_pop",
-            "std_samp",
-            "var_pop",
-            "var_samp",
-            "median",
-            "mode",
-            "nunique",
-            "first",
-            "last",
-        ),
-    ),
-    OperationSpec(
-        key="binning",
-        display="binning",
-        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.binning.tests",
-        base_module="mloda.testing.feature_groups.data_operations.row_preserving.binning.binning",
-        base_class="BinningTestBase",
-        subtype_label="op",
-        order_hint=("bin", "qbin"),
-    ),
-    OperationSpec(
-        key="datetime",
-        display="datetime",
-        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.datetime.tests",
-        base_module="mloda.testing.feature_groups.data_operations.row_preserving.datetime.datetime",
-        base_class="DateTimeTestBase",
-        subtype_label="op",
-    ),
-    OperationSpec(
-        key="frame_aggregate",
-        display="frame_aggregate",
-        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.tests",
-        base_module="mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate",
-        base_class="FrameAggregateTestBase",
-        subtype_label="frame type",
-        order_hint=(
-            "rolling",
-            "time:second",
-            "time:minute",
-            "time:hour",
-            "time:day",
-            "time:week",
-            "time:month",
-            "time:year",
-            "cumulative",
-            "expanding",
-        ),
-        subtype_extractor=_frame_aggregate_subtypes,
-    ),
-    OperationSpec(
-        key="offset",
-        display="offset",
-        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.offset.tests",
-        base_module="mloda.testing.feature_groups.data_operations.row_preserving.offset.offset",
-        base_class="OffsetTestBase",
-        subtype_label="offset type",
-        order_hint=("lag", "lead", "diff", "pct_change", "first_value", "last_value"),
-    ),
-    OperationSpec(
-        key="percentile",
-        display="percentile",
-        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.percentile.tests",
-        base_module="mloda.testing.feature_groups.data_operations.row_preserving.percentile.percentile",
-        base_class="PercentileTestBase",
-        subtype_label="op",
-    ),
-    OperationSpec(
-        key="rank",
-        display="rank",
-        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.rank.tests",
-        base_module="mloda.testing.feature_groups.data_operations.row_preserving.rank.rank",
-        base_class="RankTestBase",
-        subtype_label="rank type",
-        order_hint=("row_number", "rank", "dense_rank", "percent_rank"),
-    ),
-    OperationSpec(
-        key="scalar_aggregate",
-        display="scalar_aggregate",
-        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.tests",
-        base_module="mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.scalar_aggregate",
-        base_class="ScalarAggregateTestBase",
-        subtype_label="agg type",
-        order_hint=(
-            "sum",
-            "avg",
-            "mean",
-            "count",
-            "min",
-            "max",
-            "std",
-            "var",
-            "std_pop",
-            "std_samp",
-            "var_pop",
-            "var_samp",
-            "median",
-        ),
-    ),
-    OperationSpec(
-        key="scalar_arithmetic",
-        display="scalar_arithmetic",
-        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.tests",
-        base_module="mloda.testing.feature_groups.data_operations.row_preserving.scalar_arithmetic.scalar_arithmetic",
-        base_class="ScalarArithmeticTestBase",
-        subtype_label="op",
-        order_hint=("add", "subtract", "multiply", "divide"),
-    ),
-    OperationSpec(
-        key="point_arithmetic",
-        display="point_arithmetic",
-        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.tests",
-        base_module="mloda.testing.feature_groups.data_operations.row_preserving.point_arithmetic.point_arithmetic",
-        base_class="PointArithmeticTestBase",
-        subtype_label="op",
-        order_hint=("add", "subtract", "multiply", "divide"),
-    ),
-    OperationSpec(
-        key="time_bucketization",
-        display="time_bucketization",
-        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.tests",
-        base_module="mloda.testing.feature_groups.data_operations.row_preserving.time_bucketization.time_bucketization",
-        base_class="TimeBucketizationTestBase",
-        subtype_label="op",
-        order_hint=("floor", "ceil", "round"),
-    ),
-    OperationSpec(
-        key="ffill",
-        display="ffill",
-        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.ffill.tests",
-        base_module="mloda.testing.feature_groups.data_operations.row_preserving.ffill.ffill",
-        base_class="FfillTestBase",
-        subtype_label="op",
-    ),
-    OperationSpec(
-        key="ema",
-        display="ema",
-        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.ema.tests",
-        base_module="mloda.testing.feature_groups.data_operations.row_preserving.ema.ema",
-        base_class="EmaTestBase",
-        subtype_label="op",
-    ),
-    OperationSpec(
-        key="sessionization",
-        display="sessionization",
-        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.sessionization.tests",
-        base_module="mloda.testing.feature_groups.data_operations.row_preserving.sessionization.sessionization",
-        base_class="SessionizationTestBase",
-        subtype_label="op",
-    ),
-    OperationSpec(
-        key="window_aggregation",
-        display="window_aggregation",
-        tests_pkg="mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.tests",
-        base_module="mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.window_aggregation",
-        base_class="WindowAggregationTestBase",
-        subtype_label="agg type",
-        order_hint=(
-            "sum",
-            "avg",
-            "mean",
-            "count",
-            "min",
-            "max",
-            "std",
-            "var",
-            "std_pop",
-            "std_samp",
-            "var_pop",
-            "var_samp",
-            "median",
-            "mode",
-            "nunique",
-            "first",
-            "last",
-        ),
-    ),
-    OperationSpec(
-        key="string",
-        display="string",
-        tests_pkg="mloda.community.feature_groups.data_operations.string.tests",
-        base_module="mloda.testing.feature_groups.data_operations.string.string",
-        base_class="StringTestBase",
-        subtype_label="op",
-        order_hint=("upper", "lower", "trim", "length", "reverse"),
-    ),
-    OperationSpec(
-        key="resample",
-        display="resample",
-        tests_pkg="mloda.community.feature_groups.data_operations.row_changing.resample.tests",
-        base_module="mloda.testing.feature_groups.data_operations.row_changing.resample.resample",
-        base_class="ResampleTestBase",
-        subtype_label="op",
-    ),
+#: Doc display order for operations. ``DataOperationsCatalog.list()`` is
+#: name-sorted; the doc keeps its historical grouping instead.
+OPERATIONS: list[str] = [
+    "aggregation",
+    "binning",
+    "datetime",
+    "frame_aggregate",
+    "offset",
+    "percentile",
+    "rank",
+    "scalar_aggregate",
+    "scalar_arithmetic",
+    "point_arithmetic",
+    "time_bucketization",
+    "ffill",
+    "ema",
+    "sessionization",
+    "window_aggregation",
+    "string",
+    "resample",
 ]
 
 
-def import_test_class(tests_pkg: str, framework: str, base_cls: type) -> type | None:
-    """Import test_{framework}.py under *tests_pkg* and return the concrete test class.
-
-    The concrete class is the one module-local subclass of *base_cls* (or ``None``
-    if the module does not exist)."""
-    mod_name = f"{tests_pkg}.test_{framework}"
-    try:
-        mod = importlib.import_module(mod_name)
-    except ModuleNotFoundError as e:
-        # Only treat the test module (or a missing parent tests package) as
-        # "framework absent". Broken imports *inside* an existing test module
-        # name a different module in ``e.name`` and must surface loudly.
-        if e.name and (e.name == mod_name or mod_name.startswith(e.name + ".")):
-            return None
-        raise
-    for _, obj in inspect.getmembers(mod, inspect.isclass):
-        if obj.__module__ != mod.__name__:
-            continue
-        if not issubclass(obj, base_cls):
-            continue
-        if obj is base_cls:
-            continue
-        return obj
-    return None
+def ordered_operations() -> list[OperationInfo]:
+    """Catalog entries in doc display order; fails loudly on any name mismatch."""
+    infos = {info.name: info for info in DataOperationsCatalog.list()}
+    missing = sorted(name for name in OPERATIONS if name not in infos)
+    extra = sorted(name for name in infos if name not in OPERATIONS)
+    if missing or extra:
+        raise RuntimeError(f"OPERATIONS is out of sync with DataOperationsCatalog: missing={missing} extra={extra}")
+    return [infos[name] for name in OPERATIONS]
 
 
-def supported_set(cls: type, extractor: Any = None) -> tuple[str | None, set[str] | None]:
-    """Return (method_name, set) for the support set on *cls*.
-
-    If *extractor* is provided it overrides the default ``supported_*`` lookup
-    (used by frame_aggregate to combine ``supported_frame_types`` and
-    ``supported_time_units`` into compound subtypes).
-    """
-    if extractor is not None:
-        try:
-            return extractor.__name__, set(extractor(cls))
-        except Exception:  # pragma: no cover - defensive
-            return extractor.__name__, None
-    for attr in SUPPORT_METHODS:
-        method = getattr(cls, attr, None)
-        if method is None:
-            continue
-        try:
-            return attr, set(method())
-        except Exception:  # pragma: no cover - defensive
-            return attr, None
-    return None, None
+def _framework_supported(info: OperationInfo, fw_key: str) -> frozenset[str] | None:
+    """The catalog's supported-subtype set for *fw_key*, or None when absent or subtype-less."""
+    return info.frameworks.get(FRAMEWORK_CATALOG_KEYS[fw_key])
 
 
-def discover_uncovered_tests_packages() -> list[str]:
-    """Return tests-package dotted paths that contain ``test_<framework>.py``
-    files but are not referenced by any :data:`OPERATIONS` entry.
-
-    Guards against silent incompleteness when a new data operation is added but
-    nobody remembers to extend :data:`OPERATIONS`.
-    """
-    if not DATA_OPERATIONS_ROOT.exists():
-        return []
-    covered = {op.tests_pkg for op in OPERATIONS}
-    framework_keys = {fw_key for fw_key, _ in FRAMEWORKS}
-    missing: list[str] = []
-    for tests_dir in DATA_OPERATIONS_ROOT.rglob("tests"):
-        if not tests_dir.is_dir():
-            continue
-        if not any((tests_dir / f"test_{fw}.py").exists() for fw in framework_keys):
-            continue
-        rel = tests_dir.relative_to(REPO_ROOT)
-        pkg = ".".join(rel.parts)
-        if pkg not in covered:
-            missing.append(pkg)
-    return sorted(missing)
-
-
-def sort_subtypes(items: Iterable[str], order_hint: tuple[str, ...]) -> list[str]:
-    items = list(items)
-    index = {name: pos for pos, name in enumerate(order_hint)}
-    items.sort(key=lambda name: (index.get(name, len(order_hint)), name))
-    return items
-
-
-def collect_operation(op: OperationSpec) -> dict[str, Any]:
-    base_mod = importlib.import_module(op.base_module)
-    base_cls = getattr(base_mod, op.base_class)
-
-    # Resolve the framework-level data.
-    per_framework: dict[str, dict[str, Any]] = {}
-    union_subtypes: set[str] = set()
-    method_name: str | None = None
-
-    for fw_key, _fw_label in FRAMEWORKS:
-        cls = import_test_class(op.tests_pkg, fw_key, base_cls)
-        if cls is None:
-            per_framework[fw_key] = {"present": False, "subtypes": None, "method": None}
-            continue
-        attr, support = supported_set(cls, op.subtype_extractor)
-        per_framework[fw_key] = {"present": True, "subtypes": support, "method": attr}
-        if support is not None:
-            union_subtypes.update(support)
-            if method_name is None:
-                method_name = attr
-
-    if not union_subtypes:
-        # Operations with no supported_*() method (datetime, percentile,
-        # frame_aggregate) report at operation-level granularity only.
-        subtypes: list[str] | None = None
-    else:
-        subtypes = sort_subtypes(union_subtypes, op.order_hint)
-
-    return {
-        "op": op,
-        "method": method_name,
-        "subtypes": subtypes,
-        "frameworks": per_framework,
-    }
-
-
-def render_summary_table(collected: list[dict[str, Any]]) -> list[str]:
+def render_summary_table(infos: list[OperationInfo]) -> list[str]:
     header = "| Operation | " + " | ".join(label for _, label in FRAMEWORKS) + " |"
     sep = "|" + "|".join(["---"] * (len(FRAMEWORKS) + 1)) + "|"
     lines = [header, sep]
-    for item in collected:
-        op = item["op"]
-        subtypes = item["subtypes"]
-        cells: list[str] = [op.display]
+    for info in infos:
+        cells: list[str] = [info.name]
         for fw_key, _label in FRAMEWORKS:
-            fw = item["frameworks"][fw_key]
-            if not fw["present"]:
+            if FRAMEWORK_CATALOG_KEYS[fw_key] not in info.frameworks:
                 cells.append("--")
-            elif subtypes is None:
-                cells.append("full")
-            elif fw["subtypes"] is None or set(fw["subtypes"]) == set(subtypes):
+                continue
+            supported = _framework_supported(info, fw_key)
+            if info.subtypes is None or supported is None or set(supported) == set(info.subtypes):
                 cells.append("full")
             else:
-                count = len(fw["subtypes"])
-                total = len(subtypes)
-                cells.append(f"partial ({count}/{total})")
+                cells.append(f"partial ({len(supported)}/{len(info.subtypes)})")
         lines.append("| " + " | ".join(cells) + " |")
     return lines
 
 
-def render_detail_table(item: dict[str, Any]) -> list[str]:
-    op: OperationSpec = item["op"]
-    subtypes = item["subtypes"]
-    header_cells = [op.subtype_label.capitalize()] + [label for _, label in FRAMEWORKS]
+def render_detail_table(info: OperationInfo) -> list[str]:
+    header_cells = [info.subtype_label.capitalize()] + [label for _, label in FRAMEWORKS]
     header = "| " + " | ".join(header_cells) + " |"
     sep = "|" + "|".join(["---"] * len(header_cells)) + "|"
-    lines = [f"### {op.display}", ""]
+    lines = [f"### {info.name}", ""]
 
-    if subtypes is None:
-        # Single-row table: either the framework has a test class or it does not.
-        # Use the same "--" glyph as the summary so the legend stays consistent
-        # ("--" = no test class, "\u2717" = excluded subtype).
+    if info.subtypes is None:
+        # Single-row table: either the framework ships an implementation or it does not.
         row = ["(all)"]
         for fw_key, _label in FRAMEWORKS:
-            fw = item["frameworks"][fw_key]
-            row.append("\u2713" if fw["present"] else "--")
+            row.append("✓" if FRAMEWORK_CATALOG_KEYS[fw_key] in info.frameworks else "--")
         lines += [header, sep, "| " + " | ".join(row) + " |"]
         return lines
 
     lines += [header, sep]
-    for subtype in subtypes:
+    for subtype in info.subtypes:
         row = [f"`{subtype}`"]
         for fw_key, _label in FRAMEWORKS:
-            fw = item["frameworks"][fw_key]
-            if not fw["present"]:
+            if FRAMEWORK_CATALOG_KEYS[fw_key] not in info.frameworks:
                 row.append("--")
                 continue
-            if fw["subtypes"] is None:
-                row.append("\u2713")
-                continue
-            row.append("\u2713" if subtype in fw["subtypes"] else "\u2717")
+            supported = _framework_supported(info, fw_key)
+            row.append("✓" if supported is None or subtype in supported else "✗")
         lines.append("| " + " | ".join(row) + " |")
     return lines
 
 
-def render_generated_block(collected: list[dict[str, Any]]) -> str:
+def render_generated_block(infos: list[OperationInfo]) -> str:
     out: list[str] = [BEGIN_MARKER, ""]
     out.append("## Summary")
     out.append("")
     out.append(
-        "`full` means every subtype listed in the per-operation table below is supported. "
-        "`partial (k/n)` means the framework's test class restricts `supported_*()` to "
-        "k of the n subtypes this operation defines. `--` means the framework has no test "
-        "class for this operation (typically because no production implementation exists)."
+        "Cells reflect the production capability declarations (`compute_framework_rule`, the "
+        "`supports_compute_framework` hook, and match-time restrictions), queryable via "
+        "`DataOperationsCatalog`. `full` means the framework's production implementation declares "
+        "support for every subtype this operation defines. `partial (k/n)` means it declares k of "
+        "the n subtypes and rejects the rest. `--` means no implementation ships for this framework."
     )
     out.append("")
-    out.extend(render_summary_table(collected))
+    out.extend(render_summary_table(infos))
     out.append("")
     out.append("## Per-operation detail")
     out.append("")
     out.append(
-        "\u2713 = the framework's test-class `supported_*()` includes this subtype. "
-        "\u2717 = excluded. `--` = no test class for this framework."
+        "✓ = the framework's production implementation declares support for this subtype. "
+        "✗ = the implementation rejects it. `--` = no implementation ships for this framework."
     )
     out.append("")
-    for item in collected:
-        out.extend(render_detail_table(item))
+    for info in infos:
+        out.extend(render_detail_table(info))
         out.append("")
     out.append(END_MARKER)
     return "\n".join(out) + "\n"
@@ -514,28 +161,51 @@ def splice_into_doc(doc_text: str, generated: str) -> str:
     return doc_text[:begin] + generated.rstrip("\n") + trailing
 
 
+def discover_operation_dirs_on_disk() -> set[str]:
+    """Operation directory names that carry per-framework twin test modules.
+
+    A directory counts when its ``tests`` subpackage contains at least one
+    ``test_<framework>.py`` file. Guards against a new data operation landing
+    on disk without a catalog entry.
+    """
+    ops: set[str] = set()
+    if not DATA_OPERATIONS_ROOT.exists():
+        return ops
+    for tests_dir in DATA_OPERATIONS_ROOT.rglob("tests"):
+        if not tests_dir.is_dir():
+            continue
+        if not any((tests_dir / f"test_{fw_key}.py").exists() for fw_key, _label in FRAMEWORKS):
+            continue
+        ops.add(tests_dir.parent.name)
+    return ops
+
+
 _REGENERATION_HINT = (
     "Regenerate the block between the `BEGIN GENERATED` / `END GENERATED` markers in\n"
     f"{DOC_PATH.relative_to(REPO_ROOT)}\n"
-    "with a coding agent so it matches what this test produces, then rerun."
+    "so it matches render_generated_block(ordered_operations()) from this module, then rerun."
 )
 
 
 def test_framework_support_matrix_is_in_sync() -> None:
-    collected = [collect_operation(op) for op in OPERATIONS]
-    generated = render_generated_block(collected)
+    generated = render_generated_block(ordered_operations())
 
     current = DOC_PATH.read_text()
     expected = splice_into_doc(current, generated)
 
     assert expected == current, (
-        "framework-support-matrix.md is out of sync with supported_*() sets.\n" + _REGENERATION_HINT
+        "framework-support-matrix.md is out of sync with DataOperationsCatalog.\n" + _REGENERATION_HINT
     )
 
 
 def test_operations_list_covers_every_data_operation_on_disk() -> None:
-    uncovered = discover_uncovered_tests_packages()
+    catalog_names = {info.name for info in DataOperationsCatalog.list()}
+    assert sorted(OPERATIONS) == sorted(catalog_names), (
+        f"OPERATIONS does not match DataOperationsCatalog.list() names: "
+        f"missing={sorted(catalog_names - set(OPERATIONS))} extra={sorted(set(OPERATIONS) - catalog_names)}"
+    )
+    uncovered = sorted(discover_operation_dirs_on_disk() - catalog_names)
     assert uncovered == [], (
-        "OPERATIONS in this test module is missing entries for these tests packages "
-        "(each has test_<framework>.py files):\n  " + "\n  ".join(uncovered)
+        "DataOperationsCatalog is missing entries for these data-operation directories "
+        "(each has test_<framework>.py twin files):\n  " + "\n  ".join(uncovered)
     )

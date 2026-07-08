@@ -307,6 +307,11 @@ class AggregationTestBase(MaskTestMixin, DataOpsTestBase):
         """Avg must match reference."""
         self._compare_agg_with_reference("value_int__avg_agg", ["region"], use_approx=True)
 
+    def test_cross_framework_mean(self) -> None:
+        """Mean (avg alias) must match reference."""
+        self._skip_if_unsupported("mean")
+        self._compare_agg_with_reference("value_int__mean_agg", ["region"], use_approx=True)
+
     def test_cross_framework_count(self) -> None:
         """Count must match reference."""
         self._compare_agg_with_reference("value_int__count_agg", ["region"])

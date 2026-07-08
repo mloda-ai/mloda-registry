@@ -56,6 +56,10 @@ class PyArrowAggregation(AggregationFeatureGroup):
         return {PyArrowTable}
 
     @classmethod
+    def supported_agg_types(cls) -> frozenset[str] | None:
+        return frozenset(_SUPPORTED_AGG_TYPES)
+
+    @classmethod
     def _compute_group(
         cls,
         table: pa.Table,

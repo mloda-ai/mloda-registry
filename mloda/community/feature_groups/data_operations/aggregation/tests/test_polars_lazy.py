@@ -26,5 +26,9 @@ class TestPolarsLazyAggregation(ReservedColumnsTestMixin, PolarsLazyTestMixin, A
         return PolarsLazyAggregation
 
     @classmethod
+    def supported_agg_types(cls) -> set[str]:
+        return {*cls.ALL_AGG_TYPES, "mean"}
+
+    @classmethod
     def reserved_columns_feature_name(cls) -> str:
         return "value_int__sum_agg"

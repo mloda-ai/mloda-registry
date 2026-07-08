@@ -18,7 +18,7 @@ class TestSqliteAggregation(SqliteTestMixin, AggregationTestBase):
 
     @classmethod
     def supported_agg_types(cls) -> set[str]:
-        return {"sum", "avg", "count", "min", "max"}
+        return {"sum", "avg", "mean", "count", "min", "max"}
 
     @classmethod
     def implementation_class(cls) -> Any:
