@@ -65,25 +65,28 @@ Q11: Ready to test your implementation?
 | [09-testing-guide](compute-framework-patterns/09-testing-guide.md) | Testing your implementation |
 | [10-data-type-extraction](compute-framework-patterns/10-data-type-extraction.md) | Mapping native column types to mloda `DataType` |
 
-## Timezone / Unit Validation (Opt-In)
+## Timezone Validation (Opt-In)
 
-Since mloda 0.9.0, merge and filter engines can opt in to a timezone/unit guard that turns
+Since mloda 0.9.0, merge and filter engines can opt in to a timezone guard that turns
 silent-wrongness bugs (for example joining a timezone-aware column against a timezone-naive one)
 into a clear `ValueError`.
 
 - Opt in by setting `provides_column_semantics = True` on your `BaseMergeEngine` or
   `BaseFilterEngine` subclass and implementing `_column_semantics(data, column)`, which reports the
   column's framework-native semantics as a `ColumnSemantics` value (`is_ordered`, `is_temporal`,
-  `is_numeric`, `unit`, `is_tz_aware`).
+  `is_numeric`, `unit`, `is_tz_aware`). Only timezone-awareness is enforced today; `unit` is
+  reported for forward compatibility with the comparison contract but not yet validated by these
+  guards.
 - The flag defaults to `False`: the guard is skipped entirely, so a framework with no temporal
   intent never has to implement the hook.
 - An engine that opts in but forgets the hook fails loudly (`NotImplementedError`) instead of
   silently skipping validation.
-- As-of caveat: as-of joins call `_column_semantics` regardless of the flag, so an engine that
-  implements `merge_asof()` must implement the hook either way.
+- As-of caveat: as-of joins validate their time columns through `_column_semantics` (via
+  `validate_asof_time_columns()`) regardless of the flag, so an engine that implements
+  `merge_asof()` must implement the hook either way.
 
-See [06-merge-engine](compute-framework-patterns/06-merge-engine.md#timezone--unit-validation-opt-in)
-and [07-filter-engine](compute-framework-patterns/07-filter-engine.md#timezone--unit-validation-opt-in)
+See [06-merge-engine](compute-framework-patterns/06-merge-engine.md#timezone-validation-opt-in)
+and [07-filter-engine](compute-framework-patterns/07-filter-engine.md#timezone-validation-opt-in)
 for what each guard checks, and the upstream
 [comparison contract](https://github.com/mloda-ai/mloda/blob/main/docs/docs/in_depth/comparison-contract.md)
 doc for the full model.

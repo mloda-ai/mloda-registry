@@ -93,7 +93,7 @@ def test_merge_engine():
     assert len(result) == 1  # Only idx=2 matches
 ```
 
-## Timezone / Unit Validation (Opt-In)
+## Timezone Validation (Opt-In)
 
 Since mloda 0.9.0, `BaseMergeEngine.merge()` can guard equi-joins (inner/left/right/outer) against
 timezone-incompatible key pairs. The guard is opt-in via a class attribute:
@@ -122,15 +122,18 @@ Behavior:
   time-agnostic framework never has to implement `_column_semantics`.
 - When opted in, aligned key pairs are checked only if **both** columns are temporal; string,
   numeric, or id keys are never affected. Mixing timezone-aware and timezone-naive keys raises a
-  clear `ValueError`.
+  clear `ValueError`. The `unit` field is reported for forward compatibility but not yet enforced:
+  differing resolutions (for example `ns` vs `us`) are aligned natively by the backends.
 - Opting in without implementing the hook raises `NotImplementedError`, so a forgotten override
   fails loudly.
-- As-of caveat: `merge_asof()` validates its time columns through `_column_semantics` regardless of
-  the flag, so an engine that implements as-of joins must implement the hook either way.
+- As-of caveat: as-of joins validate their time columns through `_column_semantics` (via
+  `validate_asof_time_columns()`, called from the engine's `merge_asof()` implementation)
+  regardless of the flag, so an engine that implements as-of joins must implement the hook either
+  way.
 
 See the upstream
 [comparison contract](https://github.com/mloda-ai/mloda/blob/main/docs/docs/in_depth/comparison-contract.md)
-doc for the full model, and [07-filter-engine](07-filter-engine.md#timezone--unit-validation-opt-in)
+doc for the full model, and [07-filter-engine](07-filter-engine.md#timezone-validation-opt-in)
 for the filter-side guard.
 
 ## Stateful Connection
