@@ -319,6 +319,26 @@ regression_test:
 - **How**: `pandas.DataFrame.groupby(...).rolling(on=ts)` raises `"ts values must not have NaT"`; Polars `rolling_*_by` panics. Both `PandasFrameAggregate._compute_frame` and `PolarsLazyFrameAggregate._compute_frame` pre-check the `order_by` column for nulls when `frame_type == "time"` and raise a `ValueError` naming the framework and column, turning the cryptic native error into an explicit refusal. `FrameAggregateTestBase.supports_null_order_in_time_window()` defaults `True`; pandas + polars-lazy override to `False`, skipping `test_cross_framework_time_window_with_null_cutoff`. DuckDB and SQLite implement the reference behavior (window = `[self]`) and run the test.
 - **Related**: parent #183, implementing #202.
 
+### SQLite + Polars reject std/var/median frame aggregates at match time
+
+<!-- machine-checked
+operation: frame_aggregate
+framework: sqlite, polars_lazy
+condition: std/var/median frame aggregates rejected at match time (SQLite: all frame types; Polars: cumulative/expanding only)
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/base.py
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/sqlite_frame_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/polars_lazy_frame_aggregate.py
+regression_test:
+- mloda/community/feature_groups/data_operations/tests/test_capability_hook.py::TestFrameAggregateCapability::test_sqlite_rejects_unsupported_agg_at_match_time
+- mloda/community/feature_groups/data_operations/tests/test_capability_hook.py::TestFrameAggregateCapability::test_polars_rejects_unsupported_agg_for_cumulative_expanding_at_match_time
+-->
+
+- **Operations**: `row_preserving/frame_aggregate` (aggregation-type axis of the capability hook).
+- **Mitigation kind**: Excluded agg type.
+- **How**: SQLite has no native `STD`/`VAR`/`MEDIAN` window functions, so `SqliteFrameAggregate.supported_agg_types()` sources the supported set from `_SQLITE_AGG_FUNCS` (`sum`/`avg`/`count`/`min`/`max`), rejecting `std`/`var`/`median` for every frame type. Polars has no cumulative `cum_std`/`cum_var`/`cum_median`, so `PolarsLazyFrameAggregate.supported_agg_types()` returns `_CUMULATIVE_AGG_TYPES` for `cumulative`/`expanding` frames (excluding `std`/`var`/`median`) and `_ROLLING_AGG_TYPES` (the full set) for `rolling`/`time`. The base `supports_compute_framework` hook resolves the agg type from the parsed name or `aggregation_type` option and rejects unsupported combinations at match time, rather than failing later inside `_compute_frame`. Pandas and DuckDB inherit the base `None` (unrestricted) and support all eight agg types.
+- **Related**: issue #296.
+
 ---
 
 ## Audit coverage (2026-05-28)

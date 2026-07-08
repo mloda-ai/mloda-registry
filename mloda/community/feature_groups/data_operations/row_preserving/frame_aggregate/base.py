@@ -305,27 +305,39 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return True
 
     @classmethod
+    def supported_agg_types(cls, frame_type: str) -> frozenset[str] | None:
+        """Agg types the backend computes natively for *frame_type*; None means unrestricted."""
+        return None
+
+    @classmethod
     def supports_compute_framework(
         cls,
         feature_name: FeatureName | str,
         options: Options,
         compute_framework: type[ComputeFramework],
     ) -> bool:
-        """Reject frame types or time units the backend cannot compute; unresolvable stays True."""
+        """Reject frame types, time units, or agg types the backend cannot compute; unresolvable stays True."""
         parsed = cls._parse_frame_feature(str(feature_name))
         if parsed is not None:
             frame_type: str | None = parsed["frame_type"]
             frame_unit_raw = parsed["frame_unit"]
+            agg_type_raw = parsed["agg_type"]
         else:
             frame_type_raw = options.get(cls.FRAME_TYPE)
             frame_type = None if frame_type_raw is None else str(frame_type_raw)
             frame_unit_raw = options.get(cls.FRAME_UNIT)
+            agg_type_raw = options.get(cls.AGGREGATION_TYPE)
         if frame_type is None:
             return True
         if frame_type not in cls.SUPPORTED_FRAME_TYPES:
             return False
         if frame_type == "time" and frame_unit_raw is not None and str(frame_unit_raw) not in cls.SUPPORTED_TIME_UNITS:
             return False
+        agg_type = None if agg_type_raw is None else str(agg_type_raw)
+        if agg_type is not None:
+            supported = cls.supported_agg_types(frame_type)
+            if supported is not None and agg_type not in supported:
+                return False
         return True
 
     @classmethod
