@@ -142,16 +142,13 @@ DataAccessCollection(credentials={"pg-prod": Credential(host="h")})
 `is_valid_credentials` implementations keep receiving plain dicts. Nothing changes
 downstream.
 
-Two shapes now fail fast at construction instead of silently mis-matching later:
-
-- A named-form value that is not a mapping (for example
-  `credentials={"prod": "dsn-string"}`) raises `ValueError`. Keep the handle and
-  make the value a mapping: `credentials={"prod": {"dsn": "dsn-string"}}` or
-  `credentials={"prod": Credential(dsn="dsn-string")}`. A bare
-  `credentials=Credential(dsn="dsn-string")` also constructs, but auto-names the
-  slot, so a later `data_access_handle="prod"` lookup would no longer find it.
-- A `HashableDict` credential value raises `ValueError`. Pass `Credential(...)` or a
-  plain dict instead.
+A named-form value that is not a mapping (for example
+`credentials={"prod": "dsn-string"}`) now raises `ValueError` at construction
+instead of silently mis-matching later. Keep the handle and make the value a
+mapping: `credentials={"prod": {"dsn": "dsn-string"}}` or
+`credentials={"prod": Credential(dsn="dsn-string")}`. A bare
+`credentials=Credential(dsn="dsn-string")` also constructs, but auto-names the
+slot, so a later `data_access_handle="prod"` lookup would no longer find it.
 
 Resolver ambiguity errors redact credential values (keys stay visible, values render
 as `***`), so secrets stay out of logs and tracebacks.
