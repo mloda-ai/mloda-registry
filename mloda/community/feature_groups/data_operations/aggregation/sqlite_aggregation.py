@@ -32,6 +32,10 @@ class SqliteAggregation(AggregationFeatureGroup):
         return {SqliteFramework}
 
     @classmethod
+    def supported_agg_types(cls) -> frozenset[str] | None:
+        return frozenset(_SQLITE_AGG_FUNCS)
+
+    @classmethod
     def _compute_group(
         cls,
         data: SqliteRelation,

@@ -11,7 +11,7 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.provider import ComputeFramework, DefaultOptionKeys, FeatureGroup
 
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
@@ -302,6 +302,30 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         if not isinstance(order_by, str):
             return False
 
+        return True
+
+    @classmethod
+    def supports_compute_framework(
+        cls,
+        feature_name: FeatureName | str,
+        options: Options,
+        compute_framework: type[ComputeFramework],
+    ) -> bool:
+        """Reject frame types or time units the backend cannot compute; unresolvable stays True."""
+        parsed = cls._parse_frame_feature(str(feature_name))
+        if parsed is not None:
+            frame_type: str | None = parsed["frame_type"]
+            frame_unit_raw = parsed["frame_unit"]
+        else:
+            frame_type_raw = options.get(cls.FRAME_TYPE)
+            frame_type = None if frame_type_raw is None else str(frame_type_raw)
+            frame_unit_raw = options.get(cls.FRAME_UNIT)
+        if frame_type is None:
+            return True
+        if frame_type not in cls.SUPPORTED_FRAME_TYPES:
+            return False
+        if frame_type == "time" and frame_unit_raw is not None and str(frame_unit_raw) not in cls.SUPPORTED_TIME_UNITS:
+            return False
         return True
 
     @classmethod

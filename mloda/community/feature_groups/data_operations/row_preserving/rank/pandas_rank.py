@@ -25,6 +25,10 @@ class PandasRank(RankFeatureGroup):
         return {PandasDataFrame}
 
     @classmethod
+    def supported_rank_types(cls) -> frozenset[str] | None:
+        return frozenset(_PANDAS_RANK_METHODS)
+
+    @classmethod
     def _compute_rank(
         cls,
         data: pd.DataFrame,

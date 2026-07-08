@@ -8,8 +8,10 @@ from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
+from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.core.abstract_plugins.components.options import Options
+from mloda.provider import ComputeFramework, DefaultOptionKeys, FeatureGroup
 
 
 class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
@@ -201,6 +203,40 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         if rank_type is None:
             raise ValueError(f"Could not extract rank type for {feature_name}")
         return str(rank_type)
+
+    @classmethod
+    def supported_rank_types(cls) -> frozenset[str] | None:
+        """Rank types the backend computes natively; None means unrestricted."""
+        return None
+
+    @classmethod
+    def _resolve_rank_type(cls, feature_name: str, options: Options) -> str | None:
+        """Resolve the rank type from the feature name or options; None if unresolvable."""
+        try:
+            operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, cls._get_prefix_patterns())
+        except ValueError:
+            return None
+        if operation_config is not None:
+            return operation_config
+        rank_type = options.get(cls.RANK_TYPE)
+        return None if rank_type is None else str(rank_type)
+
+    @classmethod
+    def supports_compute_framework(
+        cls,
+        feature_name: FeatureName | str,
+        options: Options,
+        compute_framework: type[ComputeFramework],
+    ) -> bool:
+        """Reject named rank types the backend cannot compute; unresolvable stays True."""
+        supported = cls.supported_rank_types()
+        if supported is None:
+            return True
+        rank_type = cls._resolve_rank_type(str(feature_name), options)
+        if rank_type is None or rank_type not in cls.RANK_TYPES:
+            # Parametric types (ntile_N, top_N, bottom_N) and unresolvable inputs stay open.
+            return True
+        return rank_type in supported
 
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:
