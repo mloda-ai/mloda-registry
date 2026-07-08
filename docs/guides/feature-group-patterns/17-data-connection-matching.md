@@ -132,8 +132,9 @@ from mloda.user import Credential, DataAccessCollection
 DataAccessCollection(credentials=Credential(sqlite="/data/app.db"))
 DataAccessCollection(credentials=Credential({"sqlite": "/data/app.db"}))
 
-# several unnamed slots (list) or named slots (dict[handle, value])
-DataAccessCollection(credentials=[Credential(host="h"), {"pg": {"host": "h"}}])
+# a list registers each entry as its own auto-named slot
+DataAccessCollection(credentials=[Credential(host="h"), {"host": "h2"}])
+# a dict names each slot by handle; the value must itself be a mapping
 DataAccessCollection(credentials={"pg-prod": Credential(host="h")})
 ```
 
@@ -144,9 +145,11 @@ downstream.
 Two shapes now fail fast at construction instead of silently mis-matching later:
 
 - A named-form value that is not a mapping (for example
-  `credentials={"prod": "dsn-string"}`) raises `ValueError`. Wrap it as
-  `credentials=Credential(dsn="dsn-string")`, or use the fully named form
-  `credentials={"prod": {"dsn": "dsn-string"}}`.
+  `credentials={"prod": "dsn-string"}`) raises `ValueError`. Keep the handle and
+  make the value a mapping: `credentials={"prod": {"dsn": "dsn-string"}}` or
+  `credentials={"prod": Credential(dsn="dsn-string")}`. A bare
+  `credentials=Credential(dsn="dsn-string")` also constructs, but auto-names the
+  slot, so a later `data_access_handle="prod"` lookup would no longer find it.
 - A `HashableDict` credential value raises `ValueError`. Pass `Credential(...)` or a
   plain dict instead.
 
