@@ -23,3 +23,7 @@ class TestPolarsLazyWindowAggregation(PolarsLazyTestMixin, WindowAggregationTest
     @classmethod
     def implementation_class(cls) -> Any:
         return PolarsLazyWindowAggregation
+
+    @classmethod
+    def supported_agg_types(cls) -> set[str]:
+        return {*cls.ALL_AGG_TYPES, "mean"}

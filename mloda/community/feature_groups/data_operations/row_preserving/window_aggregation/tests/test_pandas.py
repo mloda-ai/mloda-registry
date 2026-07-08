@@ -26,6 +26,10 @@ class TestPandasWindowAggregation(PandasTestMixin, WindowAggregationTestBase):
     def implementation_class(cls) -> Any:
         return PandasWindowAggregation
 
+    @classmethod
+    def supported_agg_types(cls) -> set[str]:
+        return {*cls.ALL_AGG_TYPES, "mean"}
+
 
 class TestPandasWindowModeVectorized:
     """Targeted tests for the vectorized window ``_compute_mode``.

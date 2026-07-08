@@ -228,8 +228,8 @@ class TestScalarAggregateCapability:
 
 
 class TestRankCapability:
-    def test_pandas_rejects_percent_rank(self) -> None:
-        """Pandas percent_rank diverges from SQL semantics, so the hook must reject it."""
+    def test_pandas_accepts_percent_rank(self) -> None:
+        """Pandas computes percent_rank with SQL semantics ((rank-1)/(count-1)), so the hook allows it."""
         pytest.importorskip("pandas")
         from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
@@ -238,7 +238,7 @@ class TestRankCapability:
         )
 
         result = PandasRank.supports_compute_framework("value__percent_rank_ranked", Options(), PandasDataFrame)
-        assert result is False
+        assert result is True
 
     def test_pandas_accepts_dense_rank(self) -> None:
         """Pandas supports dense_rank, so the hook allows it."""
@@ -252,6 +252,18 @@ class TestRankCapability:
         result = PandasRank.supports_compute_framework("value__dense_rank_ranked", Options(), PandasDataFrame)
         assert result is True
 
+    def test_polars_lazy_accepts_percent_rank(self) -> None:
+        """Polars lazy supports percent_rank, so the hook allows it."""
+        pytest.importorskip("polars")
+        from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
+
+        from mloda.community.feature_groups.data_operations.row_preserving.rank.polars_lazy_rank import (
+            PolarsLazyRank,
+        )
+
+        result = PolarsLazyRank.supports_compute_framework("value__percent_rank_ranked", Options(), PolarsLazyDataFrame)
+        assert result is True
+
     def test_duckdb_accepts_percent_rank(self) -> None:
         """DuckDB supports SQL percent_rank natively, so the hook allows it."""
         pytest.importorskip("duckdb")
@@ -263,6 +275,40 @@ class TestRankCapability:
 
         result = DuckdbRank.supports_compute_framework("value__percent_rank_ranked", Options(), DuckDBFramework)
         assert result is True
+
+    def test_sqlite_accepts_percent_rank(self) -> None:
+        """SQLite supports SQL percent_rank natively, so the hook allows it."""
+        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
+
+        from mloda.community.feature_groups.data_operations.row_preserving.rank.sqlite_rank import (
+            SqliteRank,
+        )
+
+        result = SqliteRank.supports_compute_framework("value__percent_rank_ranked", Options(), SqliteFramework)
+        assert result is True
+
+    def test_base_default_is_unrestricted(self) -> None:
+        """No rank backend restricts today: the base supported_rank_types() default is None."""
+        from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
+
+        assert RankFeatureGroup.supported_rank_types() is None
+
+    def test_restricting_subclass_rejects_unlisted_named_types(self) -> None:
+        """The hook mechanism: a subclass restricting supported_rank_types rejects unlisted named types."""
+        pytest.importorskip("pandas")
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+        from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
+
+        class _RestrictedRank(RankFeatureGroup):
+            @classmethod
+            def supported_rank_types(cls) -> frozenset[str] | None:
+                return frozenset({"row_number", "rank", "dense_rank"})
+
+        rejected = _RestrictedRank.supports_compute_framework("value__percent_rank_ranked", Options(), PandasDataFrame)
+        accepted = _RestrictedRank.supports_compute_framework("value__dense_rank_ranked", Options(), PandasDataFrame)
+        assert rejected is False
+        assert accepted is True
 
 
 # ---------------------------------------------------------------------------

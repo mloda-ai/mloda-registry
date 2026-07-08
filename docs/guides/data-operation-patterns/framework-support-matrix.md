@@ -1,21 +1,21 @@
 # Framework Support Matrix
 
-One-page lookup for "does operation *X* work on framework *Y*?". Rows are the eleven data operations (and their subtypes, where applicable); columns are the five compute frameworks mloda ships: PyArrow, Pandas, Polars lazy, DuckDB, SQLite.
+One-page lookup for "does operation *X* work on framework *Y*?". Rows are the seventeen data operations (and their subtypes, where applicable); columns are the five compute frameworks mloda ships: PyArrow, Pandas, Polars lazy, DuckDB, SQLite.
 
-**What**: A capability matrix that mirrors the `supported_*()` class methods declared on every framework test class. If a cell is ✓, the shared reference-based test suite runs that subtype against that framework and compares the result to PyArrow. If a cell is ✗, the framework either cannot express that subtype or has been deliberately excluded (see [Known divergences](known-divergences.md)).
+**What**: A capability matrix rendered from the production capability declarations (`compute_framework_rule`, the `supports_compute_framework` hook, and match-time restrictions), queryable at runtime via `DataOperationsCatalog` (`from mloda.community.feature_groups.data_operations import DataOperationsCatalog`). If a cell is ✓, the framework's production implementation declares support for that subtype and the shared reference-based test suite runs it against that framework. If a cell is ✗, the implementation rejects the subtype at match time (see [Known divergences](known-divergences.md)).
 **When**: Use before picking an op/framework pair, before adding a new framework implementation for an existing op, or while debugging why a feature resolves on one framework but skips on another.
-**Why**: The authoritative information lives in `supported_agg_types()` / `supported_ops()` / `supported_offset_types()` / `supported_rank_types()` overrides scattered across ten operation directories. This page flattens them into a single table and keeps it in sync via a drift check.
-**Where**: The tables below are guarded by a pytest drift check in `mloda/community/feature_groups/data_operations/tests/test_framework_support_matrix.py`. Do not edit the block between the `BEGIN GENERATED` and `END GENERATED` markers by hand. After changing any `supported_*()` override, run `tox` (or at minimum that one test file). If the drift check fails, regenerate the block with a coding agent so its contents match what the test produces, then rerun until the test passes.
-**How**: The test reflects each framework's test class, reads its `supported_*()` set, renders the expected block, and asserts it matches the on-disk doc. CI runs `tox`, which runs the test, so a drifted matrix fails the build.
+**Why**: The authoritative information is the capability each concrete class declares in production code. `DataOperationsCatalog` flattens those declarations into one queryable structure; this page renders it as a single table and keeps it in sync via a drift check. The test-twin `supported_*()` sets are checked mirrors of the catalog, enforced by `tests/test_twin_catalog_consistency.py`.
+**Where**: The tables below are guarded by a pytest drift check in `mloda/community/feature_groups/data_operations/tests/test_framework_support_matrix.py`. Do not edit the block between the `BEGIN GENERATED` and `END GENERATED` markers by hand. After changing any capability declaration, run `tox` (or at minimum that one test file). If the drift check fails, regenerate the block with a coding agent so its contents match what the test produces, then rerun until the test passes.
+**How**: The test queries `DataOperationsCatalog`, renders the expected block, and asserts it matches the on-disk doc. CI runs `tox`, which runs the test, so a drifted matrix fails the build.
 
 ---
 
 ## Reading the tables
 
-- The **summary** shows, per framework, whether an operation is fully covered (`full`), only partially covered (`partial (k/n)`), or absent (`--`).
-- The **per-operation detail** tables show every subtype that any framework supports, with ✓ / ✗ per cell. `--` means that framework has no test class (and therefore no implementation) for this operation.
-- A ✗ is not a bug. It is a deliberate exclusion documented in [Known divergences](known-divergences.md) or recorded by a `supported_*()` override in `*/tests/test_{framework}.py`. See the matching entry there before attempting to add support.
-- The matrix does not list every percentile quantile. For `percentile` and `datetime` the op either ships in full or does not ship at all: see the detail tables, where the single "(all)" row reflects that absence of a `supported_*()` method. For `frame_aggregate` the per-frame-type detail breaks out time-window units (`time:second`, ..., `time:year`) so framework-specific unit gaps (e.g. SQLite/Pandas rejecting `time:month`) surface as ✗ rather than being hidden behind a single `time` row.
+- The **summary** shows, per framework, whether an operation is fully supported (`full`), only partially supported (`partial (k/n)`), or absent (`--`).
+- The **per-operation detail** tables show every subtype the operation defines, with ✓ / ✗ per cell. `--` means no production implementation ships for this framework (the catalog has no entry for it).
+- A ✗ is not a bug. It is a deliberate exclusion declared by the production implementation at match time and documented in [Known divergences](known-divergences.md). The framework test class mirrors the exclusion with a `supported_*()` override in `*/tests/test_{framework}.py`, kept honest by `tests/test_twin_catalog_consistency.py`. See the matching divergence entry before attempting to add support.
+- The matrix does not list every percentile quantile. Operations without a subtype axis (`percentile`, `ffill`, `ema`, `sessionization`, `resample`) render a single "(all)" row: the op either ships in full or does not ship at all. For `frame_aggregate` the per-frame-type detail breaks out time-window units (`time:second`, ..., `time:year`) so framework-specific unit gaps (e.g. SQLite/Pandas rejecting `time:month`) surface as ✗ rather than being hidden behind a single `time` row.
 
 ## Not in this matrix: joins
 
@@ -27,11 +27,11 @@ This matrix only covers data-operation feature groups (single-source column tran
 
 ## Summary
 
-`full` means every subtype listed in the per-operation table below is supported. `partial (k/n)` means the framework's test class restricts `supported_*()` to k of the n subtypes this operation defines. `--` means the framework has no test class for this operation (typically because no production implementation exists).
+Cells reflect the production capability declarations (`compute_framework_rule`, the `supports_compute_framework` hook, and match-time restrictions), queryable via `DataOperationsCatalog`. `full` means the framework's production implementation declares support for every subtype this operation defines. `partial (k/n)` means it declares k of the n subtypes and rejects the rest. `--` means no implementation ships for this framework.
 
 | Operation | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
 |---|---|---|---|---|---|
-| aggregation | partial (15/17) | partial (16/17) | partial (16/17) | partial (16/17) | partial (5/17) |
+| aggregation | partial (15/17) | full | full | full | partial (6/17) |
 | binning | full | full | full | full | full |
 | datetime | full | full | full | full | full |
 | frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) |
@@ -45,13 +45,13 @@ This matrix only covers data-operation feature groups (single-source column tran
 | ffill | full | full | full | full | full |
 | ema | -- | full | full | -- | -- |
 | sessionization | full | full | full | full | full |
-| window_aggregation | partial (15/17) | partial (16/17) | partial (16/17) | partial (16/17) | partial (5/17) |
+| window_aggregation | partial (15/17) | full | full | full | partial (6/17) |
 | string | full | full | full | full | partial (2/5) |
 | resample | full | full | full | full | -- |
 
 ## Per-operation detail
 
-✓ = the framework's test-class `supported_*()` includes this subtype. ✗ = excluded. `--` = no test class for this framework.
+✓ = the framework's production implementation declares support for this subtype. ✗ = the implementation rejects it. `--` = no implementation ships for this framework.
 
 ### aggregation
 
@@ -59,7 +59,7 @@ This matrix only covers data-operation feature groups (single-source column tran
 |---|---|---|---|---|---|
 | `sum` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `avg` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `mean` | ✓ | ✗ | ✗ | ✗ | ✗ |
+| `mean` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `count` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `min` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `max` | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -86,7 +86,15 @@ This matrix only covers data-operation feature groups (single-source column tran
 
 | Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
 |---|---|---|---|---|---|
-| (all) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `year` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `month` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `day` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `hour` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `minute` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `second` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `dayofweek` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `is_weekend` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `quarter` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ### frame_aggregate
 
@@ -134,11 +142,11 @@ This matrix only covers data-operation feature groups (single-source column tran
 | Agg type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
 |---|---|---|---|---|---|
 | `sum` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `min` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `max` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `avg` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `mean` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `count` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `min` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `max` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `std` | ✓ | ✓ | ✓ | ✓ | ✗ |
 | `var` | ✓ | ✓ | ✓ | ✓ | ✗ |
 | `std_pop` | ✓ | ✓ | ✓ | ✓ | ✗ |
@@ -197,7 +205,7 @@ This matrix only covers data-operation feature groups (single-source column tran
 |---|---|---|---|---|---|
 | `sum` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `avg` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `mean` | ✓ | ✗ | ✗ | ✗ | ✗ |
+| `mean` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `count` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `min` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `max` | ✓ | ✓ | ✓ | ✓ | ✓ |

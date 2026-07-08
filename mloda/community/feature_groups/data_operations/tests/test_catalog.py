@@ -249,11 +249,11 @@ class TestRankCell:
         info = DataOperationsCatalog.get("rank")
         assert info.subtype_label == "rank type"
 
-    def test_pandas_excludes_percent_rank(self) -> None:
-        """Pandas percent_rank diverges from SQL semantics, so it is excluded."""
+    def test_pandas_supports_full_rank_type_set(self) -> None:
+        """Pandas computes all four named rank types, including SQL-semantics percent_rank."""
         pytest.importorskip("pandas")
         info = DataOperationsCatalog.get("rank")
-        assert info.frameworks["PandasDataFrame"] == frozenset({"row_number", "rank", "dense_rank"})
+        assert info.frameworks["PandasDataFrame"] == frozenset({"row_number", "rank", "dense_rank", "percent_rank"})
 
     def test_duckdb_includes_percent_rank(self) -> None:
         """DuckDB supports SQL percent_rank natively."""

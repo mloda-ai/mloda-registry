@@ -67,7 +67,7 @@ DOC_PATH = REPO_ROOT / "docs" / "guides" / "data-operation-patterns" / "known-di
 # the machine block's ``framework`` and ``operation`` fields against these turns a typo
 # or a stale name into a failure instead of letting those fields hold arbitrary text.
 KNOWN_FRAMEWORKS: frozenset[str] = frozenset(key for key, _label in FRAMEWORKS)
-KNOWN_OPERATIONS: frozenset[str] = frozenset(op.key for op in OPERATIONS)
+KNOWN_OPERATIONS: frozenset[str] = frozenset(OPERATIONS)
 
 ENTRIES_HEADING = "## Entries"
 BLOCK_BEGIN = "<!-- machine-checked"

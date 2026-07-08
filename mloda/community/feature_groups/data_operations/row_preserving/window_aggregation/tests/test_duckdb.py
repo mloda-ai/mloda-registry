@@ -23,3 +23,7 @@ class TestDuckdbWindowAggregation(DuckdbTestMixin, WindowAggregationTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return DuckdbWindowAggregation
+
+    @classmethod
+    def supported_agg_types(cls) -> set[str]:
+        return {*cls.ALL_AGG_TYPES, "mean"}
