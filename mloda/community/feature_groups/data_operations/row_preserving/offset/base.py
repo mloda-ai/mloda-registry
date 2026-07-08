@@ -91,6 +91,9 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         "last_value": "Last value in partition",
     }
 
+    #: Parametric offset families; each accepts a positive integer suffix (e.g. ``lag_3``).
+    PARAMETRIC_OFFSET_FAMILIES: tuple[str, ...] = ("lag", "lead", "diff", "pct_change")
+
     PROPERTY_MAPPING = {
         OFFSET_TYPE: {
             **OFFSET_TYPES,
@@ -120,7 +123,8 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         """Check if the given offset type is supported."""
         if offset_type in cls.OFFSET_TYPES:
             return True
-        for prefix in ("lag_", "lead_", "diff_", "pct_change_"):
+        for family in cls.PARAMETRIC_OFFSET_FAMILIES:
+            prefix = f"{family}_"
             if offset_type.startswith(prefix):
                 suffix = offset_type[len(prefix) :]
                 if suffix.isdigit() and int(suffix) >= 1:
