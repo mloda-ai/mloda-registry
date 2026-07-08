@@ -38,11 +38,8 @@ Backends:
 - pandas + polars-lazy compute EMA natively (value tests via ``EmaTestBase``).
 - pyarrow, duckdb, sqlite have no native exponentially weighted compute and a
   recursive Python emulation is forbidden by the CFW-backend rule, so they ship
-  NO backend at all (the absence convention, as used by resample / offset /
-  rank / percentile / frame_aggregate). A request that resolves only to one of
-  these frameworks fails to resolve with mloda core's generic no-feature-group
-  error -- a loud failure, not silent emulation -- so there are no per-backend
-  reject test bases here.
+  NO backend at all (the absence convention). There are no per-backend reject
+  test bases here.
 
 Fixture row layout (12 rows, two interleaved partitions A / B in ROW order;
 ``id`` is the passthrough row-order witness). Per-partition TIME order differs
@@ -226,9 +223,8 @@ class EmaTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
     There is NO live reference oracle (PyArrow cannot compute EMA); every value
     test asserts against PINNED literals, so this base is used ONLY by backends
     that actually support EMA. Unsupported backends (pyarrow, duckdb, sqlite)
-    ship no backend at all (the absence convention); a request that resolves
-    only to one of them fails with a generic no-feature-group error, so there is
-    no value-test base for them here.
+    ship no backend at all (absence), so there is no value-test base for them
+    here.
     """
 
     # -- ReservedColumnsTestMixin configuration --------------------------------

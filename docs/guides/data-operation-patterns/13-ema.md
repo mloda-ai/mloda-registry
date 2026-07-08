@@ -54,7 +54,7 @@ This is exactly: pandas `series.ewm(span=SPAN, adjust=False, ignore_na=True).mea
 | DuckDB | not implemented (no backend). No native EWM. |
 | SQLite | not implemented (no backend). No native EWM. |
 
-PyArrow, DuckDB, and SQLite ship no EMA backend rather than emulating the recurrence row-by-row in Python. This follows the project's CFW backend rule: a backend that cannot natively express an operation is left unimplemented rather than falling back to a slow, semantics-drifting Python loop. It is the same absence convention the other data operations use for a framework they cannot support (for example resample has no SQLite backend). A request that resolves only to one of these frameworks fails with mloda core's generic no-feature-group error at resolution time; on a setup where pandas or polars-lazy is available, EMA resolves there.
+PyArrow, DuckDB, and SQLite ship no EMA backend rather than emulating the recurrence row-by-row in Python, following the project's CFW backend rule and the same absence convention other data operations use (for example resample has no SQLite backend). A request that resolves only to one of these frameworks fails with mloda core's generic no-feature-group error; where pandas or polars-lazy is available, EMA resolves there.
 
 ---
 

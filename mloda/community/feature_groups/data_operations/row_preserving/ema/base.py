@@ -33,12 +33,9 @@ mapping internally.
 
 Only pandas and polars-lazy compute EMA natively. PyArrow, DuckDB and SQLite
 have no native exponentially weighted compute and a Python emulation is
-forbidden by the CFW-backend rule, so they ship no backend for EMA (absence,
-the same convention the other data operations use for a framework they cannot
-support). A request that resolves only to one of them fails with a generic
-no-feature-group error rather than silently emulating. Compute subclasses
-implement ``_compute_ema`` (the backend EWM) and ``_assert_source_column_present``
-(the guard).
+forbidden by the CFW-backend rule, so they ship no backend for EMA (absence).
+Compute subclasses implement ``_compute_ema`` (the backend EWM) and
+``_assert_source_column_present`` (the guard).
 """
 
 from __future__ import annotations
