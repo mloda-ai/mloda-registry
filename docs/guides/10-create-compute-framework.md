@@ -64,3 +64,20 @@ Q11: Ready to test your implementation?
 | [08-framework-transformer](compute-framework-patterns/08-framework-transformer.md) | Cross-framework conversion (PyArrow as hub) |
 | [09-testing-guide](compute-framework-patterns/09-testing-guide.md) | Testing your implementation |
 | [10-data-type-extraction](compute-framework-patterns/10-data-type-extraction.md) | Mapping native column types to mloda `DataType` |
+
+## Timezone Validation (Opt-In)
+
+Merge and filter engines can opt in to a timezone guard that turns silent tz-aware vs tz-naive
+mismatches into a clear `ValueError`.
+
+- Opt in: set `provides_column_semantics = True` on your `BaseMergeEngine` / `BaseFilterEngine`
+  subclass and implement `_column_semantics(data, column)` returning a `ColumnSemantics`.
+- Default `False`: guard skipped, hook never required.
+- Opted in without the hook: `NotImplementedError`.
+- As-of joins require the hook regardless of the flag.
+
+See [06-merge-engine](compute-framework-patterns/06-merge-engine.md#timezone-validation-opt-in)
+and [07-filter-engine](compute-framework-patterns/07-filter-engine.md#timezone-validation-opt-in)
+for details, and the upstream
+[comparison contract](https://github.com/mloda-ai/mloda/blob/main/docs/docs/in_depth/comparison-contract.md)
+for the full model.

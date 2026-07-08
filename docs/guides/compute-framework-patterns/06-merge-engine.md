@@ -93,6 +93,31 @@ def test_merge_engine():
     assert len(result) == 1  # Only idx=2 matches
 ```
 
+## Timezone Validation (Opt-In)
+
+`merge()` can guard equi-joins (inner/left/right/outer) against mixing timezone-aware and
+timezone-naive key columns. Opt in via a class attribute:
+
+```python
+class MyMergeEngine(BaseMergeEngine):
+    provides_column_semantics = True
+
+    def _column_semantics(self, data, column) -> "ColumnSemantics":
+        ...  # is_ordered, is_temporal, is_numeric, unit, is_tz_aware
+```
+
+- Default `False`: guard skipped, hook never required.
+- Checks only key pairs where **both** columns are temporal; string/numeric/id keys are unaffected.
+- `unit` is reported but not yet enforced (backends align resolutions natively).
+- Opted in without the hook: `NotImplementedError`.
+- As-of joins validate through the hook regardless of the flag (`validate_asof_time_columns()`,
+  called from your `merge_asof()`).
+
+`ColumnSemantics` is not yet exported from `mloda.provider`; see the pandas implementation below
+for the import. Full model: upstream
+[comparison contract](https://github.com/mloda-ai/mloda/blob/main/docs/docs/in_depth/comparison-contract.md).
+Filter-side guard: [07-filter-engine](07-filter-engine.md#timezone-validation-opt-in).
+
 ## Stateful Connection
 
 For frameworks with connections, use `self.framework_connection`:
