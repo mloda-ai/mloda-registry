@@ -85,6 +85,11 @@ resources of the same kind, name them with a `dict[handle, value]` and pick one 
 feature via `Options(context={"data_access_handle": ...})`. See
 [Data Connection Matching](17-data-connection-matching.md#named-handles-and-multi-source-disambiguation).
 
+Database credentials live in the same collection. Wrap each slot in the typed
+`Credential` class (for example `DataAccessCollection(credentials=Credential(sqlite="/data/app.db"))`)
+so a single credential dict is never mistaken for a `{handle: value}` registry. See
+[Credentials](17-data-connection-matching.md#credentials).
+
 ## Real Implementations
 
 | File | Description |

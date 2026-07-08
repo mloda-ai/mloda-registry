@@ -117,6 +117,42 @@ predicate, `resolve` raises a `ValueError` that names the offending handle and t
 available handles of that kind, so misconfiguration fails fast instead of silently
 binding the wrong source.
 
+## Credentials
+
+Credentials are a resource kind alongside connections, files, and folders, but with
+one twist: a credential *is* a dict, so a bare `{connector_id: slot}` dict collides
+with the named `{handle: value}` form. Since mloda 0.9.0, wrap each credential slot
+in the typed `Credential` class so the meaning comes from the type, not the nesting
+depth:
+
+```python
+from mloda.user import Credential, DataAccessCollection
+
+# kwargs form and dict form are equivalent
+DataAccessCollection(credentials=Credential(sqlite="/data/app.db"))
+DataAccessCollection(credentials=Credential({"sqlite": "/data/app.db"}))
+
+# a list registers each entry as its own auto-named slot
+DataAccessCollection(credentials=[Credential(host="h"), {"host": "h2"}])
+# a dict names each slot by handle; the value must itself be a mapping
+DataAccessCollection(credentials={"pg-prod": Credential(host="h")})
+```
+
+`Credential` is unwrapped to a plain dict at registration, so feature groups and
+`is_valid_credentials` implementations keep receiving plain dicts. Nothing changes
+downstream.
+
+A named-form value that is not a mapping (for example
+`credentials={"prod": "dsn-string"}`) now raises `ValueError` at construction
+instead of silently mis-matching later. Keep the handle and make the value a
+mapping: `credentials={"prod": {"dsn": "dsn-string"}}` or
+`credentials={"prod": Credential(dsn="dsn-string")}`. A bare
+`credentials=Credential(dsn="dsn-string")` also constructs, but auto-names the
+slot, so a later `data_access_handle="prod"` lookup would no longer find it.
+
+Resolver ambiguity errors redact credential values (keys stay visible, values render
+as `***`), so secrets stay out of logs and tracebacks.
+
 ## Full Documentation
 
 See [Data Access Patterns](https://mloda-ai.github.io/mloda/in_depth/data-access-patterns/) for detailed patterns.
