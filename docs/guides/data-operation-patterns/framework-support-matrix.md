@@ -17,6 +17,46 @@ One-page lookup for "does operation *X* work on framework *Y*?". Rows are the se
 - A ✗ is not a bug. It is a deliberate exclusion declared by the production implementation at match time and documented in [Known divergences](known-divergences.md). The framework test class mirrors the exclusion with a `supported_*()` override in `*/tests/test_{framework}.py`, kept honest by `tests/test_twin_catalog_consistency.py`. See the matching divergence entry before attempting to add support.
 - The matrix does not list every percentile quantile. Operations without a subtype axis (`percentile`, `ffill`, `ema`, `sessionization`, `resample`) render a single "(all)" row: the op either ships in full or does not ship at all. For `frame_aggregate` the per-frame-type detail breaks out time-window units (`time:second`, ..., `time:year`) so framework-specific unit gaps (e.g. SQLite/Pandas rejecting `time:month`) surface as ✗ rather than being hidden behind a single `time` row.
 
+## Querying capabilities at runtime
+
+Everything in this page is available programmatically through `DataOperationsCatalog`, so you can check an op/framework pair before building features instead of reading tables:
+
+```python
+from mloda.community.feature_groups.data_operations import DataOperationsCatalog
+
+# Exact cell: is median aggregation available on SQLite?
+DataOperationsCatalog.is_supported("aggregation", "median", "SqliteFramework")  # False
+DataOperationsCatalog.is_supported("aggregation", "mean", "SqliteFramework")    # True
+
+# Operation-level: does percentile ship on DuckDB at all?
+DataOperationsCatalog.is_supported("percentile", framework="DuckDBFramework")   # True
+
+# Full record: naming pattern, subtype universe, per-framework support.
+info = DataOperationsCatalog.get("aggregation")
+info.prefix_pattern            # r".*__([\w]+)_agg$"
+info.subtypes                  # ("sum", "avg", "mean", "count", ...)
+info.frameworks["SqliteFramework"]  # frozenset({"sum", "avg", "mean", "count", "min", "max"})
+
+for op in DataOperationsCatalog.list():
+    print(op.name, op.prefix_pattern)
+```
+
+Framework names are the compute framework class names (`PyArrowTable`, `PandasDataFrame`, `PolarsLazyDataFrame`, `DuckDBFramework`, `SqliteFramework`), matched case-insensitively. Unknown operations and out-of-universe subtypes raise a `ValueError` listing the valid values; an unknown framework simply returns `False`.
+
+To check a concrete feature name instead of an op/subtype pair, use core's `resolve_feature`; the same capability hook feeds both:
+
+```python
+from mloda.user import PluginLoader
+from mloda.steward import resolve_feature
+
+PluginLoader.all()
+resolved = resolve_feature("value__median_scalar")
+resolved.supported_compute_frameworks    # ["DuckDBFramework", "PandasDataFrame", ...]
+resolved.unsupported_compute_frameworks  # ["SqliteFramework"]
+```
+
+Unsupported combinations are also rejected at match time when running a pipeline, so a request pinned to an incapable framework fails at planning with a message naming the supported frameworks, not at compute.
+
 ## Not in this matrix: joins
 
 This matrix only covers data-operation feature groups (single-source column transforms). Joins are a separate concern handled by the compute frameworks' merge engines in core, not by registry feature groups, so they do not appear above. The **as-of (point-in-time) join** added in mloda 0.8.0 has its own per-backend support table and a worked example in [Links and joins](../feature-group-patterns/08-links-joins.md#as-of-point-in-time-joins).
