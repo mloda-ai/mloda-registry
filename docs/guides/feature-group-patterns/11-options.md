@@ -58,6 +58,67 @@ feature = Feature("price__scaled", Options(
 
 Use propagation sparingly—most context should remain local. Common use cases include trace IDs for debugging, tenant identifiers, or configuration that genuinely needs to flow through the entire pipeline.
 
+## PROPERTY_MAPPING value space
+
+A `PROPERTY_MAPPING` entry declares a parameter's accepted values plus metadata flags. Historically the values were flattened in among the flags:
+
+```python
+from mloda.provider import DefaultOptionKeys
+
+# Flattened form (still fully supported)
+PROPERTY_MAPPING = {
+    "operation_type": {
+        "add": "Addition",
+        "sub": "Subtraction",
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: True,
+    },
+}
+```
+
+The parser recovers the value space by subtracting the reserved metadata keys (`RESERVED_PROPERTY_KEYS`: `explanation`, `allowed_values`, `default`, `context`, `group`, `strict_validation`, `validation_function`, `required_when`, `type_validator`). A value that collides with one of these names therefore cannot be expressed in the flattened form (it is read as metadata); use the explicit `allowed_values` field below for such a value.
+
+### Recommended: explicit `allowed_values`
+
+Declare the value space under `DefaultOptionKeys.allowed_values` so it stays separate from the flags and a doc-only key can never widen the accepted set:
+
+```python
+from mloda.provider import DefaultOptionKeys
+
+PROPERTY_MAPPING = {
+    "operation_type": {
+        DefaultOptionKeys.allowed_values: {"add": "Addition", "sub": "Subtraction"},
+        DefaultOptionKeys.context: True,
+        DefaultOptionKeys.strict_validation: True,
+    },
+}
+```
+
+When `allowed_values` is present the parser uses it directly and ignores the other keys for value-space purposes. It may be a mapping of value to one-line docstring, or a re-iterable collection (list, tuple, set). Do not pass a one-shot iterator (e.g. a generator) in a hand-written spec: the parser iterates the value space more than once, so an exhausted iterator behaves like an empty set. The value space here is taken verbatim, so it can hold any value (including one whose name matches a reserved key like `explanation`), unlike the flattened form.
+
+### Builder: `property_spec`
+
+`property_spec` builds the same dict and validates its invariants at construction (strict needs a non-empty `allowed_values` or a `validation_function`; `allowed_values` without strict is rejected as a no-op; a strict non-`None` `default` must be in the accepted set). It also materializes iterables, so you never hit the one-shot caveat. The contract stays a plain `dict[str, Any]`, so this is optional sugar:
+
+```python
+from mloda.provider import property_spec
+
+PROPERTY_MAPPING = {
+    "operation_type": property_spec(
+        "Arithmetic operation",
+        strict=True,
+        allowed_values={"add": "Addition", "sub": "Subtraction"},
+        default="add",
+    ),
+}
+```
+
+`property_spec` also accepts `context`, `validation_function`, `required_when`, and `type_validator`, matching the flattened keys of the same name.
+
+### Strict defaults are checked at import time
+
+Since mloda 0.9.0, defining a `FeatureGroup` whose `PROPERTY_MAPPING` declares a `strict_validation: True` default outside the accepted set (or one that fails the key's `validation_function`) raises `ValueError` at class definition, naming the class, key, default, and accepted values. Previously such a spec imported silently and only misbehaved at runtime. A `default` of `None` is exempt (the conventional "unset" sentinel), and the check is a no-op under `strict_validation: False`.
+
 ## Validation and Conditional Requirements
 
 When using `PROPERTY_MAPPING` with `FeatureChainParserMixin`, you can declare validation rules and conditional requirements directly on option entries:
@@ -70,4 +131,4 @@ See [Feature Matching: Conditional Requirements](14-feature-matching.md#conditio
 
 ## Full Documentation
 
-See [Options API](https://mloda-ai.github.io/mloda/in_depth/options/) for detailed patterns.
+See [Options API](https://mloda-ai.github.io/mloda/in_depth/options/) for detailed patterns and [PROPERTY_MAPPING Configuration](https://mloda-ai.github.io/mloda/in_depth/property-mapping/) for the full spec reference.

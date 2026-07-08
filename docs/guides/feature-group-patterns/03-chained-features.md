@@ -37,7 +37,9 @@ class MeanImputedFeature(FeatureChainParserMixin, FeatureGroup):
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
 
-    # Optional: enables configuration-based creation
+    # Optional: enables configuration-based creation.
+    # Flattened form shown here; the recommended allowed_values / property_spec
+    # shape is below. See 11-options.md for the full value-space reference.
     PROPERTY_MAPPING = {
         "imputation_method": {
             "mean": "Impute with mean",
@@ -96,6 +98,7 @@ Use specific keys (not generic `operation_type`) to avoid collisions between fea
 
 PROPERTY_MAPPING supports additional capabilities that reduce boilerplate in `match_feature_group_criteria` overrides:
 
+- **`allowed_values`**: Declare the accepted value space in its own key instead of flattening it among the flags. Recommended shape; build it with `property_spec` for construction-time validation. See [Options: PROPERTY_MAPPING value space](11-options.md#property_mapping-value-space).
 - **`required_when`**: Declare options that are only required under certain conditions via a predicate callable.
 - **`type_validator`**: Validate raw option values with a callable (e.g., check that a value is a list of strings). Does not require `strict_validation`.
 - **`validation_function`**: Validate individual parsed values when `strict_validation` is enabled (e.g., check that a value is a positive integer).

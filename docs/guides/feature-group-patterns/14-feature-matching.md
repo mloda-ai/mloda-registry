@@ -91,6 +91,24 @@ class BaseMyTransform(FeatureChainParserMixin, FeatureGroup):
     # No need to override match_feature_group_criteria() - mixin handles it
 ```
 
+**Recommended shape:** keep the discriminator's value space in its own `allowed_values` key instead of spreading it among the flags. See [Options: PROPERTY_MAPPING value space](11-options.md#property_mapping-value-space).
+
+```python
+from mloda.provider import DefaultOptionKeys, property_spec
+
+PROPERTY_MAPPING = {
+    MY_METHOD: property_spec(
+        "Transform algorithm",
+        strict=True,
+        allowed_values=MY_METHODS,  # {"algo_a": "...", "algo_b": "..."}
+    ),
+    DefaultOptionKeys.in_features: {
+        "explanation": "Source feature",
+        DefaultOptionKeys.context: True,
+    },
+}
+```
+
 **Usage** - both approaches route to the same FeatureGroup:
 
 ```python
