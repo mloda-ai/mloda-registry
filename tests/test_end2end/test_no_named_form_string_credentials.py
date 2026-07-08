@@ -2,16 +2,17 @@
 
 mloda 0.9.0 made "named-form non-mapping credential values" raise
 ``ValueError`` at construction: a ``credentials=`` (or ``add_credentials(...)``)
-mapping whose VALUE is a bare scalar/string literal instead of a nested mapping
+mapping whose VALUE is a bare quoted-string literal instead of a nested mapping
 ``{...}`` or a ``Credential(...)``. So ``credentials={'prod': 'dsn-string'}``
 now raises, while ``credentials={'prod': {'dsn': 'dsn-string'}}``,
 ``credentials={'pg-prod': Credential(host='h')}``,
 ``credentials=Credential(dsn='dsn-string')`` and list forms stay valid. This
-guard flags the offending named-string shape. The registry is currently clean;
-this trips loudly if such a usage ever reappears.
+guard flags a bare quoted-string value at any position of the credentials
+mapping (non-string scalar values such as ints are out of scope). The registry
+is currently clean; this trips loudly if such a usage ever reappears.
 
-This is a best-effort text/proximity heuristic and can miss a reintroduction
-split across lines or bound to an intermediate variable.
+This is a best-effort single-line heuristic and can miss a reintroduction split
+across lines or bound to an intermediate variable.
 """
 
 import re
@@ -22,10 +23,64 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _SKIP_DIRS = {"__pycache__", "site-packages", "node_modules"}
 
-# Named-form mapping opened right after a credentials marker whose first value is a
-# bare quoted literal: ``credentials={'k': '...`` or ``add_credentials({'k': '...``.
-# Anchoring to the marker avoids matching a nested inner mapping value.
-_NAMED_FORM_STRING_RE = re.compile(r"(?:credentials\s*=|add_credentials\s*\()\s*\{\s*['\"][^'\"]*['\"]\s*:\s*['\"]")
+# A credentials mapping opened right after a marker: ``credentials={`` or
+# ``add_credentials({``. The captured ``{`` opens the mapping at depth 1; a
+# top-level-aware scan then inspects each value for a bare quoted string.
+_MARKER_RE = re.compile(r"(?:credentials\s*=|add_credentials\s*\()\s*\{")
+
+
+def _mapping_has_top_level_string_value(line: str, open_idx: int) -> bool:
+    """Scan the credentials mapping opened at ``line[open_idx] == '{'``.
+
+    Returns True when any top-level (depth-1) value in the mapping is a bare
+    quoted-string literal. Tracks brace/bracket/paren depth and quoted strings
+    so nested ``{...}`` pairs, ``Credential(...)`` and list-form values are
+    ignored, and stops at the matching closing ``}`` of the mapping.
+    """
+    depth = 0
+    quote: str | None = None
+    expect_value = False  # True right after a top-level ':' until its value starts
+    i = open_idx
+    n = len(line)
+    while i < n:
+        ch = line[i]
+        if quote is not None:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            if expect_value and depth == 1:
+                return True
+            quote = ch
+            expect_value = False
+        elif ch in "{[(":
+            if expect_value and depth == 1:
+                expect_value = False
+            depth += 1
+        elif ch in "}])":
+            depth -= 1
+            if depth == 0:
+                return False
+        elif ch == ":" and depth == 1:
+            expect_value = True
+        elif ch == "," and depth == 1:
+            expect_value = False
+        elif expect_value and depth == 1 and not ch.isspace():
+            expect_value = False  # value starts with an identifier/number, not a string
+        i += 1
+    return False
+
+
+def _line_flags_named_form_string(line: str) -> bool:
+    """Return True when the line opens a credentials mapping with a bare top-level string value."""
+    for m in _MARKER_RE.finditer(line):
+        if _mapping_has_top_level_string_value(line, m.end() - 1):
+            return True
+    return False
 
 
 def _in_scope_indices(path: Path, lines: list[str]) -> set[int]:
@@ -65,7 +120,7 @@ def find_named_form_string_credential_usages(root: Path) -> list[str]:
         for i, line in enumerate(lines):
             if i not in scope:
                 continue
-            if _NAMED_FORM_STRING_RE.search(line):
+            if _line_flags_named_form_string(line):
                 hits.append(f"{rel.as_posix()}:{i + 1}: {line.strip()}")
     return sorted(hits)
 
@@ -108,6 +163,26 @@ def test_nested_mapping_value_not_flagged(tmp_path: Path) -> None:
 def test_named_form_credential_object_value_not_flagged(tmp_path: Path) -> None:
     """A named-form value that is a Credential(...) is not flagged."""
     _write(tmp_path / "m.py", "credentials={'pg-prod': Credential(host='h')}\n")
+    assert find_named_form_string_credential_usages(tmp_path) == []
+
+
+def test_multi_entry_later_string_value_flagged(tmp_path: Path) -> None:
+    """A multi-entry mapping whose first value is a nested mapping but a later value is a bare string is flagged."""
+    _write(tmp_path / "m.py", "credentials={'prod': {'dsn': 'ok'}, 'staging': 'dsn-string'}\n")
+    hits = find_named_form_string_credential_usages(tmp_path)
+    assert len(hits) == 1
+    assert "m.py" in hits[0]
+
+
+def test_multi_entry_all_mapping_values_not_flagged(tmp_path: Path) -> None:
+    """A multi-entry mapping where every value is a nested mapping is not flagged."""
+    _write(tmp_path / "m.py", "credentials={'prod': {'dsn': 'x'}, 'staging': {'dsn': 'y'}}\n")
+    assert find_named_form_string_credential_usages(tmp_path) == []
+
+
+def test_multi_entry_all_credential_values_not_flagged(tmp_path: Path) -> None:
+    """A multi-entry mapping where every value is a Credential(...) is not flagged."""
+    _write(tmp_path / "m.py", "credentials={'prod': Credential(host='h'), 'staging': Credential(host='h2')}\n")
     assert find_named_form_string_credential_usages(tmp_path) == []
 
 
