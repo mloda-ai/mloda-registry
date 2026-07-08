@@ -67,26 +67,17 @@ Q11: Ready to test your implementation?
 
 ## Timezone Validation (Opt-In)
 
-Since mloda 0.9.0, merge and filter engines can opt in to a timezone guard that turns
-silent-wrongness bugs (for example joining a timezone-aware column against a timezone-naive one)
-into a clear `ValueError`.
+Since mloda 0.9.0, merge and filter engines can opt in to a timezone guard that turns silent
+tz-aware vs tz-naive mismatches into a clear `ValueError`.
 
-- Opt in by setting `provides_column_semantics = True` on your `BaseMergeEngine` or
-  `BaseFilterEngine` subclass and implementing `_column_semantics(data, column)`, which reports the
-  column's framework-native semantics as a `ColumnSemantics` value (`is_ordered`, `is_temporal`,
-  `is_numeric`, `unit`, `is_tz_aware`). Only timezone-awareness is enforced today; `unit` is
-  reported for forward compatibility with the comparison contract but not yet validated by these
-  guards.
-- The flag defaults to `False`: the guard is skipped entirely, so a framework with no temporal
-  intent never has to implement the hook.
-- An engine that opts in but forgets the hook fails loudly (`NotImplementedError`) instead of
-  silently skipping validation.
-- As-of caveat: as-of joins validate their time columns through `_column_semantics` (via
-  `validate_asof_time_columns()`) regardless of the flag, so an engine that implements
-  `merge_asof()` must implement the hook either way.
+- Opt in: set `provides_column_semantics = True` on your `BaseMergeEngine` / `BaseFilterEngine`
+  subclass and implement `_column_semantics(data, column)` returning a `ColumnSemantics`.
+- Default `False`: guard skipped, hook never required.
+- Opted in without the hook: `NotImplementedError`.
+- As-of joins require the hook regardless of the flag.
 
 See [06-merge-engine](compute-framework-patterns/06-merge-engine.md#timezone-validation-opt-in)
 and [07-filter-engine](compute-framework-patterns/07-filter-engine.md#timezone-validation-opt-in)
-for what each guard checks, and the upstream
+for details, and the upstream
 [comparison contract](https://github.com/mloda-ai/mloda/blob/main/docs/docs/in_depth/comparison-contract.md)
-doc for the full model.
+for the full model.

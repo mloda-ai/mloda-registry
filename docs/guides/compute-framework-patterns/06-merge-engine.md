@@ -95,46 +95,28 @@ def test_merge_engine():
 
 ## Timezone Validation (Opt-In)
 
-Since mloda 0.9.0, `BaseMergeEngine.merge()` can guard equi-joins (inner/left/right/outer) against
-timezone-incompatible key pairs. The guard is opt-in via a class attribute:
+Since mloda 0.9.0, `merge()` can guard equi-joins (inner/left/right/outer) against mixing
+timezone-aware and timezone-naive key columns. Opt in via a class attribute:
 
 ```python
 class MyMergeEngine(BaseMergeEngine):
     provides_column_semantics = True
 
     def _column_semantics(self, data, column) -> "ColumnSemantics":
-        dtype = data[column].dtype
-        return ColumnSemantics(
-            is_ordered=...,   # datetime / numeric / timedelta dtype
-            is_temporal=...,  # datetime-like dtype
-            is_numeric=...,
-            unit=...,         # e.g. "ns", or None if unknown
-            is_tz_aware=...,  # tz-aware datetime dtype
-        )
+        ...  # is_ordered, is_temporal, is_numeric, unit, is_tz_aware
 ```
 
-`ColumnSemantics` is not yet re-exported from `mloda.provider`; import it from the internal
-`comparison_contract` module (see the pandas implementation linked below for the exact path).
+- Default `False`: guard skipped, hook never required.
+- Checks only key pairs where **both** columns are temporal; string/numeric/id keys are unaffected.
+- `unit` is reported but not yet enforced (backends align resolutions natively).
+- Opted in without the hook: `NotImplementedError`.
+- As-of joins validate through the hook regardless of the flag (`validate_asof_time_columns()`,
+  called from your `merge_asof()`).
 
-Behavior:
-
-- `provides_column_semantics` defaults to `False`: the equi-join guard is skipped entirely, so a
-  time-agnostic framework never has to implement `_column_semantics`.
-- When opted in, aligned key pairs are checked only if **both** columns are temporal; string,
-  numeric, or id keys are never affected. Mixing timezone-aware and timezone-naive keys raises a
-  clear `ValueError`. The `unit` field is reported for forward compatibility but not yet enforced:
-  differing resolutions (for example `ns` vs `us`) are aligned natively by the backends.
-- Opting in without implementing the hook raises `NotImplementedError`, so a forgotten override
-  fails loudly.
-- As-of caveat: as-of joins validate their time columns through `_column_semantics` (via
-  `validate_asof_time_columns()`, called from the engine's `merge_asof()` implementation)
-  regardless of the flag, so an engine that implements as-of joins must implement the hook either
-  way.
-
-See the upstream
-[comparison contract](https://github.com/mloda-ai/mloda/blob/main/docs/docs/in_depth/comparison-contract.md)
-doc for the full model, and [07-filter-engine](07-filter-engine.md#timezone-validation-opt-in)
-for the filter-side guard.
+`ColumnSemantics` is not yet exported from `mloda.provider`; see the pandas implementation below
+for the import. Full model: upstream
+[comparison contract](https://github.com/mloda-ai/mloda/blob/main/docs/docs/in_depth/comparison-contract.md).
+Filter-side guard: [07-filter-engine](07-filter-engine.md#timezone-validation-opt-in).
 
 ## Stateful Connection
 
