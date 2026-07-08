@@ -380,7 +380,7 @@ pyarrow = [
 requires-dist = [
     { name = "duckdb", marker = "extra == 'all'" },
     { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-community-data-operations", specifier = ">=0.3.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
@@ -430,7 +430,7 @@ pyarrow = [
 requires-dist = [
     { name = "duckdb", marker = "extra == 'all'" },
     { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-community-data-operations", specifier = ">=0.3.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
@@ -538,7 +538,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-community-data-operations", specifier = ">=0.3.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -582,7 +582,7 @@ pyarrow = [
 requires-dist = [
     { name = "duckdb", marker = "extra == 'all'" },
     { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-community-data-operations", specifier = ">=0.3.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
@@ -726,7 +726,7 @@ pyarrow = [
 requires-dist = [
     { name = "duckdb", marker = "extra == 'all'" },
     { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-community-data-operations", specifier = ">=0.3.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
@@ -772,7 +772,7 @@ polars = [
 requires-dist = [
     { name = "duckdb", marker = "extra == 'all'" },
     { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-community-data-operations", specifier = ">=0.3.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'", specifier = ">=2.2" },
     { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.2" },
@@ -816,7 +816,7 @@ polars = [
 requires-dist = [
     { name = "duckdb", marker = "extra == 'all'" },
     { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-community-data-operations", specifier = ">=0.3.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
@@ -860,7 +860,7 @@ polars = [
 requires-dist = [
     { name = "duckdb", marker = "extra == 'all'" },
     { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-community-data-operations", specifier = ">=0.3.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
@@ -954,7 +954,7 @@ polars = [
 requires-dist = [
     { name = "duckdb", marker = "extra == 'all'" },
     { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-community-data-operations", specifier = ">=0.3.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
@@ -1002,7 +1002,7 @@ pyarrow = [
 requires-dist = [
     { name = "duckdb", marker = "extra == 'all'" },
     { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-community-data-operations", specifier = ">=0.3.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
@@ -1052,7 +1052,7 @@ pyarrow = [
 requires-dist = [
     { name = "duckdb", marker = "extra == 'all'" },
     { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-community-data-operations", specifier = ">=0.3.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
@@ -1152,7 +1152,7 @@ pyarrow = [
 requires-dist = [
     { name = "duckdb", marker = "extra == 'all'" },
     { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-community-data-operations", specifier = ">=0.3.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
@@ -1180,7 +1180,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-community-data-operations", specifier = ">=0.3.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1224,7 +1224,7 @@ pyarrow = [
 requires-dist = [
     { name = "duckdb", marker = "extra == 'all'" },
     { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-community-data-operations", specifier = ">=0.3.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },
@@ -1274,7 +1274,7 @@ pyarrow = [
 requires-dist = [
     { name = "duckdb", marker = "extra == 'all'" },
     { name = "duckdb", marker = "extra == 'duckdb'" },
-    { name = "mloda-community-data-operations", specifier = ">=0.2.12" },
+    { name = "mloda-community-data-operations", specifier = ">=0.3.3" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'all'" },
     { name = "pandas", marker = "extra == 'pandas'" },

@@ -21,6 +21,9 @@ dev = ["mloda-testing", "pytest>=9.0.3"]
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
+[project.entry-points."mloda.compute_frameworks"]
+mloda-enterprise-compute-frameworks-example = "mloda.enterprise.compute_frameworks.example.manifest:COMPUTE_FRAMEWORKS"
+
 [tool.setuptools]
 package-dir = {"" = "../../../.."}
 packages = ["mloda.enterprise.compute_frameworks.example"]

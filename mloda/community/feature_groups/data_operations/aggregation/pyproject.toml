@@ -11,7 +11,7 @@ version = "0.3.3"
 description = "Aggregation feature group (reduce, partition_by, one row per group)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda-community-data-operations>=0.2.12"]
+dependencies = ["mloda-community-data-operations>=0.3.3"]
 requires-python = ">=3.10,<3.15"
 
 [project.optional-dependencies]
@@ -26,6 +26,9 @@ all = ["pyarrow", "polars", "pandas", "duckdb"]
 [project.urls]
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
+
+[project.entry-points."mloda.feature_groups"]
+mloda-community-aggregation = "mloda.community.feature_groups.data_operations.aggregation.manifest:FEATURE_GROUPS"
 
 [tool.setuptools]
 package-dir = {"" = "../../../../.."}
