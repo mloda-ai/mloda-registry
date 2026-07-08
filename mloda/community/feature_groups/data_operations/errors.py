@@ -28,7 +28,7 @@ def _build_unsupported_value_error(
 ) -> ValueError:
     """Build a ``ValueError`` for an unsupported value of a given label.
 
-    Internal helper. All three public ``unsupported_*_error`` functions
+    Internal helper. The public ``unsupported_*_error`` functions
     delegate to this; they exist as thin wrappers that fix the
     ``value_label`` and ``supported_plural`` strings.
     """
@@ -116,4 +116,28 @@ def unsupported_op_error(
         value_label="operation",
         supported_plural="operations",
         framework=framework,
+    )
+
+
+def unsupported_subtype_error(
+    subtype: str,
+    supported: Iterable[str],
+    *,
+    operation: str,
+) -> ValueError:
+    """Build a ``ValueError`` describing an unsupported subtype of a data operation.
+
+    Args:
+        subtype: The value the caller provided.
+        supported: All subtype values the caller *could* have used.
+            Deduplicated and sorted alphabetically in the message.
+        operation: The operation name (``"aggregation"``, ``"rank"``, ...),
+            included in the value label so the user knows which operation
+            rejected the subtype.
+    """
+    return _build_unsupported_value_error(
+        subtype,
+        supported,
+        value_label=f"{operation} subtype",
+        supported_plural="subtypes",
     )

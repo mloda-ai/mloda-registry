@@ -14,17 +14,17 @@ from __future__ import annotations
 
 import importlib
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
-from types import ModuleType
+from types import MappingProxyType, ModuleType
 from typing import Any
 
 from mloda.core.abstract_plugins.components.options import Options
 
 from mloda.community.feature_groups.data_operations.errors import (
-    _build_unsupported_value_error,
     unsupported_op_error,
+    unsupported_subtype_error,
 )
 
 _PKG = "mloda.community.feature_groups.data_operations"
@@ -45,7 +45,7 @@ class OperationInfo:
     prefix_pattern: str
     subtype_label: str
     subtypes: tuple[str, ...] | None
-    frameworks: dict[str, frozenset[str] | None]
+    frameworks: Mapping[str, frozenset[str] | None]
 
 
 _SubtypesFn = Callable[[ModuleType], tuple[str, ...]]
@@ -125,7 +125,8 @@ def _arithmetic_subtypes(base_module: ModuleType) -> tuple[str, ...]:
 
 
 def _rank_subtypes(base_module: ModuleType) -> tuple[str, ...]:
-    return _keys(base_module.RankFeatureGroup.RANK_TYPES)
+    cls = base_module.RankFeatureGroup
+    return _keys(cls.RANK_TYPES) + _keys(cls.PARAMETRIC_RANK_FAMILIES)
 
 
 def _scalar_aggregate_subtypes(base_module: ModuleType) -> tuple[str, ...]:
@@ -189,7 +190,14 @@ def _point_arithmetic_probe(base_module: ModuleType, subtype: str) -> tuple[str,
     return f"a&b__{subtype}_point", Options()
 
 
+#: Representative N per parametric rank family used when probing capability.
+_RANK_FAMILY_PROBE_N: dict[str, int] = {"ntile": 2, "top": 3, "bottom": 2}
+
+
 def _rank_probe(base_module: ModuleType, subtype: str) -> tuple[str, Options]:
+    """Parametric families probe with a representative N; named rank types probe verbatim."""
+    if subtype in base_module.RankFeatureGroup.PARAMETRIC_RANK_FAMILIES:
+        subtype = f"{subtype}_{_RANK_FAMILY_PROBE_N[subtype]}"
     return f"value__{subtype}_ranked", _partition_order_options()
 
 
@@ -414,7 +422,7 @@ def _build_operation(spec: _OperationSpec) -> OperationInfo | None:
         prefix_pattern=str(base_cls.PREFIX_PATTERN),
         subtype_label=spec.subtype_label,
         subtypes=subtypes,
-        frameworks=frameworks,
+        frameworks=MappingProxyType(frameworks),
     )
 
 
@@ -436,10 +444,11 @@ class DataOperationsCatalog:
     @classmethod
     def get(cls, name: str) -> OperationInfo:
         """Return the OperationInfo for *name*; unknown names raise a ValueError listing all operations."""
-        for info in _load_catalog():
+        catalog = _load_catalog()
+        for info in catalog:
             if info.name == name:
                 return info
-        raise unsupported_op_error(name, (info.name for info in _load_catalog()))
+        raise unsupported_op_error(name, (info.name for info in catalog))
 
     @classmethod
     def is_supported(cls, operation: str, subtype: str | None = None, framework: str | None = None) -> bool:
@@ -452,12 +461,7 @@ class DataOperationsCatalog:
         """
         info = cls.get(operation)
         if subtype is not None and (info.subtypes is None or subtype not in info.subtypes):
-            raise _build_unsupported_value_error(
-                subtype,
-                info.subtypes or (),
-                value_label=f"{info.name} subtype",
-                supported_plural="subtypes",
-            )
+            raise unsupported_subtype_error(subtype, info.subtypes or (), operation=info.name)
         if framework is None:
             if subtype is None:
                 return bool(info.frameworks)

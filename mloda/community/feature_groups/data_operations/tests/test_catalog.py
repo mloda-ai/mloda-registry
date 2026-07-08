@@ -12,6 +12,7 @@ without an implementation are simply absent from ``OperationInfo.frameworks``.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 
 import pytest
 
@@ -77,6 +78,10 @@ FRAME_AGGREGATE_SUBTYPES: frozenset[str] = frozenset(
 
 OFFSET_SUBTYPES: frozenset[str] = frozenset({"lag", "lead", "diff", "pct_change", "first_value", "last_value"})
 
+RANK_SUBTYPES: frozenset[str] = frozenset(
+    {"row_number", "rank", "dense_rank", "percent_rank", "ntile", "top", "bottom"}
+)
+
 
 # ---------------------------------------------------------------------------
 # OperationInfo shape
@@ -106,8 +111,14 @@ class TestOperationInfoShape:
         assert isinstance(info.prefix_pattern, str)
         assert isinstance(info.subtype_label, str)
         assert isinstance(info.subtypes, tuple)
-        assert isinstance(info.frameworks, dict)
+        assert isinstance(info.frameworks, Mapping)
         assert isinstance(info.frameworks["SqliteFramework"], frozenset)
+
+    def test_frameworks_mapping_is_immutable(self) -> None:
+        """Mutating the frameworks mapping raises TypeError (read-only proxy)."""
+        info = DataOperationsCatalog.get("aggregation")
+        with pytest.raises(TypeError):
+            info.frameworks["SqliteFramework"] = frozenset()  # type: ignore[index]
 
 
 # ---------------------------------------------------------------------------
@@ -249,11 +260,18 @@ class TestRankCell:
         info = DataOperationsCatalog.get("rank")
         assert info.subtype_label == "rank type"
 
+    def test_subtype_universe(self) -> None:
+        """rank defines the four named rank types plus the three parametric families."""
+        info = DataOperationsCatalog.get("rank")
+        assert info.subtypes is not None
+        assert len(info.subtypes) == 7
+        assert set(info.subtypes) == set(RANK_SUBTYPES)
+
     def test_pandas_supports_full_rank_type_set(self) -> None:
-        """Pandas computes all four named rank types, including SQL-semantics percent_rank."""
+        """Pandas computes all four named rank types plus the ntile/top/bottom families."""
         pytest.importorskip("pandas")
         info = DataOperationsCatalog.get("rank")
-        assert info.frameworks["PandasDataFrame"] == frozenset({"row_number", "rank", "dense_rank", "percent_rank"})
+        assert info.frameworks["PandasDataFrame"] == RANK_SUBTYPES
 
     def test_duckdb_includes_percent_rank(self) -> None:
         """DuckDB supports SQL percent_rank natively."""
@@ -336,6 +354,11 @@ class TestIsSupported:
     def test_exact_cell_sqlite_mean_true(self) -> None:
         """SQLite supports mean via its AVG alias."""
         assert DataOperationsCatalog.is_supported("aggregation", "mean", "SqliteFramework") is True
+
+    def test_exact_cell_duckdb_rank_ntile_true(self) -> None:
+        """DuckDB supports the parametric ntile rank family."""
+        pytest.importorskip("duckdb")
+        assert DataOperationsCatalog.is_supported("rank", "ntile", "DuckDBFramework") is True
 
     def test_operation_level_ema_pyarrow_false(self) -> None:
         """subtype=None asks whether the operation exists on the framework at all."""

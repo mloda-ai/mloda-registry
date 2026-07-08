@@ -107,6 +107,9 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         "percent_rank": "Relative rank as fraction (0.0 to 1.0)",
     }
 
+    #: Parametric rank families; each accepts a positive integer suffix (e.g. ``ntile_4``).
+    PARAMETRIC_RANK_FAMILIES: tuple[str, ...] = ("ntile", "top", "bottom")
+
     PROPERTY_MAPPING = {
         RANK_TYPE: {
             **RANK_TYPES,
@@ -135,7 +138,8 @@ class RankFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         """Check if the given rank type is supported, including ntile_N, top_N, and bottom_N."""
         if rank_type in cls.RANK_TYPES:
             return True
-        for prefix in ("ntile_", "top_", "bottom_"):
+        for family in cls.PARAMETRIC_RANK_FAMILIES:
+            prefix = f"{family}_"
             if rank_type.startswith(prefix):
                 suffix = rank_type[len(prefix) :]
                 if suffix.isdigit() and int(suffix) >= 1:

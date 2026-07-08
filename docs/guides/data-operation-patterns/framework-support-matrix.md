@@ -176,6 +176,9 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 | `rank` | -- | ✓ | ✓ | ✓ | ✓ |
 | `dense_rank` | -- | ✓ | ✓ | ✓ | ✓ |
 | `percent_rank` | -- | ✓ | ✓ | ✓ | ✓ |
+| `ntile` | -- | ✓ | ✓ | ✓ | ✓ |
+| `top` | -- | ✓ | ✓ | ✓ | ✓ |
+| `bottom` | -- | ✓ | ✓ | ✓ | ✓ |
 
 ### scalar_aggregate
 

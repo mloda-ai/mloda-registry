@@ -25,6 +25,8 @@ import pyarrow as pa
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
+from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
+
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -77,7 +79,7 @@ class RankTestBase(DataOpsTestBase):
     to wire up their framework, then inherit concrete test methods for free.
     """
 
-    ALL_RANK_TYPES = {"row_number", "rank", "dense_rank", "percent_rank"}
+    ALL_RANK_TYPES = set(RankFeatureGroup.RANK_TYPES) | set(RankFeatureGroup.PARAMETRIC_RANK_FAMILIES)
 
     @classmethod
     def supported_rank_types(cls) -> set[str]:
