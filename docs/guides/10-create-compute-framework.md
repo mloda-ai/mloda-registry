@@ -67,8 +67,8 @@ Q11: Ready to test your implementation?
 
 ## Timezone Validation (Opt-In)
 
-Since mloda 0.9.0, merge and filter engines can opt in to a timezone guard that turns silent
-tz-aware vs tz-naive mismatches into a clear `ValueError`.
+Merge and filter engines can opt in to a timezone guard that turns silent tz-aware vs tz-naive
+mismatches into a clear `ValueError`.
 
 - Opt in: set `provides_column_semantics = True` on your `BaseMergeEngine` / `BaseFilterEngine`
   subclass and implement `_column_semantics(data, column)` returning a `ColumnSemantics`.

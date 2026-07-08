@@ -95,8 +95,8 @@ def test_merge_engine():
 
 ## Timezone Validation (Opt-In)
 
-Since mloda 0.9.0, `merge()` can guard equi-joins (inner/left/right/outer) against mixing
-timezone-aware and timezone-naive key columns. Opt in via a class attribute:
+`merge()` can guard equi-joins (inner/left/right/outer) against mixing timezone-aware and
+timezone-naive key columns. Opt in via a class attribute:
 
 ```python
 class MyMergeEngine(BaseMergeEngine):

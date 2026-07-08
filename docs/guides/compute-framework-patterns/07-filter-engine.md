@@ -83,9 +83,9 @@ class MyFilterEngine(BaseFilterEngine):
 
 ## Timezone Validation (Opt-In)
 
-Since mloda 0.9.0, range/min/max filters with a native `datetime` bound (pandas `Timestamp`
-counts) can be guarded: bound and column timezone-awareness must match. Opt in via a class
-attribute, mirroring the merge-engine flag:
+Range/min/max filters with a native `datetime` bound (pandas `Timestamp` counts) can be guarded:
+bound and column timezone-awareness must match. Opt in via a class attribute, mirroring the
+merge-engine flag:
 
 ```python
 class MyFilterEngine(BaseFilterEngine):
