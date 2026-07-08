@@ -443,6 +443,19 @@ class TestFrameAggregateCapability:
         result = SqliteFrameAggregate.supports_compute_framework(feature_name, Options(), SqliteFramework)
         assert result is True
 
+    @pytest.mark.parametrize("agg_type", ["sum", "avg", "count", "min", "max"])
+    def test_sqlite_accepts_supported_agg_config_based(self, agg_type: str) -> None:
+        """Config-based features carry the agg type in options; SQLite must accept sum/avg/count/min/max there too."""
+        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
+
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
+            SqliteFrameAggregate,
+        )
+
+        options = _config_frame_options(agg_type, "rolling")
+        result = SqliteFrameAggregate.supports_compute_framework("value_frame", options, SqliteFramework)
+        assert result is True
+
     @pytest.mark.parametrize(
         "feature_name",
         [
@@ -504,6 +517,20 @@ class TestFrameAggregateCapability:
         result = PolarsLazyFrameAggregate.supports_compute_framework(feature_name, Options(), PolarsLazyDataFrame)
         assert result is True
 
+    @pytest.mark.parametrize("agg_type", ["std", "var", "median"])
+    def test_polars_accepts_std_var_median_for_rolling_config_based(self, agg_type: str) -> None:
+        """Config-based rolling features must accept std/var/median on Polars too."""
+        pytest.importorskip("polars")
+        from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
+
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.polars_lazy_frame_aggregate import (
+            PolarsLazyFrameAggregate,
+        )
+
+        options = _config_frame_options(agg_type, "rolling")
+        result = PolarsLazyFrameAggregate.supports_compute_framework("value_frame", options, PolarsLazyDataFrame)
+        assert result is True
+
     def test_pandas_accepts_median_rolling(self) -> None:
         """Pandas supports the full frame agg-type table, so median rolling must not be rejected (regression guard)."""
         pytest.importorskip("pandas")
@@ -528,7 +555,7 @@ class TestFrameAggregateCapability:
         result = DuckdbFrameAggregate.supports_compute_framework("value__median_rolling_3", Options(), DuckDBFramework)
         assert result is True
 
-    def test_sqlite_conservative_default_for_unparsable_name(self) -> None:
+    def test_sqlite_conservative_default_when_frame_type_unresolved(self) -> None:
         """A name encoding no parsable frame/agg keeps the default True (conservative)."""
         from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 
