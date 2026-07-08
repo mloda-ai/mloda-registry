@@ -34,7 +34,7 @@ PREFIX_PATTERN = r".+__(upper|lower|trim|length|reverse)$"
 ```python
 from mloda.user import Feature, PluginLoader, mloda
 
-PluginLoader.all()  # cached & shared; force_reload=True to pick up newly installed plugins
+PluginLoader.all()
 
 features = [
     Feature("name__upper"),

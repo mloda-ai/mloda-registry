@@ -25,7 +25,7 @@ value__ffill
 ```python
 from mloda.user import Feature, Options, PluginLoader, mloda
 
-PluginLoader.all()  # cached & shared; force_reload=True to pick up newly installed plugins
+PluginLoader.all()
 
 features = [
     Feature("price__ffill", Options(context={"order_by": "ts", "partition_by": ["symbol"]})),

@@ -68,7 +68,7 @@ The all-null `sum` cell is the one place backends disagree by default (pandas â†
 ```python
 from mloda.user import Feature, Options, PluginLoader, mloda
 
-PluginLoader.all()  # cached & shared; force_reload=True to pick up newly installed plugins
+PluginLoader.all()
 
 features = [
     Feature("price__resample_1_hour_mean", Options(context={"time_column": "ts", "partition_by": ["symbol"]})),

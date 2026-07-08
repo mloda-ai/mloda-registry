@@ -64,7 +64,7 @@ Pass a `mask` key in the feature's context options:
 ```python
 from mloda.user import Feature, Options, mloda, PluginLoader
 
-PluginLoader.all()  # cached & shared; force_reload=True to pick up newly installed plugins
+PluginLoader.all()
 
 # Sum of value_int where category equals 'X', partitioned by region
 feature = Feature(

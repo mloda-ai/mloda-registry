@@ -39,7 +39,7 @@ median, mode, nunique, first, last
 ```python
 from mloda.user import Feature, Options, PluginLoader, mloda
 
-PluginLoader.all()  # cached & shared; force_reload=True to pick up newly installed plugins
+PluginLoader.all()
 
 features = [
     Feature(

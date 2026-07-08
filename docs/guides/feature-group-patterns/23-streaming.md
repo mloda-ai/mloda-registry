@@ -13,7 +13,7 @@ Consume results incrementally as each feature group completes, rather than waiti
 ```python
 from mloda.user import PluginLoader, mloda, Feature
 
-PluginLoader.all()  # cached & shared; force_reload=True to pick up newly installed plugins
+PluginLoader.all()
 
 for result in mloda.stream_all([Feature("feature_a"), Feature("feature_b")]):
     print(result)

@@ -71,7 +71,7 @@ The gap-diff plus cumulative-sum is expressible natively on every backend, so no
 ```python
 from mloda.user import Feature, Options, PluginLoader, mloda
 
-PluginLoader.all()  # cached & shared; force_reload=True to pick up newly installed plugins
+PluginLoader.all()
 
 features = [
     Feature("ts__sessionize_30_minute", Options(context={"partition_by": ["user_id"]})),
