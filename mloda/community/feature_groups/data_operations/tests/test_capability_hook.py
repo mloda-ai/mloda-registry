@@ -48,6 +48,20 @@ def _time_frame_options(frame_unit: str) -> Options:
     )
 
 
+def _config_frame_options(agg_type: str, frame_type: str, frame_size: int = 3) -> Options:
+    """Build config-based frame-aggregate options carrying aggregation_type and frame_type discriminators."""
+    return Options(
+        context={
+            "aggregation_type": agg_type,
+            "frame_type": frame_type,
+            "frame_size": frame_size,
+            "in_features": "value",
+            "partition_by": ["region"],
+            "order_by": "ts",
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # Aggregation (group-by)
 # ---------------------------------------------------------------------------
@@ -368,6 +382,163 @@ class TestFrameAggregateCapability:
         result = DuckdbFrameAggregate.supports_compute_framework("value_time_frame", options, DuckDBFramework)
         assert result is True
 
+    # -- Aggregation-type axis (issue #296) ---------------------------------
+    # supports_compute_framework must also reject aggregation types a backend
+    # cannot compute, not just unsupported frame types / time units. Today the
+    # hook ignores the agg axis, so unsupported agg types slip through match
+    # time and only fail later inside _compute_frame.
+
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            "value__median_rolling_3",
+            "value__std_rolling_3",
+            "value__var_rolling_3",
+            "value__cumstd",
+            "value__expanding_median",
+        ],
+    )
+    def test_sqlite_rejects_unsupported_agg_at_match_time(self, feature_name: str) -> None:
+        """SQLite frame aggregate supports only sum/avg/count/min/max; std/var/median must be rejected at match time."""
+        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
+
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
+            SqliteFrameAggregate,
+        )
+
+        result = SqliteFrameAggregate.supports_compute_framework(feature_name, Options(), SqliteFramework)
+        assert result is False
+
+    @pytest.mark.parametrize("agg_type", ["median", "std", "var"])
+    def test_sqlite_rejects_unsupported_agg_config_based(self, agg_type: str) -> None:
+        """Config-based features carry the agg type in options; SQLite must reject std/var/median there too."""
+        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
+
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
+            SqliteFrameAggregate,
+        )
+
+        options = _config_frame_options(agg_type, "rolling")
+        result = SqliteFrameAggregate.supports_compute_framework("value_frame", options, SqliteFramework)
+        assert result is False
+
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            "value__sum_rolling_3",
+            "value__avg_rolling_3",
+            "value__count_rolling_3",
+            "value__min_rolling_3",
+            "value__max_rolling_3",
+        ],
+    )
+    def test_sqlite_accepts_supported_agg_at_match_time(self, feature_name: str) -> None:
+        """SQLite frame aggregate supports sum/avg/count/min/max: the hook must not over-reject them."""
+        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
+
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
+            SqliteFrameAggregate,
+        )
+
+        result = SqliteFrameAggregate.supports_compute_framework(feature_name, Options(), SqliteFramework)
+        assert result is True
+
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            "value__cumstd",
+            "value__cumvar",
+            "value__cummedian",
+            "value__expanding_std",
+            "value__expanding_var",
+            "value__expanding_median",
+        ],
+    )
+    def test_polars_rejects_unsupported_agg_for_cumulative_expanding_at_match_time(self, feature_name: str) -> None:
+        """Polars cumulative/expanding frames support only sum/min/max/count/avg; std/var/median must be rejected."""
+        pytest.importorskip("polars")
+        from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
+
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.polars_lazy_frame_aggregate import (
+            PolarsLazyFrameAggregate,
+        )
+
+        result = PolarsLazyFrameAggregate.supports_compute_framework(feature_name, Options(), PolarsLazyDataFrame)
+        assert result is False
+
+    @pytest.mark.parametrize("frame_type", ["cumulative", "expanding"])
+    @pytest.mark.parametrize("agg_type", ["std", "var", "median"])
+    def test_polars_rejects_unsupported_agg_for_cumulative_expanding_config_based(
+        self, agg_type: str, frame_type: str
+    ) -> None:
+        """Config-based cumulative/expanding features must reject std/var/median on Polars too."""
+        pytest.importorskip("polars")
+        from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
+
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.polars_lazy_frame_aggregate import (
+            PolarsLazyFrameAggregate,
+        )
+
+        options = _config_frame_options(agg_type, frame_type)
+        result = PolarsLazyFrameAggregate.supports_compute_framework("value_frame", options, PolarsLazyDataFrame)
+        assert result is False
+
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            "value__median_rolling_3",
+            "value__std_rolling_3",
+            "value__var_rolling_3",
+            "value__median_7_day_window",
+        ],
+    )
+    def test_polars_accepts_std_var_median_for_rolling_and_time(self, feature_name: str) -> None:
+        """Polars rolling/time frames support std/var/median: the hook must not reject those combinations."""
+        pytest.importorskip("polars")
+        from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
+
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.polars_lazy_frame_aggregate import (
+            PolarsLazyFrameAggregate,
+        )
+
+        result = PolarsLazyFrameAggregate.supports_compute_framework(feature_name, Options(), PolarsLazyDataFrame)
+        assert result is True
+
+    def test_pandas_accepts_median_rolling(self) -> None:
+        """Pandas supports the full frame agg-type table, so median rolling must not be rejected (regression guard)."""
+        pytest.importorskip("pandas")
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pandas_frame_aggregate import (
+            PandasFrameAggregate,
+        )
+
+        result = PandasFrameAggregate.supports_compute_framework("value__median_rolling_3", Options(), PandasDataFrame)
+        assert result is True
+
+    def test_duckdb_accepts_median_rolling(self) -> None:
+        """DuckDB supports the full frame agg-type table, so median rolling must not be rejected (regression guard)."""
+        pytest.importorskip("duckdb")
+        from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
+
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.duckdb_frame_aggregate import (
+            DuckdbFrameAggregate,
+        )
+
+        result = DuckdbFrameAggregate.supports_compute_framework("value__median_rolling_3", Options(), DuckDBFramework)
+        assert result is True
+
+    def test_sqlite_conservative_default_for_unparsable_name(self) -> None:
+        """A name encoding no parsable frame/agg keeps the default True (conservative)."""
+        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
+
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
+            SqliteFrameAggregate,
+        )
+
+        result = SqliteFrameAggregate.supports_compute_framework("totally_unrelated", Options(), SqliteFramework)
+        assert result is True
+
 
 # ---------------------------------------------------------------------------
 # Integration: resolve_feature surfaces the capability split
@@ -398,3 +569,40 @@ class TestResolveFeatureIntegration:
 
         assert "SqliteFramework" in result.unsupported_compute_frameworks
         assert "PandasDataFrame" in result.supported_compute_frameworks
+
+    def test_capability_split_rejects_sqlite_for_median_rolling_frame(self) -> None:
+        """The capability split must reject SqliteFramework for a median rolling frame while keeping Pandas/DuckDB.
+
+        resolve_feature cannot be the probe here: frame aggregate's
+        ``match_feature_group_criteria`` requires partition_by/order_by, which are absent
+        under the empty Options resolve_feature evaluates matching with (the same reason the
+        median-scalar test above uses the scalar family instead of the group-by family). This
+        test exercises ``split_frameworks_by_capability`` directly, which is exactly the
+        mechanism resolve_feature uses internally to derive
+        supported/unsupported_compute_frameworks.
+        """
+        pytest.importorskip("pandas")
+        pytest.importorskip("duckdb")
+        from mloda.core.prepare.identify_feature_group import split_frameworks_by_capability
+
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.duckdb_frame_aggregate import (
+            DuckdbFrameAggregate,
+        )
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pandas_frame_aggregate import (
+            PandasFrameAggregate,
+        )
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
+            SqliteFrameAggregate,
+        )
+
+        supported, rejected = split_frameworks_by_capability(
+            [SqliteFrameAggregate, PandasFrameAggregate, DuckdbFrameAggregate],
+            "value__median_rolling_3",
+            Options(),
+        )
+        supported_names = {c.get_class_name() for c in supported}
+        rejected_names = {c.get_class_name() for c in rejected}
+
+        assert "SqliteFramework" in rejected_names
+        assert "PandasDataFrame" in supported_names
+        assert "DuckDBFramework" in supported_names
