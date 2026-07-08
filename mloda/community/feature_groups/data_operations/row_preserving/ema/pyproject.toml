@@ -11,7 +11,7 @@ version = "0.3.3"
 description = "EMA feature group (exponential moving average, adjust=False, null-skipping recurrence, per partition, row-preserving; pandas/polars native, pyarrow/duckdb/sqlite reject)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda-community-data-operations>=0.2.12"]
+dependencies = ["mloda-community-data-operations>=0.3.3"]
 requires-python = ">=3.10,<3.15"
 
 [project.optional-dependencies]
