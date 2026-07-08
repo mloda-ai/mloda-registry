@@ -35,6 +35,7 @@ Q8: Framework-specific API needed?
 
 Q9: Does the feature name come from configuration vs naming pattern?
     Configuration → Pattern 3 with PROPERTY_MAPPING
+                    (declare the value space via allowed_values / property_spec; see Pattern 11)
 
 Q10: Does it need custom matching logic beyond class name?
     YES → See 14-feature-matching
