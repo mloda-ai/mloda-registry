@@ -54,25 +54,9 @@ class TestDuckdbDateSourceRejected:
 
 
 class TestDuckdbTimeBucketizationCalendarRound:
-    """Guards calendar-unit ROUND (week / month / year) on the DuckDB backend.
+    """Calendar-unit ROUND (week / month / year), which the shared base does not cover.
 
-    The shared ``TimeBucketizationTestBase`` only exercises ROUND at fixed-freq
-    units (minute / hour / day), which take the ``{"minute", "hour", "day"}``
-    branch of ``DuckdbTimeBucketization._round_expression``. The calendar-unit
-    branch (week / month / year, whose bucket length varies per row) is never
-    driven by the base suite, so a regression there goes unnoticed.
-
-    Concretely, the calendar branch must reference the local floored-SQL string
-    when it falls back to the floor value. A rename of the module-level ``floor``
-    helper left the branch interpolating the FUNCTION object instead of the SQL
-    string, so a request like ``timestamp__round_1_month`` emits SQL containing
-    ``<function floor_expr at 0x...>`` and DuckDB raises a ParserException. This
-    class is the standing regression guard for that calendar-round branch.
-
-    Each unit is compared against the PyArrow oracle
-    (``PyArrowTimeBucketization``) on the same arrow fixture, mirroring how the
-    resample suite compares DuckDB against ``PyArrowResample`` rather than
-    hand-computing expected literals.
+    Guards the calendar branch of ``_round_expression`` against the PyArrow oracle.
     """
 
     @pytest.mark.parametrize(
@@ -96,7 +80,6 @@ class TestDuckdbTimeBucketizationCalendarRound:
         arrow_table = _create_bucket_arrow_table()
 
         con = duckdb.connect()
-        # Route through the real core chokepoint (UTC guarantee), exactly as production does.
         pin_connection_utc_via_core(con)
         rel = DuckdbRelation.from_arrow(con, arrow_table)
 
@@ -119,21 +102,10 @@ class TestDuckdbTimeBucketizationCalendarRound:
 
 
 class TestDuckdbTimeBucketizationNonUtcSession:
-    """Bucketization stays UTC-anchored regardless of session TZ, via the core chokepoint.
+    """Flooring stays UTC-anchored on a non-UTC session, via the core chokepoint.
 
-    DuckDB's ``DATE_TRUNC`` / ``time_bucket`` operate in the connection's
-    session timezone. On a non-UTC session, a UTC input such as
-    ``2023-01-01 00:00 UTC`` would floor to local midnight (a different instant)
-    instead of UTC midnight. The feature group no longer pins the session
-    timezone itself; UTC anchoring now comes from the core framework chokepoint
-    (``DuckDBFramework.set_framework_connection_object``, mloda 0.9.0), which
-    pins the session to UTC on first connection assignment.
-
-    This test builds its own connection (rather than the mixin's) so it can
-    preset a non-UTC session timezone, then routes that connection through the
-    core chokepoint (as production does) to reproduce the real guarantee. It is
-    the standing regression guard that UTC anchoring holds via the core guarantee,
-    independent of the host OS timezone.
+    Presets a non-UTC session, then relies on the core UTC guarantee (not a
+    per-FG pin) to anchor the result.
     """
 
     def test_floor_1_day_utc_anchored_on_non_utc_session(self) -> None:
@@ -144,9 +116,7 @@ class TestDuckdbTimeBucketizationNonUtcSession:
         from mloda.testing.feature_groups.data_operations.mixins.duckdb import pin_connection_utc_via_core
 
         con = duckdb.connect()
-        # Preset a NON-UTC session timezone; without the core guarantee this would misfloor.
         con.execute("SET TimeZone='America/New_York'")
-        # Route through the real core chokepoint, exactly as production does.
         pin_connection_utc_via_core(con)
 
         rel = DuckdbRelation.from_arrow(con, _create_bucket_arrow_table())

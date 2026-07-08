@@ -8,17 +8,7 @@ import pyarrow as pa
 
 
 def pin_connection_utc_via_core(con: Any) -> None:
-    """Pin a DuckDB connection's session timezone to UTC via the real core chokepoint.
-
-    Routes ``con`` through ``DuckDBFramework.set_framework_connection_object``, which
-    applies the same UTC-session guarantee that mloda's DuckDBFramework applies in
-    production (mloda 0.9.0). Using this helper means tests rely on the core guarantee
-    instead of the host default timezone (or a per-feature-group pin).
-
-    Imports are done inside the function body to keep module import light and to match
-    the lazy-import style used elsewhere in this file (where ``duckdb`` is imported
-    inside methods).
-    """
+    """Pin ``con`` to UTC via the core chokepoint, as production does (mloda >= 0.9.0)."""
     import uuid
 
     from mloda.user import ParallelizationMode

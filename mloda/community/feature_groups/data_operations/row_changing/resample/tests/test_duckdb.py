@@ -31,37 +31,17 @@ class TestDuckdbResample(DuckdbTestMixin, ResampleTestBase):
 
 
 class TestDuckdbResampleNonUtcSession:
-    """Resample stays UTC-anchored regardless of session TZ, via the core chokepoint.
+    """Resample stays UTC-anchored on a non-UTC session, via the core chokepoint.
 
-    ``DuckdbResample._compute_resample`` floors timestamps with ``floor_expr``
-    (which emits ``DATE_TRUNC`` for n=1) imported from ``time_bucketization``.
-    ``DATE_TRUNC`` operates in the connection's session timezone, so on a non-UTC
-    session a UTC instant would floor to local midnight instead of UTC midnight,
-    yielding a misaligned, non-UTC bucket-start label. The feature group does not
-    pin the session timezone itself; it defers to the core framework chokepoint
-    (``DuckDBFramework.set_framework_connection_object``, mloda 0.9.0) for the UTC
-    session guarantee, which pins the session to UTC on first connection assignment.
-
-    With a 1-day bucket over the whole 12-row fixture (all timestamps on
-    2023-01-01 between 08:00 and 10:30 UTC), every row belongs to the single UTC
-    day bucket ``2023-01-01 00:00:00 UTC``. On an ``America/New_York`` (UTC-5)
-    session WITHOUT the core guarantee, ``DATE_TRUNC`` would floor e.g.
-    2023-01-01 08:05 UTC (= 03:05 local) to 2023-01-01 00:00 local
-    (= 2023-01-01 05:00 UTC), a wrong non-UTC-midnight label.
-
-    The test builds its own connection (rather than the mixin's) so it can preset
-    a non-UTC session timezone, then routes that connection through the core
-    chokepoint (as production does) to reproduce the real guarantee, independent of
-    the host OS timezone.
+    Presets a non-UTC session, then relies on the core UTC guarantee (not a
+    per-FG pin) to anchor the bucket labels.
     """
 
     def test_resample_1_day_utc_anchored_on_non_utc_session(self) -> None:
         from mloda.testing.feature_groups.data_operations.mixins.duckdb import pin_connection_utc_via_core
 
         con = duckdb.connect()
-        # Preset a NON-UTC session timezone; without the core guarantee this would misfloor.
         con.execute("SET TimeZone='America/New_York'")
-        # Route through the real core chokepoint, exactly as production does.
         pin_connection_utc_via_core(con)
 
         rel = DuckdbRelation.from_arrow(con, _create_resample_arrow_table())
@@ -85,12 +65,7 @@ class TestDuckdbResampleNonUtcSession:
         assert value_col[0] == pytest.approx(230.0 / 9.0)
 
     def test_resample_15_minute_utc_anchored_on_non_utc_session(self) -> None:
-        # n>1 sub-hour bucket exercises the time_bucket floor branch. On a non-UTC
-        # session the floored bucket *label* is tagged with the session zone rather
-        # than UTC, so the bucket-start labels diverge from the PyArrow oracle even
-        # though the underlying instants line up. Keying the comparison by the ISO
-        # string (which carries the offset) makes that label drift observable, so
-        # the result must still match the UTC-anchored oracle (issue #265 / #238).
+        # n>1 sub-hour bucket exercises the time_bucket floor branch.
         from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import (
             PyArrowResample,
         )
@@ -99,7 +74,6 @@ class TestDuckdbResampleNonUtcSession:
 
         con = duckdb.connect()
         con.execute("SET TimeZone='Asia/Kolkata'")  # UTC+5:30, non-UTC session
-        # Route through the real core chokepoint, exactly as production does.
         pin_connection_utc_via_core(con)
 
         arrow_table = _create_resample_arrow_table()

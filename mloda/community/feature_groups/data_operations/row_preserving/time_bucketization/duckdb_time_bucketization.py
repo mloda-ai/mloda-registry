@@ -65,14 +65,10 @@ def _interval_literal(n: int, unit: str) -> str:
 
 
 def floor_expr(quoted_source: str, n: int, unit: str) -> str:
-    """SQL that floors a DuckDB timestamp to the ``(n, unit)`` bucket.
+    """SQL flooring a DuckDB timestamp to the ``(n, unit)`` bucket.
 
-    PRECONDITION: correct, UTC-anchored results REQUIRE the connection's
-    session timezone to be UTC. mloda's ``DuckDBFramework`` guarantees this at
-    its framework chokepoint (``set_framework_connection_object``, mloda
-    >= 0.9.0), so callers must NOT add their own ``SET TimeZone`` pin. This is
-    the single shared entry point that both the time_bucketization and resample
-    DuckDB backends use to floor timestamps.
+    Shared entry point for both DuckDB backends. Requires a UTC session tz,
+    guaranteed by ``DuckDBFramework`` (mloda >= 0.9.0); do not add a local pin.
     """
     if n == 1:
         return f"DATE_TRUNC('{_DUCKDB_TRUNC_UNIT[unit]}', {quoted_source})"
