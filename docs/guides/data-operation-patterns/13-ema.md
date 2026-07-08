@@ -50,11 +50,11 @@ This is exactly: pandas `series.ewm(span=SPAN, adjust=False, ignore_na=True).mea
 |---|---|
 | Pandas | native `ewm(span=..., adjust=False, ignore_na=True)`, null-masked. |
 | Polars (lazy) | native `ewm_mean(span=..., adjust=False, ignore_nulls=True)` over the partition. |
-| PyArrow | **rejects** with a clear `ValueError`. PyArrow compute has no exponential-weighted primitive. |
-| DuckDB | **rejects** with a clear `ValueError`. No native EWM. |
-| SQLite | **rejects** with a clear `ValueError`. No native EWM. |
+| PyArrow | not implemented (no backend). PyArrow compute has no exponential-weighted primitive. |
+| DuckDB | not implemented (no backend). No native EWM. |
+| SQLite | not implemented (no backend). No native EWM. |
 
-PyArrow, DuckDB, and SQLite reject up-front rather than emulate the recurrence row-by-row in Python. This follows the project's CFW backend rule: a backend that cannot natively express an operation raises rather than falling back to a slow, semantics-drifting Python loop. EMA is the first data operation that is intentionally unavailable on the SQL backends; see [Supported ops per framework](04-supported-ops.md).
+PyArrow, DuckDB, and SQLite ship no EMA backend rather than emulating the recurrence row-by-row in Python, following the project's CFW backend rule and the same absence convention other data operations use (for example resample has no SQLite backend). A request that resolves only to one of these frameworks fails with mloda core's generic no-feature-group error; where pandas or polars-lazy is available, EMA resolves there.
 
 ---
 

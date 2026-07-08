@@ -36,10 +36,10 @@ was verified empirically (elementwise, null-aware, within 1e-9) before pinning.
 Backends:
 
 - pandas + polars-lazy compute EMA natively (value tests via ``EmaTestBase``).
-- pyarrow, duckdb, sqlite REJECT EMA with a clear ``ValueError`` (they have no
-  native exponentially weighted compute and a recursive Python emulation is
-  forbidden by the CFW-backend rule). They use ``EmaRejectionTestBase``, which
-  inherits NONE of the value tests -- only a single rejection assertion.
+- pyarrow, duckdb, sqlite have no native exponentially weighted compute and a
+  recursive Python emulation is forbidden by the CFW-backend rule, so they ship
+  NO backend at all (the absence convention). There are no per-backend reject
+  test bases here.
 
 Fixture row layout (12 rows, two interleaved partitions A / B in ROW order;
 ``id`` is the passthrough row-order witness). Per-partition TIME order differs
@@ -222,8 +222,9 @@ class EmaTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
 
     There is NO live reference oracle (PyArrow cannot compute EMA); every value
     test asserts against PINNED literals, so this base is used ONLY by backends
-    that actually support EMA. The reject backends use ``EmaRejectionTestBase``
-    instead and inherit none of these value tests.
+    that actually support EMA. Unsupported backends (pyarrow, duckdb, sqlite)
+    ship no backend at all (absence), so there is no value-test base for them
+    here.
     """
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
@@ -449,38 +450,4 @@ class EmaTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
         fs = FeatureSet()
         fs.add(feature)
         with pytest.raises(ValueError, match=r"(?i)at most 1|in_features|single"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
-
-
-# ---------------------------------------------------------------------------
-# Rejection test base (REJECT backends: pyarrow, duckdb, sqlite)
-# ---------------------------------------------------------------------------
-
-
-class EmaRejectionTestBase(DataOpsTestBase):
-    """Reusable base for backends that REJECT EMA up-front with a ValueError.
-
-    PyArrow has no exponentially weighted compute; DuckDB and SQLite have no
-    native EWM and a recursive / Python emulation is forbidden by the
-    CFW-backend rule (see ``.claude/agents/green-agent.md`` "CFW Backend Rules"
-    and the rejection precedents it cites). These backends must therefore reject
-    EMA at validation time rather than computing it.
-
-    This base inherits NONE of the value/semantics tests in ``EmaTestBase`` --
-    only the single rejection assertion below. Subclasses combine it with a
-    framework mixin (``PyArrowTestMixin`` / ``DuckdbTestMixin`` /
-    ``SqliteTestMixin``) so ``create_test_data`` (and any connection lifecycle)
-    comes from the mixin.
-    """
-
-    def setup_method(self) -> None:
-        """Build the dedicated 12-row EMA fixture (mixins may create a conn first)."""
-        super().setup_method()  # connections (duckdb/sqlite) + canonical data
-        self._arrow_table = _create_ema_arrow_table()
-        self.test_data = self.create_test_data(self._arrow_table)
-
-    def test_ema_rejected_with_value_error(self) -> None:
-        """calculate_feature must raise a clear ValueError naming the EMA limitation."""
-        fs = make_feature_set("value__ema_2", partition_by=["region"], order_by="ts")
-        with pytest.raises(ValueError, match=r"(?i)ema|exponential|not support|native"):
             self.implementation_class().calculate_feature(self.test_data, fs)

@@ -5,8 +5,9 @@ Verifies that the exponential-moving-average feature group resolves through
 feature-name resolution (``match_feature_group_criteria``), and pipeline
 plumbing.
 
-EMA computes natively only on pandas / polars-lazy; it REJECTS the PyArrow
-backend up-front (CFW-backend rule: no Python emulation). The shared
+EMA computes natively only on pandas / polars-lazy; it ships NO PyArrow (or
+duckdb / sqlite) backend at all (the absence convention: a recursive Python
+emulation is forbidden by the CFW-backend rule). The shared
 ``DataOpsIntegrationTestBase`` is PyArrow-only (its result filter and value
 assertions use ``pa.Table`` APIs), so it does NOT fit a pandas-only FG. This
 module therefore uses bespoke ``run_all`` tests (mirroring time_bucketization's
@@ -36,9 +37,6 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 
 from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_ema import (
     PandasEma,
-)
-from mloda.community.feature_groups.data_operations.row_preserving.ema.pyarrow_ema import (
-    PyArrowEma,
 )
 
 # EMA of ``value_float`` per ``region`` in timestamp order, adjust=False,
@@ -76,7 +74,7 @@ _EMA_3_BY_REGION: list[Any] = [
 class PandasDataOpsTestDataCreator(DataOperationsTestDataCreator):
     """Local pandas data source for the canonical 12-row dataset.
 
-    EMA rejects the PyArrow backend, so the PyArrow data creator cannot feed the
+    EMA has no PyArrow backend, so the PyArrow data creator cannot feed the
     compute test. This test-only creator returns the canonical data as a pandas
     DataFrame.
     """
@@ -160,7 +158,14 @@ class TestEmaMatchFeatureGroupCriteria:
 
 
 class TestEmaRejectionRouting:
-    """The pipeline must surface EMA's loud rejections rather than emulating."""
+    """EMA must fail loudly rather than emulate, via two distinct paths.
+
+    ``test_ema_0_rejected_at_compute`` covers a per-input compute rejection
+    (span=0 matches the name pattern but is rejected inside the working pandas
+    backend). ``test_ema_no_emulation_on_pyarrow`` covers the absence path: EMA
+    ships no pyarrow backend, so a request pinned to PyArrow fails to resolve
+    with mloda core's generic no-feature-group error. Neither path emulates.
+    """
 
     def test_ema_0_rejected_at_compute(self) -> None:
         """span=0 matches the name pattern but is rejected when computed."""
@@ -177,15 +182,24 @@ class TestEmaRejectionRouting:
                 plugin_collector=plugin_collector,
             )
 
-    def test_ema_rejected_on_pyarrow(self) -> None:
-        """EMA on the PyArrow backend must raise (no Python emulation)."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowEma})
+    def test_ema_no_emulation_on_pyarrow(self) -> None:
+        """EMA on PyArrow must fail loudly (no Python emulation) via ABSENCE.
+
+        EMA computes natively only on pandas / polars-lazy. Under the absence
+        convention there is NO pyarrow (or duckdb / sqlite) EMA backend class at
+        all -- a recursive Python emulation is forbidden by the CFW-backend rule.
+        So even with a PyArrow data creator and the working pandas backend both
+        enabled, a request pinned to ``compute_frameworks={PyArrowTable}`` cannot
+        resolve to any EMA backend and mloda core raises its generic
+        no-feature-group resolution error. It does NOT silently emulate EMA.
+        """
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PandasEma})
         feature = Feature(
             "value_float__ema_2",
             options=Options(context={"order_by": "timestamp", "partition_by": ["region"]}),
         )
 
-        with pytest.raises(Exception, match="PyArrow"):
+        with pytest.raises(ValueError, match=r"(?i)no feature group"):
             mloda.run_all(
                 [feature],
                 compute_frameworks={PyArrowTable},
