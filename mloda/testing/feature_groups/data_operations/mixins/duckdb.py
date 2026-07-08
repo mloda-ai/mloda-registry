@@ -7,6 +7,17 @@ from typing import Any
 import pyarrow as pa
 
 
+def pin_connection_utc_via_core(con: Any) -> None:
+    """Pin ``con`` to UTC via the core chokepoint, as production does (mloda >= 0.9.0)."""
+    import uuid
+
+    from mloda.user import ParallelizationMode
+    from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
+
+    framework = DuckDBFramework(mode=ParallelizationMode.SYNC, children_if_root=frozenset({uuid.uuid4()}))
+    framework.set_framework_connection_object(con)
+
+
 class DuckdbTestMixin:
     """Mixin implementing adapter methods for DuckDB.
 
@@ -20,6 +31,7 @@ class DuckdbTestMixin:
         import duckdb
 
         self.conn = duckdb.connect()
+        pin_connection_utc_via_core(self.conn)
         super().setup_method()  # type: ignore[misc]
 
     def create_test_data(self, arrow_table: pa.Table) -> Any:

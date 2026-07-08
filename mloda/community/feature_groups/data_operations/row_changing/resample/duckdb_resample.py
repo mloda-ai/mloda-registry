@@ -20,7 +20,7 @@ from mloda.community.feature_groups.data_operations.row_changing.resample.base i
     ResampleFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.duckdb_time_bucketization import (
-    _floor_expr,
+    floor_expr,
 )
 
 # Resample agg -> DuckDB aggregate function. SUM/AVG/MIN/MAX ignore nulls and
@@ -81,21 +81,17 @@ class DuckdbResample(ResampleFeatureGroup):
         quoted_source = quote_ident(source_col)
         quoted_time = quote_ident(time_column)
         quoted_feature = quote_ident(feature_name)
-        # Pin the session timezone to UTC so the DATE_TRUNC / time_bucket floor
-        # stays UTC-anchored regardless of the host/session zone, matching
-        # time_bucketization (issue #238, re-applied for resample in #265).
-        data.connection.execute("SET TimeZone='UTC'")
-        floor_expr = _floor_expr(quoted_time, n, unit)
+        floor_sql = floor_expr(quoted_time, n, unit)
 
         # Group keys: partition columns first, then the floored bucket. The
         # bucket is always a key, so the group list is never empty (whole-table
         # case has an empty partition list).
         partition_quoted = [quote_ident(col) for col in partition_by]
-        group_exprs = [*partition_quoted, floor_expr]
+        group_exprs = [*partition_quoted, floor_sql]
 
         select_parts = [
             *partition_quoted,
-            f"{floor_expr} AS {quoted_time}",
+            f"{floor_sql} AS {quoted_time}",
             f"{agg_func}({quoted_source}) AS {quoted_feature}",
         ]
 
