@@ -49,3 +49,8 @@ class DuckdbTestMixin:
         from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 
         return DuckdbRelation
+
+    def compute_framework_class(self) -> Any:
+        from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framework import DuckDBFramework
+
+        return DuckDBFramework

@@ -10,16 +10,18 @@ pytest.importorskip("pandas")
 
 import pandas as pd
 
+from mloda.core.abstract_plugins.components.options import Options
 from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import (
     PandasAggregation,
 )
 from mloda.testing.feature_groups.data_operations.aggregation.aggregation import (
     AggregationTestBase,
 )
+from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
 
 
-class TestPandasAggregation(PandasTestMixin, AggregationTestBase):
+class TestPandasAggregation(CapabilityHookTestMixin, PandasTestMixin, AggregationTestBase):
     """All tests inherited from the base class."""
 
     @classmethod
@@ -29,6 +31,13 @@ class TestPandasAggregation(PandasTestMixin, AggregationTestBase):
     @classmethod
     def supported_agg_types(cls) -> set[str]:
         return {*cls.ALL_AGG_TYPES, "mean"}
+
+    @classmethod
+    def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
+        return (
+            ("value__median_agg", Options()),
+            ("value__mode_agg", Options()),
+        )
 
 
 class TestPandasModeVectorized:

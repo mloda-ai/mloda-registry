@@ -32,7 +32,7 @@ class SqliteWindowAggregation(WindowAggregationFeatureGroup):
         return {SqliteFramework}
 
     @classmethod
-    def supported_agg_types(cls) -> frozenset[str] | None:
+    def supported_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
         return frozenset(_SQLITE_AGG_FUNCS)
 
     @classmethod

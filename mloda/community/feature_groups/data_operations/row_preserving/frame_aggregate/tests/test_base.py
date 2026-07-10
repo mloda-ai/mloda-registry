@@ -87,6 +87,27 @@ class TestPatternParsing:
         assert result["frame_type"] == "cumulative"
 
 
+class TestParseFrameFeatureMemoization:
+    """_parse_frame_feature must hand back fresh, independent dicts so callers cannot leak mutations.
+
+    The lru_cache on ``_parse_frame_feature_cached`` shares one dict instance across calls; these
+    guard that a mutation by one caller never reaches the next.
+    """
+
+    def test_mutating_result_does_not_leak(self) -> None:
+        first = FrameAggregateFeatureGroup._parse_frame_feature("value__sum_rolling_3")
+        assert first is not None
+        first["agg_type"] = "mutated"
+        second = FrameAggregateFeatureGroup._parse_frame_feature("value__sum_rolling_3")
+        assert second is not None
+        assert second["agg_type"] == "sum"
+
+    def test_returns_distinct_objects(self) -> None:
+        first = FrameAggregateFeatureGroup._parse_frame_feature("value__sum_rolling_3")
+        second = FrameAggregateFeatureGroup._parse_frame_feature("value__sum_rolling_3")
+        assert first is not second
+
+
 class TestPatternMatching:
     """Tests for match_feature_group_criteria."""
 

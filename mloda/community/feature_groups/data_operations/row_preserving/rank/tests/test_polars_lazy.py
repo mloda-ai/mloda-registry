@@ -8,9 +8,11 @@ import pytest
 
 pytest.importorskip("polars")
 
+from mloda.core.abstract_plugins.components.options import Options
 from mloda.community.feature_groups.data_operations.row_preserving.rank.polars_lazy_rank import (
     PolarsLazyRank,
 )
+from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import (
@@ -18,12 +20,16 @@ from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank impor
 )
 
 
-class TestPolarsLazyRank(ReservedColumnsTestMixin, PolarsLazyTestMixin, RankTestBase):
+class TestPolarsLazyRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, PolarsLazyTestMixin, RankTestBase):
     """All tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:
         return PolarsLazyRank
+
+    @classmethod
+    def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
+        return (("value__percent_rank_ranked", Options()),)
 
     @classmethod
     def reserved_columns_feature_name(cls) -> str:

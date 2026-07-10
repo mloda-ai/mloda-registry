@@ -8,9 +8,11 @@ import pytest
 
 duckdb = pytest.importorskip("duckdb")
 
+from mloda.core.abstract_plugins.components.options import Options
 from mloda.community.feature_groups.data_operations.row_preserving.rank.duckdb_rank import (
     DuckdbRank,
 )
+from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import (
@@ -18,12 +20,16 @@ from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank impor
 )
 
 
-class TestDuckdbRank(ReservedColumnsTestMixin, DuckdbTestMixin, RankTestBase):
+class TestDuckdbRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, DuckdbTestMixin, RankTestBase):
     """Standard tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:
         return DuckdbRank
+
+    @classmethod
+    def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
+        return (("value__percent_rank_ranked", Options()),)
 
     @classmethod
     def reserved_columns_feature_name(cls) -> str:

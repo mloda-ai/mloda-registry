@@ -12,9 +12,11 @@ import pytest
 pytest.importorskip("pandas")
 
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
     FrameAggregateTestBase,
+    time_frame_options,
 )
 
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pandas_frame_aggregate import (
@@ -22,12 +24,24 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 )
 
 
-class TestPandasFrameAggregate(PandasTestMixin, FrameAggregateTestBase):
+class TestPandasFrameAggregate(CapabilityHookTestMixin, PandasTestMixin, FrameAggregateTestBase):
     """Unified tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:
         return PandasFrameAggregate
+
+    @classmethod
+    def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
+        return (
+            ("value_time_frame", time_frame_options("day")),
+            ("value__sum_rolling_3", Options()),
+            ("value__median_rolling_3", Options()),
+        )
+
+    @classmethod
+    def capability_unsupported(cls) -> tuple[tuple[str, Options], ...]:
+        return (("value_time_frame", time_frame_options("month")),)
 
     @classmethod
     def supported_time_units(cls) -> set[str]:

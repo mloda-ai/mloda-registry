@@ -33,7 +33,12 @@ This module parses those blocks and asserts:
   cited test methods live on ``*TestBase`` classes that pytest collects only
   through per-framework subclasses; resolving the symbol via ``importlib`` +
   ``getattr`` confirms it exists, which is what the sibling
-  ``test_framework_support_matrix`` drift check does too. Literal
+  ``test_framework_support_matrix`` drift check does too. Beyond existence, for a
+  concrete ``Test*`` class citing an inherited zero-fixture ``(self)`` method it
+  also runs that method and fails if it skips for the class it is cited under,
+  closing the gap where an inherited shared test (e.g. a capability mixin) is
+  inert because the concrete class declared no config. The liveness check is
+  scoped to inherited ``(self)``-only methods precisely because literal
   pytest-collection fidelity would be far more fragile.
 - ``test_every_mitigation_location_exists`` -- every ``mitigation_location``
   path points at a file that still exists (DoD item 3).
@@ -53,6 +58,8 @@ import inspect
 import re
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import (
     FRAMEWORKS,
@@ -165,11 +172,35 @@ def _collected_entries() -> list[tuple[str, dict[str, Any]]]:
     return [(title, _parse_block(title, body)) for title, body in entries]
 
 
+def _assert_leaf_is_live(cls: type, method_name: str, ref: str) -> None:
+    """Fail if a cited inherited ``(self)``-only test method skips for its concrete class.
+
+    Closes the hole where an inherited shared test guards nothing because the
+    concrete class declared no per-class config. Limitation: methods taking
+    fixtures/params (signature not exactly ``(self)``) cannot run outside pytest,
+    so they fall back to the existence check only.
+    """
+    if method_name in cls.__dict__:
+        return
+    params = list(inspect.signature(getattr(cls, method_name)).parameters)
+    if params != ["self"]:
+        return
+    try:
+        getattr(cls(), method_name)()
+    except pytest.skip.Exception as exc:
+        raise AssertionError(
+            f"{ref}: cited regression test {method_name!r} skips for {cls.__name__} and so does not "
+            "guard the divergence (inherited shared test with no per-class config)"
+        ) from exc
+
+
 def _resolve_test_ref(ref: str) -> None:
     """Resolve a ``path.py::Class[::method]`` reference to a real test symbol.
 
     Raises ``AssertionError`` if the file, module, attribute chain, or leaf-test
-    shape does not resolve.
+    shape does not resolve. For a concrete ``Test*`` class citing an inherited
+    ``(self)``-only ``test`` method, also asserts the method is live (does not
+    skip) for that class via ``_assert_leaf_is_live``.
     """
     parts = ref.split("::")
     rel = parts[0]
@@ -182,10 +213,11 @@ def _resolve_test_ref(ref: str) -> None:
 
     module_name = rel[: -len(".py")].replace("/", ".")
     try:
-        obj: Any = importlib.import_module(module_name)
+        module: Any = importlib.import_module(module_name)
     except Exception as exc:  # noqa: BLE001 - surface any import failure as a resolution failure
         raise AssertionError(f"could not import module {module_name!r} for {ref!r}: {exc}") from exc
 
+    obj: Any = module
     for attr in parts[1:]:
         nxt = getattr(obj, attr, None)
         if nxt is None:
@@ -206,6 +238,14 @@ def _resolve_test_ref(ref: str) -> None:
         if not leaf.startswith("test"):
             raise AssertionError(f"function/method reference must start with 'test': {ref!r}")
 
+    # For ``path::TestClass::test_method`` refs whose class is a concrete
+    # pytest-collected ``Test*`` (not a ``*TestBase`` / ``*Mixin``), also verify
+    # the cited method is live for that class, not an inert inherited skip.
+    if len(parts) == 3 and parts[1].startswith("Test") and leaf.startswith("test"):
+        cls = getattr(module, parts[1])
+        if inspect.isclass(cls):
+            _assert_leaf_is_live(cls, leaf, ref)
+
 
 def test_every_entry_has_machine_block_with_required_keys() -> None:
     for title, data in _collected_entries():
@@ -217,6 +257,7 @@ def test_every_entry_has_machine_block_with_required_keys() -> None:
 
 
 def test_every_regression_test_reference_resolves() -> None:
+    """Every cited regression test resolves and, if an inherited ``(self)`` method, is live for its class."""
     for title, data in _collected_entries():
         for ref in data.get("regression_test", []):
             try:
@@ -249,3 +290,73 @@ def test_operation_and_framework_values_are_known() -> None:
             assert fw in KNOWN_FRAMEWORKS, (
                 f"entry {title!r}: unknown framework {fw!r} (known: {sorted(KNOWN_FRAMEWORKS)})"
             )
+
+
+# --- _assert_leaf_is_live: inherited-skip hole in _resolve_test_ref ----------
+#
+# ``_resolve_test_ref`` confirms a cited symbol exists, but a method INHERITED
+# from a mixin that ``pytest.skip(...)``s when the concrete class declares no
+# config resolves fine while asserting nothing for the class it is cited under.
+# The green helper ``_assert_leaf_is_live(cls, method_name, ref)`` closes that
+# hole: it must raise ``AssertionError`` when an inherited cited method skips,
+# and stay silent when it is live or defined on the concrete class itself.
+#
+# The probe classes below are named with a leading underscore so pytest does
+# not collect them as test cases.
+
+
+class _InertProbeMixin:
+    """Mixin whose shared test skips when a concrete class declares no config."""
+
+    def test_probe(self) -> None:
+        """Skip: no per-class config declared."""
+        pytest.skip("no per-class config declared")
+
+
+class _ConcreteInertProbe(_InertProbeMixin):
+    """Concrete class that inherits the skipping shared test unchanged."""
+
+
+class _LiveProbeMixin:
+    """Mixin whose shared test asserts for real."""
+
+    def test_probe(self) -> None:
+        """Live: asserts unconditionally."""
+        assert True
+
+
+class _ConcreteLiveProbe(_LiveProbeMixin):
+    """Concrete class that inherits a live shared test."""
+
+
+class _ConcreteOwnProbe:
+    """Concrete class that defines the cited method directly in its own body."""
+
+    def test_probe(self) -> None:
+        """Skip that must be ignored: the method is defined on the concrete class itself."""
+        pytest.skip("this skip must be ignored: method is defined on the concrete class itself")
+
+
+def test_assert_leaf_is_live_rejects_inherited_skipping_method() -> None:
+    """An inherited cited method that skips for the concrete class must fail the drift check."""
+    with pytest.raises(AssertionError, match="(?i)skip"):
+        _assert_leaf_is_live(_ConcreteInertProbe, "test_probe", "fake_ref::_ConcreteInertProbe::test_probe")
+
+
+def test_assert_leaf_is_live_accepts_inherited_live_method() -> None:
+    """An inherited cited method that asserts for real is live and must not fail the check."""
+    _assert_leaf_is_live(_ConcreteLiveProbe, "test_probe", "fake_ref")
+
+
+def test_assert_leaf_is_live_skips_directly_defined_method() -> None:
+    """A method defined on the concrete class itself is out of scope for the inherited-skip check."""
+    _assert_leaf_is_live(_ConcreteOwnProbe, "test_probe", "fake_ref")
+
+
+def test_cited_capability_mixin_refs_are_live() -> None:
+    """The frame_aggregate agg-type entry cites a capability-hook test that is live today."""
+    from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.tests.test_sqlite import (
+        TestSqliteFrameAggregate,
+    )
+
+    _assert_leaf_is_live(TestSqliteFrameAggregate, "test_mixin_capability_hook_rejects", "ref")

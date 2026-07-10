@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.core.abstract_plugins.components.options import Options
 from mloda.community.feature_groups.data_operations.row_preserving.rank.sqlite_rank import (
     SqliteRank,
 )
+from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import (
@@ -14,12 +16,16 @@ from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank impor
 )
 
 
-class TestSqliteRank(ReservedColumnsTestMixin, SqliteTestMixin, RankTestBase):
+class TestSqliteRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, SqliteTestMixin, RankTestBase):
     """All tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteRank
+
+    @classmethod
+    def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
+        return (("value__percent_rank_ranked", Options()),)
 
     @classmethod
     def reserved_columns_feature_name(cls) -> str:

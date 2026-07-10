@@ -32,3 +32,8 @@ class PolarsLazyTestMixin:
         import polars as pl
 
         return pl.LazyFrame
+
+    def compute_framework_class(self) -> Any:
+        from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
+
+        return PolarsLazyDataFrame

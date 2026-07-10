@@ -29,9 +29,9 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
         return {PolarsLazyDataFrame}
 
     @classmethod
-    def supported_agg_types(cls, frame_type: str) -> frozenset[str] | None:
+    def supported_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
         """Polars cumulative/expanding frames exclude std/var/median; rolling/time support all."""
-        if frame_type in ("cumulative", "expanding"):
+        if secondary in ("cumulative", "expanding"):
             return frozenset(_CUMULATIVE_AGG_TYPES)
         return frozenset(_ROLLING_AGG_TYPES)
 

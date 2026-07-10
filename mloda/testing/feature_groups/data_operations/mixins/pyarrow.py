@@ -21,3 +21,8 @@ class PyArrowTestMixin:
 
     def get_expected_type(self) -> Any:
         return pa.Table
+
+    def compute_framework_class(self) -> Any:
+        from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+
+        return PyArrowTable
