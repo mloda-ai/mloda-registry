@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import re
 from typing import Any
 
@@ -11,8 +12,9 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import ComputeFramework, DefaultOptionKeys, FeatureGroup
+from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 
@@ -35,7 +37,53 @@ _CUMULATIVE_OPS = _AGGREGATION_TYPES
 _TIME_UNITS = {"second", "minute", "hour", "day", "week", "month", "year"}
 
 
-class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+@functools.lru_cache(maxsize=1024)
+def _parse_frame_feature_cached(feature_name: str) -> dict[str, Any] | None:
+    """Regex-parse a frame feature name; cached on the name since the regexes are module constants."""
+    m = _ROLLING_PATTERN.match(feature_name)
+    if m:
+        return {
+            "source_col": m.group(1),
+            "agg_type": m.group(2),
+            "frame_type": "rolling",
+            "frame_size": int(m.group(3)),
+            "frame_unit": None,
+        }
+
+    m = _TIME_WINDOW_PATTERN.match(feature_name)
+    if m:
+        return {
+            "source_col": m.group(1),
+            "agg_type": m.group(2),
+            "frame_type": "time",
+            "frame_size": int(m.group(3)),
+            "frame_unit": m.group(4),
+        }
+
+    m = _CUMULATIVE_PATTERN.match(feature_name)
+    if m:
+        return {
+            "source_col": m.group(1),
+            "agg_type": m.group(2),
+            "frame_type": "cumulative",
+            "frame_size": None,
+            "frame_unit": None,
+        }
+
+    m = _EXPANDING_PATTERN.match(feature_name)
+    if m:
+        return {
+            "source_col": m.group(1),
+            "agg_type": m.group(2),
+            "frame_type": "expanding",
+            "frame_size": None,
+            "frame_unit": None,
+        }
+
+    return None
+
+
+class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGroup):
     """Base class for frame aggregate operations that preserve row count.
 
     Frame aggregation computes an aggregate over a sliding or expanding window
@@ -111,6 +159,9 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
+
+    #: agg-type support depends on frame_type.
+    _CAPABILITY_HAS_AXIS: bool = True
 
     AGGREGATION_TYPE = "aggregation_type"
     FRAME_TYPE = "frame_type"
@@ -196,47 +247,9 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         Returns a dict with keys: source_col, agg_type, frame_type, frame_size, frame_unit.
         Returns None if the name doesn't match any pattern.
         """
-        m = _ROLLING_PATTERN.match(feature_name)
-        if m:
-            return {
-                "source_col": m.group(1),
-                "agg_type": m.group(2),
-                "frame_type": "rolling",
-                "frame_size": int(m.group(3)),
-                "frame_unit": None,
-            }
-
-        m = _TIME_WINDOW_PATTERN.match(feature_name)
-        if m:
-            return {
-                "source_col": m.group(1),
-                "agg_type": m.group(2),
-                "frame_type": "time",
-                "frame_size": int(m.group(3)),
-                "frame_unit": m.group(4),
-            }
-
-        m = _CUMULATIVE_PATTERN.match(feature_name)
-        if m:
-            return {
-                "source_col": m.group(1),
-                "agg_type": m.group(2),
-                "frame_type": "cumulative",
-                "frame_size": None,
-                "frame_unit": None,
-            }
-
-        m = _EXPANDING_PATTERN.match(feature_name)
-        if m:
-            return {
-                "source_col": m.group(1),
-                "agg_type": m.group(2),
-                "frame_type": "expanding",
-                "frame_size": None,
-                "frame_unit": None,
-            }
-
-        return None
+        # Copy: the cache shares one dict across callers, so mutations must not leak.
+        cached = _parse_frame_feature_cached(feature_name)
+        return None if cached is None else dict(cached)
 
     @classmethod
     def match_feature_group_criteria(
@@ -305,38 +318,33 @@ class FrameAggregateFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return True
 
     @classmethod
-    def supported_agg_types(cls, frame_type: str) -> frozenset[str] | None:
-        """Agg types the backend computes natively for *frame_type*; None means unrestricted."""
-        return None
+    def _capability_subtype(cls, feature_name: str, options: Options) -> str | None:
+        parsed = cls._parse_frame_feature(feature_name)
+        if parsed is not None:
+            return str(parsed["agg_type"])
+        agg_type = options.get(cls.AGGREGATION_TYPE)
+        return None if agg_type is None else str(agg_type)
 
     @classmethod
-    def supports_compute_framework(
-        cls,
-        feature_name: FeatureName | str,
-        options: Options,
-        compute_framework: type[ComputeFramework],
-    ) -> bool:
-        """Reject frame types, time units, or agg types the backend cannot compute; unresolvable stays True."""
-        parsed = cls._parse_frame_feature(str(feature_name))
+    def _capability_secondary(cls, feature_name: str, options: Options) -> str | None:
+        parsed = cls._parse_frame_feature(feature_name)
         if parsed is not None:
-            frame_type: str | None = parsed["frame_type"]
-            frame_unit_raw = parsed["frame_unit"]
-            agg_type_raw = parsed["agg_type"]
-        else:
-            frame_type_raw = options.get(cls.FRAME_TYPE)
-            frame_type = None if frame_type_raw is None else str(frame_type_raw)
-            frame_unit_raw = options.get(cls.FRAME_UNIT)
-            agg_type_raw = options.get(cls.AGGREGATION_TYPE)
+            return str(parsed["frame_type"])
+        frame_type = options.get(cls.FRAME_TYPE)
+        return None if frame_type is None else str(frame_type)
+
+    @classmethod
+    def _capability_guard(cls, feature_name: str, options: Options) -> bool:
+        """Reject frame types and time units the backend cannot compute; unresolved frame type stays True."""
+        frame_type = cls._capability_secondary(feature_name, options)
         if frame_type is None:
             return True
         if frame_type not in cls.SUPPORTED_FRAME_TYPES:
             return False
-        if frame_type == "time" and frame_unit_raw is not None and str(frame_unit_raw) not in cls.SUPPORTED_TIME_UNITS:
-            return False
-        agg_type = None if agg_type_raw is None else str(agg_type_raw)
-        if agg_type is not None:
-            supported = cls.supported_agg_types(frame_type)
-            if supported is not None and agg_type not in supported:
+        if frame_type == "time":
+            parsed = cls._parse_frame_feature(feature_name)
+            frame_unit = parsed["frame_unit"] if parsed is not None else options.get(cls.FRAME_UNIT)
+            if frame_unit is not None and str(frame_unit) not in cls.SUPPORTED_TIME_UNITS:
                 return False
         return True
 

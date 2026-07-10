@@ -21,9 +21,10 @@ from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
-from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import ComputeFramework, FeatureGroup
+from mloda.provider import FeatureGroup
+
+from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 
 AGGREGATION_TYPES: dict[str, str] = {
     "sum": "Sum of values",
@@ -46,7 +47,7 @@ AGGREGATION_TYPES: dict[str, str] = {
 }
 
 
-class AggregationFeatureGroupBase(FeatureChainParserMixin, FeatureGroup):
+class AggregationFeatureGroupBase(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGroup):
     AGGREGATION_TYPE = "aggregation_type"
 
     #: Canonical aggregation-type table. Subclasses override to advertise their
@@ -85,11 +86,6 @@ class AggregationFeatureGroupBase(FeatureChainParserMixin, FeatureGroup):
         return str(agg_type)
 
     @classmethod
-    def supported_agg_types(cls) -> frozenset[str] | None:
-        """Aggregation types the backend computes natively; None means unrestricted."""
-        return None
-
-    @classmethod
     def _resolve_agg_type(cls, feature_name: str, options: Options) -> str | None:
         """Resolve the aggregation type from the feature name or options; None if unresolvable."""
         try:
@@ -102,20 +98,8 @@ class AggregationFeatureGroupBase(FeatureChainParserMixin, FeatureGroup):
         return None if agg_type is None else str(agg_type)
 
     @classmethod
-    def supports_compute_framework(
-        cls,
-        feature_name: FeatureName | str,
-        options: Options,
-        compute_framework: type[ComputeFramework],
-    ) -> bool:
-        """Reject aggregation types the backend cannot compute; unresolvable stays True."""
-        supported = cls.supported_agg_types()
-        if supported is None:
-            return True
-        agg_type = cls._resolve_agg_type(str(feature_name), options)
-        if agg_type is None:
-            return True
-        return agg_type in supported
+    def _capability_subtype(cls, feature_name: str, options: Options) -> str | None:
+        return cls._resolve_agg_type(feature_name, options)
 
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:

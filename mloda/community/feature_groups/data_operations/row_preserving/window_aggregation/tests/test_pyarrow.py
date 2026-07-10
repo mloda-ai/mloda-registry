@@ -4,21 +4,27 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.core.abstract_plugins.components.options import Options
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
     PyArrowWindowAggregation,
 )
+from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.pyarrow import PyArrowTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.window_aggregation.window_aggregation import (
     WindowAggregationTestBase,
 )
 
 
-class TestPyArrowWindowAggregation(PyArrowTestMixin, WindowAggregationTestBase):
+class TestPyArrowWindowAggregation(CapabilityHookTestMixin, PyArrowTestMixin, WindowAggregationTestBase):
     """All tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:
         return PyArrowWindowAggregation
+
+    @classmethod
+    def capability_unsupported(cls) -> tuple[tuple[str, Options], ...]:
+        return (("value__mode_window", Options()),)
 
     @classmethod
     def supported_agg_types(cls) -> set[str]:

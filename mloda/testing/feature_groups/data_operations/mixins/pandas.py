@@ -30,3 +30,8 @@ class PandasTestMixin:
         import pandas as pd
 
         return pd.DataFrame
+
+    def compute_framework_class(self) -> Any:
+        from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+        return PandasDataFrame

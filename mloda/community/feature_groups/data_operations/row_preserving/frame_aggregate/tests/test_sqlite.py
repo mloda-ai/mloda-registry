@@ -13,9 +13,11 @@ import pyarrow as pa
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
+from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
     FrameAggregateTestBase,
+    config_frame_options,
 )
 from mloda.user import Feature
 
@@ -24,12 +26,34 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 )
 
 
-class TestSqliteFrameAggregate(SqliteTestMixin, FrameAggregateTestBase):
+class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAggregateTestBase):
     """Unified tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:
         return SqliteFrameAggregate
+
+    @classmethod
+    def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
+        return (
+            ("value__sum_rolling_3", Options()),
+            ("value__avg_rolling_3", Options()),
+            ("value__count_rolling_3", Options()),
+            ("value__min_rolling_3", Options()),
+            ("value__max_rolling_3", Options()),
+            *(("value_frame", config_frame_options(t, "rolling")) for t in ("sum", "avg", "count", "min", "max")),
+        )
+
+    @classmethod
+    def capability_unsupported(cls) -> tuple[tuple[str, Options], ...]:
+        return (
+            ("value__median_rolling_3", Options()),
+            ("value__std_rolling_3", Options()),
+            ("value__var_rolling_3", Options()),
+            ("value__cumstd", Options()),
+            ("value__expanding_median", Options()),
+            *(("value_frame", config_frame_options(t, "rolling")) for t in ("median", "std", "var")),
+        )
 
     @classmethod
     def supported_time_units(cls) -> set[str]:

@@ -57,3 +57,8 @@ class SqliteTestMixin:
         from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
         return SqliteRelation
+
+    def compute_framework_class(self) -> Any:
+        from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
+
+        return SqliteFramework

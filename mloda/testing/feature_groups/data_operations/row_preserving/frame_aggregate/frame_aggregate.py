@@ -119,6 +119,49 @@ EXPECTED_EXPANDING_AVG: list[float] = [
 
 
 # ---------------------------------------------------------------------------
+# Capability-probe option builders (shared across backend test modules)
+# ---------------------------------------------------------------------------
+
+
+def time_frame_options(frame_unit: str) -> Options:
+    """Config-based time-frame options for the given ``frame_unit``.
+
+    Used by the per-backend capability-hook tests to probe whether a backend
+    accepts a time frame at the requested calendar unit (e.g. pandas/SQLite
+    reject ``month`` but accept ``day``).
+    """
+    return Options(
+        context={
+            "aggregation_type": "sum",
+            "frame_type": "time",
+            "frame_size": 3,
+            "frame_unit": frame_unit,
+            "in_features": "value",
+            "partition_by": ["region"],
+            "order_by": "ts",
+        }
+    )
+
+
+def config_frame_options(agg_type: str, frame_type: str, frame_size: int = 3) -> Options:
+    """Config-based frame-aggregate options carrying the aggregation and frame discriminators.
+
+    Used by the per-backend capability-hook tests to probe whether a backend
+    accepts a given ``aggregation_type``/``frame_type`` combination.
+    """
+    return Options(
+        context={
+            "aggregation_type": agg_type,
+            "frame_type": frame_type,
+            "frame_size": frame_size,
+            "in_features": "value",
+            "partition_by": ["region"],
+            "order_by": "ts",
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
