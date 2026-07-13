@@ -264,7 +264,7 @@ class TestUnorderedInFeaturesRejected:
 class TestMalformedInFeaturesShapeRejectedAtMatch:
     """Unordered ``in_features`` must fail to match, not match-then-fail-late.
 
-    ``in_features`` carries a ``type_validator`` that only accepts ordered
+    ``in_features`` carries a ``match_guard`` that only accepts ordered
     containers (list/tuple). A hashable but unordered collection (frozenset)
     must therefore cause ``match_feature_group_criteria`` to return False up
     front, since operand order is significant for subtract/divide; before the
@@ -273,7 +273,7 @@ class TestMalformedInFeaturesShapeRejectedAtMatch:
 
     A mapping (dict) is intentionally not asserted here: an unhashable value
     raises ``TypeError`` inside the core property-mapping parser before the
-    ``type_validator`` runs, independently of this feature group. The mapping
+    ``match_guard`` runs, independently of this feature group. The mapping
     case is pinned at the extract layer instead (see
     ``TestNonOrderedInFeaturesRejectedOnExtract``).
     """

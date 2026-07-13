@@ -45,6 +45,8 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.base import is_op_token
+
 TIME_BUCKETIZATION_OPS: dict[str, str] = {
     "floor": "Round timestamp down to the start of the enclosing bucket",
     "ceil": "Round timestamp up to the start of the next bucket (idempotent on aligned for fixed-freq units; always advances for week/month/year)",
@@ -146,7 +148,8 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             "explanation": "Full bucketization op token (e.g. 'floor_1_day', 'ceil_5_minute')",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.validation_function: _is_valid_bucket_op_value,
+            DefaultOptionKeys.element_validator: _is_valid_bucket_op_value,
+            DefaultOptionKeys.match_guard: is_op_token,
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Single source timestamp column to bucketize",

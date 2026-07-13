@@ -146,7 +146,7 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             "explanation": "Resample token '{n}_{unit}_{agg}' (e.g. '1_hour_mean') when the op is not encoded in the feature name.",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.type_validator: _is_valid_resample_op,
+            DefaultOptionKeys.match_guard: _is_valid_resample_op,
         },
     }
 

@@ -56,7 +56,7 @@ class PyArrowAggregation(AggregationFeatureGroup):
         return {PyArrowTable}
 
     @classmethod
-    def supported_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
+    def supported_op_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
         return frozenset(_SUPPORTED_AGG_TYPES)
 
     @classmethod

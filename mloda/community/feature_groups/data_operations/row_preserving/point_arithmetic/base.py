@@ -28,6 +28,7 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.provider import DefaultOptionKeys
 
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
+from mloda.community.feature_groups.data_operations.base import is_op_token
 
 ARITHMETIC_OPERATIONS: dict[str, str] = {
     "add": "Element-wise addition of two columns",
@@ -62,15 +63,17 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
 
     PROPERTY_MAPPING = {
         ArithmeticFeatureGroupBase.ARITHMETIC_OP: {
-            **ARITHMETIC_OPERATIONS,
+            "explanation": "Element-wise arithmetic operation applied to the two source columns",
+            DefaultOptionKeys.allowed_values: ARITHMETIC_OPERATIONS,
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
+            DefaultOptionKeys.match_guard: is_op_token,
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Two source feature columns for the element-wise arithmetic operation",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.type_validator: _is_ordered_in_features,
+            DefaultOptionKeys.match_guard: _is_ordered_in_features,
         },
     }
 

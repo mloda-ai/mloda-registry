@@ -12,6 +12,7 @@ from mloda.community.feature_groups.data_operations.aggregation_base import (
     AggregationFeatureGroupBase,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
+from mloda.community.feature_groups.data_operations.base import is_op_token
 
 
 class AggregationFeatureGroup(AggregationFeatureGroupBase):
@@ -89,9 +90,11 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase):
 
     PROPERTY_MAPPING = {
         AggregationFeatureGroupBase.AGGREGATION_TYPE: {
-            **AGGREGATION_TYPES,
+            "explanation": "Aggregation applied per partition group",
+            DefaultOptionKeys.allowed_values: AGGREGATION_TYPES,
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
+            DefaultOptionKeys.match_guard: is_op_token,
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Source feature for aggregation",

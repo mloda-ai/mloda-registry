@@ -48,7 +48,7 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         return {SqliteFramework}
 
     @classmethod
-    def supported_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
+    def supported_op_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
         """SQLite supports sum/avg/count/min/max for every frame type."""
         return frozenset(_SQLITE_AGG_FUNCS)
 

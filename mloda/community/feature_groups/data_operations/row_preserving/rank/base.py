@@ -13,6 +13,7 @@ from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
+from mloda.community.feature_groups.data_operations.base import is_op_token
 
 
 class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGroup):
@@ -113,9 +114,11 @@ class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGr
 
     PROPERTY_MAPPING = {
         RANK_TYPE: {
-            **RANK_TYPES,
+            "explanation": "Rank type applied within each partition",
+            DefaultOptionKeys.allowed_values: RANK_TYPES,
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
+            DefaultOptionKeys.match_guard: is_op_token,
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Source feature for rank ordering",

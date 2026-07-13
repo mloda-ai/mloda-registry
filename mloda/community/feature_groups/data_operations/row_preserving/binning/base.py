@@ -12,6 +12,7 @@ from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.community.feature_groups.data_operations.base import is_op_token
 
 BINNING_OPS = {
     "bin": "Equal-width binning (value range divided into n equal intervals)",
@@ -35,15 +36,17 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     PROPERTY_MAPPING = {
         BINNING_OP: {
-            **BINNING_OPS,
+            "explanation": "Binning operation applied to the source column",
+            DefaultOptionKeys.allowed_values: BINNING_OPS,
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
+            DefaultOptionKeys.match_guard: is_op_token,
         },
         N_BINS: {
             "explanation": "Number of bins (positive integer)",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.type_validator: _is_positive_int,
+            DefaultOptionKeys.match_guard: _is_positive_int,
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Source numeric column",
