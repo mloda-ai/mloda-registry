@@ -8,9 +8,13 @@ from mloda.steward import Extender, ExtenderHook
 class EnterpriseExampleExtender(Extender):
     """An example enterprise extender that demonstrates the Extender pattern."""
 
+    def __init__(self, raise_on_error: bool = True) -> None:
+        """Set whether a failure of this extender breaks the calculation."""
+        self.raise_on_error = raise_on_error
+
     def wraps(self) -> set[ExtenderHook]:
         """Return the hooks this extender wraps."""
-        return set()
+        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         """Execute the wrapped function."""
