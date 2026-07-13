@@ -59,6 +59,17 @@ def test_full_pipeline():
     assert "my_feature" in result.columns
 ```
 
+### Level 3 Only: The Empty-Result Contract
+
+The rule that a FeatureGroup must return columns even at zero rows (see [calculate_feature](12-calculate-feature.md#empty-results)) is enforced during the run, not inside `calculate_feature()`. A Level 2 test that calls `calculate_feature()` directly passes on a group that returns `[]` or `{}` for "nothing found"; the same group raises `EmptyResultError` the first time that path is hit through `mloda.run_all()`. Cover every reachable empty path (no source files, a query with no hits, a filter that removes every row) at Level 3:
+
+```python
+def test_empty_source_keeps_schema():
+    result = mloda.run_all([Feature.not_typed("my_feature")], ...)  # no matching data
+    assert len(result) == 0
+    assert "my_feature" in result.columns
+```
+
 **Tip**: Use `column_ordering="request_order"` for predictable test assertions:
 
 ```python

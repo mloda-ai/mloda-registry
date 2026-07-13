@@ -50,6 +50,42 @@ global_filter.add_filter("status", FilterType.EQUAL, {"value": "active"})
 
 ---
 
+## Known Limitation: Filtering a Root FeatureGroup's Own Output Column
+
+> **Warning (mloda 0.10.0):** Do not attach a `GlobalFilter` to a column that a **root** FeatureGroup itself produces. The engine schedules the filter feature as a separately calculable node, which fails in one of two ways:
+>
+> - The filter feature's options are all moved into `group`, so a FeatureGroup that reads runtime parameters from `options.context` lands in its own batch with an empty context and raises.
+> - If the options are passed so the batches merge, the filter twin displaces the requested feature and the filtered column is silently missing from the result.
+>
+> Tracked in [mloda#712](https://github.com/mloda-ai/mloda/issues/712).
+
+Until that is fixed, pass the threshold as a plain option and filter inline:
+
+```python
+class RetrievalFeature(FeatureGroup):
+    @classmethod
+    def final_filters(cls) -> bool | None:
+        return False
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        options = next(iter(features.features)).options
+        max_distance = options.get("max_distance")
+
+        hits = [h for h in search(...) if h.distance <= max_distance]
+        # Columnar, so an empty hit list still carries the schema.
+        return {
+            "retrieval__doc_id": [h.doc_id for h in hits],
+            "retrieval__distance": [h.distance for h in hits],
+        }
+```
+
+Filtering is the most likely way to produce a legitimately empty result, so a FeatureGroup that filters inline must be able to express "zero rows with schema". See [Empty Results](12-calculate-feature.md#empty-results).
+
+This limitation does not apply to filtering a **derived** feature group's input columns, which is the normal case shown above.
+
+---
+
 ## Time Filters
 
 ```python
@@ -188,5 +224,5 @@ All features from the same FeatureGroup must have the same filters. Split into s
 ## Related
 
 - [Filter Engine](../compute-framework-patterns/07-filter-engine.md) - Implementing filter operations in a compute framework
-- [calculate_feature](12-calculate-feature.md) - Accessing `features.filters` inside the calculation method
+- [calculate_feature](12-calculate-feature.md) - Accessing `features.filters` inside the calculation method, and the [empty-result contract](12-calculate-feature.md#empty-results) a filter can trigger
 - [Masking](25-masking.md) - Conditional aggregation that nulls out values instead of removing rows
