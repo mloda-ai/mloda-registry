@@ -98,10 +98,16 @@ class NullPolicy(str, Enum):
 
 
 def is_op_token(value: object) -> bool:
-    """True only for a single string operation token.
+    """True for exactly one operation token: a non-empty string, bare or in a single-element container.
 
-    Used as a ``match_guard``: it sees the raw option value, so it rejects the
-    composite forms (list, tuple, set) that the element-wise
-    ``element_validator`` / membership check would accept element by element.
+    The guard is about arity, not Python syntax. Core unwraps a singleton container when it
+    reads a property value (``_unpack_property_value``, ``FeatureGroup.resolve_subtype``), so
+    ``("sum",)`` is valid caller syntax for one token. Multi-element and empty values are rejected:
+    strict membership checks the elements one by one and would otherwise wrongly match a composite
+    value such as ``["sum", "max"]``.
     """
-    return isinstance(value, str)
+    if isinstance(value, (list, tuple, set, frozenset)):
+        if len(value) != 1:
+            return False
+        (value,) = value
+    return isinstance(value, str) and bool(value)

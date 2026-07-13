@@ -173,6 +173,15 @@ class TestLegacyMethodNamesRejected:
                 def supported_rank_types(cls) -> frozenset[str]:
                     return frozenset({"row_number"})
 
+    def test_legacy_supported_subtypes_rejected(self) -> None:
+        """Overriding the stale ``supported_subtypes`` raises TypeError naming ``supported_op_subtypes``."""
+        with pytest.raises(TypeError, match="supported_op_subtypes"):
+
+            class _Legacy(AggregationFeatureGroup):
+                @classmethod  # type: ignore[misc]
+                def supported_subtypes(cls) -> frozenset[str]:  # type: ignore[override]
+                    return frozenset({"sum"})
+
 
 class TestRestrictionRequiresResolver:
     """Declaring a restriction without a subtype resolver must fail at class definition."""

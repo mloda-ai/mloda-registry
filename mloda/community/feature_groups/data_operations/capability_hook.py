@@ -25,13 +25,19 @@ class SubtypeCapabilityHook:
     def __init_subclass__(cls, **kwargs: object) -> None:
         # Silently ignoring a pre-#299 override would leave the backend unrestricted and
         # fail later at compute time, so reject the legacy method names loudly here.
-        # "supported_subtypes" is core's @final FeatureGroup method: a stale override would bind
-        # there and leave the backend unrestricted here, so it is rejected as a legacy name too.
-        for legacy in ("supported_agg_types", "supported_rank_types", "supported_subtypes"):
+        for legacy in ("supported_agg_types", "supported_rank_types"):
             if legacy in cls.__dict__:
                 raise TypeError(
                     f"{cls.__name__} defines legacy {legacy}(); rename it to supported_op_subtypes(secondary=None)"
                 )
+        # Not a legacy registry name: "supported_subtypes" is core's live @final FeatureGroup API.
+        # An override collides with it, binds to core's method, and silently leaves this backend
+        # unrestricted, so reject the collision explicitly.
+        if "supported_subtypes" in cls.__dict__:
+            raise TypeError(
+                f"{cls.__name__} overrides supported_subtypes(), which is core's @final FeatureGroup API; "
+                "declare backend capability via supported_op_subtypes(secondary=None) instead"
+            )
         if "supported_op_subtypes" in cls.__dict__:
             # A raw classmethod object in __dict__ is not itself callable, so resolve the
             # descriptor via getattr: a frozenset attribute stays non-callable and is caught
