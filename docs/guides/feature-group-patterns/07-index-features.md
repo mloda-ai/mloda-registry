@@ -42,7 +42,7 @@ class LagFeature(FeatureChainParserMixin, FeatureGroup):
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        feature_name = features.name_of_one_feature.name
+        feature_name = str(features.name_of_one_feature)
         match = re.match(cls.PREFIX_PATTERN, feature_name)
         lag_n = int(match.group(1))
         source = feature_name.rsplit("__lag_", 1)[0]

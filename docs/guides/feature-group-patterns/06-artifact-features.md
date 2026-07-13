@@ -32,14 +32,14 @@ class ScalerArtifact(BaseArtifact):
 
     @classmethod
     def custom_saver(cls, features: FeatureSet, artifact: Any) -> str | None:
-        path = f"/tmp/scaler_{features.name_of_one_feature.name}.pkl"
+        path = f"/tmp/scaler_{features.name_of_one_feature}.pkl"
         with open(path, "wb") as f:
             pickle.dump(artifact, f)
         return path
 
     @classmethod
     def custom_loader(cls, features: FeatureSet) -> Any | None:
-        path = f"/tmp/scaler_{features.name_of_one_feature.name}.pkl"
+        path = f"/tmp/scaler_{features.name_of_one_feature}.pkl"
         if Path(path).exists():
             with open(path, "rb") as f:
                 return pickle.load(f)
@@ -61,7 +61,7 @@ class StandardScaledFeature(FeatureChainParserMixin, FeatureGroup):
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        feature_name = features.name_of_one_feature.name
+        feature_name = str(features.name_of_one_feature)
         source = feature_name.replace("__standard_scaled", "")
         col = data[source]
 

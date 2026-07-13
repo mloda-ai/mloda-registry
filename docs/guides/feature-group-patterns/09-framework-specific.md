@@ -13,7 +13,7 @@ Framework-specific features restrict computation to certain frameworks.
 | Method | Behavior |
 |--------|----------|
 | `compute_framework_rule()` | Returns `set[type[ComputeFramework]] | None` |
-| Default | `True` = any framework allowed |
+| Default | `None` = any framework allowed |
 
 ## Complete Example
 

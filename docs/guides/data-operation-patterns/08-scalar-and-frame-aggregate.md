@@ -33,7 +33,7 @@ Scalar aggregate accepts the `mask` option. Masked rows have their source value 
 
 ## Scalar arithmetic
 
-Pattern: `{col}__{op}_constant` (regex `r"(.+?)__(add|subtract|multiply|divide)_constant$"`).
+Pattern: `{col}__{op}_constant` (regex `r".*__([\w]+)_constant$"`). The regex does not enumerate the ops; the op token is validated separately via `match_guard: is_op_token` plus `allowed_values: ARITHMETIC_OPERATIONS`.
 
 Each row gets `source {op} constant`. Null in the source propagates to the result. Single source column only (`MIN_IN_FEATURES = MAX_IN_FEATURES = 1`).
 

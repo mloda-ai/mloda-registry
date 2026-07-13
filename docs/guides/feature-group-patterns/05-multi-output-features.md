@@ -38,7 +38,7 @@ class StatsFeature(FeatureGroup):
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> dict[str, Any]:
-        feature_name = features.name_of_one_feature.name
+        feature_name = str(features.name_of_one_feature)
         source = feature_name.replace("__stats", "")
         col = data[source]
         return {
@@ -51,14 +51,14 @@ class StatsFeature(FeatureGroup):
 
 ```python
 import pandas as pd
+from mloda.user import FeatureName
 
 def test_stats_feature():
     assert StatsFeature.match_feature_group_criteria("value__stats", None)
 
     df = pd.DataFrame({"value": [1, 2, 3, 4, 5]})
     class MockFeatures:
-        class name_of_one_feature:
-            name = "value__stats"
+        name_of_one_feature = FeatureName("value__stats")
     result = StatsFeature.calculate_feature(df, MockFeatures())
     assert "value__stats~mean" in result
     assert "value__stats~std" in result
@@ -69,10 +69,13 @@ def test_stats_feature():
 For 2D array outputs (embeddings, PCA):
 
 ```python
-# Converts 2D array to dict with ~N column names
-embedding = [[0.1, 0.2], [0.3, 0.4]]
+# Converts 2D array to dict with ~N column names.
+# Requires an object with a .shape (e.g. numpy); a plain list of lists returns {}.
+import numpy as np
+
+embedding = np.array([[0.1, 0.2], [0.3, 0.4]])
 result = cls.apply_naming_convention(embedding, "emb")
-# Returns: {"emb~0": [0.1, 0.3], "emb~1": [0.2, 0.4]}
+# Returns: {"emb~0": array([0.1, 0.3]), "emb~1": array([0.2, 0.4])}
 ```
 
 ## Real Implementations
@@ -103,7 +106,7 @@ class SpecificSubColumnConsumer(FeatureGroup):
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         embedding_values = data["embedding~1"]
-        feature_name = features.get_name_of_one_feature().name
+        feature_name = str(features.get_name_of_one_feature())
         return {feature_name: embedding_values * 2}
 ```
 

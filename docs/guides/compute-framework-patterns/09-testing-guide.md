@@ -42,7 +42,7 @@ class TestMyFilterEngine(FilterEngineTestMixin):
         return result[column].tolist()
 ```
 
-### MultiIndexMergeEngineTestBase (5 tests)
+### MultiIndexMergeEngineTestBase (6 tests)
 
 For merge engine tests with multi-column indexes:
 
@@ -90,24 +90,25 @@ Converts test data to any framework format via PyArrow:
 ```python
 from tests.test_plugins.compute_framework.test_tooling.multi_index.test_data_converter import DataConverter
 
-converter = DataConverter(framework_type=my_lib.DataFrame, connection=None)
-df = converter.convert([{"col": 1}, {"col": 2}])
+converter = DataConverter()
+df = converter.to_framework([{"col": 1}, {"col": 2}], my_lib.DataFrame, connection=None)
 ```
 
 ### SCENARIOS
 
-Framework-agnostic test scenarios for merge operations:
+Framework-agnostic merge scenarios, a `dict[str, MergeScenario]` keyed by scenario name. `MergeScenario` is a `TypedDict` with keys `left`, `right`, `index`, `expected_rows`, `expected_columns`, `description`:
 
 ```python
 from tests.test_plugins.compute_framework.test_tooling.multi_index.test_scenarios import SCENARIOS
 
 # Use in parametrized tests
-@pytest.mark.parametrize("scenario", SCENARIOS)
-def test_merge_scenario(scenario, engine):
-    left = converter.convert(scenario.left_data)
-    right = converter.convert(scenario.right_data)
-    result = engine.merge_inner(left, right, scenario.left_index, scenario.right_index)
-    assert len(result) == scenario.expected_count
+@pytest.mark.parametrize("scenario_key", list(SCENARIOS))
+def test_merge_scenario(scenario_key, converter, engine):
+    scenario = SCENARIOS[scenario_key]
+    left = converter.to_framework(scenario["left"], my_lib.DataFrame)
+    right = converter.to_framework(scenario["right"], my_lib.DataFrame)
+    result = engine.merge_inner(left, right, Index(scenario["index"]), Index(scenario["index"]))
+    assert len(result) == scenario["expected_rows"]
 ```
 
 ## Shared Helpers
@@ -115,7 +116,7 @@ def test_merge_scenario(scenario, engine):
 ### Availability Testing
 
 ```python
-from tests.test_plugins.compute_framework.base_implementations.availability_test_helper import (
+from tests.test_plugins.compute_framework.test_tooling.availability_test_helper import (
     assert_unavailable_when_import_blocked,
 )
 
@@ -128,24 +129,24 @@ def test_unavailable_when_not_installed():
 For testing transformer chains:
 
 ```python
-from tests.test_plugins.compute_framework.base_implementations.shared_compute_frameworks import (
+from tests.test_plugins.compute_framework.test_tooling.shared_compute_frameworks import (
     SecondCfw, ThirdCfw, FourthCfw
 )
 ```
 
 ## Shared Fixtures
 
-Main conftest provides:
+The compute framework conftest provides:
 
 ```python
-# tests/conftest.py
+# tests/test_plugins/compute_framework/base_implementations/conftest.py
 @pytest.fixture
-def index_obj():
-    return Index(("id",))
+def index_obj() -> Any:
+    return Index(("idx",))
 
 @pytest.fixture
-def dict_data():
-    return {"id": [1, 2], "value": ["a", "b"]}
+def dict_data() -> dict[str, list[int]]:
+    return {"column1": [1, 2, 3], "column2": [4, 5, 6]}
 ```
 
 Framework-specific fixtures:

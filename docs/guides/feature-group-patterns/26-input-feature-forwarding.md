@@ -104,9 +104,9 @@ The engine forwards by default, so a child left at `forward_group=None` already 
 
 If a forwarded group key already exists on the child with a **different** value, forwarding raises `ValueError` (naming the key, both values, and the opt-out remedies). If the child already holds the **same** value, forwarding is a silent no-op. So a child may safely pre-set a key to the value the consumer would forward; it may not silently override it.
 
-## Caveat: Bare-String Children Share the Consumer's Options
+## Caveat: Bare-String Children Cannot Carry Directives
 
-The directives above only take effect on children returned as explicit `Feature(...)` objects. A child returned as a **bare string** from `input_features()` (e.g. `return {"knowledge_graph"}`) is constructed with the consumer's own `Options` instance, so it already carries the consumer's **entire** group and context, and the forwarding directives (`forward_group`, `forward_group_exclude`, `inherit_context_keys`) are no-ops on it (mloda logs a warning if you pass them). Because everything is already shared, there is no way to carve a consumer-local key off a bare-string child. To control what the upstream sees, whether that means excluding a key, isolating the child, or selecting which context reaches it, return an explicit `Feature("knowledge_graph", forward_group_exclude={...})`, not the string.
+The directives above only take effect on children returned as explicit `Feature(...)` objects. A child returned as a **bare string** from `input_features()` (e.g. `return {"knowledge_graph"}`) is constructed with a fresh, empty `Options` and then goes through the same forward-by-default merge as any explicit `Feature(name)` child, so it inherits the consumer's entire group and context. The difference is that a string has nowhere to hang a directive: there is no way to carve a consumer-local key off a bare-string child. To control what the upstream sees, whether that means excluding a key, isolating the child, or selecting which context reaches it, return an explicit `Feature("knowledge_graph", forward_group_exclude={...})`, not the string.
 
 ## Test
 

@@ -29,7 +29,7 @@ feature = Feature(
 )
 ```
 
-All rows of the same `service` share the same P95 value. Percentiles use the framework's native method (linear interpolation by default in Pandas and PyArrow). Cross-framework tests allow `pytest.approx` tolerance for floating-point comparisons.
+All rows of the same `service` share the same P95 value. Percentiles use the framework's native method (linear interpolation by default in Pandas, DuckDB and Polars; PyArrow is not a supported percentile backend). Cross-framework tests allow `pytest.approx` tolerance for floating-point comparisons.
 
 ---
 

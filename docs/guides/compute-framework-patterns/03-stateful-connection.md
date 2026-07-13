@@ -46,14 +46,14 @@ def transform(self, data: Any, feature_names: set[str]) -> Any:
 
 ## Usage
 
-Pass connections via `data_connections`:
+Pass connections via `data_access_collection`. The engine resolves the connection at setup and calls `set_framework_connection_object()` on the framework for you:
 
 ```python
 conn = duckdb.connect()
 result = mloda.run_all(
     features=[...],
     compute_frameworks=["MyStatefulFramework"],
-    data_connections=[conn],
+    data_access_collection=DataAccessCollection(connections={conn}),
 )
 ```
 
