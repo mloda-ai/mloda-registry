@@ -129,7 +129,7 @@ def test_connector_carves_local_key_and_pulls_context():
 |------|-------------|
 | [test_input_features_forward_group_defaults.py](https://github.com/mloda-ai/mloda/blob/0.9.0/tests/test_plugins/feature_group/experimental/test_input_features_forward_group_defaults.py) | Plugin `input_features()` leaving children at the default sentinel; explicit directives preserved |
 | [test_feature_collection_forwarding.py](https://github.com/mloda-ai/mloda/blob/0.9.0/tests/test_core/test_abstract_plugins/test_components/test_feature_collection_forwarding.py) | `forward_group` / `forward_group_exclude` allowlist and carve-out semantics |
-| [Options API](https://mloda-ai.github.io/mloda/in_depth/options/) | Group vs context, propagation |
+| [Feature Configuration](https://mloda-ai.github.io/mloda/in_depth/feature-config/) | Group vs context, propagation |
 
 ## Combines With
 

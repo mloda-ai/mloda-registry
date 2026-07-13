@@ -154,7 +154,7 @@ Use `DefaultOptionKeys.required_when` to attach a predicate callable to a mappin
 
 ```python
 from mloda.user import Options
-from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+from mloda.provider import DefaultOptionKeys
 
 _ORDER_DEPENDENT = {"first", "last"}
 
@@ -256,7 +256,7 @@ PROPERTY_MAPPING = {
 }
 ```
 
-A `match_guard` is also the way to reject a composite value for a key that otherwise accepts a single token: the element-wise check unpacks a list and validates each element, so a list of two valid operations would pass without a guard such as `lambda v: isinstance(v, str)`.
+A `match_guard` is also the way to reject a composite value for a key that otherwise accepts a single token: the element-wise check unpacks a container and validates each element, so `["sum", "max"]` passes membership on both elements and matches. Guard the arity, not the Python syntax: core unwraps a single-element container when it reads a property value, so `("sum",)` is valid caller syntax for one token and a naive `lambda v: isinstance(v, str)` would wrongly reject it. See the shared `is_op_token` guard in `mloda/community/feature_groups/data_operations/base.py`.
 
 ### Key Differences from `element_validator`
 
@@ -274,9 +274,11 @@ Precedence, the full lifecycle, and what each failure produces live in core: [PR
 
 ## Element Validation with `element_validator`
 
-Use `DefaultOptionKeys.element_validator` to validate option values with a callable instead of checking membership against a fixed set of allowed values. This requires `strict_validation: True`.
+Use `DefaultOptionKeys.element_validator` to validate option values with a callable instead of checking membership against a fixed set of allowed values. It requires `strict_validation: True`: without it, a hand-written spec silently ignores the validator (only `property_spec` rejects that combination).
 
-When an element validator is present, it **replaces** the `allowed_values` membership check rather than adding to it. It receives each parsed element and must return `True` if valid. A falsy return raises `ValueError`; the mixin catches it and returns `False`, and the reason is collected into the end user's "No feature groups found" error. So an `element_validator` rejection tells the user their value was wrong, whereas a `match_guard` rejection quietly hands the feature to another candidate.
+When an element validator is present, it **replaces** the `allowed_values` membership check rather than adding to it. It receives each parsed element and must return `True` if valid.
+
+A falsy return raises `ValueError`, but the mixin catches it and returns `False`, so both mechanisms end in a non-match and another candidate can still take the feature. The difference is diagnostics: if nothing matches, an `element_validator` rejection is listed as a reason in the end user's "No feature groups found" error, while a `match_guard` rejection leaves only a debug log.
 
 ```python
 from mloda.provider import DefaultOptionKeys
@@ -301,14 +303,13 @@ PROPERTY_MAPPING = {
 
 The spec declares the arity, not the caller. For membership and `element_validator`, `list`, `tuple`, `set` and `frozenset` all unpack element-wise and identically, so container syntax never changes what the validator sees:
 
-- Elements keep their real type: `[1, 2]` hands the validator `1`, never `"1"`.
+- Elements keep their real type: `[1, 2]` hands the validator `1`, never `"1"`. The one normalization is a `Feature`, which arrives as its `FeatureName`.
 - A `str` is a scalar, not a sequence of characters: `"abc"` is the single element `"abc"`.
 - A `dict` is one composite value, not a sequence of its keys. Validating its shape is `match_guard`'s job.
 - An empty container is present and vacuously valid: no element runs, and it still satisfies the required-presence check.
+- Both only see values in `Options`. A `PREFIX_PATTERN` match short-circuits property validation, so membership and `element_validator` never run on a name-parsed value, and `match_guard` is skipped when the option is absent. Constrain the string path with the regex itself (see [Return Data Type Rule](../data-operation-patterns/16-return-data-type-rule.md)).
 
-`match_guard` is unaffected: it always receives the raw value with its original container type.
-
-Before mloda 0.10.0 a sequence was stringified, so a validator received `"('a', 'b')"` and behavior depended on whether the caller happened to type a list or a tuple. An `element_validator` written to inspect a whole container (`isinstance(x, list) and all(...)`) must become a per-element rule, or move to `match_guard` if it genuinely is a whole-value check.
+Migration: before mloda 0.10.0 a sequence was stringified, so a validator received `"('a', 'b')"` and behavior depended on whether the caller typed a list or a tuple. An `element_validator` that inspects a whole container (`isinstance(x, list) and all(...)`) must become a per-element rule, or move to `match_guard` if it genuinely is a whole-value check.
 
 ### When to Use Each Validation Approach
 
