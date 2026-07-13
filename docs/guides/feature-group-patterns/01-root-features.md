@@ -90,6 +90,12 @@ Database credentials live in the same collection. Wrap each slot in the typed
 so a single credential dict is never mistaken for a `{handle: value}` registry. See
 [Credentials](17-data-connection-matching.md#credentials).
 
+## Multiple Readers Under One Root Group
+
+Several `BaseInputData` readers can sit under one root FeatureGroup; a feature picks
+one via an Options key equal to the reader's class name. See
+[Input-data readers](27-input-data-readers.md).
+
 ## Real Implementations
 
 | File | Description |

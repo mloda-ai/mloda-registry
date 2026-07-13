@@ -71,7 +71,9 @@ def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], 
     ...
 ```
 
-The `options` parameter is required.
+The `options` parameter is required. For the full reader-selection contract
+(class-name option keys, sibling readers, non-file / HTTP sources), see
+[Input-data readers](27-input-data-readers.md).
 
 ## Named Handles and Multi-Source Disambiguation
 
