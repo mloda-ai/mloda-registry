@@ -56,7 +56,7 @@ feature = Feature("price__scaled", Options(
 | Default (no propagation) | Context stays local to the feature where it's defined |
 | With `propagate_context_keys` | Listed keys are passed to all input features in the chain |
 
-Use propagation sparingly—most context should remain local. Common use cases include trace IDs for debugging, tenant identifiers, or configuration that genuinely needs to flow through the entire pipeline.
+Use propagation sparingly; most context should remain local. Common use cases include trace IDs for debugging, tenant identifiers, or configuration that genuinely needs to flow through the entire pipeline.
 
 ## PROPERTY_MAPPING value space
 
@@ -108,12 +108,14 @@ Since mloda 0.9.0, defining a `FeatureGroup` whose `PROPERTY_MAPPING` declares a
 
 When using `PROPERTY_MAPPING` with `FeatureChainParserMixin`, you can declare validation rules and conditional requirements directly on option entries:
 
-- **`element_validator`**: Validate individual parsed option values with a callable (requires `strict_validation: True`).
-- **`match_guard`**: Validate the raw option value with a callable (no `strict_validation` needed). Useful for composite types like lists or dicts.
+- **`element_validator`**: Validate each parsed element with a callable (requires `strict_validation: True`). A falsy return raises `ValueError`, which the mixin turns into a non-match plus a rejection reason in the resolution error.
+- **`match_guard`**: Check the raw option value with a callable (no `strict_validation` needed). Useful for composite types like lists or dicts. A falsy return is a plain non-match, with no reason reported.
 - **`required_when`**: Make an option conditionally required based on a predicate callable.
 
-See [Feature Matching: Conditional Requirements](14-feature-matching.md#conditional-requirements-with-required_when) for full details, examples, and a comparison table.
+For `element_validator` and membership, the spec declares the arity: `list`, `tuple`, `set` and `frozenset` unpack element-wise and identically, a `str` stays a scalar, and a `dict` is one composite value. `match_guard` still sees the raw value with its original container type.
+
+See [Feature Matching: Key Differences](14-feature-matching.md#key-differences-from-element_validator) for the comparison table and [Conditional Requirements](14-feature-matching.md#conditional-requirements-with-required_when) for `required_when`.
 
 ## Full Documentation
 
-See [Options API](https://mloda-ai.github.io/mloda/in_depth/options/) for detailed patterns and [PROPERTY_MAPPING Configuration](https://mloda-ai.github.io/mloda/in_depth/property-mapping/) for the full spec reference.
+See [Feature Configuration](https://mloda-ai.github.io/mloda/in_depth/feature-config/) for detailed patterns and [PROPERTY_MAPPING Configuration](https://mloda-ai.github.io/mloda/in_depth/property-mapping/) for the full spec reference.
