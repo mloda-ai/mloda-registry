@@ -90,7 +90,7 @@ A reader that overrides `load_data` wholesale is classified as a final reader st
 Follow the contract at unit level, then end to end:
 
 ```python
-from mloda.core.abstract_plugins.components.input_data.base_input_data import BaseInputData
+from mloda.provider import BaseInputData
 from mloda.user import Options
 
 
