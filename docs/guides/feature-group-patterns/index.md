@@ -31,6 +31,7 @@ See also: [Create a feature group](../09-create-feature-group.md)
 23. [Streaming](23-streaming.md) - Streaming feature processing patterns
 24. [Realtime Execution](24-realtime.md) - Realtime feature computation and serving
 25. [Masking](25-masking.md) - Feature masking and sensitive data handling
+26. [Input data readers](26-input-data-readers.md) - Writing readers, sibling-reader selection, non-file sources
 
 ## Related Guides
 

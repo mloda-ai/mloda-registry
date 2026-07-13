@@ -80,6 +80,8 @@ data_access = DataAccessCollection(folders={"/path/to/data/"})
 features = [Feature("customer_id"), Feature("name")]
 ```
 
+Writing your own reader, selecting between sibling readers, or loading from an HTTP source: see [Input data readers](26-input-data-readers.md).
+
 ## Real Implementations
 
 | File | Description |

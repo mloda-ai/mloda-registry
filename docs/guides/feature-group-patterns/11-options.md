@@ -68,6 +68,10 @@ When using `PROPERTY_MAPPING` with `FeatureChainParserMixin`, you can declare va
 
 See [Feature Matching: Conditional Requirements](14-feature-matching.md#conditional-requirements-with-required_when) for full details, examples, and a comparison table.
 
+## Reader Selection Keys
+
+An option whose key is a reader's class name (or the reader class itself) selects that reader for the feature. The reserved `"BaseInputData"` key is written by the framework and must not be set by hand. See [Input data readers](26-input-data-readers.md).
+
 ## Full Documentation
 
 See [Options API](https://mloda-ai.github.io/mloda/in_depth/options/) for detailed patterns.
