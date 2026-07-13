@@ -50,6 +50,37 @@ global_filter.add_filter("status", FilterType.EQUAL, {"value": "active"})
 
 ---
 
+## Known Limitation: Filtering a Column the FeatureGroup Itself Outputs
+
+> **Warning (mloda 0.10.0):** Do not attach a `GlobalFilter` to a column that the producing FeatureGroup itself outputs. `GlobalFilter.unify_options()` copies every option of the requested feature, **context keys included**, into the filter feature's `group`. Since `Options` compares on `group` only, the filter feature no longer matches the requested one: the engine gives it a fresh UUID and schedules it as a separate calculable node. That fails in one of two ways:
+>
+> - The filter node runs with everything in `options.group` and an empty `options.context`, so a FeatureGroup that reads its runtime parameters from `options.context` raises (typically a `ValueError` for the missing key).
+> - If the options are passed so the two batches merge, the filter twin displaces the requested feature and the filtered column is silently missing from the result.
+>
+> Reproduced on a root FeatureGroup, but nothing in the engine limits it to root groups. Tracked in [mloda#712](https://github.com/mloda-ai/mloda/issues/712).
+
+Until that is fixed, pass the threshold as a plain option and filter inline:
+
+```python
+class RetrievalFeature(FeatureGroup):
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        max_distance = features.get_options_key("max_distance")
+
+        hits = [h for h in search(...) if h.distance <= max_distance]
+        # Columnar, so an empty hit list still carries the schema.
+        return {
+            "retrieval__doc_id": [h.doc_id for h in hits],
+            "retrieval__distance": [h.distance for h in hits],
+        }
+```
+
+Filtering is the most likely way to produce a legitimately empty result, so a FeatureGroup that filters inline must be able to express "zero rows with schema". See [Empty Results](12-calculate-feature.md#empty-results).
+
+Filtering a FeatureGroup's **input** columns, the normal case shown above, is unaffected.
+
+---
+
 ## Time Filters
 
 ```python
@@ -188,5 +219,5 @@ All features from the same FeatureGroup must have the same filters. Split into s
 ## Related
 
 - [Filter Engine](../compute-framework-patterns/07-filter-engine.md) - Implementing filter operations in a compute framework
-- [calculate_feature](12-calculate-feature.md) - Accessing `features.filters` inside the calculation method
+- [calculate_feature](12-calculate-feature.md) - Accessing `features.filters` inside the calculation method, and the [empty-result contract](12-calculate-feature.md#empty-results) a filter can trigger
 - [Masking](25-masking.md) - Conditional aggregation that nulls out values instead of removing rows
