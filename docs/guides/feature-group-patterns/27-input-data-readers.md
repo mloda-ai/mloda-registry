@@ -23,15 +23,15 @@ The reader class itself also works as the key. It is normalized to the class-nam
 Feature("pm10_value", options={UbaAirReader: "https://api.example.org/airdata/v4"})
 ```
 
-Because class names are unique per class, sibling readers never collide: each feature's option key routes to exactly one reader. A key that names no known reader simply matches nothing.
+As long as sibling readers have distinct class names, they cannot collide: each feature's option key routes to exactly one reader. Two readers sharing a `__name__` across modules are unsupported. A key that names no known reader simply matches nothing.
 
 ### The reserved "BaseInputData" key
 
-When a reader matches, the `(ReaderClass, data_access)` pair is stored under the reserved `"BaseInputData"` options key and consumed by `init_reader` at load time. Do not set this key yourself; setting it twice with different values raises `ValueError`.
+When a reader matches, the `(ReaderClass, data_access)` pair is stored under the reserved `"BaseInputData"` options key and consumed by `init_reader` at load time. The class-name option key is the normal way to select a reader; advanced callers and tests may preseed the reserved key directly. Setting it twice with different values raises `ValueError`.
 
 ## Sibling Readers Under One Root FeatureGroup
 
-Each reader decides for itself whether a given data access belongs to it by overriding `match_subclass_data_access`. Return the data access to claim it, `None` to decline:
+The option key selects the reader; the selected reader then confirms the data access via `match_subclass_data_access`. Return the data access to claim it, `None` to decline:
 
 ```python
 from typing import Any
@@ -68,7 +68,7 @@ class UbaAirReader(ReadFile):
         ...  # HTTP GET, normalize JSON, return the table
 ```
 
-Both are siblings under the stock `ReadFileFeature` root group; no extra FeatureGroup is needed. The user routes per feature:
+Both are siblings under the stock `ReadFileFeature` root group; no extra FeatureGroup is needed. The user routes per feature (snippets on this page build on each other):
 
 ```python
 features = [
@@ -106,7 +106,7 @@ End to end, run the feature through `mloda.run_all` with `PluginCollector.enable
 
 | File | Description |
 |------|-------------|
-| [base_input_data.py](https://github.com/mloda-ai/mloda/blob/main/mloda/core/abstract_plugins/components/input_data/base_input_data.py) | `feature_scope_data_access`, key normalization, `init_reader` |
+| [base_input_data.py](https://github.com/mloda-ai/mloda/blob/main/mloda/core/abstract_plugins/components/input_data/base_input_data.py) | `feature_scope_data_access`, class-or-string key helper, `init_reader` |
 | [read_file.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/input_data/read_file.py) | `ReadFile` base, `match_subclass_data_access` seam |
 | [test_sibling_reader_selection.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/feature_group/input_data/test_sibling_reader_selection.py) | The pinned selection contract |
 

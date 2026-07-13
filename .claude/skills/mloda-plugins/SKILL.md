@@ -100,7 +100,7 @@ Q22: Need to build the execution plan once at startup and reuse it for repeated 
     YES → See 24-realtime
 
 Q23: Need both plan reuse and incremental per-group delivery?
-    YES → Use session.stream_run() — see 23-streaming and 24-realtime
+    YES → Use session.stream_run(), see 23-streaming and 24-realtime
 
 Q24: Need conditional aggregation that nulls out non-matching values instead of removing rows?
     YES → See 25-masking
