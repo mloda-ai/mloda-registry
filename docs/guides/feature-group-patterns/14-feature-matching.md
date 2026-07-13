@@ -78,7 +78,8 @@ class BaseMyTransform(FeatureChainParserMixin, FeatureGroup):
 
     PROPERTY_MAPPING = {
         MY_METHOD: {
-            **MY_METHODS,
+            "explanation": "Transform algorithm",
+            DefaultOptionKeys.allowed_values: MY_METHODS,
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
         },
@@ -91,7 +92,7 @@ class BaseMyTransform(FeatureChainParserMixin, FeatureGroup):
     # No need to override match_feature_group_criteria() - mixin handles it
 ```
 
-**Recommended shape:** keep the discriminator's value space in its own `allowed_values` key instead of spreading it among the flags. See [Options: PROPERTY_MAPPING value space](11-options.md#property_mapping-value-space).
+The discriminator's value space belongs in its own `allowed_values` key; a spec dict rejects any key outside the schema. See [Options: PROPERTY_MAPPING value space](11-options.md#property_mapping-value-space). The same spec via the builder:
 
 ```python
 from mloda.provider import DefaultOptionKeys, property_spec
@@ -163,7 +164,8 @@ def _needs_order_by(options: Options) -> bool:
 
 PROPERTY_MAPPING = {
     "aggregation_type": {
-        "sum": "Sum", "avg": "Average", "first": "First", "last": "Last",
+        "explanation": "Aggregation to apply",
+        DefaultOptionKeys.allowed_values: {"sum": "Sum", "avg": "Average", "first": "First", "last": "Last"},
         DefaultOptionKeys.context: True,
         DefaultOptionKeys.strict_validation: True,
     },
@@ -226,14 +228,14 @@ PROPERTY_MAPPING = {
 
 ---
 
-## Type Validation with `type_validator`
+## Type Validation with `match_guard`
 
-Use `DefaultOptionKeys.type_validator` to validate the raw option value with a callable. Unlike `validation_function`, this does not require `strict_validation` and operates on the whole option value before any unpacking.
+Use `DefaultOptionKeys.match_guard` to validate the raw option value with a callable. Unlike `element_validator`, this does not require `strict_validation` and operates on the whole option value before any unpacking.
 
-After basic matching and `required_when` checks succeed, `match_feature_group_criteria` calls each `type_validator`. If the validator returns a falsy value, matching returns `False`. If the validator raises `TypeError`, `ValueError`, or `AttributeError`, the value is treated as invalid.
+After basic matching and `required_when` checks succeed, `match_feature_group_criteria` calls each `match_guard`. If the guard returns a falsy value, matching returns `False`. If the guard raises `TypeError`, `ValueError`, or `AttributeError`, the value is treated as invalid.
 
 ```python
-from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+from mloda.provider import DefaultOptionKeys
 
 def _is_list_of_strings(value):
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
@@ -243,20 +245,22 @@ PROPERTY_MAPPING = {
         "explanation": "Columns to partition by",
         DefaultOptionKeys.context: True,
         DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.type_validator: _is_list_of_strings,
+        DefaultOptionKeys.match_guard: _is_list_of_strings,
     },
     "window_size": {
         "explanation": "Number of rows in the rolling window",
         DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: True,
-        DefaultOptionKeys.type_validator: lambda x: isinstance(x, int) and x > 0,
+        DefaultOptionKeys.strict_validation: False,
+        DefaultOptionKeys.match_guard: lambda x: isinstance(x, int) and x > 0,
     },
 }
 ```
 
-### Key Differences from `validation_function`
+A `match_guard` is also the way to reject a composite value for a key that otherwise accepts a single token: the element-wise check unpacks a list and validates each element, so a list of two valid operations would pass without a guard such as `lambda v: isinstance(v, str)`.
 
-| Aspect | `type_validator` | `validation_function` |
+### Key Differences from `element_validator`
+
+| Aspect | `match_guard` | `element_validator` |
 |--------|-----------------|----------------------|
 | Requires `strict_validation` | No | Yes |
 | Validates | Raw option value (whole) | Individual parsed elements |
@@ -264,31 +268,31 @@ PROPERTY_MAPPING = {
 | Runs during | `match_feature_group_criteria` (after basic match) | Base parser property validation |
 | Use case | Composite types (lists, dicts, ranges) | Membership-style checks on single values |
 
-When both are present on the same entry, `validation_function` runs first (during base parsing), then `type_validator` runs second (during mixin matching).
+When both are present on the same entry, `element_validator` runs first (during base parsing), then `match_guard` runs second (during mixin matching).
 
 ---
 
-## Custom Validation with `validation_function`
+## Custom Validation with `element_validator`
 
-Use `DefaultOptionKeys.validation_function` to validate individual option values with a callable instead of checking membership against a fixed set of allowed values. This requires `strict_validation: True`.
+Use `DefaultOptionKeys.element_validator` to validate individual option values with a callable instead of checking membership against a fixed set of allowed values. This requires `strict_validation: True`.
 
-When the validation function is present, it is called instead of checking whether the value exists in the mapping dict. The function receives each individual parsed value and must return `True` if valid. Returning `False` raises a `ValueError`, which the mixin catches and converts to a `False` match result.
+When the element validator is present, it is called instead of checking whether the value exists in `allowed_values`. The function receives each individual parsed value and must return `True` if valid. Returning `False` raises a `ValueError`, which the mixin catches and converts to a `False` match result.
 
 ```python
-from mloda_plugins.feature_group.experimental.default_options_key import DefaultOptionKeys
+from mloda.provider import DefaultOptionKeys
 
 PROPERTY_MAPPING = {
     "window_size": {
         "explanation": "Number of rows in the rolling window",
         DefaultOptionKeys.context: True,
         DefaultOptionKeys.strict_validation: True,
-        DefaultOptionKeys.validation_function: lambda x: isinstance(x, int) and x > 0,
+        DefaultOptionKeys.element_validator: lambda x: isinstance(x, int) and x > 0,
     },
     "threshold": {
         "explanation": "Cutoff value for filtering",
         DefaultOptionKeys.context: True,
         DefaultOptionKeys.strict_validation: True,
-        DefaultOptionKeys.validation_function: lambda x: isinstance(x, (int, float)) and 0.0 <= x <= 1.0,
+        DefaultOptionKeys.element_validator: lambda x: isinstance(x, (int, float)) and 0.0 <= x <= 1.0,
     },
 }
 ```
@@ -298,8 +302,8 @@ PROPERTY_MAPPING = {
 | Approach | Use When | Example |
 |----------|----------|---------|
 | Enumerated values | Fixed set of valid string values | `"sum"`, `"avg"`, `"min"` |
-| `validation_function` | Open-ended single values, `strict_validation` is `True` | positive integers, float ranges |
-| `type_validator` | Composite types, no `strict_validation` needed | list of strings, nested dicts |
+| `element_validator` | Open-ended single values, `strict_validation` is `True` | positive integers, float ranges |
+| `match_guard` | Composite types, no `strict_validation` needed | list of strings, nested dicts |
 | `required_when` | Option is conditionally required | `order_by` only when aggregation is `first` |
 
 ---

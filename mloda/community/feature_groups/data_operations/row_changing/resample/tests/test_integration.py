@@ -122,7 +122,7 @@ class TestResampleMatchFeatureGroupCriteria:
         assert ResampleFeatureGroup.match_feature_group_criteria("my_resampled", opts_bad, None) is False
 
     def test_config_valid_resample_op_not_rejected_by_validator(self) -> None:
-        # Exercise the actual type_validator wired into PROPERTY_MAPPING: a valid token
+        # Exercise the actual match_guard wired into PROPERTY_MAPPING: a valid token
         # passes, a garbage token and a non-string are rejected.
         from mloda.community.feature_groups.data_operations.row_changing.resample.base import _is_valid_resample_op
 

@@ -90,3 +90,18 @@ class NullPolicy(str, Enum):
 
     Applies to: offset.
     """
+
+
+# ---------------------------------------------------------------------------
+# Shared PROPERTY_MAPPING guards
+# ---------------------------------------------------------------------------
+
+
+def is_op_token(value: object) -> bool:
+    """True only for a single string operation token.
+
+    Used as a ``match_guard``: it sees the raw option value, so it rejects the
+    composite forms (list, tuple, set) that the element-wise
+    ``element_validator`` / membership check would accept element by element.
+    """
+    return isinstance(value, str)

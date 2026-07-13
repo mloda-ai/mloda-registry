@@ -32,7 +32,7 @@ class SqliteAggregation(AggregationFeatureGroup):
         return {SqliteFramework}
 
     @classmethod
-    def supported_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
+    def supported_op_subtypes(cls, secondary: str | None = None) -> frozenset[str] | None:
         return frozenset(_SQLITE_AGG_FUNCS)
 
     @classmethod

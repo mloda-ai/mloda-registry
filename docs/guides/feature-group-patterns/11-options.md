@@ -60,25 +60,9 @@ Use propagation sparingly—most context should remain local. Common use cases i
 
 ## PROPERTY_MAPPING value space
 
-A `PROPERTY_MAPPING` entry declares a parameter's accepted values plus metadata flags. Historically the values were flattened in among the flags:
+A `PROPERTY_MAPPING` entry declares a parameter's accepted values plus metadata flags. Since mloda 0.10.0 a spec dict may carry only the schema keys (`PROPERTY_SPEC_KEYS`: `explanation`, `allowed_values`, `default`, `context`, `group`, `strict_validation`, `element_validator`, `required_when`, `match_guard`); any other key raises `ValueError` at class definition. The old flattened form, where accepted values sat among the flags as extra dict keys, is gone.
 
-```python
-from mloda.provider import DefaultOptionKeys
-
-# Flattened form (still fully supported)
-PROPERTY_MAPPING = {
-    "operation_type": {
-        "add": "Addition",
-        "sub": "Subtraction",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: True,
-    },
-}
-```
-
-The parser recovers the value space by subtracting the reserved metadata keys (`RESERVED_PROPERTY_KEYS`: `explanation`, `allowed_values`, `default`, `context`, `group`, `strict_validation`, `validation_function`, `required_when`, `type_validator`). A value that collides with one of these names therefore cannot be expressed in the flattened form (it is read as metadata); use the explicit `allowed_values` field below for such a value.
-
-### Recommended: explicit `allowed_values`
+### Accepted values: `allowed_values`
 
 Declare the value space under `DefaultOptionKeys.allowed_values` so it stays separate from the flags and a doc-only key can never widen the accepted set:
 
@@ -87,6 +71,7 @@ from mloda.provider import DefaultOptionKeys
 
 PROPERTY_MAPPING = {
     "operation_type": {
+        "explanation": "Arithmetic operation",
         DefaultOptionKeys.allowed_values: {"add": "Addition", "sub": "Subtraction"},
         DefaultOptionKeys.context: True,
         DefaultOptionKeys.strict_validation: True,
@@ -94,11 +79,11 @@ PROPERTY_MAPPING = {
 }
 ```
 
-When `allowed_values` is present the parser uses it directly and ignores the other keys for value-space purposes. It may be a mapping of value to one-line docstring, or a re-iterable collection (list, tuple, set). Do not pass a one-shot iterator (e.g. a generator) in a hand-written spec: the parser iterates the value space more than once, so an exhausted iterator behaves like an empty set. The value space here is taken verbatim, so it can hold any value (including one whose name matches a reserved key like `explanation`), unlike the flattened form.
+`allowed_values` may be a mapping of value to one-line docstring, or a re-iterable collection (list, tuple, set). Do not pass a one-shot iterator (e.g. a generator) in a hand-written spec: the parser iterates the value space more than once, so an exhausted iterator behaves like an empty set. A bare `str` is rejected, since membership would silently become a substring test.
 
 ### Builder: `property_spec`
 
-`property_spec` builds the same dict and validates its invariants at construction (strict needs a non-empty `allowed_values` or a `validation_function`; `allowed_values` without strict is rejected as a no-op; a strict non-`None` `default` must be in the accepted set). It also materializes iterables, so you never hit the one-shot caveat. The contract stays a plain `dict[str, Any]`, so this is optional sugar:
+`property_spec` builds the same dict and validates its invariants at construction (strict needs a non-empty `allowed_values` or an `element_validator`; an `element_validator` without strict is rejected as a no-op; a strict non-`None` `default` must be in the accepted set). It also materializes iterables, so you never hit the one-shot caveat. The contract stays a plain `dict[str, Any]`, so this is optional sugar. Note that it drops `default=None`, so a spec that relies on a present-but-`None` `default` to stay optional must be written as a plain dict:
 
 ```python
 from mloda.provider import property_spec
@@ -113,18 +98,18 @@ PROPERTY_MAPPING = {
 }
 ```
 
-`property_spec` also accepts `context`, `validation_function`, `required_when`, and `type_validator`, matching the flattened keys of the same name.
+`property_spec` also accepts `context`, `element_validator`, `required_when`, and `match_guard`, matching the spec keys of the same name.
 
 ### Strict defaults are checked at import time
 
-Since mloda 0.9.0, defining a `FeatureGroup` whose `PROPERTY_MAPPING` declares a `strict_validation: True` default outside the accepted set (or one that fails the key's `validation_function`) raises `ValueError` at class definition, naming the class, key, default, and accepted values. Previously such a spec imported silently and only misbehaved at runtime. A `default` of `None` is exempt (the conventional "unset" sentinel), and the check is a no-op under `strict_validation: False`.
+Since mloda 0.9.0, defining a `FeatureGroup` whose `PROPERTY_MAPPING` declares a `strict_validation: True` default outside the accepted set (or one that fails the key's `element_validator`) raises `ValueError` at class definition, naming the class, key, default, and accepted values. Previously such a spec imported silently and only misbehaved at runtime. A `default` of `None` is exempt (the conventional "unset" sentinel), and the check is a no-op under `strict_validation: False`.
 
 ## Validation and Conditional Requirements
 
 When using `PROPERTY_MAPPING` with `FeatureChainParserMixin`, you can declare validation rules and conditional requirements directly on option entries:
 
-- **`validation_function`**: Validate individual option values with a callable (requires `strict_validation: True`).
-- **`type_validator`**: Validate raw option values with a callable (no `strict_validation` needed). Useful for composite types like lists or dicts.
+- **`element_validator`**: Validate individual parsed option values with a callable (requires `strict_validation: True`).
+- **`match_guard`**: Validate the raw option value with a callable (no `strict_validation` needed). Useful for composite types like lists or dicts.
 - **`required_when`**: Make an option conditionally required based on a predicate callable.
 
 See [Feature Matching: Conditional Requirements](14-feature-matching.md#conditional-requirements-with-required_when) for full details, examples, and a comparison table.

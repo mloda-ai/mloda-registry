@@ -12,6 +12,7 @@ from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.community.feature_groups.data_operations.base import is_op_token
 
 DATETIME_OPS = {
     "year": "Extract year from datetime",
@@ -91,9 +92,11 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     PROPERTY_MAPPING = {
         DATETIME_OP: {
-            **DATETIME_OPS,
+            "explanation": "Datetime component extracted from the source column",
+            DefaultOptionKeys.allowed_values: DATETIME_OPS,
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
+            DefaultOptionKeys.match_guard: is_op_token,
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Source datetime column",

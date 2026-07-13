@@ -10,6 +10,7 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.community.feature_groups.data_operations.base import is_op_token
 
 STRING_OPS = {
     "upper": "Convert string to uppercase",
@@ -67,9 +68,11 @@ class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     PROPERTY_MAPPING = {
         STRING_OP: {
-            **STRING_OPS,
+            "explanation": "String operation applied to the source column",
+            DefaultOptionKeys.allowed_values: STRING_OPS,
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
+            DefaultOptionKeys.match_guard: is_op_token,
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Source string column",

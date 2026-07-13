@@ -89,13 +89,13 @@ class CapabilityHookTestMixin:
         backend = self.implementation_class()  # type: ignore[attr-defined]
         if not unsupported:
             # Guard the regression: a restriction with no probes would silently vanish.
-            # supported_subtypes() probes an axis-keyed backend (_CAPABILITY_HAS_AXIS) on
+            # supported_op_subtypes() probes an axis-keyed backend (_CAPABILITY_HAS_AXIS) on
             # its default axis, so a non-None return means the backend declares a
             # restriction on that axis and therefore must declare capability_unsupported
             # probes. None means unrestricted (nothing to probe).
-            assert backend.supported_subtypes() is None, (
+            assert backend.supported_op_subtypes() is None, (
                 f"{backend.__name__} declares a subtype restriction on its default axis via "
-                "supported_subtypes() but ships no capability_unsupported probes; add them"
+                "supported_op_subtypes() but ships no capability_unsupported probes; add them"
             )
             pytest.skip("backend restricts no subtypes")
 

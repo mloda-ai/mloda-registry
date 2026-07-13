@@ -27,6 +27,7 @@ from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
 
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
+from mloda.community.feature_groups.data_operations.base import is_op_token
 
 ARITHMETIC_OPERATIONS: dict[str, str] = {
     "add": "Element-wise addition of a constant",
@@ -47,9 +48,11 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
 
     PROPERTY_MAPPING = {
         ArithmeticFeatureGroupBase.ARITHMETIC_OP: {
-            **ARITHMETIC_OPERATIONS,
+            "explanation": "Arithmetic operation applied between the source column and the constant",
+            DefaultOptionKeys.allowed_values: ARITHMETIC_OPERATIONS,
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
+            DefaultOptionKeys.match_guard: is_op_token,
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Single source feature column for the arithmetic operation",

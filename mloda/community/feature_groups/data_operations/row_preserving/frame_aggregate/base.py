@@ -172,16 +172,20 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
 
     PROPERTY_MAPPING = {
         AGGREGATION_TYPE: {
-            **{k: k for k in _AGGREGATION_TYPES},
+            "explanation": "Aggregation applied over the frame",
+            DefaultOptionKeys.allowed_values: {k: k for k in _AGGREGATION_TYPES},
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
             DefaultOptionKeys.default: None,
         },
         FRAME_TYPE: {
-            "rolling": "Fixed-size row-count window",
-            "time": "Time-interval window",
-            "cumulative": "Running aggregate from start",
-            "expanding": "Same as cumulative",
+            "explanation": "Frame semantics of the window",
+            DefaultOptionKeys.allowed_values: {
+                "rolling": "Fixed-size row-count window",
+                "time": "Time-interval window",
+                "cumulative": "Running aggregate from start",
+                "expanding": "Same as cumulative",
+            },
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
             DefaultOptionKeys.default: None,

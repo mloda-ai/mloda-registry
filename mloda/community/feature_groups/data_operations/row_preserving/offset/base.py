@@ -11,6 +11,8 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.base import is_op_token
+
 
 class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for offset operations that preserve row count.
@@ -96,10 +98,11 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
     PROPERTY_MAPPING = {
         OFFSET_TYPE: {
-            **OFFSET_TYPES,
+            "explanation": "Offset type applied within each partition",
+            DefaultOptionKeys.allowed_values: OFFSET_TYPES,
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.type_validator: lambda v: isinstance(v, str),
+            DefaultOptionKeys.match_guard: is_op_token,
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Source feature for offset operation",
