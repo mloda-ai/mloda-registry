@@ -14,6 +14,7 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.base import is_op_token
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
@@ -176,6 +177,7 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
             DefaultOptionKeys.allowed_values: {k: k for k in _AGGREGATION_TYPES},
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
+            DefaultOptionKeys.match_guard: is_op_token,
             DefaultOptionKeys.default: None,
         },
         FRAME_TYPE: {
@@ -188,6 +190,7 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
             },
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
+            DefaultOptionKeys.match_guard: is_op_token,
             DefaultOptionKeys.default: None,
         },
         FRAME_SIZE: {

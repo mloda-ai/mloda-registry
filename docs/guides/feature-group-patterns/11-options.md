@@ -79,7 +79,7 @@ PROPERTY_MAPPING = {
 }
 ```
 
-`allowed_values` may be a mapping of value to one-line docstring, or a re-iterable collection (list, tuple, set). Do not pass a one-shot iterator (e.g. a generator) in a hand-written spec: the parser iterates the value space more than once, so an exhausted iterator behaves like an empty set. A bare `str` is rejected, since membership would silently become a substring test.
+`allowed_values` may be a mapping of value to one-line docstring, or a re-iterable collection (list, tuple, set). Do not pass a one-shot iterator (e.g. a generator) in a hand-written spec: it is not a `Collection`, so `FeatureChainParser._reject_malformed_spec_values` raises `ValueError` at class definition. A bare `str` is rejected too, since membership would silently become a substring test.
 
 ### Builder: `property_spec`
 
