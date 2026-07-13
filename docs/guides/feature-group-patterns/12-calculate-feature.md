@@ -98,7 +98,7 @@ Zero rows is a valid result. Zero columns is not: a FeatureGroup must always ret
 from mloda.provider import EmptyResultError
 ```
 
-```
+```text
 EmptyResultError: Result carries no schema (no columns): <FG>. A feature must
 return a schema; zero rows is a valid result, zero columns is not.
 ```
