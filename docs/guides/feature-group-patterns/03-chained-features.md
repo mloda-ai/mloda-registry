@@ -103,10 +103,10 @@ PROPERTY_MAPPING supports additional capabilities that reduce boilerplate in `ma
 
 - **`allowed_values`**: Declare the accepted value space in its own key; a spec dict rejects any key outside the schema. Build it with `property_spec` for construction-time validation. See [Options: PROPERTY_MAPPING value space](11-options.md#property_mapping-value-space).
 - **`required_when`**: Declare options that are only required under certain conditions via a predicate callable.
-- **`match_guard`**: Validate raw option values with a callable (e.g., check that a value is a list of strings). Does not require `strict_validation`.
-- **`element_validator`**: Validate individual parsed values when `strict_validation` is enabled (e.g., check that a value is a positive integer).
+- **`match_guard`**: Check the raw option value with a callable (e.g., that it is a list of strings). Does not require `strict_validation`; a falsy return is a non-match, not an error.
+- **`element_validator`**: Validate each parsed element when `strict_validation` is enabled (e.g., that it is a positive integer). A falsy return raises `ValueError`.
 
-See [Feature Matching: Conditional Requirements](14-feature-matching.md#conditional-requirements-with-required_when) for full details, examples, and a comparison table.
+See [Feature Matching: Conditional Requirements](14-feature-matching.md#conditional-requirements-with-required_when) for full details, examples, and a comparison table, and [PROPERTY_MAPPING Configuration](https://mloda-ai.github.io/mloda/in_depth/property-mapping/) for the precedence and lifecycle rules.
 
 ## Test
 

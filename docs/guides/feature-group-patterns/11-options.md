@@ -108,9 +108,11 @@ Since mloda 0.9.0, defining a `FeatureGroup` whose `PROPERTY_MAPPING` declares a
 
 When using `PROPERTY_MAPPING` with `FeatureChainParserMixin`, you can declare validation rules and conditional requirements directly on option entries:
 
-- **`element_validator`**: Validate individual parsed option values with a callable (requires `strict_validation: True`).
-- **`match_guard`**: Validate the raw option value with a callable (no `strict_validation` needed). Useful for composite types like lists or dicts.
+- **`element_validator`**: Validate each parsed element with a callable (requires `strict_validation: True`). A falsy return raises `ValueError`, surfaced to the end user as a rejection reason.
+- **`match_guard`**: Check the raw option value with a callable (no `strict_validation` needed). Useful for composite types like lists or dicts. A falsy return is a plain non-match, so another feature group can still take the feature.
 - **`required_when`**: Make an option conditionally required based on a predicate callable.
+
+The spec declares the arity: `list`, `tuple`, `set` and `frozenset` unpack element-wise and identically, a `str` stays a scalar, and a `dict` is one composite value.
 
 See [Feature Matching: Conditional Requirements](14-feature-matching.md#conditional-requirements-with-required_when) for full details, examples, and a comparison table.
 
