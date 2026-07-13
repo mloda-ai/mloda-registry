@@ -7,6 +7,9 @@ from typing import Any
 
 import pytest
 
+from mloda.core.abstract_plugins.components.input_data.base_input_data import BaseInputData
+from mloda.core.abstract_plugins.components.input_data.creator.data_creator import DataCreator
+from mloda.provider import ComputeFramework, FeatureGroup, FeatureSet
 from mloda.steward import Extender, ExtenderHook
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.user import PluginCollector, mloda
@@ -25,15 +28,46 @@ class FailingCommunityExampleExtender(CommunityExampleExtender):
         raise RuntimeError("extender boom")
 
 
-def _run_value_int(extender: Extender) -> list[Any]:
-    """Run the minimal ``value_int`` feature through run_all with one extender."""
+class CountingCommunityExampleExtender(CommunityExampleExtender):
+    """Healthy pass-through extender that records how often it was invoked."""
+
+    def __init__(self, raise_on_error: bool = True) -> None:
+        super().__init__(raise_on_error=raise_on_error)
+        self.calls = 0
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        self.calls += 1
+        return super().__call__(func, *args, **kwargs)
+
+
+class FailingCalculateFeatureGroup(FeatureGroup):
+    """Root feature group whose calculate_feature always raises, counting its invocations."""
+
+    calls = 0
+
+    @classmethod
+    def input_data(cls) -> BaseInputData | None:
+        return DataCreator({"boom_feature"})
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
+        return {PyArrowTable}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        cls.calls += 1
+        raise RuntimeError("inner boom")
+
+
+def _run_value_int(*extenders: Extender) -> list[Any]:
+    """Run the minimal ``value_int`` feature through run_all with the given extenders."""
     plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator})
 
     results = mloda.run_all(
         ["value_int"],
         compute_frameworks={PyArrowTable},
         plugin_collector=plugin_collector,
-        function_extender={extender},
+        function_extender=set(extenders),
     )
 
     for table in results:
@@ -42,6 +76,18 @@ def _run_value_int(extender: Extender) -> list[Any]:
             return values
 
     raise AssertionError("No result table with value_int found")
+
+
+def _run_boom_feature(*extenders: Extender) -> Any:
+    """Run the always-failing ``boom_feature`` through run_all with the given extenders."""
+    plugin_collector = PluginCollector.enabled_feature_groups({FailingCalculateFeatureGroup})
+
+    return mloda.run_all(
+        ["boom_feature"],
+        compute_frameworks={PyArrowTable},
+        plugin_collector=plugin_collector,
+        function_extender=set(extenders),
+    )
 
 
 class TestCommunityExampleExtenderImport:
@@ -138,3 +184,29 @@ class TestCommunityExampleExtenderRunAll:
 
         warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
         assert any("extender boom" in message for message in warnings), warnings
+
+    def test_warning_only_failure_does_not_stop_other_extender_in_chain(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Chained extenders: a warning-only failure is contained, the healthy one still runs."""
+        healthy = CountingCommunityExampleExtender()
+
+        with caplog.at_level(logging.WARNING):
+            values = _run_value_int(FailingCommunityExampleExtender(raise_on_error=False), healthy)
+
+        assert values == _VALUE_INT
+        assert healthy.calls > 0
+
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("extender boom" in message for message in warnings), warnings
+
+    def test_wrapped_function_failure_propagates_and_runs_once(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A failure of the wrapped function propagates even for a warning-only extender, without a re-run."""
+        FailingCalculateFeatureGroup.calls = 0
+
+        with caplog.at_level(logging.WARNING):
+            with pytest.raises(Exception, match="inner boom"):
+                _run_boom_feature(CommunityExampleExtender(raise_on_error=False))
+
+        assert FailingCalculateFeatureGroup.calls == 1
+
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert not any("inner boom" in message for message in warnings), warnings
