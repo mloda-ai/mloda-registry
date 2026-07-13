@@ -105,6 +105,6 @@ def transform_other_fw_to_fw(cls, data: Any, framework_connection_object: Any | 
 
 | File | Description |
 |------|-------------|
-| [pandas/pandaspyarrowtransformer.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/compute_framework/base_implementations/pandas/pandaspyarrowtransformer.py) | Pandas ↔ PyArrow |
+| [pandas/pandas_pyarrow_transformer.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/compute_framework/base_implementations/pandas/pandas_pyarrow_transformer.py) | Pandas ↔ PyArrow |
 | [polars/polars_pyarrow_transformer.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/compute_framework/base_implementations/polars/polars_pyarrow_transformer.py) | Polars ↔ PyArrow |
 | [duckdb/duckdb_pyarrow_transformer.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/compute_framework/base_implementations/duckdb/duckdb_pyarrow_transformer.py) | DuckDB ↔ PyArrow |

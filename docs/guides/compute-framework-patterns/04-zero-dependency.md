@@ -6,7 +6,7 @@ Zero dependency frameworks use pure Python with no external libraries.
 **When**: Minimal environments, serverless, testing without deps.
 **Why**: Always available; no installation required.
 **Where**: Serverless functions, embedded systems, educational use.
-**How**: Same as Category 1, but skip `is_available()` and use `List[Dict]`.
+**How**: Same as Category 1, but skip `is_available()` and use a columnar `dict[str, list[Any]]`.
 
 ## Key Difference from Category 1
 
@@ -14,15 +14,17 @@ Zero dependency frameworks use pure Python with no external libraries.
 |--------|-------------------|----------------------|
 | Dependencies | External library | **None** |
 | `is_available()` | Check import | Not needed (always True) |
-| Data format | Library-specific | `List[Dict[str, Any]]` |
-| Column access | `data.columns` | Iterate rows for keys |
+| Data format | Library-specific | `dict[str, list[Any]]` (columnar) |
+| Column access | `data.columns` | `data.keys()` |
 
 ## Data Format
 
 ```python
-# Row-based: List[Dict[str, Any]]
-[{"col1": 1, "col2": "a"}, {"col1": 2, "col2": "b"}]
+# Columnar: dict[str, list[Any]] - one key per column, all lists share a length
+{"col1": [1, 2], "col2": ["a", "b"]}
 ```
+
+`{"a": []}` is a valid zero-row frame (one known column). `{}` is the only schema-less value.
 
 ## What's Different
 
@@ -32,25 +34,24 @@ class MyZeroDependencyFramework(ComputeFramework):
 
     @classmethod
     def expected_data_framework(cls) -> Any:
-        return list  # Native Python list
+        return dict  # Native Python dict, columnar
 
-    def set_column_names(self) -> None:
-        # Must iterate rows to get all keys
-        all_columns: set[str] = set()
-        for row in self.data:
-            if isinstance(row, dict):
-                all_columns.update(row.keys())
-        self.column_names = all_columns
-
-    def transform(self, data: Any, feature_names: set[str]) -> list[dict[str, Any]]:
+    def _extract_column_names(self, data: Any) -> set[str]:
         if isinstance(data, dict):
-            # Columnar dict to row-based list
-            if all(isinstance(v, list) for v in data.values()):
-                length = len(next(iter(data.values())))
-                return [{k: data[k][i] for k in data.keys()} for i in range(length)]
-            return [data]  # Single row
-        if isinstance(data, list):
+            return set(data.keys())
+        # Row-wise list[dict] is still an accepted pre-transform shape.
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            return set(data[0].keys())
+        return set()
+
+    def transform(self, data: Any, feature_names: set[str]) -> dict[str, list[Any]]:
+        if isinstance(data, dict):
             return data
+        if isinstance(data, list):
+            # Row-based list to columnar dict
+            if not data:
+                return {}
+            return {k: [row[k] for row in data] for k in data[0].keys()}
         raise ValueError(f"Data type {type(data)} not supported")
 ```
 

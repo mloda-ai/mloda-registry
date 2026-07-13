@@ -39,7 +39,7 @@ class DiffFeature(FeatureGroup):
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        feature_name = features.name_of_one_feature.name
+        feature_name = str(features.name_of_one_feature)
         base = feature_name.replace("__diff", "")
         a, b = base.split("&")
         return data[a] - data[b]

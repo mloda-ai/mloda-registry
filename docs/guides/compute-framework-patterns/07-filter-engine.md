@@ -127,7 +127,7 @@ def test_filter_engine():
     filter_feature = SingleFilter(
         filter_feature=Feature.int32_of("value"),
         filter_type="min",
-        parameter=FilterParameter(value=5),
+        parameter={"value": 5},
     )
     result = MyFilterEngine.do_min_filter(data, filter_feature)
     assert len(result) == 2  # value >= 5

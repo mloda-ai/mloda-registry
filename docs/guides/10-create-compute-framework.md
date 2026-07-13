@@ -39,7 +39,7 @@ Q9: Need to understand filter operations?
 
 Q10: Should connections be auto-created or user-provided?
     AUTO  → Add fallback in set_framework_connection_object()
-    USER  → Require via data_connections parameter
+    USER  → Require via data_access_collection parameter
 
 Q11: Ready to test your implementation?
     YES → See 09-testing-guide

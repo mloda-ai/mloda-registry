@@ -25,19 +25,17 @@ This means the version changes automatically when:
 ```python
 # Get version of any FeatureGroup
 version = MyFeatureGroup.version()
-# e.g., "0.2.6|my_package.features|a1b2c3d4..."
+# e.g., "0.2.6-my_package.features-a1b2c3d4..."
 ```
 
 ## Custom Versioning
 
-Override by subclassing `BaseFeatureGroupVersion`:
+`FeatureGroup.version()` calls `BaseFeatureGroupVersion.version(cls)` directly, so subclassing `BaseFeatureGroupVersion` alone changes nothing. Override `version()` on your FeatureGroup instead:
 
 ```python
-from mloda.provider import BaseFeatureGroupVersion
-
-class MyVersioning(BaseFeatureGroupVersion):
+class MyFeatureGroup(FeatureGroup):
     @classmethod
-    def version(cls, feature_group_class) -> str:
+    def version(cls) -> str:
         return "1.0.0"  # Custom version logic
 ```
 

@@ -118,7 +118,7 @@ A feature declares `DataType.INT32` and the framework produces a `DOUBLE` column
 
 ```python
 result = mloda.run_all(features)                              # lenient: INT32 vs DOUBLE → OK (both numeric)
-result = mloda.run_all(features, strict_type_enforcement=True)  # strict: DOUBLE is a narrowing of INT32 → DataTypeMismatchError
+result = mloda.run_all(features, strict_type_enforcement=True)  # strict: declared INT32 widens to nothing → DataTypeMismatchError
 ```
 
 Because your hook is the only thing that reports the *actual* produced type, returning an accurate

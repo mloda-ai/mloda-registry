@@ -107,7 +107,7 @@ The Pandas backend additionally `mask`s the result column to convert `NaT` to `N
 
 Input timezone is preserved on output for every backend. The fixture used by the inherited tests is UTC, but a `pa.timestamp("us", tz="Europe/Berlin")` input flows through unchanged. Pandas' `PeriodIndex` strips tz, so `_calendar_floor` re-localises after `to_timestamp()`.
 
-For SQLite, all timestamps are stored as TEXT in ISO 8601. The cross-framework test contract requires `to_arrow_table()` to return a tz-aware `datetime` column, but SQLite-native `to_arrow_table` infers `pa.string()` for TEXT. The SQLite backend therefore wraps the result in `_TimeBucketizationSqliteResult` (a `SqliteRelation` subclass) that re-parses the listed result columns into `pa.timestamp("us", tz="UTC")` on read.
+For SQLite, all timestamps are stored as TEXT in ISO 8601. The bucketization SQL emits ISO 8601 strings directly (bucket math on the wall-clock portion, timezone suffix reattached), so the result column comes back from `to_arrow_table()` as `pa.string()`, on a plain `SqliteRelation`. There is no Python-side re-parse into `pa.timestamp` and no `SqliteRelation` subclass; see `tests/test_sqlite_result_type.py` for the contract.
 
 ---
 

@@ -22,9 +22,9 @@ Stateless lazy frameworks defer execution until results are explicitly requested
 Only these methods differ from Category 1:
 
 ```python
-def set_column_names(self) -> None:
+def _extract_column_names(self, data: Any) -> set[str]:
     # Get schema WITHOUT executing query
-    self.column_names = set(self.data.collect_schema().names())
+    return set(data.collect_schema().names())
 
 def select_data_by_column_names(self, data, selected_feature_names):
     column_names = set(data.collect_schema().names())
