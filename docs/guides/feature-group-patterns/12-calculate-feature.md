@@ -45,23 +45,47 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
 
 ## Return Contract
 
-Return the native data structure of the compute framework you run on:
+The framework's `transform()` accepts two shapes, and which one you return decides whether you **replace** the frame or **append** a column:
 
-| Framework | Return |
-|-----------|--------|
-| `PythonDictFramework` | **Columnar** `dict[str, list[Any]]`: one key per column, all value-lists the same length |
-| `PandasDataFrame` | `pd.DataFrame` |
-| `PolarsDataFrame` / `PolarsLazyDataFrame` | `pl.DataFrame` / `pl.LazyFrame` |
-| `PyArrowTable` | `pa.Table` |
-| `DuckDBFramework` / `SqliteFramework` | Relation |
-| `SparkFramework` | Spark `DataFrame` |
+| Return | Meaning |
+|--------|---------|
+| A whole frame | Initial data. Becomes the frame. This is what root features return. |
+| A single column | Added data. Appended to the existing frame under the requested name. Only valid when the FeatureSet holds exactly one feature. |
 
-`PythonDictFramework` is columnar since mloda 0.9.0:
+| Framework | Whole frame | Single column |
+|-----------|-------------|---------------|
+| `PythonDictFramework` | Columnar `dict[str, list[Any]]` | None: see below |
+| `PandasDataFrame` | `pd.DataFrame` | `pd.Series` |
+| `PolarsDataFrame` / `PolarsLazyDataFrame` | `pl.DataFrame` / `pl.LazyFrame` | `pl.Series` |
+| `PyArrowTable` | `pa.Table` | `pa.Array` / `pa.ChunkedArray` |
+| `DuckDBFramework` | `duckdb.DuckDBPyRelation` | Any iterable of values |
+| `SqliteFramework` | `SqliteRelation` | Any iterable of values |
+| `SparkFramework` | Spark `DataFrame` | Any iterable of values |
+
+Every framework above also accepts a columnar `dict[str, list]` as the whole-frame form, not just `PythonDictFramework`.
+
+### PythonDictFramework Is Columnar
+
+Since mloda 0.9.0 the native structure is columnar `dict[str, list[Any]]`: one key per column, all value-lists the same length.
 
 ```python
 @classmethod
 def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-    return {"doc_id": [1, 2], "score": [0.9, 0.4]}  # native
+    return {"doc_id": [1, 2], "score": [0.9, 0.4]}  # root: this becomes the frame
+```
+
+It has **no single-column form**. A bare `list` is read as a list of row dicts, not as one column's values. Because the returned dict is already the native type, `transform()` is skipped and the dict *becomes* the frame, so a derived feature that returns only its own column silently drops every input column:
+
+```python
+@classmethod
+def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+    # WRONG: replaces the frame. A downstream group needing "src"
+    # then fails with ValueError: Feature '...' failed with a KeyError: 'src'
+    return {"doubled": [v * 2 for v in data["src"]]}
+
+    # RIGHT: add the column, return the whole dict (the analogue of pandas data[name] = ...)
+    data["doubled"] = [v * 2 for v in data["src"]]
+    return data
 ```
 
 A row-oriented `list[dict]` is still accepted, but it is not the native shape: `transform()` pivots it with `rows_to_columnar()` on every calculation, and that pivot requires **homogeneous keys** across rows. A row missing a key raises `ValueError: Inconsistent row keys at index i`. Build the columnar dict directly, or run rows through `homogenize_rows()` first.
@@ -69,6 +93,10 @@ A row-oriented `list[dict]` is still accepted, but it is not the native shape: `
 ## Empty Results
 
 Zero rows is a valid result. Zero columns is not: a FeatureGroup must always return its schema, so a result with no columns raises after calculation.
+
+```python
+from mloda.provider import EmptyResultError
+```
 
 ```
 EmptyResultError: Result carries no schema (no columns): <FG>. A feature must
@@ -84,7 +112,9 @@ if not hits:
 
 A row-oriented `list[dict]` return cannot express "zero rows with schema" at all, since an empty list carries no keys. Any FeatureGroup with a reachable empty path (empty source directory, query with no hits, a [filter](15-filter-concepts.md) that empties the result) must therefore be columnar.
 
-The contract is only enforced through `mloda.run_all()`, so a unit test calling `calculate_feature()` directly will not catch a violation. See [Testing Guide](10-testing-guide.md).
+`EmptyResultError` is raised when the schema-less group's feature was requested from the API. An intermediate group that returns no schema fails later instead, as a missing-column error in whichever group consumed it. Return your columns either way.
+
+The check runs during execution, not inside `calculate_feature()`, so a unit test calling `calculate_feature()` directly will not catch a violation. See [Testing Guide](10-testing-guide.md).
 
 ## Columnar Helpers
 

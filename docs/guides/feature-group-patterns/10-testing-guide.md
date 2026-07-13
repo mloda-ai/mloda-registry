@@ -56,18 +56,22 @@ from mloda.user import mloda, Feature
 
 def test_full_pipeline():
     result = mloda.run_all([Feature.not_typed("my_feature")])
-    assert "my_feature" in result.columns
+    assert "my_feature" in result[0]
 ```
+
+`run_all()` returns a list of result frames, one per compute framework and feature set, so index into it before asserting on columns.
 
 ### Level 3 Only: The Empty-Result Contract
 
-The rule that a FeatureGroup must return columns even at zero rows (see [calculate_feature](12-calculate-feature.md#empty-results)) is enforced during the run, not inside `calculate_feature()`. A Level 2 test that calls `calculate_feature()` directly passes on a group that returns `[]` or `{}` for "nothing found"; the same group raises `EmptyResultError` the first time that path is hit through `mloda.run_all()`. Cover every reachable empty path (no source files, a query with no hits, a filter that removes every row) at Level 3:
+The rule that a FeatureGroup must return columns even at zero rows (see [calculate_feature](12-calculate-feature.md#empty-results)) is enforced during the run, not inside `calculate_feature()`. A Level 2 test that calls `calculate_feature()` directly passes on a group that returns `[]` or `{}` for "nothing found"; the same group raises `EmptyResultError` the first time that path is hit through a run. Cover every reachable empty path (no source files, a query with no hits, a filter that removes every row) at Level 3:
 
 ```python
 def test_empty_source_keeps_schema():
-    result = mloda.run_all([Feature.not_typed("my_feature")], ...)  # no matching data
-    assert len(result) == 0
-    assert "my_feature" in result.columns
+    result = mloda.run_all(  # no matching data
+        [Feature.not_typed("my_feature")],
+        compute_frameworks={PythonDictFramework},
+    )
+    assert result[0] == {"my_feature": []}  # zero rows, schema intact
 ```
 
 **Tip**: Use `column_ordering="request_order"` for predictable test assertions:
@@ -79,7 +83,7 @@ def test_multiple_features():
         column_ordering="request_order"
     )
     # Columns guaranteed to be in request order
-    assert list(result.columns) == ["feature_a", "feature_b"]
+    assert list(result[0]) == ["feature_a", "feature_b"]
 ```
 
 Without `column_ordering`, column order is non-deterministic and tests comparing column lists may be flaky.
