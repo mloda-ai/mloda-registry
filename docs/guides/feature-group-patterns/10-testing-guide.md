@@ -29,7 +29,7 @@ def test_matching():
     assert not ScaledFeature.match_feature_group_criteria("price", None)
 
     # Framework restriction
-    assert PandasDataframe in PandasOnlyFeature.compute_framework_rule()
+    assert PandasDataFrame in PandasOnlyFeature.compute_framework_rule()
 ```
 
 ## Level 2: Framework Test Example
