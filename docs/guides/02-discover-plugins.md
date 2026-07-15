@@ -55,7 +55,7 @@ docs = get_feature_group_docs(name="Customer")
 docs = get_feature_group_docs(search="aggregation")
 
 # Filter by compute framework
-docs = get_feature_group_docs(compute_framework="PandasDataframe")
+docs = get_feature_group_docs(compute_framework="PandasDataFrame")
 
 # Filter by version
 docs = get_feature_group_docs(version_contains="1.0")
