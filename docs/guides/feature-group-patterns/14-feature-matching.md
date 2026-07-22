@@ -251,7 +251,7 @@ PROPERTY_MAPPING = {
         "explanation": "Number of rows in the rolling window",
         DefaultOptionKeys.context: True,
         DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.match_guard: lambda x: isinstance(x, int) and x > 0,
+        DefaultOptionKeys.match_guard: lambda x: isinstance(x, int) and not isinstance(x, bool) and x > 0,
     },
 }
 ```
@@ -288,13 +288,13 @@ PROPERTY_MAPPING = {
         "explanation": "Number of rows in the rolling window",
         DefaultOptionKeys.context: True,
         DefaultOptionKeys.strict_validation: True,
-        DefaultOptionKeys.element_validator: lambda x: isinstance(x, int) and x > 0,
+        DefaultOptionKeys.element_validator: lambda x: isinstance(x, int) and not isinstance(x, bool) and x > 0,
     },
     "threshold": {
         "explanation": "Cutoff value for filtering",
         DefaultOptionKeys.context: True,
         DefaultOptionKeys.strict_validation: True,
-        DefaultOptionKeys.element_validator: lambda x: isinstance(x, (int, float)) and 0.0 <= x <= 1.0,
+        DefaultOptionKeys.element_validator: lambda x: isinstance(x, (int, float)) and not isinstance(x, bool) and 0.0 <= x <= 1.0,
     },
 }
 ```
