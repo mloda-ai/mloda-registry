@@ -151,6 +151,72 @@ class TestConfigBasedFeatures:
         result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is False
 
+    def test_config_based_match_rejects_bool_true(self) -> None:
+        options = Options(
+            context={
+                "percentile": True,
+                "in_features": "value_int",
+                "partition_by": ["region"],
+            }
+        )
+        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False
+
+    def test_config_based_match_rejects_bool_false(self) -> None:
+        options = Options(
+            context={
+                "percentile": False,
+                "in_features": "value_int",
+                "partition_by": ["region"],
+            }
+        )
+        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False
+
+    def test_config_based_match_boundary_int_one(self) -> None:
+        options = Options(
+            context={
+                "percentile": 1,
+                "in_features": "value_int",
+                "partition_by": ["region"],
+            }
+        )
+        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is True
+
+    def test_config_based_match_boundary_int_zero(self) -> None:
+        options = Options(
+            context={
+                "percentile": 0,
+                "in_features": "value_int",
+                "partition_by": ["region"],
+            }
+        )
+        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is True
+
+    def test_config_based_match_boundary_float_one(self) -> None:
+        options = Options(
+            context={
+                "percentile": 1.0,
+                "in_features": "value_int",
+                "partition_by": ["region"],
+            }
+        )
+        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is True
+
+    def test_config_based_match_boundary_float_zero(self) -> None:
+        options = Options(
+            context={
+                "percentile": 0.0,
+                "in_features": "value_int",
+                "partition_by": ["region"],
+            }
+        )
+        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is True
+
     def test_config_based_match_rejects_missing_partition_by(self) -> None:
         options = Options(
             context={
@@ -160,6 +226,40 @@ class TestConfigBasedFeatures:
         )
         result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
         assert result is False
+
+
+class TestConfigBasedExtraction:
+    def test_extract_rejects_bool_true(self) -> None:
+        feature = Feature(
+            "my_result",
+            options=Options(context={"percentile": True, "partition_by": ["region"]}),
+        )
+        with pytest.raises(ValueError):
+            PercentileFeatureGroup._extract_percentile(feature)
+
+    def test_extract_rejects_bool_false(self) -> None:
+        feature = Feature(
+            "my_result",
+            options=Options(context={"percentile": False, "partition_by": ["region"]}),
+        )
+        with pytest.raises(ValueError):
+            PercentileFeatureGroup._extract_percentile(feature)
+
+    def test_extract_float_value(self) -> None:
+        feature = Feature(
+            "my_result",
+            options=Options(context={"percentile": 0.75, "partition_by": ["region"]}),
+        )
+        result = PercentileFeatureGroup._extract_percentile(feature)
+        assert result == 0.75
+
+    def test_extract_int_value(self) -> None:
+        feature = Feature(
+            "my_result",
+            options=Options(context={"percentile": 1, "partition_by": ["region"]}),
+        )
+        result = PercentileFeatureGroup._extract_percentile(feature)
+        assert result == 1.0
 
 
 class TestPercentileMatchValidation(MatchValidationTestBase):

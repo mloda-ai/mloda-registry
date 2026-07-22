@@ -15,6 +15,11 @@ from mloda.provider import DefaultOptionKeys, FeatureGroup
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 
+def _is_real_number(value: Any) -> bool:
+    """True for a non-bool int/float (bool subclasses int)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for percentile operations that preserve row count.
 
@@ -143,9 +148,8 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         if operation_config is not None:
             return cls._parse_percentile_from_config(operation_config)
         percentile = options.get(cls.PERCENTILE)
-        if percentile is not None:
-            if isinstance(percentile, (int, float)):
-                return float(percentile)
+        if _is_real_number(percentile):
+            return float(percentile)
         return None
 
     @classmethod
@@ -176,7 +180,7 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             if result is not None:
                 return result
         percentile = feature.options.get(cls.PERCENTILE)
-        if percentile is None:
+        if not _is_real_number(percentile):
             raise ValueError(f"Could not extract percentile for {feature_name}")
         return float(percentile)
 
