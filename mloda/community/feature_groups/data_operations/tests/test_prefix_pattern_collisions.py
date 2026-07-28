@@ -72,10 +72,10 @@ class FamilySpec:
     module: str
     class_name: str
     representative_names: tuple[str, ...]
-    # ``frame_aggregate``'s PREFIX_PATTERN is a rolling-only placeholder; its real
-    # matching uses four module-level compiled patterns. When ``pattern_module_attrs``
-    # is set these module attributes are collected, and ``ignore_prefix_pattern``
-    # drops the misleading placeholder.
+    # ``frame_aggregate``'s PREFIX_PATTERN is only the rolling member of its four
+    # module-level compiled patterns (the set ``_get_prefix_patterns()`` returns). When
+    # ``pattern_module_attrs`` is set these module attributes are collected, and
+    # ``ignore_prefix_pattern`` drops the duplicated rolling entry.
     pattern_module_attrs: tuple[str, ...] = ()
     ignore_prefix_pattern: bool = False
 

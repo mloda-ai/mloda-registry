@@ -279,6 +279,43 @@ class TestConfigBasedFeatures:
         assert result.num_rows == 12
 
 
+class TestConfigBasedParametricRankTypes:
+    """The config path must accept exactly the rank types the feature-name path accepts.
+
+    ``ntile_N`` / ``top_N`` / ``bottom_N`` are supported through the name path, so the
+    ``rank_type`` declaration must admit them on the config path as well.
+    """
+
+    def _options(self, rank_type: Any) -> Options:
+        return Options(
+            context={
+                "rank_type": rank_type,
+                "in_features": "value_int",
+                "partition_by": ["region"],
+                "order_by": "value_int",
+            }
+        )
+
+    @pytest.mark.parametrize("rank_type", ["ntile_4", "top_5", "bottom_3"])
+    def test_config_based_match_accepts_parametric_rank_types(self, rank_type: str) -> None:
+        result = RankFeatureGroup.match_feature_group_criteria("my_result", self._options(rank_type), None)
+        assert result is True, f"Config path should accept: {rank_type}"
+
+    @pytest.mark.parametrize(
+        "rank_type",
+        ["ntile_0", "top_0", "bottom_0", "ntile_-1", "ntile_abc", "lag_1", "banana"],
+    )
+    def test_config_based_match_rejects_invalid_rank_types(self, rank_type: str) -> None:
+        result = RankFeatureGroup.match_feature_group_criteria("my_result", self._options(rank_type), None)
+        assert result is False, f"Config path should reject: {rank_type}"
+
+    @pytest.mark.parametrize("rank_type", [42, {"rank_type": "row_number"}])
+    def test_config_based_match_rejects_non_string_rank_type(self, rank_type: Any) -> None:
+        """A non-string rank_type is a plain non-match, never an uncaught exception."""
+        result = RankFeatureGroup.match_feature_group_criteria("my_result", self._options(rank_type), None)
+        assert result is False, f"Config path should reject: {rank_type!r}"
+
+
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type for deterministic rank ops.
 
@@ -335,3 +372,15 @@ class TestRankMatchValidation(MatchValidationTestBase):
     @classmethod
     def additional_match_options(cls) -> dict[str, Any]:
         return {"in_features": "value_int", "partition_by": ["region"], "order_by": "value_int"}
+
+    @classmethod
+    def pattern_match_options(cls) -> Options:
+        return Options(context={"partition_by": ["region"], "order_by": "value_int"})
+
+    @classmethod
+    def parity_operations(cls) -> set[str]:
+        return {"row_number", "percent_rank", "ntile_4", "top_5", "bottom_3"}
+
+    @classmethod
+    def malformed_operations(cls) -> set[str]:
+        return {"ntile_0", "ntile_abc", "top_0", "bottom_0", "banana"}

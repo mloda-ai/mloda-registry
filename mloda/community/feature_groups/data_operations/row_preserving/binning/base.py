@@ -12,17 +12,12 @@ from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
-from mloda.community.feature_groups.data_operations.base import is_op_token
+from mloda.community.feature_groups.data_operations.base import is_op_token, is_positive_int
 
 BINNING_OPS = {
     "bin": "Equal-width binning (value range divided into n equal intervals)",
     "qbin": "Quantile-based binning (rows divided into n roughly equal groups by rank)",
 }
-
-
-def _is_positive_int(value: object) -> bool:
-    """True only for a positive int (rejects bool, non-int, and n < 1)."""
-    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
 
 
 class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
@@ -46,7 +41,7 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             "explanation": "Number of bins (positive integer)",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.match_guard: _is_positive_int,
+            DefaultOptionKeys.match_guard: is_positive_int,
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Source numeric column",

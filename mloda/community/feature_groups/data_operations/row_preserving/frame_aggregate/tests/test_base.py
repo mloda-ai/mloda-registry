@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
@@ -273,6 +274,102 @@ class TestConfigBasedMatching:
         assert result is True
 
 
+class TestConfigBasedFrameUnitValidation:
+    """The config path must honour the declared frame_unit value space."""
+
+    def _options(self, **overrides: Any) -> Options:
+        context: dict[str, Any] = {
+            "aggregation_type": "sum",
+            "in_features": "sales",
+            "partition_by": ["region"],
+            "order_by": "timestamp",
+        }
+        context.update(overrides)
+        return Options(context=context)
+
+    def test_rejects_invalid_frame_unit(self) -> None:
+        options = self._options(frame_type="time", frame_size=7, frame_unit="banana")
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False
+
+    def test_rejects_missing_frame_unit(self) -> None:
+        options = self._options(frame_type="time", frame_size=7)
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False
+
+    def test_accepts_declared_frame_unit(self) -> None:
+        options = self._options(frame_type="time", frame_size=7, frame_unit="day")
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is True
+
+
+class TestConfigBasedFrameSizeValidation:
+    """The config path must honour the declared frame_size value space.
+
+    frame_size is a positive integer count; bools and numeric strings are not
+    integers for this purpose and must be non-matches at discovery.
+    """
+
+    def _options(self, **overrides: Any) -> Options:
+        context: dict[str, Any] = {
+            "aggregation_type": "sum",
+            "in_features": "sales",
+            "partition_by": ["region"],
+            "order_by": "timestamp",
+        }
+        context.update(overrides)
+        return Options(context=context)
+
+    @pytest.mark.parametrize("frame_size", [0, -1, True, "3"])
+    def test_rejects_invalid_frame_size(self, frame_size: Any) -> None:
+        options = self._options(frame_type="rolling", frame_size=frame_size)
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False, f"Config path should reject frame_size: {frame_size!r}"
+
+    def test_accepts_positive_frame_size(self) -> None:
+        options = self._options(frame_type="rolling", frame_size=3)
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is True
+
+    def test_rejects_missing_frame_size_for_rolling(self) -> None:
+        options = self._options(frame_type="rolling")
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False
+
+    def test_rejects_missing_frame_size_for_time(self) -> None:
+        options = self._options(frame_type="time", frame_unit="day")
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False
+
+    @pytest.mark.parametrize("frame_type", ["cumulative", "expanding"])
+    def test_accepts_missing_frame_size_for_unsized_frames(self, frame_type: str) -> None:
+        options = self._options(frame_type=frame_type)
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is True, f"Config path should accept {frame_type} without frame_size"
+
+
+class TestNameBasedUnaffectedByConfigValidation:
+    """Name-based features carry their frame parameters in the name.
+
+    Tightening the config path must not start demanding in_features or frame_size
+    from a feature that encodes them in its name.
+    """
+
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            "sales__sum_rolling_3",
+            "sales__avg_7_day_window",
+            "sales__cumsum",
+            "sales__expanding_avg",
+        ],
+    )
+    def test_name_based_matches_with_partition_and_order_only(self, feature_name: str) -> None:
+        options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria(feature_name, options, None)
+        assert result is True, f"Name path should accept: {feature_name}"
+
+
 class TestExtractParams:
     """Tests for _extract_params."""
 
@@ -369,3 +466,12 @@ class TestFrameAggregateMatchValidation(MatchValidationTestBase):
     @classmethod
     def pattern_match_options(cls) -> Options:
         return Options(context={"partition_by": ["region"], "order_by": "timestamp"})
+
+    @classmethod
+    def parity_operations(cls) -> set[str]:
+        # No parametric family here: the fixed aggregation types are the whole value space.
+        return set(_AGGREGATION_TYPES)
+
+    @classmethod
+    def malformed_operations(cls) -> set[str]:
+        return {"banana", "mode", "nunique", "first"}

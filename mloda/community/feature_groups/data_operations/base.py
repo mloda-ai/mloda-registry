@@ -111,3 +111,8 @@ def is_op_token(value: object) -> bool:
             return False
         (value,) = value
     return isinstance(value, str) and bool(value)
+
+
+def is_positive_int(value: object) -> bool:
+    """True only for a positive int (rejects bool, non-int, and n < 1)."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1

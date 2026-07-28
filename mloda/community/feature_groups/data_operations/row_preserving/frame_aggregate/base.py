@@ -14,58 +14,74 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
-from mloda.community.feature_groups.data_operations.base import is_op_token
+from mloda.community.feature_groups.data_operations.base import FRAME_TYPE, is_op_token, is_positive_int
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 
-# Patterns for string-based feature names:
+# Patterns for string-based feature names; group 1 is the aggregation token, matching what
+# core's FeatureChainParser.parse_feature_name returns as the operation:
 #   {col}__sum_rolling_3         -> rolling N rows
 #   {col}__avg_5_day_window      -> time-interval window
 #   {col}__cumsum                -> cumulative sum
 #   {col}__expanding_avg         -> expanding window
-_ROLLING_PATTERN = re.compile(r"^(.+)__(\w+)_rolling_(\d+)$")
-_TIME_WINDOW_PATTERN = re.compile(r"^(.+)__(\w+)_(\d+)_(\w+)_window$")
-_CUMULATIVE_PATTERN = re.compile(r"^(.+)__cum(\w+)$")
-_EXPANDING_PATTERN = re.compile(r"^(.+)__expanding_(\w+)$")
+_ROLLING_PATTERN = re.compile(r"^.+__(\w+)_rolling_(\d+)$")
+_TIME_WINDOW_PATTERN = re.compile(r"^.+__(\w+)_(\d+)_(\w+)_window$")
+_CUMULATIVE_PATTERN = re.compile(r"^.+__cum(\w+)$")
+_EXPANDING_PATTERN = re.compile(r"^.+__expanding_(\w+)$")
 
 # Frame aggregation supports the order-independent subset of the canonical
 # aggregation-type table (no mode/nunique/first/last, no ddof-variant spellings).
 # Frame never uses the canonical descriptions, so this is an explicit set rather
-# than a derivation from the shared table.
+# than a derivation from the shared table. Cumulative and expanding accept this
+# full set, so they need no narrower table of their own.
 _AGGREGATION_TYPES = frozenset({"sum", "avg", "count", "min", "max", "std", "var", "median"})
-_CUMULATIVE_OPS = _AGGREGATION_TYPES
 _TIME_UNITS = {"second", "minute", "hour", "day", "week", "month", "year"}
+
+
+def _needs_frame_size(options: Options) -> bool:
+    """Rolling and time frames are sized; cumulative and expanding are not."""
+    return options.get(FRAME_TYPE) in ("rolling", "time")
+
+
+def _needs_frame_unit(options: Options) -> bool:
+    """Only a time-interval frame carries a unit."""
+    return bool(options.get(FRAME_TYPE) == "time")
 
 
 @functools.lru_cache(maxsize=1024)
 def _parse_frame_feature_cached(feature_name: str) -> dict[str, Any] | None:
     """Regex-parse a frame feature name; cached on the name since the regexes are module constants."""
+    # Same split core uses, so the parsed source column cannot drift from the routed one.
+    source_col = feature_name.rsplit("__", 1)[0]
+    if not source_col:
+        return None
+
     m = _ROLLING_PATTERN.match(feature_name)
     if m:
         return {
-            "source_col": m.group(1),
-            "agg_type": m.group(2),
+            "source_col": source_col,
+            "agg_type": m.group(1),
             "frame_type": "rolling",
-            "frame_size": int(m.group(3)),
+            "frame_size": int(m.group(2)),
             "frame_unit": None,
         }
 
     m = _TIME_WINDOW_PATTERN.match(feature_name)
     if m:
         return {
-            "source_col": m.group(1),
-            "agg_type": m.group(2),
+            "source_col": source_col,
+            "agg_type": m.group(1),
             "frame_type": "time",
-            "frame_size": int(m.group(3)),
-            "frame_unit": m.group(4),
+            "frame_size": int(m.group(2)),
+            "frame_unit": m.group(3),
         }
 
     m = _CUMULATIVE_PATTERN.match(feature_name)
     if m:
         return {
-            "source_col": m.group(1),
-            "agg_type": m.group(2),
+            "source_col": source_col,
+            "agg_type": m.group(1),
             "frame_type": "cumulative",
             "frame_size": None,
             "frame_unit": None,
@@ -74,8 +90,8 @@ def _parse_frame_feature_cached(feature_name: str) -> dict[str, Any] | None:
     m = _EXPANDING_PATTERN.match(feature_name)
     if m:
         return {
-            "source_col": m.group(1),
-            "agg_type": m.group(2),
+            "source_col": source_col,
+            "agg_type": m.group(1),
             "frame_type": "expanding",
             "frame_size": None,
             "frame_unit": None,
@@ -150,10 +166,14 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
     - ``order_by``: Column to order by (required for all frame types)
     """
 
-    # Required by FeatureChainParserMixin but unused: match_feature_group_criteria
-    # is fully overridden to handle four distinct patterns (rolling, time, cumulative,
-    # expanding). This value is a placeholder to satisfy the mixin contract.
-    PREFIX_PATTERN = r".*__([\w]+)_rolling_\d+$"
+    # PREFIX_PATTERN is the rolling member; FRAME_PATTERNS is the full matching set the mixin uses.
+    FRAME_PATTERNS: tuple[str, ...] = (
+        _ROLLING_PATTERN.pattern,
+        _TIME_WINDOW_PATTERN.pattern,
+        _CUMULATIVE_PATTERN.pattern,
+        _EXPANDING_PATTERN.pattern,
+    )
+    PREFIX_PATTERN = _ROLLING_PATTERN.pattern
 
     SUPPORTED_FRAME_TYPES: set[str] = {"rolling", "time", "cumulative", "expanding"}
     SUPPORTED_TIME_UNITS: set[str] = _TIME_UNITS
@@ -178,7 +198,6 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
             DefaultOptionKeys.match_guard: is_op_token,
-            DefaultOptionKeys.default: None,
         },
         FRAME_TYPE: {
             "explanation": "Frame semantics of the window",
@@ -191,19 +210,20 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
             DefaultOptionKeys.match_guard: is_op_token,
-            DefaultOptionKeys.default: None,
         },
         FRAME_SIZE: {
             "explanation": "Window size (rows for rolling, integer for time)",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.default: None,
+            DefaultOptionKeys.match_guard: is_positive_int,
+            DefaultOptionKeys.required_when: _needs_frame_size,
         },
         FRAME_UNIT: {
             "explanation": "Time unit for time windows",
+            DefaultOptionKeys.allowed_values: {unit: f"{unit} interval" for unit in sorted(_TIME_UNITS)},
             DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.default: None,
+            DefaultOptionKeys.strict_validation: True,
+            DefaultOptionKeys.required_when: _needs_frame_unit,
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Source feature for frame aggregation",
@@ -259,57 +279,49 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
         return None if cached is None else dict(cached)
 
     @classmethod
+    def _get_prefix_patterns(cls) -> list[str]:
+        """All four name shapes, so the mixin routes every frame pattern, not only rolling."""
+        return list(cls.FRAME_PATTERNS)
+
+    @classmethod
+    def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
+        """Name path: the parsed agg type, frame type and time unit must all be supported here."""
+        parsed = cls._parse_frame_feature(str(feature_name))
+        if parsed is None:
+            return False
+        if parsed["agg_type"] not in _AGGREGATION_TYPES:
+            return False
+        if parsed["frame_type"] not in cls.SUPPORTED_FRAME_TYPES:
+            return False
+        if parsed["frame_type"] == "time":
+            if parsed["frame_unit"] not in _TIME_UNITS:
+                return False
+            if parsed["frame_unit"] not in cls.SUPPORTED_TIME_UNITS:
+                return False
+        return True
+
+    @classmethod
     def match_feature_group_criteria(
         cls,
         feature_name: Any,
         options: Any,
         _data_access_collection: Any = None,
     ) -> bool:
-        """Match using four string patterns or config-based matching.
+        """Extend the declaration-driven mixin match with per-subclass capability and shape checks.
 
-        Validates:
-        - Feature name matches one of the four patterns, OR config has required keys
-        - partition_by is a list of strings
-        - order_by is a string
-        - aggregation_type is supported
-        - For cumulative/expanding: agg in _CUMULATIVE_OPS (same as _AGGREGATION_TYPES)
-        - For time: frame_unit in _TIME_UNITS
+        PROPERTY_MAPPING owns the value spaces (agg type, frame type, frame unit, frame size)
+        and the config-path presence rules; only what a shared class-level declaration cannot
+        express lives here.
         """
-        name = str(feature_name)
+        if not super().match_feature_group_criteria(feature_name, options, _data_access_collection):
+            return False
 
-        parsed = cls._parse_frame_feature(name)
-
-        if parsed is not None:
-            if parsed["agg_type"] not in _AGGREGATION_TYPES:
+        # Config path only: SUPPORTED_* narrows per subclass, so it cannot be declared once on the base.
+        if cls._parse_frame_feature(str(feature_name)) is None:
+            frame_type = str(options.get(cls.FRAME_TYPE))
+            if frame_type not in cls.SUPPORTED_FRAME_TYPES:
                 return False
-            if parsed["frame_type"] in ("cumulative", "expanding") and parsed["agg_type"] not in _CUMULATIVE_OPS:
-                return False
-            if parsed["frame_type"] == "time" and parsed["frame_unit"] not in _TIME_UNITS:
-                return False
-            if parsed["frame_type"] not in cls.SUPPORTED_FRAME_TYPES:
-                return False
-            if parsed["frame_type"] == "time" and parsed["frame_unit"] not in cls.SUPPORTED_TIME_UNITS:
-                return False
-        else:
-            agg_type = options.get(cls.AGGREGATION_TYPE)
-            frame_type = options.get(cls.FRAME_TYPE)
-            if agg_type is None or frame_type is None:
-                return False
-            if str(agg_type) not in _AGGREGATION_TYPES:
-                return False
-            frame_type_str = str(frame_type)
-            if frame_type_str not in cls.SUPPORTED_FRAME_TYPES:
-                return False
-            if frame_type_str in ("cumulative", "expanding") and str(agg_type) not in _CUMULATIVE_OPS:
-                return False
-            if frame_type_str == "time":
-                frame_unit = options.get(cls.FRAME_UNIT)
-                if frame_unit is None or str(frame_unit) not in _TIME_UNITS:
-                    return False
-                if str(frame_unit) not in cls.SUPPORTED_TIME_UNITS:
-                    return False
-            # Config features must carry a source column; name-based features encode it in the name.
-            if not options.get(DefaultOptionKeys.in_features):
+            if frame_type == "time" and str(options.get(cls.FRAME_UNIT)) not in cls.SUPPORTED_TIME_UNITS:
                 return False
 
         partition_by = options.get(cls.PARTITION_BY)

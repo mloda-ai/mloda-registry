@@ -175,6 +175,37 @@ class TestConfigBasedFeatures:
         assert result.num_rows == 12
 
 
+class TestConfigBasedOffsetTypeValidation:
+    """The config path must reject exactly the offset types the feature-name path rejects.
+
+    Matching may not defer offset-type validation to compute time: an unsupported
+    offset_type has to be a non-match at discovery.
+    """
+
+    def _options(self, offset_type: Any) -> Options:
+        return Options(
+            context={
+                "offset_type": offset_type,
+                "in_features": "value_int",
+                "partition_by": ["region"],
+                "order_by": "value_int",
+            }
+        )
+
+    @pytest.mark.parametrize(
+        "offset_type",
+        ["lag_1", "lead_2", "diff_1", "pct_change_3", "first_value", "last_value"],
+    )
+    def test_config_based_match_accepts_supported_offset_types(self, offset_type: str) -> None:
+        result = OffsetFeatureGroup.match_feature_group_criteria("my_result", self._options(offset_type), None)
+        assert result is True, f"Config path should accept: {offset_type}"
+
+    @pytest.mark.parametrize("offset_type", ["banana", "lag_0", "lag_-1", "lag_abc", "lead_", ""])
+    def test_config_based_match_rejects_unsupported_offset_types(self, offset_type: str) -> None:
+        result = OffsetFeatureGroup.match_feature_group_criteria("my_result", self._options(offset_type), None)
+        assert result is False, f"Config path should reject: {offset_type!r}"
+
+
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type only for deterministic ops.
 
@@ -228,5 +259,17 @@ class TestOffsetMatchValidation(MatchValidationTestBase):
         return {"in_features": "value_int", "partition_by": ["region"], "order_by": "timestamp"}
 
     @classmethod
+    def pattern_match_options(cls) -> Options:
+        return Options(context={"partition_by": ["region"], "order_by": "value_int"})
+
+    @classmethod
     def options_reject_invalid_types(cls) -> bool:
-        return False
+        return True
+
+    @classmethod
+    def parity_operations(cls) -> set[str]:
+        return {"first_value", "last_value", "lag_1", "lead_2", "diff_1", "pct_change_3"}
+
+    @classmethod
+    def malformed_operations(cls) -> set[str]:
+        return {"banana", "lag_0", "lag_abc", "lead_"}

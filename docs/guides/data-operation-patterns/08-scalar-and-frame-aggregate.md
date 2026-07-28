@@ -144,6 +144,10 @@ All frame-aggregate variants accept:
 | `order_by` | `str` | Required for rolling, time-window, cumulative, and expanding |
 | `mask` | tuple or list of tuples | Conditional aggregation; see [Masking](../feature-group-patterns/25-masking.md) |
 
+### Config-based frame features
+
+A frame feature built from Options instead of a name declares its window explicitly, and PROPERTY_MAPPING is what enforces it: `aggregation_type`, `frame_type` and `in_features` are always required, `frame_size` (a positive integer) is required for `rolling` and `time`, and `frame_unit` is required for `time` and must be one of the units above. Name-based features carry all of that in the name, so they need only `partition_by` and `order_by`.
+
 ---
 
 ## Scalar vs scalar arithmetic vs point arithmetic vs frame vs window vs aggregation
