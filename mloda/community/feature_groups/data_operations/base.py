@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 
 
@@ -113,6 +114,37 @@ def is_op_token(value: object) -> bool:
     return isinstance(value, str) and bool(value)
 
 
+def op_token_value(value: object) -> str:
+    """The single token of a value is_op_token accepts, unwrapped from its container."""
+    if isinstance(value, (list, tuple, set, frozenset)) and len(value) == 1:
+        (value,) = value
+    return str(value)
+
+
+def _is_feature_ref(value: object) -> bool:
+    """One source-feature reference: a non-empty string, or a Feature (duck-typed as core's converter does)."""
+    if isinstance(value, str):
+        return bool(value)
+    return hasattr(value, "options")
+
+
+def is_in_features_value(value: object) -> bool:
+    """True for source-feature references core can resolve: non-empty str or Feature, or a container of those."""
+    if isinstance(value, (list, tuple, set, frozenset)):
+        # An empty container passes: core's in-feature count check owns it as a plain non-match.
+        return all(_is_feature_ref(item) for item in value)
+    return _is_feature_ref(value)
+
+
 def is_positive_int(value: object) -> bool:
     """True only for a positive int (rejects bool, non-int, and n < 1)."""
     return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
+#: ASCII decimal >= 1. str.isdigit also accepts superscripts (int() raises) and non-ASCII digits.
+_PARAMETRIC_SUFFIX_PATTERN = re.compile(r"[1-9][0-9]*")
+
+
+def is_parametric_suffix(suffix: str) -> bool:
+    """True for the ASCII positive-integer suffix of a parametric operation token (e.g. the 4 in ntile_4)."""
+    return _PARAMETRIC_SUFFIX_PATTERN.fullmatch(suffix) is not None

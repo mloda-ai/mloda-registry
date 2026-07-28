@@ -13,7 +13,12 @@ from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
-from mloda.community.feature_groups.data_operations.base import is_op_token
+from mloda.community.feature_groups.data_operations.base import (
+    is_in_features_value,
+    is_op_token,
+    is_parametric_suffix,
+    op_token_value,
+)
 
 
 _RANK_TYPES = {
@@ -36,8 +41,7 @@ def _is_supported_rank_type(value: object) -> bool:
     for family in _PARAMETRIC_RANK_FAMILIES:
         prefix = f"{family}_"
         if value.startswith(prefix):
-            suffix = value[len(prefix) :]
-            if suffix.isdigit() and int(suffix) >= 1:
+            if is_parametric_suffix(value[len(prefix) :]):
                 return True
     return False
 
@@ -128,6 +132,8 @@ class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGr
     PARTITION_BY = "partition_by"
     ORDER_BY = "order_by"
 
+    # Aliases of the module tables the validator reads: overriding them in a subclass has no
+    # effect, per-backend narrowing belongs in SubtypeCapabilityHook.
     RANK_TYPES = _RANK_TYPES
 
     PARAMETRIC_RANK_FAMILIES: tuple[str, ...] = _PARAMETRIC_RANK_FAMILIES
@@ -145,6 +151,7 @@ class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGr
             "explanation": "Source feature for rank ordering",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.match_guard: is_in_features_value,
         },
         PARTITION_BY: {
             "explanation": "List of columns to partition by",
@@ -224,7 +231,7 @@ class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGr
         rank_type = feature.options.get(cls.RANK_TYPE)
         if rank_type is None:
             raise ValueError(f"Could not extract rank type for {feature_name}")
-        return str(rank_type)
+        return op_token_value(rank_type)
 
     @classmethod
     def _resolve_rank_type(cls, feature_name: str, options: Options) -> str | None:
@@ -236,7 +243,7 @@ class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGr
         if operation_config is not None:
             return operation_config
         rank_type = options.get(cls.RANK_TYPE)
-        return None if rank_type is None else str(rank_type)
+        return None if rank_type is None else op_token_value(rank_type)
 
     @classmethod
     def _capability_subtype(cls, feature_name: str, options: Options) -> str | None:
@@ -260,10 +267,8 @@ class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGr
             return DataType.INT64
         if rank_type == "percent_rank":
             return DataType.DOUBLE
-        if rank_type.startswith("ntile_"):
-            suffix = rank_type[len("ntile_") :]
-            if suffix.isdigit() and int(suffix) >= 1:
-                return DataType.INT64
+        if rank_type.startswith("ntile_") and is_parametric_suffix(rank_type[len("ntile_") :]):
+            return DataType.INT64
         return None
 
     @classmethod

@@ -11,7 +11,12 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
-from mloda.community.feature_groups.data_operations.base import is_op_token
+from mloda.community.feature_groups.data_operations.base import (
+    is_in_features_value,
+    is_op_token,
+    is_parametric_suffix,
+    op_token_value,
+)
 
 
 _OFFSET_TYPES = {
@@ -32,8 +37,7 @@ def _is_supported_offset_type(value: object) -> bool:
     for family in _PARAMETRIC_OFFSET_FAMILIES:
         prefix = f"{family}_"
         if value.startswith(prefix):
-            suffix = value[len(prefix) :]
-            if suffix.isdigit() and int(suffix) >= 1:
+            if is_parametric_suffix(value[len(prefix) :]):
                 return True
     return False
 
@@ -112,6 +116,8 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     PARTITION_BY = "partition_by"
     ORDER_BY = "order_by"
 
+    # Aliases of the module tables the validator reads: overriding them in a subclass has no
+    # effect, per-backend narrowing belongs in SubtypeCapabilityHook.
     OFFSET_TYPES = _OFFSET_TYPES
 
     PARAMETRIC_OFFSET_FAMILIES: tuple[str, ...] = _PARAMETRIC_OFFSET_FAMILIES
@@ -129,6 +135,7 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             "explanation": "Source feature for offset operation",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.match_guard: is_in_features_value,
         },
         PARTITION_BY: {
             "explanation": "List of columns to partition by",
@@ -204,16 +211,14 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         offset_type = feature.options.get(cls.OFFSET_TYPE)
         if offset_type is None:
             raise ValueError(f"Could not extract offset type for {feature_name}")
-        return str(offset_type)
+        return op_token_value(offset_type)
 
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:
         """Declare DOUBLE for pct_change_N (a ratio); other offsets stay open."""
         offset_type = cls._extract_offset_type(feature)
-        if offset_type.startswith("pct_change_"):
-            suffix = offset_type[len("pct_change_") :]
-            if suffix.isdigit() and int(suffix) >= 1:
-                return DataType.DOUBLE
+        if offset_type.startswith("pct_change_") and is_parametric_suffix(offset_type[len("pct_change_") :]):
+            return DataType.DOUBLE
         return None
 
     @classmethod

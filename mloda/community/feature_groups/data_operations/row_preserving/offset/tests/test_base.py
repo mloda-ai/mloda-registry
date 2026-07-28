@@ -206,6 +206,91 @@ class TestConfigBasedOffsetTypeValidation:
         assert result is False, f"Config path should reject: {offset_type!r}"
 
 
+class TestSingleTokenContainers:
+    """A single-element container holds exactly one offset token, so it must reach dispatch unwrapped."""
+
+    def _options(self, offset_type: Any) -> Options:
+        return Options(
+            context={
+                "offset_type": offset_type,
+                "in_features": "value_int",
+                "partition_by": ["region"],
+                "order_by": "value_int",
+            }
+        )
+
+    @pytest.mark.parametrize("offset_type", [("lag_1",), ["lag_1"]])
+    def test_single_element_offset_type(self, offset_type: Any) -> None:
+        result = OffsetFeatureGroup.match_feature_group_criteria("my_result", self._options(offset_type), None)
+        assert result is True, f"Config path should accept: {offset_type!r}"
+        feature = Feature("my_result", options=self._options(offset_type))
+        assert OffsetFeatureGroup._extract_offset_type(feature) == "lag_1"
+
+    @pytest.mark.parametrize("offset_type", [["lag_1", "lead_2"], ("lag_1", "lead_2")])
+    def test_multi_element_offset_type_rejected(self, offset_type: Any) -> None:
+        result = OffsetFeatureGroup.match_feature_group_criteria("my_result", self._options(offset_type), None)
+        assert result is False, f"Config path should reject: {offset_type!r}"
+
+
+class TestDigitLikeOffsetSuffixes:
+    """A suffix that str.isdigit accepts is not automatically an int; both paths must reject it without raising."""
+
+    def _pattern_options(self) -> Options:
+        return Options(context={"partition_by": ["region"], "order_by": "value_int"})
+
+    def _config_options(self, offset_type: str) -> Options:
+        return Options(
+            context={
+                "offset_type": offset_type,
+                "in_features": "value_int",
+                "partition_by": ["region"],
+                "order_by": "value_int",
+            }
+        )
+
+    @pytest.mark.parametrize("feature_name", ["value_int__lag_²_offset", "value_int__pct_change_²_offset"])
+    def test_name_path_rejects_superscript_digit(self, feature_name: str) -> None:
+        """Superscript two is isdigit-true but int()-invalid."""
+        result = OffsetFeatureGroup.match_feature_group_criteria(feature_name, self._pattern_options(), None)
+        assert result is False, f"Name path should reject: {feature_name}"
+
+    @pytest.mark.parametrize("offset_type", ["lag_²", "pct_change_²"])
+    def test_config_path_rejects_superscript_digit(self, offset_type: str) -> None:
+        result = OffsetFeatureGroup.match_feature_group_criteria("my_result", self._config_options(offset_type), None)
+        assert result is False, f"Config path should reject: {offset_type}"
+
+    def test_name_path_rejects_non_ascii_digit(self) -> None:
+        """Arabic-Indic three is isdigit-true and int()-valid, but still not an ASCII offset suffix."""
+        options = self._pattern_options()
+        result = OffsetFeatureGroup.match_feature_group_criteria("value_int__lag_٣_offset", options, None)
+        assert result is False
+
+    def test_config_path_rejects_non_ascii_digit(self) -> None:
+        result = OffsetFeatureGroup.match_feature_group_criteria("my_result", self._config_options("lag_٣"), None)
+        assert result is False
+
+    @pytest.mark.parametrize("offset_type", ["lag_²", "pct_change_²", "lag_٣"])
+    def test_supports_offset_type_rejects_digit_like_suffixes(self, offset_type: str) -> None:
+        assert not OffsetFeatureGroup._supports_offset_type(offset_type)
+
+
+class TestHostileInFeatures:
+    """A hostile in_features value is a plain non-match; no exception may escape the matcher."""
+
+    @pytest.mark.parametrize("in_features", ["", 0, 3.5, True, {"a": 1}, []])
+    def test_rejects_hostile_in_features(self, in_features: Any) -> None:
+        options = Options(
+            context={
+                "offset_type": "lag_1",
+                "in_features": in_features,
+                "partition_by": ["region"],
+                "order_by": "value_int",
+            }
+        )
+        result = OffsetFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False, f"Config path should reject in_features: {in_features!r}"
+
+
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type only for deterministic ops.
 

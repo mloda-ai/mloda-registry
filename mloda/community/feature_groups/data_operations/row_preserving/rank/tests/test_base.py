@@ -316,6 +316,91 @@ class TestConfigBasedParametricRankTypes:
         assert result is False, f"Config path should reject: {rank_type!r}"
 
 
+class TestSingleTokenContainers:
+    """A single-element container holds exactly one rank token, so it must reach dispatch unwrapped."""
+
+    def _options(self, rank_type: Any) -> Options:
+        return Options(
+            context={
+                "rank_type": rank_type,
+                "in_features": "value_int",
+                "partition_by": ["region"],
+                "order_by": "value_int",
+            }
+        )
+
+    @pytest.mark.parametrize("rank_type", [("ntile_4",), ["ntile_4"]])
+    def test_single_element_rank_type(self, rank_type: Any) -> None:
+        result = RankFeatureGroup.match_feature_group_criteria("my_result", self._options(rank_type), None)
+        assert result is True, f"Config path should accept: {rank_type!r}"
+        feature = Feature("my_result", options=self._options(rank_type))
+        assert RankFeatureGroup._extract_rank_type(feature) == "ntile_4"
+
+    @pytest.mark.parametrize("rank_type", [["ntile_4", "top_5"], ("ntile_4", "top_5")])
+    def test_multi_element_rank_type_rejected(self, rank_type: Any) -> None:
+        result = RankFeatureGroup.match_feature_group_criteria("my_result", self._options(rank_type), None)
+        assert result is False, f"Config path should reject: {rank_type!r}"
+
+
+class TestDigitLikeRankSuffixes:
+    """A suffix that str.isdigit accepts is not automatically an int; both paths must reject it without raising."""
+
+    def _pattern_options(self) -> Options:
+        return Options(context={"partition_by": ["region"], "order_by": "value_int"})
+
+    def _config_options(self, rank_type: str) -> Options:
+        return Options(
+            context={
+                "rank_type": rank_type,
+                "in_features": "value_int",
+                "partition_by": ["region"],
+                "order_by": "value_int",
+            }
+        )
+
+    @pytest.mark.parametrize("feature_name", ["value_int__ntile_²_ranked", "value_int__top_²_ranked"])
+    def test_name_path_rejects_superscript_digit(self, feature_name: str) -> None:
+        """Superscript two is isdigit-true but int()-invalid."""
+        result = RankFeatureGroup.match_feature_group_criteria(feature_name, self._pattern_options(), None)
+        assert result is False, f"Name path should reject: {feature_name}"
+
+    @pytest.mark.parametrize("rank_type", ["ntile_²", "top_²"])
+    def test_config_path_rejects_superscript_digit(self, rank_type: str) -> None:
+        result = RankFeatureGroup.match_feature_group_criteria("my_result", self._config_options(rank_type), None)
+        assert result is False, f"Config path should reject: {rank_type}"
+
+    def test_name_path_rejects_non_ascii_digit(self) -> None:
+        """Arabic-Indic three is isdigit-true and int()-valid, but still not an ASCII rank suffix."""
+        options = self._pattern_options()
+        result = RankFeatureGroup.match_feature_group_criteria("value_int__ntile_٣_ranked", options, None)
+        assert result is False
+
+    def test_config_path_rejects_non_ascii_digit(self) -> None:
+        result = RankFeatureGroup.match_feature_group_criteria("my_result", self._config_options("ntile_٣"), None)
+        assert result is False
+
+    @pytest.mark.parametrize("rank_type", ["ntile_²", "top_²", "ntile_٣"])
+    def test_supports_rank_type_rejects_digit_like_suffixes(self, rank_type: str) -> None:
+        assert not RankFeatureGroup._supports_rank_type(rank_type)
+
+
+class TestHostileInFeatures:
+    """A hostile in_features value is a plain non-match; no exception may escape the matcher."""
+
+    @pytest.mark.parametrize("in_features", ["", 0, 3.5, True, {"a": 1}, []])
+    def test_rejects_hostile_in_features(self, in_features: Any) -> None:
+        options = Options(
+            context={
+                "rank_type": "row_number",
+                "in_features": in_features,
+                "partition_by": ["region"],
+                "order_by": "value_int",
+            }
+        )
+        result = RankFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False, f"Config path should reject in_features: {in_features!r}"
+
+
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type for deterministic rank ops.
 
