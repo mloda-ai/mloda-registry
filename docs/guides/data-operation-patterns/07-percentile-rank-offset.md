@@ -94,6 +94,12 @@ All offset types require `order_by`; partition ordering is what "previous row" m
 
 ---
 
+## Both creation paths accept the same operations
+
+Every rank and offset type above is accepted identically whether it arrives in the feature name (`value__lag_1_offset`) or in Options (`{"offset_type": "lag_1", ...}`). The parametric families are part of that: `ntile_N`, `top_N`, `bottom_N`, `lag_N`, `lead_N`, `diff_N` and `pct_change_N` are validated by the same predicate on both paths, declared as an `element_validator` on the `rank_type` / `offset_type` PROPERTY_MAPPING entry.
+
+Unsupported values are rejected at match time, not at compute: `offset_type="banana"`, a zero or negative suffix (`lag_0`), and a malformed token (`ntile_abc`) are all non-matches on both paths.
+
 ## Shared semantics
 
 - **NULL in offsets**: Offsets reference *other* rows, so the current row being NULL does not force a NULL result. `lag_N` on a NULL row returns whatever sits N rows earlier (possibly non-NULL). `first_value` and `last_value` skip NULL source values and return the first or last non-NULL in the partition; the result is NULL only when every value in the partition is NULL. A NULL result from `lag_N`/`lead_N` happens when the referenced position falls outside the partition (first or last N rows).

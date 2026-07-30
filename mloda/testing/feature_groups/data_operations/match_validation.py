@@ -7,6 +7,7 @@ Provides ``MatchValidationTestBase`` with reusable test methods covering:
 - Special characters in the operation portion of feature names
 - Type confusion via Options (None, int, list)
 - Case sensitivity enforcement (lowercase only)
+- Declaration/dispatch drift between the name path and the config path (opt-in)
 
 Concrete test classes implement abstract methods to adapt these tests
 to each specific operation.
@@ -86,6 +87,22 @@ class MatchValidationTestBase:
         False for operations with strict_validation=False on the config key.
         """
         return True
+
+    @classmethod
+    def parity_operations(cls) -> set[str]:
+        """Operations that both the name path and the config path must accept.
+
+        Empty by default; override to opt in to the drift check.
+        """
+        return set()
+
+    @classmethod
+    def malformed_operations(cls) -> set[str]:
+        """Operations that both the name path and the config path must reject.
+
+        Empty by default; override to opt in to the drift check.
+        """
+        return set()
 
     # -- No source column ------------------------------------------------------
 
@@ -199,3 +216,37 @@ class MatchValidationTestBase:
             feature_name = self.build_feature_name(mixed)
             result = self.feature_group_class().match_feature_group_criteria(feature_name, options, None)
             assert result is False, f"Should reject mixed case: {mixed}"
+
+    # -- Declaration / dispatch drift ----------------------------------------
+
+    def _match_by_name(self, operation: str) -> bool:
+        """Match verdict of the name-based path for the given operation."""
+        feature_name = self.build_feature_name(operation)
+        result = self.feature_group_class().match_feature_group_criteria(
+            feature_name, self.pattern_match_options(), None
+        )
+        return bool(result)
+
+    def _match_by_config(self, operation: str) -> bool:
+        """Match verdict of the configuration-based path for the given operation."""
+        context = {self.config_key(): operation, **self.additional_match_options()}
+        result = self.feature_group_class().match_feature_group_criteria("my_result", Options(context=context), None)
+        return bool(result)
+
+    def test_operations_match_on_both_paths(self) -> None:
+        """Operations accepted by one path must be accepted by the other."""
+        operations = self.parity_operations()
+        if not operations:
+            pytest.skip("no parity_operations declared for this operation")
+        for operation in sorted(operations):
+            assert self._match_by_name(operation) is True, f"Name path should accept: {operation!r}"
+            assert self._match_by_config(operation) is True, f"Config path should accept: {operation!r}"
+
+    def test_malformed_operations_rejected_on_both_paths(self) -> None:
+        """Operations rejected by one path must be rejected by the other."""
+        operations = self.malformed_operations()
+        if not operations:
+            pytest.skip("no malformed_operations declared for this operation")
+        for operation in sorted(operations):
+            assert self._match_by_name(operation) is False, f"Name path should reject: {operation!r}"
+            assert self._match_by_config(operation) is False, f"Config path should reject: {operation!r}"
