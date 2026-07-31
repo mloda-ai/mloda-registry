@@ -10,6 +10,7 @@ import sys
 import tempfile
 import zipfile
 from pathlib import Path
+from typing import Any
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -23,12 +24,17 @@ PACKAGES_CONFIG = CONFIG_DIR / "packages.toml"
 _VALID_ENTRY_POINT_ATTRS = {"FEATURE_GROUPS", "COMPUTE_FRAMEWORKS", "EXTENDERS"}
 
 
-def load_packages_from_config() -> list[tuple[str, str]]:
-    """Return [(pkg_name, pyproject_path), ...] for every configured package, in config order."""
+def load_packages_config() -> dict[str, dict[str, Any]]:
+    """Return the raw [packages] table of config/packages.toml, in config order."""
     with open(PACKAGES_CONFIG, "rb") as f:
         data = tomllib.load(f)
-    packages = data.get("packages", {})
-    return [(name, f"{cfg['path']}/pyproject.toml") for name, cfg in packages.items()]
+    packages: dict[str, dict[str, Any]] = data.get("packages", {})
+    return packages
+
+
+def load_packages_from_config() -> list[tuple[str, str]]:
+    """Return [(pkg_name, pyproject_path), ...] for every configured package, in config order."""
+    return [(name, f"{cfg['path']}/pyproject.toml") for name, cfg in load_packages_config().items()]
 
 
 PACKAGES = load_packages_from_config()
@@ -198,6 +204,27 @@ def verify_entry_points(built_wheels: dict[str, Path]) -> list[str]:
     return errors
 
 
+def verify_py_typed_markers(built_wheels: dict[str, Path]) -> list[str]:
+    """Verify wheels of packages flagged ``py_typed = true`` ship their PEP 561 marker (issue #336).
+
+    Without ``<path>/py.typed`` in the wheel, a downstream ``mypy --strict`` ignores
+    every annotation the distribution ships.
+    """
+    errors: list[str] = []
+    packages = load_packages_config()
+
+    for pkg_name, wheel_path in built_wheels.items():
+        pkg_config = packages.get(pkg_name)
+        if pkg_config is None or not pkg_config.get("py_typed"):
+            continue
+
+        marker = f"{pkg_config['path']}/py.typed"
+        if marker not in get_wheel_files(wheel_path):
+            errors.append(f"{pkg_name}: wheel is missing {marker} (PEP 561 marker)")
+
+    return errors
+
+
 def verify_dependency_relationships(wheels: dict[str, Path]) -> list[str]:
     """Verify dependency relationships in built wheels.
 
@@ -333,6 +360,14 @@ def main() -> int:
             errors.extend(entry_point_errors)
         else:
             print("  ✓ entry points correct")
+
+        # Verify PEP 561 py.typed markers (issue #336)
+        print("\nVerifying py.typed markers...")
+        py_typed_errors = verify_py_typed_markers(built_wheels)
+        if py_typed_errors:
+            errors.extend(py_typed_errors)
+        else:
+            print("  ✓ py.typed markers present")
 
     # Verify PEP 420 source compliance (outside temp dir context)
     print("\nVerifying PEP 420 source compliance...")

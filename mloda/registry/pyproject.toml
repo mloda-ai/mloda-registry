@@ -25,5 +25,8 @@ Repository = "https://github.com/mloda-ai/mloda-registry"
 package-dir = {"" = "../.."}
 packages = ["mloda.registry"]
 
+[tool.setuptools.package-data]
+"mloda.registry" = ["py.typed"]
+
 [tool.uv.sources]
 mloda-testing = { workspace = true }
