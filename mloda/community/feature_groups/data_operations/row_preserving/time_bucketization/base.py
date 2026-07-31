@@ -45,7 +45,7 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
-from mloda.community.feature_groups.data_operations.base import is_op_token
+from mloda.community.feature_groups.data_operations.base import is_op_token, op_token_value
 
 TIME_BUCKETIZATION_OPS: dict[str, str] = {
     "floor": "Round timestamp down to the start of the enclosing bucket",
@@ -194,7 +194,7 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         op = feature.options.get(cls.BUCKET_OP)
         if op is None:
             raise ValueError(f"Could not extract bucket op for {feature_name}")
-        return str(op)
+        return op_token_value(op)
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         _feature_name = str(feature_name)

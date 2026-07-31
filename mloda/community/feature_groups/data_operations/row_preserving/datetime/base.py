@@ -12,7 +12,7 @@ from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
-from mloda.community.feature_groups.data_operations.base import is_op_token
+from mloda.community.feature_groups.data_operations.base import is_op_token, op_token_value
 
 DATETIME_OPS = {
     "year": "Extract year from datetime",
@@ -127,7 +127,7 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         op = feature.options.get(cls.DATETIME_OP)
         if op is None:
             raise ValueError(f"Could not extract datetime operation for {feature_name}")
-        return str(op)
+        return op_token_value(op)
 
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:

@@ -121,6 +121,29 @@ class TestConfigBasedFeatures:
         assert result is False
 
 
+class TestSingleTokenContainers:
+    """A single-element container holds exactly one aggregation token, so it must reach dispatch unwrapped."""
+
+    def _options(self, aggregation_type: Any) -> Options:
+        return Options(
+            context={
+                "aggregation_type": aggregation_type,
+                "in_features": "value_int",
+            }
+        )
+
+    @pytest.mark.parametrize("aggregation_type", ["sum", ("sum",), ["sum"]])
+    def test_single_element_aggregation_type(self, aggregation_type: Any) -> None:
+        """The bare token and its single-element container must dispatch identically."""
+        result = ScalarAggregateFeatureGroup.match_feature_group_criteria(
+            "my_result", self._options(aggregation_type), None
+        )
+        assert result is True, f"Config path should accept: {aggregation_type!r}"
+        feature = Feature("my_result", options=self._options(aggregation_type))
+        assert ScalarAggregateFeatureGroup._extract_aggregation_type(feature) == "sum"
+        assert ScalarAggregateFeatureGroup._resolve_agg_type("my_result", self._options(aggregation_type)) == "sum"
+
+
 class TestSingleColumnEnforcement:
     """Verify that MAX_IN_FEATURES=1 enforces single-column behavior.
 

@@ -13,7 +13,7 @@ from mloda.community.feature_groups.data_operations.aggregation_base import (
     AggregationFeatureGroupBase,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
-from mloda.community.feature_groups.data_operations.base import is_op_token
+from mloda.community.feature_groups.data_operations.base import is_op_token, op_token_value
 
 # Aggregation types that require an order_by column to be deterministic.
 _ORDER_DEPENDENT_AGG_TYPES = {"first", "last"}
@@ -184,7 +184,7 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
             return operation_config
         agg_type = options.get(cls.AGGREGATION_TYPE)
         if agg_type is not None:
-            return str(agg_type)
+            return op_token_value(agg_type)
         return None
 
     @classmethod

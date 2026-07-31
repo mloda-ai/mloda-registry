@@ -115,6 +115,26 @@ class TestConfigBasedFeatures:
         assert result is False
 
 
+class TestSingleTokenContainers:
+    """A single-element container holds exactly one datetime token, so it must reach dispatch unwrapped."""
+
+    def _options(self, datetime_op: Any) -> Options:
+        return Options(
+            context={
+                "datetime_op": datetime_op,
+                "in_features": "timestamp",
+            }
+        )
+
+    @pytest.mark.parametrize("datetime_op", ["year", ("year",), ["year"]])
+    def test_single_element_datetime_op(self, datetime_op: Any) -> None:
+        """The bare token and its single-element container must dispatch identically."""
+        result = DateTimeFeatureGroup.match_feature_group_criteria("my_result", self._options(datetime_op), None)
+        assert result is True, f"Config path should accept: {datetime_op!r}"
+        feature = Feature("my_result", options=self._options(datetime_op))
+        assert DateTimeFeatureGroup._extract_datetime_op(feature) == "year"
+
+
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type for deterministic ops.
 

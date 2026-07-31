@@ -49,14 +49,20 @@ _AGGREGATION_TYPES = frozenset({"sum", "avg", "count", "min", "max", "std", "var
 _TIME_UNITS = {"second", "minute", "hour", "day", "week", "month", "year"}
 
 
+def _frame_type_token(options: Options) -> str | None:
+    """The frame type as a bare token, unwrapped from its container; None when the option is absent."""
+    frame_type = options.get(_FRAME_TYPE_KEY)
+    return None if frame_type is None else op_token_value(frame_type)
+
+
 def _needs_frame_size(options: Options) -> bool:
     """Rolling and time frames are sized; cumulative and expanding are not."""
-    return options.get(_FRAME_TYPE_KEY) in ("rolling", "time")
+    return _frame_type_token(options) in ("rolling", "time")
 
 
 def _needs_frame_unit(options: Options) -> bool:
     """Only a time-interval frame carries a unit."""
-    return bool(options.get(_FRAME_TYPE_KEY) == "time")
+    return _frame_type_token(options) == "time"
 
 
 @functools.lru_cache(maxsize=1024)

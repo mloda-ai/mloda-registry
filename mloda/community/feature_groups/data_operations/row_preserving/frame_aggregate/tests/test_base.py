@@ -13,6 +13,8 @@ from mloda.user import DataType, Feature
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
     _AGGREGATION_TYPES,
+    _needs_frame_size,
+    _needs_frame_unit,
 )
 
 
@@ -479,6 +481,47 @@ class TestSingleTokenContainers:
             "my_result", self._options(aggregation_type=aggregation_type), None
         )
         assert result is False, f"Config path should reject: {aggregation_type!r}"
+
+
+class TestSingleTokenFrameTypeRequirements:
+    """The conditional-requirement predicates read frame_type raw, so a wrapped token must behave like a bare one."""
+
+    @pytest.mark.parametrize(
+        "frame_type",
+        ["rolling", ("rolling",), ["rolling"], "time", ("time",), ["time"]],
+    )
+    def test_sized_frame_types_need_frame_size(self, frame_type: Any) -> None:
+        assert _needs_frame_size(Options(context={"frame_type": frame_type})) is True
+
+    @pytest.mark.parametrize(
+        "frame_type",
+        ["cumulative", ("cumulative",), ["cumulative"], "expanding", ("expanding",), ["expanding"]],
+    )
+    def test_unsized_frame_types_do_not_need_frame_size(self, frame_type: Any) -> None:
+        assert _needs_frame_size(Options(context={"frame_type": frame_type})) is False
+
+    @pytest.mark.parametrize("frame_type", ["time", ("time",), ["time"]])
+    def test_time_frame_type_needs_frame_unit(self, frame_type: Any) -> None:
+        assert _needs_frame_unit(Options(context={"frame_type": frame_type})) is True
+
+    @pytest.mark.parametrize("frame_type", ["rolling", ("rolling",), ["rolling"]])
+    def test_non_time_frame_type_does_not_need_frame_unit(self, frame_type: Any) -> None:
+        assert _needs_frame_unit(Options(context={"frame_type": frame_type})) is False
+
+    @pytest.mark.parametrize("frame_type", ["rolling", ("rolling",), ["rolling"]])
+    def test_sized_frame_without_frame_size_rejected(self, frame_type: Any) -> None:
+        """A sized frame with no frame_size is a non-match, wrapped token or not."""
+        options = Options(
+            context={
+                "aggregation_type": "sum",
+                "frame_type": frame_type,
+                "in_features": "sales",
+                "partition_by": ["region"],
+                "order_by": "timestamp",
+            }
+        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False, f"Config path should reject a sized frame without frame_size: {frame_type!r}"
 
 
 class TestHostileInFeatures:

@@ -147,6 +147,28 @@ class TestConfigBasedFeatures:
         assert result is False
 
 
+class TestSingleTokenContainers:
+    """A single-element container holds exactly one arithmetic token, so it must reach dispatch unwrapped."""
+
+    def _options(self, arithmetic_op: Any) -> Options:
+        return Options(
+            context={
+                "arithmetic_op": arithmetic_op,
+                "in_features": ["value_int", "amount"],
+            }
+        )
+
+    @pytest.mark.parametrize("arithmetic_op", ["add", ("add",), ["add"]])
+    def test_single_element_arithmetic_op(self, arithmetic_op: Any) -> None:
+        """The bare token and its single-element container must dispatch identically."""
+        result = PointArithmeticFeatureGroup.match_feature_group_criteria(
+            "my_result", self._options(arithmetic_op), None
+        )
+        assert result is True, f"Config path should accept: {arithmetic_op!r}"
+        feature = Feature("my_result", options=self._options(arithmetic_op))
+        assert PointArithmeticFeatureGroup._extract_arithmetic_op(feature) == "add"
+
+
 class TestTwoColumnEnforcement:
     """Verify that MIN_IN_FEATURES=2 / MAX_IN_FEATURES=2 enforces two-column behavior."""
 

@@ -266,6 +266,41 @@ class TestConfigBasedFeatures:
         assert result_col == expected
 
 
+class TestSingleTokenContainers:
+    """A single-element container holds exactly one aggregation token, so it must reach dispatch unwrapped."""
+
+    def _options(self, **overrides: Any) -> Options:
+        context: dict[str, Any] = {
+            "aggregation_type": "sum",
+            "in_features": "value_int",
+            "partition_by": ["region"],
+        }
+        context.update(overrides)
+        return Options(context=context)
+
+    @pytest.mark.parametrize("aggregation_type", ["sum", ("sum",), ["sum"]])
+    def test_single_element_aggregation_type(self, aggregation_type: Any) -> None:
+        """The bare token and its single-element container must dispatch identically."""
+        options = self._options(aggregation_type=aggregation_type)
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is True, f"Config path should accept: {aggregation_type!r}"
+        feature = Feature("my_result", options=options)
+        assert WindowAggregationFeatureGroup._extract_aggregation_type(feature) == "sum"
+        assert WindowAggregationFeatureGroup._resolve_agg_type("my_result", options) == "sum"
+
+    @pytest.mark.parametrize("aggregation_type", ["first", ("first",), ["first"]])
+    def test_single_element_order_dependent_agg_type_requires_order_by(self, aggregation_type: Any) -> None:
+        """first/last need order_by, and a wrapped token must trigger that requirement just like a bare one."""
+        without_order_by = self._options(aggregation_type=aggregation_type)
+        assert WindowAggregationFeatureGroup._resolve_agg_type("my_result", without_order_by) == "first"
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", without_order_by, None)
+        assert result is False, f"Config path should reject without order_by: {aggregation_type!r}"
+
+        with_order_by = self._options(aggregation_type=aggregation_type, order_by="timestamp")
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", with_order_by, None)
+        assert result is True, f"Config path should accept with order_by: {aggregation_type!r}"
+
+
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type only for deterministic ops.
 

@@ -153,6 +153,27 @@ class TestConfigBasedFeatures:
         assert result is False
 
 
+class TestSingleTokenContainers:
+    """A single-element container holds exactly one binning token, so it must reach dispatch unwrapped."""
+
+    def _options(self, binning_op: Any) -> Options:
+        return Options(
+            context={
+                "binning_op": binning_op,
+                "n_bins": 5,
+                "in_features": "value_int",
+            }
+        )
+
+    @pytest.mark.parametrize("binning_op", ["bin", ("bin",), ["bin"]])
+    def test_single_element_binning_op(self, binning_op: Any) -> None:
+        """The bare token and its single-element container must dispatch identically."""
+        result = BinningFeatureGroup.match_feature_group_criteria("my_result", self._options(binning_op), None)
+        assert result is True, f"Config path should accept: {binning_op!r}"
+        feature = Feature("my_result", options=self._options(binning_op))
+        assert BinningFeatureGroup._extract_binning_params(feature) == ("bin", 5)
+
+
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type for deterministic ops.
 
