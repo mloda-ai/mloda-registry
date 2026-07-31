@@ -5,6 +5,7 @@ portions that ``discover_packages`` misses."""
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 import zipfile
 from collections.abc import Callable
@@ -22,9 +23,14 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
 _VERIFY_BUILDS_PATH = _REPO_ROOT / "scripts" / "verify_builds.py"
+_RELEASE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "release.yaml"
 
-# The distributions whose wheels must carry a PEP 561 marker.
-_TYPED_PACKAGES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterprise"]
+# The bundle distributions, always part of the released set.
+_BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterprise"]
+
+# The distributions whose wheels must carry a PEP 561 marker. mypy returns at the first py.typed on the
+# module path, so the two ancestor markers also type the leaf distributions shipped from below them.
+_TYPED_PACKAGES = [*_BUNDLES, "mloda-community-data-operations", "mloda-community-example"]
 
 
 def _load_module(name: str, path: Path) -> ModuleType:
@@ -51,6 +57,32 @@ def _dotted_path(pkg_name: str) -> str:
     """Dotted import path of a configured package."""
     path: str = _packages()[pkg_name]["path"]
     return path.replace("/", ".")
+
+
+def _published_packages() -> list[str]:
+    """Distribution names built by the ``packages=( ... )`` array of the release workflow."""
+    match = re.search(r"packages=\(\n(.*?)\n\s*\)\n", _RELEASE_WORKFLOW.read_text(), re.DOTALL)
+    assert match is not None, f"{_RELEASE_WORKFLOW}: no 'packages=( ... )' build array found"
+    names = re.findall(r'"([^"]+)"', match.group(1))
+    assert names, f"{_RELEASE_WORKFLOW}: 'packages=( ... )' holds no quoted distribution names"
+    assert set(_BUNDLES) <= set(names), (
+        f"{_RELEASE_WORKFLOW}: build array lost bundles {sorted(set(_BUNDLES) - set(names))}"
+    )
+    return names
+
+
+def _dependency_closure(pkg_name: str, packages: dict[str, dict[str, Any]]) -> set[str]:
+    """Configured packages transitively reachable through ``dependencies``, extras excluded."""
+    seen: set[str] = set()
+    queue = [pkg_name]
+    while queue:
+        for dep in packages.get(queue.pop(), {}).get("dependencies", []):
+            match = re.match(r"[A-Za-z0-9._-]+", dep)
+            name = match.group(0) if match else ""
+            if name in packages and name not in seen:
+                seen.add(name)
+                queue.append(name)
+    return seen
 
 
 def _setuptools_table(source: str, content: str) -> dict[str, Any]:
@@ -137,6 +169,27 @@ def test_package_data_is_emitted_only_for_flagged_packages() -> None:
             f"{pkg_name}: package-data table present={'package-data' in table}, "
             f"but py_typed is {pkg_config.get('py_typed')!r}"
         )
+
+
+@pytest.mark.parametrize("pkg_name", _published_packages())
+def test_every_published_distribution_has_a_typed_ancestor(pkg_name: str) -> None:
+    """``test_package_data_is_emitted_only_for_flagged_packages`` pins the flagged set, so a newly published
+    package can ship untyped without failing it."""
+    packages = _packages()
+    pkg_path: str = packages[pkg_name]["path"]
+    reachable = {pkg_name} | _dependency_closure(pkg_name, packages)
+    typed = {name: cfg["path"] for name, cfg in packages.items() if cfg.get("py_typed")}
+
+    covering = [
+        name
+        for name, typed_path in typed.items()
+        if name in reachable and (pkg_path == typed_path or pkg_path.startswith(typed_path + "/"))
+    ]
+    assert covering, (
+        f"{pkg_name} ({pkg_path}) ships untyped: none of its own or dependency-reachable packages carries a "
+        f"py.typed at or above that path. It needs either 'py_typed = true' plus a committed "
+        f"{pkg_path}/py.typed, or a dependency on a package that already ships an ancestor marker."
+    )
 
 
 def _write_wheel(path: Path, names: list[str]) -> Path:

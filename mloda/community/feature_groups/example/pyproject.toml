@@ -28,3 +28,6 @@ mloda-community-example = "mloda.community.feature_groups.example.manifest:FEATU
 [tool.setuptools]
 package-dir = {"" = "../../../.."}
 packages = ["mloda.community.feature_groups.example"]
+
+[tool.setuptools.package-data]
+"mloda.community.feature_groups.example" = ["py.typed"]

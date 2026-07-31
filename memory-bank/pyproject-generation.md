@@ -58,7 +58,7 @@ optional_dependencies = { dev = ["mloda-testing", "pytest"] }
 | `entry_point_bundle` | No | `true` on bundle packages (`mloda-community`, `mloda-enterprise`); aggregates the entry points of every nested plugin package under its path. Mutually exclusive with `entry_point_groups` |
 | `py_typed` | No | `true` adds the dotted path to `packages` (what ships the marker) and emits `[tool.setuptools.package-data]` for it. Requires a committed `<path>/py.typed`. Mutually exclusive with `workspace_deps` |
 
-A marker on a namespace portion (`mloda/community`, `mloda/enterprise`) declares that whole namespace typed, including third-party distributions installed into it.
+A marker on a namespace portion (`mloda/community`, `mloda/enterprise`) declares that whole namespace typed, including third-party distributions installed into it. mypy returns at the first `py.typed` on the module path, so a marker on a shared base package (`mloda/community/feature_groups/data_operations`, `mloda/community/feature_groups/example`) types every distribution published from below it, and those leaf packages need no flag of their own. The leaf's typing then depends on the marker-shipping base being installed, so its dependency floor has to be at or above the release that first shipped the marker.
 
 **Generator infers:**
 - `license` from path (`mloda/enterprise/*` → proprietary, else default)

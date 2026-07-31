@@ -41,6 +41,7 @@ dependencies = ["{core_dependency}"]
 path = "mloda/community/feature_groups/example"
 optional_dependencies = { all = ["mloda-community-example-a", "mloda-community-example-b"] }
 entry_point_groups = ["mloda.feature_groups"]
+py_typed = true
 
 [packages.mloda-enterprise-example]
 description = "Example enterprise FeatureGroup plugin for mloda"
@@ -91,6 +92,7 @@ description = "Shared base classes for data operation feature groups"
 dependencies = ["{core_dependency}"]
 path = "mloda/community/feature_groups/data_operations"
 optional_dependencies = { all = ["mloda-community-window-aggregation", "mloda-community-aggregation", "mloda-community-rank", "mloda-community-offset", "mloda-community-frame-aggregate", "mloda-community-scalar-aggregate", "mloda-community-scalar-arithmetic", "mloda-community-point-arithmetic", "mloda-community-datetime", "mloda-community-string", "mloda-community-binning", "mloda-community-percentile", "mloda-community-time-bucketization", "mloda-community-ffill", "mloda-community-ema", "mloda-community-sessionization", "mloda-community-resample"] }
+py_typed = true
 
 [packages.mloda-community-aggregation]
 description = "Aggregation feature group (reduce, partition_by, one row per group)"
