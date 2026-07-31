@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
@@ -431,56 +431,6 @@ class TestNameBasedFrameTypeInOptions:
         assert result is True
 
 
-class TestSingleTokenContainers:
-    """A single-element container holds exactly one token, so it must reach dispatch unwrapped."""
-
-    def _options(self, **overrides: Any) -> Options:
-        context: dict[str, Any] = {
-            "aggregation_type": "sum",
-            "frame_type": "rolling",
-            "frame_size": 3,
-            "in_features": "sales",
-            "partition_by": ["region"],
-            "order_by": "timestamp",
-        }
-        context.update(overrides)
-        return Options(context=context)
-
-    @pytest.mark.parametrize("aggregation_type", [("sum",), ["sum"]])
-    def test_single_element_aggregation_type(self, aggregation_type: Any) -> None:
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(aggregation_type=aggregation_type), None
-        )
-        assert result is True, f"Config path should accept: {aggregation_type!r}"
-        feature = Feature("my_result", options=self._options(aggregation_type=aggregation_type))
-        assert FrameAggregateFeatureGroup._extract_params(feature)["agg_type"] == "sum"
-
-    @pytest.mark.parametrize("frame_type", [("rolling",), ["rolling"]])
-    def test_single_element_frame_type(self, frame_type: Any) -> None:
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(frame_type=frame_type), None
-        )
-        assert result is True, f"Config path should accept: {frame_type!r}"
-        feature = Feature("my_result", options=self._options(frame_type=frame_type))
-        assert FrameAggregateFeatureGroup._extract_params(feature)["frame_type"] == "rolling"
-
-    @pytest.mark.parametrize("frame_unit", [("day",), ["day"]])
-    def test_single_element_frame_unit(self, frame_unit: Any) -> None:
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(frame_type="time", frame_size=7, frame_unit=frame_unit), None
-        )
-        assert result is True, f"Config path should accept: {frame_unit!r}"
-        feature = Feature("my_result", options=self._options(frame_type="time", frame_size=7, frame_unit=frame_unit))
-        assert FrameAggregateFeatureGroup._extract_params(feature)["frame_unit"] == "day"
-
-    @pytest.mark.parametrize("aggregation_type", [["sum", "max"], ("sum", "max")])
-    def test_multi_element_aggregation_type_rejected(self, aggregation_type: Any) -> None:
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(aggregation_type=aggregation_type), None
-        )
-        assert result is False, f"Config path should reject: {aggregation_type!r}"
-
-
 class TestHostileInFeatures:
     """A hostile in_features value is a plain non-match; no exception may escape the matcher."""
 
@@ -668,10 +618,27 @@ class TestFrameAggregateMatchValidation(MatchValidationTestBase):
         return Options(context={"partition_by": ["region"], "order_by": "timestamp"})
 
     @classmethod
-    def parity_operations(cls) -> set[str]:
-        # No parametric family here: the fixed aggregation types are the whole value space.
-        return set(_AGGREGATION_TYPES)
-
-    @classmethod
     def malformed_operations(cls) -> set[str]:
         return {"banana", "mode", "nunique", "first"}
+
+    @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        # frame_type and frame_unit are operation tokens of their own, and frame_type is what
+        # _needs_frame_size / _needs_frame_unit read to decide which of the two a state requires.
+        return [
+            *super().token_cases(),
+            TokenCase("frame_type", "rolling", "time"),
+            TokenCase("frame_unit", "day", "week", context={"frame_type": "time"}),
+            # Sized frames require frame_size, unsized ones do not.
+            TokenCase("frame_type", "rolling", without=("frame_size",), matches=False),
+            TokenCase("frame_type", "time", without=("frame_size",), matches=False),
+            TokenCase("frame_type", "cumulative", without=("frame_size",)),
+            TokenCase("frame_type", "expanding", without=("frame_size",)),
+            # Only a time frame requires frame_unit, which additional_match_options() does not carry.
+            TokenCase("frame_type", "time", matches=False),
+        ]
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        params = FrameAggregateFeatureGroup._extract_params(Feature("my_result", options=options))
+        return [params["agg_type"], params["frame_type"], params["frame_unit"]]

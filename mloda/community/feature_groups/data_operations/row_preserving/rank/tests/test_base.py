@@ -316,32 +316,6 @@ class TestConfigBasedParametricRankTypes:
         assert result is False, f"Config path should reject: {rank_type!r}"
 
 
-class TestSingleTokenContainers:
-    """A single-element container holds exactly one rank token, so it must reach dispatch unwrapped."""
-
-    def _options(self, rank_type: Any) -> Options:
-        return Options(
-            context={
-                "rank_type": rank_type,
-                "in_features": "value_int",
-                "partition_by": ["region"],
-                "order_by": "value_int",
-            }
-        )
-
-    @pytest.mark.parametrize("rank_type", [("ntile_4",), ["ntile_4"]])
-    def test_single_element_rank_type(self, rank_type: Any) -> None:
-        result = RankFeatureGroup.match_feature_group_criteria("my_result", self._options(rank_type), None)
-        assert result is True, f"Config path should accept: {rank_type!r}"
-        feature = Feature("my_result", options=self._options(rank_type))
-        assert RankFeatureGroup._extract_rank_type(feature) == "ntile_4"
-
-    @pytest.mark.parametrize("rank_type", [["ntile_4", "top_5"], ("ntile_4", "top_5")])
-    def test_multi_element_rank_type_rejected(self, rank_type: Any) -> None:
-        result = RankFeatureGroup.match_feature_group_criteria("my_result", self._options(rank_type), None)
-        assert result is False, f"Config path should reject: {rank_type!r}"
-
-
 class TestDigitLikeRankSuffixes:
     """A suffix that str.isdigit accepts is not automatically an int; both paths must reject it without raising."""
 
@@ -464,8 +438,14 @@ class TestRankMatchValidation(MatchValidationTestBase):
 
     @classmethod
     def parity_operations(cls) -> set[str]:
-        return {"row_number", "percent_rank", "ntile_4", "top_5", "bottom_3"}
+        # Widen, never narrow: valid_operations() covers the fixed rank types only, so add one
+        # instance of each parametric family (ntile_N / top_N / bottom_N) on top of it.
+        return cls.valid_operations() | {"ntile_4", "top_5", "bottom_3"}
 
     @classmethod
     def malformed_operations(cls) -> set[str]:
         return {"ntile_0", "ntile_abc", "top_0", "bottom_0", "banana"}
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        return [RankFeatureGroup._extract_rank_type(Feature("my_result", options=options))]

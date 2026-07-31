@@ -284,3 +284,7 @@ class TestScalarArithmeticMatchValidation(MatchValidationTestBase):
     @classmethod
     def additional_match_options(cls) -> dict[str, Any]:
         return {"in_features": "value_int", "constant": 5}
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        return [ScalarArithmeticFeatureGroup._extract_arithmetic_op(Feature("my_result", options=options))]

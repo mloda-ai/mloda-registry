@@ -278,3 +278,11 @@ class TestScalarAggregateMatchValidation(MatchValidationTestBase):
     @classmethod
     def additional_match_options(cls) -> dict[str, Any]:
         return {"in_features": "value_int"}
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        feature = Feature("my_result", options=options)
+        return [
+            ScalarAggregateFeatureGroup._extract_aggregation_type(feature),
+            ScalarAggregateFeatureGroup._resolve_agg_type("my_result", options),
+        ]

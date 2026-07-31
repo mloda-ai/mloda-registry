@@ -292,5 +292,10 @@ class TestPercentileMatchValidation(MatchValidationTestBase):
         return Options(context={"partition_by": ["region"]})
 
     @classmethod
+    def config_value(cls, operation: str) -> Any:
+        # The name path uses pN tokens, the config path a float in [0.0, 1.0].
+        return int(operation[1:]) / 100.0
+
+    @classmethod
     def options_reject_invalid_types(cls) -> bool:
         return False

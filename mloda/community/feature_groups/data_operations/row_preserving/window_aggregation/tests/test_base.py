@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
@@ -312,4 +312,26 @@ class TestWindowAggregationMatchValidation(MatchValidationTestBase):
 
     @classmethod
     def additional_match_options(cls) -> dict[str, Any]:
-        return {"in_features": "value_int", "partition_by": ["region"]}
+        # order_by is required for first/last and harmless for the other types.
+        return {"in_features": "value_int", "partition_by": ["region"], "order_by": "timestamp"}
+
+    @classmethod
+    def pattern_match_options(cls) -> Options:
+        return Options(context={"partition_by": ["region"], "order_by": "timestamp"})
+
+    @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        # first/last are the aggregation types that require order_by.
+        return [
+            *super().token_cases(),
+            TokenCase(cls.config_key(), "first", without=("order_by",), matches=False),
+            TokenCase(cls.config_key(), "first"),
+        ]
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        feature = Feature("my_result", options=options)
+        return [
+            WindowAggregationFeatureGroup._extract_aggregation_type(feature),
+            WindowAggregationFeatureGroup._resolve_agg_type("my_result", options),
+        ]

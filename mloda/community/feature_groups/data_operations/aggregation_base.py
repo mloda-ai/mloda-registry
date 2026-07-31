@@ -24,6 +24,7 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import FeatureGroup
 
+from mloda.community.feature_groups.data_operations.base import op_token_value
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 
 AGGREGATION_TYPES: dict[str, str] = {
@@ -83,7 +84,7 @@ class AggregationFeatureGroupBase(SubtypeCapabilityHook, FeatureChainParserMixin
         agg_type = feature.options.get(cls.AGGREGATION_TYPE)
         if agg_type is None:
             raise ValueError(f"Could not extract aggregation type for {feature_name}")
-        return str(agg_type)
+        return op_token_value(agg_type)
 
     @classmethod
     def _resolve_agg_type(cls, feature_name: str, options: Options) -> str | None:
@@ -95,7 +96,7 @@ class AggregationFeatureGroupBase(SubtypeCapabilityHook, FeatureChainParserMixin
         if operation_config is not None:
             return operation_config
         agg_type = options.get(cls.AGGREGATION_TYPE)
-        return None if agg_type is None else str(agg_type)
+        return None if agg_type is None else op_token_value(agg_type)
 
     @classmethod
     def _capability_subtype(cls, feature_name: str, options: Options) -> str | None:

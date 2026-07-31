@@ -182,3 +182,7 @@ class TestStringMatchValidation(MatchValidationTestBase):
     @classmethod
     def additional_match_options(cls) -> dict[str, Any]:
         return {"in_features": "name"}
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        return [StringFeatureGroup._extract_string_op(Feature("my_result", options=options))]

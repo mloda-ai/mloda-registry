@@ -192,3 +192,8 @@ class TestBinningMatchValidation(MatchValidationTestBase):
     @classmethod
     def additional_match_options(cls) -> dict[str, Any]:
         return {"in_features": "value_int", "n_bins": 5}
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        binning_op, _ = BinningFeatureGroup._extract_binning_params(Feature("my_result", options=options))
+        return [binning_op]

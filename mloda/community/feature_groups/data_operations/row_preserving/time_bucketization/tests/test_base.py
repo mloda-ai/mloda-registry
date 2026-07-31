@@ -362,3 +362,7 @@ class TestTimeBucketizationMatchValidation(MatchValidationTestBase):
     @classmethod
     def additional_match_options(cls) -> dict[str, Any]:
         return {"in_features": "timestamp"}
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        return [TimeBucketizationFeatureGroup._extract_bucket_op(Feature("my_result", options=options))]

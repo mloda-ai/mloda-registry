@@ -25,6 +25,8 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.provider import FeatureGroup
 
+from mloda.community.feature_groups.data_operations.base import op_token_value
+
 ARITHMETIC_OP_NAMES: frozenset[str] = frozenset({"add", "subtract", "multiply", "divide"})
 
 #: Shared SQL operator map; both SQL backends (DuckDB and SQLite) alias this same object.
@@ -60,7 +62,7 @@ class ArithmeticFeatureGroupBase(FeatureChainParserMixin, FeatureGroup):
         op = feature.options.get(cls.ARITHMETIC_OP)
         if op is None:
             raise ValueError(f"Could not extract arithmetic operation for {feature_name}")
-        return str(op)
+        return op_token_value(op)
 
     @classmethod
     def _raise_non_numeric_source(cls, source_col: str, got: object) -> None:

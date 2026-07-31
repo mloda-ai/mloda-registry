@@ -348,3 +348,15 @@ class TestAggregationMatchValidation(MatchValidationTestBase):
     @classmethod
     def additional_match_options(cls) -> dict[str, Any]:
         return {"in_features": "value_int", "partition_by": ["region"]}
+
+    @classmethod
+    def pattern_match_options(cls) -> Options:
+        return Options(context={"partition_by": ["region"]})
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        feature = Feature("my_result", options=options)
+        return [
+            AggregationFeatureGroup._extract_aggregation_type(feature),
+            AggregationFeatureGroup._resolve_agg_type("my_result", options),
+        ]
