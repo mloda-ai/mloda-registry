@@ -347,4 +347,9 @@ class TestWindowAggregationMatchValidation(MatchValidationTestBase):
 
     @classmethod
     def additional_match_options(cls) -> dict[str, Any]:
-        return {"in_features": "value_int", "partition_by": ["region"]}
+        # order_by is required for first/last and harmless for the other types.
+        return {"in_features": "value_int", "partition_by": ["region"], "order_by": "timestamp"}
+
+    @classmethod
+    def pattern_match_options(cls) -> Options:
+        return Options(context={"partition_by": ["region"], "order_by": "timestamp"})

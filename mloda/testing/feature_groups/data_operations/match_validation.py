@@ -7,7 +7,7 @@ Provides ``MatchValidationTestBase`` with reusable test methods covering:
 - Special characters in the operation portion of feature names
 - Type confusion via Options (None, int, list)
 - Case sensitivity enforcement (lowercase only)
-- Declaration/dispatch drift between the name path and the config path (opt-in)
+- Declaration/dispatch drift between the name path and the config path
 
 Concrete test classes implement abstract methods to adapt these tests
 to each specific operation.
@@ -81,6 +81,15 @@ class MatchValidationTestBase:
         return Options()
 
     @classmethod
+    def config_value(cls, operation: str) -> Any:
+        """Map a name-path operation token to the value the config path expects.
+
+        Identity by default; override for families whose config vocabulary
+        differs from the feature name token (e.g. percentile's float).
+        """
+        return operation
+
+    @classmethod
     def options_reject_invalid_types(cls) -> bool:
         """Whether options-based matching rejects invalid operation types.
 
@@ -92,9 +101,10 @@ class MatchValidationTestBase:
     def parity_operations(cls) -> set[str]:
         """Operations that both the name path and the config path must accept.
 
-        Empty by default; override to opt in to the drift check.
+        Defaults to ``valid_operations()``; the drift check is opt-out, so
+        override only to narrow the set or to exempt an operation.
         """
-        return set()
+        return cls.valid_operations()
 
     @classmethod
     def malformed_operations(cls) -> set[str]:
@@ -187,7 +197,7 @@ class MatchValidationTestBase:
 
     def test_list_type_rejected(self) -> None:
         """A list as operation type in options must not match."""
-        valid_ops = list(self.valid_operations())[:2] or ["sum"]
+        valid_ops = [self.config_value(op) for op in list(self.valid_operations())[:2]] or ["sum"]
         context = {self.config_key(): valid_ops, **self.additional_match_options()}
         options = Options(context=context)
         result = self.feature_group_class().match_feature_group_criteria("my_result", options, None)
@@ -229,7 +239,7 @@ class MatchValidationTestBase:
 
     def _match_by_config(self, operation: str) -> bool:
         """Match verdict of the configuration-based path for the given operation."""
-        context = {self.config_key(): operation, **self.additional_match_options()}
+        context = {self.config_key(): self.config_value(operation), **self.additional_match_options()}
         result = self.feature_group_class().match_feature_group_criteria("my_result", Options(context=context), None)
         return bool(result)
 
