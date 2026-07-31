@@ -4,6 +4,7 @@ Run: python scripts/lint_docs.py
 Exit code: 1 if any issues found, 0 otherwise.
 """
 
+import ast
 import functools
 import re
 import sys
@@ -20,15 +21,27 @@ HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 
 CODE_BLOCK_RE = re.compile(r"^```", re.MULTILINE)
 
-# Spec fields that were removed from DefaultOptionKeys; the attribute access now raises AttributeError.
-RETIRED_OPTION_KEY_RE = re.compile(
-    r"\bDefaultOptionKeys\.(?:explanation|allowed_values|default|strict_validation"
-    r"|element_validator|required_when|match_guard)\b"
+# Spec fields DefaultOptionKeys must not be used for: six are gone from the unreleased core, and ``explanation``
+# was never a member at all. ``context``, ``group`` and ``in_features`` survive and must never be flagged.
+RETIRED_SPEC_FIELDS = frozenset(
+    {
+        "explanation",
+        "allowed_values",
+        "default",
+        "strict_validation",
+        "element_validator",
+        "required_when",
+        "match_guard",
+    }
 )
 
-PROPERTY_MAPPING_OPEN_RE = re.compile(r"\bPROPERTY_MAPPING\b[^{]*\{")
+RETIRED_OPTION_KEY_RE = re.compile(rf"\bDefaultOptionKeys\.(?:{'|'.join(sorted(RETIRED_SPEC_FIELDS))})\b")
 
-RAW_DICT_VALUE_RE = re.compile(r":\s*\{")
+PROPERTY_MAPPING_NAME = "PROPERTY_MAPPING"
+
+OPTION_KEYS_NAME = "DefaultOptionKeys"
+
+PYTHON_FENCE_TAGS = frozenset({"python", "py"})
 
 INDEX_FILENAME = "index.md"
 
@@ -196,36 +209,120 @@ def check_bare_fence_openers(md_file: Path, content: str) -> list[str]:
     return errors
 
 
-def check_retired_property_spec_spellings(md_file: Path, content: str) -> list[str]:
-    """Flag retired PROPERTY_MAPPING spellings (removed DefaultOptionKeys fields, raw dict values) inside fences."""
-    errors = []
-    in_block = False
-    depth = 0
-    parens = 0
+def _python_fences(content: str) -> list[tuple[int, str]]:
+    """Return (opener line number, body) for every ```python / ```py fence.
+
+    The opener line number doubles as the offset: a body line ``n`` is file line ``offset + n``.
+    """
+    fences: list[tuple[int, str]] = []
+    opener_lineno = 0
+    is_python = False
+    body: list[str] = []
     for lineno, line in enumerate(content.splitlines(), start=1):
         if line.startswith("```"):
-            in_block = not in_block
-            depth = 0
-            parens = 0
+            if opener_lineno:
+                if is_python:
+                    fences.append((opener_lineno, "\n".join(body)))
+                opener_lineno = 0
+                body = []
+            else:
+                opener_lineno = lineno
+                info = line[3:].strip().lower().split()
+                is_python = bool(info) and info[0] in PYTHON_FENCE_TAGS
             continue
-        if not in_block:
+        if opener_lineno:
+            body.append(line)
+    if opener_lineno and is_python:
+        fences.append((opener_lineno, "\n".join(body)))
+    return fences
+
+
+def _parse_python(source: str) -> ast.Module | None:
+    """Parse a fence body; None when it is a fragment rather than a whole module."""
+    try:
+        return ast.parse(source)
+    except SyntaxError:
+        return None
+
+
+def _property_mapping_value(node: ast.AST) -> ast.Dict | None:
+    """Return the dict literal assigned to PROPERTY_MAPPING by node, if that is what node does."""
+    targets: list[ast.expr]
+    value: ast.expr | None
+    if isinstance(node, ast.Assign):
+        targets, value = node.targets, node.value
+    elif isinstance(node, ast.AnnAssign):
+        targets, value = [node.target], node.value
+    else:
+        return None
+    if not isinstance(value, ast.Dict):
+        return None
+    if any(isinstance(target, ast.Name) and target.id == PROPERTY_MAPPING_NAME for target in targets):
+        return value
+    return None
+
+
+def _retired_key_error(md_file: Path, line: int, spelling: str) -> tuple[int, str]:
+    return line, f"{md_file}:{line}: retired spelling {spelling} (use property_spec(...) instead)"
+
+
+def _raw_dict_error(md_file: Path, line: int) -> tuple[int, str]:
+    return line, f"{md_file}:{line}: raw dict PROPERTY_MAPPING value (use property_spec(...) instead)"
+
+
+def _parsed_fence_errors(md_file: Path, offset: int, tree: ast.Module) -> list[tuple[int, str]]:
+    """Collect (file line, message) pairs from a parsed fence."""
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr in RETIRED_SPEC_FIELDS
+            and isinstance(node.value, ast.Name)
+            and node.value.id == OPTION_KEYS_NAME
+        ):
+            spelling = f"{OPTION_KEYS_NAME}.{node.attr}"
+            found.append(_retired_key_error(md_file, offset + node.lineno, spelling))
+        mapping = _property_mapping_value(node)
+        if mapping is None:
             continue
-        for match in RETIRED_OPTION_KEY_RE.finditer(line):
-            errors.append(f"{md_file}:{lineno}: retired spelling {match.group(0)} (use property_spec(...) instead)")
-        if depth == 0:
-            if PROPERTY_MAPPING_OPEN_RE.search(line):
-                depth = max(line.count("{") - line.count("}"), 0)
-                parens = line.count("(") - line.count(")") if depth else 0
+        for value in mapping.values:
+            if isinstance(value, ast.Dict):
+                found.append(_raw_dict_error(md_file, offset + value.lineno))
+    return found
+
+
+def _textual_retired_option_keys(md_file: Path, offset: int, source: str) -> list[tuple[int, str]]:
+    """Fallback for fences that do not parse: the attribute spelling only, never the dict shape."""
+    found: list[tuple[int, str]] = []
+    for lineno, body_line in enumerate(source.splitlines(), start=1):
+        for match in RETIRED_OPTION_KEY_RE.finditer(body_line):
+            found.append(_retired_key_error(md_file, offset + lineno, match.group(0)))
+    return found
+
+
+def check_retired_property_spec_spellings(md_file: Path, content: str) -> list[str]:
+    """Flag retired PROPERTY_MAPPING spellings (removed DefaultOptionKeys fields, raw dict values) in python fences.
+
+    Each ```python / ```py fence is parsed with ``ast``, so string literals, comments and
+    line breaks cannot fool either check. Other languages are documentation, not code, and
+    are skipped.
+
+    Known limitations:
+    - tilde fences (``~~~``) and indented fences are not recognized, the same blind spot
+      ``check_bare_fence_openers`` documents.
+    - indirection hides a spec: ``PROPERTY_MAPPING = {"a": OP_SPEC}``, ``dict(explanation=...)``,
+      or a mapping built under another name and only later assigned.
+    - a fence that does not parse (a fragment) keeps the DefaultOptionKeys scan textually, so
+      there the spelling is caught inside strings and comments too, and the dict shape not at all.
+    """
+    found: list[tuple[int, str]] = []
+    for offset, source in _python_fences(content):
+        tree = _parse_python(source)
+        if tree is None:
+            found.extend(_textual_retired_option_keys(md_file, offset, source))
             continue
-        # Only entries directly under PROPERTY_MAPPING count; parens > 0 means we are inside a property_spec(...) call.
-        if depth == 1 and parens == 0 and RAW_DICT_VALUE_RE.search(line):
-            errors.append(f"{md_file}:{lineno}: raw dict PROPERTY_MAPPING value (use property_spec(...) instead)")
-        depth += line.count("{") - line.count("}")
-        parens += line.count("(") - line.count(")")
-        if depth <= 0:
-            depth = 0
-            parens = 0
-    return errors
+        found.extend(_parsed_fence_errors(md_file, offset, tree))
+    return [message for _, message in sorted(found, key=lambda item: item[0])]
 
 
 def main() -> int:

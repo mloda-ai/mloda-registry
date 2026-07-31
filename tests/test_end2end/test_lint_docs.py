@@ -210,7 +210,8 @@ def test_check_internal_imports_ignores_prose_match(tmp_path: Path) -> None:
     assert lint_docs.check_internal_imports(md_file, content) == []
 
 
-# Spec fields that are no longer DefaultOptionKeys members: the attribute access raises AttributeError.
+# Spec-field spellings that DefaultOptionKeys must not be used for: they are gone from the unreleased core,
+# and ``explanation`` was never a member at all (the attribute access already raises AttributeError on 0.10.0).
 RETIRED_SPEC_FIELDS = [
     "explanation",
     "allowed_values",
@@ -317,6 +318,179 @@ def test_check_retired_property_spec_spellings_accepts_in_features_mapping_key(t
         "        context=True,\n"
         "    ),\n"
         "}\n"
+        "```\n"
+    )
+    _write(md_file, content)
+    assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
+
+
+def test_check_retired_property_spec_spellings_flags_single_line_raw_dict(tmp_path: Path) -> None:
+    """A raw dict value written entirely on the PROPERTY_MAPPING opener line is still a raw dict."""
+    md_file = tmp_path / "a.md"
+    content = '# A\n\n```python\nPROPERTY_MAPPING = {"operation_type": {"explanation": "Arithmetic operation"}}\n```\n'
+    _write(md_file, content)
+    errors = lint_docs.check_retired_property_spec_spellings(md_file, content)
+    assert len(errors) == 1
+    assert errors[0].startswith(f"{md_file}:4:")
+    assert "property_spec" in errors[0]
+
+
+def test_check_retired_property_spec_spellings_flags_raw_dict_opened_on_mapping_line(tmp_path: Path) -> None:
+    """The first entry may open on the opener line and close later; it must still be checked."""
+    md_file = tmp_path / "a.md"
+    content = (
+        "# A\n"
+        "\n"
+        "```python\n"
+        'PROPERTY_MAPPING = {"operation_type": {\n'
+        '    "explanation": "Arithmetic operation",\n'
+        "}}\n"
+        "```\n"
+    )
+    _write(md_file, content)
+    errors = lint_docs.check_retired_property_spec_spellings(md_file, content)
+    assert len(errors) == 1
+    assert errors[0].startswith(f"{md_file}:4:")
+    assert "property_spec" in errors[0]
+
+
+def test_check_retired_property_spec_spellings_flags_raw_dict_after_paren_in_string(tmp_path: Path) -> None:
+    """An unbalanced paren inside a string literal must not hide the following raw dict entry."""
+    md_file = tmp_path / "a.md"
+    content = (
+        "# A\n"
+        "\n"
+        "```python\n"
+        "PROPERTY_MAPPING = {\n"
+        '    "a": property_spec("mismatched ( paren in text"),\n'
+        '    "b": {"explanation": "raw"},\n'
+        "}\n"
+        "```\n"
+    )
+    _write(md_file, content)
+    errors = lint_docs.check_retired_property_spec_spellings(md_file, content)
+    assert len(errors) == 1
+    assert errors[0].startswith(f"{md_file}:6:")
+    assert "property_spec" in errors[0]
+
+
+def test_check_retired_property_spec_spellings_flags_raw_dict_after_brace_in_string(tmp_path: Path) -> None:
+    """An unbalanced brace inside a string literal must not hide the following raw dict entry."""
+    md_file = tmp_path / "a.md"
+    content = (
+        "# A\n"
+        "\n"
+        "```python\n"
+        "PROPERTY_MAPPING = {\n"
+        '    "a": property_spec(r"pattern with a { brace"),\n'
+        '    "b": {"explanation": "raw"},\n'
+        "}\n"
+        "```\n"
+    )
+    _write(md_file, content)
+    errors = lint_docs.check_retired_property_spec_spellings(md_file, content)
+    assert len(errors) == 1
+    assert errors[0].startswith(f"{md_file}:6:")
+    assert "property_spec" in errors[0]
+
+
+def test_check_retired_property_spec_spellings_accepts_colon_brace_inside_string(tmp_path: Path) -> None:
+    """``: {`` inside an explanation string is prose, not a raw dict value."""
+    md_file = tmp_path / "a.md"
+    content = (
+        '# A\n\n```python\nPROPERTY_MAPPING = {\n    "fmt": property_spec("Template, e.g. {col}: {value}"),\n}\n```\n'
+    )
+    _write(md_file, content)
+    assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
+
+
+def test_check_retired_property_spec_spellings_accepts_colon_brace_in_comment(tmp_path: Path) -> None:
+    """``: {`` inside a trailing comment is not a raw dict value either."""
+    md_file = tmp_path / "a.md"
+    content = (
+        "# A\n"
+        "\n"
+        "```python\n"
+        "PROPERTY_MAPPING = {\n"
+        '    "op": property_spec("Arithmetic"),  # shape: {value: doc}\n'
+        "}\n"
+        "```\n"
+    )
+    _write(md_file, content)
+    assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
+
+
+def test_check_retired_property_spec_spellings_accepts_nested_dict_in_kwarg(tmp_path: Path) -> None:
+    """A dict nested inside a ``property_spec(...)`` kwarg is not a PROPERTY_MAPPING value."""
+    md_file = tmp_path / "a.md"
+    content = (
+        "# A\n"
+        "\n"
+        "```python\n"
+        "PROPERTY_MAPPING = {\n"
+        '    "op": property_spec("Arithmetic", allowed_values={"add": {"alias": "plus"}}),\n'
+        "}\n"
+        "```\n"
+    )
+    _write(md_file, content)
+    assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
+
+
+def test_check_retired_property_spec_spellings_ignores_non_python_fence(tmp_path: Path) -> None:
+    """A ```text fence quoting a migration message is documentation, not code: skip both checks."""
+    md_file = tmp_path / "a.md"
+    content = (
+        "# A\n"
+        "\n"
+        "```text\n"
+        "AttributeError: DefaultOptionKeys.allowed_values does not exist on the unreleased core.\n"
+        "The old shape was: PROPERTY_MAPPING = {\n"
+        '    "operation_type": {"explanation": "Arithmetic operation"},\n'
+        "}\n"
+        "```\n"
+    )
+    _write(md_file, content)
+    assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
+
+
+def test_check_retired_property_spec_spellings_scans_py_alias_fence(tmp_path: Path) -> None:
+    """```py is a python fence too, so both checks still apply inside it."""
+    md_file = tmp_path / "a.md"
+    content = (
+        "# A\n"
+        "\n"
+        "```py\n"
+        "PROPERTY_MAPPING = {\n"
+        '    "operation_type": {"explanation": "Arithmetic operation"},\n'
+        "}\n"
+        "key = DefaultOptionKeys.allowed_values\n"
+        "```\n"
+    )
+    _write(md_file, content)
+    errors = lint_docs.check_retired_property_spec_spellings(md_file, content)
+    assert len(errors) == 2
+    assert any(err.startswith(f"{md_file}:5:") and "property_spec" in err for err in errors)
+    assert any("DefaultOptionKeys.allowed_values" in err for err in errors)
+
+
+def test_check_retired_property_spec_spellings_tolerates_unparseable_fence(tmp_path: Path) -> None:
+    """Guide snippets are often fragments: a bare dict body must not raise and must not be read as a raw dict."""
+    md_file = tmp_path / "a.md"
+    content = '# A\n\n```python\n    "aggregation_type": ...,\n    "order_by": property_spec("x"),\n```\n'
+    _write(md_file, content)
+    assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
+
+
+def test_check_retired_property_spec_spellings_tolerates_truncated_mapping_fence(tmp_path: Path) -> None:
+    """A mapping cut off before its closing brace must not fall back to a scan that misreads the entries."""
+    md_file = tmp_path / "a.md"
+    content = (
+        "# A\n"
+        "\n"
+        "```python\n"
+        "PROPERTY_MAPPING = {\n"
+        '    "fmt": property_spec("Template, e.g. {col}: {value}"),\n'
+        "    ...\n"
         "```\n"
     )
     _write(md_file, content)

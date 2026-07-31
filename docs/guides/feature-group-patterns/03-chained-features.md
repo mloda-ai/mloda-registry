@@ -97,7 +97,7 @@ Use specific keys (not generic `operation_type`) to avoid collisions between fea
 
 PROPERTY_MAPPING supports additional capabilities that reduce boilerplate in `match_feature_group_criteria` overrides:
 
-- **`allowed_values`**: Declare the accepted value space in its own kwarg, separate from the flags. `property_spec` validates the spec at construction. See [Options: PROPERTY_MAPPING value space](11-options.md#property_mapping-value-space).
+- **`allowed_values`**: The kwarg that declares a key's accepted value space; `strict=True` (the builder kwarg that sets the `strict_validation` field) makes membership enforced, and the spec validates itself at construction. See [Options: PROPERTY_MAPPING value space](11-options.md#property_mapping-value-space) and [Options: Builder `property_spec`](11-options.md#builder-property_spec).
 - **`required_when`**: Declare options that are only required under certain conditions via a predicate callable.
 - **`match_guard`**: Check the raw option value with a callable (e.g., that it is a list of strings). Does not require `strict_validation`; a falsy return is a non-match, not an error.
 - **`element_validator`**: Validate each parsed element when `strict_validation` is enabled (e.g., that it is a positive integer). A falsy return raises `ValueError`, which the mixin turns into a non-match plus a rejection reason in the resolution error.

@@ -91,7 +91,7 @@ class BaseMyTransform(FeatureChainParserMixin, FeatureGroup):
     # No need to override match_feature_group_criteria() - mixin handles it
 ```
 
-The discriminator's value space belongs in its own `allowed_values` kwarg, separate from the flags. See [Options: PROPERTY_MAPPING value space](11-options.md#property_mapping-value-space).
+The discriminator's value space goes in the `allowed_values` kwarg, and `strict=True` (the builder kwarg that sets the `strict_validation` field) makes membership enforced. See [Options: PROPERTY_MAPPING value space](11-options.md#property_mapping-value-space) and [Options: Builder `property_spec`](11-options.md#builder-property_spec).
 
 **Usage** - both approaches route to the same FeatureGroup:
 
@@ -221,12 +221,10 @@ def _is_list_of_strings(value):
 PROPERTY_MAPPING = {
     "partition_by": property_spec(
         "Columns to partition by",
-        strict=False,  # a guard needs no strict_validation; False is the default
         match_guard=_is_list_of_strings,
     ),
     "window_size": property_spec(
         "Number of rows in the rolling window",
-        strict=False,
         match_guard=lambda x: isinstance(x, int) and not isinstance(x, bool) and x > 0,
     ),
 }
