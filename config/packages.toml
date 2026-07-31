@@ -12,24 +12,28 @@
 description = "Plugin discovery and search for mloda"
 dependencies = ["{core_dependency}"]
 path = "mloda/registry"
+py_typed = true
 
 [packages.mloda-testing]
 description = "Test utilities for mloda plugin development"
 dependencies = ["{core_dependency}", "pytest>=9.0.3"]
 path = "mloda/testing"
 optional_dependencies = { dev = ["pytest>=9.0.3"] }
+py_typed = true
 
 [packages.mloda-community]
 description = "All community plugins for mloda"
 dependencies = ["{core_dependency}"]
 path = "mloda/community"
 entry_point_bundle = true
+py_typed = true
 
 [packages.mloda-enterprise]
 description = "All enterprise plugins for mloda (License required: https://mloda.ai/enterprise)"
 dependencies = ["{core_dependency}"]
 path = "mloda/enterprise"
 entry_point_bundle = true
+py_typed = true
 
 [packages.mloda-community-example]
 description = "Example community FeatureGroup plugin for mloda"

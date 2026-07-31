@@ -29,4 +29,7 @@ mloda-enterprise-extenders-example = "mloda.enterprise.extenders.example.manifes
 
 [tool.setuptools]
 package-dir = {"" = "../.."}
-packages = ["mloda.enterprise.compute_frameworks.example", "mloda.enterprise.extenders.example", "mloda.enterprise.feature_groups.example"]
+packages = ["mloda.enterprise", "mloda.enterprise.compute_frameworks.example", "mloda.enterprise.extenders.example", "mloda.enterprise.feature_groups.example"]
+
+[tool.setuptools.package-data]
+"mloda.enterprise" = ["py.typed"]

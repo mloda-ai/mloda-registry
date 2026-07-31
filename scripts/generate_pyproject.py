@@ -134,6 +134,10 @@ def generate_pyproject(
     all_packages: dict[str, dict[str, Any]],
 ) -> str:
     """Generate pyproject.toml content for a package."""
+    # A meta-package emits packages = [], which no py.typed marker can ride on.
+    if "workspace_deps" in pkg_config and "py_typed" in pkg_config:
+        raise ValueError(f"{pkg_name}: workspace_deps and py_typed are mutually exclusive")
+
     lines = [HEADER]
 
     # Build system
@@ -233,9 +237,19 @@ def generate_pyproject(
         # Discover packages from filesystem, excluding optional sub-packages
         packages = discover_packages(pkg_config["path"], exclude_paths)
 
+        # Listing the dotted path (a PEP 420 portion discover_packages misses) in packages is what
+        # ships py.typed; the package-data table below is belt and braces.
+        package_data: list[str] = []
+        if pkg_config.get("py_typed"):
+            dotted_path = pkg_config["path"].replace("/", ".")
+            packages = sorted(set(packages) | {dotted_path})
+            # Subtable of [tool.setuptools]: must stay after its keys, or they reparent into it.
+            package_data = ["", "[tool.setuptools.package-data]", f'"{dotted_path}" = ["py.typed"]']
+
         lines.append("[tool.setuptools]")
         lines.append(f'package-dir = {{"" = "{rel_path}"}}')
         lines.append(f"packages = {to_toml_list(packages)}")
+        lines.extend(package_data)
     lines.append("")
 
     # UV sources for workspace deps

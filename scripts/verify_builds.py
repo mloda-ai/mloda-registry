@@ -10,6 +10,7 @@ import sys
 import tempfile
 import zipfile
 from pathlib import Path
+from typing import Any
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -23,12 +24,17 @@ PACKAGES_CONFIG = CONFIG_DIR / "packages.toml"
 _VALID_ENTRY_POINT_ATTRS = {"FEATURE_GROUPS", "COMPUTE_FRAMEWORKS", "EXTENDERS"}
 
 
-def load_packages_from_config() -> list[tuple[str, str]]:
-    """Return [(pkg_name, pyproject_path), ...] for every configured package, in config order."""
+def load_packages_config() -> dict[str, dict[str, Any]]:
+    """Return the raw [packages] table of config/packages.toml, in config order."""
     with open(PACKAGES_CONFIG, "rb") as f:
         data = tomllib.load(f)
-    packages = data.get("packages", {})
-    return [(name, f"{cfg['path']}/pyproject.toml") for name, cfg in packages.items()]
+    packages: dict[str, dict[str, Any]] = data.get("packages", {})
+    return packages
+
+
+def load_packages_from_config() -> list[tuple[str, str]]:
+    """Return [(pkg_name, pyproject_path), ...] for every configured package, in config order."""
+    return [(name, f"{cfg['path']}/pyproject.toml") for name, cfg in load_packages_config().items()]
 
 
 PACKAGES = load_packages_from_config()
@@ -198,6 +204,23 @@ def verify_entry_points(built_wheels: dict[str, Path]) -> list[str]:
     return errors
 
 
+def verify_py_typed_markers(built_wheels: dict[str, Path]) -> list[str]:
+    """Verify wheels of packages flagged ``py_typed = true`` ship their PEP 561 marker."""
+    errors: list[str] = []
+    packages = load_packages_config()
+
+    for pkg_name, wheel_path in built_wheels.items():
+        pkg_config = packages.get(pkg_name)
+        if pkg_config is None or not pkg_config.get("py_typed"):
+            continue
+
+        marker = f"{pkg_config['path']}/py.typed"
+        if marker not in get_wheel_files(wheel_path):
+            errors.append(f"{pkg_name}: wheel is missing {marker} (PEP 561 marker)")
+
+    return errors
+
+
 def verify_dependency_relationships(wheels: dict[str, Path]) -> list[str]:
     """Verify dependency relationships in built wheels.
 
@@ -256,6 +279,17 @@ def verify_pep420_source_compliance() -> list[str]:
     return errors
 
 
+def cleanup_build_dirs() -> int:
+    """Remove the build/ trees setuptools leaves behind; a stale tree is copied into the next wheel."""
+    count = 0
+    for pkg_config in load_packages_config().values():
+        build_dir = Path(pkg_config["path"]) / "build"
+        if build_dir.is_dir():
+            shutil.rmtree(build_dir)
+            count += 1
+    return count
+
+
 def cleanup_egg_info() -> int:
     """Remove all egg-info directories created by builds."""
     count = 0
@@ -276,6 +310,11 @@ def cleanup_egg_info() -> int:
 
 
 def main() -> int:
+    # Stale build/ trees from a previous run would be copied into this run's wheels
+    stale = cleanup_build_dirs()
+    if stale:
+        print(f"🧹 Removed {stale} stale build directory(ies)")
+
     # First check version consistency
     consistent, expected_version = check_version_consistency()
     if not consistent or not expected_version:
@@ -334,6 +373,14 @@ def main() -> int:
         else:
             print("  ✓ entry points correct")
 
+        # Verify PEP 561 py.typed markers
+        print("\nVerifying py.typed markers...")
+        py_typed_errors = verify_py_typed_markers(built_wheels)
+        if py_typed_errors:
+            errors.extend(py_typed_errors)
+        else:
+            print("  ✓ py.typed markers present")
+
     # Verify PEP 420 source compliance (outside temp dir context)
     print("\nVerifying PEP 420 source compliance...")
     pep420_errors = verify_pep420_source_compliance()
@@ -348,8 +395,8 @@ def main() -> int:
             print(f"  - {e}")
         return 1
 
-    # Clean up egg-info directories on success
-    cleaned = cleanup_egg_info()
+    # A leftover build/ tree makes the next pytest run collect phantom build.lib.* modules
+    cleaned = cleanup_egg_info() + cleanup_build_dirs()
     if cleaned:
         print(f"\n🧹 Cleaned up {cleaned} build artifact(s)")
 

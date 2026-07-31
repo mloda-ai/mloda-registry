@@ -56,6 +56,9 @@ optional_dependencies = { dev = ["mloda-testing", "pytest"] }
 | `optional_dependencies` | No | Merged with defaults |
 | `entry_point_groups` | No | List of mloda entry-point groups the package's `manifest.py` populates (`mloda.feature_groups`, `mloda.compute_frameworks`, `mloda.extenders`) |
 | `entry_point_bundle` | No | `true` on bundle packages (`mloda-community`, `mloda-enterprise`); aggregates the entry points of every nested plugin package under its path. Mutually exclusive with `entry_point_groups` |
+| `py_typed` | No | `true` adds the dotted path to `packages` (what ships the marker) and emits `[tool.setuptools.package-data]` for it. Requires a committed `<path>/py.typed`. Mutually exclusive with `workspace_deps` |
+
+A marker on a namespace portion (`mloda/community`, `mloda/enterprise`) declares that whole namespace typed, including third-party distributions installed into it.
 
 **Generator infers:**
 - `license` from path (`mloda/enterprise/*` → proprietary, else default)
