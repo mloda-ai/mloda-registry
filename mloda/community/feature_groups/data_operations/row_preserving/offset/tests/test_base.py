@@ -206,32 +206,6 @@ class TestConfigBasedOffsetTypeValidation:
         assert result is False, f"Config path should reject: {offset_type!r}"
 
 
-class TestSingleTokenContainers:
-    """A single-element container holds exactly one offset token, so it must reach dispatch unwrapped."""
-
-    def _options(self, offset_type: Any) -> Options:
-        return Options(
-            context={
-                "offset_type": offset_type,
-                "in_features": "value_int",
-                "partition_by": ["region"],
-                "order_by": "value_int",
-            }
-        )
-
-    @pytest.mark.parametrize("offset_type", [("lag_1",), ["lag_1"]])
-    def test_single_element_offset_type(self, offset_type: Any) -> None:
-        result = OffsetFeatureGroup.match_feature_group_criteria("my_result", self._options(offset_type), None)
-        assert result is True, f"Config path should accept: {offset_type!r}"
-        feature = Feature("my_result", options=self._options(offset_type))
-        assert OffsetFeatureGroup._extract_offset_type(feature) == "lag_1"
-
-    @pytest.mark.parametrize("offset_type", [["lag_1", "lead_2"], ("lag_1", "lead_2")])
-    def test_multi_element_offset_type_rejected(self, offset_type: Any) -> None:
-        result = OffsetFeatureGroup.match_feature_group_criteria("my_result", self._options(offset_type), None)
-        assert result is False, f"Config path should reject: {offset_type!r}"
-
-
 class TestDigitLikeOffsetSuffixes:
     """A suffix that str.isdigit accepts is not automatically an int; both paths must reject it without raising."""
 
@@ -360,3 +334,7 @@ class TestOffsetMatchValidation(MatchValidationTestBase):
     @classmethod
     def malformed_operations(cls) -> set[str]:
         return {"banana", "lag_0", "lag_abc", "lead_"}
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        return [OffsetFeatureGroup._extract_offset_type(Feature("my_result", options=options))]

@@ -121,36 +121,6 @@ class TestConfigBasedFeatures:
         assert result is False
 
 
-class TestSingleTokenContainers:
-    """A single-element container holds exactly one aggregation token, so it must reach dispatch unwrapped."""
-
-    def _options(self, aggregation_type: Any) -> Options:
-        return Options(
-            context={
-                "aggregation_type": aggregation_type,
-                "in_features": "value_int",
-            }
-        )
-
-    @pytest.mark.parametrize("aggregation_type", ["sum", ("sum",), ["sum"]])
-    def test_single_element_aggregation_type(self, aggregation_type: Any) -> None:
-        """The bare token and its single-element container must dispatch identically."""
-        result = ScalarAggregateFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(aggregation_type), None
-        )
-        assert result is True, f"Config path should accept: {aggregation_type!r}"
-        feature = Feature("my_result", options=self._options(aggregation_type))
-        assert ScalarAggregateFeatureGroup._extract_aggregation_type(feature) == "sum"
-        assert ScalarAggregateFeatureGroup._resolve_agg_type("my_result", self._options(aggregation_type)) == "sum"
-
-    @pytest.mark.parametrize("aggregation_type", [["sum", "max"], ("sum", "max")])
-    def test_multi_element_aggregation_type_rejected(self, aggregation_type: Any) -> None:
-        result = ScalarAggregateFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(aggregation_type), None
-        )
-        assert result is False, f"Config path should reject: {aggregation_type!r}"
-
-
 class TestSingleColumnEnforcement:
     """Verify that MAX_IN_FEATURES=1 enforces single-column behavior.
 
@@ -308,3 +278,11 @@ class TestScalarAggregateMatchValidation(MatchValidationTestBase):
     @classmethod
     def additional_match_options(cls) -> dict[str, Any]:
         return {"in_features": "value_int"}
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        feature = Feature("my_result", options=options)
+        return [
+            ScalarAggregateFeatureGroup._extract_aggregation_type(feature),
+            ScalarAggregateFeatureGroup._resolve_agg_type("my_result", options),
+        ]

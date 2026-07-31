@@ -204,31 +204,6 @@ class TestConfigBasedFeatures:
         assert result is False
 
 
-class TestSingleTokenContainers:
-    """A single-element container holds exactly one bucket token, so it must reach dispatch unwrapped."""
-
-    def _options(self, bucket_op: Any) -> Options:
-        return Options(
-            context={
-                "bucket_op": bucket_op,
-                "in_features": "timestamp",
-            }
-        )
-
-    @pytest.mark.parametrize("bucket_op", ["floor_1_day", ("floor_1_day",), ["floor_1_day"]])
-    def test_single_element_bucket_op(self, bucket_op: Any) -> None:
-        """The bare token and its single-element container must dispatch identically."""
-        result = TimeBucketizationFeatureGroup.match_feature_group_criteria("my_result", self._options(bucket_op), None)
-        assert result is True, f"Config path should accept: {bucket_op!r}"
-        feature = Feature("my_result", options=self._options(bucket_op))
-        assert TimeBucketizationFeatureGroup._extract_bucket_op(feature) == "floor_1_day"
-
-    @pytest.mark.parametrize("bucket_op", [["floor_1_day", "ceil_1_day"], ("floor_1_day", "ceil_1_day")])
-    def test_multi_element_bucket_op_rejected(self, bucket_op: Any) -> None:
-        result = TimeBucketizationFeatureGroup.match_feature_group_criteria("my_result", self._options(bucket_op), None)
-        assert result is False, f"Config path should reject: {bucket_op!r}"
-
-
 class TestSingleColumnEnforcement:
     """Verify that MAX_IN_FEATURES=1 enforces single-column behavior."""
 
@@ -387,3 +362,7 @@ class TestTimeBucketizationMatchValidation(MatchValidationTestBase):
     @classmethod
     def additional_match_options(cls) -> dict[str, Any]:
         return {"in_features": "timestamp"}
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        return [TimeBucketizationFeatureGroup._extract_bucket_op(Feature("my_result", options=options))]

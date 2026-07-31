@@ -5,7 +5,9 @@ Provides ``MatchValidationTestBase`` with reusable test methods covering:
 - SQL injection in feature names
 - Invalid operation types (pattern-based and options-based)
 - Special characters in the operation portion of feature names
-- Type confusion via Options (None, int, list)
+- Type confusion via Options (None, int)
+- Single-element containers holding exactly one operation token, and the
+  multi-element containers that must stay rejected
 - Case sensitivity enforcement (lowercase only)
 - Declaration/dispatch drift between the name path and the config path: the
   acceptance half is opt-out (``parity_operations``), the rejection half is
@@ -92,6 +94,30 @@ class MatchValidationTestBase:
         return operation
 
     @classmethod
+    def single_token_operation(cls) -> str | None:
+        """The config-path operation token used for the single-element-container checks.
+
+        Defaults to the first parity operation whose config value is a string.
+        Families whose config vocabulary is not a token (percentile's float) get
+        ``None``, and the checks are skipped.
+        """
+        for operation in sorted(cls.parity_operations()):
+            value = cls.config_value(operation)
+            if isinstance(value, str):
+                return value
+        return None
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        """Operation values the dispatch path resolves from ``options``.
+
+        Empty by default, which checks the match verdict only. Override with the
+        family's extractors to also assert that a wrapped token reaches dispatch
+        unwrapped, rather than as the string form of its container.
+        """
+        return []
+
+    @classmethod
     def options_reject_invalid_types(cls) -> bool:
         """Whether options-based matching rejects invalid operation types.
 
@@ -115,6 +141,10 @@ class MatchValidationTestBase:
         Empty by default; override to opt in to the drift check.
         """
         return set()
+
+    def _config_options(self, value: Any) -> Options:
+        """Options carrying ``value`` as the operation on the configuration path."""
+        return Options(context={self.config_key(): value, **self.additional_match_options()})
 
     # -- No source column ------------------------------------------------------
 
@@ -161,9 +191,9 @@ class MatchValidationTestBase:
         for bad_type in self.INVALID_TYPES:
             if bad_type == "":
                 continue
-            context = {self.config_key(): bad_type, **self.additional_match_options()}
-            options = Options(context=context)
-            result = self.feature_group_class().match_feature_group_criteria("my_result", options, None)
+            result = self.feature_group_class().match_feature_group_criteria(
+                "my_result", self._config_options(bad_type), None
+            )
             assert result is False, f"Should reject via options: {bad_type!r}"
 
     # -- Special characters --------------------------------------------------
@@ -185,25 +215,43 @@ class MatchValidationTestBase:
 
     def test_none_type_rejected(self) -> None:
         """None as operation type in options must not match."""
-        context = {self.config_key(): None, **self.additional_match_options()}
-        options = Options(context=context)
-        result = self.feature_group_class().match_feature_group_criteria("my_result", options, None)
+        result = self.feature_group_class().match_feature_group_criteria("my_result", self._config_options(None), None)
         assert result is False
 
     def test_integer_type_rejected(self) -> None:
         """An integer as operation type in options must not match."""
-        context = {self.config_key(): 42, **self.additional_match_options()}
-        options = Options(context=context)
-        result = self.feature_group_class().match_feature_group_criteria("my_result", options, None)
+        result = self.feature_group_class().match_feature_group_criteria("my_result", self._config_options(42), None)
         assert result is False
 
-    def test_list_type_rejected(self) -> None:
-        """A list as operation type in options must not match."""
-        valid_ops = [self.config_value(op) for op in list(self.valid_operations())[:2]] or ["sum"]
-        context = {self.config_key(): valid_ops, **self.additional_match_options()}
-        options = Options(context=context)
-        result = self.feature_group_class().match_feature_group_criteria("my_result", options, None)
-        assert result is False
+    # -- Single-token containers ---------------------------------------------
+
+    def test_single_element_container_matches(self) -> None:
+        """A bare token and its single-element containers must dispatch identically.
+
+        Core unwraps a one-element container when it reads a property value, so
+        ``("sum",)`` is valid caller syntax for one token: it has to match, and it
+        has to reach dispatch as ``"sum"`` rather than as ``"('sum',)"``.
+        """
+        operation = self.single_token_operation()
+        if operation is None:
+            pytest.skip("config vocabulary is not a single string token")
+        for value in (operation, (operation,), [operation]):
+            options = self._config_options(value)
+            result = self.feature_group_class().match_feature_group_criteria("my_result", options, None)
+            assert result is True, f"Config path should accept: {value!r}"
+            for resolved in self.dispatch_values(options):
+                assert resolved == operation, f"Dispatch should resolve {value!r} to {operation!r}, got {resolved!r}"
+
+    def test_multi_element_container_rejected(self) -> None:
+        """Two operations in one container are not one operation, whatever the container type."""
+        operations = [self.config_value(op) for op in sorted(self.parity_operations())[:2]]
+        if len(operations) < 2:
+            pytest.skip("fewer than two operations declared for this family")
+        for value in (operations, tuple(operations)):
+            result = self.feature_group_class().match_feature_group_criteria(
+                "my_result", self._config_options(value), None
+            )
+            assert result is False, f"Config path should reject: {value!r}"
 
     # -- Case sensitivity ----------------------------------------------------
 
@@ -241,8 +289,8 @@ class MatchValidationTestBase:
 
     def _match_by_config(self, operation: str) -> bool:
         """Match verdict of the configuration-based path for the given operation."""
-        context = {self.config_key(): self.config_value(operation), **self.additional_match_options()}
-        result = self.feature_group_class().match_feature_group_criteria("my_result", Options(context=context), None)
+        options = self._config_options(self.config_value(operation))
+        result = self.feature_group_class().match_feature_group_criteria("my_result", options, None)
         return bool(result)
 
     def test_operations_match_on_both_paths(self) -> None:

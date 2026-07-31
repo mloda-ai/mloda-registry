@@ -434,7 +434,11 @@ class TestNameBasedFrameTypeInOptions:
 
 
 class TestSingleTokenContainers:
-    """A single-element container holds exactly one token, so it must reach dispatch unwrapped."""
+    """frame_type and frame_unit are operation tokens of their own, so they must reach dispatch unwrapped too.
+
+    The aggregation_type half of this contract is the shared
+    ``MatchValidationTestBase`` check, driven by ``config_key()``.
+    """
 
     def _options(self, **overrides: Any) -> Options:
         context: dict[str, Any] = {
@@ -447,15 +451,6 @@ class TestSingleTokenContainers:
         }
         context.update(overrides)
         return Options(context=context)
-
-    @pytest.mark.parametrize("aggregation_type", [("sum",), ["sum"]])
-    def test_single_element_aggregation_type(self, aggregation_type: Any) -> None:
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(aggregation_type=aggregation_type), None
-        )
-        assert result is True, f"Config path should accept: {aggregation_type!r}"
-        feature = Feature("my_result", options=self._options(aggregation_type=aggregation_type))
-        assert FrameAggregateFeatureGroup._extract_params(feature)["agg_type"] == "sum"
 
     @pytest.mark.parametrize("frame_type", [("rolling",), ["rolling"]])
     def test_single_element_frame_type(self, frame_type: Any) -> None:
@@ -475,12 +470,12 @@ class TestSingleTokenContainers:
         feature = Feature("my_result", options=self._options(frame_type="time", frame_size=7, frame_unit=frame_unit))
         assert FrameAggregateFeatureGroup._extract_params(feature)["frame_unit"] == "day"
 
-    @pytest.mark.parametrize("aggregation_type", [["sum", "max"], ("sum", "max")])
-    def test_multi_element_aggregation_type_rejected(self, aggregation_type: Any) -> None:
+    @pytest.mark.parametrize("frame_type", [["rolling", "time"], ("rolling", "time")])
+    def test_multi_element_frame_type_rejected(self, frame_type: Any) -> None:
         result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(aggregation_type=aggregation_type), None
+            "my_result", self._options(frame_type=frame_type), None
         )
-        assert result is False, f"Config path should reject: {aggregation_type!r}"
+        assert result is False, f"Config path should reject: {frame_type!r}"
 
 
 class TestSingleTokenFrameTypeRequirements:
@@ -713,3 +708,7 @@ class TestFrameAggregateMatchValidation(MatchValidationTestBase):
     @classmethod
     def malformed_operations(cls) -> set[str]:
         return {"banana", "mode", "nunique", "first"}
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        return [FrameAggregateFeatureGroup._extract_params(Feature("my_result", options=options))["agg_type"]]

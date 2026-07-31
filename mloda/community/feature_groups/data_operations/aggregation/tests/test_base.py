@@ -300,37 +300,6 @@ class TestConfigBasedFeatures:
         assert result_map[None] == -10
 
 
-class TestSingleTokenContainers:
-    """A single-element container holds exactly one aggregation token, so it must reach dispatch unwrapped."""
-
-    def _options(self, aggregation_type: Any) -> Options:
-        return Options(
-            context={
-                "aggregation_type": aggregation_type,
-                "in_features": "value_int",
-                "partition_by": ["region"],
-            }
-        )
-
-    @pytest.mark.parametrize("aggregation_type", ["sum", ("sum",), ["sum"]])
-    def test_single_element_aggregation_type(self, aggregation_type: Any) -> None:
-        """The bare token and its single-element container must dispatch identically."""
-        result = AggregationFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(aggregation_type), None
-        )
-        assert result is True, f"Config path should accept: {aggregation_type!r}"
-        feature = Feature("my_result", options=self._options(aggregation_type))
-        assert AggregationFeatureGroup._extract_aggregation_type(feature) == "sum"
-        assert AggregationFeatureGroup._resolve_agg_type("my_result", self._options(aggregation_type)) == "sum"
-
-    @pytest.mark.parametrize("aggregation_type", [["sum", "max"], ("sum", "max")])
-    def test_multi_element_aggregation_type_rejected(self, aggregation_type: Any) -> None:
-        result = AggregationFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(aggregation_type), None
-        )
-        assert result is False, f"Config path should reject: {aggregation_type!r}"
-
-
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type only for deterministic ops.
 
@@ -383,3 +352,11 @@ class TestAggregationMatchValidation(MatchValidationTestBase):
     @classmethod
     def pattern_match_options(cls) -> Options:
         return Options(context={"partition_by": ["region"]})
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        feature = Feature("my_result", options=options)
+        return [
+            AggregationFeatureGroup._extract_aggregation_type(feature),
+            AggregationFeatureGroup._resolve_agg_type("my_result", options),
+        ]

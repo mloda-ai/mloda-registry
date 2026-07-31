@@ -129,31 +129,6 @@ class TestConfigBasedFeatures:
         assert result is False
 
 
-class TestSingleTokenContainers:
-    """A single-element container holds exactly one string token, so it must reach dispatch unwrapped."""
-
-    def _options(self, string_op: Any) -> Options:
-        return Options(
-            context={
-                "string_op": string_op,
-                "in_features": "name",
-            }
-        )
-
-    @pytest.mark.parametrize("string_op", ["upper", ("upper",), ["upper"]])
-    def test_single_element_string_op(self, string_op: Any) -> None:
-        """The bare token and its single-element container must dispatch identically."""
-        result = StringFeatureGroup.match_feature_group_criteria("my_result", self._options(string_op), None)
-        assert result is True, f"Config path should accept: {string_op!r}"
-        feature = Feature("my_result", options=self._options(string_op))
-        assert StringFeatureGroup._extract_string_op(feature) == "upper"
-
-    @pytest.mark.parametrize("string_op", [["upper", "lower"], ("upper", "lower")])
-    def test_multi_element_string_op_rejected(self, string_op: Any) -> None:
-        result = StringFeatureGroup.match_feature_group_criteria("my_result", self._options(string_op), None)
-        assert result is False, f"Config path should reject: {string_op!r}"
-
-
 class TestValidateStringMatch:
     def test_base_class_validates_known_ops(self) -> None:
         """Base class _validate_string_match accepts all STRING_OPS."""
@@ -207,3 +182,7 @@ class TestStringMatchValidation(MatchValidationTestBase):
     @classmethod
     def additional_match_options(cls) -> dict[str, Any]:
         return {"in_features": "name"}
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        return [StringFeatureGroup._extract_string_op(Feature("my_result", options=options))]

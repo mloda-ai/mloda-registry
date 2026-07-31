@@ -266,8 +266,11 @@ class TestConfigBasedFeatures:
         assert result_col == expected
 
 
-class TestSingleTokenContainers:
-    """A single-element container holds exactly one aggregation token, so it must reach dispatch unwrapped."""
+class TestSingleTokenOrderRequirement:
+    """The order_by requirement is keyed off the aggregation type, so a wrapped token must trigger it too.
+
+    The rest of the single-token contract is the shared ``MatchValidationTestBase`` check.
+    """
 
     def _options(self, **overrides: Any) -> Options:
         context: dict[str, Any] = {
@@ -277,16 +280,6 @@ class TestSingleTokenContainers:
         }
         context.update(overrides)
         return Options(context=context)
-
-    @pytest.mark.parametrize("aggregation_type", ["sum", ("sum",), ["sum"]])
-    def test_single_element_aggregation_type(self, aggregation_type: Any) -> None:
-        """The bare token and its single-element container must dispatch identically."""
-        options = self._options(aggregation_type=aggregation_type)
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is True, f"Config path should accept: {aggregation_type!r}"
-        feature = Feature("my_result", options=options)
-        assert WindowAggregationFeatureGroup._extract_aggregation_type(feature) == "sum"
-        assert WindowAggregationFeatureGroup._resolve_agg_type("my_result", options) == "sum"
 
     @pytest.mark.parametrize("aggregation_type", ["first", ("first",), ["first"]])
     def test_single_element_order_dependent_agg_type_requires_order_by(self, aggregation_type: Any) -> None:
@@ -299,12 +292,6 @@ class TestSingleTokenContainers:
         with_order_by = self._options(aggregation_type=aggregation_type, order_by="timestamp")
         result = WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", with_order_by, None)
         assert result is True, f"Config path should accept with order_by: {aggregation_type!r}"
-
-    @pytest.mark.parametrize("aggregation_type", [["sum", "max"], ("sum", "max")])
-    def test_multi_element_aggregation_type_rejected(self, aggregation_type: Any) -> None:
-        options = self._options(aggregation_type=aggregation_type)
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is False, f"Config path should reject: {aggregation_type!r}"
 
 
 class TestReturnDataTypeRule:
@@ -359,3 +346,11 @@ class TestWindowAggregationMatchValidation(MatchValidationTestBase):
     @classmethod
     def pattern_match_options(cls) -> Options:
         return Options(context={"partition_by": ["region"], "order_by": "timestamp"})
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        feature = Feature("my_result", options=options)
+        return [
+            WindowAggregationFeatureGroup._extract_aggregation_type(feature),
+            WindowAggregationFeatureGroup._resolve_agg_type("my_result", options),
+        ]
