@@ -65,6 +65,9 @@ When multiple method variants exist for a feature group type (e.g., different sc
 The base class defines `PREFIX_PATTERN` and `PROPERTY_MAPPING`. The mixin's `match_feature_group_criteria()` handles both string-based and config-based matching automatically:
 
 ```python
+from mloda.provider import DefaultOptionKeys, FeatureChainParserMixin, FeatureGroup, property_spec
+
+
 class BaseMyTransform(FeatureChainParserMixin, FeatureGroup):
     # String-based matching: extracts method from feature name
     PREFIX_PATTERN = r".*__(algo_a|algo_b)_transformed$"
@@ -77,38 +80,18 @@ class BaseMyTransform(FeatureChainParserMixin, FeatureGroup):
     }
 
     PROPERTY_MAPPING = {
-        MY_METHOD: {
-            "explanation": "Transform algorithm",
-            DefaultOptionKeys.allowed_values: MY_METHODS,
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-        },
-        DefaultOptionKeys.in_features: {
-            "explanation": "Source feature",
-            DefaultOptionKeys.context: True,
-        },
+        MY_METHOD: property_spec(
+            "Transform algorithm",
+            strict=True,
+            allowed_values=MY_METHODS,
+        ),
+        DefaultOptionKeys.in_features: property_spec("Source feature"),
     }
 
     # No need to override match_feature_group_criteria() - mixin handles it
 ```
 
-The discriminator's value space belongs in its own `allowed_values` key; a spec dict rejects any key outside the schema. See [Options: PROPERTY_MAPPING value space](11-options.md#property_mapping-value-space). The same spec via the builder:
-
-```python
-from mloda.provider import DefaultOptionKeys, property_spec
-
-PROPERTY_MAPPING = {
-    MY_METHOD: property_spec(
-        "Transform algorithm",
-        strict=True,
-        allowed_values=MY_METHODS,  # {"algo_a": "...", "algo_b": "..."}
-    ),
-    DefaultOptionKeys.in_features: {
-        "explanation": "Source feature",
-        DefaultOptionKeys.context: True,
-    },
-}
-```
+The discriminator's value space goes in the `allowed_values` kwarg, and `strict=True` (the builder kwarg that sets the `strict_validation` field) makes membership enforced. See [Options: PROPERTY_MAPPING value space](11-options.md#property_mapping-value-space) and [Options: Builder `property_spec`](11-options.md#builder-property_spec).
 
 **Usage** - both approaches route to the same FeatureGroup:
 
@@ -150,11 +133,11 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
 
 Some PROPERTY_MAPPING entries should only be required under certain conditions. For example, an `order_by` column might only be needed when the aggregation type is `first` or `last`, but not for `sum` or `avg`.
 
-Use `DefaultOptionKeys.required_when` to attach a predicate callable to a mapping entry. The predicate receives the effective `Options` object and returns `True` when the option is required.
+Use `required_when` to attach a predicate callable to a mapping entry. The predicate receives the effective `Options` object and returns `True` when the option is required.
 
 ```python
 from mloda.user import Options
-from mloda.provider import DefaultOptionKeys
+from mloda.provider import property_spec
 
 _ORDER_DEPENDENT = {"first", "last"}
 
@@ -163,18 +146,15 @@ def _needs_order_by(options: Options) -> bool:
     return options.get("aggregation_type") in _ORDER_DEPENDENT
 
 PROPERTY_MAPPING = {
-    "aggregation_type": {
-        "explanation": "Aggregation to apply",
-        DefaultOptionKeys.allowed_values: {"sum": "Sum", "avg": "Average", "first": "First", "last": "Last"},
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: True,
-    },
-    "order_by": {
-        "explanation": "Column to order by within each partition",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.required_when: _needs_order_by,
-    },
+    "aggregation_type": property_spec(
+        "Aggregation to apply",
+        strict=True,
+        allowed_values={"sum": "Sum", "avg": "Average", "first": "First", "last": "Last"},
+    ),
+    "order_by": property_spec(
+        "Column to order by within each partition",
+        required_when=_needs_order_by,
+    ),
 }
 ```
 
@@ -208,13 +188,11 @@ With `required_when`, the mixin handles this automatically:
 ```python
 # After: declarative, no override needed
 PROPERTY_MAPPING = {
-    "aggregation_type": { ... },
-    "order_by": {
-        "explanation": "Column to order by",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.required_when: _needs_order_by,
-    },
+    "aggregation_type": ...,
+    "order_by": property_spec(
+        "Column to order by",
+        required_when=_needs_order_by,
+    ),
 }
 # match_feature_group_criteria inherited from mixin, no override required
 ```
@@ -230,29 +208,25 @@ PROPERTY_MAPPING = {
 
 ## Whole-Value Guards with `match_guard`
 
-Use `DefaultOptionKeys.match_guard` to check the raw option value with a callable. Despite the name, a guard is not a type assertion: a falsy return means "not my feature group", not "the user made a mistake". Unlike `element_validator`, it does not require `strict_validation` and it sees the whole value, before any unpacking.
+Use `match_guard` to check the raw option value with a callable. Despite the name, a guard is not a type assertion: a falsy return means "not my feature group", not "the user made a mistake". Unlike `element_validator`, it does not require `strict_validation` and it sees the whole value, before any unpacking.
 
 After basic matching and `required_when` checks succeed, `match_feature_group_criteria` calls each `match_guard`. A falsy return is a plain non-match (`False`, debug log, no error), so resolution moves on and another candidate may still take the feature. A guard that raises `TypeError`, `ValueError`, or `AttributeError` is treated the same way.
 
 ```python
-from mloda.provider import DefaultOptionKeys
+from mloda.provider import property_spec
 
 def _is_list_of_strings(value):
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 PROPERTY_MAPPING = {
-    "partition_by": {
-        "explanation": "Columns to partition by",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.match_guard: _is_list_of_strings,
-    },
-    "window_size": {
-        "explanation": "Number of rows in the rolling window",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.match_guard: lambda x: isinstance(x, int) and not isinstance(x, bool) and x > 0,
-    },
+    "partition_by": property_spec(
+        "Columns to partition by",
+        match_guard=_is_list_of_strings,
+    ),
+    "window_size": property_spec(
+        "Number of rows in the rolling window",
+        match_guard=lambda x: isinstance(x, int) and not isinstance(x, bool) and x > 0,
+    ),
 }
 ```
 
@@ -274,28 +248,26 @@ Precedence, the full lifecycle, and what each failure produces live in core: [PR
 
 ## Element Validation with `element_validator`
 
-Use `DefaultOptionKeys.element_validator` to validate option values with a callable instead of checking membership against a fixed set of allowed values. It requires `strict_validation: True`: without it, a hand-written spec silently ignores the validator (only `property_spec` rejects that combination).
+Use `element_validator` to validate option values with a callable instead of checking membership against a fixed set of allowed values. It requires `strict=True`: an `element_validator` without it is rejected at construction as a no-op.
 
 When an element validator is present, it **replaces** the `allowed_values` membership check rather than adding to it. It receives each parsed element and must return `True` if valid.
 
 A falsy return raises `ValueError`, but the mixin catches it and returns `False`, so both mechanisms end in a non-match and another candidate can still take the feature. The difference is diagnostics: if nothing matches, an `element_validator` rejection is listed as a reason in the end user's "No feature groups found" error, while a `match_guard` rejection leaves only a debug log.
 
 ```python
-from mloda.provider import DefaultOptionKeys
+from mloda.provider import property_spec
 
 PROPERTY_MAPPING = {
-    "window_size": {
-        "explanation": "Number of rows in the rolling window",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: True,
-        DefaultOptionKeys.element_validator: lambda x: isinstance(x, int) and not isinstance(x, bool) and x > 0,
-    },
-    "threshold": {
-        "explanation": "Cutoff value for filtering",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: True,
-        DefaultOptionKeys.element_validator: lambda x: isinstance(x, (int, float)) and not isinstance(x, bool) and 0.0 <= x <= 1.0,
-    },
+    "window_size": property_spec(
+        "Number of rows in the rolling window",
+        strict=True,
+        element_validator=lambda x: isinstance(x, int) and not isinstance(x, bool) and x > 0,
+    ),
+    "threshold": property_spec(
+        "Cutoff value for filtering",
+        strict=True,
+        element_validator=lambda x: isinstance(x, (int, float)) and not isinstance(x, bool) and 0.0 <= x <= 1.0,
+    ),
 }
 ```
 

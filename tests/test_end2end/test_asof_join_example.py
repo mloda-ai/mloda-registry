@@ -26,7 +26,8 @@ try:
 
     from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 except ImportError:  # pragma: no cover - exercised only without pyarrow installed
-    pa = None
+    # The locked pyarrow ships py.typed, so `pa` is a Module and this fallback needs the ignore.
+    pa = None  # type: ignore[assignment]
     PyArrowTable = None  # type: ignore[assignment,misc]
 
 from mloda.core.abstract_plugins.components.input_data.base_input_data import BaseInputData

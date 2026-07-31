@@ -21,7 +21,7 @@ Chained features use naming patterns like `price__scaled` for reusable transform
 
 ```python
 from typing import Any
-from mloda.provider import DefaultOptionKeys, FeatureChainParserMixin, FeatureGroup, FeatureSet
+from mloda.provider import DefaultOptionKeys, FeatureChainParserMixin, FeatureGroup, FeatureSet, property_spec
 from mloda.user import Feature, Options, FeatureName
 
 
@@ -38,21 +38,17 @@ class MeanImputedFeature(FeatureChainParserMixin, FeatureGroup):
     MAX_IN_FEATURES = 1
 
     # Optional: enables configuration-based creation.
-    # Accepted values live under allowed_values. See 11-options.md for the
+    # Every value is built with property_spec. See 11-options.md for the
     # full value-space reference.
     PROPERTY_MAPPING = {
-        "imputation_method": {
-            "explanation": "Imputation method",
-            DefaultOptionKeys.allowed_values: {
+        "imputation_method": property_spec(
+            "Imputation method",
+            allowed_values={
                 "mean": "Impute with mean",
                 "median": "Impute with median",
             },
-            DefaultOptionKeys.context: True,
-        },
-        DefaultOptionKeys.in_features: {
-            "explanation": "Source feature to impute",
-            DefaultOptionKeys.context: True,
-        },
+        ),
+        DefaultOptionKeys.in_features: property_spec("Source feature to impute"),
     }
 
     # input_features() and match_feature_group_criteria() inherited from mixin
@@ -101,7 +97,7 @@ Use specific keys (not generic `operation_type`) to avoid collisions between fea
 
 PROPERTY_MAPPING supports additional capabilities that reduce boilerplate in `match_feature_group_criteria` overrides:
 
-- **`allowed_values`**: Declare the accepted value space in its own key; a spec dict rejects any key outside the schema. Build it with `property_spec` for construction-time validation. See [Options: PROPERTY_MAPPING value space](11-options.md#property_mapping-value-space).
+- **`allowed_values`**: The kwarg that declares a key's accepted value space; `strict=True` (the builder kwarg that sets the `strict_validation` field) makes membership enforced, and the spec validates itself at construction. See [Options: PROPERTY_MAPPING value space](11-options.md#property_mapping-value-space) and [Options: Builder `property_spec`](11-options.md#builder-property_spec).
 - **`required_when`**: Declare options that are only required under certain conditions via a predicate callable.
 - **`match_guard`**: Check the raw option value with a callable (e.g., that it is a list of strings). Does not require `strict_validation`; a falsy return is a non-match, not an error.
 - **`element_validator`**: Validate each parsed element when `strict_validation` is enabled (e.g., that it is a positive integer). A falsy return raises `ValueError`, which the mixin turns into a non-match plus a rejection reason in the resolution error.
