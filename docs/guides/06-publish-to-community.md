@@ -16,7 +16,7 @@ Submit your plugin to mloda-registry for others to use.
    mloda/community/feature_groups/your_plugin/
    ```
 
-3. **Add to package config** in `config/packages.toml`. For a typed plugin, set `py_typed = true` and commit an empty `<path>/py.typed`. A plugin nested under an already-typed path (anything under `data_operations/`) inherits the ancestor marker and needs neither the flag nor its own file.
+3. **Add to package config** in `config/packages.toml`. For a typed plugin, set `py_typed = true` and commit an empty `<path>/py.typed`. A plugin nested under an already-typed path (anything under `data_operations/`) inherits the ancestor marker and needs neither the flag nor its own file. Such a plugin must floor its dependency on the marker-shipping base at the release that first shipped the marker, otherwise an older base resolves and the plugin installs untyped.
 
 4. **Run tests** to ensure everything works:
    ```bash

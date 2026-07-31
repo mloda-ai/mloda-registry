@@ -63,8 +63,14 @@ def _published_packages() -> list[str]:
     """Distribution names built by the ``packages=( ... )`` array of the release workflow."""
     match = re.search(r"packages=\(\n(.*?)\n\s*\)\n", _RELEASE_WORKFLOW.read_text(), re.DOTALL)
     assert match is not None, f"{_RELEASE_WORKFLOW}: no 'packages=( ... )' build array found"
-    names = re.findall(r'"([^"]+)"', match.group(1))
+    block = re.sub(r"^\s*#.*$", "", match.group(1), flags=re.MULTILINE)
+    entries = [line for line in block.splitlines() if line.strip()]
+    names = re.findall(r'"([^"]+)"', block)
     assert names, f"{_RELEASE_WORKFLOW}: 'packages=( ... )' holds no quoted distribution names"
+    assert len(names) == len(entries), (
+        f"{_RELEASE_WORKFLOW}: 'packages=( ... )' holds {len(entries)} entries but {len(names)} "
+        'double-quoted names; write every entry as "mloda-..." on its own line'
+    )
     assert set(_BUNDLES) <= set(names), (
         f"{_RELEASE_WORKFLOW}: build array lost bundles {sorted(set(_BUNDLES) - set(names))}"
     )
@@ -76,9 +82,10 @@ def _dependency_closure(pkg_name: str, packages: dict[str, dict[str, Any]]) -> s
     seen: set[str] = set()
     queue = [pkg_name]
     while queue:
-        for dep in packages.get(queue.pop(), {}).get("dependencies", []):
-            match = re.match(r"[A-Za-z0-9._-]+", dep)
-            name = match.group(0) if match else ""
+        node = queue.pop()
+        for dep in packages.get(node, {}).get("dependencies", []):
+            match = re.match(r"[A-Za-z0-9._-]+", dep.strip())
+            name = re.sub(r"[-_.]+", "-", match.group(0)).lower() if match else ""
             if name in packages and name not in seen:
                 seen.add(name)
                 queue.append(name)
@@ -173,9 +180,11 @@ def test_package_data_is_emitted_only_for_flagged_packages() -> None:
 
 @pytest.mark.parametrize("pkg_name", _published_packages())
 def test_every_published_distribution_has_a_typed_ancestor(pkg_name: str) -> None:
-    """``test_package_data_is_emitted_only_for_flagged_packages`` pins the flagged set, so a newly published
-    package can ship untyped without failing it."""
+    """Every published distribution needs a py.typed at or above its path, from itself or a dependency."""
+    # test_package_data_is_emitted_only_for_flagged_packages pins the flagged set, so a newly published
+    # package can ship untyped without failing it.
     packages = _packages()
+    assert pkg_name in packages, f"{pkg_name} is built by release.yaml but not declared in config/packages.toml"
     pkg_path: str = packages[pkg_name]["path"]
     reachable = {pkg_name} | _dependency_closure(pkg_name, packages)
     typed = {name: cfg["path"] for name, cfg in packages.items() if cfg.get("py_typed")}
