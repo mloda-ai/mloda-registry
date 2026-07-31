@@ -1,7 +1,7 @@
 """Robustness guards for scripts/generate_pyproject.py.
 
 The generator is the single source of truth for every package's
-``pyproject.toml`` and for the root mloda-core pin. Two silent-failure modes
+``pyproject.toml`` and for the root mloda-core pin. Three silent-failure modes
 must be turned into loud failures:
 
 Guard 1 -- a missing ``[defaults].core_dependency`` must raise, not silently
@@ -9,6 +9,10 @@ substitute ``""`` and emit ``dependencies = [""]``.
 
 Guard 2 -- write mode must exit non-zero when the root mloda-core dependency
 entry cannot be synced, instead of returning 0 and leaving a stale pin.
+
+Guard 3 -- a meta-package (``workspace_deps``) flagged ``py_typed`` must raise,
+instead of taking the ``packages = []`` branch that never consults ``py_typed``
+and shipping a wheel without its PEP 561 marker.
 
 The generator lives at ``scripts/generate_pyproject.py`` (a script, not an
 installed package), so it is loaded here by file path.
@@ -21,6 +25,7 @@ import shutil
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -111,3 +116,48 @@ def test_write_mode_exits_nonzero_when_root_entry_missing(tmp_path: Path, monkey
     assert _ROOT_PYPROJECT.read_text() == real_root_before, (
         "the sandboxed generator run modified the real repository root pyproject.toml"
     )
+
+
+def _meta_package_config(py_typed: bool | None = None) -> dict[str, Any]:
+    """Synthetic meta-package config, optionally flagged ``py_typed``."""
+    pkg_config: dict[str, Any] = {
+        "description": "Meta package aggregating workspace members",
+        "path": "mloda/meta",
+        "dependencies": [],
+        "workspace_deps": ["mloda-registry"],
+    }
+    if py_typed is not None:
+        pkg_config["py_typed"] = py_typed
+    return pkg_config
+
+
+def test_generate_raises_when_meta_package_is_flagged_py_typed() -> None:
+    """workspace_deps and py_typed must be rejected as a combination.
+
+    ``generate_pyproject`` takes an early ``workspace_deps`` branch that emits
+    ``packages = []`` and never consults ``py_typed``, so a meta-package flagged
+    ``py_typed = true`` gets no ``[tool.setuptools.package-data]`` entry and no
+    marker in its wheel: no error, no failing test. No such package exists today,
+    which is why the fix is a guard (mirroring the
+    ``entry_point_bundle``/``entry_point_groups`` one) rather than support for the
+    combination. The message must name ``py_typed`` so the misconfiguration is
+    readable from the failure alone.
+    """
+    shared, _packages_config = gen.load_configs()
+    pkg_config = _meta_package_config(py_typed=True)
+    all_packages: dict[str, dict[str, Any]] = {"mloda-meta": pkg_config}
+
+    with pytest.raises(ValueError, match="py_typed"):
+        gen.generate_pyproject("mloda-meta", pkg_config, shared, all_packages)
+
+
+def test_meta_package_without_py_typed_still_generates() -> None:
+    """The guard fires on the combination only, not on every meta-package."""
+    shared, _packages_config = gen.load_configs()
+    pkg_config = _meta_package_config()
+    all_packages: dict[str, dict[str, Any]] = {"mloda-meta": pkg_config}
+
+    content: str = gen.generate_pyproject("mloda-meta", pkg_config, shared, all_packages)
+
+    assert "packages = []" in content, content
+    assert "package-data" not in content, content

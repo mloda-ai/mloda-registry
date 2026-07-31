@@ -283,6 +283,21 @@ def verify_pep420_source_compliance() -> list[str]:
     return errors
 
 
+def cleanup_build_dirs() -> int:
+    """Remove the build/ trees setuptools leaves in each configured package directory.
+
+    A stale tree is copied into the next wheel, so a build can ship files the source
+    tree no longer has and the py.typed gate (issue #336) passes on a real regression.
+    """
+    count = 0
+    for pkg_config in load_packages_config().values():
+        build_dir = Path(pkg_config["path"]) / "build"
+        if build_dir.is_dir():
+            shutil.rmtree(build_dir)
+            count += 1
+    return count
+
+
 def cleanup_egg_info() -> int:
     """Remove all egg-info directories created by builds."""
     count = 0
@@ -303,6 +318,11 @@ def cleanup_egg_info() -> int:
 
 
 def main() -> int:
+    # Stale build/ trees from a previous run would be copied into this run's wheels
+    stale = cleanup_build_dirs()
+    if stale:
+        print(f"🧹 Removed {stale} stale build directory(ies)")
+
     # First check version consistency
     consistent, expected_version = check_version_consistency()
     if not consistent or not expected_version:
@@ -383,8 +403,9 @@ def main() -> int:
             print(f"  - {e}")
         return 1
 
-    # Clean up egg-info directories on success
-    cleaned = cleanup_egg_info()
+    # Clean up on success: a build/ tree left behind makes the next pytest run
+    # collect phantom build.lib.* modules out of it
+    cleaned = cleanup_egg_info() + cleanup_build_dirs()
     if cleaned:
         print(f"\n🧹 Cleaned up {cleaned} build artifact(s)")
 
