@@ -143,6 +143,13 @@ class TestSingleTokenContainers:
         assert ScalarAggregateFeatureGroup._extract_aggregation_type(feature) == "sum"
         assert ScalarAggregateFeatureGroup._resolve_agg_type("my_result", self._options(aggregation_type)) == "sum"
 
+    @pytest.mark.parametrize("aggregation_type", [["sum", "max"], ("sum", "max")])
+    def test_multi_element_aggregation_type_rejected(self, aggregation_type: Any) -> None:
+        result = ScalarAggregateFeatureGroup.match_feature_group_criteria(
+            "my_result", self._options(aggregation_type), None
+        )
+        assert result is False, f"Config path should reject: {aggregation_type!r}"
+
 
 class TestSingleColumnEnforcement:
     """Verify that MAX_IN_FEATURES=1 enforces single-column behavior.

@@ -168,6 +168,13 @@ class TestSingleTokenContainers:
         feature = Feature("my_result", options=self._options(arithmetic_op))
         assert PointArithmeticFeatureGroup._extract_arithmetic_op(feature) == "add"
 
+    @pytest.mark.parametrize("arithmetic_op", [["add", "subtract"], ("add", "subtract")])
+    def test_multi_element_arithmetic_op_rejected(self, arithmetic_op: Any) -> None:
+        result = PointArithmeticFeatureGroup.match_feature_group_criteria(
+            "my_result", self._options(arithmetic_op), None
+        )
+        assert result is False, f"Config path should reject: {arithmetic_op!r}"
+
 
 class TestTwoColumnEnforcement:
     """Verify that MIN_IN_FEATURES=2 / MAX_IN_FEATURES=2 enforces two-column behavior."""

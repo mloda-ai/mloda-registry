@@ -223,6 +223,11 @@ class TestSingleTokenContainers:
         feature = Feature("my_result", options=self._options(bucket_op))
         assert TimeBucketizationFeatureGroup._extract_bucket_op(feature) == "floor_1_day"
 
+    @pytest.mark.parametrize("bucket_op", [["floor_1_day", "ceil_1_day"], ("floor_1_day", "ceil_1_day")])
+    def test_multi_element_bucket_op_rejected(self, bucket_op: Any) -> None:
+        result = TimeBucketizationFeatureGroup.match_feature_group_criteria("my_result", self._options(bucket_op), None)
+        assert result is False, f"Config path should reject: {bucket_op!r}"
+
 
 class TestSingleColumnEnforcement:
     """Verify that MAX_IN_FEATURES=1 enforces single-column behavior."""

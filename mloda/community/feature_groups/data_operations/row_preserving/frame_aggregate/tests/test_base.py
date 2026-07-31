@@ -711,10 +711,5 @@ class TestFrameAggregateMatchValidation(MatchValidationTestBase):
         return Options(context={"partition_by": ["region"], "order_by": "timestamp"})
 
     @classmethod
-    def parity_operations(cls) -> set[str]:
-        # No parametric family here: the fixed aggregation types are the whole value space.
-        return set(_AGGREGATION_TYPES)
-
-    @classmethod
     def malformed_operations(cls) -> set[str]:
         return {"banana", "mode", "nunique", "first"}

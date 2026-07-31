@@ -464,7 +464,9 @@ class TestRankMatchValidation(MatchValidationTestBase):
 
     @classmethod
     def parity_operations(cls) -> set[str]:
-        return {"row_number", "percent_rank", "ntile_4", "top_5", "bottom_3"}
+        # Widen, never narrow: valid_operations() covers the fixed rank types only, so add one
+        # instance of each parametric family (ntile_N / top_N / bottom_N) on top of it.
+        return cls.valid_operations() | {"ntile_4", "top_5", "bottom_3"}
 
     @classmethod
     def malformed_operations(cls) -> set[str]:

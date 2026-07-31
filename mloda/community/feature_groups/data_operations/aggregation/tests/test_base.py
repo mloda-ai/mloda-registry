@@ -323,6 +323,13 @@ class TestSingleTokenContainers:
         assert AggregationFeatureGroup._extract_aggregation_type(feature) == "sum"
         assert AggregationFeatureGroup._resolve_agg_type("my_result", self._options(aggregation_type)) == "sum"
 
+    @pytest.mark.parametrize("aggregation_type", [["sum", "max"], ("sum", "max")])
+    def test_multi_element_aggregation_type_rejected(self, aggregation_type: Any) -> None:
+        result = AggregationFeatureGroup.match_feature_group_criteria(
+            "my_result", self._options(aggregation_type), None
+        )
+        assert result is False, f"Config path should reject: {aggregation_type!r}"
+
 
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type only for deterministic ops.

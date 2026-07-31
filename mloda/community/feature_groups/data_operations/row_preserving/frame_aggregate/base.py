@@ -49,20 +49,24 @@ _AGGREGATION_TYPES = frozenset({"sum", "avg", "count", "min", "max", "std", "var
 _TIME_UNITS = {"second", "minute", "hour", "day", "week", "month", "year"}
 
 
-def _frame_type_token(options: Options) -> str | None:
-    """The frame type as a bare token, unwrapped from its container; None when the option is absent."""
-    frame_type = options.get(_FRAME_TYPE_KEY)
-    return None if frame_type is None else op_token_value(frame_type)
+def _option_token(options: Options, key: str) -> str | None:
+    """An option as a bare token, unwrapped from its container; None when the option is absent.
+
+    Absent stays None instead of becoming the string ``"None"``, so a missing option
+    is a non-match by construction rather than by coincidence.
+    """
+    value = options.get(key)
+    return None if value is None else op_token_value(value)
 
 
 def _needs_frame_size(options: Options) -> bool:
     """Rolling and time frames are sized; cumulative and expanding are not."""
-    return _frame_type_token(options) in ("rolling", "time")
+    return _option_token(options, _FRAME_TYPE_KEY) in ("rolling", "time")
 
 
 def _needs_frame_unit(options: Options) -> bool:
     """Only a time-interval frame carries a unit."""
-    return _frame_type_token(options) == "time"
+    return _option_token(options, _FRAME_TYPE_KEY) == "time"
 
 
 @functools.lru_cache(maxsize=1024)
@@ -348,10 +352,10 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
 
         # Config path only: SUPPORTED_* narrows per subclass, so it cannot be declared once on the base.
         if cls._parse_frame_feature(str(feature_name)) is None:
-            frame_type = op_token_value(options.get(cls.FRAME_TYPE))
+            frame_type = _option_token(options, cls.FRAME_TYPE)
             if frame_type not in cls.SUPPORTED_FRAME_TYPES:
                 return False
-            if frame_type == "time" and op_token_value(options.get(cls.FRAME_UNIT)) not in cls.SUPPORTED_TIME_UNITS:
+            if frame_type == "time" and _option_token(options, cls.FRAME_UNIT) not in cls.SUPPORTED_TIME_UNITS:
                 return False
 
         partition_by = options.get(cls.PARTITION_BY)

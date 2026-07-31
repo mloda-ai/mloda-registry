@@ -148,6 +148,11 @@ class TestSingleTokenContainers:
         feature = Feature("my_result", options=self._options(string_op))
         assert StringFeatureGroup._extract_string_op(feature) == "upper"
 
+    @pytest.mark.parametrize("string_op", [["upper", "lower"], ("upper", "lower")])
+    def test_multi_element_string_op_rejected(self, string_op: Any) -> None:
+        result = StringFeatureGroup.match_feature_group_criteria("my_result", self._options(string_op), None)
+        assert result is False, f"Config path should reject: {string_op!r}"
+
 
 class TestValidateStringMatch:
     def test_base_class_validates_known_ops(self) -> None:

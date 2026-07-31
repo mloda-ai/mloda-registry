@@ -300,6 +300,12 @@ class TestSingleTokenContainers:
         result = WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", with_order_by, None)
         assert result is True, f"Config path should accept with order_by: {aggregation_type!r}"
 
+    @pytest.mark.parametrize("aggregation_type", [["sum", "max"], ("sum", "max")])
+    def test_multi_element_aggregation_type_rejected(self, aggregation_type: Any) -> None:
+        options = self._options(aggregation_type=aggregation_type)
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False, f"Config path should reject: {aggregation_type!r}"
+
 
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type only for deterministic ops.

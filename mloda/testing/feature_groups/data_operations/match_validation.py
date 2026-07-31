@@ -7,7 +7,9 @@ Provides ``MatchValidationTestBase`` with reusable test methods covering:
 - Special characters in the operation portion of feature names
 - Type confusion via Options (None, int, list)
 - Case sensitivity enforcement (lowercase only)
-- Declaration/dispatch drift between the name path and the config path
+- Declaration/dispatch drift between the name path and the config path: the
+  acceptance half is opt-out (``parity_operations``), the rejection half is
+  opt-in (``malformed_operations``)
 
 Concrete test classes implement abstract methods to adapt these tests
 to each specific operation.

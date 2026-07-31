@@ -173,6 +173,11 @@ class TestSingleTokenContainers:
         feature = Feature("my_result", options=self._options(binning_op))
         assert BinningFeatureGroup._extract_binning_params(feature) == ("bin", 5)
 
+    @pytest.mark.parametrize("binning_op", [["bin", "qbin"], ("bin", "qbin")])
+    def test_multi_element_binning_op_rejected(self, binning_op: Any) -> None:
+        result = BinningFeatureGroup.match_feature_group_criteria("my_result", self._options(binning_op), None)
+        assert result is False, f"Config path should reject: {binning_op!r}"
+
 
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type for deterministic ops.

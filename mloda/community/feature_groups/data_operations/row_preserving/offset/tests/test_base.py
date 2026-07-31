@@ -353,7 +353,9 @@ class TestOffsetMatchValidation(MatchValidationTestBase):
 
     @classmethod
     def parity_operations(cls) -> set[str]:
-        return {"first_value", "last_value", "lag_1", "lead_2", "diff_1", "pct_change_3"}
+        # Widen, never narrow: valid_operations() covers the fixed offset types plus one lag/lead
+        # instance, so add the remaining parametric families and a second lead arity on top of it.
+        return cls.valid_operations() | {"lag_1", "lead_2", "diff_1", "pct_change_3"}
 
     @classmethod
     def malformed_operations(cls) -> set[str]:

@@ -134,6 +134,11 @@ class TestSingleTokenContainers:
         feature = Feature("my_result", options=self._options(datetime_op))
         assert DateTimeFeatureGroup._extract_datetime_op(feature) == "year"
 
+    @pytest.mark.parametrize("datetime_op", [["year", "month"], ("year", "month")])
+    def test_multi_element_datetime_op_rejected(self, datetime_op: Any) -> None:
+        result = DateTimeFeatureGroup.match_feature_group_criteria("my_result", self._options(datetime_op), None)
+        assert result is False, f"Config path should reject: {datetime_op!r}"
+
 
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type for deterministic ops.
