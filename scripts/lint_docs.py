@@ -20,6 +20,16 @@ HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 
 CODE_BLOCK_RE = re.compile(r"^```", re.MULTILINE)
 
+# Spec fields that were removed from DefaultOptionKeys; the attribute access now raises AttributeError.
+RETIRED_OPTION_KEY_RE = re.compile(
+    r"\bDefaultOptionKeys\.(?:explanation|allowed_values|default|strict_validation"
+    r"|element_validator|required_when|match_guard)\b"
+)
+
+PROPERTY_MAPPING_OPEN_RE = re.compile(r"\bPROPERTY_MAPPING\b[^{]*\{")
+
+RAW_DICT_VALUE_RE = re.compile(r":\s*\{")
+
 INDEX_FILENAME = "index.md"
 
 
@@ -186,6 +196,38 @@ def check_bare_fence_openers(md_file: Path, content: str) -> list[str]:
     return errors
 
 
+def check_retired_property_spec_spellings(md_file: Path, content: str) -> list[str]:
+    """Flag retired PROPERTY_MAPPING spellings (removed DefaultOptionKeys fields, raw dict values) inside fences."""
+    errors = []
+    in_block = False
+    depth = 0
+    parens = 0
+    for lineno, line in enumerate(content.splitlines(), start=1):
+        if line.startswith("```"):
+            in_block = not in_block
+            depth = 0
+            parens = 0
+            continue
+        if not in_block:
+            continue
+        for match in RETIRED_OPTION_KEY_RE.finditer(line):
+            errors.append(f"{md_file}:{lineno}: retired spelling {match.group(0)} (use property_spec(...) instead)")
+        if depth == 0:
+            if PROPERTY_MAPPING_OPEN_RE.search(line):
+                depth = max(line.count("{") - line.count("}"), 0)
+                parens = line.count("(") - line.count(")") if depth else 0
+            continue
+        # Only entries directly under PROPERTY_MAPPING count; parens > 0 means we are inside a property_spec(...) call.
+        if depth == 1 and parens == 0 and RAW_DICT_VALUE_RE.search(line):
+            errors.append(f"{md_file}:{lineno}: raw dict PROPERTY_MAPPING value (use property_spec(...) instead)")
+        depth += line.count("{") - line.count("}")
+        parens += line.count("(") - line.count(")")
+        if depth <= 0:
+            depth = 0
+            parens = 0
+    return errors
+
+
 def main() -> int:
     if not DOCS_DIR.is_dir():
         print(f"Docs directory not found: {DOCS_DIR}")
@@ -201,6 +243,7 @@ def main() -> int:
         link_errors.extend(check_relative_links_and_anchors(md_file, content))
         all_errors.extend(check_internal_imports(md_file, content))
         all_errors.extend(check_bare_fence_openers(md_file, content))
+        all_errors.extend(check_retired_property_spec_spellings(md_file, content))
 
     all_errors.extend(link_errors)
 

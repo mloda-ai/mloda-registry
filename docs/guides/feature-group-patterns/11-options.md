@@ -60,30 +60,29 @@ Use propagation sparingly; most context should remain local. Common use cases in
 
 ## PROPERTY_MAPPING value space
 
-A `PROPERTY_MAPPING` entry declares a parameter's accepted values plus metadata flags. Since mloda 0.10.0 a spec dict may carry only the schema keys (`PROPERTY_SPEC_KEYS`: `explanation`, `allowed_values`, `default`, `context`, `group`, `strict_validation`, `element_validator`, `required_when`, `match_guard`); any other key raises `ValueError` at class definition. The old flattened form, where accepted values sat among the flags as extra dict keys, is gone.
+A `PROPERTY_MAPPING` entry declares a parameter's accepted values plus metadata flags. A value is a `PropertySpec`, built with `property_spec(...)`; from mloda 0.11.0 a raw dict raises `ValueError` at class definition. The old flattened form, where accepted values sat among the flags as extra dict keys, is gone.
 
 ### Accepted values: `allowed_values`
 
-Declare the value space under `DefaultOptionKeys.allowed_values` so it stays separate from the flags and a doc-only key can never widen the accepted set:
+Declare the value space under `allowed_values` so it stays separate from the flags and a doc-only key can never widen the accepted set:
 
 ```python
-from mloda.provider import DefaultOptionKeys
+from mloda.provider import property_spec
 
 PROPERTY_MAPPING = {
-    "operation_type": {
-        "explanation": "Arithmetic operation",
-        DefaultOptionKeys.allowed_values: {"add": "Addition", "sub": "Subtraction"},
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: True,
-    },
+    "operation_type": property_spec(
+        "Arithmetic operation",
+        strict=True,
+        allowed_values={"add": "Addition", "sub": "Subtraction"},
+    ),
 }
 ```
 
-`allowed_values` may be a mapping of value to one-line docstring, or a re-iterable collection (list, tuple, set). Do not pass a one-shot iterator (e.g. a generator) in a hand-written spec: it is not a `Collection`, so `FeatureChainParser._reject_malformed_spec_values` raises `ValueError` at class definition. A bare `str` is rejected too, since membership would silently become a substring test.
+`allowed_values` may be a mapping of value to one-line docstring, or any iterable of accepted values (list, tuple, set); it is materialized to a tuple. A bare `str` is rejected, since membership would silently become a substring test.
 
 ### Builder: `property_spec`
 
-`property_spec` builds the same dict and validates its invariants at construction (strict needs a non-empty `allowed_values` or an `element_validator`; an `element_validator` without strict is rejected as a no-op; a strict non-`None` `default` must be in the accepted set). It also materializes iterables, so you never hit the one-shot caveat. The contract stays a plain `dict[str, Any]`, so this is optional sugar. Note that it drops `default=None`, so a spec that relies on a present-but-`None` `default` to stay optional must be written as a plain dict:
+`property_spec` validates the spec invariants at construction (strict needs a non-empty `allowed_values` or an `element_validator`; an `element_validator` without strict is rejected as a no-op; a strict non-`None` `default` must be in the accepted set). Its `strict=` keyword sets the field named `strict_validation`:
 
 ```python
 from mloda.provider import property_spec
@@ -98,17 +97,19 @@ PROPERTY_MAPPING = {
 }
 ```
 
-`property_spec` also accepts `context`, `element_validator`, `required_when`, and `match_guard`, matching the spec keys of the same name.
+`property_spec` also accepts `context`, `element_validator`, `required_when`, and `match_guard`, plus `allow_explicit_none` and `deferred_binding` from mloda 0.11.0. `allow_explicit_none` makes an explicitly passed `None` count as present. `deferred_binding` exempts a key without a default from the name-path required-presence check, for values bound outside match-time name capture; it does not change config-path requiredness.
+
+Version note on `default=None`: mloda 0.10.0 drops it, so the key stays required. From mloda 0.11.0, omitting `default` declares no default (the key is required) and `default=None` declares a default of `None`, which makes the key optional.
 
 ### Strict defaults are checked at import time
 
-Since mloda 0.9.0, defining a `FeatureGroup` whose `PROPERTY_MAPPING` declares a `strict_validation: True` default outside the accepted set (or one that fails the key's `element_validator`) raises `ValueError` at class definition, naming the class, key, default, and accepted values. Previously such a spec imported silently and only misbehaved at runtime. A `default` of `None` is exempt (the conventional "unset" sentinel), and the check is a no-op under `strict_validation: False`.
+Since mloda 0.9.0, defining a `FeatureGroup` whose `PROPERTY_MAPPING` declares a `strict=True` default outside the accepted set (or one that fails the key's `element_validator`) raises `ValueError` at class definition, pointing at the offending spec, its default, and the accepted values. Previously such a spec imported silently and only misbehaved at runtime. A `default` of `None` is exempt (the conventional "unset" sentinel), and the check is a no-op under `strict=False`.
 
 ## Validation and Conditional Requirements
 
 When using `PROPERTY_MAPPING` with `FeatureChainParserMixin`, you can declare validation rules and conditional requirements directly on option entries:
 
-- **`element_validator`**: Validate each parsed element with a callable (requires `strict_validation: True`). A falsy return raises `ValueError`, which the mixin turns into a non-match plus a rejection reason in the resolution error.
+- **`element_validator`**: Validate each parsed element with a callable (requires `strict=True`). A falsy return raises `ValueError`, which the mixin turns into a non-match plus a rejection reason in the resolution error.
 - **`match_guard`**: Check the raw option value with a callable (no `strict_validation` needed). Useful for composite types like lists or dicts. A falsy return is a plain non-match, with no reason reported.
 - **`required_when`**: Make an option conditionally required based on a predicate callable.
 
