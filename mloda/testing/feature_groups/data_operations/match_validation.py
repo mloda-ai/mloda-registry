@@ -6,8 +6,9 @@ Provides ``MatchValidationTestBase`` with reusable test methods covering:
 - Invalid operation types (pattern-based and options-based)
 - Special characters in the operation portion of feature names
 - Type confusion via Options (None, int)
-- Single-element containers holding exactly one operation token, and the
-  multi-element containers that must stay rejected
+- Single-element containers holding exactly one operation token, over every
+  token-valued key and option state a family declares (``token_cases``), and
+  the multi-element containers that must stay rejected
 - Case sensitivity enforcement (lowercase only)
 - Declaration/dispatch drift between the name path and the config path: the
   acceptance half is opt-out (``parity_operations``), the rejection half is
@@ -20,11 +21,35 @@ to each specific operation.
 from __future__ import annotations
 
 from abc import abstractmethod
+from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.provider import DefaultOptionKeys
+
+
+@dataclass(frozen=True)
+class TokenCase:
+    """One state of one token-valued config key, declared for the single-token checks.
+
+    ``context`` adds to and ``without`` drops from ``additional_match_options()``,
+    which is how a state that turns a conditional requirement on or off is declared
+    (a sized frame type without its ``frame_size``, ``first`` without its ``order_by``).
+    ``matches`` is the verdict that state must produce, bare and wrapped alike.
+
+    ``other`` is a second valid value for the same key, used for the multi-element
+    rejection; ``None`` skips it. Only string tokens take part in the single-element
+    checks, since a container is caller syntax for one *token*.
+    """
+
+    key: str
+    token: Any
+    other: Any = None
+    context: dict[str, Any] = field(default_factory=dict)
+    without: tuple[str, ...] = ()
+    matches: bool = True
 
 
 class MatchValidationTestBase:
@@ -94,18 +119,22 @@ class MatchValidationTestBase:
         return operation
 
     @classmethod
-    def single_token_operation(cls) -> str | None:
-        """The config-path operation token used for the single-element-container checks.
+    def token_cases(cls) -> list[TokenCase]:
+        """States whose token must behave the same bare and in a single-element container.
 
-        Defaults to the first parity operation whose config value is a string.
-        Families whose config vocabulary is not a token (percentile's float) get
-        ``None``, and the checks are skipped.
+        Core unwraps a one-element container when it reads a property value, so
+        ``("sum",)`` is valid caller syntax for one token: it must produce the same
+        verdict as ``"sum"`` and reach dispatch as ``"sum"``, not as ``"('sum',)"``.
+
+        Defaults to the primary operation key holding parity operations. Override to
+        append the other keys a family dispatches on, and the states where a token
+        turns a conditional requirement on or off.
         """
-        for operation in sorted(cls.parity_operations()):
-            value = cls.config_value(operation)
-            if isinstance(value, str):
-                return value
-        return None
+        operations = sorted(cls.parity_operations())
+        if not operations:
+            return []
+        values = [cls.config_value(operation) for operation in operations[:2]]
+        return [TokenCase(cls.config_key(), values[0], values[1] if len(values) > 1 else None)]
 
     @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:
@@ -142,9 +171,18 @@ class MatchValidationTestBase:
         """
         return set()
 
+    @classmethod
+    def _primary_value(cls) -> Any:
+        """The value the primary operation key holds while another key is under test."""
+        return cls.config_value(sorted(cls.parity_operations())[0])
+
     def _config_options(self, value: Any) -> Options:
         """Options carrying ``value`` as the operation on the configuration path."""
         return Options(context={self.config_key(): value, **self.additional_match_options()})
+
+    def _match(self, options: Options) -> bool:
+        """Match verdict of the configuration-based path for the given options."""
+        return bool(self.feature_group_class().match_feature_group_criteria("my_result", options, None))
 
     # -- No source column ------------------------------------------------------
 
@@ -191,10 +229,7 @@ class MatchValidationTestBase:
         for bad_type in self.INVALID_TYPES:
             if bad_type == "":
                 continue
-            result = self.feature_group_class().match_feature_group_criteria(
-                "my_result", self._config_options(bad_type), None
-            )
-            assert result is False, f"Should reject via options: {bad_type!r}"
+            assert self._match(self._config_options(bad_type)) is False, f"Should reject via options: {bad_type!r}"
 
     # -- Special characters --------------------------------------------------
 
@@ -215,43 +250,86 @@ class MatchValidationTestBase:
 
     def test_none_type_rejected(self) -> None:
         """None as operation type in options must not match."""
-        result = self.feature_group_class().match_feature_group_criteria("my_result", self._config_options(None), None)
-        assert result is False
+        assert self._match(self._config_options(None)) is False
 
     def test_integer_type_rejected(self) -> None:
         """An integer as operation type in options must not match."""
-        result = self.feature_group_class().match_feature_group_criteria("my_result", self._config_options(42), None)
-        assert result is False
+        assert self._match(self._config_options(42)) is False
 
     # -- Single-token containers ---------------------------------------------
 
-    def test_single_element_container_matches(self) -> None:
-        """A bare token and its single-element containers must dispatch identically.
+    def _case_options(self, case: TokenCase, value: Any) -> Options:
+        """Options for ``case`` with its key holding ``value``."""
+        context: dict[str, Any] = {self.config_key(): self._primary_value(), **self.additional_match_options()}
+        context.update(case.context)
+        for key in case.without:
+            context.pop(key, None)
+        context[case.key] = value
+        return Options(context=context)
 
-        Core unwraps a one-element container when it reads a property value, so
-        ``("sum",)`` is valid caller syntax for one token: it has to match, and it
-        has to reach dispatch as ``"sum"`` rather than as ``"('sum',)"``.
-        """
-        operation = self.single_token_operation()
-        if operation is None:
+    @classmethod
+    def _required_when_predicates(cls) -> dict[str, Any]:
+        """The conditional-requirement predicates the feature group declares in PROPERTY_MAPPING."""
+        mapping = getattr(cls.feature_group_class(), "PROPERTY_MAPPING", None) or {}
+        predicates = {}
+        for key, entry in mapping.items():
+            predicate = entry.get(DefaultOptionKeys.required_when) if isinstance(entry, dict) else None
+            if callable(predicate):
+                predicates[key] = predicate
+        return predicates
+
+    def _dispatch_or_none(self, options: Options) -> list[Any] | None:
+        """Values the dispatch path resolves, or None for a state its extractors reject."""
+        try:
+            return self.dispatch_values(options)
+        except ValueError:
+            return None
+
+    def test_single_element_container_matches(self) -> None:
+        """A bare token and its single-element containers must match alike and dispatch alike."""
+        cases = [case for case in self.token_cases() if isinstance(case.token, str)]
+        if not cases:
             pytest.skip("config vocabulary is not a single string token")
-        for value in (operation, (operation,), [operation]):
-            options = self._config_options(value)
-            result = self.feature_group_class().match_feature_group_criteria("my_result", options, None)
-            assert result is True, f"Config path should accept: {value!r}"
-            for resolved in self.dispatch_values(options):
-                assert resolved == operation, f"Dispatch should resolve {value!r} to {operation!r}, got {resolved!r}"
+        for case in cases:
+            bare = self._case_options(case, case.token)
+            assert self._match(bare) is case.matches, f"{case.key}={case.token!r} should match: {case.matches}"
+            expected = self._dispatch_or_none(bare)
+            for value in ((case.token,), [case.token]):
+                options = self._case_options(case, value)
+                assert self._match(options) is case.matches, f"{case.key}={value!r} should match: {case.matches}"
+                assert self._dispatch_or_none(options) == expected, (
+                    f"{case.key}={value!r} should dispatch as {case.token!r}"
+                )
+
+    def test_single_element_container_preserves_requirements(self) -> None:
+        """A wrapped token must switch the same conditional requirements on as a bare one.
+
+        ``required_when`` predicates read the option raw, so this is where a container
+        that never gets unwrapped drops a requirement and lets an under-specified
+        feature match at discovery and fail at compute.
+        """
+        predicates = self._required_when_predicates()
+        cases = [case for case in self.token_cases() if isinstance(case.token, str)]
+        if not predicates or not cases:
+            pytest.skip("no required_when predicate keyed off a string token")
+        for case in cases:
+            bare = self._case_options(case, case.token)
+            expected = {key: bool(predicate(bare)) for key, predicate in predicates.items()}
+            for value in ((case.token,), [case.token]):
+                options = self._case_options(case, value)
+                resolved = {key: bool(predicate(options)) for key, predicate in predicates.items()}
+                assert resolved == expected, f"{case.key}={value!r} should require what {case.token!r} requires"
 
     def test_multi_element_container_rejected(self) -> None:
         """Two operations in one container are not one operation, whatever the container type."""
-        operations = [self.config_value(op) for op in sorted(self.parity_operations())[:2]]
-        if len(operations) < 2:
-            pytest.skip("fewer than two operations declared for this family")
-        for value in (operations, tuple(operations)):
-            result = self.feature_group_class().match_feature_group_criteria(
-                "my_result", self._config_options(value), None
-            )
-            assert result is False, f"Config path should reject: {value!r}"
+        cases = [case for case in self.token_cases() if case.other is not None and case.matches]
+        if not cases:
+            pytest.skip("no token key declares a second operation")
+        for case in cases:
+            for value in ([case.token, case.other], (case.token, case.other)):
+                assert self._match(self._case_options(case, value)) is False, (
+                    f"Config path should reject {case.key}={value!r}"
+                )
 
     # -- Case sensitivity ----------------------------------------------------
 
@@ -289,9 +367,7 @@ class MatchValidationTestBase:
 
     def _match_by_config(self, operation: str) -> bool:
         """Match verdict of the configuration-based path for the given operation."""
-        options = self._config_options(self.config_value(operation))
-        result = self.feature_group_class().match_feature_group_criteria("my_result", options, None)
-        return bool(result)
+        return self._match(self._config_options(self.config_value(operation)))
 
     def test_operations_match_on_both_paths(self) -> None:
         """Operations accepted by one path must be accepted by the other."""

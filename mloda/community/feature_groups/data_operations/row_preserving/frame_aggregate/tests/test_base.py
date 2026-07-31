@@ -7,14 +7,12 @@ from typing import Any
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
     _AGGREGATION_TYPES,
-    _needs_frame_size,
-    _needs_frame_unit,
 )
 
 
@@ -433,92 +431,6 @@ class TestNameBasedFrameTypeInOptions:
         assert result is True
 
 
-class TestSingleTokenContainers:
-    """frame_type and frame_unit are operation tokens of their own, so they must reach dispatch unwrapped too.
-
-    The aggregation_type half of this contract is the shared
-    ``MatchValidationTestBase`` check, driven by ``config_key()``.
-    """
-
-    def _options(self, **overrides: Any) -> Options:
-        context: dict[str, Any] = {
-            "aggregation_type": "sum",
-            "frame_type": "rolling",
-            "frame_size": 3,
-            "in_features": "sales",
-            "partition_by": ["region"],
-            "order_by": "timestamp",
-        }
-        context.update(overrides)
-        return Options(context=context)
-
-    @pytest.mark.parametrize("frame_type", [("rolling",), ["rolling"]])
-    def test_single_element_frame_type(self, frame_type: Any) -> None:
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(frame_type=frame_type), None
-        )
-        assert result is True, f"Config path should accept: {frame_type!r}"
-        feature = Feature("my_result", options=self._options(frame_type=frame_type))
-        assert FrameAggregateFeatureGroup._extract_params(feature)["frame_type"] == "rolling"
-
-    @pytest.mark.parametrize("frame_unit", [("day",), ["day"]])
-    def test_single_element_frame_unit(self, frame_unit: Any) -> None:
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(frame_type="time", frame_size=7, frame_unit=frame_unit), None
-        )
-        assert result is True, f"Config path should accept: {frame_unit!r}"
-        feature = Feature("my_result", options=self._options(frame_type="time", frame_size=7, frame_unit=frame_unit))
-        assert FrameAggregateFeatureGroup._extract_params(feature)["frame_unit"] == "day"
-
-    @pytest.mark.parametrize("frame_type", [["rolling", "time"], ("rolling", "time")])
-    def test_multi_element_frame_type_rejected(self, frame_type: Any) -> None:
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(frame_type=frame_type), None
-        )
-        assert result is False, f"Config path should reject: {frame_type!r}"
-
-
-class TestSingleTokenFrameTypeRequirements:
-    """The conditional-requirement predicates read frame_type raw, so a wrapped token must behave like a bare one."""
-
-    @pytest.mark.parametrize(
-        "frame_type",
-        ["rolling", ("rolling",), ["rolling"], "time", ("time",), ["time"]],
-    )
-    def test_sized_frame_types_need_frame_size(self, frame_type: Any) -> None:
-        assert _needs_frame_size(Options(context={"frame_type": frame_type})) is True
-
-    @pytest.mark.parametrize(
-        "frame_type",
-        ["cumulative", ("cumulative",), ["cumulative"], "expanding", ("expanding",), ["expanding"]],
-    )
-    def test_unsized_frame_types_do_not_need_frame_size(self, frame_type: Any) -> None:
-        assert _needs_frame_size(Options(context={"frame_type": frame_type})) is False
-
-    @pytest.mark.parametrize("frame_type", ["time", ("time",), ["time"]])
-    def test_time_frame_type_needs_frame_unit(self, frame_type: Any) -> None:
-        assert _needs_frame_unit(Options(context={"frame_type": frame_type})) is True
-
-    @pytest.mark.parametrize("frame_type", ["rolling", ("rolling",), ["rolling"]])
-    def test_non_time_frame_type_does_not_need_frame_unit(self, frame_type: Any) -> None:
-        assert _needs_frame_unit(Options(context={"frame_type": frame_type})) is False
-
-    @pytest.mark.parametrize("frame_type", ["rolling", ("rolling",), ["rolling"]])
-    def test_sized_frame_without_frame_size_rejected(self, frame_type: Any) -> None:
-        """A sized frame with no frame_size is a non-match, wrapped token or not."""
-        options = Options(
-            context={
-                "aggregation_type": "sum",
-                "frame_type": frame_type,
-                "in_features": "sales",
-                "partition_by": ["region"],
-                "order_by": "timestamp",
-            }
-        )
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is False, f"Config path should reject a sized frame without frame_size: {frame_type!r}"
-
-
 class TestHostileInFeatures:
     """A hostile in_features value is a plain non-match; no exception may escape the matcher."""
 
@@ -710,5 +622,23 @@ class TestFrameAggregateMatchValidation(MatchValidationTestBase):
         return {"banana", "mode", "nunique", "first"}
 
     @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        # frame_type and frame_unit are operation tokens of their own, and frame_type is what
+        # _needs_frame_size / _needs_frame_unit read to decide which of the two a state requires.
+        return [
+            *super().token_cases(),
+            TokenCase("frame_type", "rolling", "time"),
+            TokenCase("frame_unit", "day", "week", context={"frame_type": "time"}),
+            # Sized frames require frame_size, unsized ones do not.
+            TokenCase("frame_type", "rolling", without=("frame_size",), matches=False),
+            TokenCase("frame_type", "time", without=("frame_size",), matches=False),
+            TokenCase("frame_type", "cumulative", without=("frame_size",)),
+            TokenCase("frame_type", "expanding", without=("frame_size",)),
+            # Only a time frame requires frame_unit, which additional_match_options() does not carry.
+            TokenCase("frame_type", "time", matches=False),
+        ]
+
+    @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:
-        return [FrameAggregateFeatureGroup._extract_params(Feature("my_result", options=options))["agg_type"]]
+        params = FrameAggregateFeatureGroup._extract_params(Feature("my_result", options=options))
+        return [params["agg_type"], params["frame_type"], params["frame_unit"]]

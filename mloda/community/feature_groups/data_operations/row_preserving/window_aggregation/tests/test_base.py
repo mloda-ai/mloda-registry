@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
@@ -266,34 +266,6 @@ class TestConfigBasedFeatures:
         assert result_col == expected
 
 
-class TestSingleTokenOrderRequirement:
-    """The order_by requirement is keyed off the aggregation type, so a wrapped token must trigger it too.
-
-    The rest of the single-token contract is the shared ``MatchValidationTestBase`` check.
-    """
-
-    def _options(self, **overrides: Any) -> Options:
-        context: dict[str, Any] = {
-            "aggregation_type": "sum",
-            "in_features": "value_int",
-            "partition_by": ["region"],
-        }
-        context.update(overrides)
-        return Options(context=context)
-
-    @pytest.mark.parametrize("aggregation_type", ["first", ("first",), ["first"]])
-    def test_single_element_order_dependent_agg_type_requires_order_by(self, aggregation_type: Any) -> None:
-        """first/last need order_by, and a wrapped token must trigger that requirement just like a bare one."""
-        without_order_by = self._options(aggregation_type=aggregation_type)
-        assert WindowAggregationFeatureGroup._resolve_agg_type("my_result", without_order_by) == "first"
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", without_order_by, None)
-        assert result is False, f"Config path should reject without order_by: {aggregation_type!r}"
-
-        with_order_by = self._options(aggregation_type=aggregation_type, order_by="timestamp")
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("my_result", with_order_by, None)
-        assert result is True, f"Config path should accept with order_by: {aggregation_type!r}"
-
-
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type only for deterministic ops.
 
@@ -346,6 +318,15 @@ class TestWindowAggregationMatchValidation(MatchValidationTestBase):
     @classmethod
     def pattern_match_options(cls) -> Options:
         return Options(context={"partition_by": ["region"], "order_by": "timestamp"})
+
+    @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        # first/last are the aggregation types that require order_by.
+        return [
+            *super().token_cases(),
+            TokenCase(cls.config_key(), "first", without=("order_by",), matches=False),
+            TokenCase(cls.config_key(), "first"),
+        ]
 
     @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:
