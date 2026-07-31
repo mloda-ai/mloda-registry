@@ -205,11 +205,7 @@ def verify_entry_points(built_wheels: dict[str, Path]) -> list[str]:
 
 
 def verify_py_typed_markers(built_wheels: dict[str, Path]) -> list[str]:
-    """Verify wheels of packages flagged ``py_typed = true`` ship their PEP 561 marker (issue #336).
-
-    Without ``<path>/py.typed`` in the wheel, a downstream ``mypy --strict`` ignores
-    every annotation the distribution ships.
-    """
+    """Verify wheels of packages flagged ``py_typed = true`` ship their PEP 561 marker."""
     errors: list[str] = []
     packages = load_packages_config()
 
@@ -284,11 +280,7 @@ def verify_pep420_source_compliance() -> list[str]:
 
 
 def cleanup_build_dirs() -> int:
-    """Remove the build/ trees setuptools leaves in each configured package directory.
-
-    A stale tree is copied into the next wheel, so a build can ship files the source
-    tree no longer has and the py.typed gate (issue #336) passes on a real regression.
-    """
+    """Remove the build/ trees setuptools leaves behind; a stale tree is copied into the next wheel."""
     count = 0
     for pkg_config in load_packages_config().values():
         build_dir = Path(pkg_config["path"]) / "build"
@@ -381,7 +373,7 @@ def main() -> int:
         else:
             print("  ✓ entry points correct")
 
-        # Verify PEP 561 py.typed markers (issue #336)
+        # Verify PEP 561 py.typed markers
         print("\nVerifying py.typed markers...")
         py_typed_errors = verify_py_typed_markers(built_wheels)
         if py_typed_errors:
@@ -403,8 +395,7 @@ def main() -> int:
             print(f"  - {e}")
         return 1
 
-    # Clean up on success: a build/ tree left behind makes the next pytest run
-    # collect phantom build.lib.* modules out of it
+    # A leftover build/ tree makes the next pytest run collect phantom build.lib.* modules
     cleaned = cleanup_egg_info() + cleanup_build_dirs()
     if cleaned:
         print(f"\n🧹 Cleaned up {cleaned} build artifact(s)")

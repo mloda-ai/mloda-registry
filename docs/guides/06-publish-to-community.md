@@ -16,7 +16,7 @@ Submit your plugin to mloda-registry for others to use.
    mloda/community/feature_groups/your_plugin/
    ```
 
-3. **Add to package config** in `config/packages.toml`. To ship type information, set `py_typed = true` and commit an empty `<path>/py.typed`, otherwise a downstream `mypy --strict` ignores your annotations.
+3. **Add to package config** in `config/packages.toml`. For a typed plugin, set `py_typed = true` and commit an empty `<path>/py.typed`.
 
 4. **Run tests** to ensure everything works:
    ```bash

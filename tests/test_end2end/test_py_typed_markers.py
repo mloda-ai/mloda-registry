@@ -1,25 +1,6 @@
-"""PEP 561 ``py.typed`` marker tests for issue #336.
-
-Four distributions ship annotated public API: ``mloda-registry``, ``mloda-testing``,
-``mloda-community`` and ``mloda-enterprise``. Without a ``py.typed`` marker in the
-wheel a downstream ``mypy --strict`` discards every annotation they ship. The marker
-only reaches a wheel when three things line up:
-
-* ``config/packages.toml`` flags the package with ``py_typed = true``;
-* ``scripts/generate_pyproject.py`` emits a ``[tool.setuptools.package-data]`` entry
-  mapping the dotted path to ``["py.typed"]`` and lists that dotted path in
-  ``[tool.setuptools] packages`` (``mloda/community`` and ``mloda/enterprise`` are
-  PEP 420 namespace portions without ``__init__.py``, so ``discover_packages`` never
-  finds them and setuptools would silently drop their package-data);
-* the marker file itself is committed next to the package.
-
-``scripts/verify_builds.py`` is the regression gate: it must report an error for any
-flagged package whose wheel lacks ``<path>/py.typed``.
-
-Both scripts are loose scripts, not installed packages, so they are loaded by file
-path with the same ``importlib.util`` idiom as ``test_generate_pyproject_guards.py``
-and ``test_entry_points.py``.
-"""
+"""PEP 561 ``py.typed`` marker tests. A marker reaches a wheel only when its dotted path is listed
+in ``[tool.setuptools] packages``, and ``mloda/community`` and ``mloda/enterprise`` are PEP 420
+portions that ``discover_packages`` misses."""
 
 from __future__ import annotations
 
@@ -97,7 +78,6 @@ def _committed_setuptools(pkg_name: str) -> dict[str, Any]:
 
 @pytest.mark.parametrize("pkg_name", _TYPED_PACKAGES)
 def test_config_flags_package_as_py_typed(pkg_name: str) -> None:
-    """config/packages.toml declares ``py_typed = true`` for each typed distribution."""
     pkg_config = _packages()[pkg_name]
     assert pkg_config.get("py_typed") is True, (
         f"{pkg_name}: config/packages.toml must declare 'py_typed = true', got {pkg_config.get('py_typed')!r}"
@@ -106,20 +86,15 @@ def test_config_flags_package_as_py_typed(pkg_name: str) -> None:
 
 @pytest.mark.parametrize("pkg_name", _TYPED_PACKAGES)
 def test_marker_file_is_committed(pkg_name: str) -> None:
-    """A ``py.typed`` marker file sits next to each typed package."""
     marker = _REPO_ROOT / _packages()[pkg_name]["path"] / "py.typed"
     assert marker.is_file(), f"{pkg_name}: missing PEP 561 marker file {_packages()[pkg_name]['path']}/py.typed"
 
 
 @pytest.mark.parametrize("pkg_name", _TYPED_PACKAGES)
 def test_generator_emits_package_data_for_marker(pkg_name: str) -> None:
-    """The generator maps the dotted path to ``["py.typed"]`` in package-data."""
     dotted = _dotted_path(pkg_name)
     package_data = _generated_setuptools(pkg_name).get("package-data")
-    assert package_data is not None, (
-        f"{pkg_name}: generated pyproject has no [tool.setuptools.package-data] table, "
-        f"so the {dotted} py.typed marker never reaches the wheel"
-    )
+    assert package_data is not None, f"{pkg_name}: generated pyproject has no package-data table for {dotted}"
     assert package_data.get(dotted) == ["py.typed"], (
         f'{pkg_name}: [tool.setuptools.package-data] must contain "{dotted}" = ["py.typed"], got {package_data!r}'
     )
@@ -127,36 +102,26 @@ def test_generator_emits_package_data_for_marker(pkg_name: str) -> None:
 
 @pytest.mark.parametrize("pkg_name", _TYPED_PACKAGES)
 def test_generator_lists_typed_path_as_package(pkg_name: str) -> None:
-    """The dotted path appears in ``packages``; setuptools drops data for unlisted paths."""
+    """setuptools drops package-data for paths not listed in ``packages``."""
     dotted = _dotted_path(pkg_name)
     packages = _generated_setuptools(pkg_name).get("packages", [])
-    assert dotted in packages, (
-        f"{pkg_name}: {dotted!r} is missing from [tool.setuptools] packages, so setuptools "
-        f"silently drops its py.typed package-data, got {packages!r}"
-    )
+    assert dotted in packages, f"{pkg_name}: {dotted!r} is missing from [tool.setuptools] packages, got {packages!r}"
 
 
 @pytest.mark.parametrize("pkg_name", _TYPED_PACKAGES)
 def test_committed_pyproject_ships_marker_config(pkg_name: str) -> None:
-    """The regenerated pyproject.toml is committed, not merely producible.
-
-    ``tox -e check-generated`` asserts byte equality with the generator, but it runs
-    only in the package-integrity workflow; this keeps the default gate honest.
-    """
+    """``tox -e check-generated`` runs only in the package-integrity workflow, not in this gate."""
     dotted = _dotted_path(pkg_name)
     table = _committed_setuptools(pkg_name)
     assert table.get("package-data", {}).get(dotted) == ["py.typed"], (
-        f'{pkg_name}: committed pyproject.toml lacks the "{dotted}" = ["py.typed"] package-data entry '
-        "(run scripts/generate_pyproject.py)"
+        f'{pkg_name}: committed pyproject.toml lacks "{dotted}" = ["py.typed"] (run scripts/generate_pyproject.py)'
     )
     assert dotted in table.get("packages", []), (
-        f"{pkg_name}: committed pyproject.toml does not list {dotted!r} in [tool.setuptools] packages "
-        "(run scripts/generate_pyproject.py)"
+        f"{pkg_name}: committed pyproject.toml does not list {dotted!r} (run scripts/generate_pyproject.py)"
     )
 
 
 def test_package_data_is_emitted_only_for_flagged_packages() -> None:
-    """Exactly the flagged packages get a package-data table, no others."""
     shared, packages_config = gen.load_configs()
     all_packages: dict[str, dict[str, Any]] = packages_config["packages"]
 
@@ -190,7 +155,6 @@ def _verifier() -> Callable[[dict[str, Path]], list[str]]:
 
 
 def test_verify_py_typed_markers_reports_missing_marker(tmp_path: Path) -> None:
-    """A flagged package whose wheel lacks the marker is reported as an error."""
     wheel = _write_wheel(tmp_path / "mloda_registry-0.0.0-py3-none-any.whl", ["mloda/registry/__init__.py"])
 
     errors = _verifier()({"mloda-registry": wheel})
@@ -201,7 +165,6 @@ def test_verify_py_typed_markers_reports_missing_marker(tmp_path: Path) -> None:
 
 
 def test_verify_py_typed_markers_accepts_present_marker(tmp_path: Path) -> None:
-    """A flagged package whose wheel ships the marker produces no error."""
     wheel = _write_wheel(
         tmp_path / "mloda_registry-0.0.0-py3-none-any.whl",
         ["mloda/registry/__init__.py", "mloda/registry/py.typed"],
@@ -211,7 +174,6 @@ def test_verify_py_typed_markers_accepts_present_marker(tmp_path: Path) -> None:
 
 
 def test_verify_py_typed_markers_ignores_unflagged_packages(tmp_path: Path) -> None:
-    """Packages without ``py_typed = true`` are not required to ship a marker."""
     wheel = _write_wheel(
         tmp_path / "mloda_community_ffill-0.0.0-py3-none-any.whl",
         ["mloda/community/feature_groups/data_operations/row_preserving/ffill/__init__.py"],

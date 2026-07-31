@@ -1,23 +1,6 @@
-"""Stale build-artifact cleanup for scripts/verify_builds.py.
-
-``verify_builds.py`` builds every workspace package in place with ``uv build``, and
-setuptools leaves a ``<package>/build/lib/...`` copy of the sources behind.
-``cleanup_egg_info()`` removes only ``*.egg-info``, and only on success, so a second
-run inherits the first run's files: delete ``mloda/community/py.typed`` from the
-source tree, rebuild, and the wheel still ships it, copied out of
-``mloda/community/build/lib/mloda/community/py.typed``. A local
-``tox -e verify-builds`` then reports the py.typed gate (issue #336) as passing while
-the source has no marker at all. CI is unaffected because it builds a fresh checkout;
-the local gate is the one that lies.
-
-``verify_builds.cleanup_build_dirs()`` must remove those trees before the build loop
-runs, so no build can inherit artifacts from a previous run, and ``main()`` must remove
-them again on the way out: trees left behind by a green run make the next pytest run
-collect phantom ``<package>.build.lib.mloda...`` modules.
-
-The script is a loose script, not an installed package, so it is loaded by file path
-with the same ``importlib.util`` idiom as ``test_py_typed_markers.py``.
-"""
+"""Stale build-artifact cleanup for scripts/verify_builds.py. setuptools leaves a ``build/lib`` copy
+of the sources behind, and the next build copies it into the wheel, so a build can ship files the
+source tree no longer has."""
 
 from __future__ import annotations
 
@@ -64,11 +47,8 @@ def _write(path: Path, content: str = "") -> Path:
 
 
 def _make_workspace(root: Path) -> tuple[list[Path], list[Path]]:
-    """Fake workspace with stale build trees.
-
-    The real ``config/packages.toml`` is copied in because the script's paths are
-    CWD relative. Returns ``(build directories, paths that must survive)``.
-    """
+    """Fake workspace with stale build trees; returns ``(build dirs, paths that must survive)``."""
+    # The real config is copied in because the script's paths are CWD relative.
     (root / "config").mkdir(parents=True, exist_ok=True)
     shutil.copy(_REPO_ROOT / "config" / "packages.toml", root / "config" / "packages.toml")
 
@@ -89,35 +69,27 @@ def _make_workspace(root: Path) -> tuple[list[Path], list[Path]]:
 
 
 def test_cleanup_build_dirs_removes_stale_trees(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every package's leftover build/ tree is removed and counted."""
     build_dirs, _survivors = _make_workspace(tmp_path)
     monkeypatch.chdir(tmp_path)
 
     removed = _cleanup_build_dirs()()
 
     for build_dir in build_dirs:
-        assert not build_dir.exists(), (
-            f"{build_dir.relative_to(tmp_path)} survived cleanup_build_dirs(); the next build "
-            "would copy its contents into the wheel"
-        )
+        assert not build_dir.exists(), f"{build_dir.relative_to(tmp_path)} survived cleanup_build_dirs()"
     assert removed == len(build_dirs), f"expected {len(build_dirs)} removed build directories, got {removed!r}"
 
 
 def test_cleanup_build_dirs_leaves_sources_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Non-build directories and files are untouched."""
     _build_dirs, survivors = _make_workspace(tmp_path)
     monkeypatch.chdir(tmp_path)
 
     _cleanup_build_dirs()()
 
     for path in survivors:
-        assert path.exists(), (
-            f"cleanup_build_dirs() removed {path.relative_to(tmp_path)}, which is not a build artifact"
-        )
+        assert path.exists(), f"cleanup_build_dirs() removed non-artifact {path.relative_to(tmp_path)}"
 
 
 def test_cleanup_build_dirs_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A second run finds nothing to remove and does not raise."""
     _build_dirs, survivors = _make_workspace(tmp_path)
     monkeypatch.chdir(tmp_path)
 
@@ -130,7 +102,6 @@ def test_cleanup_build_dirs_is_idempotent(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 def test_cleanup_build_dirs_tolerates_missing_package_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A workspace whose package directories do not exist is a no-op, not a crash."""
     (tmp_path / "config").mkdir()
     shutil.copy(_REPO_ROOT / "config" / "packages.toml", tmp_path / "config" / "packages.toml")
     monkeypatch.chdir(tmp_path)
@@ -148,14 +119,7 @@ class _FakeCompletedProcess:
 
 
 def test_main_cleans_build_dirs_before_building(monkeypatch: pytest.MonkeyPatch) -> None:
-    """main() calls cleanup_build_dirs() before the first package build.
-
-    Cleaning after the loop (or only on success, as cleanup_egg_info does) still lets
-    a run read the previous run's artifacts. ``subprocess.run`` is stubbed out: a real
-    ``uv build`` is far too slow for the pytest gate and would write into the
-    repository. With every build stubbed as failed, main() bails before its own
-    cleanup_egg_info call, so this run only reads the working tree.
-    """
+    """Cleaning after the loop still lets a run read the previous run's artifacts."""
     assert callable(getattr(vb, "cleanup_build_dirs", None)), "verify_builds.cleanup_build_dirs must be a callable"
 
     calls: list[str] = []
@@ -180,18 +144,7 @@ def test_main_cleans_build_dirs_before_building(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_main_leaves_no_build_dirs_after_a_successful_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A successful main() run ends with no build/ tree in the working tree.
-
-    Cleaning only at the start still ends a green ``tox -e verify-builds`` with a
-    build/lib copy per package, and the next pytest run collects phantom modules out of
-    them (``...aggregation.build.lib.mloda.community...``), which fails
-    test_prefix_pattern_collisions.py::test_every_family_is_covered. The trees here are
-    planted from inside the stubbed build, which is when setuptools writes them, so the
-    start-of-run cleanup cannot make this test pass.
-
-    Everything main() shells out to or reads from a wheel is stubbed: the pytest gate
-    runs no build, no network and no subprocess.
-    """
+    """Trees left by a green run make the next pytest run collect phantom ``build.lib.*`` modules."""
     build_dirs, _survivors = _make_workspace(tmp_path)
     monkeypatch.chdir(tmp_path)
 
@@ -202,8 +155,7 @@ def test_main_leaves_no_build_dirs_after_a_successful_run(tmp_path: Path, monkey
         if not built_packages:
             for build_dir in build_dirs:
                 assert not build_dir.exists(), (
-                    f"fixture assumption: {build_dir.relative_to(tmp_path)} must be gone before the first "
-                    "build, otherwise the start-of-run cleanup alone could satisfy this test"
+                    f"fixture assumption: {build_dir.relative_to(tmp_path)} must be gone before the first build"
                 )
         package = cmd[cmd.index("--package") + 1]
         built_packages.append(package)
@@ -238,7 +190,4 @@ def test_main_leaves_no_build_dirs_after_a_successful_run(tmp_path: Path, monkey
     assert built_packages, "fixture assumption: main() must reach the build loop"
     assert exit_code == 0, "fixture assumption: the stubs must drive main() down its success path"
     for build_dir in build_dirs:
-        assert not build_dir.exists(), (
-            f"a successful main() left {build_dir.relative_to(tmp_path)} behind; pytest then collects "
-            "phantom build.lib.* modules out of it"
-        )
+        assert not build_dir.exists(), f"a successful main() left {build_dir.relative_to(tmp_path)} behind"

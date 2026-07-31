@@ -11,8 +11,7 @@ Guard 2 -- write mode must exit non-zero when the root mloda-core dependency
 entry cannot be synced, instead of returning 0 and leaving a stale pin.
 
 Guard 3 -- a meta-package (``workspace_deps``) flagged ``py_typed`` must raise,
-instead of taking the ``packages = []`` branch that never consults ``py_typed``
-and shipping a wheel without its PEP 561 marker.
+instead of emitting ``packages = []`` and a wheel without its PEP 561 marker.
 
 The generator lives at ``scripts/generate_pyproject.py`` (a script, not an
 installed package), so it is loaded here by file path.
@@ -132,17 +131,7 @@ def _meta_package_config(py_typed: bool | None = None) -> dict[str, Any]:
 
 
 def test_generate_raises_when_meta_package_is_flagged_py_typed() -> None:
-    """workspace_deps and py_typed must be rejected as a combination.
-
-    ``generate_pyproject`` takes an early ``workspace_deps`` branch that emits
-    ``packages = []`` and never consults ``py_typed``, so a meta-package flagged
-    ``py_typed = true`` gets no ``[tool.setuptools.package-data]`` entry and no
-    marker in its wheel: no error, no failing test. No such package exists today,
-    which is why the fix is a guard (mirroring the
-    ``entry_point_bundle``/``entry_point_groups`` one) rather than support for the
-    combination. The message must name ``py_typed`` so the misconfiguration is
-    readable from the failure alone.
-    """
+    """The ``workspace_deps`` branch emits ``packages = []`` and never consults ``py_typed``."""
     shared, _packages_config = gen.load_configs()
     pkg_config = _meta_package_config(py_typed=True)
     all_packages: dict[str, dict[str, Any]] = {"mloda-meta": pkg_config}

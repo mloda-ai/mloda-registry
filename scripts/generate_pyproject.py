@@ -237,14 +237,13 @@ def generate_pyproject(
         # Discover packages from filesystem, excluding optional sub-packages
         packages = discover_packages(pkg_config["path"], exclude_paths)
 
-        # PEP 561 marker (issue #336): adding the dotted path (a PEP 420 portion discover_packages
-        # misses) to packages is what ships py.typed; the package-data table below is belt and braces.
+        # Listing the dotted path (a PEP 420 portion discover_packages misses) in packages is what
+        # ships py.typed; the package-data table below is belt and braces.
         package_data: list[str] = []
         if pkg_config.get("py_typed"):
             dotted_path = pkg_config["path"].replace("/", ".")
             packages = sorted(set(packages) | {dotted_path})
-            # Subtable of [tool.setuptools]: must stay after its keys and before the
-            # next top-level table, otherwise the keys above reparent into it.
+            # Subtable of [tool.setuptools]: must stay after its keys, or they reparent into it.
             package_data = ["", "[tool.setuptools.package-data]", f'"{dotted_path}" = ["py.typed"]']
 
         lines.append("[tool.setuptools]")
