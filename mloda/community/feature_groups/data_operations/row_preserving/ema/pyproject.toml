@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community-ema"
-version = "0.3.3"
+version = "0.4.0"
 description = "EMA feature group (exponential moving average, adjust=False, null-skipping recurrence, per partition, row-preserving; pandas/polars native, pyarrow/duckdb/sqlite reject)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
