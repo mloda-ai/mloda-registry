@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
@@ -62,3 +64,61 @@ class TestResampleOpConfig:
 
     def test_resample_op_in_property_mapping(self) -> None:
         assert ResampleFeatureGroup.RESAMPLE_OP in ResampleFeatureGroup.PROPERTY_MAPPING
+
+
+class TestScalarKeyArity:
+    """``time_column`` and ``resample_op`` are scalar keys: one value, bare or in a one-element container."""
+
+    def _options(self, **overrides: Any) -> Options:
+        context: dict[str, Any] = {
+            "in_features": "value_int",
+            "time_column": "timestamp",
+            "resample_op": "1_hour_mean",
+            "partition_by": ["region"],
+        }
+        context.update(overrides)
+        return Options(context=context)
+
+    @pytest.mark.parametrize("time_column", ["timestamp", ("timestamp",), ["timestamp"]])
+    def test_singleton_time_column_matches(self, time_column: Any) -> None:
+        result = ResampleFeatureGroup.match_feature_group_criteria(
+            "my_result", self._options(time_column=time_column), None
+        )
+        assert result is True
+
+    @pytest.mark.parametrize("time_column", [["timestamp", "region"], ("timestamp", "region"), 123])
+    def test_invalid_time_column_rejected(self, time_column: Any) -> None:
+        result = ResampleFeatureGroup.match_feature_group_criteria(
+            "my_result", self._options(time_column=time_column), None
+        )
+        assert result is False
+
+    @pytest.mark.parametrize("resample_op", ["1_hour_mean", ("1_hour_mean",), ["1_hour_mean"]])
+    def test_singleton_resample_op_matches(self, resample_op: Any) -> None:
+        result = ResampleFeatureGroup.match_feature_group_criteria(
+            "my_result", self._options(resample_op=resample_op), None
+        )
+        assert result is True
+
+    @pytest.mark.parametrize("resample_op", [["1_hour_mean", "1_day_sum"], ("not_a_token",)])
+    def test_invalid_resample_op_rejected(self, resample_op: Any) -> None:
+        """Unwrapping does not widen the value space: the token parser still owns it."""
+        result = ResampleFeatureGroup.match_feature_group_criteria(
+            "my_result", self._options(resample_op=resample_op), None
+        )
+        assert result is False
+
+    @pytest.mark.parametrize("time_column", ["timestamp", ("timestamp",), ["timestamp"]])
+    def test_extract_time_column_unwraps_to_bare_column(self, time_column: Any) -> None:
+        feature = Feature("my_result", options=self._options(time_column=time_column))
+        assert ResampleFeatureGroup._extract_time_column(feature) == "timestamp"
+
+    def test_extract_time_column_raises_when_missing(self) -> None:
+        feature = Feature("my_result", options=Options())
+        with pytest.raises(ValueError, match="time_column"):
+            ResampleFeatureGroup._extract_time_column(feature)
+
+    @pytest.mark.parametrize("resample_op", ["1_hour_mean", ("1_hour_mean",), ["1_hour_mean"]])
+    def test_extract_resample_op_unwraps_to_bare_token(self, resample_op: Any) -> None:
+        feature = Feature("my_result", options=self._options(resample_op=resample_op))
+        assert ResampleFeatureGroup._extract_resample_op(feature) == "1_hour_mean"

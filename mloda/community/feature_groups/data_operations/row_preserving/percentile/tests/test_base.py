@@ -262,6 +262,34 @@ class TestConfigBasedExtraction:
         assert result == 1.0
 
 
+class TestPercentileArity:
+    """``percentile`` is a scalar key: one number, bare or in a single-element container."""
+
+    def _options(self, percentile: Any) -> Options:
+        return Options(context={"percentile": percentile, "in_features": "value_int", "partition_by": ["region"]})
+
+    @pytest.mark.parametrize("percentile", [0.75, (0.75,), [0.75]])
+    def test_singleton_matches(self, percentile: Any) -> None:
+        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", self._options(percentile), None)
+        assert result is True
+
+    @pytest.mark.parametrize("percentile", [[0.25, 0.75], (0.25, 0.75)])
+    def test_multi_element_rejected(self, percentile: Any) -> None:
+        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", self._options(percentile), None)
+        assert result is False
+
+    @pytest.mark.parametrize("percentile", [(1.5,), (True,)])
+    def test_singleton_out_of_range_or_bool_rejected(self, percentile: Any) -> None:
+        """Unwrapping does not widen the value space: range and bool rules still apply."""
+        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", self._options(percentile), None)
+        assert result is False
+
+    @pytest.mark.parametrize("percentile", [0.75, (0.75,), [0.75]])
+    def test_extract_percentile_unwraps_to_bare_value(self, percentile: Any) -> None:
+        feature = Feature("my_result", options=self._options(percentile))
+        assert PercentileFeatureGroup._extract_percentile(feature) == 0.75
+
+
 class TestPercentileMatchValidation(MatchValidationTestBase):
     @classmethod
     def feature_group_class(cls) -> Any:

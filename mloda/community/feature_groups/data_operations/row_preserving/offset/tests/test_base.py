@@ -175,6 +175,49 @@ class TestConfigBasedFeatures:
         assert result.num_rows == 12
 
 
+class TestOrderByArity:
+    """``order_by`` is a scalar key: one column, bare or in a single-element container."""
+
+    def _options(self, order_by: Any) -> Options:
+        return Options(
+            context={
+                "offset_type": "lag_1",
+                "in_features": "value_int",
+                "partition_by": ["region"],
+                "order_by": order_by,
+            }
+        )
+
+    @pytest.mark.parametrize("order_by", ["value_int", ("value_int",), ["value_int"]])
+    def test_singleton_matches(self, order_by: Any) -> None:
+        result = OffsetFeatureGroup.match_feature_group_criteria("my_result", self._options(order_by), None)
+        assert result is True
+
+    @pytest.mark.parametrize("order_by", [["value_int", "region"], ("value_int", "region")])
+    def test_multi_element_rejected(self, order_by: Any) -> None:
+        result = OffsetFeatureGroup.match_feature_group_criteria("my_result", self._options(order_by), None)
+        assert result is False
+
+    def test_wrong_type_rejected(self) -> None:
+        result = OffsetFeatureGroup.match_feature_group_criteria("my_result", self._options(123), None)
+        assert result is False
+
+    def test_singleton_order_by_dispatches_like_bare(self) -> None:
+        """The singleton must reach the backend as the column name, not as its string form."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+        from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import ReferenceOffset
+
+        table = PyArrowDataOpsTestDataCreator.create()
+
+        def _compute(order_by: Any) -> list[Any]:
+            fs = FeatureSet()
+            fs.add(Feature("my_lag", options=self._options(order_by)))
+            return list(ReferenceOffset.calculate_feature(table, fs).column("my_lag").to_pylist())
+
+        assert _compute(("value_int",)) == _compute("value_int")
+
+
 class TestConfigBasedOffsetTypeValidation:
     """The config path must reject exactly the offset types the feature-name path rejects.
 

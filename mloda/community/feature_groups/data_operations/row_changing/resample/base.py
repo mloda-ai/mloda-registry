@@ -46,6 +46,13 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.base import (
+    column_ref_value,
+    is_column_ref,
+    is_op_token,
+    op_token_value,
+)
+
 # Order-independent aggregations supported in v1. Order-dependent aggregations
 # (e.g. ``first`` / ``last``) and ``median`` are deliberately excluded.
 RESAMPLE_AGGS: dict[str, str] = {
@@ -100,11 +107,11 @@ def _parse_resample_op(token: str) -> tuple[int, str, str]:
 
 
 def _is_valid_resample_op(value: object) -> bool:
-    """True when value is a parseable '{n}_{unit}_{agg}' resample token."""
-    if not isinstance(value, str):
+    """True when value is exactly one parseable '{n}_{unit}_{agg}' resample token, bare or in a container."""
+    if not is_op_token(value):
         return False
     try:
-        _parse_resample_op(value)
+        _parse_resample_op(op_token_value(value))
     except ValueError:
         return False
     return True
@@ -141,6 +148,7 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             "explanation": "Column to floor into fixed-freq buckets",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.match_guard: is_column_ref,
         },
         RESAMPLE_OP: {
             "explanation": "Resample token '{n}_{unit}_{agg}' (e.g. '1_hour_mean') when the op is not encoded in the feature name.",
@@ -225,7 +233,7 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         op = feature.options.get(cls.RESAMPLE_OP)
         if op is None:
             raise ValueError(f"Could not extract resample op for {feature.name}")
-        return str(op)
+        return op_token_value(op)
 
     @classmethod
     def _extract_partition_by(cls, feature: Feature) -> list[str]:
@@ -241,7 +249,7 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         time_column = feature.options.get(cls.TIME_COLUMN)
         if time_column is None:
             raise ValueError("resample requires a 'time_column' in Options context.")
-        return str(time_column)
+        return column_ref_value(time_column)
 
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:

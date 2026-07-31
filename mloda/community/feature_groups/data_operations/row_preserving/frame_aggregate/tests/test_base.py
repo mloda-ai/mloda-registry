@@ -348,6 +348,60 @@ class TestConfigBasedFrameSizeValidation:
         assert result is True, f"Config path should accept {frame_type} without frame_size"
 
 
+class TestScalarKeyArity:
+    """``order_by`` and ``frame_size`` are scalar keys: one value, bare or in a one-element container."""
+
+    def _options(self, **overrides: Any) -> Options:
+        context: dict[str, Any] = {
+            "aggregation_type": "sum",
+            "in_features": "sales",
+            "partition_by": ["region"],
+            "frame_type": "rolling",
+            "frame_size": 3,
+            "order_by": "timestamp",
+        }
+        context.update(overrides)
+        return Options(context=context)
+
+    @pytest.mark.parametrize("order_by", ["timestamp", ("timestamp",), ["timestamp"]])
+    def test_singleton_order_by_matches(self, order_by: Any) -> None:
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
+            "my_result", self._options(order_by=order_by), None
+        )
+        assert result is True
+
+    @pytest.mark.parametrize("order_by", [["timestamp", "region"], ("timestamp", "region"), 123])
+    def test_invalid_order_by_rejected(self, order_by: Any) -> None:
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
+            "my_result", self._options(order_by=order_by), None
+        )
+        assert result is False
+
+    @pytest.mark.parametrize("frame_size", [3, (3,), [3]])
+    def test_singleton_frame_size_matches(self, frame_size: Any) -> None:
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
+            "my_result", self._options(frame_size=frame_size), None
+        )
+        assert result is True
+
+    @pytest.mark.parametrize("frame_size", [[3, 4], (3, 4), (0,), (True,)])
+    def test_invalid_frame_size_rejected(self, frame_size: Any) -> None:
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
+            "my_result", self._options(frame_size=frame_size), None
+        )
+        assert result is False
+
+    @pytest.mark.parametrize("order_by", ["timestamp", ("timestamp",), ["timestamp"]])
+    def test_extract_params_unwraps_order_by(self, order_by: Any) -> None:
+        feature = Feature("my_result", options=self._options(order_by=order_by))
+        assert FrameAggregateFeatureGroup._extract_params(feature)["order_by"] == "timestamp"
+
+    @pytest.mark.parametrize("frame_size", [3, (3,), [3]])
+    def test_extract_params_unwraps_frame_size(self, frame_size: Any) -> None:
+        feature = Feature("my_result", options=self._options(frame_size=frame_size))
+        assert FrameAggregateFeatureGroup._extract_params(feature)["frame_size"] == 3
+
+
 class TestNameBasedZeroFrameSizeRejected:
     """A zero-sized frame is not a window, so the name path must reject it exactly as the config path does."""
 

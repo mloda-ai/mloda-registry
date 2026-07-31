@@ -13,6 +13,8 @@ ema's ``ema_0`` handling).
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
@@ -134,6 +136,35 @@ class TestThresholdParser:
     def test_parse_rejects_n_zero(self) -> None:
         with pytest.raises(ValueError, match=r"(?i)positive|> 0|n"):
             _parse_sessionize_op("sessionize_0_minute")
+
+
+class TestOrderByArity:
+    """``order_by`` is a scalar key: one column, bare or in a single-element container."""
+
+    def _options(self, order_by: Any) -> Options:
+        return Options(context={"order_by": order_by, "partition_by": ["user"]})
+
+    @pytest.mark.parametrize("order_by", ["ts", ("ts",), ["ts"]])
+    def test_singleton_matches(self, order_by: Any) -> None:
+        assert PandasSessionization.match_feature_group_criteria("ts__sessionize_30_minute", self._options(order_by))
+
+    @pytest.mark.parametrize("order_by", [["ts", "user"], ("ts", "user")])
+    def test_multi_element_rejected(self, order_by: Any) -> None:
+        result = PandasSessionization.match_feature_group_criteria("ts__sessionize_30_minute", self._options(order_by))
+        assert result is False
+
+    def test_wrong_type_rejected(self) -> None:
+        result = PandasSessionization.match_feature_group_criteria("ts__sessionize_30_minute", self._options(123))
+        assert result is False
+
+    @pytest.mark.parametrize("order_by", ["ts", ("ts",), ["ts"]])
+    def test_extract_order_by_unwraps_to_bare_column(self, order_by: Any) -> None:
+        feature = Feature("ts__sessionize_30_minute", options=self._options(order_by))
+        assert SessionizationFeatureGroup._extract_order_by(feature, "ts") == "ts"
+
+    def test_extract_order_by_defaults_to_source_column(self) -> None:
+        feature = Feature("ts__sessionize_30_minute", options=Options())
+        assert SessionizationFeatureGroup._extract_order_by(feature, "ts") == "ts"
 
 
 class TestSingleColumnEnforcement:

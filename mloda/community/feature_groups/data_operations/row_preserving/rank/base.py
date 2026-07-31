@@ -14,10 +14,13 @@ from mloda.provider import DefaultOptionKeys, FeatureGroup
 
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 from mloda.community.feature_groups.data_operations.base import (
+    column_ref_value,
+    is_column_ref,
     is_in_features_value,
     is_op_token,
     is_parametric_suffix,
     op_token_value,
+    option_value,
 )
 
 
@@ -162,6 +165,7 @@ class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGr
             "explanation": "Column to order by within each partition",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.match_guard: is_column_ref,
         },
     }
 
@@ -197,10 +201,7 @@ class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGr
         if not all(isinstance(item, str) for item in partition_by):
             return False
 
-        order_by = options.get(cls.ORDER_BY)
-        if order_by is None:
-            return False
-        if not isinstance(order_by, str):
+        if not is_column_ref(options.get(cls.ORDER_BY)):
             return False
 
         in_features_raw = options.get(DefaultOptionKeys.in_features)
@@ -286,7 +287,8 @@ class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGr
 
             rank_type = cls._extract_rank_type(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
-            order_by = feature.options.get(cls.ORDER_BY)
+            # Any: matching requires order_by, but a direct call still passes an absent one through.
+            order_by: Any = option_value(feature.options, cls.ORDER_BY, column_ref_value)
 
             table = cls._compute_rank(table, feature_name, partition_by, order_by, rank_type)
 

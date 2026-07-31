@@ -153,6 +153,29 @@ class TestConfigBasedFeatures:
         assert result is False
 
 
+class TestNBinsArity:
+    """``n_bins`` is a scalar key: one positive int, bare or in a single-element container."""
+
+    def _options(self, n_bins: Any) -> Options:
+        return Options(context={"binning_op": "bin", "n_bins": n_bins, "in_features": "value_int"})
+
+    @pytest.mark.parametrize("n_bins", [5, (5,), [5]])
+    def test_singleton_matches(self, n_bins: Any) -> None:
+        result = BinningFeatureGroup.match_feature_group_criteria("my_result", self._options(n_bins), None)
+        assert result is True
+
+    @pytest.mark.parametrize("n_bins", [[5, 10], (5, 10), (0,), (True,), ("5",)])
+    def test_multi_element_and_invalid_singleton_rejected(self, n_bins: Any) -> None:
+        """Unwrapping does not widen the value space: the positive-int rule still applies."""
+        result = BinningFeatureGroup.match_feature_group_criteria("my_result", self._options(n_bins), None)
+        assert result is False
+
+    @pytest.mark.parametrize("n_bins", [5, (5,), [5]])
+    def test_extract_binning_params_unwraps_to_bare_value(self, n_bins: Any) -> None:
+        feature = Feature("my_result", options=self._options(n_bins))
+        assert BinningFeatureGroup._extract_binning_params(feature) == ("bin", 5)
+
+
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type for deterministic ops.
 

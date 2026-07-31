@@ -50,6 +50,8 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.base import column_ref_value, is_column_ref
+
 
 class EmaFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for exponential-moving-average operations that preserve row count."""
@@ -77,6 +79,7 @@ class EmaFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             "explanation": "Column to order by (ascending) within each partition",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.match_guard: is_column_ref,
         },
     }
 
@@ -150,7 +153,7 @@ class EmaFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         order_by = feature.options.get(cls.ORDER_BY)
         if order_by is None:
             raise ValueError("ema requires an 'order_by' column in Options context.")
-        return str(order_by)
+        return column_ref_value(order_by)
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

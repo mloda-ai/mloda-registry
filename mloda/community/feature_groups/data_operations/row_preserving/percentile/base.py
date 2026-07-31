@@ -12,12 +12,8 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.base import is_scalar_number, scalar_number_value
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
-
-
-def _is_real_number(value: Any) -> bool:
-    """True for a non-bool int/float (bool subclasses int)."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
@@ -68,6 +64,7 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             "explanation": "Percentile value (float between 0.0 and 1.0)",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.match_guard: is_scalar_number,
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Source feature for percentile computation",
@@ -148,8 +145,8 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         if operation_config is not None:
             return cls._parse_percentile_from_config(operation_config)
         percentile = options.get(cls.PERCENTILE)
-        if _is_real_number(percentile):
-            return float(percentile)
+        if is_scalar_number(percentile):
+            return float(scalar_number_value(percentile))
         return None
 
     @classmethod
@@ -180,9 +177,9 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             if result is not None:
                 return result
         percentile = feature.options.get(cls.PERCENTILE)
-        if not _is_real_number(percentile):
+        if not is_scalar_number(percentile):
             raise ValueError(f"Could not extract percentile for {feature_name}")
-        return float(percentile)
+        return float(scalar_number_value(percentile))
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         """Parse input features from feature name or options."""

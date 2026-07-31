@@ -18,10 +18,14 @@ from mloda.community.feature_groups.data_operations.base import (
     FRAME_SIZE as _FRAME_SIZE_KEY,
     FRAME_TYPE as _FRAME_TYPE_KEY,
     FRAME_UNIT as _FRAME_UNIT_KEY,
+    column_ref_value,
+    is_column_ref,
     is_in_features_value,
     is_op_token,
     is_positive_int,
     op_token_value,
+    option_value,
+    positive_int_value,
 )
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
@@ -50,13 +54,8 @@ _TIME_UNITS = {"second", "minute", "hour", "day", "week", "month", "year"}
 
 
 def _option_token(options: Options, key: str) -> str | None:
-    """An option as a bare token, unwrapped from its container; None when the option is absent.
-
-    Absent stays None instead of becoming the string ``"None"``, so a missing option
-    is a non-match by construction rather than by coincidence.
-    """
-    value = options.get(key)
-    return None if value is None else op_token_value(value)
+    """An option as a bare token, unwrapped from its container; None when the option is absent."""
+    return option_value(options, key, op_token_value)
 
 
 def _needs_frame_size(options: Options) -> bool:
@@ -261,6 +260,7 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
             "explanation": "Column to order by within each partition",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.match_guard: is_column_ref,
         },
         MASK_KEY: {
             "explanation": "Conditional mask: (column, operator, value) tuple or list of tuples",
@@ -364,8 +364,7 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
         if not all(isinstance(item, str) for item in partition_by):
             return False
 
-        order_by = options.get(cls.ORDER_BY)
-        if not isinstance(order_by, str):
+        if not is_column_ref(options.get(cls.ORDER_BY)):
             return False
 
         return True
@@ -415,19 +414,18 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
                 "frame_size": parsed["frame_size"],
                 "frame_unit": parsed["frame_unit"],
                 "partition_by": feature.options.get(cls.PARTITION_BY),
-                "order_by": feature.options.get(cls.ORDER_BY),
+                "order_by": option_value(feature.options, cls.ORDER_BY, column_ref_value),
             }
 
         source_features = cls._extract_source_features(feature)
-        frame_unit = feature.options.get(cls.FRAME_UNIT)
         return {
             "source_col": source_features[0],
             "agg_type": op_token_value(feature.options.get(cls.AGGREGATION_TYPE)),
             "frame_type": op_token_value(feature.options.get(cls.FRAME_TYPE)),
-            "frame_size": feature.options.get(cls.FRAME_SIZE),
-            "frame_unit": None if frame_unit is None else op_token_value(frame_unit),
+            "frame_size": option_value(feature.options, cls.FRAME_SIZE, positive_int_value),
+            "frame_unit": _option_token(feature.options, cls.FRAME_UNIT),
             "partition_by": feature.options.get(cls.PARTITION_BY),
-            "order_by": feature.options.get(cls.ORDER_BY),
+            "order_by": option_value(feature.options, cls.ORDER_BY, column_ref_value),
         }
 
     @classmethod

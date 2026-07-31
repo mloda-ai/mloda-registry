@@ -297,9 +297,11 @@ class TestConstantTypeValidation:
         with pytest.raises(ValueError, match=r"int or float"):
             PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
 
-    def test_constant_list_rejected(self) -> None:
+    def test_constant_multi_element_list_rejected(self) -> None:
+        # A one-element list is valid caller syntax for one constant (see TestConstantArity);
+        # a list holding several values is not a scalar and must still be rejected.
         arrow_table = PyArrowDataOpsTestDataCreator.create()
-        fs = _make_fs_with_constant("value_int__add_constant", [5])
+        fs = _make_fs_with_constant("value_int__add_constant", [5, 10])
         with pytest.raises(ValueError, match=r"int or float"):
             PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
 

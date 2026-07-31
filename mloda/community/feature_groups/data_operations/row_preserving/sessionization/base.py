@@ -54,6 +54,8 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.base import column_ref_value, is_column_ref
+
 # Supported sessionization units mapped to their length in seconds. The four
 # keys also define the units accepted by the feature-name regex.
 SESSIONIZATION_UNITS: dict[str, int] = {
@@ -128,6 +130,7 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             "explanation": "Column to order by (ascending); defaults to the source timestamp column",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.match_guard: is_column_ref,
         },
     }
 
@@ -206,7 +209,7 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         order_by = feature.options.get(cls.ORDER_BY)
         if order_by is None:
             return source_col
-        return str(order_by)
+        return column_ref_value(order_by)
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

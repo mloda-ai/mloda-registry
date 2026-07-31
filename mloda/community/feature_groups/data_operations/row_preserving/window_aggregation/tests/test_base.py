@@ -266,6 +266,52 @@ class TestConfigBasedFeatures:
         assert result_col == expected
 
 
+class TestOrderByArity:
+    """``order_by`` is a scalar key: one column, bare or in a single-element container."""
+
+    def _options(self, order_by: Any) -> Options:
+        return Options(context={"partition_by": ["region"], "order_by": order_by})
+
+    @pytest.mark.parametrize("order_by", ["timestamp", ("timestamp",), ["timestamp"]])
+    def test_singleton_matches(self, order_by: Any) -> None:
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria(
+            "value_int__first_window", self._options(order_by), None
+        )
+        assert result is True
+
+    @pytest.mark.parametrize("order_by", [["timestamp", "region"], ("timestamp", "region")])
+    def test_multi_element_rejected(self, order_by: Any) -> None:
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria(
+            "value_int__first_window", self._options(order_by), None
+        )
+        assert result is False
+
+    def test_wrong_type_rejected(self) -> None:
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria(
+            "value_int__first_window", self._options(123), None
+        )
+        assert result is False
+
+    def test_singleton_order_by_dispatches_like_bare(self) -> None:
+        """The singleton must reach the backend as the column name, not as its string form."""
+        import pandas as pd
+
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.testing.data_creator.base import DataOperationsTestDataCreator
+        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pandas_window_aggregation import (
+            PandasWindowAggregation,
+        )
+        from mloda.user import Feature
+
+        def _compute(order_by: Any) -> list[Any]:
+            df = pd.DataFrame(DataOperationsTestDataCreator.get_raw_data())
+            fs = FeatureSet()
+            fs.add(Feature("value_int__first_window", options=self._options(order_by)))
+            return list(PandasWindowAggregation.calculate_feature(df, fs)["value_int__first_window"])
+
+        assert _compute(("timestamp",)) == _compute("timestamp")
+
+
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type only for deterministic ops.
 

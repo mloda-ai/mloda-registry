@@ -12,7 +12,12 @@ from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
-from mloda.community.feature_groups.data_operations.base import is_op_token, is_positive_int, op_token_value
+from mloda.community.feature_groups.data_operations.base import (
+    is_op_token,
+    is_positive_int,
+    op_token_value,
+    positive_int_value,
+)
 
 BINNING_OPS = {
     "bin": "Equal-width binning (value range divided into n equal intervals)",
@@ -82,7 +87,7 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         n = feature.options.get(cls.N_BINS)
         if op is None or n is None:
             raise ValueError(f"Could not extract binning parameters for {feature_name}")
-        n_bins = int(n)
+        n_bins = positive_int_value(n)
         cls._validate_n_bins(n_bins, feature_name)
         return op_token_value(op), n_bins
 

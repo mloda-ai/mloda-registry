@@ -13,7 +13,13 @@ from mloda.community.feature_groups.data_operations.aggregation_base import (
     AggregationFeatureGroupBase,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
-from mloda.community.feature_groups.data_operations.base import is_op_token, op_token_value
+from mloda.community.feature_groups.data_operations.base import (
+    column_ref_value,
+    is_column_ref,
+    is_op_token,
+    op_token_value,
+    option_value,
+)
 
 # Aggregation types that require an order_by column to be deterministic.
 _ORDER_DEPENDENT_AGG_TYPES = {"first", "last"}
@@ -129,6 +135,7 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
             DefaultOptionKeys.default: None,
+            DefaultOptionKeys.match_guard: is_column_ref,
         },
         MASK_KEY: {
             "explanation": "Conditional mask: (column, operator, value) tuple or list of tuples",
@@ -154,7 +161,7 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
 
         We add:
         - partition_by type validation (must be a list of strings)
-        - order_by required for first/last (must be a string)
+        - order_by required for first/last (must be one column reference)
         """
         if not super().match_feature_group_criteria(feature_name, options, _data_access_collection):
             return False
@@ -168,8 +175,7 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
         # Determine the aggregation type to check if order_by is required
         agg_type = cls._resolve_agg_type(feature_name, options)
         if agg_type in _ORDER_DEPENDENT_AGG_TYPES:
-            order_by = options.get(cls.ORDER_BY)
-            if not isinstance(order_by, str):
+            if not is_column_ref(options.get(cls.ORDER_BY)):
                 return False
 
         return True
@@ -204,7 +210,7 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
             source_col = source_features[0]
             agg_type = cls._extract_aggregation_type(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
-            order_by = feature.options.get(cls.ORDER_BY)
+            order_by = option_value(feature.options, cls.ORDER_BY, column_ref_value)
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
 
             table = cls._compute_window(table, feature_name, source_col, partition_by, agg_type, order_by, mask_spec)

@@ -153,6 +153,65 @@ class TestConfigBasedFeatures:
         assert result is False
 
 
+class TestConstantArity:
+    """``constant`` is a scalar key: one value, bare or in a single-element container.
+
+    #339 regression: the singleton form matched at discovery and then raised
+    ``must be int or float, got tuple`` inside calculate_feature.
+    """
+
+    def _options(self, constant: Any) -> Options:
+        return Options(context={"arithmetic_op": "add", "constant": constant, "in_features": "value_int"})
+
+    @pytest.mark.parametrize("constant", [5, (5,), [5]])
+    def test_singleton_matches(self, constant: Any) -> None:
+        result = ScalarArithmeticFeatureGroup.match_feature_group_criteria("my_result", self._options(constant), None)
+        assert result is True
+
+    @pytest.mark.parametrize("constant", [[5, 10], (5, 10)])
+    def test_multi_element_rejected(self, constant: Any) -> None:
+        result = ScalarArithmeticFeatureGroup.match_feature_group_criteria("my_result", self._options(constant), None)
+        assert result is False
+
+    @pytest.mark.parametrize("constant", ["five", True])
+    def test_wrong_type_rejected_at_match(self, constant: Any) -> None:
+        """A non-numeric constant is a non-match at discovery, never a compute-time error."""
+        result = ScalarArithmeticFeatureGroup.match_feature_group_criteria("my_result", self._options(constant), None)
+        assert result is False
+
+    @pytest.mark.parametrize("constant", [5, (5,), [5]])
+    def test_extract_constant_unwraps_to_bare_value(self, constant: Any) -> None:
+        feature = Feature("my_result", options=self._options(constant))
+        assert ScalarArithmeticFeatureGroup._extract_constant(feature) == 5
+
+    def test_extract_constant_raises_when_missing(self) -> None:
+        feature = Feature("value_int__add_constant", options=Options())
+        with pytest.raises(ValueError, match="constant"):
+            ScalarArithmeticFeatureGroup._extract_constant(feature)
+
+    def test_extract_constant_raises_for_non_numeric(self) -> None:
+        feature = Feature("value_int__add_constant", options=Options(context={"constant": "five"}))
+        with pytest.raises(ValueError, match="int or float"):
+            ScalarArithmeticFeatureGroup._extract_constant(feature)
+
+    def test_singleton_constant_computes_instead_of_raising(self) -> None:
+        """The exact #339 reproduction: ``constant=(5,)`` must compute like ``constant=5``."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pyarrow_scalar_arithmetic import (
+            PyArrowScalarArithmetic,
+        )
+
+        table = PyArrowDataOpsTestDataCreator.create()
+
+        def _compute(constant: Any) -> list[Any]:
+            fs = FeatureSet()
+            fs.add(Feature("my_result", options=self._options(constant)))
+            return list(PyArrowScalarArithmetic.calculate_feature(table, fs).column("my_result").to_pylist())
+
+        assert _compute((5,)) == _compute(5)
+
+
 class TestSingleColumnEnforcement:
     """Verify that MAX_IN_FEATURES=1 enforces single-column behavior."""
 
