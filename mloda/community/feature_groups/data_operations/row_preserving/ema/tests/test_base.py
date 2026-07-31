@@ -25,7 +25,11 @@ from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_em
 
 
 class TestOrderByArity:
-    """``order_by`` is a scalar key: one column, bare or in a single-element container."""
+    """``order_by`` is a scalar key: one column, bare or in a single-element container.
+
+    ema declares no operation config key (the span is part of the feature name), so
+    ``MatchValidationTestBase`` does not fit it and these checks are hand-rolled.
+    """
 
     def _options(self, order_by: Any) -> Options:
         return Options(context={"order_by": order_by, "partition_by": ["region"]})

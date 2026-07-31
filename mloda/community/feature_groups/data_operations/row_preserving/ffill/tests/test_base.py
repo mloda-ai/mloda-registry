@@ -23,7 +23,11 @@ from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow
 
 
 class TestOrderByArity:
-    """``order_by`` is a scalar key: one column, bare or in a single-element container."""
+    """``order_by`` is a scalar key: one column, bare or in a single-element container.
+
+    ffill is a single-op family with no operation config key at all, so
+    ``MatchValidationTestBase`` does not fit it and these checks are hand-rolled.
+    """
 
     def _options(self, order_by: Any) -> Options:
         return Options(context={"order_by": order_by, "partition_by": ["region"]})

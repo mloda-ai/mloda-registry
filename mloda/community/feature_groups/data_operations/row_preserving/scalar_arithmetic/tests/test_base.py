@@ -8,7 +8,7 @@ import pytest
 
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
@@ -154,24 +154,17 @@ class TestConfigBasedFeatures:
 
 
 class TestConstantArity:
-    """``constant`` is a scalar key: one value, bare or in a single-element container.
+    """``constant`` checks the shared harness cannot express.
 
-    #339 regression: the singleton form matched at discovery and then raised
+    The bare / single-element / multi-element verdicts live in
+    ``TestScalarArithmeticMatchValidation.token_cases``; what stays here is the
+    wrong-type rejection, the direct extractor calls and the #339 regression, where
+    the singleton form matched at discovery and then raised
     ``must be int or float, got tuple`` inside calculate_feature.
     """
 
     def _options(self, constant: Any) -> Options:
         return Options(context={"arithmetic_op": "add", "constant": constant, "in_features": "value_int"})
-
-    @pytest.mark.parametrize("constant", [5, (5,), [5]])
-    def test_singleton_matches(self, constant: Any) -> None:
-        result = ScalarArithmeticFeatureGroup.match_feature_group_criteria("my_result", self._options(constant), None)
-        assert result is True
-
-    @pytest.mark.parametrize("constant", [[5, 10], (5, 10)])
-    def test_multi_element_rejected(self, constant: Any) -> None:
-        result = ScalarArithmeticFeatureGroup.match_feature_group_criteria("my_result", self._options(constant), None)
-        assert result is False
 
     @pytest.mark.parametrize("constant", ["five", True])
     def test_wrong_type_rejected_at_match(self, constant: Any) -> None:
@@ -345,5 +338,14 @@ class TestScalarArithmeticMatchValidation(MatchValidationTestBase):
         return {"in_features": "value_int", "constant": 5}
 
     @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        # constant is scalar too: one number.
+        return [*super().token_cases(), TokenCase("constant", 5, 10)]
+
+    @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:
-        return [ScalarArithmeticFeatureGroup._extract_arithmetic_op(Feature("my_result", options=options))]
+        feature = Feature("my_result", options=options)
+        return [
+            ScalarArithmeticFeatureGroup._extract_arithmetic_op(feature),
+            ScalarArithmeticFeatureGroup._extract_constant(feature),
+        ]

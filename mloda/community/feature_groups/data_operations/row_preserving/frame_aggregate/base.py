@@ -243,6 +243,7 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
             DefaultOptionKeys.allowed_values: {unit: f"{unit} interval" for unit in sorted(_TIME_UNITS)},
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: True,
+            DefaultOptionKeys.match_guard: is_op_token,
             DefaultOptionKeys.required_when: _needs_frame_unit,
         },
         DefaultOptionKeys.in_features: {

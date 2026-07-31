@@ -349,7 +349,14 @@ class TestConfigBasedFrameSizeValidation:
 
 
 class TestScalarKeyArity:
-    """``order_by`` and ``frame_size`` are scalar keys: one value, bare or in a one-element container."""
+    """Scalar-key checks the shared harness cannot express.
+
+    The bare / single-element / multi-element verdicts for ``order_by``,
+    ``frame_size`` and ``frame_unit`` live in
+    ``TestFrameAggregateMatchValidation.token_cases``; what stays here is the
+    wrong-type and value-space rejections plus the absolute values ``_extract_params``
+    must return.
+    """
 
     def _options(self, **overrides: Any) -> Options:
         context: dict[str, Any] = {
@@ -363,29 +370,13 @@ class TestScalarKeyArity:
         context.update(overrides)
         return Options(context=context)
 
-    @pytest.mark.parametrize("order_by", ["timestamp", ("timestamp",), ["timestamp"]])
-    def test_singleton_order_by_matches(self, order_by: Any) -> None:
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(order_by=order_by), None
-        )
-        assert result is True
-
-    @pytest.mark.parametrize("order_by", [["timestamp", "region"], ("timestamp", "region"), 123])
-    def test_invalid_order_by_rejected(self, order_by: Any) -> None:
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(order_by=order_by), None
-        )
+    def test_wrong_type_order_by_rejected(self) -> None:
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", self._options(order_by=123), None)
         assert result is False
 
-    @pytest.mark.parametrize("frame_size", [3, (3,), [3]])
-    def test_singleton_frame_size_matches(self, frame_size: Any) -> None:
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(frame_size=frame_size), None
-        )
-        assert result is True
-
-    @pytest.mark.parametrize("frame_size", [[3, 4], (3, 4), (0,), (True,)])
-    def test_invalid_frame_size_rejected(self, frame_size: Any) -> None:
+    @pytest.mark.parametrize("frame_size", [(0,), (True,)])
+    def test_invalid_singleton_frame_size_rejected(self, frame_size: Any) -> None:
+        """Unwrapping does not widen the value space: the positive-int rule still applies."""
         result = FrameAggregateFeatureGroup.match_feature_group_criteria(
             "my_result", self._options(frame_size=frame_size), None
         )
@@ -400,6 +391,11 @@ class TestScalarKeyArity:
     def test_extract_params_unwraps_frame_size(self, frame_size: Any) -> None:
         feature = Feature("my_result", options=self._options(frame_size=frame_size))
         assert FrameAggregateFeatureGroup._extract_params(feature)["frame_size"] == 3
+
+    @pytest.mark.parametrize("frame_unit", ["day", ("day",), ["day"]])
+    def test_extract_params_unwraps_frame_unit(self, frame_unit: Any) -> None:
+        feature = Feature("my_result", options=self._options(frame_type="time", frame_size=7, frame_unit=frame_unit))
+        assert FrameAggregateFeatureGroup._extract_params(feature)["frame_unit"] == "day"
 
 
 class TestNameBasedZeroFrameSizeRejected:
@@ -690,9 +686,21 @@ class TestFrameAggregateMatchValidation(MatchValidationTestBase):
             TokenCase("frame_type", "expanding", without=("frame_size",)),
             # Only a time frame requires frame_unit, which additional_match_options() does not carry.
             TokenCase("frame_type", "time", matches=False),
+            # A rolling frame ignores frame_unit, so nothing but the key's own guard rejects a
+            # multi-element value there; under "time" the unit table would mask a missing guard.
+            TokenCase("frame_unit", "day", "week", context={"frame_type": "rolling"}),
+            # order_by and frame_size are scalar too: one column, one positive int.
+            TokenCase("order_by", "timestamp", "region"),
+            TokenCase("frame_size", 3, 5),
         ]
 
     @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:
         params = FrameAggregateFeatureGroup._extract_params(Feature("my_result", options=options))
-        return [params["agg_type"], params["frame_type"], params["frame_unit"]]
+        return [
+            params["agg_type"],
+            params["frame_type"],
+            params["frame_unit"],
+            params["order_by"],
+            params["frame_size"],
+        ]

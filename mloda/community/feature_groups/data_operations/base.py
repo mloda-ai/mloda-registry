@@ -110,9 +110,9 @@ def _unwrap_singleton(value: Any) -> Any:
     The arity rule every scalar guard and unwrapper below shares, in one place. Core unwraps a
     singleton container when it reads a property value (``_unpack_property_value``,
     ``FeatureGroup.resolve_subtype``), so a one-element container is valid caller syntax for one
-    value. A multi-element or empty container is returned unchanged, which fails every guard's
-    type check: strict membership checks the elements one by one and would otherwise wrongly
-    match a composite value such as ``["sum", "max"]``.
+    value. A multi-element or empty container is returned unchanged, which fails every scalar
+    guard's type check: strict membership checks the elements one by one and would otherwise
+    wrongly match a composite value such as ``["sum", "max"]``.
     """
     if isinstance(value, (list, tuple, set, frozenset)) and len(value) == 1:
         (element,) = value

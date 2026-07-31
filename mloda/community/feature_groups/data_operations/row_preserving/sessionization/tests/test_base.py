@@ -139,16 +139,22 @@ class TestThresholdParser:
 
 
 class TestOrderByArity:
-    """``order_by`` is a scalar key: one column, bare or in a single-element container."""
+    """``order_by`` is a scalar key: one column, bare or in a single-element container.
+
+    Sessionization declares no operation config key (the threshold is part of the
+    feature name), so ``MatchValidationTestBase`` does not fit it and these checks
+    are hand-rolled. ``order_by`` uses a column DISTINCT from the source column, so
+    an unwrap is distinguishable from the absent-value fallback to the source.
+    """
 
     def _options(self, order_by: Any) -> Options:
         return Options(context={"order_by": order_by, "partition_by": ["user"]})
 
-    @pytest.mark.parametrize("order_by", ["ts", ("ts",), ["ts"]])
+    @pytest.mark.parametrize("order_by", ["event_ts", ("event_ts",), ["event_ts"]])
     def test_singleton_matches(self, order_by: Any) -> None:
         assert PandasSessionization.match_feature_group_criteria("ts__sessionize_30_minute", self._options(order_by))
 
-    @pytest.mark.parametrize("order_by", [["ts", "user"], ("ts", "user")])
+    @pytest.mark.parametrize("order_by", [["event_ts", "user"], ("event_ts", "user")])
     def test_multi_element_rejected(self, order_by: Any) -> None:
         result = PandasSessionization.match_feature_group_criteria("ts__sessionize_30_minute", self._options(order_by))
         assert result is False
@@ -157,10 +163,10 @@ class TestOrderByArity:
         result = PandasSessionization.match_feature_group_criteria("ts__sessionize_30_minute", self._options(123))
         assert result is False
 
-    @pytest.mark.parametrize("order_by", ["ts", ("ts",), ["ts"]])
+    @pytest.mark.parametrize("order_by", ["event_ts", ("event_ts",), ["event_ts"]])
     def test_extract_order_by_unwraps_to_bare_column(self, order_by: Any) -> None:
         feature = Feature("ts__sessionize_30_minute", options=self._options(order_by))
-        assert SessionizationFeatureGroup._extract_order_by(feature, "ts") == "ts"
+        assert SessionizationFeatureGroup._extract_order_by(feature, "ts") == "event_ts"
 
     def test_extract_order_by_defaults_to_source_column(self) -> None:
         feature = Feature("ts__sessionize_30_minute", options=Options())

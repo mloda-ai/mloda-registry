@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import OffsetFeatureGroup
@@ -176,7 +176,13 @@ class TestConfigBasedFeatures:
 
 
 class TestOrderByArity:
-    """``order_by`` is a scalar key: one column, bare or in a single-element container."""
+    """``order_by`` checks the shared harness cannot express.
+
+    The bare / single-element / multi-element verdicts live in
+    ``TestOffsetMatchValidation.token_cases``; what stays here is the wrong-type
+    rejection and the dispatch check, since offset reads ``order_by`` inline in
+    calculate_feature rather than through an extractor.
+    """
 
     def _options(self, order_by: Any) -> Options:
         return Options(
@@ -187,16 +193,6 @@ class TestOrderByArity:
                 "order_by": order_by,
             }
         )
-
-    @pytest.mark.parametrize("order_by", ["value_int", ("value_int",), ["value_int"]])
-    def test_singleton_matches(self, order_by: Any) -> None:
-        result = OffsetFeatureGroup.match_feature_group_criteria("my_result", self._options(order_by), None)
-        assert result is True
-
-    @pytest.mark.parametrize("order_by", [["value_int", "region"], ("value_int", "region")])
-    def test_multi_element_rejected(self, order_by: Any) -> None:
-        result = OffsetFeatureGroup.match_feature_group_criteria("my_result", self._options(order_by), None)
-        assert result is False
 
     def test_wrong_type_rejected(self) -> None:
         result = OffsetFeatureGroup.match_feature_group_criteria("my_result", self._options(123), None)
@@ -377,6 +373,11 @@ class TestOffsetMatchValidation(MatchValidationTestBase):
     @classmethod
     def malformed_operations(cls) -> set[str]:
         return {"banana", "lag_0", "lag_abc", "lead_"}
+
+    @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        # order_by names one column, and offset requires it on both paths.
+        return [*super().token_cases(), TokenCase("order_by", "timestamp", "region")]
 
     @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:

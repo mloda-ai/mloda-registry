@@ -87,7 +87,8 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         n = feature.options.get(cls.N_BINS)
         if op is None or n is None:
             raise ValueError(f"Could not extract binning parameters for {feature_name}")
-        n_bins = positive_int_value(n)
+        # Unwrap, then coerce: the guard keeps a float out at match time, a direct call still gets an int.
+        n_bins = int(positive_int_value(n))
         cls._validate_n_bins(n_bins, feature_name)
         return op_token_value(op), n_bins
 

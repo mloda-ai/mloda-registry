@@ -6,9 +6,10 @@ Provides ``MatchValidationTestBase`` with reusable test methods covering:
 - Invalid operation types (pattern-based and options-based)
 - Special characters in the operation portion of feature names
 - Type confusion via Options (None, int)
-- Single-element containers holding exactly one operation token, over every
-  token-valued key and option state a family declares (``token_cases``), and
-  the multi-element containers that must stay rejected
+- Single-element containers holding exactly one scalar value (an operation
+  token, a column reference or a number), over every scalar key and option
+  state a family declares (``token_cases``), and the multi-element containers
+  that must stay rejected
 - Case sensitivity enforcement (lowercase only)
 - Declaration/dispatch drift between the name path and the config path: the
   acceptance half is opt-out (``parity_operations``), the rejection half is
@@ -30,9 +31,14 @@ from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
 
 
+def _is_container(value: Any) -> bool:
+    """True for the sequence containers core unpacks element-wise; a str is one scalar, not a sequence."""
+    return isinstance(value, (list, tuple, set, frozenset))
+
+
 @dataclass(frozen=True)
 class TokenCase:
-    """One state of one token-valued config key, declared for the single-token checks.
+    """One state of one scalar config key, declared for the single-element checks.
 
     ``context`` adds to and ``without`` drops from ``additional_match_options()``,
     which is how a state that turns a conditional requirement on or off is declared
@@ -40,8 +46,10 @@ class TokenCase:
     ``matches`` is the verdict that state must produce, bare and wrapped alike.
 
     ``other`` is a second valid value for the same key, used for the multi-element
-    rejection; ``None`` skips it. Only string tokens take part in the single-element
-    checks, since a container is caller syntax for one *token*.
+    rejection; ``None`` skips it. Any non-container token takes part in the
+    single-element checks: an operation token, a column reference and a number are
+    all read back as one value. A token that is already a container is skipped,
+    since wrapping it again would change its arity rather than its syntax.
     """
 
     key: str
@@ -120,14 +128,15 @@ class MatchValidationTestBase:
 
     @classmethod
     def token_cases(cls) -> list[TokenCase]:
-        """States whose token must behave the same bare and in a single-element container.
+        """States whose value must behave the same bare and in a single-element container.
 
         Core unwraps a one-element container when it reads a property value, so
-        ``("sum",)`` is valid caller syntax for one token: it must produce the same
-        verdict as ``"sum"`` and reach dispatch as ``"sum"``, not as ``"('sum',)"``.
+        ``("sum",)`` and ``(5,)`` are valid caller syntax for one value: each must produce
+        the same verdict as its bare form and reach dispatch as ``"sum"`` / ``5``, not as
+        ``"('sum',)"`` / ``(5,)``.
 
         Defaults to the primary operation key holding parity operations. Override to
-        append the other keys a family dispatches on, and the states where a token
+        append the other scalar keys a family dispatches on, and the states where a value
         turns a conditional requirement on or off.
         """
         operations = sorted(cls.parity_operations())
@@ -286,10 +295,10 @@ class MatchValidationTestBase:
             return None
 
     def test_single_element_container_matches(self) -> None:
-        """A bare token and its single-element containers must match alike and dispatch alike."""
-        cases = [case for case in self.token_cases() if isinstance(case.token, str)]
+        """A bare value and its single-element containers must match alike and dispatch alike."""
+        cases = [case for case in self.token_cases() if not _is_container(case.token)]
         if not cases:
-            pytest.skip("config vocabulary is not a single string token")
+            pytest.skip("no scalar value declared for the single-element checks")
         for case in cases:
             bare = self._case_options(case, case.token)
             assert self._match(bare) is case.matches, f"{case.key}={case.token!r} should match: {case.matches}"
@@ -302,16 +311,16 @@ class MatchValidationTestBase:
                 )
 
     def test_single_element_container_preserves_requirements(self) -> None:
-        """A wrapped token must switch the same conditional requirements on as a bare one.
+        """A wrapped value must switch the same conditional requirements on as a bare one.
 
         ``required_when`` predicates read the option raw, so this is where a container
         that never gets unwrapped drops a requirement and lets an under-specified
         feature match at discovery and fail at compute.
         """
         predicates = self._required_when_predicates()
-        cases = [case for case in self.token_cases() if isinstance(case.token, str)]
+        cases = [case for case in self.token_cases() if not _is_container(case.token)]
         if not predicates or not cases:
-            pytest.skip("no required_when predicate keyed off a string token")
+            pytest.skip("no required_when predicate keyed off a scalar value")
         for case in cases:
             bare = self._case_options(case, case.token)
             expected = {key: bool(predicate(bare)) for key, predicate in predicates.items()}

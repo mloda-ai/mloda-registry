@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
@@ -154,18 +154,18 @@ class TestConfigBasedFeatures:
 
 
 class TestNBinsArity:
-    """``n_bins`` is a scalar key: one positive int, bare or in a single-element container."""
+    """``n_bins`` checks the shared harness cannot express.
+
+    The bare / single-element / multi-element verdicts live in
+    ``TestBinningMatchValidation.token_cases``; what stays here is the value-space
+    rejections and what ``_extract_binning_params`` must return on a direct call.
+    """
 
     def _options(self, n_bins: Any) -> Options:
         return Options(context={"binning_op": "bin", "n_bins": n_bins, "in_features": "value_int"})
 
-    @pytest.mark.parametrize("n_bins", [5, (5,), [5]])
-    def test_singleton_matches(self, n_bins: Any) -> None:
-        result = BinningFeatureGroup.match_feature_group_criteria("my_result", self._options(n_bins), None)
-        assert result is True
-
-    @pytest.mark.parametrize("n_bins", [[5, 10], (5, 10), (0,), (True,), ("5",)])
-    def test_multi_element_and_invalid_singleton_rejected(self, n_bins: Any) -> None:
+    @pytest.mark.parametrize("n_bins", [(0,), (True,), ("5",)])
+    def test_invalid_singleton_rejected(self, n_bins: Any) -> None:
         """Unwrapping does not widen the value space: the positive-int rule still applies."""
         result = BinningFeatureGroup.match_feature_group_criteria("my_result", self._options(n_bins), None)
         assert result is False
@@ -174,6 +174,17 @@ class TestNBinsArity:
     def test_extract_binning_params_unwraps_to_bare_value(self, n_bins: Any) -> None:
         feature = Feature("my_result", options=self._options(n_bins))
         assert BinningFeatureGroup._extract_binning_params(feature) == ("bin", 5)
+
+    @pytest.mark.parametrize("n_bins", [5, (5,), 5.9, (5.9,)])
+    def test_extract_binning_params_returns_an_int(self, n_bins: Any) -> None:
+        """The signature says ``tuple[str, int]``: a direct call must coerce, not just unwrap.
+
+        ``is_positive_int`` keeps a float out at match time, so only a direct call can
+        reach here with one, and it must still hand the backend an int bin count.
+        """
+        _, extracted = BinningFeatureGroup._extract_binning_params(Feature("my_result", options=self._options(n_bins)))
+        assert extracted == 5
+        assert isinstance(extracted, int)
 
 
 class TestReturnDataTypeRule:
@@ -217,6 +228,10 @@ class TestBinningMatchValidation(MatchValidationTestBase):
         return {"in_features": "value_int", "n_bins": 5}
 
     @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        # n_bins is scalar too: one positive int.
+        return [*super().token_cases(), TokenCase("n_bins", 5, 10)]
+
+    @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:
-        binning_op, _ = BinningFeatureGroup._extract_binning_params(Feature("my_result", options=options))
-        return [binning_op]
+        return list(BinningFeatureGroup._extract_binning_params(Feature("my_result", options=options)))

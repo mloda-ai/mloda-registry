@@ -263,18 +263,23 @@ class TestConfigBasedExtraction:
 
 
 class TestPercentileArity:
-    """``percentile`` is a scalar key: one number, bare or in a single-element container."""
+    """``percentile`` checks the shared harness cannot express.
+
+    The bare / single-element / multi-element verdicts live in
+    ``TestPercentileMatchValidation``, whose primary config key IS ``percentile``;
+    what stays here is the value-space rejections and the direct extractor call.
+    """
 
     def _options(self, percentile: Any) -> Options:
         return Options(context={"percentile": percentile, "in_features": "value_int", "partition_by": ["region"]})
 
-    @pytest.mark.parametrize("percentile", [0.75, (0.75,), [0.75]])
-    def test_singleton_matches(self, percentile: Any) -> None:
-        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", self._options(percentile), None)
-        assert result is True
+    @pytest.mark.parametrize("percentile", [10**400, (10**400,)])
+    def test_unconvertible_int_is_a_non_match(self, percentile: Any) -> None:
+        """An int too large for float is a plain non-match, never an OverflowError out of discovery.
 
-    @pytest.mark.parametrize("percentile", [[0.25, 0.75], (0.25, 0.75)])
-    def test_multi_element_rejected(self, percentile: Any) -> None:
+        The mixin only catches TypeError / ValueError / AttributeError, so a conversion
+        that overflows escapes the matcher and aborts discovery for every feature group.
+        """
         result = PercentileFeatureGroup.match_feature_group_criteria("my_result", self._options(percentile), None)
         assert result is False
 
@@ -327,3 +332,7 @@ class TestPercentileMatchValidation(MatchValidationTestBase):
     @classmethod
     def options_reject_invalid_types(cls) -> bool:
         return False
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        return [PercentileFeatureGroup._extract_percentile(Feature("my_result", options=options))]

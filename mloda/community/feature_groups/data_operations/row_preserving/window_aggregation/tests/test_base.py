@@ -267,24 +267,16 @@ class TestConfigBasedFeatures:
 
 
 class TestOrderByArity:
-    """``order_by`` is a scalar key: one column, bare or in a single-element container."""
+    """``order_by`` checks the shared harness cannot express.
+
+    The bare / single-element / multi-element verdicts live in
+    ``TestWindowAggregationMatchValidation.token_cases``; what stays here is the
+    wrong-type rejection and the dispatch check, since window aggregation reads
+    ``order_by`` inline in calculate_feature rather than through an extractor.
+    """
 
     def _options(self, order_by: Any) -> Options:
         return Options(context={"partition_by": ["region"], "order_by": order_by})
-
-    @pytest.mark.parametrize("order_by", ["timestamp", ("timestamp",), ["timestamp"]])
-    def test_singleton_matches(self, order_by: Any) -> None:
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria(
-            "value_int__first_window", self._options(order_by), None
-        )
-        assert result is True
-
-    @pytest.mark.parametrize("order_by", [["timestamp", "region"], ("timestamp", "region")])
-    def test_multi_element_rejected(self, order_by: Any) -> None:
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria(
-            "value_int__first_window", self._options(order_by), None
-        )
-        assert result is False
 
     def test_wrong_type_rejected(self) -> None:
         result = WindowAggregationFeatureGroup.match_feature_group_criteria(
@@ -372,6 +364,8 @@ class TestWindowAggregationMatchValidation(MatchValidationTestBase):
             *super().token_cases(),
             TokenCase(cls.config_key(), "first", without=("order_by",), matches=False),
             TokenCase(cls.config_key(), "first"),
+            # order_by names one column; declare it under the agg type that requires it.
+            TokenCase("order_by", "timestamp", "region", context={cls.config_key(): "first"}),
         ]
 
     @classmethod
