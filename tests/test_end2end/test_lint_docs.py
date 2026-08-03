@@ -103,6 +103,14 @@ def test_link_outside_docs_dir_does_not_crash(tmp_path: Path) -> None:
     assert lint_docs.find_orphan_guides(docs) == []
 
 
+def test_docs_dir_is_repo_docs_root() -> None:
+    """DOCS_DIR is the docs root and GUIDES_DIR its guides subdir; re-narrowing DOCS_DIR breaks this."""
+    assert lint_docs.DOCS_DIR == _REPO_ROOT / "docs"
+    assert lint_docs.GUIDES_DIR == _REPO_ROOT / "docs" / "guides"
+    assert lint_docs.GUIDES_DIR.is_dir()
+    assert list(lint_docs.DOCS_DIR.glob("*.md")), "docs-root markdown must exist and be in lint scope"
+
+
 def test_broken_link_suppresses_orphan_cascade(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -114,6 +122,7 @@ def test_broken_link_suppresses_orphan_cascade(
     _write(tmp_path / "plugins" / "index.md", "# Plugins\n\n[A](a.md)\n")
     _write(tmp_path / "plugins" / "a.md", "# A\n")
     monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path)
+    monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path)
     rc = lint_docs.main()
     out = capsys.readouterr().out
     assert rc == 1
@@ -129,11 +138,64 @@ def test_clean_tree_runs_orphan_check(
     _write(tmp_path / "index.md", "# Root\n")
     _write(tmp_path / "orphan.md", "# Orphan\n")
     monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path)
+    monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path)
     rc = lint_docs.main()
     out = capsys.readouterr().out
     assert rc == 1
     assert "orphan guide" in out
     assert "orphan.md" in out
+
+
+def test_main_flags_broken_link_outside_guides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Markdown at the docs root (packaging.md, releasing.md) is link-checked, not only docs/guides."""
+    _write(tmp_path / "guides" / "index.md", "# Guides\n")
+    _write(tmp_path / "packaging.md", "# Packaging\n\n[Missing](missing.md)\n")
+    monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path)
+    monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path / "guides")
+    rc = lint_docs.main()
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "broken link" in out
+    assert "packaging.md" in out
+
+
+def test_main_flags_bare_fence_outside_guides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The fence check follows the widened walk: a bare ``` opener at the docs root is flagged."""
+    _write(tmp_path / "guides" / "index.md", "# Guides\n")
+    _write(tmp_path / "releasing.md", "# Releasing\n\n```\nuv build\n```\n")
+    monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path)
+    monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path / "guides")
+    rc = lint_docs.main()
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "bare fenced-code opener" in out
+    assert "releasing.md" in out
+
+
+def test_orphan_check_stays_scoped_to_guides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Docs-root files are not guides, so they are never orphans; unlinked files under guides still are."""
+    _write(tmp_path / "guides" / "index.md", "# Guides\n")
+    _write(tmp_path / "guides" / "stray.md", "# Stray\n")
+    _write(tmp_path / "packaging.md", "# Packaging\n")
+    monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path)
+    monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path / "guides")
+    rc = lint_docs.main()
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "stray.md: orphan guide" in out
+    assert "packaging.md" not in out
 
 
 def test_fenced_broken_link_is_ignored_by_link_check(tmp_path: Path) -> None:
@@ -507,6 +569,7 @@ def test_main_reports_retired_property_spec_spellings(
         "# Root\n\n```python\nkey = DefaultOptionKeys.allowed_values\n```\n",
     )
     monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path)
+    monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path)
     rc = lint_docs.main()
     out = capsys.readouterr().out
     assert rc == 1

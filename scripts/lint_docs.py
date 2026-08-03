@@ -1,4 +1,4 @@
-"""Lint documentation guides for broken relative links and internal imports in code snippets.
+"""Lint documentation for broken relative links and internal imports in code snippets.
 
 Run: python scripts/lint_docs.py
 Exit code: 1 if any issues found, 0 otherwise.
@@ -11,7 +11,10 @@ import sys
 from collections import deque
 from pathlib import Path
 
-DOCS_DIR = Path(__file__).resolve().parent.parent / "docs" / "guides"
+DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
+
+# Only guides are subject to the orphan check; docs-root files are entry points, not guides.
+GUIDES_DIR = DOCS_DIR / "guides"
 
 INTERNAL_IMPORT_RE = re.compile(r"from mloda\.core\.")
 
@@ -345,7 +348,7 @@ def main() -> int:
     all_errors.extend(link_errors)
 
     if not link_errors:
-        all_errors.extend(find_orphan_guides(DOCS_DIR, contents))
+        all_errors.extend(find_orphan_guides(GUIDES_DIR, contents))
 
     if all_errors:
         print(f"Found {len(all_errors)} doc issue(s):\n")
