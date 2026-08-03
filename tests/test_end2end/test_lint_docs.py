@@ -18,7 +18,7 @@ import lint_docs
 
 def _write(path: Path, body: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(body)
+    path.write_text(body, encoding="utf-8")
 
 
 def test_empty_tree_only_root_index(tmp_path: Path) -> None:
@@ -53,7 +53,7 @@ def test_unlinked_subdir_index_is_flagged(tmp_path: Path) -> None:
     _write(tmp_path / "sub" / "index.md", "# Sub\n\n[Leaf](leaf.md)\n")
     _write(tmp_path / "sub" / "leaf.md", "# Leaf\n")
     errors = lint_docs.find_orphan_guides(tmp_path)
-    flagged = {err.split(":")[0] for err in errors}
+    flagged = {Path(err.split(":")[0]).as_posix() for err in errors}
     assert "sub/index.md" in flagged
     assert "sub/leaf.md" in flagged
 
@@ -631,6 +631,84 @@ def test_main_reports_retired_property_spec_spellings(
     out = capsys.readouterr().out
     assert rc == 1
     assert "DefaultOptionKeys.allowed_values" in out
+
+
+def test_main_flags_broken_link_in_top_level_markdown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A broken relative .md link in a repo-root file must fail the lint gate."""
+    docs = tmp_path / "docs"
+    guides = docs / "guides"
+    _write(guides / "index.md", "# Root\n")
+    _write(
+        tmp_path / "README.md",
+        "# README\n\n[Guide](docs/guides/index.md)\n\n[Missing](missing.md)\n",
+    )
+    monkeypatch.setattr(lint_docs, "DOCS_DIR", docs)
+    monkeypatch.setattr(lint_docs, "GUIDES_DIR", guides)
+    monkeypatch.setattr(lint_docs, "REPO_ROOT", tmp_path)
+    rc = lint_docs.main()
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "broken link" in out
+    assert "missing.md" in out
+
+
+def test_main_flags_bare_fence_in_top_level_markdown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A bare fenced-code opener in a repo-root file must fail the lint gate."""
+    docs = tmp_path / "docs"
+    guides = docs / "guides"
+    _write(guides / "index.md", "# Root\n")
+    _write(tmp_path / "README.md", "# README\n\n```\nplain\n```\n")
+    monkeypatch.setattr(lint_docs, "DOCS_DIR", docs)
+    monkeypatch.setattr(lint_docs, "GUIDES_DIR", guides)
+    monkeypatch.setattr(lint_docs, "REPO_ROOT", tmp_path)
+    rc = lint_docs.main()
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "bare fenced-code opener" in out
+
+
+def test_main_orphan_check_ignores_top_level_markdown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Orphan reachability is guides-only; root files need no inbound links."""
+    docs = tmp_path / "docs"
+    guides = docs / "guides"
+    _write(guides / "index.md", "# Root\n")
+    _write(tmp_path / "notes.md", "# Notes\n")
+    monkeypatch.setattr(lint_docs, "DOCS_DIR", docs)
+    monkeypatch.setattr(lint_docs, "GUIDES_DIR", guides)
+    monkeypatch.setattr(lint_docs, "REPO_ROOT", tmp_path)
+    rc = lint_docs.main()
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "orphan" not in out
+
+
+def test_main_reads_markdown_as_utf8(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Non-ASCII UTF-8 in guides must not crash on Windows' GBK locale."""
+    docs = tmp_path / "docs"
+    guides = docs / "guides"
+    _write(guides / "index.md", "# Root\n\n[Guide](guide.md)\n")
+    _write(guides / "guide.md", "# Guide\n\n```text\n\u251c\u2500\u2500 plugin\n```\n")
+    monkeypatch.setattr(lint_docs, "DOCS_DIR", docs)
+    monkeypatch.setattr(lint_docs, "GUIDES_DIR", guides)
+    monkeypatch.setattr(lint_docs, "REPO_ROOT", tmp_path)
+    rc = lint_docs.main()
+    assert rc == 0
 
 
 def test_missing_root_index_uses_relative_path(tmp_path: Path) -> None:
