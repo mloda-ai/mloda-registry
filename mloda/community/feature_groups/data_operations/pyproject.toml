@@ -25,3 +25,6 @@ Repository = "https://github.com/mloda-ai/mloda-registry"
 [tool.setuptools]
 package-dir = {"" = "../../../.."}
 packages = ["mloda.community.feature_groups.data_operations", "mloda.community.feature_groups.data_operations.row_changing", "mloda.community.feature_groups.data_operations.row_preserving", "mloda.community.feature_groups.data_operations.row_preserving.arithmetic"]
+
+[tool.setuptools.package-data]
+"mloda.community.feature_groups.data_operations" = ["py.typed"]
