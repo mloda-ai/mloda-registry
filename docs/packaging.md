@@ -1,12 +1,11 @@
-# pyproject.toml Generation System
+# Packaging
 
-All `pyproject.toml` files are auto-generated from config.
-
-## Quick Reference
+All `pyproject.toml` files are auto-generated from `config/`. Never edit them directly.
+For how those packages reach PyPI, see [Releasing](releasing.md).
 
 ```bash
 python scripts/generate_pyproject.py          # Generate all
-python scripts/generate_pyproject.py --check  # CI validation
+python scripts/generate_pyproject.py --check  # CI validation (tox -e check-generated)
 ```
 
 ## Architecture
@@ -23,27 +22,24 @@ scripts/generate_pyproject.py
          └──► pyproject.toml (workspace members)
 ```
 
-## Config Files
+## Config files
 
 ### shared.toml
 
+Single source for values every package shares. `core_dependency` is substituted
+into any `{core_dependency}` placeholder in `packages.toml`, so the mloda floor
+is declared once.
+
 ```toml
 [project]
-version = "0.2.0"
-requires-python = ">=3.10"
+version = "0.4.0"
+requires-python = ">=3.10,<3.15"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-
-[project.urls]
-Homepage = "https://mloda.ai"
-Repository = "https://github.com/mloda-ai/mloda-registry"
-
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
 
 [defaults]
 license = "Apache-2.0"
-optional_dependencies = { dev = ["mloda-testing", "pytest"] }
+core_dependency = "mloda>=0.10.0,<0.11.0"
+optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 ```
 
 ### packages.toml
@@ -51,7 +47,7 @@ optional_dependencies = { dev = ["mloda-testing", "pytest"] }
 | Field | Required | Description |
 |-------|----------|-------------|
 | `description` | Yes | PyPI description |
-| `dependencies` | Yes | Runtime deps |
+| `dependencies` | Yes | Runtime deps; use `"{core_dependency}"` for the mloda floor |
 | `path` | Yes | Package directory |
 | `optional_dependencies` | No | Merged with defaults |
 | `entry_point_groups` | No | List of mloda entry-point groups the package's `manifest.py` populates (`mloda.feature_groups`, `mloda.compute_frameworks`, `mloda.extenders`) |
@@ -61,44 +57,59 @@ optional_dependencies = { dev = ["mloda-testing", "pytest"] }
 A marker declares its whole subtree typed, including third-party distributions installed into it: on a namespace portion (`mloda/community`, `mloda/enterprise`) that is the entire namespace, on a shared base package (`mloda/community/feature_groups/data_operations`, `mloda/community/feature_groups/example`) it is everything published from below that base. mypy returns at the first `py.typed` on the module path, so those leaf packages need no flag of their own. The leaf's typing then depends on the marker-shipping base being installed, so its dependency floor has to be at or above the release that first shipped the marker. Raise that floor only in a follow-up change, after the marker-bearing release is published: a workspace member cannot require a sibling version above the workspace's own version in `config/shared.toml`, so bumping it in the same change makes `uv sync --all-extras` unsatisfiable.
 
 **Generator infers:**
+
 - `license` from path (`mloda/enterprise/*` → proprietary, else default)
 - `packages` from filesystem (scans for `__init__.py`, excludes `tests/`, `build/`, etc.)
 
 **Default dev deps skipped for:** `mloda-testing`, `mloda-community`, `mloda-enterprise`
 
-**Example - Bundled package:**
-```toml
-[packages.mloda-community]
-description = "All community plugins for mloda"
-dependencies = ["mloda>=X.Y.Z"]
-path = "mloda/community"
-# Generates: package-dir = {"" = "../.."}, packages = ["mloda.community.*"]
+## Package hierarchy
+
+### Bundled packages
+
+`mloda-community` and `mloda-enterprise` include all sub-package code directly, so
+one install gets every plugin and nothing depends on an unpublished sub-package.
+Sub-packages are still published separately for granular installs.
+
+```
+mloda-community (bundled)
+  └── includes: mloda.community.*
+        ├── feature_groups/*
+        ├── compute_frameworks/*
+        └── extenders/*
 ```
 
-**Example - Regular package:**
-```toml
-[packages.mloda-registry]
-description = "Plugin discovery for mloda"
-dependencies = ["mloda>=X.Y.Z"]
-path = "mloda/registry"
-```
+### Individual packages
 
-**Example - With extra optional deps:**
+Aggregation uses optional dependencies to avoid a circular dependency: the base
+does not require its children, the children require the base.
+
 ```toml
 [packages.mloda-community-example]
-description = "Example community plugin"
-dependencies = ["mloda>=X.Y.Z"]
+description = "Example community FeatureGroup plugin for mloda"
+dependencies = ["{core_dependency}"]
 path = "mloda/community/feature_groups/example"
 optional_dependencies = { all = ["mloda-community-example-a", "mloda-community-example-b"] }
-# dev = ["mloda-testing", "pytest"] added from defaults
+entry_point_groups = ["mloda.feature_groups"]
 ```
+
+| Command | Result |
+|---------|--------|
+| `pip install mloda-community` | All community plugins (bundled) |
+| `pip install mloda-community-example` | Base example only |
+| `pip install mloda-community-example[all]` | Base + all variants |
+| `pip install mloda-community-example-a` | Variant A + base |
+
+Anything listed in a base package's `optional_dependencies.all` must also be in the
+build list of `.github/workflows/release.yaml`, or the `[all]` extra cannot resolve
+from PyPI.
 
 ## Entry points
 
-mloda 0.9.0 discovers installed plugins through the entry-point groups
-`mloda.feature_groups`, `mloda.compute_frameworks`, and `mloda.extenders`
-(issue #271). Each plugin package ships a `manifest.py` module that lists the
-package's concrete plugin classes under a per-group attribute:
+mloda discovers installed plugins through the entry-point groups
+`mloda.feature_groups`, `mloda.compute_frameworks`, and `mloda.extenders`. Each
+plugin package ships a `manifest.py` listing the package's concrete plugin classes
+under a per-group attribute:
 
 | Group | Attribute | Base type |
 |-------|-----------|-----------|
@@ -107,40 +118,46 @@ package's concrete plugin classes under a per-group attribute:
 | `mloda.extenders` | `EXTENDERS` | `Extender` |
 
 Conventions:
+
 - One `manifest.py` per plugin package. It lists concrete classes only, never the
   shared base class in `base.py` / `*_base.py` (those are non-abstract and would
   wrongly register).
-- The generator emits `[project.entry-points."<group>"]` tables whose entry name
-  is the distribution label and whose value is the canonical
+- The generator emits `[project.entry-points."<group>"]` tables whose entry name is
+  the distribution label and whose value is the canonical
   `<dotted.package.path>.manifest:<ATTR>` target, e.g.
   `mloda-community-ffill = "mloda.community.feature_groups.data_operations.row_preserving.ffill.manifest:FEATURE_GROUPS"`.
-- Bundle packages (`mloda-community`, `mloda-enterprise`) set
-  `entry_point_bundle = true` and aggregate the entry points of every nested
-  plugin package under their path.
+- Bundle packages set `entry_point_bundle = true` and aggregate the entry points of
+  every nested plugin package under their path.
 
-Plugin authors adding a new plugin package must:
-1. Add `entry_point_groups = ["<group>"]` to the package in `config/packages.toml`.
-2. Create `<package path>/manifest.py` listing the concrete plugin classes.
-3. Run `python scripts/generate_pyproject.py` to regenerate the pyproject files.
+## UV workspace sources
 
-## UV Workspace Sources
+The generator adds `mloda-testing = { workspace = true }` only for top-level packages
+(depth <= 2) that receive default dev deps. Nested packages cannot use workspace
+sources due to uv resolution limits; they get dev deps but rely on root workspace
+resolution.
 
-The generator adds `mloda-testing = { workspace = true }` only for top-level packages (depth ≤ 2) that receive default dev deps. Nested packages can't use workspace sources due to uv resolution limitations.
-
-## Common Workflows
+## Common workflows
 
 ### Bump version
+
 ```bash
 vim config/shared.toml                  # Change version
 python scripts/generate_pyproject.py    # Regenerate
 ```
 
-### Add new package
+### Add a new package
+
+1. Add to `config/packages.toml` (description, dependencies, path; for a plugin
+   package also `entry_point_groups = ["mloda.feature_groups" | ...]`).
+2. For a plugin package, create `<path>/manifest.py` listing the concrete classes.
+3. If it should ship standalone on PyPI, add it to `.github/workflows/release.yaml`.
+4. Regenerate and sync:
+
 ```bash
-# 1. Add to config/packages.toml (description, deps, path; for a plugin package
-#    also add entry_point_groups = ["mloda.feature_groups" | ...])
-# 2. For a plugin package, create <path>/manifest.py listing the concrete classes
-# 3. Generate
 python scripts/generate_pyproject.py
 uv sync --all-extras
 ```
+
+### Add a variant to an existing plugin
+
+Same as above, plus add the variant to the parent's `optional_dependencies.all`.
