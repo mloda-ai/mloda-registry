@@ -95,6 +95,16 @@ def test_missing_root_index_returns_sentinel(tmp_path: Path) -> None:
     assert "missing root index" in errors[0]
 
 
+def test_missing_root_index_names_scope_directory(tmp_path: Path) -> None:
+    """The sentinel names the orphan-scope dir, which is no longer the same dir the linter walks."""
+    guides = tmp_path / "guides"
+    guides.mkdir()
+    errors = lint_docs.find_orphan_guides(guides)
+    assert len(errors) == 1
+    assert errors[0] == "guides/index.md: missing root index for orphan check"
+    assert str(tmp_path) not in errors[0]
+
+
 def test_link_outside_docs_dir_does_not_crash(tmp_path: Path) -> None:
     outside = tmp_path.parent / "outside.md"
     outside.write_text("# Outside\n")
@@ -108,7 +118,8 @@ def test_docs_dir_is_repo_docs_root() -> None:
     assert lint_docs.DOCS_DIR == _REPO_ROOT / "docs"
     assert lint_docs.GUIDES_DIR == _REPO_ROOT / "docs" / "guides"
     assert lint_docs.GUIDES_DIR.is_dir()
-    assert list(lint_docs.DOCS_DIR.glob("*.md")), "docs-root markdown must exist and be in lint scope"
+    outside_guides = [p for p in lint_docs.DOCS_DIR.rglob("*.md") if not p.is_relative_to(lint_docs.GUIDES_DIR)]
+    assert outside_guides, "markdown outside docs/guides must exist and be in lint scope"
 
 
 def test_broken_link_suppresses_orphan_cascade(
@@ -116,18 +127,37 @@ def test_broken_link_suppresses_orphan_cascade(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Regression for fix 3: broken-link errors suppress the orphan check in main()."""
+    """A link error inside guides can corrupt the reachability BFS, so it still suppresses the orphan check."""
     # "plgins" is an intentional typo: it's what makes the link broken for this test.
-    _write(tmp_path / "index.md", "# Root\n\n[Plugins](plgins/index.md)\n")
-    _write(tmp_path / "plugins" / "index.md", "# Plugins\n\n[A](a.md)\n")
-    _write(tmp_path / "plugins" / "a.md", "# A\n")
+    _write(tmp_path / "guides" / "index.md", "# Guides\n\n[Plugins](plgins/index.md)\n")
+    _write(tmp_path / "guides" / "plugins" / "index.md", "# Plugins\n\n[A](a.md)\n")
+    _write(tmp_path / "guides" / "plugins" / "a.md", "# A\n")
     monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path)
-    monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path)
+    monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path / "guides")
     rc = lint_docs.main()
     out = capsys.readouterr().out
     assert rc == 1
     assert "broken link" in out
     assert "orphan guide" not in out
+
+
+def test_docs_root_link_error_does_not_suppress_guides_orphan_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A broken link outside guides cannot corrupt the guides BFS, so the orphan check must still run."""
+    _write(tmp_path / "guides" / "index.md", "# Guides\n")
+    _write(tmp_path / "guides" / "stray.md", "# Stray\n")
+    _write(tmp_path / "packaging.md", "# Packaging\n\n[Missing](missing.md)\n")
+    monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path)
+    monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path / "guides")
+    rc = lint_docs.main()
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "broken link" in out
+    assert "packaging.md" in out
+    assert "stray.md: orphan guide" in out
 
 
 def test_clean_tree_runs_orphan_check(
