@@ -112,7 +112,9 @@ Entries in `optional_dependencies.all` are emitted unpinned, so a variant only h
 to exist on PyPI at some version for the extra to resolve. A variant that is
 dropped from the release list therefore keeps resolving at its last published
 version, which is why `mloda-community-example-b` can be absent from
-`.github/workflows/release.yaml` without breaking `[all]`.
+`.github/workflows/release.yaml` without breaking `[all]`. A variant that was
+never published at all is different: it cannot satisfy the extra at any version,
+so `[all]` fails outright.
 
 ## Entry points
 
