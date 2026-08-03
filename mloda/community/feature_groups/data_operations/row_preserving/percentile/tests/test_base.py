@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (
@@ -299,3 +300,16 @@ class TestPercentileMatchValidation(MatchValidationTestBase):
     @classmethod
     def options_reject_invalid_types(cls) -> bool:
         return False
+
+    @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        # A percentile is one float in [0.0, 1.0]: out of range, a bool, and an int too large
+        # for float all stay out. The last one must be a plain non-match rather than an
+        # OverflowError, which the mixin does not catch and which would abort discovery for
+        # every feature group.
+        primary = super().token_cases()[0]
+        return [replace(primary, invalid=(1.5, True, 10**400))]
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        return [PercentileFeatureGroup._extract_percentile(Feature("my_result", options=options))]

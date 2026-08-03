@@ -175,8 +175,10 @@ class TestConfigBasedPercentileValidation:
         assert result is False, f"Invalid config percentile {percentile_value} should be rejected"
 
     @pytest.mark.parametrize(
+        # A one-element container is valid caller syntax for one percentile, so the
+        # container case here has to be genuinely multi-valued.
         "bad_type",
-        ["fifty", [0.5], None],
+        ["fifty", [0.5, 0.9], None],
     )
     def test_wrong_type_config_percentile_rejected(self, bad_type: object) -> None:
         options = Options(

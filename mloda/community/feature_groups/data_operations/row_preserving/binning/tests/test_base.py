@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
@@ -153,6 +153,27 @@ class TestConfigBasedFeatures:
         assert result is False
 
 
+class TestNBinsCoercion:
+    """The ``n_bins`` check the arity harness cannot express.
+
+    Every arity verdict for ``n_bins`` (bare, wrapped, multi-element, wrong type and the
+    values outside its value space) is declared on ``TestBinningMatchValidation``; what
+    stays here is the return type a direct extractor call owes its caller.
+    """
+
+    @pytest.mark.parametrize("n_bins", [5, (5,), 5.9, (5.9,)])
+    def test_extract_binning_params_returns_an_int(self, n_bins: Any) -> None:
+        """The signature says ``tuple[str, int]``: a direct call must coerce, not just unwrap.
+
+        ``is_positive_int`` keeps a float out at match time, so only a direct call can
+        reach here with one, and it must still hand the backend an int bin count.
+        """
+        options = Options(context={"binning_op": "bin", "n_bins": n_bins, "in_features": "value_int"})
+        _, extracted = BinningFeatureGroup._extract_binning_params(Feature("my_result", options=options))
+        assert extracted == 5
+        assert isinstance(extracted, int)
+
+
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type for deterministic ops.
 
@@ -194,6 +215,10 @@ class TestBinningMatchValidation(MatchValidationTestBase):
         return {"in_features": "value_int", "n_bins": 5}
 
     @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        # n_bins is scalar too: one positive int, so zero, a bool and a digit string stay out.
+        return [*super().token_cases(), TokenCase("n_bins", 5, 10, invalid=(0, True, "5"))]
+
+    @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:
-        binning_op, _ = BinningFeatureGroup._extract_binning_params(Feature("my_result", options=options))
-        return [binning_op]
+        return list(BinningFeatureGroup._extract_binning_params(Feature("my_result", options=options)))

@@ -636,9 +636,22 @@ class TestFrameAggregateMatchValidation(MatchValidationTestBase):
             TokenCase("frame_type", "expanding", without=("frame_size",)),
             # Only a time frame requires frame_unit, which additional_match_options() does not carry.
             TokenCase("frame_type", "time", matches=False),
+            # A rolling frame ignores frame_unit, so nothing but the key's own guard rejects a
+            # multi-element value there; under "time" the unit table would mask a missing guard.
+            TokenCase("frame_unit", "day", "week", context={"frame_type": "rolling"}),
+            # order_by and frame_size are scalar too: one column, one positive int, so a
+            # zero-sized frame and a bool stay out at every arity.
+            TokenCase("order_by", "timestamp", "region"),
+            TokenCase("frame_size", 3, 5, invalid=(0, True)),
         ]
 
     @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:
         params = FrameAggregateFeatureGroup._extract_params(Feature("my_result", options=options))
-        return [params["agg_type"], params["frame_type"], params["frame_unit"]]
+        return [
+            params["agg_type"],
+            params["frame_type"],
+            params["frame_unit"],
+            params["order_by"],
+            params["frame_size"],
+        ]

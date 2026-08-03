@@ -7,6 +7,8 @@ from typing import Any
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.user import DataType, Feature
 
@@ -326,6 +328,8 @@ class TestWindowAggregationMatchValidation(MatchValidationTestBase):
             *super().token_cases(),
             TokenCase(cls.config_key(), "first", without=("order_by",), matches=False),
             TokenCase(cls.config_key(), "first"),
+            # order_by names one column; declare it under the agg type that requires it.
+            TokenCase("order_by", "timestamp", "region", context={cls.config_key(): "first"}),
         ]
 
     @classmethod
@@ -335,3 +339,16 @@ class TestWindowAggregationMatchValidation(MatchValidationTestBase):
             WindowAggregationFeatureGroup._extract_aggregation_type(feature),
             WindowAggregationFeatureGroup._resolve_agg_type("my_result", options),
         ]
+
+    @classmethod
+    def compute_values(cls, options: Options) -> list[Any] | None:
+        # Window aggregation reads order_by inline in calculate_feature rather than through an
+        # extractor, so only a run through the backend shows a container reaching it unwrapped.
+        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
+            PyArrowWindowAggregation,
+        )
+
+        result = PyArrowWindowAggregation.calculate_feature(
+            PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_window_result", options)
+        )
+        return extract_column(result, "my_window_result")

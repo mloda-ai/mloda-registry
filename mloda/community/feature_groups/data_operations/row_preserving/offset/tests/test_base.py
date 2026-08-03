@@ -7,7 +7,10 @@ from typing import Any
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
+from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import ReferenceOffset
 from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import OffsetFeatureGroup
@@ -336,5 +339,19 @@ class TestOffsetMatchValidation(MatchValidationTestBase):
         return {"banana", "lag_0", "lag_abc", "lead_"}
 
     @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        # order_by names one column, and offset requires it on both paths.
+        return [*super().token_cases(), TokenCase("order_by", "timestamp", "region")]
+
+    @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:
         return [OffsetFeatureGroup._extract_offset_type(Feature("my_result", options=options))]
+
+    @classmethod
+    def compute_values(cls, options: Options) -> list[Any] | None:
+        # Offset reads order_by inline in calculate_feature rather than through an extractor,
+        # so only a run through the backend shows a container reaching it unwrapped.
+        result = ReferenceOffset.calculate_feature(
+            PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_lag", options)
+        )
+        return extract_column(result, "my_lag")

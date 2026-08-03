@@ -13,10 +13,13 @@ ema's ``ema_0`` handling).
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
 from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import (
@@ -28,6 +31,9 @@ from mloda.community.feature_groups.data_operations.row_preserving.sessionizatio
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pandas_sessionization import (
     PandasSessionization,
 )
+
+
+SESSIONIZE_FEATURE_NAME = "ts__sessionize_30_minute"
 
 
 def _match_options() -> Options:
@@ -134,6 +140,46 @@ class TestThresholdParser:
     def test_parse_rejects_n_zero(self) -> None:
         with pytest.raises(ValueError, match=r"(?i)positive|> 0|n"):
             _parse_sessionize_op("sessionize_0_minute")
+
+
+class TestOrderByArity(ScalarArityTestBase):
+    """``order_by`` is a scalar key: one column, bare or in a single-element container.
+
+    Sessionization declares no operation config key (the threshold is part of the feature
+    name), so it declares the arity base directly instead of ``MatchValidationTestBase``.
+    ``order_by`` uses a column DISTINCT from the source column, so an unwrap is
+    distinguishable from the absent-value fallback to the source.
+    """
+
+    @classmethod
+    def feature_group_class(cls) -> Any:
+        return SessionizationFeatureGroup
+
+    @classmethod
+    def match_class(cls) -> Any:
+        return PandasSessionization
+
+    @classmethod
+    def match_feature_name(cls) -> str:
+        return SESSIONIZE_FEATURE_NAME
+
+    @classmethod
+    def base_context(cls) -> dict[str, Any]:
+        return {"partition_by": ["user"]}
+
+    @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        return [TokenCase("order_by", "event_ts", "user")]
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        feature = Feature(SESSIONIZE_FEATURE_NAME, options=options)
+        return [SessionizationFeatureGroup._extract_order_by(feature, "ts")]
+
+    def test_extract_order_by_defaults_to_source_column(self) -> None:
+        """The one state the arity harness cannot express: absent is not wrapped, it is absent."""
+        feature = Feature(SESSIONIZE_FEATURE_NAME, options=Options())
+        assert SessionizationFeatureGroup._extract_order_by(feature, "ts") == "ts"
 
 
 class TestSingleColumnEnforcement:

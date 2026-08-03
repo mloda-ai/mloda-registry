@@ -27,7 +27,7 @@ from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
 
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
-from mloda.community.feature_groups.data_operations.base import is_op_token
+from mloda.community.feature_groups.data_operations.base import is_op_token, is_scalar_number, scalar_number_value
 
 ARITHMETIC_OPERATIONS: dict[str, str] = {
     "add": "Element-wise addition of a constant",
@@ -63,6 +63,7 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
             "explanation": "Numeric constant applied element-wise to the source column",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.match_guard: is_scalar_number,
         },
     }
 
@@ -107,6 +108,28 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
         return source_names
 
     @classmethod
+    def _extract_constant(cls, feature: Feature) -> int | float:
+        """Return the constant as a bare number, unwrapped from its container.
+
+        Owns the compute-time rejections: missing, non-numeric, and dividing by zero.
+        """
+        feature_name = feature.name
+
+        constant = feature.options.get(cls.CONSTANT)
+        if constant is None:
+            raise ValueError(f"Missing required option 'constant' for feature {feature_name!r}")
+        if not is_scalar_number(constant):
+            raise ValueError(
+                f"Option 'constant' for feature {feature_name!r} must be int or float, got {type(constant).__name__}"
+            )
+
+        value = scalar_number_value(constant)
+        # Resolve the op only when it can matter, so a constant read never depends on the op path.
+        if value == 0 and cls._extract_arithmetic_op(feature) == "divide":
+            raise ValueError(f"Cannot divide by zero for feature {feature_name!r}")
+        return value
+
+    @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         """Compute an element-wise arithmetic operation per source column.
 
@@ -125,16 +148,7 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
 
             cls._assert_source_column_is_numeric(data, source_col)
 
-            constant = feature.options.get(cls.CONSTANT)
-            if constant is None:
-                raise ValueError(f"Missing required option 'constant' for feature {feature_name!r}")
-            if isinstance(constant, bool) or not isinstance(constant, (int, float)):
-                raise ValueError(
-                    f"Option 'constant' for feature {feature_name!r} must be int or float, "
-                    f"got {type(constant).__name__}"
-                )
-            if op == "divide" and constant == 0:
-                raise ValueError(f"Cannot divide by zero for feature {feature_name!r}")
+            constant = cls._extract_constant(feature)
 
             table = cls._compute_arithmetic(table, feature_name, source_col, op, constant)
 

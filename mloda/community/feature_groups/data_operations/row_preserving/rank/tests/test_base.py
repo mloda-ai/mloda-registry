@@ -8,7 +8,10 @@ import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
+from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import ReferenceRank
 from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
@@ -212,8 +215,15 @@ class TestConfigValidation:
         result = RankFeatureGroup.match_feature_group_criteria("value_int__rank_ranked", options, None)
         assert result is False
 
-    def test_order_by_must_be_string(self) -> None:
-        options = Options(context={"partition_by": ["region"], "order_by": ["value_int"]})
+    def test_order_by_rejects_multiple_columns(self) -> None:
+        # order_by names ONE column; a one-element container is valid caller syntax for it
+        # (see TestOrderByArity), so only a genuinely multi-valued container is invalid here.
+        options = Options(context={"partition_by": ["region"], "order_by": ["value_int", "region"]})
+        result = RankFeatureGroup.match_feature_group_criteria("value_int__rank_ranked", options, None)
+        assert result is False
+
+    def test_order_by_rejects_non_string(self) -> None:
+        options = Options(context={"partition_by": ["region"], "order_by": 42})
         result = RankFeatureGroup.match_feature_group_criteria("value_int__rank_ranked", options, None)
         assert result is False
 
@@ -447,5 +457,19 @@ class TestRankMatchValidation(MatchValidationTestBase):
         return {"ntile_0", "ntile_abc", "top_0", "bottom_0", "banana"}
 
     @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        # order_by names one column, and rank requires it on both paths.
+        return [*super().token_cases(), TokenCase("order_by", "value_int", "region")]
+
+    @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:
         return [RankFeatureGroup._extract_rank_type(Feature("my_result", options=options))]
+
+    @classmethod
+    def compute_values(cls, options: Options) -> list[Any] | None:
+        # Rank reads order_by inline in calculate_feature rather than through an extractor,
+        # so only a run through the backend shows a container reaching it unwrapped.
+        result = ReferenceRank.calculate_feature(
+            PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_rank_result", options)
+        )
+        return extract_column(result, "my_rank_result")

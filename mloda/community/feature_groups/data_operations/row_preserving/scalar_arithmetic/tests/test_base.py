@@ -8,12 +8,17 @@ import pytest
 
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
     ScalarArithmeticFeatureGroup,
+)
+from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pyarrow_scalar_arithmetic import (
+    PyArrowScalarArithmetic,
 )
 
 
@@ -153,6 +158,21 @@ class TestConfigBasedFeatures:
         assert result is False
 
 
+class TestConstantExtraction:
+    """The ``constant`` check the arity harness cannot express.
+
+    Every arity verdict for ``constant`` (bare, wrapped, multi-element, wrong type,
+    bool, absent, and the #339 compute regression) is declared on
+    ``TestScalarArithmeticMatchValidation``; only the message a direct extractor call
+    raises for a value the matcher would already have rejected stays here.
+    """
+
+    def test_extract_constant_raises_for_non_numeric(self) -> None:
+        feature = Feature("value_int__add_constant", options=Options(context={"constant": "five"}))
+        with pytest.raises(ValueError, match="int or float"):
+            ScalarArithmeticFeatureGroup._extract_constant(feature)
+
+
 class TestSingleColumnEnforcement:
     """Verify that MAX_IN_FEATURES=1 enforces single-column behavior."""
 
@@ -286,5 +306,23 @@ class TestScalarArithmeticMatchValidation(MatchValidationTestBase):
         return {"in_features": "value_int", "constant": 5}
 
     @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        # constant is scalar too: one number, never a bool, and the op cannot run without it.
+        return [*super().token_cases(), TokenCase("constant", 5, 10, invalid=(True,), required=True)]
+
+    @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:
-        return [ScalarArithmeticFeatureGroup._extract_arithmetic_op(Feature("my_result", options=options))]
+        feature = Feature("my_result", options=options)
+        return [
+            ScalarArithmeticFeatureGroup._extract_arithmetic_op(feature),
+            ScalarArithmeticFeatureGroup._extract_constant(feature),
+        ]
+
+    @classmethod
+    def compute_values(cls, options: Options) -> list[Any] | None:
+        # The #339 regression: constant=(5,) matched at discovery and then raised
+        # "must be int or float, got tuple" inside calculate_feature.
+        result = PyArrowScalarArithmetic.calculate_feature(
+            PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_result", options)
+        )
+        return extract_column(result, "my_result")

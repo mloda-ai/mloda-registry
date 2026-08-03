@@ -12,12 +12,23 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
+from mloda.community.feature_groups.data_operations.base import is_scalar_number, scalar_number_value
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 
-def _is_real_number(value: Any) -> bool:
-    """True for a non-bool int/float (bool subclasses int)."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+def _unit_percentile(value: object) -> float | None:
+    """The option as a float in 0.0-1.0, or None when it is not one number in that range.
+
+    The range check runs BEFORE the conversion on purpose: an int-to-float comparison is exact
+    at any magnitude, while ``float(10**400)`` raises OverflowError, which discovery does not
+    catch and which a user-supplied option must never trigger.
+    """
+    if not is_scalar_number(value):
+        return None
+    number = scalar_number_value(value)
+    if number < 0.0 or number > 1.0:
+        return None
+    return float(number)
 
 
 class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
@@ -68,6 +79,7 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             "explanation": "Percentile value (float between 0.0 and 1.0)",
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.match_guard: is_scalar_number,
         },
         DefaultOptionKeys.in_features: {
             "explanation": "Source feature for percentile computation",
@@ -129,28 +141,21 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         if not all(isinstance(item, str) for item in partition_by):
             return False
 
-        percentile = cls._resolve_percentile(feature_name, options)
-        if percentile is None:
-            return False
-        if not isinstance(percentile, (int, float)):
-            return False
-        if percentile < 0.0 or percentile > 1.0:
+        # None covers both halves: unresolvable, and resolved but outside 0.0-1.0.
+        if cls._resolve_percentile(feature_name, options) is None:
             return False
 
         return True
 
     @classmethod
     def _resolve_percentile(cls, feature_name: Any, options: Any) -> float | None:
-        """Extract percentile as float from feature name or options."""
+        """Extract percentile as a float in 0.0-1.0 from feature name or options; None if there is none."""
         name = str(feature_name)
         prefix_patterns = cls._get_prefix_patterns()
         operation_config, _ = FeatureChainParser.parse_feature_name(name, prefix_patterns)
         if operation_config is not None:
             return cls._parse_percentile_from_config(operation_config)
-        percentile = options.get(cls.PERCENTILE)
-        if _is_real_number(percentile):
-            return float(percentile)
-        return None
+        return _unit_percentile(options.get(cls.PERCENTILE))
 
     @classmethod
     def get_percentile_value(cls, feature_name: str) -> float:
@@ -179,10 +184,10 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             result = cls._parse_percentile_from_config(operation_config)
             if result is not None:
                 return result
-        percentile = feature.options.get(cls.PERCENTILE)
-        if not _is_real_number(percentile):
+        percentile = _unit_percentile(feature.options.get(cls.PERCENTILE))
+        if percentile is None:
             raise ValueError(f"Could not extract percentile for {feature_name}")
-        return float(percentile)
+        return percentile
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         """Parse input features from feature name or options."""
