@@ -30,6 +30,9 @@ See `docs/guides/` for the complete plugin development journey:
 
 Start here: [Plugin Development Guides](docs/guides/index.md)
 
+Maintainer references: [Packaging](docs/packaging.md) (how the `pyproject.toml` files
+are generated) and [Releasing](docs/releasing.md) (how packages reach PyPI).
+
 ## PyPI Packages
 
 This repository publishes the following packages to PyPI:
