@@ -72,7 +72,7 @@ When a compute framework backend cannot natively support an input or operation, 
 - **Type hints**: use modern forms (`list[str]`, `dict[str, int]`, `X | None`). Ruff enforces this via `UP006` and `UP007` (extend-selected in `pyproject.toml`).
 - **Formatting**: ruff format with line length 120.
 - **Tests**: parallel-safe (pytest-xdist). Per-package envs are available for isolated runs: `tox -e testing`, `tox -e community-example`, `tox -e registry`, `tox -e enterprise-example`.
-- **Supply chain**: `[tool.uv] exclude-newer = "7 days"` in `pyproject.toml` defers new dependency releases by 7 days. Do not edit this without a reason.
+- **Supply chain**: `[tool.uv] exclude-newer = "7 days"` in `pyproject.toml` defers new dependency releases by 7 days. The `exclude-newer-package` exemptions for `mloda` and `uv` permit releases within that window because `mloda` is first-party and `uv` is the resolver itself. Do not edit this without a reason.
 - **Auto-generated `pyproject.toml`**: edit `config/shared.toml` (version, authors, urls) or `config/packages.toml` (per-package), then run `python scripts/generate_pyproject.py`. Never edit `pyproject.toml` files directly. See `docs/packaging.md`.
 - **Commits**: use [Conventional Commits](https://www.conventionalcommits.org/) (`fix:`, `feat:`, `chore:`, `docs:`, `test:`, `refactor:`, `minor:`, `perf:`, `impr:`, `ci:`, `style:`, `build:`). semantic-release computes the next version. This project deviates from the standard: only `minor:` commits bump the minor version; `feat:` is treated as a patch bump along with everything else (see `.releaserc.yaml`).
 
