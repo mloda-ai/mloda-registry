@@ -200,6 +200,33 @@ def test_check_internal_imports_flags_mloda_core_import(tmp_path: Path) -> None:
     assert len(errors) == 1
     assert "internal import" in errors[0]
     assert "mloda.core" in errors[0]
+    assert errors[0].startswith(f"{md_file}:4:")
+
+
+def test_check_internal_imports_reports_own_line_for_repeated_import(tmp_path: Path) -> None:
+    """Identical imports in separate fences must report their own line numbers."""
+    md_file = tmp_path / "a.md"
+    content = (
+        "# Guide\n"
+        "\n"
+        "```python\n"
+        "from mloda.core.abstract_plugins.components.options import Options\n"
+        "```\n"
+        "\n"
+        "Some prose in between.\n"
+        "Padding line.\n"
+        "Padding line.\n"
+        "Padding line.\n"
+        "\n"
+        "```python\n"
+        "from mloda.core.abstract_plugins.components.options import Options\n"
+        "```\n"
+    )
+    _write(md_file, content)
+    errors = lint_docs.check_internal_imports(md_file, content)
+    assert len(errors) == 2
+    assert errors[0].startswith(f"{md_file}:4:")
+    assert errors[1].startswith(f"{md_file}:13:")
 
 
 def test_check_internal_imports_ignores_prose_match(tmp_path: Path) -> None:

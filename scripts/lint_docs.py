@@ -60,12 +60,28 @@ def _fenced_ranges(content: str) -> list[tuple[int, int]]:
     return ranges
 
 
-def find_code_blocks(content: str) -> list[str]:
-    """Extract code block contents from markdown."""
-    blocks = []
-    parts = CODE_BLOCK_RE.split(content)
-    for i in range(1, len(parts), 2):
-        blocks.append(parts[i])
+def _fence_bodies(content: str) -> list[tuple[int, str]]:
+    """Return (opener line number, body) for every fenced code block.
+
+    The opener line number doubles as the offset: a body line ``n`` is file line
+    ``offset + n``.
+    """
+    blocks: list[tuple[int, str]] = []
+    opener_lineno = 0
+    body: list[str] = []
+    for lineno, line in enumerate(content.splitlines(), start=1):
+        if line.startswith("```"):
+            if opener_lineno:
+                blocks.append((opener_lineno, "\n".join(body)))
+                opener_lineno = 0
+                body = []
+            else:
+                opener_lineno = lineno
+            continue
+        if opener_lineno:
+            body.append(line)
+    if opener_lineno:
+        blocks.append((opener_lineno, "\n".join(body)))
     return blocks
 
 
@@ -109,15 +125,11 @@ def check_relative_links_and_anchors(md_file: Path, content: str) -> list[str]:
 
 def check_internal_imports(md_file: Path, content: str) -> list[str]:
     errors = []
-    code_blocks = find_code_blocks(content)
-    for block in code_blocks:
-        for line in block.splitlines():
+    for opener_lineno, body in _fence_bodies(content):
+        for lineno, line in enumerate(body.splitlines(), start=1):
             stripped = line.strip()
             if INTERNAL_IMPORT_RE.search(stripped):
-                line_num = content.find(stripped)
-                if line_num >= 0:
-                    line_num = content[:line_num].count("\n") + 1
-                errors.append(f"{md_file}:{line_num}: internal import in code snippet -> {stripped}")
+                errors.append(f"{md_file}:{opener_lineno + lineno}: internal import in code snippet -> {stripped}")
     return errors
 
 
