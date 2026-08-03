@@ -1,4 +1,4 @@
-"""Lint documentation for broken relative links and internal imports in code snippets.
+"""Lint documentation (docs/ and top-level markdown) for broken relative links and internal imports.
 
 Run: python scripts/lint_docs.py
 Exit code: 1 if any issues found, 0 otherwise.
@@ -11,7 +11,8 @@ import sys
 from collections import deque
 from pathlib import Path
 
-DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DOCS_DIR = REPO_ROOT / "docs"
 
 # The orphan BFS is rooted at the guides index; docs-root files are linted but not part of that graph.
 GUIDES_DIR = DOCS_DIR / "guides"
@@ -98,7 +99,7 @@ def _slugify_heading(text: str) -> str:
 @functools.lru_cache(maxsize=None)
 def _heading_slugs(md_file: Path) -> frozenset[str]:
     slugs: set[str] = set()
-    content = _strip_code_blocks(md_file.read_text())
+    content = _strip_code_blocks(md_file.read_text(encoding="utf-8"))
     for match in HEADING_RE.finditer(content):
         slugs.add(_slugify_heading(match.group(2)))
     return frozenset(slugs)
@@ -170,7 +171,7 @@ def find_orphan_guides(docs_dir: Path, contents: dict[Path, str] | None = None) 
     def _read(path: Path) -> str:
         if contents is not None and path in contents:
             return contents[path]
-        return path.read_text()
+        return path.read_text(encoding="utf-8")
 
     root_resolved = root_index.resolve()
     reachable: set[Path] = {root_resolved}
@@ -352,7 +353,7 @@ def main() -> int:
     guides_root = GUIDES_DIR.resolve()
 
     for md_file in sorted(DOCS_DIR.rglob("*.md")):
-        content = md_file.read_text()
+        content = md_file.read_text(encoding="utf-8")
         resolved = md_file.resolve()
         contents[resolved] = content
         file_link_errors = check_relative_links_and_anchors(md_file, content)
@@ -362,6 +363,14 @@ def main() -> int:
         all_errors.extend(check_internal_imports(md_file, content))
         all_errors.extend(check_bare_fence_openers(md_file, content))
         all_errors.extend(check_retired_property_spec_spellings(md_file, content))
+
+    # Root markdown (README.md, CONTRIBUTING.md, ...) links into docs/ and at the
+    # other root files, so it needs the same guard. Orphan reachability stays a
+    # guides-only rule: root files need not be linked from docs/guides/index.md.
+    for md_file in sorted(REPO_ROOT.glob("*.md")):
+        content = md_file.read_text(encoding="utf-8")
+        link_errors.extend(check_relative_links_and_anchors(md_file, content))
+        all_errors.extend(check_bare_fence_openers(md_file, content))
 
     all_errors.extend(link_errors)
 
