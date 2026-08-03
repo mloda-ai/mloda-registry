@@ -1,4 +1,4 @@
-"""Lint documentation guides for broken relative links and internal imports in code snippets.
+"""Lint documentation for broken relative links and internal imports in code snippets.
 
 Run: python scripts/lint_docs.py
 Exit code: 1 if any issues found, 0 otherwise.
@@ -11,7 +11,10 @@ import sys
 from collections import deque
 from pathlib import Path
 
-DOCS_DIR = Path(__file__).resolve().parent.parent / "docs" / "guides"
+DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
+
+# The orphan BFS is rooted at the guides index; docs-root files are linted but not part of that graph.
+GUIDES_DIR = DOCS_DIR / "guides"
 
 INTERNAL_IMPORT_RE = re.compile(r"from mloda\.core\.")
 
@@ -150,7 +153,7 @@ def find_orphan_guides(docs_dir: Path, contents: dict[Path, str] | None = None) 
     docs_root = docs_dir.resolve()
     root_index = docs_dir / INDEX_FILENAME
     if not root_index.is_file():
-        return [f"{INDEX_FILENAME}: missing root index for orphan check"]
+        return [f"{docs_dir.name}/{INDEX_FILENAME}: missing root index for orphan check"]
 
     def _read(path: Path) -> str:
         if contents is not None and path in contents:
@@ -332,20 +335,27 @@ def main() -> int:
 
     all_errors: list[str] = []
     link_errors: list[str] = []
+    guides_link_errors: list[str] = []
     contents: dict[Path, str] = {}
+    guides_root = GUIDES_DIR.resolve()
 
     for md_file in sorted(DOCS_DIR.rglob("*.md")):
         content = md_file.read_text()
-        contents[md_file.resolve()] = content
-        link_errors.extend(check_relative_links_and_anchors(md_file, content))
+        resolved = md_file.resolve()
+        contents[resolved] = content
+        file_link_errors = check_relative_links_and_anchors(md_file, content)
+        link_errors.extend(file_link_errors)
+        if resolved.is_relative_to(guides_root):
+            guides_link_errors.extend(file_link_errors)
         all_errors.extend(check_internal_imports(md_file, content))
         all_errors.extend(check_bare_fence_openers(md_file, content))
         all_errors.extend(check_retired_property_spec_spellings(md_file, content))
 
     all_errors.extend(link_errors)
 
-    if not link_errors:
-        all_errors.extend(find_orphan_guides(DOCS_DIR, contents))
+    # Only link errors inside guides can corrupt the reachability BFS.
+    if not guides_link_errors:
+        all_errors.extend(find_orphan_guides(GUIDES_DIR, contents))
 
     if all_errors:
         print(f"Found {len(all_errors)} doc issue(s):\n")
