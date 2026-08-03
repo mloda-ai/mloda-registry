@@ -105,7 +105,7 @@ jobs:
 
       - name: Build packages
         run: |
-          # Released set: 4 bundles + 12 community data-operations packages +
+          # Released set: 4 bundles + 13 community data-operations packages +
           # 2 examples kept for end-to-end PyPI dependency-resolution coverage
           # (mloda-community-example, mloda-community-example-a).
           #

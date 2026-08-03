@@ -73,7 +73,7 @@ When a compute framework backend cannot natively support an input or operation, 
 - **Formatting**: ruff format with line length 120.
 - **Tests**: parallel-safe (pytest-xdist). Per-package envs are available for isolated runs: `tox -e testing`, `tox -e community-example`, `tox -e registry`, `tox -e enterprise-example`.
 - **Supply chain**: `[tool.uv] exclude-newer = "7 days"` in `pyproject.toml` defers new dependency releases by 7 days. Do not edit this without a reason.
-- **Auto-generated `pyproject.toml`**: edit `config/shared.toml` (version, authors, urls) or `config/packages.toml` (per-package), then run `python scripts/generate_pyproject.py`. Never edit `pyproject.toml` files directly. See `memory-bank/pyproject-generation.md`.
+- **Auto-generated `pyproject.toml`**: edit `config/shared.toml` (version, authors, urls) or `config/packages.toml` (per-package), then run `python scripts/generate_pyproject.py`. Never edit `pyproject.toml` files directly. See `docs/packaging.md`.
 - **Commits**: use [Conventional Commits](https://www.conventionalcommits.org/) (`fix:`, `feat:`, `chore:`, `docs:`, `test:`, `refactor:`, `minor:`, `perf:`, `impr:`, `ci:`, `style:`, `build:`). semantic-release computes the next version. This project deviates from the standard: only `minor:` commits bump the minor version; `feat:` is treated as a patch bump along with everything else (see `.releaserc.yaml`).
 
 ## Issue Creation
@@ -122,9 +122,8 @@ uv sync --all-extras
 All `pyproject.toml` files are **auto-generated** from config files.
 
 **Documentation (read on-demand):**
-- `memory-bank/pyproject-generation.md` - Read when modifying config files or troubleshooting generation
-- `memory-bank/package-hierarchy.md` - Read when understanding bundled vs individual package structure
-- `memory-bank/release-pypi.md` - Read when preparing releases or debugging PyPI publishing
+- `docs/packaging.md` - Read when modifying config files, adding a package, or troubleshooting generation
+- `docs/releasing.md` - Read when preparing releases or debugging PyPI publishing
 
 **Quick reference:**
 - Edit `config/shared.toml` for version/authors/urls

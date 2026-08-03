@@ -27,7 +27,6 @@ If path is empty, ask user to set `MLODA_PATH` environment variable or clone mlo
 | `docs/docs/` | Documentation source (MkDocs, same as mloda-ai.github.io/mloda/) |
 | `docs/mkdocs.yml` | MkDocs configuration |
 | `tests/` | Test suite (1500+ tests) |
-| `memory-bank/` | Project context and architecture docs |
 
 **Online fallback:**
 - Docs: https://mloda-ai.github.io/mloda/
