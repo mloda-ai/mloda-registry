@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (
@@ -262,39 +263,6 @@ class TestConfigBasedExtraction:
         assert result == 1.0
 
 
-class TestPercentileArity:
-    """``percentile`` checks the shared harness cannot express.
-
-    The bare / single-element / multi-element verdicts live in
-    ``TestPercentileMatchValidation``, whose primary config key IS ``percentile``;
-    what stays here is the value-space rejections and the direct extractor call.
-    """
-
-    def _options(self, percentile: Any) -> Options:
-        return Options(context={"percentile": percentile, "in_features": "value_int", "partition_by": ["region"]})
-
-    @pytest.mark.parametrize("percentile", [10**400, (10**400,)])
-    def test_unconvertible_int_is_a_non_match(self, percentile: Any) -> None:
-        """An int too large for float is a plain non-match, never an OverflowError out of discovery.
-
-        The mixin only catches TypeError / ValueError / AttributeError, so a conversion
-        that overflows escapes the matcher and aborts discovery for every feature group.
-        """
-        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", self._options(percentile), None)
-        assert result is False
-
-    @pytest.mark.parametrize("percentile", [(1.5,), (True,)])
-    def test_singleton_out_of_range_or_bool_rejected(self, percentile: Any) -> None:
-        """Unwrapping does not widen the value space: range and bool rules still apply."""
-        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", self._options(percentile), None)
-        assert result is False
-
-    @pytest.mark.parametrize("percentile", [0.75, (0.75,), [0.75]])
-    def test_extract_percentile_unwraps_to_bare_value(self, percentile: Any) -> None:
-        feature = Feature("my_result", options=self._options(percentile))
-        assert PercentileFeatureGroup._extract_percentile(feature) == 0.75
-
-
 class TestPercentileMatchValidation(MatchValidationTestBase):
     @classmethod
     def feature_group_class(cls) -> Any:
@@ -332,6 +300,15 @@ class TestPercentileMatchValidation(MatchValidationTestBase):
     @classmethod
     def options_reject_invalid_types(cls) -> bool:
         return False
+
+    @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        # A percentile is one float in [0.0, 1.0]: out of range, a bool, and an int too large
+        # for float all stay out. The last one must be a plain non-match rather than an
+        # OverflowError, which the mixin does not catch and which would abort discovery for
+        # every feature group.
+        primary = super().token_cases()[0]
+        return [replace(primary, invalid=(1.5, True, 10**400))]
 
     @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:

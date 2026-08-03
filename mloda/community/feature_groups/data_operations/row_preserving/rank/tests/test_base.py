@@ -8,7 +8,10 @@ import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
+from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import ReferenceRank
 from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
@@ -286,45 +289,6 @@ class TestConfigBasedFeatures:
         assert result.num_rows == 12
 
 
-class TestOrderByArity:
-    """``order_by`` checks the shared harness cannot express.
-
-    The bare / single-element / multi-element verdicts live in
-    ``TestRankMatchValidation.token_cases``; what stays here is the wrong-type
-    rejection and the dispatch check, since rank reads ``order_by`` inline in
-    calculate_feature rather than through an extractor.
-    """
-
-    def _options(self, order_by: Any) -> Options:
-        return Options(
-            context={
-                "rank_type": "row_number",
-                "in_features": "value_int",
-                "partition_by": ["region"],
-                "order_by": order_by,
-            }
-        )
-
-    def test_wrong_type_rejected(self) -> None:
-        result = RankFeatureGroup.match_feature_group_criteria("my_result", self._options(123), None)
-        assert result is False
-
-    def test_singleton_order_by_dispatches_like_bare(self) -> None:
-        """The singleton must reach the backend as the column name, not as its string form."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-        from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import ReferenceRank
-
-        table = PyArrowDataOpsTestDataCreator.create()
-
-        def _compute(order_by: Any) -> list[Any]:
-            fs = FeatureSet()
-            fs.add(Feature("my_rank_result", options=self._options(order_by)))
-            return list(ReferenceRank.calculate_feature(table, fs).column("my_rank_result").to_pylist())
-
-        assert _compute(("value_int",)) == _compute("value_int")
-
-
 class TestConfigBasedParametricRankTypes:
     """The config path must accept exactly the rank types the feature-name path accepts.
 
@@ -500,3 +464,12 @@ class TestRankMatchValidation(MatchValidationTestBase):
     @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:
         return [RankFeatureGroup._extract_rank_type(Feature("my_result", options=options))]
+
+    @classmethod
+    def compute_values(cls, options: Options) -> list[Any] | None:
+        # Rank reads order_by inline in calculate_feature rather than through an extractor,
+        # so only a run through the backend shows a container reaching it unwrapped.
+        result = ReferenceRank.calculate_feature(
+            PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_rank_result", options)
+        )
+        return extract_column(result, "my_rank_result")

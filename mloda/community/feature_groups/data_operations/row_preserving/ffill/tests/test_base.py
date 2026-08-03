@@ -11,54 +11,52 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
 from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow_ffill import PyArrowFfill
 
+FEATURE_NAME = "amount__ffill"
 
-class TestOrderByArity:
+
+class TestOrderByArity(ScalarArityTestBase):
     """``order_by`` is a scalar key: one column, bare or in a single-element container.
 
-    ffill is a single-op family with no operation config key at all, so
-    ``MatchValidationTestBase`` does not fit it and these checks are hand-rolled.
+    ffill is a single-op family with no operation config key at all, so it declares the
+    arity base directly instead of ``MatchValidationTestBase``.
     """
 
-    def _options(self, order_by: Any) -> Options:
-        return Options(context={"order_by": order_by, "partition_by": ["region"]})
+    @classmethod
+    def feature_group_class(cls) -> Any:
+        return FfillFeatureGroup
 
-    @pytest.mark.parametrize("order_by", ["timestamp", ("timestamp",), ["timestamp"]])
-    def test_singleton_matches(self, order_by: Any) -> None:
-        assert PyArrowFfill.match_feature_group_criteria("amount__ffill", self._options(order_by)) is True
+    @classmethod
+    def match_class(cls) -> Any:
+        return PyArrowFfill
 
-    @pytest.mark.parametrize("order_by", [["timestamp", "region"], ("timestamp", "region")])
-    def test_multi_element_rejected(self, order_by: Any) -> None:
-        assert PyArrowFfill.match_feature_group_criteria("amount__ffill", self._options(order_by)) is False
+    @classmethod
+    def match_feature_name(cls) -> str:
+        return FEATURE_NAME
 
-    def test_wrong_type_rejected(self) -> None:
-        assert PyArrowFfill.match_feature_group_criteria("amount__ffill", self._options(123)) is False
+    @classmethod
+    def base_context(cls) -> dict[str, Any]:
+        return {"partition_by": ["region"]}
 
-    @pytest.mark.parametrize("order_by", ["timestamp", ("timestamp",), ["timestamp"]])
-    def test_extract_order_by_unwraps_to_bare_column(self, order_by: Any) -> None:
-        feature = Feature("amount__ffill", options=self._options(order_by))
-        assert FfillFeatureGroup._extract_order_by(feature) == "timestamp"
+    @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        return [TokenCase("order_by", "timestamp", "region", required=True)]
 
-    def test_extract_order_by_raises_when_missing(self) -> None:
-        feature = Feature("amount__ffill", options=Options())
-        with pytest.raises(ValueError, match="order_by"):
-            FfillFeatureGroup._extract_order_by(feature)
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        return [FfillFeatureGroup._extract_order_by(Feature(FEATURE_NAME, options=options))]
 
-    def test_singleton_order_by_dispatches_like_bare(self) -> None:
-        table = PyArrowDataOpsTestDataCreator.create()
-
-        def _compute(order_by: Any) -> list[Any]:
-            fs = FeatureSet()
-            fs.add(Feature("amount__ffill", options=self._options(order_by)))
-            return list(PyArrowFfill.calculate_feature(table, fs).column("amount__ffill").to_pylist())
-
-        assert _compute(("timestamp",)) == _compute("timestamp")
+    @classmethod
+    def compute_values(cls, options: Options) -> list[Any] | None:
+        result = PyArrowFfill.calculate_feature(
+            PyArrowDataOpsTestDataCreator.create(), feature_set_for(FEATURE_NAME, options)
+        )
+        return extract_column(result, FEATURE_NAME)

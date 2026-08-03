@@ -348,56 +348,6 @@ class TestConfigBasedFrameSizeValidation:
         assert result is True, f"Config path should accept {frame_type} without frame_size"
 
 
-class TestScalarKeyArity:
-    """Scalar-key checks the shared harness cannot express.
-
-    The bare / single-element / multi-element verdicts for ``order_by``,
-    ``frame_size`` and ``frame_unit`` live in
-    ``TestFrameAggregateMatchValidation.token_cases``; what stays here is the
-    wrong-type and value-space rejections plus the absolute values ``_extract_params``
-    must return.
-    """
-
-    def _options(self, **overrides: Any) -> Options:
-        context: dict[str, Any] = {
-            "aggregation_type": "sum",
-            "in_features": "sales",
-            "partition_by": ["region"],
-            "frame_type": "rolling",
-            "frame_size": 3,
-            "order_by": "timestamp",
-        }
-        context.update(overrides)
-        return Options(context=context)
-
-    def test_wrong_type_order_by_rejected(self) -> None:
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", self._options(order_by=123), None)
-        assert result is False
-
-    @pytest.mark.parametrize("frame_size", [(0,), (True,)])
-    def test_invalid_singleton_frame_size_rejected(self, frame_size: Any) -> None:
-        """Unwrapping does not widen the value space: the positive-int rule still applies."""
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(frame_size=frame_size), None
-        )
-        assert result is False
-
-    @pytest.mark.parametrize("order_by", ["timestamp", ("timestamp",), ["timestamp"]])
-    def test_extract_params_unwraps_order_by(self, order_by: Any) -> None:
-        feature = Feature("my_result", options=self._options(order_by=order_by))
-        assert FrameAggregateFeatureGroup._extract_params(feature)["order_by"] == "timestamp"
-
-    @pytest.mark.parametrize("frame_size", [3, (3,), [3]])
-    def test_extract_params_unwraps_frame_size(self, frame_size: Any) -> None:
-        feature = Feature("my_result", options=self._options(frame_size=frame_size))
-        assert FrameAggregateFeatureGroup._extract_params(feature)["frame_size"] == 3
-
-    @pytest.mark.parametrize("frame_unit", ["day", ("day",), ["day"]])
-    def test_extract_params_unwraps_frame_unit(self, frame_unit: Any) -> None:
-        feature = Feature("my_result", options=self._options(frame_type="time", frame_size=7, frame_unit=frame_unit))
-        assert FrameAggregateFeatureGroup._extract_params(feature)["frame_unit"] == "day"
-
-
 class TestNameBasedZeroFrameSizeRejected:
     """A zero-sized frame is not a window, so the name path must reject it exactly as the config path does."""
 
@@ -689,9 +639,10 @@ class TestFrameAggregateMatchValidation(MatchValidationTestBase):
             # A rolling frame ignores frame_unit, so nothing but the key's own guard rejects a
             # multi-element value there; under "time" the unit table would mask a missing guard.
             TokenCase("frame_unit", "day", "week", context={"frame_type": "rolling"}),
-            # order_by and frame_size are scalar too: one column, one positive int.
+            # order_by and frame_size are scalar too: one column, one positive int, so a
+            # zero-sized frame and a bool stay out at every arity.
             TokenCase("order_by", "timestamp", "region"),
-            TokenCase("frame_size", 3, 5),
+            TokenCase("frame_size", 3, 5, invalid=(0, True)),
         ]
 
     @classmethod

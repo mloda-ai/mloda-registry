@@ -3,6 +3,7 @@
 Provides:
 - ``extract_column``: Extract a column from any framework result as a Python list.
 - ``make_feature_set``: Build a FeatureSet with optional partition_by/order_by.
+- ``feature_set_for``: Build a FeatureSet around an Options that already exists.
 """
 
 from __future__ import annotations
@@ -59,4 +60,16 @@ def make_feature_set(
     feature = Feature(feature_name, options=Options(context=context))
     fs = FeatureSet()
     fs.add(feature)
+    return fs
+
+
+def feature_set_for(feature_name: str, options: Options) -> FeatureSet:
+    """Build a FeatureSet holding one feature that carries ``options`` verbatim.
+
+    ``make_feature_set`` assembles the Options from keyword arguments; this one takes an
+    Options that has already been assembled, which is the shape ``compute_values`` in the
+    scalar-arity harness hands to a family.
+    """
+    fs = FeatureSet()
+    fs.add(Feature(feature_name, options=options))
     return fs

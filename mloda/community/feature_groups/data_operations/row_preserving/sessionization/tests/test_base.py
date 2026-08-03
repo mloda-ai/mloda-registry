@@ -19,6 +19,7 @@ import pytest
 
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
 from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import (
@@ -30,6 +31,9 @@ from mloda.community.feature_groups.data_operations.row_preserving.sessionizatio
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pandas_sessionization import (
     PandasSessionization,
 )
+
+
+SESSIONIZE_FEATURE_NAME = "ts__sessionize_30_minute"
 
 
 def _match_options() -> Options:
@@ -138,38 +142,43 @@ class TestThresholdParser:
             _parse_sessionize_op("sessionize_0_minute")
 
 
-class TestOrderByArity:
+class TestOrderByArity(ScalarArityTestBase):
     """``order_by`` is a scalar key: one column, bare or in a single-element container.
 
-    Sessionization declares no operation config key (the threshold is part of the
-    feature name), so ``MatchValidationTestBase`` does not fit it and these checks
-    are hand-rolled. ``order_by`` uses a column DISTINCT from the source column, so
-    an unwrap is distinguishable from the absent-value fallback to the source.
+    Sessionization declares no operation config key (the threshold is part of the feature
+    name), so it declares the arity base directly instead of ``MatchValidationTestBase``.
+    ``order_by`` uses a column DISTINCT from the source column, so an unwrap is
+    distinguishable from the absent-value fallback to the source.
     """
 
-    def _options(self, order_by: Any) -> Options:
-        return Options(context={"order_by": order_by, "partition_by": ["user"]})
+    @classmethod
+    def feature_group_class(cls) -> Any:
+        return SessionizationFeatureGroup
 
-    @pytest.mark.parametrize("order_by", ["event_ts", ("event_ts",), ["event_ts"]])
-    def test_singleton_matches(self, order_by: Any) -> None:
-        assert PandasSessionization.match_feature_group_criteria("ts__sessionize_30_minute", self._options(order_by))
+    @classmethod
+    def match_class(cls) -> Any:
+        return PandasSessionization
 
-    @pytest.mark.parametrize("order_by", [["event_ts", "user"], ("event_ts", "user")])
-    def test_multi_element_rejected(self, order_by: Any) -> None:
-        result = PandasSessionization.match_feature_group_criteria("ts__sessionize_30_minute", self._options(order_by))
-        assert result is False
+    @classmethod
+    def match_feature_name(cls) -> str:
+        return SESSIONIZE_FEATURE_NAME
 
-    def test_wrong_type_rejected(self) -> None:
-        result = PandasSessionization.match_feature_group_criteria("ts__sessionize_30_minute", self._options(123))
-        assert result is False
+    @classmethod
+    def base_context(cls) -> dict[str, Any]:
+        return {"partition_by": ["user"]}
 
-    @pytest.mark.parametrize("order_by", ["event_ts", ("event_ts",), ["event_ts"]])
-    def test_extract_order_by_unwraps_to_bare_column(self, order_by: Any) -> None:
-        feature = Feature("ts__sessionize_30_minute", options=self._options(order_by))
-        assert SessionizationFeatureGroup._extract_order_by(feature, "ts") == "event_ts"
+    @classmethod
+    def token_cases(cls) -> list[TokenCase]:
+        return [TokenCase("order_by", "event_ts", "user")]
+
+    @classmethod
+    def dispatch_values(cls, options: Options) -> list[Any]:
+        feature = Feature(SESSIONIZE_FEATURE_NAME, options=options)
+        return [SessionizationFeatureGroup._extract_order_by(feature, "ts")]
 
     def test_extract_order_by_defaults_to_source_column(self) -> None:
-        feature = Feature("ts__sessionize_30_minute", options=Options())
+        """The one state the arity harness cannot express: absent is not wrapped, it is absent."""
+        feature = Feature(SESSIONIZE_FEATURE_NAME, options=Options())
         assert SessionizationFeatureGroup._extract_order_by(feature, "ts") == "ts"
 
 

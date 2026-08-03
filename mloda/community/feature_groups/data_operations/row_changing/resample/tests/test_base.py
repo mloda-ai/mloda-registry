@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -67,51 +68,6 @@ class TestResampleOpConfig:
         assert ResampleFeatureGroup.RESAMPLE_OP in ResampleFeatureGroup.PROPERTY_MAPPING
 
 
-class TestScalarKeyArity:
-    """Scalar-key checks the shared harness cannot express.
-
-    The bare / single-element / multi-element verdicts for ``time_column`` and
-    ``resample_op`` live in ``TestResampleMatchValidation``; what stays here is the
-    wrong-type and value-space rejections plus the direct extractor calls.
-    """
-
-    def _options(self, **overrides: Any) -> Options:
-        context: dict[str, Any] = {
-            "in_features": "value_int",
-            "time_column": "timestamp",
-            "resample_op": "1_hour_mean",
-            "partition_by": ["region"],
-        }
-        context.update(overrides)
-        return Options(context=context)
-
-    def test_wrong_type_time_column_rejected(self) -> None:
-        result = ResampleFeatureGroup.match_feature_group_criteria("my_result", self._options(time_column=123), None)
-        assert result is False
-
-    def test_invalid_singleton_resample_op_rejected(self) -> None:
-        """Unwrapping does not widen the value space: the token parser still owns it."""
-        result = ResampleFeatureGroup.match_feature_group_criteria(
-            "my_result", self._options(resample_op=("not_a_token",)), None
-        )
-        assert result is False
-
-    @pytest.mark.parametrize("time_column", ["timestamp", ("timestamp",), ["timestamp"]])
-    def test_extract_time_column_unwraps_to_bare_column(self, time_column: Any) -> None:
-        feature = Feature("my_result", options=self._options(time_column=time_column))
-        assert ResampleFeatureGroup._extract_time_column(feature) == "timestamp"
-
-    def test_extract_time_column_raises_when_missing(self) -> None:
-        feature = Feature("my_result", options=Options())
-        with pytest.raises(ValueError, match="time_column"):
-            ResampleFeatureGroup._extract_time_column(feature)
-
-    @pytest.mark.parametrize("resample_op", ["1_hour_mean", ("1_hour_mean",), ["1_hour_mean"]])
-    def test_extract_resample_op_unwraps_to_bare_token(self, resample_op: Any) -> None:
-        feature = Feature("my_result", options=self._options(resample_op=resample_op))
-        assert ResampleFeatureGroup._extract_resample_op(feature) == "1_hour_mean"
-
-
 class TestResampleMatchValidation(MatchValidationTestBase):
     """Shared match-validation tests adapted for resample.
 
@@ -153,8 +109,10 @@ class TestResampleMatchValidation(MatchValidationTestBase):
 
     @classmethod
     def token_cases(cls) -> list[TokenCase]:
-        # time_column names one column.
-        return [*super().token_cases(), TokenCase("time_column", "timestamp", "event_date")]
+        # Unwrapping does not widen the value space: the token parser still owns resample_op.
+        primary = replace(super().token_cases()[0], invalid=("not_a_token",))
+        # time_column names one column, and resampling cannot pick a time axis without it.
+        return [primary, TokenCase("time_column", "timestamp", "event_date", required=True)]
 
     @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:

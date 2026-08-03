@@ -7,7 +7,10 @@ from typing import Any
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
+from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import ReferenceOffset
 from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import OffsetFeatureGroup
@@ -173,45 +176,6 @@ class TestConfigBasedFeatures:
         assert isinstance(result, pa.Table)
         assert "my_lag" in result.column_names
         assert result.num_rows == 12
-
-
-class TestOrderByArity:
-    """``order_by`` checks the shared harness cannot express.
-
-    The bare / single-element / multi-element verdicts live in
-    ``TestOffsetMatchValidation.token_cases``; what stays here is the wrong-type
-    rejection and the dispatch check, since offset reads ``order_by`` inline in
-    calculate_feature rather than through an extractor.
-    """
-
-    def _options(self, order_by: Any) -> Options:
-        return Options(
-            context={
-                "offset_type": "lag_1",
-                "in_features": "value_int",
-                "partition_by": ["region"],
-                "order_by": order_by,
-            }
-        )
-
-    def test_wrong_type_rejected(self) -> None:
-        result = OffsetFeatureGroup.match_feature_group_criteria("my_result", self._options(123), None)
-        assert result is False
-
-    def test_singleton_order_by_dispatches_like_bare(self) -> None:
-        """The singleton must reach the backend as the column name, not as its string form."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-        from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import ReferenceOffset
-
-        table = PyArrowDataOpsTestDataCreator.create()
-
-        def _compute(order_by: Any) -> list[Any]:
-            fs = FeatureSet()
-            fs.add(Feature("my_lag", options=self._options(order_by)))
-            return list(ReferenceOffset.calculate_feature(table, fs).column("my_lag").to_pylist())
-
-        assert _compute(("value_int",)) == _compute("value_int")
 
 
 class TestConfigBasedOffsetTypeValidation:
@@ -382,3 +346,12 @@ class TestOffsetMatchValidation(MatchValidationTestBase):
     @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:
         return [OffsetFeatureGroup._extract_offset_type(Feature("my_result", options=options))]
+
+    @classmethod
+    def compute_values(cls, options: Options) -> list[Any] | None:
+        # Offset reads order_by inline in calculate_feature rather than through an extractor,
+        # so only a run through the backend shows a container reaching it unwrapped.
+        result = ReferenceOffset.calculate_feature(
+            PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_lag", options)
+        )
+        return extract_column(result, "my_lag")

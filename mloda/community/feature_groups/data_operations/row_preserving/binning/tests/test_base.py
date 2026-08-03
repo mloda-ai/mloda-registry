@@ -153,27 +153,13 @@ class TestConfigBasedFeatures:
         assert result is False
 
 
-class TestNBinsArity:
-    """``n_bins`` checks the shared harness cannot express.
+class TestNBinsCoercion:
+    """The ``n_bins`` check the arity harness cannot express.
 
-    The bare / single-element / multi-element verdicts live in
-    ``TestBinningMatchValidation.token_cases``; what stays here is the value-space
-    rejections and what ``_extract_binning_params`` must return on a direct call.
+    Every arity verdict for ``n_bins`` (bare, wrapped, multi-element, wrong type and the
+    values outside its value space) is declared on ``TestBinningMatchValidation``; what
+    stays here is the return type a direct extractor call owes its caller.
     """
-
-    def _options(self, n_bins: Any) -> Options:
-        return Options(context={"binning_op": "bin", "n_bins": n_bins, "in_features": "value_int"})
-
-    @pytest.mark.parametrize("n_bins", [(0,), (True,), ("5",)])
-    def test_invalid_singleton_rejected(self, n_bins: Any) -> None:
-        """Unwrapping does not widen the value space: the positive-int rule still applies."""
-        result = BinningFeatureGroup.match_feature_group_criteria("my_result", self._options(n_bins), None)
-        assert result is False
-
-    @pytest.mark.parametrize("n_bins", [5, (5,), [5]])
-    def test_extract_binning_params_unwraps_to_bare_value(self, n_bins: Any) -> None:
-        feature = Feature("my_result", options=self._options(n_bins))
-        assert BinningFeatureGroup._extract_binning_params(feature) == ("bin", 5)
 
     @pytest.mark.parametrize("n_bins", [5, (5,), 5.9, (5.9,)])
     def test_extract_binning_params_returns_an_int(self, n_bins: Any) -> None:
@@ -182,7 +168,8 @@ class TestNBinsArity:
         ``is_positive_int`` keeps a float out at match time, so only a direct call can
         reach here with one, and it must still hand the backend an int bin count.
         """
-        _, extracted = BinningFeatureGroup._extract_binning_params(Feature("my_result", options=self._options(n_bins)))
+        options = Options(context={"binning_op": "bin", "n_bins": n_bins, "in_features": "value_int"})
+        _, extracted = BinningFeatureGroup._extract_binning_params(Feature("my_result", options=options))
         assert extracted == 5
         assert isinstance(extracted, int)
 
@@ -229,8 +216,8 @@ class TestBinningMatchValidation(MatchValidationTestBase):
 
     @classmethod
     def token_cases(cls) -> list[TokenCase]:
-        # n_bins is scalar too: one positive int.
-        return [*super().token_cases(), TokenCase("n_bins", 5, 10)]
+        # n_bins is scalar too: one positive int, so zero, a bool and a digit string stay out.
+        return [*super().token_cases(), TokenCase("n_bins", 5, 10, invalid=(0, True, "5"))]
 
     @classmethod
     def dispatch_values(cls, options: Options) -> list[Any]:

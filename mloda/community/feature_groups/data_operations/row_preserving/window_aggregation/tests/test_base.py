@@ -7,6 +7,8 @@ from typing import Any
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.user import DataType, Feature
 
@@ -266,44 +268,6 @@ class TestConfigBasedFeatures:
         assert result_col == expected
 
 
-class TestOrderByArity:
-    """``order_by`` checks the shared harness cannot express.
-
-    The bare / single-element / multi-element verdicts live in
-    ``TestWindowAggregationMatchValidation.token_cases``; what stays here is the
-    wrong-type rejection and the dispatch check, since window aggregation reads
-    ``order_by`` inline in calculate_feature rather than through an extractor.
-    """
-
-    def _options(self, order_by: Any) -> Options:
-        return Options(context={"partition_by": ["region"], "order_by": order_by})
-
-    def test_wrong_type_rejected(self) -> None:
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria(
-            "value_int__first_window", self._options(123), None
-        )
-        assert result is False
-
-    def test_singleton_order_by_dispatches_like_bare(self) -> None:
-        """The singleton must reach the backend as the column name, not as its string form."""
-        import pandas as pd
-
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.testing.data_creator.base import DataOperationsTestDataCreator
-        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pandas_window_aggregation import (
-            PandasWindowAggregation,
-        )
-        from mloda.user import Feature
-
-        def _compute(order_by: Any) -> list[Any]:
-            df = pd.DataFrame(DataOperationsTestDataCreator.get_raw_data())
-            fs = FeatureSet()
-            fs.add(Feature("value_int__first_window", options=self._options(order_by)))
-            return list(PandasWindowAggregation.calculate_feature(df, fs)["value_int__first_window"])
-
-        assert _compute(("timestamp",)) == _compute("timestamp")
-
-
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type only for deterministic ops.
 
@@ -375,3 +339,16 @@ class TestWindowAggregationMatchValidation(MatchValidationTestBase):
             WindowAggregationFeatureGroup._extract_aggregation_type(feature),
             WindowAggregationFeatureGroup._resolve_agg_type("my_result", options),
         ]
+
+    @classmethod
+    def compute_values(cls, options: Options) -> list[Any] | None:
+        # Window aggregation reads order_by inline in calculate_feature rather than through an
+        # extractor, so only a run through the backend shows a container reaching it unwrapped.
+        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
+            PyArrowWindowAggregation,
+        )
+
+        result = PyArrowWindowAggregation.calculate_feature(
+            PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_window_result", options)
+        )
+        return extract_column(result, "my_window_result")
