@@ -16,7 +16,8 @@ workflow_dispatch → semantic-release → PyPI publish
 2. **Regenerate**: `scripts/generate_pyproject.py` updates all `pyproject.toml` files.
 3. **Commit**: version changes committed to `main`.
 4. **GitHub release**: tag created (e.g. `0.4.0`).
-5. **PyPI publish**: wheels built and uploaded.
+5. **PyPI publish**: wheels built and uploaded with `twine --skip-existing`, so a rerun
+   after a partial upload does not fail on the files that already made it.
 
 The `prepareCmd` in `.releaserc.yaml` also seds a `MLODA_REGISTRY_VERSION:<version>}`
 default into `tox.ini`. No such default remains there, so that half of the command is
@@ -39,18 +40,21 @@ It sets `MLODA_REGISTRY_VERSION` and runs three tox envs:
 
 ## Published packages
 
-The build list lives in `.github/workflows/release.yaml`; that workflow is the source
-of truth, not this page. Not every package in `config/packages.toml` ships standalone:
-most demo and example packages reach users inside the `mloda-community` /
-`mloda-enterprise` bundle wheels instead. `mloda-community-example` and
-`mloda-community-example-a` are the exceptions, published to keep end-to-end PyPI
-dependency resolution covered. The header comment in `config/packages.toml` states
-the policy, and `tests/test_end2end/test_py_typed_markers.py` asserts that every
-package built by the workflow is declared in the config.
+The released set is the `published = true` flag in `config/packages.toml`.
+`scripts/published_packages.py` prints it, plain or pinned; the build array in
+`.github/workflows/release.yaml` and the install lists of the `verify-published` and
+`security` tox envs are all filled from that one command, so they cannot drift apart.
+`verify-published-independent` and `verify-extras` still name packages by hand, but only
+the four bundles and `mloda-community-example`, not the set as a whole.
 
-The released set is also hardcoded in the `verify-published` and `security` envs of
-`tox.ini`, and nothing cross-checks those against the workflow. When adding a package
-to the release list, see [Add a new package](packaging.md#add-a-new-package).
+Flagging a package does not publish it: it ships with the next release run, and
+`tox -e verify-published` fails for it until then.
+
+Not every package ships standalone. Most demo and example packages reach users inside the
+`mloda-community` / `mloda-enterprise` bundle wheels instead; `mloda-community-example`
+and `mloda-community-example-a` are the exceptions, published to keep end-to-end PyPI
+dependency resolution covered. When adding a package to the set, see
+[Add a new package](packaging.md#add-a-new-package).
 
 ## Commit messages
 
@@ -76,5 +80,7 @@ packages share one out-dir and prefix siblings (`mloda-community` vs
 ## Files
 
 - `.releaserc.yaml` - semantic-release config
+- `config/packages.toml` - the `published` flag, single source of the released set
+- `scripts/published_packages.py` - prints that set for the workflow and the tox envs
 - `.github/workflows/release.yaml` - release workflow
 - `.github/workflows/verify-published.yaml` - weekly post-release verification

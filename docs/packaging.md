@@ -56,8 +56,9 @@ optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 |-------|----------|-------------|
 | `description` | Yes | PyPI description |
 | `path` | Yes | Package directory |
+| `published` | No | `true` ships the distribution standalone on PyPI. Single source of the released set, read through `scripts/published_packages.py`. Must be a boolean, and governs the released set only, never wheel contents |
 | `dependencies` | By convention | Runtime deps; use `"{core_dependency}"` for the mloda floor. The generator defaults it to empty rather than failing, but every package declares it |
-| `optional_dependencies` | No | Merged with defaults |
+| `optional_dependencies` | No | Merged with defaults. The entry `"{published_children}"` expands to every published package nested under this package's path, in config order |
 | `has_readme` | No | `true` points the package at its own `README.md` |
 | `workspace_deps` | No | Marks a meta-package whose deps are workspace siblings. Mutually exclusive with `py_typed`; unused today |
 | `entry_point_groups` | No | List of mloda entry-point groups the package's `manifest.py` populates (`mloda.feature_groups`, `mloda.compute_frameworks`, `mloda.extenders`) |
@@ -70,6 +71,8 @@ A marker declares its whole subtree typed, including third-party distributions i
 
 - `license` from path (`mloda/enterprise/*` → proprietary, else default)
 - `packages` from filesystem (scans for `__init__.py`, excludes `tests/`, `build/`, etc.)
+- wheel boundaries from the layout: a nested package stays out of its parent's wheel,
+  published or not; `entry_point_bundle` packages ship all nested code
 
 **Default dev deps skipped for:** `mloda-testing`, `mloda-community`, `mloda-enterprise`
 
@@ -100,6 +103,7 @@ does not require its children, the children require the base.
 description = "Example community FeatureGroup plugin for mloda"
 dependencies = ["{core_dependency}"]
 path = "mloda/community/feature_groups/example"
+published = true
 optional_dependencies = { all = ["mloda-community-example-a", "mloda-community-example-b"] }
 entry_point_groups = ["mloda.feature_groups"]
 py_typed = true
@@ -115,8 +119,8 @@ py_typed = true
 Entries in `optional_dependencies.all` are emitted unpinned, so a variant only has
 to exist on PyPI at some version for the extra to resolve. A variant that is
 dropped from the release list therefore keeps resolving at its last published
-version, which is why `mloda-community-example-b` can be absent from
-`.github/workflows/release.yaml` without breaking `[all]`. A variant that was
+version, which is why `mloda-community-example-b` can lack `published = true`
+without breaking `[all]`. A variant that was
 never published at all is different: it cannot satisfy the extra at any version,
 so `[all]` fails outright.
 
@@ -166,11 +170,12 @@ python scripts/generate_pyproject.py    # Regenerate
 1. Add to `config/packages.toml` (description, dependencies, path; for a plugin
    package also `entry_point_groups = ["mloda.feature_groups" | ...]`).
 2. For a plugin package, create `<path>/manifest.py` listing the concrete classes.
-3. If it should ship standalone on PyPI, add it to all three hardcoded lists:
-   the build array in `.github/workflows/release.yaml`, and the install lines of
-   the `verify-published` and `security` envs in `tox.ini`. Nothing cross-checks
-   them, so a package added to one and not the others either goes unverified or
-   is verified at a version that was never published.
+3. If it should ship standalone on PyPI, set `published = true`. Two edits follow it,
+   the way `py_typed` also needs its committed marker: the gate test
+   `tests/test_end2end/test_published_set_single_source.py` pins the expected set in
+   `_EXPECTED_PUBLISHED` (bundle-only packages go into `_BUNDLE_ONLY`), and every
+   published distribution needs a smoke import line in the `verify-published` tox env.
+   The flag takes effect at the next release, so that env fails for it until then.
 4. Regenerate and sync:
 
 ```bash
@@ -181,3 +186,5 @@ uv sync --all-extras
 ### Add a variant to an existing plugin
 
 Same as above, plus add the variant to the parent's `optional_dependencies.all`.
+If that extra is `["{published_children}"]`, do not edit it: set `published = true`
+on the variant instead, and the placeholder picks it up.

@@ -29,6 +29,9 @@ HEADER = """\
 # Do not edit directly - modify config/shared.toml or config/packages.toml instead
 """
 
+# Expands to the published packages nested under a package's path. See issue #345.
+PUBLISHED_CHILDREN = "{published_children}"
+
 # Entry-point group -> manifest attribute exposing the concrete plugin classes.
 # mloda 0.9.0 discovers installed plugins through these entry-point groups; each
 # plugin package ships a ``manifest.py`` listing its concrete plugin classes
@@ -38,6 +41,12 @@ ENTRY_POINT_ATTRS = {
     "mloda.compute_frameworks": "COMPUTE_FRAMEWORKS",
     "mloda.extenders": "EXTENDERS",
 }
+
+
+def nested_package_names(pkg_path: str, all_packages: dict[str, dict[str, Any]]) -> list[str]:
+    """Return the configured packages whose path is nested under ``pkg_path``, in config order."""
+    prefix = pkg_path.rstrip("/") + "/"
+    return [name for name, cfg in all_packages.items() if cfg["path"].startswith(prefix)]
 
 
 def compute_entry_points(
@@ -60,12 +69,10 @@ def compute_entry_points(
     result: dict[str, list[tuple[str, str]]] = {}
 
     if pkg_config.get("entry_point_bundle"):
-        bundle_prefix = pkg_config["path"].rstrip("/") + "/"
-        for name, cfg in all_packages.items():
+        for name in nested_package_names(pkg_config["path"], all_packages):
+            cfg = all_packages[name]
             groups = cfg.get("entry_point_groups")
             if not groups:
-                continue
-            if not cfg["path"].startswith(bundle_prefix):
                 continue
             for group in groups:
                 value = f"{cfg['path'].replace('/', '.')}.manifest:{ENTRY_POINT_ATTRS[group]}"
@@ -76,6 +83,31 @@ def compute_entry_points(
             result.setdefault(group, []).append((pkg_name, value))
 
     return {group: sorted(pairs, key=lambda pair: pair[0]) for group, pairs in result.items() if pairs}
+
+
+def expand_published_children(
+    pkg_config: dict[str, Any],
+    all_packages: dict[str, dict[str, Any]],
+) -> dict[str, list[str]]:
+    """Substitute ``{published_children}`` in a package's optional dependencies, in config order."""
+    opt_deps: dict[str, list[str]] = pkg_config.get("optional_dependencies", {})
+    if not any(PUBLISHED_CHILDREN in deps for deps in opt_deps.values()):
+        return opt_deps
+
+    children = [
+        name for name in nested_package_names(pkg_config["path"], all_packages) if all_packages[name].get("published")
+    ]
+
+    expanded: dict[str, list[str]] = {}
+    for group, deps in opt_deps.items():
+        resolved: list[str] = []
+        for dep in deps:
+            if dep == PUBLISHED_CHILDREN:
+                resolved.extend(children)
+            else:
+                resolved.append(dep)
+        expanded[group] = resolved
+    return expanded
 
 
 def to_toml_list(items: list[str]) -> str:
@@ -187,7 +219,7 @@ def generate_pyproject(
     # Skip defaults for specific packages
     skip_defaults = pkg_name in ("mloda-testing", "mloda-community", "mloda-enterprise")
     default_opt_deps = {} if skip_defaults else defaults.get("optional_dependencies", {})
-    pkg_opt_deps = pkg_config.get("optional_dependencies", {})
+    pkg_opt_deps = expand_published_children(pkg_config, all_packages)
     merged_opt_deps = {**default_opt_deps, **pkg_opt_deps}
     if merged_opt_deps:
         lines.append("[project.optional-dependencies]")
@@ -224,15 +256,16 @@ def generate_pyproject(
         depth = len(pkg_path.parts)
         rel_path = "/".join([".."] * depth)
 
-        # Only exclude sub-packages that are listed in optional_dependencies
-        # Bundle packages (like mloda-community) don't have optional deps, so they include everything
-        opt_deps = pkg_config.get("optional_dependencies", {})
-        optional_pkg_names = set()
-        for deps in opt_deps.values():
-            optional_pkg_names.update(deps)
+        # Wheel boundaries come from the configured layout, not the released set: a nested
+        # package belongs to its own wheel, published or not. Optional deps are excluded too,
+        # since an extra may name a package that is not nested. Bundles ship all nested code.
+        excluded_pkg_names = {dep for deps in pkg_opt_deps.values() for dep in deps}
+        if not pkg_config.get("entry_point_bundle"):
+            excluded_pkg_names |= set(nested_package_names(pkg_config["path"], all_packages))
 
-        # Map optional dependency names to their paths
-        exclude_paths = [all_packages[dep_name]["path"] for dep_name in optional_pkg_names if dep_name in all_packages]
+        exclude_paths = sorted(
+            all_packages[dep_name]["path"] for dep_name in excluded_pkg_names if dep_name in all_packages
+        )
 
         # Discover packages from filesystem, excluding optional sub-packages
         packages = discover_packages(pkg_config["path"], exclude_paths)
