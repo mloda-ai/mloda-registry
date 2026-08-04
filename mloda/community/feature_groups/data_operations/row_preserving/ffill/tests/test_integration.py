@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 import pyarrow as pa
+import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
@@ -107,6 +108,40 @@ class TestFfillIntegration(DataOpsIntegrationTestBase):
         """Name-based: a non-pattern name without config must fail to match."""
         options = Options()
         assert not PyArrowFfill.match_feature_group_criteria("my_custom_result", options)
+
+
+class TestFfillRequiredOrderBy:
+    """ffill requires ``order_by``: a feature missing it must NOT match at discovery."""
+
+    def test_name_path_missing_order_by_does_not_match(self) -> None:
+        """Name path: a pattern name without order_by is a non-match."""
+        options = Options(context={"partition_by": ["region"]})
+        assert not PyArrowFfill.match_feature_group_criteria("amount__ffill", options)
+
+    def test_name_path_with_order_by_matches(self) -> None:
+        """Control: the same pattern name WITH order_by still matches."""
+        options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
+        assert PyArrowFfill.match_feature_group_criteria("amount__ffill", options)
+
+    def test_config_path_missing_order_by_does_not_match(self) -> None:
+        """Config path: a config feature without order_by stays a non-match."""
+        options = Options(context={"in_features": "amount", "partition_by": ["region"]})
+        assert not PyArrowFfill.match_feature_group_criteria("my_result", options, None)
+
+    def test_missing_order_by_rejected_at_discovery(self) -> None:
+        """Engine level: missing order_by fails resolution with core's generic no-feature-group error, not compute."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowFfill})
+        feature = Feature(
+            "value_float__ffill",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+
+        with pytest.raises(ValueError, match=r"(?i)no feature group"):
+            mloda.run_all(
+                [feature],
+                compute_frameworks={PyArrowTable},
+                plugin_collector=plugin_collector,
+            )
 
 
 class TestIntegrationMultipleFeatures:

@@ -56,11 +56,10 @@ DATA_OPERATIONS_ROOT = REPO_ROOT / "mloda" / "community" / "feature_groups" / "d
 _PREFIX_DEF_RE = re.compile(r"^\s*PREFIX_PATTERN\s*[:=]", re.MULTILINE)
 
 # Structural-only options: enough for families that require ``partition_by`` /
-# ``order_by`` to accept their string-based names, but deliberately free of any
-# operation-type key (``aggregation_type``, ``frame_type``, ...) so no family can
-# match via the config-based path. That keeps matching purely name-driven, which
-# is what this lint is about.
-PERMISSIVE_OPTIONS = Options(context={"partition_by": ["g"], "order_by": "t"})
+# ``order_by`` / ``time_column`` to accept their string-based names, but deliberately
+# free of any operation-type key (``aggregation_type``, ``frame_type``, ...) so no
+# family can match via the config-based path. Matching stays purely name-driven.
+PERMISSIVE_OPTIONS = Options(context={"partition_by": ["g"], "order_by": "t", "time_column": "t"})
 
 
 @dataclass(frozen=True)

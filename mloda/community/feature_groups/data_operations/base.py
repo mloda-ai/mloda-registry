@@ -198,6 +198,11 @@ def positive_int_value(value: object) -> int:
     return n
 
 
+def always_required(_options: Options) -> bool:
+    """required_when predicate for a key required on every path: a PREFIX_PATTERN match otherwise skips the check."""
+    return True
+
+
 #: ASCII decimal >= 1. str.isdigit also accepts superscripts (int() raises) and non-ASCII digits.
 _PARAMETRIC_SUFFIX_PATTERN = re.compile(r"[1-9][0-9]*")
 

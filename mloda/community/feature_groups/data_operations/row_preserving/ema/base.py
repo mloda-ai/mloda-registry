@@ -50,7 +50,7 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
-from mloda.community.feature_groups.data_operations.base import column_ref_value, is_column_ref
+from mloda.community.feature_groups.data_operations.base import always_required, column_ref_value, is_column_ref
 
 
 class EmaFeatureGroup(FeatureChainParserMixin, FeatureGroup):
@@ -80,6 +80,7 @@ class EmaFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
             DefaultOptionKeys.match_guard: is_column_ref,
+            DefaultOptionKeys.required_when: always_required,
         },
     }
 

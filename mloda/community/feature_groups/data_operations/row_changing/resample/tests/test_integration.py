@@ -121,6 +121,16 @@ class TestResampleMatchFeatureGroupCriteria:
         opts_bad = Options(context={"time_column": "ts", "resample_op": "not_a_token"})
         assert ResampleFeatureGroup.match_feature_group_criteria("my_resampled", opts_bad, None) is False
 
+    def test_missing_time_column_does_not_match(self) -> None:
+        """Name path: a pattern name without time_column is a non-match."""
+        options = Options(context={"partition_by": ["region"]})
+        assert not PyArrowResample.match_feature_group_criteria("value_float__resample_1_hour_mean", options)
+
+    def test_config_path_missing_time_column_does_not_match(self) -> None:
+        """Config path: a config feature without time_column stays a non-match."""
+        options = Options(context={"in_features": "value_float", "resample_op": "1_hour_mean"})
+        assert ResampleFeatureGroup.match_feature_group_criteria("my_resampled", options, None) is False
+
     def test_config_valid_resample_op_not_rejected_by_validator(self) -> None:
         # Exercise the actual match_guard wired into PROPERTY_MAPPING: a valid token
         # passes, a garbage token and a non-string are rejected.
