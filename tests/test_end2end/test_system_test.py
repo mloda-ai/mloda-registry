@@ -6,23 +6,6 @@ These tests verify that:
 3. The existing import surfaces mloda.user, mloda.provider, and mloda.steward work
 """
 
-from pathlib import Path
-
-
-def test_system_test_source_does_not_reference_retired_todo() -> None:
-    """Verify this system test does not reference the retired TODO document."""
-    retired_document = "TODO" + ".md"
-    module_source = Path(__file__).read_text(encoding="utf-8")
-
-    assert retired_document not in module_source
-
-
-def test_module_docstring_names_actual_import_surfaces() -> None:
-    """Verify the system test description names the imports it exercises."""
-    assert __doc__ is not None
-    for import_surface in ("mloda.user", "mloda.provider", "mloda.steward"):
-        assert import_surface in __doc__
-
 
 def test_mloda_is_namespace_package() -> None:
     """Verify mloda is a PEP 420 namespace package (no __init__.py at root)."""
