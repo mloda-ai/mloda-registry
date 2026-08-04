@@ -37,11 +37,15 @@ It sets `MLODA_REGISTRY_VERSION` and runs five tox envs:
 | `verify-published` | The released set installs together and imports |
 | `verify-published-independent` | Each package installs and imports on its own |
 | `verify-extras` | The `[all]` extras resolve and pull in their variants |
-| `verify-floor-installs` | Each package imports with its internal dependency pinned to the declared floor |
+| `verify-floor-installs` | Each package's import surface loads with its internal dependency pinned to the declared floor |
 | `verify-typed-install` | A standalone leaf install is typed under mypy --strict |
 
 `verify-typed-install` stays red until the release that first ships the
-data-operations `py.typed` marker.
+data-operations `py.typed` marker. `verify-floor-installs` is red for any package
+flagged published whose first release has not shipped yet (currently the five
+data-operations leaves first shipping with the next release), the same
+fails-until-release pattern `verify-published` has; distinct from the follow-up
+floor-bump red described in [packaging.md](packaging.md#cross-package-dependency-floors).
 
 ## Published packages
 
@@ -53,7 +57,7 @@ The released set is the `published = true` flag in `config/packages.toml`.
 the four bundles and `mloda-community-example`, not the set as a whole.
 
 Flagging a package does not publish it: it ships with the next release run, and
-`tox -e verify-published` fails for it until then.
+`tox -e verify-published` and `tox -e verify-floor-installs` fail for it until then.
 
 Not every package ships standalone. Most demo and example packages reach users inside the
 `mloda-community` / `mloda-enterprise` bundle wheels instead; `mloda-community-example`

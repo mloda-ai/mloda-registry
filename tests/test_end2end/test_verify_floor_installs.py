@@ -26,12 +26,20 @@ _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
 # First data-operations release shipping the shared guard helpers the leaves import; 0.3.3 never shipped.
 _DATA_OPERATIONS_FIRST_RELEASE = (0, 4, 0)
 
-# First published mloda-community-example release; 0.2.0 never reached an index.
-_EXAMPLE_FIRST_RELEASE = (0, 2, 4)
+# Oldest usable mloda-community-example release: 0.2.0 through 0.2.3 never reached PyPI, and
+# 0.2.4/0.2.5 lack the base module the variants import.
+_EXAMPLE_FIRST_RELEASE = (0, 2, 6)
 
 _DEP = "mloda-community-data-operations"
 _LEAF = "mloda-community-aggregation"
+_LEAF_PATH = "mloda/community/feature_groups/data_operations/aggregation"
 _LEAF_MODULE = "mloda.community.feature_groups.data_operations.aggregation"
+# The dotted path is always the first probe; aggregation ships base.py, so its base module probes too.
+_LEAF_MODULES = (_LEAF_MODULE, f"{_LEAF_MODULE}.base")
+
+# A leaf whose checkout directory has no base.py, so the dotted path is its only probe.
+_NO_BASE_PATH = "mloda/community/feature_groups/example/example_a"
+_NO_BASE_MODULE = "mloda.community.feature_groups.example.example_a"
 
 
 def _internal_floor_pairs() -> Callable[[dict[str, dict[str, Any]]], list[Any]]:
@@ -54,13 +62,13 @@ def _version_tuple(version: str) -> tuple[int, ...]:
 
 
 def _synthetic_packages(
-    leaf_dependency: str = f"{_DEP}>=0.4.0", *, published: bool | None = True
+    leaf_dependency: str = f"{_DEP}>=0.4.0", *, published: bool | None = True, path: str = _LEAF_PATH
 ) -> dict[str, dict[str, Any]]:
     """A minimal packages table shaped like config/packages.toml; ``published=None`` omits the flag."""
     leaf: dict[str, Any] = {
         "description": "leaf",
         "dependencies": [leaf_dependency],
-        "path": "mloda/community/feature_groups/data_operations/aggregation",
+        "path": path,
     }
     if published is not None:
         leaf["published"] = published
@@ -81,7 +89,8 @@ def _real_pairs() -> list[Any]:
 
 
 def test_a_published_leaf_yields_its_internal_floor_pair() -> None:
-    """The pair carries the leaf, the floored distribution, the floor, and the leaf's dotted module path."""
+    """The pair carries the leaf, the floored distribution, the floor, and the import probes: the dotted
+    path first, then its '.base' module because <path>/base.py exists in the checkout."""
     pairs = _internal_floor_pairs()(_synthetic_packages())
 
     assert len(pairs) == 1, f"expected exactly one pair, got {pairs!r}"
@@ -89,9 +98,32 @@ def test_a_published_leaf_yields_its_internal_floor_pair() -> None:
     assert pair.package == _LEAF, f"pair.package must be the depending distribution, got {pair.package!r}"
     assert pair.dependency == _DEP, f"pair.dependency must be the floored distribution, got {pair.dependency!r}"
     assert pair.floor == "0.4.0", f"pair.floor must be the '>=' bound, got {pair.floor!r}"
-    assert pair.module == _LEAF_MODULE, f"pair.module must derive from the path field, got {pair.module!r}"
-    assert tuple(pair) == (_LEAF, _DEP, "0.4.0", _LEAF_MODULE), (
-        "FloorPair must be a NamedTuple ordered (package, dependency, floor, module)"
+    assert pair.modules == _LEAF_MODULES, (
+        f"pair.modules must be the dotted path plus its base module, got {pair.modules!r}"
+    )
+    assert tuple(pair) == (_LEAF, _DEP, "0.4.0", _LEAF_MODULES), (
+        "FloorPair must be a NamedTuple ordered (package, dependency, floor, modules)"
+    )
+
+
+def test_a_leaf_without_a_base_module_probes_only_its_package_root() -> None:
+    """example_a ships no base.py, so the dotted package root is its only import probe."""
+    pairs = _internal_floor_pairs()(_synthetic_packages(path=_NO_BASE_PATH))
+
+    assert len(pairs) == 1, f"expected exactly one pair, got {pairs!r}"
+    assert pairs[0].modules == (_NO_BASE_MODULE,), (
+        f"a leaf without base.py must probe only its package root, got {pairs[0].modules!r}"
+    )
+
+
+def test_module_derivation_resolves_base_py_against_the_repo_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The base.py existence check must resolve against the checkout, not the process cwd."""
+    monkeypatch.chdir(tmp_path)
+    pairs = _internal_floor_pairs()(_synthetic_packages())
+    assert pairs[0].modules == _LEAF_MODULES, (
+        f"from cwd {tmp_path} the aggregation base.py went undetected, got {pairs[0].modules!r}"
     )
 
 
@@ -109,16 +141,40 @@ def test_an_external_dependency_yields_no_pair(dependency: str) -> None:
     assert pairs == [], f"{dependency!r} names no in-repo distribution, got pairs {pairs!r}"
 
 
-@pytest.mark.parametrize("dependency", [_DEP, f"{_DEP}==0.4.0"], ids=["bare", "exact-pin"])
+@pytest.mark.parametrize(
+    "dependency",
+    ["mloda_community_data_operations>=0.4.0", "MLODA-Community-Data-Operations>=0.4.0"],
+    ids=["underscores", "mixed-case"],
+)
+def test_a_variant_spelling_normalizes_to_the_canonical_table_key(dependency: str) -> None:
+    """PEP 503 treats case and runs of '-', '_', '.' as equal; a variant spelling must not silently
+    skip the floor check, and pair.dependency must be the canonical packages-table key."""
+    pairs = _internal_floor_pairs()(_synthetic_packages(dependency))
+    assert [(pair.dependency, pair.floor) for pair in pairs] == [(_DEP, "0.4.0")], (
+        f"{dependency!r} names {_DEP} under PEP 503 normalization, but produced pairs {pairs!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "dependency",
+    [_DEP, f"{_DEP}==0.4.0", f'{_DEP}; python_version>="3.11"'],
+    ids=["bare", "exact-pin", "marker-no-floor"],
+)
 def test_an_internal_dependency_without_a_floor_is_rejected(dependency: str) -> None:
-    """An in-repo dependency must declare a '>=' floor; anything else fails loudly, naming the package."""
+    """An in-repo dependency must declare a '>=' floor; anything else fails loudly, naming the package.
+    The '>=' inside a PEP 508 environment marker is not a version floor."""
     with pytest.raises(ValueError, match=_LEAF):
         _internal_floor_pairs()(_synthetic_packages(dependency))
 
 
-@pytest.mark.parametrize("dependency", [f"{_DEP} >= 0.4.0", f"{_DEP}>=0.4.0,<1"], ids=["whitespace", "upper-bound"])
+@pytest.mark.parametrize(
+    "dependency",
+    [f"{_DEP} >= 0.4.0", f"{_DEP}>=0.4.0,<1", f'{_DEP}>=0.4.0; python_version>="3.11"'],
+    ids=["whitespace", "upper-bound", "env-marker"],
+)
 def test_floor_extraction_tolerates_spec_variants(dependency: str) -> None:
-    """Whitespace around '>=' and a trailing spec after a comma are legitimate PEP 508 spellings."""
+    """Whitespace around '>=', a trailing spec after a comma, and an environment marker are legitimate
+    PEP 508 spellings; the marker part must never be scanned for '>='."""
     pairs = _internal_floor_pairs()(_synthetic_packages(dependency))
     assert [(pair.dependency, pair.floor) for pair in pairs] == [(_DEP, "0.4.0")], (
         f"parsing {dependency!r} produced {pairs!r}"
@@ -152,12 +208,27 @@ def test_data_operations_floors_point_at_a_released_version() -> None:
         )
 
 
-def test_example_a_floors_the_first_published_example_release() -> None:
-    """config/packages.toml says 0.2.0, but mloda-community-example first shipped at 0.2.4."""
+def test_real_data_operations_pairs_probe_the_leaf_base_module() -> None:
+    """base.py is where each data-operations leaf keeps its cross-package imports; importing only the
+    package root is vacuous because most leaf __init__.py files are empty."""
+    packages = _load_toml(_PACKAGES_CONFIG)["packages"]
+    pairs = [pair for pair in _real_pairs() if pair.dependency == _DEP]
+    assert pairs, f"expected published leaves flooring {_DEP} in config/packages.toml"
+    for pair in pairs:
+        root = str(packages[pair.package]["path"]).replace("/", ".")
+        assert f"{root}.base" in pair.modules, (
+            f"{pair.package}: modules {pair.modules!r} must include {root + '.base'!r}, the import "
+            f"surface the {_DEP} floor protects"
+        )
+
+
+def test_example_a_floors_the_oldest_usable_example_release() -> None:
+    """0.2.0 through 0.2.3 never reached PyPI, and 0.2.4/0.2.5 lack the base module the variants
+    import; 0.2.6 is the oldest usable mloda-community-example release."""
     pairs = [pair for pair in _real_pairs() if pair.package == "mloda-community-example-a"]
     assert pairs, "expected mloda-community-example-a to floor an in-repo distribution"
     for pair in pairs:
         assert _version_tuple(pair.floor) >= _EXAMPLE_FIRST_RELEASE, (
-            f"mloda-community-example-a: floors {pair.dependency} at {pair.floor}, which was never published; "
-            "the first published mloda-community-example release is 0.2.4"
+            f"mloda-community-example-a: floors {pair.dependency} at {pair.floor}; the oldest usable "
+            "mloda-community-example release is 0.2.6"
         )

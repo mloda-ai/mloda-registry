@@ -77,7 +77,8 @@ not-yet-released symbol therefore keeps the current cap, and the floor moves in 
 follow-up after that release ships.
 
 `tox -e verify-floor-installs` (weekly workflow) installs each pair at
-`dependency==floor` plus `package==released version` and goes red until the follow-up
+`dependency==floor` plus `package==released version`, imports the package's import
+surface (the package root plus its base module), and goes red until the follow-up
 lands; it also rejects floors naming versions that never reached PyPI.
 
 **Generator infers:**

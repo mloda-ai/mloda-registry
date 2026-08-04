@@ -17,13 +17,13 @@ from pathlib import Path
 # The leaf under probe plus the base distribution that ships the py.typed marker.
 PROBE_DISTRIBUTIONS = ("mloda-community-aggregation", "mloda-community-data-operations")
 
-# Line 4 reveals the attribute's type; line 5 provokes [call-arg] and [assignment] on a typed install.
+# Line 4 reveals the leaf-defined classmethod; line 5 provokes [arg-type] and [assignment] on a typed install.
 PROBE_SOURCE = '''\
 """Probe: a typed install reveals a concrete signature and yields both provoked errors."""
 from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import PyArrowAggregation
 
-reveal_type(PyArrowAggregation.supported_subtypes)
-BAD: int = PyArrowAggregation.supported_subtypes(secondary=123)
+reveal_type(PyArrowAggregation.supported_op_subtypes)
+BAD: int = PyArrowAggregation.supported_op_subtypes(secondary=123)
 '''
 
 
@@ -34,8 +34,8 @@ def mypy_output_problems(output: str) -> list[str]:
         problems.append("the probe import resolved to Any: 'Revealed type is \"Any\"' (py.typed marker missing?)")
     elif "Revealed type is" not in output:
         problems.append("no 'Revealed type is' line: the probe never ran")
-    if 'Unexpected keyword argument "secondary"' not in output:
-        problems.append("missing the provoked 'Unexpected keyword argument \"secondary\"' [call-arg] error")
+    if "[arg-type]" not in output:
+        problems.append("missing the provoked '[arg-type]' error on secondary=123 (int vs str | None)")
     if "[assignment]" not in output:
         problems.append("missing the provoked '[assignment]' error")
     return problems
