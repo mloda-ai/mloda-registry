@@ -29,6 +29,10 @@ HEADER = """\
 # Do not edit directly - modify config/shared.toml or config/packages.toml instead
 """
 
+# Placeholder for the published packages nested under a package's path, expanded from the
+# ``published = true`` flags in config/packages.toml (issue #345).
+PUBLISHED_CHILDREN = "{published_children}"
+
 # Entry-point group -> manifest attribute exposing the concrete plugin classes.
 # mloda 0.9.0 discovers installed plugins through these entry-point groups; each
 # plugin package ships a ``manifest.py`` listing its concrete plugin classes
@@ -76,6 +80,39 @@ def compute_entry_points(
             result.setdefault(group, []).append((pkg_name, value))
 
     return {group: sorted(pairs, key=lambda pair: pair[0]) for group, pairs in result.items() if pairs}
+
+
+def expand_published_children(
+    pkg_config: dict[str, Any],
+    all_packages: dict[str, dict[str, Any]],
+) -> dict[str, list[str]]:
+    """Substitute the ``{published_children}`` placeholder in a package's optional dependencies.
+
+    The placeholder stands for every package flagged ``published = true`` whose path is nested
+    under this package's path, in config order, so an extra listing the released children is
+    derived from that flag instead of re-typed.
+    """
+    opt_deps: dict[str, list[str]] = pkg_config.get("optional_dependencies", {})
+    if not any(PUBLISHED_CHILDREN in deps for deps in opt_deps.values()):
+        return opt_deps
+
+    prefix = pkg_config["path"].rstrip("/") + "/"
+    children = [
+        name
+        for name, child_config in all_packages.items()
+        if child_config.get("published") and child_config["path"].startswith(prefix)
+    ]
+
+    expanded: dict[str, list[str]] = {}
+    for group, deps in opt_deps.items():
+        resolved: list[str] = []
+        for dep in deps:
+            if dep == PUBLISHED_CHILDREN:
+                resolved.extend(children)
+            else:
+                resolved.append(dep)
+        expanded[group] = resolved
+    return expanded
 
 
 def to_toml_list(items: list[str]) -> str:
@@ -183,11 +220,14 @@ def generate_pyproject(
     lines.append(f'requires-python = "{shared["project"]["requires-python"]}"')
     lines.append("")
 
-    # Optional dependencies - merge defaults with package-specific
+    # Optional dependencies - merge defaults with package-specific.
+    # The {published_children} placeholder is expanded here, before the exclude_paths below
+    # are derived from these names: an unexpanded placeholder would ship every child package
+    # inside the base wheel.
     # Skip defaults for specific packages
     skip_defaults = pkg_name in ("mloda-testing", "mloda-community", "mloda-enterprise")
     default_opt_deps = {} if skip_defaults else defaults.get("optional_dependencies", {})
-    pkg_opt_deps = pkg_config.get("optional_dependencies", {})
+    pkg_opt_deps = expand_published_children(pkg_config, all_packages)
     merged_opt_deps = {**default_opt_deps, **pkg_opt_deps}
     if merged_opt_deps:
         lines.append("[project.optional-dependencies]")
@@ -226,9 +266,8 @@ def generate_pyproject(
 
         # Only exclude sub-packages that are listed in optional_dependencies
         # Bundle packages (like mloda-community) don't have optional deps, so they include everything
-        opt_deps = pkg_config.get("optional_dependencies", {})
         optional_pkg_names = set()
-        for deps in opt_deps.values():
+        for deps in pkg_opt_deps.values():
             optional_pkg_names.update(deps)
 
         # Map optional dependency names to their paths

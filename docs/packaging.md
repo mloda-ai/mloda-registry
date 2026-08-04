@@ -56,8 +56,9 @@ optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 |-------|----------|-------------|
 | `description` | Yes | PyPI description |
 | `path` | Yes | Package directory |
+| `published` | No | `true` marks a distribution that ships standalone on PyPI. Single source of the released set: `scripts/published_packages.py` prints it, and the release workflow, the `verify-published` and `security` tox envs and the `{published_children}` extras all read it from there. Without it a package reaches users only inside the bundle wheels |
 | `dependencies` | By convention | Runtime deps; use `"{core_dependency}"` for the mloda floor. The generator defaults it to empty rather than failing, but every package declares it |
-| `optional_dependencies` | No | Merged with defaults |
+| `optional_dependencies` | No | Merged with defaults. The entry `"{published_children}"` expands to every published package nested under this package's path, in config order |
 | `has_readme` | No | `true` points the package at its own `README.md` |
 | `workspace_deps` | No | Marks a meta-package whose deps are workspace siblings. Mutually exclusive with `py_typed`; unused today |
 | `entry_point_groups` | No | List of mloda entry-point groups the package's `manifest.py` populates (`mloda.feature_groups`, `mloda.compute_frameworks`, `mloda.extenders`) |
@@ -115,8 +116,8 @@ py_typed = true
 Entries in `optional_dependencies.all` are emitted unpinned, so a variant only has
 to exist on PyPI at some version for the extra to resolve. A variant that is
 dropped from the release list therefore keeps resolving at its last published
-version, which is why `mloda-community-example-b` can be absent from
-`.github/workflows/release.yaml` without breaking `[all]`. A variant that was
+version, which is why `mloda-community-example-b` can lack `published = true`
+without breaking `[all]`. A variant that was
 never published at all is different: it cannot satisfy the extra at any version,
 so `[all]` fails outright.
 
@@ -166,11 +167,9 @@ python scripts/generate_pyproject.py    # Regenerate
 1. Add to `config/packages.toml` (description, dependencies, path; for a plugin
    package also `entry_point_groups = ["mloda.feature_groups" | ...]`).
 2. For a plugin package, create `<path>/manifest.py` listing the concrete classes.
-3. If it should ship standalone on PyPI, add it to all three hardcoded lists:
-   the build array in `.github/workflows/release.yaml`, and the install lines of
-   the `verify-published` and `security` envs in `tox.ini`. Nothing cross-checks
-   them, so a package added to one and not the others either goes unverified or
-   is verified at a version that was never published.
+3. If it should ship standalone on PyPI, set `published = true`. The release
+   workflow, the `verify-published` and `security` tox envs and the
+   `{published_children}` extras all derive from that flag; nothing else to edit.
 4. Regenerate and sync:
 
 ```bash

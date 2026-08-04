@@ -23,7 +23,7 @@ from tests.script_loader import load_script
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
 _VERIFY_BUILDS_PATH = _REPO_ROOT / "scripts" / "verify_builds.py"
-_RELEASE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "release.yaml"
+_PUBLISHED_PACKAGES_PATH = _REPO_ROOT / "scripts" / "published_packages.py"
 
 # The bundle distributions, always part of the released set.
 _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterprise"]
@@ -51,19 +51,14 @@ def _dotted_path(pkg_name: str) -> str:
 
 
 def _published_packages() -> list[str]:
-    """Distribution names built by the ``packages=( ... )`` array of the release workflow."""
-    match = re.search(r"packages=\(\n(.*?)\n\s*\)\n", _RELEASE_WORKFLOW.read_text(), re.DOTALL)
-    assert match is not None, f"{_RELEASE_WORKFLOW}: no 'packages=( ... )' build array found"
-    block = re.sub(r"^\s*#.*$", "", match.group(1), flags=re.MULTILINE)
-    entries = [line for line in block.splitlines() if line.strip()]
-    names = re.findall(r'"([^"]+)"', block)
-    assert names, f"{_RELEASE_WORKFLOW}: 'packages=( ... )' holds no quoted distribution names"
-    assert len(names) == len(entries), (
-        f"{_RELEASE_WORKFLOW}: 'packages=( ... )' holds {len(entries)} entries but {len(names)} "
-        'double-quoted names; write every entry as "mloda-..." on its own line'
+    """Distribution names flagged ``published = true`` in config/packages.toml, the released set."""
+    assert _PUBLISHED_PACKAGES_PATH.exists(), (
+        f"{_PUBLISHED_PACKAGES_PATH} is missing; it reads the released set from config/packages.toml"
     )
+    pub = load_script("published_packages", _PUBLISHED_PACKAGES_PATH)
+    names: list[str] = pub.published_packages(_packages())
     assert set(_BUNDLES) <= set(names), (
-        f"{_RELEASE_WORKFLOW}: build array lost bundles {sorted(set(_BUNDLES) - set(names))}"
+        f"config/packages.toml lost the published flag on bundles {sorted(set(_BUNDLES) - set(names))}"
     )
     return names
 
@@ -175,7 +170,6 @@ def test_every_published_distribution_has_a_typed_ancestor(pkg_name: str) -> Non
     # test_package_data_is_emitted_only_for_flagged_packages pins the flagged set, so a newly published
     # package can ship untyped without failing it.
     packages = _packages()
-    assert pkg_name in packages, f"{pkg_name} is built by release.yaml but not declared in config/packages.toml"
     pkg_path: str = packages[pkg_name]["path"]
     reachable = {pkg_name} | _dependency_closure(pkg_name, packages)
     typed = {name: cfg["path"] for name, cfg in packages.items() if cfg.get("py_typed")}

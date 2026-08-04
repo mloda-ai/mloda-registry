@@ -39,18 +39,18 @@ It sets `MLODA_REGISTRY_VERSION` and runs three tox envs:
 
 ## Published packages
 
-The build list lives in `.github/workflows/release.yaml`; that workflow is the source
-of truth, not this page. Not every package in `config/packages.toml` ships standalone:
-most demo and example packages reach users inside the `mloda-community` /
-`mloda-enterprise` bundle wheels instead. `mloda-community-example` and
-`mloda-community-example-a` are the exceptions, published to keep end-to-end PyPI
-dependency resolution covered. The header comment in `config/packages.toml` states
-the policy, and `tests/test_end2end/test_py_typed_markers.py` asserts that every
-package built by the workflow is declared in the config.
+The released set is the `published = true` flag in `config/packages.toml`, and nothing
+else. `scripts/published_packages.py` prints it, plain or pinned to a version; the build
+array in `.github/workflows/release.yaml` and the install lists of the `verify-published`
+and `security` tox envs are all filled from that one command, so they cannot drift apart.
 
-The released set is also hardcoded in the `verify-published` and `security` envs of
-`tox.ini`, and nothing cross-checks those against the workflow. When adding a package
-to the release list, see [Add a new package](packaging.md#add-a-new-package).
+Not every package in `config/packages.toml` ships standalone: most demo and example
+packages reach users inside the `mloda-community` / `mloda-enterprise` bundle wheels
+instead. `mloda-community-example` and `mloda-community-example-a` are the exceptions,
+published to keep end-to-end PyPI dependency resolution covered.
+`tests/test_end2end/test_published_set_single_source.py` asserts that the flag stays the
+only copy of the set. When adding a package to it, see
+[Add a new package](packaging.md#add-a-new-package).
 
 ## Commit messages
 
@@ -76,5 +76,7 @@ packages share one out-dir and prefix siblings (`mloda-community` vs
 ## Files
 
 - `.releaserc.yaml` - semantic-release config
+- `config/packages.toml` - the `published` flag, single source of the released set
+- `scripts/published_packages.py` - prints that set for the workflow and the tox envs
 - `.github/workflows/release.yaml` - release workflow
 - `.github/workflows/verify-published.yaml` - weekly post-release verification
