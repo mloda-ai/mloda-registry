@@ -60,7 +60,7 @@ class TestPatternMatching:
         ],
     )
     def test_matches_all_operations(self, feature_name: str) -> None:
-        # CONSTANT has strict_validation=False, so missing-constant does not block match.
+        # A pattern match skips property validation, so a missing constant does not block the match.
         options = Options()
         result = ScalarArithmeticFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
@@ -171,6 +171,60 @@ class TestConstantExtraction:
         feature = Feature("value_int__add_constant", options=Options(context={"constant": "five"}))
         with pytest.raises(ValueError, match="int or float"):
             ScalarArithmeticFeatureGroup._extract_constant(feature)
+
+
+class TestRejectionReporting:
+    """A wrong-typed constant is a reported strict-validation rejection, not a silent non-match."""
+
+    def test_wrong_typed_constant_reports_a_reason(self) -> None:
+        options = Options(
+            context={
+                "arithmetic_op": "add",
+                "in_features": "value_int",
+                "constant": "five",
+            }
+        )
+        reason = ScalarArithmeticFeatureGroup._strict_validation_rejection_reason("my_result", options)
+        assert reason is not None
+        assert "constant" in reason
+
+    def test_valid_constant_reports_nothing(self) -> None:
+        options = Options(
+            context={
+                "arithmetic_op": "add",
+                "in_features": "value_int",
+                "constant": 5,
+            }
+        )
+        reason = ScalarArithmeticFeatureGroup._strict_validation_rejection_reason("my_result", options)
+        assert reason is None
+
+    def test_nested_singleton_constant_reports_a_reason(self) -> None:
+        """A nested singleton constant is a reported strict-validation rejection, not a silent non-match."""
+        for value in ([[5]], ([5],)):
+            options = Options(
+                context={
+                    "arithmetic_op": "add",
+                    "in_features": "value_int",
+                    "constant": value,
+                }
+            )
+            assert ScalarArithmeticFeatureGroup.match_feature_group_criteria("my_result", options, None) is False
+            reason = ScalarArithmeticFeatureGroup._strict_validation_rejection_reason("my_result", options)
+            assert reason is not None
+            assert "constant" in reason
+
+    def test_multi_element_constant_stays_a_silent_non_match(self) -> None:
+        # The arity guard, not strict validation, rejects a multi-element constant.
+        options = Options(
+            context={
+                "arithmetic_op": "add",
+                "in_features": "value_int",
+                "constant": [5, 10],
+            }
+        )
+        assert ScalarArithmeticFeatureGroup._strict_validation_rejection_reason("my_result", options) is None
+        assert ScalarArithmeticFeatureGroup.match_feature_group_criteria("my_result", options, None) is False
 
 
 class TestSingleColumnEnforcement:

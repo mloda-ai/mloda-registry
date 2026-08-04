@@ -263,6 +263,48 @@ class TestConfigBasedExtraction:
         assert result == 1.0
 
 
+class TestRejectionReporting:
+    """A wrong-typed percentile is a reported strict-validation rejection, not a silent non-match."""
+
+    def test_wrong_typed_percentile_reports_a_reason(self) -> None:
+        options = Options(
+            context={
+                "percentile": "fifty",
+                "in_features": "value_int",
+                "partition_by": ["region"],
+            }
+        )
+        reason = PercentileFeatureGroup._strict_validation_rejection_reason("my_result", options)
+        assert reason is not None
+        assert "percentile" in reason
+
+    def test_out_of_range_percentile_reports_a_reason(self) -> None:
+        """An out-of-range percentile is a reported strict-validation rejection, not a silent non-match."""
+        for value in (50, 1.5):
+            options = Options(
+                context={
+                    "percentile": value,
+                    "in_features": "value_int",
+                    "partition_by": ["region"],
+                }
+            )
+            assert PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None) is False
+            reason = PercentileFeatureGroup._strict_validation_rejection_reason("my_result", options)
+            assert reason is not None
+            assert "percentile" in reason
+
+    def test_valid_percentile_reports_nothing(self) -> None:
+        options = Options(
+            context={
+                "percentile": 0.5,
+                "in_features": "value_int",
+                "partition_by": ["region"],
+            }
+        )
+        reason = PercentileFeatureGroup._strict_validation_rejection_reason("my_result", options)
+        assert reason is None
+
+
 class TestPercentileMatchValidation(MatchValidationTestBase):
     @classmethod
     def feature_group_class(cls) -> Any:
@@ -299,7 +341,8 @@ class TestPercentileMatchValidation(MatchValidationTestBase):
 
     @classmethod
     def options_reject_invalid_types(cls) -> bool:
-        return False
+        # percentile is strict with an element validator, so wrong-typed config values are rejected.
+        return True
 
     @classmethod
     def token_cases(cls) -> list[TokenCase]:

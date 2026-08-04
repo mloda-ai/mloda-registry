@@ -291,3 +291,30 @@ class TestIntegrationOptionBasedConfig:
 
         assert add_found, "string-pattern add result not found"
         assert mul_found, "option-based multiply result not found"
+
+
+class TestMistypedConstantReported:
+    """A wrong-typed constant must surface as a reported validation failure, not a silent non-match."""
+
+    def test_mistyped_constant_reported_in_resolution_error(self) -> None:
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, PyArrowScalarArithmetic}
+        )
+
+        feature = Feature(
+            "my_result",
+            options=Options(
+                context={
+                    "arithmetic_op": "add",
+                    "in_features": "value_int",
+                    "constant": "five",
+                }
+            ),
+        )
+
+        with pytest.raises(ValueError, match=r"failed validation for 'constant'"):
+            mloda.run_all(
+                [feature],
+                compute_frameworks={PyArrowTable},
+                plugin_collector=plugin_collector,
+            )

@@ -10,8 +10,10 @@ Pattern: ``{col}__{op}_constant``
 Example: ``value_int__divide_constant`` with ``constant=2`` divides every
 non-null value in ``value_int`` by 2.
 
-The ``constant`` option carries ``strict_validation=False`` so that
-pattern-only matches (``{col}__{op}_constant``) succeed without it; the
+The ``constant`` option is strict with an element validator, so a
+wrong-typed value is reported as a rejection reason in the resolution
+error. A pattern match skips property validation, so
+``{col}__{op}_constant`` still matches without a constant; the
 missing-constant check then fires at compute time with a clear error.
 """
 
@@ -27,7 +29,12 @@ from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
 
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
-from mloda.community.feature_groups.data_operations.base import is_op_token, is_scalar_number, scalar_number_value
+from mloda.community.feature_groups.data_operations.base import (
+    is_number_element,
+    is_op_token,
+    is_scalar_number,
+    scalar_number_value,
+)
 
 ARITHMETIC_OPERATIONS: dict[str, str] = {
     "add": "Element-wise addition of a constant",
@@ -62,7 +69,8 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
         CONSTANT: {
             "explanation": "Numeric constant applied element-wise to the source column",
             DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.strict_validation: True,
+            DefaultOptionKeys.element_validator: is_number_element,
             DefaultOptionKeys.match_guard: is_scalar_number,
         },
     }

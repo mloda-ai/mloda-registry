@@ -165,6 +165,11 @@ def is_scalar_number(value: object) -> bool:
     return isinstance(number, (int, float)) and not isinstance(number, bool)
 
 
+def is_number_element(value: object) -> bool:
+    """Bare element predicate for element_validator slots: core has already unpacked, so no unwrapping (bool is not a number)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def scalar_number_value(value: object) -> int | float:
     """The single number of a value is_scalar_number accepts, unwrapped from its container."""
     number: int | float = _unwrap_singleton(value)
