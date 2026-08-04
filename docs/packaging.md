@@ -67,6 +67,19 @@ optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 
 A marker declares its whole subtree typed, including third-party distributions installed into it: on a namespace portion (`mloda/community`, `mloda/enterprise`) that is the entire namespace, on a shared base package (`mloda/community/feature_groups/data_operations`, `mloda/community/feature_groups/example`) it is everything published from below that base. mypy returns at the first `py.typed` on the module path, so those leaf packages need no flag of their own. The leaf's typing then depends on the marker-shipping base being installed, so its dependency floor has to be at or above the release that first shipped the marker. Raise that floor only in a follow-up change, after the marker-bearing release is published: a workspace member cannot require a sibling version above the workspace's own version in `config/shared.toml`, so bumping it in the same change makes `uv sync --all-extras` unsatisfiable.
 
+### Cross-package dependency floors
+
+The floor of an internal dependency is the oldest published release containing every
+symbol the depending package imports from it. A floor can never exceed
+`[project].version` in `config/shared.toml`, because a workspace member cannot require
+a sibling above the workspace version; a package that starts importing a
+not-yet-released symbol therefore keeps the current cap, and the floor moves in a
+follow-up after that release ships.
+
+`tox -e verify-floor-installs` (weekly workflow) installs each pair at
+`dependency==floor` plus `package==released version` and goes red until the follow-up
+lands; it also rejects floors naming versions that never reached PyPI.
+
 **Generator infers:**
 
 - `license` from path (`mloda/enterprise/*` → proprietary, else default)

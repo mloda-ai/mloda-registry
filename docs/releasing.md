@@ -30,13 +30,18 @@ Verification is not part of the release. It runs in a separate workflow,
 Monday cron plus manual dispatch, so a fresh release stays unverified until the next
 run. To check a release immediately, dispatch that workflow.
 
-It sets `MLODA_REGISTRY_VERSION` and runs three tox envs:
+It sets `MLODA_REGISTRY_VERSION` and runs five tox envs:
 
 | Env | Checks |
 |-----|--------|
 | `verify-published` | The released set installs together and imports |
 | `verify-published-independent` | Each package installs and imports on its own |
 | `verify-extras` | The `[all]` extras resolve and pull in their variants |
+| `verify-floor-installs` | Each package imports with its internal dependency pinned to the declared floor |
+| `verify-typed-install` | A standalone leaf install is typed under mypy --strict |
+
+`verify-typed-install` stays red until the release that first ships the
+data-operations `py.typed` marker.
 
 ## Published packages
 
