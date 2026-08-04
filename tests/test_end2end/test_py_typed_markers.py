@@ -4,13 +4,11 @@ portions that ``discover_packages`` misses."""
 
 from __future__ import annotations
 
-import importlib.util
 import re
 import sys
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 if sys.version_info >= (3, 11):
@@ -19,6 +17,8 @@ else:
     import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 import pytest
+
+from tests.script_loader import load_script
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
@@ -33,17 +33,8 @@ _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterpr
 _TYPED_PACKAGES = [*_BUNDLES, "mloda-community-data-operations", "mloda-community-example"]
 
 
-def _load_module(name: str, path: Path) -> ModuleType:
-    """Import a loose script by file path."""
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None, f"could not load spec for {path}"
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-gen = _load_module("generate_pyproject", _GEN_PATH)
-vb = _load_module("verify_builds", _VERIFY_BUILDS_PATH)
+gen = load_script("generate_pyproject", _GEN_PATH)
+vb = load_script("verify_builds", _VERIFY_BUILDS_PATH)
 
 
 def _packages() -> dict[str, dict[str, Any]]:

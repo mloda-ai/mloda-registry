@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import configparser
+import re
 import shutil
 import subprocess
 import sys
@@ -40,9 +41,15 @@ def load_packages_from_config() -> list[tuple[str, str]]:
 PACKAGES = load_packages_from_config()
 
 
-def wheel_glob(pkg_name: str, version: str) -> str:
-    """Glob for one distribution's wheel; the '-' after the name excludes prefix siblings sharing the out-dir."""
-    return f"{pkg_name.replace('-', '_')}-{version}-*.whl"
+def escape_distribution_name(name: str) -> str:
+    """Escape a distribution name the way a wheel filename carries it (PEP 427/503)."""
+    return re.sub(r"[-_.]+", "_", name.lower())
+
+
+def find_wheels(out_dir: Path, pkg_name: str) -> list[Path]:
+    """Wheels in out_dir whose distribution segment is exactly pkg_name, so prefix siblings never match."""
+    escaped = escape_distribution_name(pkg_name)
+    return sorted((path for path in out_dir.glob("*.whl") if path.name.split("-")[0] == escaped), key=lambda p: p.name)
 
 
 def namespaced_entry_point_error(group: str, name: str, value: str) -> str | None:
@@ -343,17 +350,21 @@ def main() -> int:
                 continue
 
             # Find and verify wheel
-            pattern = wheel_glob(pkg_name, expected_version)
-            wheels = list(Path(tmpdir).glob(pattern))
+            wheels = find_wheels(Path(tmpdir), pkg_name)
             if not wheels:
-                errors.append(f"{pkg_name}: no wheel produced (nothing in the out-dir matched {pattern})")
+                errors.append(f"{pkg_name}: no wheel produced (no wheel in the out-dir carries this distribution)")
+                continue
+            if len(wheels) > 1:
+                candidates = ", ".join(wheel.name for wheel in wheels)
+                errors.append(f"{pkg_name}: ambiguous wheels in the out-dir ({candidates})")
                 continue
 
-            if not verify_wheel_version(wheels[0], expected_version):
-                errors.append(f"{pkg_name}: version mismatch in wheel (expected {expected_version})")
+            wheel = wheels[0]
+            if not verify_wheel_version(wheel, expected_version):
+                errors.append(f"{pkg_name}: version mismatch in wheel (expected {expected_version}, got {wheel.name})")
             else:
-                print(f"  ✓ {wheels[0].name}")
-                built_wheels[pkg_name] = wheels[0]
+                print(f"  ✓ {wheel.name}")
+                built_wheels[pkg_name] = wheel
 
         # Verify dependency relationships
         print("\nVerifying dependency relationships...")

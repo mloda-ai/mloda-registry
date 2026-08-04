@@ -19,30 +19,20 @@ installed package), so it is loaded here by file path.
 
 from __future__ import annotations
 
-import importlib.util
 import shutil
 import sys
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
+
+from tests.script_loader import load_script
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
 _ROOT_PYPROJECT = _REPO_ROOT / "pyproject.toml"
 
-
-def _load_generator() -> ModuleType:
-    """Import scripts/generate_pyproject.py by file path."""
-    spec = importlib.util.spec_from_file_location("generate_pyproject", _GEN_PATH)
-    assert spec is not None and spec.loader is not None, f"could not load spec for {_GEN_PATH}"
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-gen = _load_generator()
+gen = load_script("generate_pyproject", _GEN_PATH)
 
 
 def test_generate_raises_when_core_dependency_missing() -> None:

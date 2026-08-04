@@ -69,6 +69,9 @@ only `minor:` bumps the minor version, everything else (`feat:`, `fix:`, `docs:`
 
 `--wheel --no-build-isolation` is required because the monorepo uses
 `package-dir = {"" = "../.."}`, which needs access to parent directories during build.
+The build gate binds each wheel to its package by exact distribution name, because all
+packages share one out-dir and prefix siblings (`mloda-community` vs
+`mloda-community-offset`) would otherwise collide.
 
 ## Files
 

@@ -27,3 +27,5 @@ jobs:
       run: tox -e check-generated
     - name: Verify all packages build
       run: tox -e verify-builds
+    - name: Verify packages build at the declared setuptools floor
+      run: tox -e verify-build-floor
