@@ -14,10 +14,22 @@ re-typed:
   ``"{published_children}"`` placeholder, which ``scripts/generate_pyproject.py``
   expands to the published packages nested under that path.
 
-These tests encode that contract. They must fail while the released set is still
-copied across release.yaml, tox.ini and the data-operations extra: that drift is
-how five distributions reached three of the copies but never the build array, so
-``pip install mloda-community-data-operations[all]`` cannot resolve.
+These tests encode that contract. Re-typed copies are how five distributions
+reached three of the copies but never the build array, so
+``pip install mloda-community-data-operations[all]`` could not resolve.
+
+The flag governs the RELEASE SET only. Wheel boundaries come from the configured
+package layout: every configured package nested under another package's path stays
+out of that package's wheel, published or not. The ``entry_point_bundle`` packages
+are the deliberate exception and ship all nested code. Deriving the wheel exclusions
+from the expanded extra instead couples the two, so dropping ``published`` from a
+plugin silently absorbs its modules into the base wheel and ships them twice.
+
+The remaining tests keep the derivation honest: the "no hand-written copy" guards
+must catch bare and single-quoted names as well as pinned ones and must look at the
+build array itself rather than at a comment naming the script, and every published
+distribution must be imported by ``tox -e verify-published``, or a newly released
+plugin installs from PyPI without anyone ever importing it.
 """
 
 from __future__ import annotations
@@ -25,6 +37,7 @@ from __future__ import annotations
 import re
 import sys
 from collections.abc import Callable
+from copy import deepcopy
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -87,19 +100,39 @@ _BUNDLE_ONLY = [
 
 _DATA_OPERATIONS = "mloda-community-data-operations"
 
+_COMMUNITY_EXAMPLE = "mloda-community-example"
+
+_EXAMPLE_B = "mloda-community-example-b"
+
+# The published child whose flag the wheel-boundary tests drop to prove 'published' does not
+# control wheel contents.
+_UNPUBLISH_PROBE = "mloda-community-ema"
+
+# The packages flagged ``entry_point_bundle = true``: the only wheels that ship nested code.
+_ENTRY_POINT_BUNDLES = ["mloda-community", "mloda-enterprise"]
+
 # The placeholder config/packages.toml uses instead of listing the nested published packages.
 _PUBLISHED_CHILDREN = "{published_children}"
 
 # The tox envs that install the released set from PyPI.
 _TOX_PUBLISHED_ENVS = ["verify-published", "security"]
 
+# The tox env that import-checks every installed distribution.
+_VERIFY_PUBLISHED_ENV = "verify-published"
+
 _SCRIPT_INVOCATION = "scripts/published_packages.py"
 
-# A distribution name written out in a workflow build array, e.g. ``"mloda-community-ffill"``.
-_QUOTED_DISTRIBUTION_RE = re.compile(r'"(mloda-[A-Za-z0-9._-]+)"')
+# The release workflow step that builds the wheels.
+_BUILD_STEP = "Build packages"
 
-# A hand-pinned distribution specifier, e.g. ``mloda-community-ffill==``.
-_PINNED_DISTRIBUTION_RE = re.compile(r"mloda-[A-Za-z0-9._-]*==")
+# A distribution name written out by hand, quoted or bare, e.g. ``"mloda-community-ffill"``. The
+# leading boundary keeps the ``/tmp/mloda-verify*`` venv paths and the dotted ``mloda.community....``
+# import paths of the same tox blocks out.
+_DISTRIBUTION_NAME_RE = re.compile(r"(?<![\w/-])mloda-(?:registry|testing|community|enterprise)[a-z0-9-]*")
+
+# The build array filled from the script on one line, e.g.
+# ``mapfile -t packages < <(python scripts/published_packages.py)``. A comment cannot match.
+_ARRAY_FROM_SCRIPT_RE = re.compile(rf"^[^\n#]*\bpackages\b[^\n#]*{re.escape(_SCRIPT_INVOCATION)}", re.MULTILINE)
 
 gen = load_script("generate_pyproject", _GEN_PATH)
 
@@ -118,6 +151,12 @@ def _packages() -> dict[str, dict[str, Any]]:
 def _config_published() -> list[str]:
     """Distribution names flagged ``published = true``, in config order."""
     return [name for name, cfg in _packages().items() if cfg.get("published")]
+
+
+def _dotted_path(pkg_name: str) -> str:
+    """Dotted import path of a configured package."""
+    path: str = _packages()[pkg_name]["path"]
+    return path.replace("/", ".")
 
 
 def _published_children() -> list[str]:
@@ -153,6 +192,14 @@ def _cli(monkeypatch: pytest.MonkeyPatch, cwd: Path, argv: list[str]) -> Callabl
     return main
 
 
+def _cli_exit_code(monkeypatch: pytest.MonkeyPatch, cwd: Path, argv: list[str]) -> int:
+    """Run the CLI and return its exit code, treating an argparse ``SystemExit`` as that code."""
+    try:
+        return _cli(monkeypatch, cwd, argv)()
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else 1
+
+
 def _cli_lines(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], argv: list[str]) -> list[str]:
     """Run the CLI in-process from the repo root and return its non-empty output lines."""
     exit_code = _cli(monkeypatch, _REPO_ROOT, argv)()
@@ -171,12 +218,39 @@ def _tox_block(env_name: str) -> str:
     return match.group(1)
 
 
+def _workflow_build_step() -> str:
+    """Body of the ``run:`` block of the release workflow's build step."""
+    match = re.search(
+        rf"^(?P<indent>\s*)- name: {re.escape(_BUILD_STEP)}\n(?P<body>.*?)(?=^(?P=indent)- name:|\Z)",
+        _RELEASE_WORKFLOW.read_text(),
+        re.MULTILINE | re.DOTALL,
+    )
+    assert match is not None, f".github/workflows/release.yaml has no '- name: {_BUILD_STEP}' step"
+    _, separator, run_block = match.group("body").partition("run: |\n")
+    assert separator, f".github/workflows/release.yaml step '{_BUILD_STEP}' has no 'run: |' block"
+    return run_block
+
+
+def _generated(pkg_name: str, packages: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Parsed pyproject document the generator emits for a package under the given config."""
+    shared = _load_toml(_SHARED_CONFIG)
+    content: str = gen.generate_pyproject(pkg_name, packages[pkg_name], shared, packages)
+    return tomllib.loads(content)
+
+
+def _wheel_packages(pkg_name: str, packages: dict[str, dict[str, Any]]) -> list[str]:
+    """``[tool.setuptools] packages`` the generator emits for a package under the given config."""
+    listed: list[str] = _generated(pkg_name, packages)["tool"]["setuptools"]["packages"]
+    assert listed, (
+        f"the generator discovered no modules for {pkg_name}; its paths are relative to the working "
+        "directory, so run pytest from the repository root"
+    )
+    return listed
+
+
 def _generated_data_operations() -> dict[str, Any]:
     """Parsed pyproject document the generator emits for the data-operations base package."""
-    shared = _load_toml(_SHARED_CONFIG)
-    packages = _packages()
-    content: str = gen.generate_pyproject(_DATA_OPERATIONS, packages[_DATA_OPERATIONS], shared, packages)
-    return tomllib.loads(content)
+    return _generated(_DATA_OPERATIONS, _packages())
 
 
 def _committed_data_operations() -> dict[str, Any]:
@@ -186,11 +260,15 @@ def _committed_data_operations() -> dict[str, Any]:
     return _load_toml(pyproject_path)
 
 
+def _entries_under(listed: list[str], dotted: str) -> list[str]:
+    """Entries of a ``[tool.setuptools] packages`` list that sit at or below a dotted path."""
+    return [entry for entry in listed if entry == dotted or entry.startswith(dotted + ".")]
+
+
 def _leaked_child_packages(listed: list[str]) -> list[str]:
     """Entries of a ``[tool.setuptools] packages`` list that belong to a published child package."""
-    packages = _packages()
-    children = [packages[name]["path"].replace("/", ".") for name in _published_children()]
-    return [entry for entry in listed if any(entry == child or entry.startswith(child + ".") for child in children)]
+    children = [_dotted_path(name) for name in _published_children()]
+    return sorted({entry for child in children for entry in _entries_under(listed, child)})
 
 
 def test_config_declares_a_published_set() -> None:
@@ -221,6 +299,8 @@ def test_published_flag_marks_exactly_the_released_distributions() -> None:
 def test_bundle_only_packages_are_not_published() -> None:
     """Example and demo packages ship inside the bundle wheels, never as standalone distributions."""
     packages = _packages()
+    missing = [name for name in _BUNDLE_ONLY if name not in packages]
+    assert missing == [], f"config/packages.toml no longer declares bundle-only packages {missing}"
     flagged = [name for name in _BUNDLE_ONLY if packages[name].get("published")]
     assert flagged == [], (
         f"config/packages.toml flags bundle-only packages {flagged} as 'published = true'; their code "
@@ -235,6 +315,29 @@ def test_published_packages_returns_the_flagged_names_in_config_order() -> None:
         f"published_packages() returned {names!r}, expected the flagged distributions in config "
         f"declaration order {_EXPECTED_PUBLISHED!r}"
     )
+
+
+def test_published_packages_rejects_a_non_boolean_flag() -> None:
+    """A truthiness test publishes on 'published = "false"', so a non-boolean flag must be rejected."""
+    packages: dict[str, dict[str, Any]] = {
+        "mloda-registry": {"description": "sandbox", "path": "mloda/registry", "published": "false"},
+    }
+
+    with pytest.raises(ValueError, match="published"):
+        _published_packages_fn()(packages)
+
+
+def test_published_packages_counts_only_a_true_flag() -> None:
+    """'published = false' and a missing flag both keep a package out of the released set."""
+    packages: dict[str, dict[str, Any]] = {
+        "mloda-registry": {"description": "sandbox", "path": "mloda/registry", "published": True},
+        "mloda-testing": {"description": "sandbox", "path": "mloda/testing", "published": False},
+        "mloda-community": {"description": "sandbox", "path": "mloda/community"},
+    }
+
+    names = _published_packages_fn()(packages)
+
+    assert names == ["mloda-registry"], f"published_packages() returned {names!r}, expected ['mloda-registry']"
 
 
 def test_cli_prints_one_distribution_per_line(
@@ -266,35 +369,64 @@ def test_cli_exits_non_zero_when_nothing_is_published(tmp_path: Path, monkeypatc
         '[packages.mloda-registry]\ndescription = "sandbox"\npath = "mloda/registry"\n'
     )
 
-    exit_code = _cli(monkeypatch, tmp_path, [])()
+    exit_code = _cli_exit_code(monkeypatch, tmp_path, [])
 
     assert exit_code != 0, "published_packages.main() must exit non-zero when no package carries 'published = true'"
 
 
+def test_cli_rejects_an_empty_pin(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """tox renders '--pin ' when MLODA_REGISTRY_VERSION is unset; bare 'name==' specifiers must not reach uv."""
+    exit_code = _cli_exit_code(monkeypatch, _REPO_ROOT, ["--pin", ""])
+    captured = capsys.readouterr()
+
+    assert exit_code != 0, (
+        f"'python {_SCRIPT_INVOCATION} --pin ' exited {exit_code!r}; an empty version must be rejected "
+        "instead of printing unusable 'name==' specifiers"
+    )
+    assert "==" not in captured.out, (
+        f"'python {_SCRIPT_INVOCATION} --pin ' printed {captured.out.splitlines()[:3]}; an empty version "
+        "must produce no specifiers at all"
+    )
+    assert "--pin" in captured.err, (
+        f"'python {_SCRIPT_INVOCATION} --pin ' failed without naming --pin on stderr, got {captured.err!r}; "
+        "the message must say which argument is empty"
+    )
+
+
 def test_release_workflow_has_no_hardcoded_distribution_list() -> None:
-    """The build array must be generated, not typed out; the typed-out copy is what drifted."""
-    names = sorted(set(_QUOTED_DISTRIBUTION_RE.findall(_RELEASE_WORKFLOW.read_text())))
+    """The build array must be generated, not typed out in any quoting style; the copy is what drifted."""
+    names = sorted(set(_DISTRIBUTION_NAME_RE.findall(_workflow_build_step())))
     assert names == [], (
-        f".github/workflows/release.yaml still names {len(names)} distribution(s) itself, starting with "
-        f"{names[:3]}; fill 'packages=( ... )' from 'python {_SCRIPT_INVOCATION}' instead."
+        f".github/workflows/release.yaml step '{_BUILD_STEP}' names {len(names)} distribution(s) itself, "
+        f"starting with {names[:3]}; fill 'packages=( ... )' from 'python {_SCRIPT_INVOCATION}' instead."
     )
 
 
 def test_release_workflow_builds_from_the_published_script() -> None:
-    """The workflow reads the released set from the single source."""
-    assert _SCRIPT_INVOCATION in _RELEASE_WORKFLOW.read_text(), (
-        f".github/workflows/release.yaml does not invoke {_SCRIPT_INVOCATION}, so its build array is a "
-        "second copy of the released set."
+    """Naming the script in a comment proves nothing: the build array itself must be filled from it."""
+    assert _ARRAY_FROM_SCRIPT_RE.search(_workflow_build_step()) is not None, (
+        f".github/workflows/release.yaml step '{_BUILD_STEP}' does not fill its 'packages' array from "
+        f"'python {_SCRIPT_INVOCATION}', so the set it builds is a second copy of the released set."
     )
 
 
 @pytest.mark.parametrize("env_name", _TOX_PUBLISHED_ENVS)
-def test_tox_env_holds_no_pinned_distribution_list(env_name: str) -> None:
-    """tox must not re-type the released set to install it."""
-    pins = sorted(set(_PINNED_DISTRIBUTION_RE.findall(_tox_block(env_name))))
-    assert pins == [], (
-        f"tox.ini [testenv:{env_name}] still pins {len(pins)} distribution(s) by hand, starting with "
-        f"{pins[:3]}; build the list from 'python {_SCRIPT_INVOCATION} --pin ...' instead."
+def test_tox_env_names_no_distribution_itself(env_name: str) -> None:
+    """tox must not re-type the released set to install it, pinned or unpinned."""
+    names = sorted(set(_DISTRIBUTION_NAME_RE.findall(_tox_block(env_name))))
+    assert names == [], (
+        f"tox.ini [testenv:{env_name}] names {len(names)} distribution(s) by hand, starting with "
+        f"{names[:3]}; build the list from 'python {_SCRIPT_INVOCATION} --pin ...' instead."
+    )
+
+
+@pytest.mark.parametrize("pkg_name", _EXPECTED_PUBLISHED)
+def test_verify_published_imports_every_published_distribution(pkg_name: str) -> None:
+    """Installing the released set proves nothing about importing it, so every distribution needs a smoke import."""
+    dotted = _dotted_path(pkg_name)
+    assert dotted in _tox_block(_VERIFY_PUBLISHED_ENV), (
+        f"tox.ini [testenv:{_VERIFY_PUBLISHED_ENV}] never imports {dotted}, so {pkg_name} is installed "
+        "from PyPI and never import-checked; add a smoke import line for it."
     )
 
 
@@ -316,6 +448,20 @@ def test_data_operations_extra_uses_the_published_children_placeholder() -> None
     )
 
 
+def test_community_example_extra_keeps_the_unpublished_example_b() -> None:
+    """example-b is unpublished but still resolvable at its last version, and tox -e verify-extras installs it."""
+    packages = _packages()
+    extra = packages[_COMMUNITY_EXAMPLE].get("optional_dependencies", {}).get("all", [])
+    assert _EXAMPLE_B in extra, (
+        f"config/packages.toml dropped {_EXAMPLE_B} from the {_COMMUNITY_EXAMPLE} 'all' extra, got "
+        f"{extra!r}; tox -e verify-extras installs that extra and imports example_b from it."
+    )
+    assert not packages[_EXAMPLE_B].get("published"), (
+        f"{_EXAMPLE_B} is flagged published; this test pins that an unpublished package may stay in a "
+        "hand-written extra, so the extra must not be converted to the published-children placeholder."
+    )
+
+
 def test_generator_expands_published_children() -> None:
     """The placeholder expands to the published packages under the package path, in config order."""
     expected = _published_children()
@@ -333,6 +479,55 @@ def test_generator_keeps_published_children_out_of_the_base_wheel() -> None:
     assert leaked == [], (
         f"the generated {_DATA_OPERATIONS} wheel would ship child packages {leaked}; expand "
         f'"{_PUBLISHED_CHILDREN}" before the exclude_paths are computed from the extras.'
+    )
+
+
+def test_unpublishing_a_child_keeps_it_out_of_the_base_wheel() -> None:
+    """'published' governs the released set, never wheel contents: a nested package stays its own wheel."""
+    packages = deepcopy(_packages())
+    assert packages[_UNPUBLISH_PROBE].pop("published", None) is not None, (
+        f"fixture assumption: {_UNPUBLISH_PROBE} carries the published flag"
+    )
+
+    leaked = _entries_under(_wheel_packages(_DATA_OPERATIONS, packages), _dotted_path(_UNPUBLISH_PROBE))
+
+    assert leaked == [], (
+        f"dropping 'published' from {_UNPUBLISH_PROBE} absorbed {leaked} into the {_DATA_OPERATIONS} "
+        "wheel; derive the wheel exclusions from the configured package layout, not from the expanded "
+        f'"{_PUBLISHED_CHILDREN}" extra, or the same modules ship in two distributions.'
+    )
+
+
+def test_shrinking_an_extra_keeps_a_configured_child_out_of_the_base_wheel() -> None:
+    """Same coupling through a hand-written extra: the example base must not absorb example-b either."""
+    packages = deepcopy(_packages())
+    extra: list[str] = packages[_COMMUNITY_EXAMPLE]["optional_dependencies"]["all"]
+    assert _EXAMPLE_B in extra, f"fixture assumption: the {_COMMUNITY_EXAMPLE} 'all' extra lists {_EXAMPLE_B}"
+    packages[_COMMUNITY_EXAMPLE]["optional_dependencies"]["all"] = [dep for dep in extra if dep != _EXAMPLE_B]
+
+    leaked = _entries_under(_wheel_packages(_COMMUNITY_EXAMPLE, packages), _dotted_path(_EXAMPLE_B))
+
+    assert leaked == [], (
+        f"dropping {_EXAMPLE_B} from the {_COMMUNITY_EXAMPLE} 'all' extra absorbed {leaked} into the "
+        f"{_COMMUNITY_EXAMPLE} wheel; a configured package nested under another package's path belongs "
+        "to its own wheel whatever the extras say."
+    )
+
+
+@pytest.mark.parametrize("bundle", _ENTRY_POINT_BUNDLES)
+def test_bundle_wheel_still_ships_every_nested_package(bundle: str) -> None:
+    """Bundles are the deliberate exception to the layout rule: they ship all nested code, published or not."""
+    packages = _packages()
+    prefix = packages[bundle]["path"] + "/"
+    nested = {name: cfg["path"].replace("/", ".") for name, cfg in packages.items() if cfg["path"].startswith(prefix)}
+    assert nested, f"fixture assumption: {bundle} has configured packages nested under {prefix}"
+
+    listed = _wheel_packages(bundle, packages)
+
+    missing = sorted(name for name, dotted in nested.items() if dotted not in listed)
+    assert missing == [], (
+        f"the generated {bundle} wheel no longer ships nested packages {missing}; a package flagged "
+        "'entry_point_bundle = true' must keep including every nested module."
     )
 
 

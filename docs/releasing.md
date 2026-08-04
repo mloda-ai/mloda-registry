@@ -16,7 +16,8 @@ workflow_dispatch → semantic-release → PyPI publish
 2. **Regenerate**: `scripts/generate_pyproject.py` updates all `pyproject.toml` files.
 3. **Commit**: version changes committed to `main`.
 4. **GitHub release**: tag created (e.g. `0.4.0`).
-5. **PyPI publish**: wheels built and uploaded.
+5. **PyPI publish**: wheels built and uploaded with `twine --skip-existing`, so a rerun
+   after a partial upload does not fail on the files that already made it.
 
 The `prepareCmd` in `.releaserc.yaml` also seds a `MLODA_REGISTRY_VERSION:<version>}`
 default into `tox.ini`. No such default remains there, so that half of the command is
@@ -39,10 +40,15 @@ It sets `MLODA_REGISTRY_VERSION` and runs three tox envs:
 
 ## Published packages
 
-The released set is the `published = true` flag in `config/packages.toml`, and nothing
-else. `scripts/published_packages.py` prints it, plain or pinned to a version; the build
-array in `.github/workflows/release.yaml` and the install lists of the `verify-published`
-and `security` tox envs are all filled from that one command, so they cannot drift apart.
+The released set is the `published = true` flag in `config/packages.toml`.
+`scripts/published_packages.py` prints it, plain or pinned to a version; the build array
+in `.github/workflows/release.yaml` and the install lists of the `verify-published` and
+`security` tox envs are all filled from that one command, so they cannot drift apart.
+`verify-published-independent` and `verify-extras` still name packages by hand, but only
+the four bundles and `mloda-community-example`, not the set as a whole.
+
+Flagging a package does not publish it: it ships with the next release run, and
+`tox -e verify-published` fails for it until that release is on PyPI.
 
 Not every package in `config/packages.toml` ships standalone: most demo and example
 packages reach users inside the `mloda-community` / `mloda-enterprise` bundle wheels
@@ -63,7 +69,7 @@ only `minor:` bumps the minor version, everything else (`feat:`, `fix:`, `docs:`
 | Secret | Purpose |
 |--------|---------|
 | `SEMANTIC_RELEASE_TOKEN` | GitHub PAT with `repo` scope |
-| `PYPI_API_TOKEN` | PyPI token (account-wide or project-scoped) |
+| `PYPI_API_TOKEN` | PyPI token (account-wide or project-scoped). A release that introduces a new distribution name needs a token that can create projects, so a project-scoped token has to be replaced or widened first |
 
 ## Build flags
 

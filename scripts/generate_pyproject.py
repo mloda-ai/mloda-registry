@@ -44,6 +44,12 @@ ENTRY_POINT_ATTRS = {
 }
 
 
+def nested_package_names(pkg_path: str, all_packages: dict[str, dict[str, Any]]) -> list[str]:
+    """Return the configured packages whose path is nested under ``pkg_path``, in config order."""
+    prefix = pkg_path.rstrip("/") + "/"
+    return [name for name, cfg in all_packages.items() if cfg["path"].startswith(prefix)]
+
+
 def compute_entry_points(
     pkg_name: str,
     pkg_config: dict[str, Any],
@@ -64,12 +70,10 @@ def compute_entry_points(
     result: dict[str, list[tuple[str, str]]] = {}
 
     if pkg_config.get("entry_point_bundle"):
-        bundle_prefix = pkg_config["path"].rstrip("/") + "/"
-        for name, cfg in all_packages.items():
+        for name in nested_package_names(pkg_config["path"], all_packages):
+            cfg = all_packages[name]
             groups = cfg.get("entry_point_groups")
             if not groups:
-                continue
-            if not cfg["path"].startswith(bundle_prefix):
                 continue
             for group in groups:
                 value = f"{cfg['path'].replace('/', '.')}.manifest:{ENTRY_POINT_ATTRS[group]}"
@@ -96,11 +100,8 @@ def expand_published_children(
     if not any(PUBLISHED_CHILDREN in deps for deps in opt_deps.values()):
         return opt_deps
 
-    prefix = pkg_config["path"].rstrip("/") + "/"
     children = [
-        name
-        for name, child_config in all_packages.items()
-        if child_config.get("published") and child_config["path"].startswith(prefix)
+        name for name in nested_package_names(pkg_config["path"], all_packages) if all_packages[name].get("published")
     ]
 
     expanded: dict[str, list[str]] = {}
@@ -221,9 +222,8 @@ def generate_pyproject(
     lines.append("")
 
     # Optional dependencies - merge defaults with package-specific.
-    # The {published_children} placeholder is expanded here, before the exclude_paths below
-    # are derived from these names: an unexpanded placeholder would ship every child package
-    # inside the base wheel.
+    # The {published_children} placeholder is expanded here, so the emitted extra names real
+    # distributions and the exclude_paths below never see the placeholder itself.
     # Skip defaults for specific packages
     skip_defaults = pkg_name in ("mloda-testing", "mloda-community", "mloda-enterprise")
     default_opt_deps = {} if skip_defaults else defaults.get("optional_dependencies", {})
@@ -264,14 +264,23 @@ def generate_pyproject(
         depth = len(pkg_path.parts)
         rel_path = "/".join([".."] * depth)
 
-        # Only exclude sub-packages that are listed in optional_dependencies
-        # Bundle packages (like mloda-community) don't have optional deps, so they include everything
+        # Wheel boundaries come from the configured layout, not from the released set: every
+        # configured package nested under this path belongs to its own wheel, published or not.
+        # Sub-packages named in optional_dependencies are excluded as well, since an extra may
+        # point at a package that is not nested. Bundle packages (entry_point_bundle = true, like
+        # mloda-community) are the deliberate exception and ship all nested code.
         optional_pkg_names = set()
         for deps in pkg_opt_deps.values():
             optional_pkg_names.update(deps)
 
-        # Map optional dependency names to their paths
-        exclude_paths = [all_packages[dep_name]["path"] for dep_name in optional_pkg_names if dep_name in all_packages]
+        excluded_pkg_names = set(optional_pkg_names)
+        if not pkg_config.get("entry_point_bundle"):
+            excluded_pkg_names |= set(nested_package_names(pkg_config["path"], all_packages))
+
+        # Map excluded package names to their paths
+        exclude_paths = sorted(
+            all_packages[dep_name]["path"] for dep_name in excluded_pkg_names if dep_name in all_packages
+        )
 
         # Discover packages from filesystem, excluding optional sub-packages
         packages = discover_packages(pkg_config["path"], exclude_paths)

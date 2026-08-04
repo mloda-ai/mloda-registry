@@ -107,15 +107,22 @@ jobs:
         run: |
           # The released set is whatever config/packages.toml flags published = true.
           # A package without the flag ships only inside the bundle wheels.
-          # An empty array is checked explicitly: set -e does not catch a failing
-          # process substitution.
+          # Capture first, check the status, then split: a process substitution hides the
+          # producer's exit status, so a script that prints two lines and then fails would
+          # build a partial release. `packages` holds the raw output until the last line
+          # splits it into the build array, because `mapfile <<< ""` yields one empty
+          # element and the emptiness check has to run on the string.
           # `--wheel --no-build-isolation` is required by the monorepo layout
           # (build needs access to parent directories).
-          mapfile -t packages < <(python scripts/published_packages.py)
-          if [ ${#packages[@]} -eq 0 ]; then
+          if ! packages=$(python scripts/published_packages.py); then
+            echo "::error ::scripts/published_packages.py failed"
+            exit 1
+          fi
+          if [ -z "$packages" ]; then
             echo "::error ::scripts/published_packages.py returned no packages to build"
             exit 1
           fi
+          mapfile -t packages <<<"$packages"
 
           mkdir -p dist
           for pkg in "${packages[@]}"; do
@@ -130,4 +137,5 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: twine upload dist/*
+        # --skip-existing keeps a rerun after a partial upload from failing on files already on PyPI.
+        run: twine upload --non-interactive --skip-existing dist/*

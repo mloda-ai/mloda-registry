@@ -35,14 +35,32 @@ def load_packages_config() -> dict[str, dict[str, Any]]:
 
 
 def published_packages(packages: dict[str, dict[str, Any]]) -> list[str]:
-    """Return the distributions flagged ``published = true``, in config order."""
-    return [name for name, pkg_config in packages.items() if pkg_config.get("published")]
+    """Return the distributions flagged ``published = true``, in config order.
+
+    Only the boolean ``true`` counts. A truthiness test would publish on any non-empty
+    value, so ``published = "false"`` is rejected instead of released.
+    """
+    names: list[str] = []
+    for name, pkg_config in packages.items():
+        flag = pkg_config.get("published")
+        if flag is None:
+            continue
+        if not isinstance(flag, bool):
+            raise ValueError(f"{name}: 'published' must be a boolean in {PACKAGES_CONFIG}, got {flag!r}")
+        if flag is True:
+            names.append(name)
+    return names
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Print the distributions published to PyPI")
     parser.add_argument("--pin", metavar="VERSION", help="Append '==VERSION' to every distribution name")
     args = parser.parse_args()
+
+    # tox renders '--pin ' when MLODA_REGISTRY_VERSION is unset; a bare 'name==' specifier
+    # reaches uv as an opaque parse error instead of naming the missing version.
+    if args.pin is not None and not args.pin.strip():
+        parser.error("--pin needs a version, got an empty value (is MLODA_REGISTRY_VERSION set?)")
 
     names = published_packages(load_packages_config())
 
