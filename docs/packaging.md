@@ -56,7 +56,7 @@ optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 |-------|----------|-------------|
 | `description` | Yes | PyPI description |
 | `path` | Yes | Package directory |
-| `published` | No | `true` marks a distribution that ships standalone on PyPI. Single source of the released set: `scripts/published_packages.py` prints it, and the release workflow, the `verify-published` and `security` tox envs and the `{published_children}` extras all read it from there. Without it a package reaches users only inside the bundle wheels. Must be a boolean; it governs the released set only, never wheel contents |
+| `published` | No | `true` ships the distribution standalone on PyPI. Single source of the released set, read through `scripts/published_packages.py`. Must be a boolean, and governs the released set only, never wheel contents |
 | `dependencies` | By convention | Runtime deps; use `"{core_dependency}"` for the mloda floor. The generator defaults it to empty rather than failing, but every package declares it |
 | `optional_dependencies` | No | Merged with defaults. The entry `"{published_children}"` expands to every published package nested under this package's path, in config order |
 | `has_readme` | No | `true` points the package at its own `README.md` |
@@ -71,9 +71,8 @@ A marker declares its whole subtree typed, including third-party distributions i
 
 - `license` from path (`mloda/enterprise/*` → proprietary, else default)
 - `packages` from filesystem (scans for `__init__.py`, excludes `tests/`, `build/`, etc.)
-- wheel boundaries from the configured layout: every configured package nested under a
-  package's path stays out of that package's wheel, published or not; `entry_point_bundle`
-  packages are the exception and ship all nested code
+- wheel boundaries from the layout: a nested package stays out of its parent's wheel,
+  published or not; `entry_point_bundle` packages ship all nested code
 
 **Default dev deps skipped for:** `mloda-testing`, `mloda-community`, `mloda-enterprise`
 
@@ -171,15 +170,12 @@ python scripts/generate_pyproject.py    # Regenerate
 1. Add to `config/packages.toml` (description, dependencies, path; for a plugin
    package also `entry_point_groups = ["mloda.feature_groups" | ...]`).
 2. For a plugin package, create `<path>/manifest.py` listing the concrete classes.
-3. If it should ship standalone on PyPI, set `published = true`. The release
-   workflow, the `verify-published` and `security` tox envs and the
-   `{published_children}` extras all derive from that flag. Two more edits are
-   required, the way `py_typed` also requires its committed marker file: the gate
-   test `tests/test_end2end/test_published_set_single_source.py` pins the expected
-   set in `_EXPECTED_PUBLISHED` (a bundle-only package goes into `_BUNDLE_ONLY`
-   instead), and every published distribution needs a smoke import line in the
-   `verify-published` tox env. The flag only takes effect at the next release, so
-   `tox -e verify-published` fails for the new package until that release is on PyPI.
+3. If it should ship standalone on PyPI, set `published = true`. Two edits follow it,
+   the way `py_typed` also needs its committed marker: the gate test
+   `tests/test_end2end/test_published_set_single_source.py` pins the expected set in
+   `_EXPECTED_PUBLISHED` (bundle-only packages go into `_BUNDLE_ONLY`), and every
+   published distribution needs a smoke import line in the `verify-published` tox env.
+   The flag takes effect at the next release, so that env fails for it until then.
 4. Regenerate and sync:
 
 ```bash

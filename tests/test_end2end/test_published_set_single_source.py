@@ -1,35 +1,14 @@
 """Tests that the set of distributions published to PyPI is declared in a single source of truth.
 
-The released set must live in exactly ONE place: a ``published = true`` flag per
-package in ``config/packages.toml``. Everywhere else it must be derived, never
-re-typed:
+The released set lives in exactly ONE place: a ``published = true`` flag per package in
+``config/packages.toml``. The release workflow, the ``verify-published`` and ``security``
+tox envs and the data-operations ``all`` extra all derive from it through
+``scripts/published_packages.py``. Re-typed copies are how five distributions reached
+three of the four and never the build array.
 
-* ``scripts/published_packages.py`` reads the flag and prints the set, plain or
-  pinned to a version.
-* ``.github/workflows/release.yaml`` fills its ``packages=( ... )`` build array
-  from that script instead of a hand-written list.
-* ``tox.ini`` builds the ``verify-published`` and ``security`` install lists from
-  the same script.
-* ``config/packages.toml`` declares the data-operations ``all`` extra as the
-  ``"{published_children}"`` placeholder, which ``scripts/generate_pyproject.py``
-  expands to the published packages nested under that path.
-
-These tests encode that contract. Re-typed copies are how five distributions
-reached three of the copies but never the build array, so
-``pip install mloda-community-data-operations[all]`` could not resolve.
-
-The flag governs the RELEASE SET only. Wheel boundaries come from the configured
-package layout: every configured package nested under another package's path stays
-out of that package's wheel, published or not. The ``entry_point_bundle`` packages
-are the deliberate exception and ship all nested code. Deriving the wheel exclusions
-from the expanded extra instead couples the two, so dropping ``published`` from a
-plugin silently absorbs its modules into the base wheel and ships them twice.
-
-The remaining tests keep the derivation honest: the "no hand-written copy" guards
-must catch bare and single-quoted names as well as pinned ones and must look at the
-build array itself rather than at a comment naming the script, and every published
-distribution must be imported by ``tox -e verify-published``, or a newly released
-plugin installs from PyPI without anyone ever importing it.
+The flag governs the released set only. Wheel boundaries come from the configured layout:
+a nested package stays out of its parent's wheel, published or not, with the
+``entry_point_bundle`` packages the deliberate exception.
 """
 
 from __future__ import annotations
@@ -62,8 +41,8 @@ _TOX_INI = _REPO_ROOT / "tox.ini"
 # The bundle distributions, always part of the released set.
 _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterprise"]
 
-# The released set, in config declaration order: the 4 bundles, the 2 examples kept for end-to-end
-# PyPI dependency-resolution coverage, and the data-operations base plus its 17 plugin packages.
+# The released set, in config order: 4 bundles, 2 examples kept for PyPI resolution coverage,
+# and the data-operations base plus its 17 plugin packages.
 _EXPECTED_PUBLISHED = [
     *_BUNDLES,
     "mloda-community-example",
@@ -104,14 +83,12 @@ _COMMUNITY_EXAMPLE = "mloda-community-example"
 
 _EXAMPLE_B = "mloda-community-example-b"
 
-# The published child whose flag the wheel-boundary tests drop to prove 'published' does not
-# control wheel contents.
+# The child whose flag the wheel-boundary tests drop.
 _UNPUBLISH_PROBE = "mloda-community-ema"
 
-# The packages flagged ``entry_point_bundle = true``: the only wheels that ship nested code.
+# The only wheels that ship nested code.
 _ENTRY_POINT_BUNDLES = ["mloda-community", "mloda-enterprise"]
 
-# The placeholder config/packages.toml uses instead of listing the nested published packages.
 _PUBLISHED_CHILDREN = "{published_children}"
 
 # The tox envs that install the released set from PyPI.
@@ -122,16 +99,13 @@ _VERIFY_PUBLISHED_ENV = "verify-published"
 
 _SCRIPT_INVOCATION = "scripts/published_packages.py"
 
-# The release workflow step that builds the wheels.
 _BUILD_STEP = "Build packages"
 
-# A distribution name written out by hand, quoted or bare, e.g. ``"mloda-community-ffill"``. The
-# leading boundary keeps the ``/tmp/mloda-verify*`` venv paths and the dotted ``mloda.community....``
-# import paths of the same tox blocks out.
+# A hand-written distribution name, quoted or bare. The leading boundary keeps the
+# ``/tmp/mloda-verify*`` paths and the dotted ``mloda.community....`` imports out.
 _DISTRIBUTION_NAME_RE = re.compile(r"(?<![\w/-])mloda-(?:registry|testing|community|enterprise)[a-z0-9-]*")
 
-# The build array filled from the script on one line, e.g.
-# ``mapfile -t packages < <(python scripts/published_packages.py)``. A comment cannot match.
+# The array filled from the script on one line. A comment cannot match.
 _ARRAY_FROM_SCRIPT_RE = re.compile(rf"^[^\n#]*\bpackages\b[^\n#]*{re.escape(_SCRIPT_INVOCATION)}", re.MULTILINE)
 
 gen = load_script("generate_pyproject", _GEN_PATH)

@@ -41,21 +41,19 @@ It sets `MLODA_REGISTRY_VERSION` and runs three tox envs:
 ## Published packages
 
 The released set is the `published = true` flag in `config/packages.toml`.
-`scripts/published_packages.py` prints it, plain or pinned to a version; the build array
-in `.github/workflows/release.yaml` and the install lists of the `verify-published` and
+`scripts/published_packages.py` prints it, plain or pinned; the build array in
+`.github/workflows/release.yaml` and the install lists of the `verify-published` and
 `security` tox envs are all filled from that one command, so they cannot drift apart.
 `verify-published-independent` and `verify-extras` still name packages by hand, but only
 the four bundles and `mloda-community-example`, not the set as a whole.
 
 Flagging a package does not publish it: it ships with the next release run, and
-`tox -e verify-published` fails for it until that release is on PyPI.
+`tox -e verify-published` fails for it until then.
 
-Not every package in `config/packages.toml` ships standalone: most demo and example
-packages reach users inside the `mloda-community` / `mloda-enterprise` bundle wheels
-instead. `mloda-community-example` and `mloda-community-example-a` are the exceptions,
-published to keep end-to-end PyPI dependency resolution covered.
-`tests/test_end2end/test_published_set_single_source.py` asserts that the flag stays the
-only copy of the set. When adding a package to it, see
+Not every package ships standalone. Most demo and example packages reach users inside the
+`mloda-community` / `mloda-enterprise` bundle wheels instead; `mloda-community-example`
+and `mloda-community-example-a` are the exceptions, published to keep end-to-end PyPI
+dependency resolution covered. When adding a package to the set, see
 [Add a new package](packaging.md#add-a-new-package).
 
 ## Commit messages
@@ -69,7 +67,7 @@ only `minor:` bumps the minor version, everything else (`feat:`, `fix:`, `docs:`
 | Secret | Purpose |
 |--------|---------|
 | `SEMANTIC_RELEASE_TOKEN` | GitHub PAT with `repo` scope |
-| `PYPI_API_TOKEN` | PyPI token (account-wide or project-scoped). A release that introduces a new distribution name needs a token that can create projects, so a project-scoped token has to be replaced or widened first |
+| `PYPI_API_TOKEN` | PyPI token (account-wide or project-scoped) |
 
 ## Build flags
 

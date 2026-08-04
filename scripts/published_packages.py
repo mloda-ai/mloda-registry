@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Print the distributions published to PyPI, read from config/packages.toml.
-
-The ``published = true`` flag in config/packages.toml is the single source of the
-released set. This script is how the release workflow and the tox envs that install
-from PyPI read it, so none of them re-types the set.
+"""Print the distributions published to PyPI, read from the ``published`` flag in config/packages.toml.
 
 Usage:
     python scripts/published_packages.py                # one distribution name per line
@@ -35,11 +31,7 @@ def load_packages_config() -> dict[str, dict[str, Any]]:
 
 
 def published_packages(packages: dict[str, dict[str, Any]]) -> list[str]:
-    """Return the distributions flagged ``published = true``, in config order.
-
-    Only the boolean ``true`` counts. A truthiness test would publish on any non-empty
-    value, so ``published = "false"`` is rejected instead of released.
-    """
+    """Return the distributions flagged ``published = true``, in config order."""
     names: list[str] = []
     for name, pkg_config in packages.items():
         flag = pkg_config.get("published")
@@ -57,14 +49,13 @@ def main() -> int:
     parser.add_argument("--pin", metavar="VERSION", help="Append '==VERSION' to every distribution name")
     args = parser.parse_args()
 
-    # tox renders '--pin ' when MLODA_REGISTRY_VERSION is unset; a bare 'name==' specifier
-    # reaches uv as an opaque parse error instead of naming the missing version.
+    # tox renders '--pin ' when MLODA_REGISTRY_VERSION is unset.
     if args.pin is not None and not args.pin.strip():
         parser.error("--pin needs a version, got an empty value (is MLODA_REGISTRY_VERSION set?)")
 
     names = published_packages(load_packages_config())
 
-    # An empty set would silently publish, verify or scan nothing at all.
+    # An empty set would silently publish, verify or scan nothing.
     if not names:
         print(f"{PACKAGES_CONFIG}: no package is flagged 'published = true'", file=sys.stderr)
         return 1

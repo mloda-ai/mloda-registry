@@ -1,11 +1,9 @@
 # Package-specific configuration for mloda-registry packages
 # Edit this file and run: python scripts/generate_pyproject.py
 #
-# published = true marks the distributions that ship standalone on PyPI. It is the
-# single source of the released set: the release workflow, the tox envs that install
-# from PyPI, the generated extras and the tests all read it, through
-# scripts/published_packages.py. A package without the flag reaches users only
-# inside the mloda-community / mloda-enterprise bundle wheels.
+# published = true is the single source of the released set, read through
+# scripts/published_packages.py. Without it a package ships only inside the
+# mloda-community / mloda-enterprise bundle wheels.
 
 [packages.mloda-registry]
 description = "Plugin discovery and search for mloda"

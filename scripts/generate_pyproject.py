@@ -29,8 +29,7 @@ HEADER = """\
 # Do not edit directly - modify config/shared.toml or config/packages.toml instead
 """
 
-# Placeholder for the published packages nested under a package's path, expanded from the
-# ``published = true`` flags in config/packages.toml (issue #345).
+# Expands to the published packages nested under a package's path. See issue #345.
 PUBLISHED_CHILDREN = "{published_children}"
 
 # Entry-point group -> manifest attribute exposing the concrete plugin classes.
@@ -90,12 +89,7 @@ def expand_published_children(
     pkg_config: dict[str, Any],
     all_packages: dict[str, dict[str, Any]],
 ) -> dict[str, list[str]]:
-    """Substitute the ``{published_children}`` placeholder in a package's optional dependencies.
-
-    The placeholder stands for every package flagged ``published = true`` whose path is nested
-    under this package's path, in config order, so an extra listing the released children is
-    derived from that flag instead of re-typed.
-    """
+    """Substitute ``{published_children}`` in a package's optional dependencies, in config order."""
     opt_deps: dict[str, list[str]] = pkg_config.get("optional_dependencies", {})
     if not any(PUBLISHED_CHILDREN in deps for deps in opt_deps.values()):
         return opt_deps
@@ -221,9 +215,7 @@ def generate_pyproject(
     lines.append(f'requires-python = "{shared["project"]["requires-python"]}"')
     lines.append("")
 
-    # Optional dependencies - merge defaults with package-specific.
-    # The {published_children} placeholder is expanded here, so the emitted extra names real
-    # distributions and the exclude_paths below never see the placeholder itself.
+    # Optional dependencies - merge defaults with package-specific
     # Skip defaults for specific packages
     skip_defaults = pkg_name in ("mloda-testing", "mloda-community", "mloda-enterprise")
     default_opt_deps = {} if skip_defaults else defaults.get("optional_dependencies", {})
@@ -264,20 +256,13 @@ def generate_pyproject(
         depth = len(pkg_path.parts)
         rel_path = "/".join([".."] * depth)
 
-        # Wheel boundaries come from the configured layout, not from the released set: every
-        # configured package nested under this path belongs to its own wheel, published or not.
-        # Sub-packages named in optional_dependencies are excluded as well, since an extra may
-        # point at a package that is not nested. Bundle packages (entry_point_bundle = true, like
-        # mloda-community) are the deliberate exception and ship all nested code.
-        optional_pkg_names = set()
-        for deps in pkg_opt_deps.values():
-            optional_pkg_names.update(deps)
-
-        excluded_pkg_names = set(optional_pkg_names)
+        # Wheel boundaries come from the configured layout, not the released set: a nested
+        # package belongs to its own wheel, published or not. Optional deps are excluded too,
+        # since an extra may name a package that is not nested. Bundles ship all nested code.
+        excluded_pkg_names = {dep for deps in pkg_opt_deps.values() for dep in deps}
         if not pkg_config.get("entry_point_bundle"):
             excluded_pkg_names |= set(nested_package_names(pkg_config["path"], all_packages))
 
-        # Map excluded package names to their paths
         exclude_paths = sorted(
             all_packages[dep_name]["path"] for dep_name in excluded_pkg_names if dep_name in all_packages
         )
