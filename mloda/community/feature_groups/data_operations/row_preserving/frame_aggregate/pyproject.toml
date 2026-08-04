@@ -2,7 +2,7 @@
 # Do not edit directly - modify config/shared.toml or config/packages.toml instead
 
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0.1"]
 build-backend = "setuptools.build_meta"
 
 [project]

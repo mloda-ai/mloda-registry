@@ -12,19 +12,17 @@ Bundle packages (``mloda-community`` / ``mloda-enterprise``) aggregate the entry
 points of every nested plugin package under their path.
 
 Both the generator and the ``scripts/verify_builds.py`` script live as loose
-scripts (not installed packages), so they are loaded here by file path using the
-same ``importlib.util`` pattern as ``test_generate_pyproject_guards.py``.
+scripts (not installed packages), so they are loaded here by file path through
+``tests.script_loader``.
 """
 
 from __future__ import annotations
 
 import importlib
-import importlib.util
 import inspect
 import re
 import sys
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 if sys.version_info >= (3, 11):
@@ -37,6 +35,8 @@ import pytest
 from mloda.core.abstract_plugins.compute_framework import ComputeFramework
 from mloda.core.abstract_plugins.feature_group import FeatureGroup
 from mloda.core.abstract_plugins.function_extender import Extender
+
+from tests.script_loader import load_script
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
@@ -54,17 +54,8 @@ _VALUE_PATTERN = re.compile(
 )
 
 
-def _load_module(name: str, path: Path) -> ModuleType:
-    """Import a loose script by file path."""
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None, f"could not load spec for {path}"
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-gen = _load_module("generate_pyproject", _GEN_PATH)
-vb = _load_module("verify_builds", _VERIFY_BUILDS_PATH)
+gen = load_script("generate_pyproject", _GEN_PATH)
+vb = load_script("verify_builds", _VERIFY_BUILDS_PATH)
 
 
 def _generate(pkg_name: str) -> str:

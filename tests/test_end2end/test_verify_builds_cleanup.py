@@ -4,14 +4,14 @@ source tree no longer has."""
 
 from __future__ import annotations
 
-import importlib.util
 import shutil
 from collections.abc import Callable
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
+
+from tests.script_loader import load_script
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _VERIFY_BUILDS_PATH = _REPO_ROOT / "scripts" / "verify_builds.py"
@@ -19,17 +19,7 @@ _VERIFY_BUILDS_PATH = _REPO_ROOT / "scripts" / "verify_builds.py"
 # Configured package paths that get a stale build/ tree in the fake workspace.
 _STALE_BUILD_PACKAGES = ["mloda/registry", "mloda/community", "mloda/testing"]
 
-
-def _load_module(name: str, path: Path) -> ModuleType:
-    """Import a loose script by file path."""
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None, f"could not load spec for {path}"
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-vb = _load_module("verify_builds", _VERIFY_BUILDS_PATH)
+vb = load_script("verify_builds", _VERIFY_BUILDS_PATH)
 
 
 def _cleanup_build_dirs() -> Callable[[], int]:
