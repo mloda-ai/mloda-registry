@@ -32,7 +32,9 @@ scripts/generate_pyproject.py
 
 Single source for values every package shares. `core_dependency` is substituted
 into any `{core_dependency}` placeholder in `packages.toml`, so the mloda floor
-is declared once.
+is declared once. The `[build-system]` setuptools floor tracks the PEP 639 SPDX
+`license` string the generator emits (accepted only from setuptools 77.0.1 on),
+so it cannot be lowered without changing that form.
 
 ```toml
 [project]

@@ -40,6 +40,11 @@ def load_packages_from_config() -> list[tuple[str, str]]:
 PACKAGES = load_packages_from_config()
 
 
+def wheel_glob(pkg_name: str, version: str) -> str:
+    """Glob for one distribution's wheel; the '-' after the name excludes prefix siblings sharing the out-dir."""
+    return f"{pkg_name.replace('-', '_')}-{version}-*.whl"
+
+
 def namespaced_entry_point_error(group: str, name: str, value: str) -> str | None:
     """Return an error message if an entry-point target is not a valid namespaced manifest, else None."""
     if ":" not in value:
@@ -338,9 +343,10 @@ def main() -> int:
                 continue
 
             # Find and verify wheel
-            wheels = list(Path(tmpdir).glob(f"{pkg_name.replace('-', '_')}*.whl"))
+            pattern = wheel_glob(pkg_name, expected_version)
+            wheels = list(Path(tmpdir).glob(pattern))
             if not wheels:
-                errors.append(f"{pkg_name}: no wheel produced")
+                errors.append(f"{pkg_name}: no wheel produced (nothing in the out-dir matched {pattern})")
                 continue
 
             if not verify_wheel_version(wheels[0], expected_version):
