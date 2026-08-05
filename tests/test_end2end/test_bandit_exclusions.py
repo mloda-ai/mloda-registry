@@ -1,10 +1,13 @@
-"""The bandit gate (``bandit -c pyproject.toml -r -q .``) must scan scripts/verify_builds.py and
-scripts/verify_build_floor.py. Bandit applies each [tool.bandit] exclude_dirs entry both as an
-fnmatch glob and as a plain substring of the full path, so a bare entry like "build" silently drops
-every path containing that substring while genuine artifact directories must stay excluded."""
+"""The bandit gate in tox.ini must scan scripts/verify_builds.py and scripts/verify_build_floor.py.
+Bandit applies each exclusion entry both as an fnmatch glob and as a plain substring of the full
+path, so a bare entry like "build" silently drops every path containing that substring, while genuine
+artifact directories must stay excluded. The gate therefore passes an explicit -x glob list: without
+one, bandit appends its built-in defaults (.svn, CVS, .eggs, ...) bare."""
 
 from __future__ import annotations
 
+import configparser
+import shlex
 import sys
 from pathlib import Path
 from typing import Any
@@ -21,9 +24,7 @@ from bandit.core import manager as b_manager
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
-
-# bandit/cli/main.py passes this -x/--exclude default into discover_files on top of exclude_dirs.
-_CLI_DEFAULT_EXCLUDES = ",".join(b_constants.EXCLUDE)
+_TOX_INI = _REPO_ROOT / "tox.ini"
 
 # The real-world artifact the "build" entry exists for: setuptools mirrors sources into build/lib.
 _NESTED_BUILD_ARTIFACT = (
@@ -45,12 +46,55 @@ _ARTIFACT_PATHS = [
     "attribution/report.py",
 ]
 
+# One synthetic lookalike per bandit built-in default: the name occurs only as a substring of a
+# path component, never as a component itself.
+_DEFAULT_NAME_LOOKALIKES = {
+    ".svn": "mloda/pkg.svnx/module.py",
+    "CVS": "mloda/tools/CVS_reader.py",
+    ".bzr": "mloda/pkg.bzrx/module.py",
+    ".hg": "mloda/pkg.hgx/module.py",
+    ".git": ".github/scripts/module.py",
+    "__pycache__": "mloda/__pycache__x/module.py",
+    ".tox": "mloda/pkg.toxic/module.py",
+    ".eggs": "mloda/data.eggs_reader/module.py",
+    "*.egg": "mloda/pkg.egg_helper/module.py",
+}
+
+# Genuine default-named artifact directories the gate excludes must keep out of the scan.
+_DEFAULT_NAMED_ARTIFACT_PATHS = [
+    ".git/hooks/update.py",
+    "mloda/.svn/text-base/module.py",
+    "CVS/module.py",
+    "mloda/CVS/module.py",
+    "mloda/.hg/store/module.py",
+    "mloda/.bzr/checkout/module.py",
+    ".eggs/pytest_runner-6.0.0/setup.py",
+    "mloda/pkg/foo.egg/module.py",
+]
+
+
+def _gate_cli_excludes() -> str:
+    """The comma-separated -x exclusion list the tox.ini bandit gate passes."""
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read(_TOX_INI)
+    for line in parser["testenv"]["commands"].splitlines():
+        tokens = shlex.split(line)
+        if not tokens or tokens[0] != "bandit":
+            continue
+        if "-x" in tokens[:-1]:
+            return tokens[tokens.index("-x") + 1]
+        pytest.fail(
+            "the tox.ini bandit gate passes no explicit -x, so bandit appends its built-in default "
+            "excludes bare and drops any path merely containing one as a substring"
+        )
+    pytest.fail("no bandit command found in tox.ini [testenv] commands")
+
 
 def _discover(targets: list[str], config_file: Path | None) -> Any:
     """BanditManager after file discovery, wired exactly like the CLI gate."""
     conf = b_config.BanditConfig(config_file=str(config_file)) if config_file else b_config.BanditConfig()
     mgr = b_manager.BanditManager(conf, "file")
-    mgr.discover_files(targets, True, _CLI_DEFAULT_EXCLUDES)
+    mgr.discover_files(targets, True, _gate_cli_excludes())
     return mgr
 
 
@@ -125,3 +169,35 @@ def test_build_output_exclusion_comes_from_the_pyproject_config(monkeypatch: pyt
         f"{target} is already excluded without the pyproject config; this guard no longer proves the "
         "config carries the build-output exclusion"
     )
+
+
+def test_effective_exclusions_are_globs_not_bare_substrings() -> None:
+    """Every effective exclusion entry must contain a "*" so bandit's substring branch stays inert."""
+    entries = _configured_exclude_dirs() + _gate_cli_excludes().split(",")
+    bare = [entry for entry in entries if "*" not in entry]
+    assert not bare, f"bare exclusion entries substring-match every path containing them: {bare}"
+
+
+def test_paths_merely_containing_a_default_name_stay_scanned(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A path containing a bandit default name only as a substring must still be scanned."""
+    monkeypatch.chdir(_REPO_ROOT)
+    assert set(_DEFAULT_NAME_LOOKALIKES) == set(b_constants.EXCLUDE), (
+        "bandit's built-in default exclude list changed; update _DEFAULT_NAME_LOOKALIKES and mirror "
+        "the new name as anchored globs in the tox.ini bandit -x list"
+    )
+    targets = [form for path in _DEFAULT_NAME_LOOKALIKES.values() for form in (path, "./" + path)]
+    mgr = _discover(targets, _PYPROJECT)
+    dropped = set(targets) & set(mgr.excluded_files)
+    assert not dropped, f"paths merely containing a default name were dropped from the scan: {sorted(dropped)}"
+    missing = {"./" + target for target in targets} - set(mgr.files_list)
+    assert not missing, f"lookalike paths never landed in the scan list: {sorted(missing)}"
+
+
+def test_default_named_artifact_paths_stay_excluded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Genuine VCS and egg artifact directories must stay out of the scan under the gate excludes."""
+    monkeypatch.chdir(_REPO_ROOT)
+    targets = [form for path in _DEFAULT_NAMED_ARTIFACT_PATHS for form in (path, "./" + path)]
+    mgr = _discover(targets, _PYPROJECT)
+    for path in targets:
+        assert path in mgr.excluded_files, f"{path} is a default-named artifact path and must stay excluded"
+    assert not mgr.files_list, f"default-named artifact paths leaked into the scan: {mgr.files_list}"
