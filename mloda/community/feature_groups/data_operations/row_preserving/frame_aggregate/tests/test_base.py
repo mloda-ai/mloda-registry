@@ -7,9 +7,11 @@ from typing import Any
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.provider import DefaultOptionKeys
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.user import DataType, Feature
 
+from mloda.community.feature_groups.data_operations.base import always_required
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
     _AGGREGATION_TYPES,
@@ -145,6 +147,27 @@ class TestPatternMatching:
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
         assert result is False
 
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            "sales__sum_rolling_3",
+            "sales__avg_7_day_window",
+            "sales__cumsum",
+            "sales__expanding_avg",
+        ],
+    )
+    def test_rejects_no_order_by_every_shape(self, feature_name: str) -> None:
+        """order_by is required on every name shape, unsized cumulative and expanding frames included."""
+        options = Options(context={"partition_by": ["region"]})
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria(feature_name, options, None)
+        assert result is False, f"Name path should require order_by: {feature_name}"
+
+    def test_rejects_wrong_typed_order_by(self) -> None:
+        """order_by must be a column reference, not any scalar."""
+        options = Options(context={"partition_by": ["region"], "order_by": 123})
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
+        assert result is False
+
     def test_rejects_invalid_agg_type(self) -> None:
         options = self._base_options()
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__unknown_rolling_3", options, None)
@@ -219,6 +242,19 @@ class TestConfigBasedMatching:
                 "aggregation_type": "sum",
                 "partition_by": ["region"],
                 "order_by": "timestamp",
+            }
+        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False
+
+    def test_config_rejects_missing_order_by(self) -> None:
+        options = Options(
+            context={
+                "aggregation_type": "sum",
+                "frame_type": "rolling",
+                "frame_size": 3,
+                "in_features": "sales",
+                "partition_by": ["region"],
             }
         )
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
@@ -422,6 +458,12 @@ class TestNameBasedFrameTypeInOptions:
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__avg_7_day_window", options, None)
         assert result is True
 
+    def test_rolling_name_with_stray_time_frame_type_option(self) -> None:
+        """A time frame_type option contradicting a rolling name must not trigger config-path size/unit rules."""
+        options = Options(context={"frame_type": "time", "partition_by": ["region"], "order_by": "timestamp"})
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
+        assert result is True
+
     def test_rolling_name_with_propagated_frame_type(self) -> None:
         """A propagated frame_type must behave like a directly set one."""
         consumer = Options(context={"frame_type": "rolling"}, propagate_context_keys=frozenset({"frame_type"}))
@@ -429,6 +471,44 @@ class TestNameBasedFrameTypeInOptions:
         options.inherit_from(consumer)
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
         assert result is True
+
+
+class TestNameSuppliedFrameTypeRequiredWhen:
+    """The name supplies frame_type just like frame_size and frame_unit, so a required_when on it
+    must not fire on the name path; the config path, which has no name to supply it, still enforces it.
+    """
+
+    @staticmethod
+    def _frame_type_required() -> type[FrameAggregateFeatureGroup]:
+        class _FrameTypeRequired(FrameAggregateFeatureGroup):
+            PROPERTY_MAPPING = {
+                **FrameAggregateFeatureGroup.PROPERTY_MAPPING,
+                FrameAggregateFeatureGroup.FRAME_TYPE: {
+                    **FrameAggregateFeatureGroup.PROPERTY_MAPPING[FrameAggregateFeatureGroup.FRAME_TYPE],
+                    DefaultOptionKeys.required_when: always_required,
+                },
+            }
+
+        return _FrameTypeRequired
+
+    def test_name_path_not_rejected_by_frame_type_required_when(self) -> None:
+        """A rolling name carries its frame type, so an always-on frame_type requirement must not reject it."""
+        options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
+        result = self._frame_type_required().match_feature_group_criteria("sales__sum_rolling_3", options, None)
+        assert result is True
+
+    def test_config_path_still_enforces_frame_type(self) -> None:
+        """Control: a config feature without frame_type stays a non-match."""
+        options = Options(
+            context={
+                "aggregation_type": "sum",
+                "in_features": "sales",
+                "partition_by": ["region"],
+                "order_by": "timestamp",
+            }
+        )
+        result = self._frame_type_required().match_feature_group_criteria("my_result", options, None)
+        assert result is False
 
 
 class TestHostileInFeatures:
