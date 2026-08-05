@@ -21,6 +21,15 @@ DATA_OPERATIONS_ROOT = REPO_ROOT / "mloda" / "community" / "feature_groups" / "d
 BEGIN_MARKER = "<!-- BEGIN GENERATED: framework-support-matrix -->"
 END_MARKER = "<!-- END GENERATED: framework-support-matrix -->"
 
+#: Build artifact directory names skipped by tree walks; scripts/generate_pyproject.py excludes these too.
+ARTIFACT_DIR_PARTS = frozenset({"build", "dist", ".tox", ".venv", "__pycache__"})
+
+
+def is_artifact_path(rel_path: Path) -> bool:
+    """True when any part of *rel_path* is a build artifact directory (or an ``*.egg-info``)."""
+    return any(part in ARTIFACT_DIR_PARTS or part.endswith(".egg-info") for part in rel_path.parts)
+
+
 #: Doc column order: (framework key, doc column label).
 FRAMEWORKS: list[tuple[str, str]] = [
     ("pyarrow", "PyArrow"),
@@ -161,18 +170,20 @@ def splice_into_doc(doc_text: str, generated: str) -> str:
     return doc_text[:begin] + generated.rstrip("\n") + trailing
 
 
-def discover_operation_dirs_on_disk() -> set[str]:
+def discover_operation_dirs_on_disk(root: Path = DATA_OPERATIONS_ROOT) -> set[str]:
     """Operation directory names that carry per-framework twin test modules.
 
     A directory counts when its ``tests`` subpackage contains at least one
     ``test_<framework>.py`` file. Guards against a new data operation landing
-    on disk without a catalog entry.
+    on disk without a catalog entry. Build artifact copies are skipped.
     """
     ops: set[str] = set()
-    if not DATA_OPERATIONS_ROOT.exists():
+    if not root.exists():
         return ops
-    for tests_dir in DATA_OPERATIONS_ROOT.rglob("tests"):
+    for tests_dir in root.rglob("tests"):
         if not tests_dir.is_dir():
+            continue
+        if is_artifact_path(tests_dir.relative_to(root)):
             continue
         if not any((tests_dir / f"test_{fw_key}.py").exists() for fw_key, _label in FRAMEWORKS):
             continue
@@ -204,8 +215,30 @@ def test_operations_list_covers_every_data_operation_on_disk() -> None:
         f"OPERATIONS does not match DataOperationsCatalog.list() names: "
         f"missing={sorted(catalog_names - set(OPERATIONS))} extra={sorted(set(OPERATIONS) - catalog_names)}"
     )
-    uncovered = sorted(discover_operation_dirs_on_disk() - catalog_names)
+    on_disk = discover_operation_dirs_on_disk()
+    uncovered = sorted(on_disk - catalog_names)
     assert uncovered == [], (
         "DataOperationsCatalog is missing entries for these data-operation directories "
         "(each has test_<framework>.py twin files):\n  " + "\n  ".join(uncovered)
     )
+    unbacked = sorted(catalog_names - on_disk)
+    assert unbacked == [], (
+        "These DataOperationsCatalog entries have no twin test directories on disk (an over-broad "
+        "build-artifact skip in discover_operation_dirs_on_disk would hide them):\n  " + "\n  ".join(unbacked)
+    )
+
+
+def test_discover_operation_dirs_on_disk_counts_planted_operation(tmp_path: Path) -> None:
+    """A planted <op>/tests/test_<framework>.py twin file counts its operation directory."""
+    twin = tmp_path / "my_op" / "tests" / "test_pandas.py"
+    twin.parent.mkdir(parents=True)
+    twin.write_text("")
+    assert discover_operation_dirs_on_disk(root=tmp_path) == {"my_op"}
+
+
+def test_discover_operation_dirs_on_disk_skips_build_artifact_dirs(tmp_path: Path) -> None:
+    """A twin-file tree under build/lib is not counted as an operation directory."""
+    copy = tmp_path / "build" / "lib" / "my_op" / "tests" / "test_pandas.py"
+    copy.parent.mkdir(parents=True)
+    copy.write_text("")
+    assert discover_operation_dirs_on_disk(root=tmp_path) == set()

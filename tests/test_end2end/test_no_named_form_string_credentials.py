@@ -21,7 +21,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-_SKIP_DIRS = {"__pycache__", "site-packages", "node_modules"}
+_SKIP_DIRS = {"__pycache__", "site-packages", "node_modules", "build", "dist"}
 
 # A credentials mapping opened right after a marker: ``credentials={`` or
 # ``add_credentials({``. The captured ``{`` opens the mapping at depth 1; a
@@ -108,7 +108,7 @@ def find_named_form_string_credential_usages(root: Path) -> list[str]:
     hits: list[str] = []
     for path in list(root.rglob("*.py")) + list(root.rglob("*.md")):
         rel = path.relative_to(root)
-        if any(part.startswith(".") or part in _SKIP_DIRS for part in rel.parts):
+        if any(part.startswith(".") or part in _SKIP_DIRS or part.endswith(".egg-info") for part in rel.parts):
             continue
         if path.name == "test_no_named_form_string_credentials.py":
             continue
@@ -217,6 +217,14 @@ def test_md_prose_named_form_string_not_flagged(tmp_path: Path) -> None:
     """A named-form string credential mention only in .md prose (no fenced block) is not flagged."""
     body = "Previously credentials={'prod': 'dsn-string'} was allowed; now use a nested mapping.\n"
     _write(tmp_path / "guide.md", body)
+    assert find_named_form_string_credential_usages(tmp_path) == []
+
+
+def test_build_artifact_dirs_not_scanned(tmp_path: Path) -> None:
+    """A flaggable file under a build artifact directory is not scanned."""
+    _write(tmp_path / "build" / "lib" / "m.py", "credentials={'prod': 'dsn-string'}\n")
+    _write(tmp_path / "dist" / "m.py", "credentials={'prod': 'dsn-string'}\n")
+    _write(tmp_path / "pkg.egg-info" / "m.py", "credentials={'prod': 'dsn-string'}\n")
     assert find_named_form_string_credential_usages(tmp_path) == []
 
 

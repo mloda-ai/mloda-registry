@@ -18,7 +18,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-_SKIP_DIRS = {"__pycache__", "site-packages", "node_modules"}
+_SKIP_DIRS = {"__pycache__", "site-packages", "node_modules", "build", "dist"}
 _MARKERS = ("credentials", "DataAccessCollection", "BaseInputData")
 
 
@@ -47,7 +47,7 @@ def find_hashabledict_credential_usages(root: Path) -> list[str]:
     hits: list[str] = []
     for path in list(root.rglob("*.py")) + list(root.rglob("*.md")):
         rel = path.relative_to(root)
-        if any(part.startswith(".") or part in _SKIP_DIRS for part in rel.parts):
+        if any(part.startswith(".") or part in _SKIP_DIRS or part.endswith(".egg-info") for part in rel.parts):
             continue
         if path.name == "test_no_hashabledict_credentials.py":
             continue
@@ -137,6 +137,14 @@ def test_md_prose_credential_hashabledict_not_flagged(tmp_path: Path) -> None:
     """A HashableDict + credentials mention only in .md prose (no fenced block) is not flagged."""
     body = "Previously you passed a HashableDict as credentials; now use Credential.\n"
     _write(tmp_path / "guide.md", body)
+    assert find_hashabledict_credential_usages(tmp_path) == []
+
+
+def test_build_artifact_dirs_not_scanned(tmp_path: Path) -> None:
+    """A flaggable file under a build artifact directory is not scanned."""
+    _write(tmp_path / "build" / "lib" / "m.py", "credentials=[HashableDict({'host': 'h'})]\n")
+    _write(tmp_path / "dist" / "m.py", "credentials=[HashableDict({'host': 'h'})]\n")
+    _write(tmp_path / "pkg.egg-info" / "m.py", "credentials=[HashableDict({'host': 'h'})]\n")
     assert find_hashabledict_credential_usages(tmp_path) == []
 
 
