@@ -126,7 +126,11 @@ def discover_packages(pkg_path: str, exclude_paths: list[str] | None = None) -> 
     """
     packages: list[str] = []
     base_path = Path(pkg_path)
-    exclude_dirs = {"build", "dist", ".tox", ".venv", "__pycache__", ".egg-info", "tests"}
+    # Directories matched by exact name.
+    exclude_dirs = {"build", "dist", ".tox", ".venv", "__pycache__", "tests"}
+    # Directories matched by suffix, since real egg-info dirs are named
+    # "<package>.egg-info" and never match an exact "in pkg_dir.parts" check.
+    exclude_suffixes = (".egg-info",)
     exclude_paths = exclude_paths or []
 
     if not base_path.exists():
@@ -136,8 +140,11 @@ def discover_packages(pkg_path: str, exclude_paths: list[str] | None = None) -> 
     for init_file in base_path.rglob("__init__.py"):
         pkg_dir = init_file.parent
         pkg_dir_str = str(pkg_dir)
-        # Skip excluded directories
+        # Skip excluded directories (exact match)
         if any(excluded in pkg_dir.parts for excluded in exclude_dirs):
+            continue
+        # Skip excluded directories (suffix match, e.g. "<pkg>.egg-info")
+        if any(part.endswith(suffix) for part in pkg_dir.parts for suffix in exclude_suffixes):
             continue
         # Skip paths that are configured as separate packages
         if any(pkg_dir_str == excl or pkg_dir_str.startswith(excl + "/") for excl in exclude_paths):
