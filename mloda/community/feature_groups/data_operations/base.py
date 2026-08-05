@@ -305,12 +305,14 @@ class RejectionReasonMixin(FeatureChainParserMixin):
                 continue
             if cls._guard_accepts(guard, value):
                 continue
-            # A genuinely multi-element container of individually accepted values fails on arity
-            # alone and stays a plain non-match; a nested singleton is a real guard rejection.
+            # Multi-element with every element accepted, where a flat list is also rejected, is an
+            # arity error, so the arity is named. A nested singleton or a container-type rejection
+            # falls through as a real guard rejection; the match verdict is a plain non-match either way.
             if (
                 isinstance(value, (list, tuple, set, frozenset))
                 and len(value) > 1
                 and all(cls._guard_accepts(guard, element) for element in value)
+                and not cls._guard_accepts(guard, list(value))
             ):
                 return f"option '{key}' accepts exactly one value, got {len(value)} elements: {_safe_repr(value)}"
             guard_name = getattr(guard, "__name__", repr(guard))

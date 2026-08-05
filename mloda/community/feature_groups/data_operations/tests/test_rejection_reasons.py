@@ -14,6 +14,9 @@ from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pandas_frame_aggregate import (
     PandasFrameAggregate,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.pyarrow_point_arithmetic import (
+    PyArrowPointArithmetic,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pyarrow_scalar_arithmetic import (
     PyArrowScalarArithmetic,
 )
@@ -75,12 +78,21 @@ class TestMultiElementArityRejectionReported:
         assert reason is not None
         assert "'order_by'" in reason
         assert "exactly one" in reason
-        assert "2" in reason
+        assert "got 2 elements" in reason
 
     def test_single_element_order_by_reports_nothing(self) -> None:
         """A single-element container is an accepted singleton, so there is nothing to report."""
         options = Options(context={"in_features": "value_float", "order_by": ["ts"], "partition_by": ["region"]})
         assert PyArrowFfill._strict_validation_rejection_reason("my_result", options) is None
+
+    def test_guard_rejected_container_type_reports_the_guard_not_arity(self) -> None:
+        """A guard that rejects the container type itself must be named, not misreported as an arity failure."""
+        options = Options(context={"arithmetic_op": "add", "in_features": {("a",), ("b",)}})
+        reason = PyArrowPointArithmetic._strict_validation_rejection_reason("my_result", options)
+        assert reason is not None
+        assert "match_guard" in reason
+        assert "'in_features'" in reason
+        assert "exactly one" not in reason
 
 
 class TestMissingRequiredWhenReported:

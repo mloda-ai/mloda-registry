@@ -228,7 +228,7 @@ class TestRejectionReporting:
         assert reason is not None
         assert "'constant'" in reason
         assert "exactly one" in reason
-        assert "2" in reason
+        assert "got 2 elements" in reason
 
 
 class TestSingleColumnEnforcement:
