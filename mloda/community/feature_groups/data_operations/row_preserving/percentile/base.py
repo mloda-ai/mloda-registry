@@ -31,6 +31,11 @@ def _unit_percentile(value: object) -> float | None:
     return float(number)
 
 
+def _is_unit_interval_element(value: object) -> bool:
+    """Bare element predicate: one number in [0.0, 1.0], compared without float conversion so a huge int cannot overflow."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and 0.0 <= value <= 1.0
+
+
 class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for percentile operations that preserve row count.
 
@@ -78,7 +83,8 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         PERCENTILE: {
             "explanation": "Percentile value (float between 0.0 and 1.0)",
             DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
+            DefaultOptionKeys.strict_validation: True,
+            DefaultOptionKeys.element_validator: _is_unit_interval_element,
             DefaultOptionKeys.match_guard: is_scalar_number,
         },
         DefaultOptionKeys.in_features: {

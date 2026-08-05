@@ -156,6 +156,16 @@ class TestEmaMatchFeatureGroupCriteria:
         """Name-based: a non-pattern name without config must fail to match."""
         assert not PandasEma.match_feature_group_criteria("my_custom_result", Options())
 
+    def test_missing_order_by_does_not_match(self) -> None:
+        """Name path: a pattern name without order_by is a non-match."""
+        options = Options(context={"partition_by": ["region"]})
+        assert not PandasEma.match_feature_group_criteria("value_float__ema_2", options)
+
+    def test_config_path_missing_order_by_does_not_match(self) -> None:
+        """Config path: a config feature without order_by stays a non-match."""
+        options = Options(context={"in_features": "value_float", "partition_by": ["region"]})
+        assert not PandasEma.match_feature_group_criteria("my_result", options, None)
+
 
 class TestEmaRejectionRouting:
     """EMA must fail loudly rather than emulate, via two distinct paths.

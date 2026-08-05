@@ -50,7 +50,7 @@ Supported operations are `add`, `subtract`, `multiply`, and `divide`. The consta
 
 The source column must be numeric; passing a string or boolean column raises `ValueError` at validation.
 
-`constant` carries `strict_validation=False` on its `PROPERTY_MAPPING` entry so that pattern-only matches (`value_int__add_constant`) succeed without it; the missing-constant check then fires at compute time with a clear error. This lets feature names compose into chains before the constant is bound.
+`constant` is strict on its `PROPERTY_MAPPING` entry with an element validator, so a mistyped value on a config-style feature is reported as a rejection reason in the resolution error. A pattern match skips property validation, so `value_int__add_constant` still matches without a constant and feature names compose into chains before the constant is bound; the missing-constant check then fires at compute time with a clear error.
 
 Type semantics across backends:
 
