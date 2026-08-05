@@ -10,12 +10,15 @@ Exit code: 1 if any floored pair fails to install or its import surface fails to
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import re
 import subprocess  # nosec
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 from typing import Any, NamedTuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -41,18 +44,23 @@ def _normalize(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def _import_modules(path: str) -> tuple[str, ...]:
-    """The dotted package root, plus its base module when <path>/base.py exists in the checkout."""
-    root = path.replace("/", ".")
-    # Most leaf __init__.py files are empty and the cross-package imports live in the leaf's base
-    # module, so importing only the root is vacuous. Resolve against the checkout, never the cwd.
-    if (REPO_ROOT / path / "base.py").exists():
-        return (root, f"{root}.base")
-    return (root,)
+def _load_sibling(name: str) -> ModuleType:
+    """Load a sibling scripts/ module by file path, so an arbitrary cwd cannot break the import."""
+    path = Path(__file__).resolve().parent / f"{name}.py"
+    if not path.exists():
+        raise ImportError(f"{path} is missing; {Path(__file__).name} derives its checks from it")
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"could not load spec for {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def internal_floor_pairs(packages: dict[str, dict[str, Any]]) -> list[FloorPair]:
     """Pairs of every published package whose dependency names another key of the packages table."""
+    # The single derivation point for import surfaces lives in verify_published_imports.
+    surface: Callable[[str], tuple[str, ...]] = _load_sibling("verify_published_imports").import_surface
     canonical = {_normalize(name): name for name in packages}
     pairs: list[FloorPair] = []
     for pkg_name, pkg_config in packages.items():
@@ -70,7 +78,7 @@ def internal_floor_pairs(packages: dict[str, dict[str, Any]]) -> list[FloorPair]
             floor_match = FLOOR_RE.search(requirement)
             if floor_match is None:
                 raise ValueError(f"{pkg_name}: in-repo dependency {dependency!r} declares no '>=' floor")
-            modules = _import_modules(str(pkg_config["path"]))
+            modules = surface(str(pkg_config["path"]))
             pairs.append(FloorPair(pkg_name, dep_name, floor_match.group(1), modules))
     return pairs
 
