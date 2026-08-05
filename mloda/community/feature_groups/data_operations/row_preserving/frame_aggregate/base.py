@@ -18,6 +18,7 @@ from mloda.community.feature_groups.data_operations.base import (
     FRAME_TYPE as _FRAME_TYPE_KEY,
     FRAME_UNIT as _FRAME_UNIT_KEY,
     RejectionReasonMixin,
+    always_required,
     column_ref_value,
     is_column_ref,
     is_in_features_value,
@@ -262,6 +263,7 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
             DefaultOptionKeys.context: True,
             DefaultOptionKeys.strict_validation: False,
             DefaultOptionKeys.match_guard: is_column_ref,
+            DefaultOptionKeys.required_when: always_required,
         },
         MASK_KEY: {
             "explanation": "Conditional mask: (column, operator, value) tuple or list of tuples",
@@ -330,9 +332,9 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
         property_mapping: dict[str, Any] | None,
         options: Options,
     ) -> bool:
-        # A frame name carries its own size and unit, so the conditional requirements are config-path only.
-        if cls._parse_frame_feature(str(feature_name)) is not None:
-            return True
+        # A frame name carries its own size and unit; order_by stays required on every path.
+        if property_mapping is not None and cls._parse_frame_feature(str(feature_name)) is not None:
+            property_mapping = {k: v for k, v in property_mapping.items() if k not in (cls.FRAME_SIZE, cls.FRAME_UNIT)}
         return super()._validate_required_when(result, feature_name, prefix_patterns, property_mapping, options)
 
     @classmethod
@@ -344,9 +346,8 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
     ) -> bool:
         """Extend the declaration-driven mixin match with per-subclass capability and shape checks.
 
-        PROPERTY_MAPPING owns the value spaces (agg type, frame type, frame unit, frame size)
-        and the config-path presence rules; only what a shared class-level declaration cannot
-        express lives here.
+        PROPERTY_MAPPING owns the value spaces (agg type, frame type, frame unit, frame size) and the
+        presence rules; only what a shared class-level declaration cannot express lives here.
         """
         if not super().match_feature_group_criteria(feature_name, options, _data_access_collection):
             return False
@@ -363,9 +364,6 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
         if not isinstance(partition_by, (list, tuple)):
             return False
         if not all(isinstance(item, str) for item in partition_by):
-            return False
-
-        if not is_column_ref(options.get(cls.ORDER_BY)):
             return False
 
         return True

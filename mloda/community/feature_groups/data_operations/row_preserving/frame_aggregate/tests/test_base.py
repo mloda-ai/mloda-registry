@@ -145,6 +145,18 @@ class TestPatternMatching:
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
         assert result is False
 
+    def test_rejects_cumulative_no_order_by(self) -> None:
+        """order_by is required on every path, unsized cumulative frames included."""
+        options = Options(context={"partition_by": ["region"]})
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__cumsum", options, None)
+        assert result is False
+
+    def test_rejects_wrong_typed_order_by(self) -> None:
+        """order_by must be a column reference, not any scalar."""
+        options = Options(context={"partition_by": ["region"], "order_by": 123})
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
+        assert result is False
+
     def test_rejects_invalid_agg_type(self) -> None:
         options = self._base_options()
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__unknown_rolling_3", options, None)
@@ -219,6 +231,19 @@ class TestConfigBasedMatching:
                 "aggregation_type": "sum",
                 "partition_by": ["region"],
                 "order_by": "timestamp",
+            }
+        )
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
+        assert result is False
+
+    def test_config_rejects_missing_order_by(self) -> None:
+        options = Options(
+            context={
+                "aggregation_type": "sum",
+                "frame_type": "rolling",
+                "frame_size": 3,
+                "in_features": "sales",
+                "partition_by": ["region"],
             }
         )
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("my_result", options, None)
@@ -420,6 +445,12 @@ class TestNameBasedFrameTypeInOptions:
     def test_time_window_name_with_frame_type_option(self) -> None:
         options = Options(context={"frame_type": "time", "partition_by": ["region"], "order_by": "timestamp"})
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__avg_7_day_window", options, None)
+        assert result is True
+
+    def test_rolling_name_with_stray_time_frame_type_option(self) -> None:
+        """A stray time frame_type option on a rolling name must not demand frame_size or frame_unit."""
+        options = Options(context={"frame_type": "time", "partition_by": ["region"], "order_by": "timestamp"})
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
         assert result is True
 
     def test_rolling_name_with_propagated_frame_type(self) -> None:
