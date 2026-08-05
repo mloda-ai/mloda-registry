@@ -45,7 +45,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+import pytest
+
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import is_artifact_path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -238,18 +241,24 @@ def find_collisions(
     return collisions
 
 
-def discover_uncovered_families() -> list[str]:
-    """Dotted module paths of ``data_operations`` ``base.py`` files that define a
-    ``PREFIX_PATTERN`` but are absent from :data:`FAMILIES`."""
-    covered = {spec.module for spec in FAMILIES}
-    missing: list[str] = []
-    for base_py in DATA_OPERATIONS_ROOT.rglob("base.py"):
+def discover_family_base_modules(root: Path = DATA_OPERATIONS_ROOT, repo_root: Path = REPO_ROOT) -> set[str]:
+    """Dotted modules of every non-artifact ``base.py`` under *root* that defines a ``PREFIX_PATTERN``."""
+    modules: set[str] = set()
+    for base_py in root.rglob("base.py"):
+        rel = base_py.relative_to(repo_root)
+        if is_artifact_path(rel):
+            continue
         if not _PREFIX_DEF_RE.search(base_py.read_text()):
             continue
-        module = ".".join(base_py.relative_to(REPO_ROOT).with_suffix("").parts)
-        if module not in covered:
-            missing.append(module)
-    return sorted(missing)
+        modules.add(".".join(rel.with_suffix("").parts))
+    return modules
+
+
+def discover_uncovered_families(root: Path = DATA_OPERATIONS_ROOT, repo_root: Path = REPO_ROOT) -> list[str]:
+    """Dotted module paths of ``data_operations`` ``base.py`` files that define a
+    ``PREFIX_PATTERN`` but are absent from :data:`FAMILIES`. Build artifact copies are skipped."""
+    covered = {spec.module for spec in FAMILIES}
+    return sorted(discover_family_base_modules(root, repo_root) - covered)
 
 
 def _format_collision(collision: Collision) -> str:
@@ -539,6 +548,14 @@ def test_every_family_is_covered() -> None:
     )
 
 
+def test_every_family_module_is_discovered_on_disk() -> None:
+    missing = sorted({spec.module for spec in FAMILIES} - discover_family_base_modules())
+    assert missing == [], (
+        "These FAMILIES modules were not discovered on disk; an over-broad build-artifact skip "
+        "(is_artifact_path) would hide real family modules like this:\n  " + "\n  ".join(missing)
+    )
+
+
 # --- negative tests: prove the detectors actually fire ------------------------
 
 
@@ -578,3 +595,26 @@ def test_find_pattern_overlaps_detects_planted_overlap() -> None:
     overlaps = find_pattern_overlaps(patterns, specs)
     assert ("alpha", "col__op_zz", "beta") in overlaps
     assert all(owner != other for owner, _name, other in overlaps)
+
+
+def test_discover_uncovered_families_reports_planted_family(tmp_path: Path) -> None:
+    """A planted base.py defining a PREFIX_PATTERN under root is reported by its dotted path."""
+    base_py = tmp_path / "pkg" / "some_family" / "base.py"
+    base_py.parent.mkdir(parents=True)
+    base_py.write_text("PREFIX_PATTERN = r'__op$'\n")
+    uncovered = discover_uncovered_families(root=tmp_path / "pkg", repo_root=tmp_path)
+    assert uncovered == ["pkg.some_family.base"]
+
+
+@pytest.mark.parametrize("artifact_part", ["build", "dist", "something.egg-info", ".tox", ".venv"])
+def test_discover_uncovered_families_skips_build_artifact_dirs(tmp_path: Path, artifact_part: str) -> None:
+    """A base.py copy under a build artifact directory is not reported alongside the real module."""
+    body = "PREFIX_PATTERN = r'__op$'\n"
+    real = tmp_path / "pkg" / "some_family" / "base.py"
+    real.parent.mkdir(parents=True)
+    real.write_text(body)
+    copy = tmp_path / "pkg" / "some_family" / artifact_part / "lib" / "pkg" / "some_family" / "base.py"
+    copy.parent.mkdir(parents=True)
+    copy.write_text(body)
+    uncovered = discover_uncovered_families(root=tmp_path / "pkg", repo_root=tmp_path)
+    assert uncovered == ["pkg.some_family.base"]

@@ -50,7 +50,7 @@ namespaces = true
 [tool.pytest.ini_options]
 testpaths = ["tests", "mloda/**/tests"]
 pythonpath = ["."]
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib --ignore-glob=*/build/* --ignore-glob=*/dist/*"
 filterwarnings = [
     "error:The behavior of DataFrame concatenation with empty or all-NA entries:FutureWarning",
     "error:Mean of empty slice:RuntimeWarning",
