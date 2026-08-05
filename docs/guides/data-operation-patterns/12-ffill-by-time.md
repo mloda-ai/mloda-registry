@@ -58,6 +58,24 @@ Ordering ties matter only when two rows in a partition share an `order_by` value
 
 ---
 
+## Chained names
+
+A chained name writes the child inline: `price__ffill__ema_10` builds `price__ffill` as its own input feature. Context options stay local, so the child never receives `order_by` or `partition_by` and fails resolution, with the missing key named in the error. List the keys in `propagate_context_keys` to send them down the chain (group options propagate too, but they affect feature hashing and splitting).
+
+```python
+Feature(
+    "price__ffill__ema_10",
+    Options(
+        context={"order_by": "ts", "partition_by": ["symbol"]},
+        propagate_context_keys=frozenset({"order_by", "partition_by"}),
+    ),
+)
+```
+
+See [Context Propagation](../feature-group-patterns/11-options.md#context-propagation).
+
+---
+
 ## Related
 
 - [Row-preserving contract](02-row-preserving-contract.md) - Output row count and order must match input.

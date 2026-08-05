@@ -7,12 +7,12 @@ from typing import Any
 from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 from mloda.community.feature_groups.data_operations.base import (
+    RejectionReasonMixin,
     is_op_token,
     is_positive_int,
     op_token_value,
@@ -25,7 +25,7 @@ BINNING_OPS = {
 }
 
 
-class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+class BinningFeatureGroup(RejectionReasonMixin, FeatureGroup):
     PREFIX_PATTERN = r".*__(bin|qbin)_[1-9]\d*$"
 
     MIN_IN_FEATURES = 1

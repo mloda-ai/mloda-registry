@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import Any
 
 import pyarrow as pa
+import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
@@ -90,6 +91,24 @@ class TestResampleIntegration:
 
         col = table.column(name).to_pylist()
         assert sorted(col) == _COUNT_SORTED
+
+
+class TestChainedNameDropsContext:
+    """A chained resample name drops context keys on the child; the error must name time_column."""
+
+    def test_chained_child_missing_time_column_named_in_resolution_error(self) -> None:
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowResample})
+        feature = Feature(
+            "value_float__resample_1_hour_mean__resample_2_hour_sum",
+            options=Options(context={"time_column": "timestamp"}),
+        )
+
+        with pytest.raises(ValueError, match=r"required option 'time_column'"):
+            mloda.run_all(
+                [feature],
+                compute_frameworks={PyArrowTable},
+                plugin_collector=plugin_collector,
+            )
 
 
 class TestResampleMatchFeatureGroupCriteria:

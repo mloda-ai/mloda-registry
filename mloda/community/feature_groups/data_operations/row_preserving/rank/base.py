@@ -7,13 +7,13 @@ from typing import Any
 from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 from mloda.community.feature_groups.data_operations.base import (
+    RejectionReasonMixin,
     column_ref_value,
     is_column_ref,
     is_in_features_value,
@@ -49,7 +49,7 @@ def _is_supported_rank_type(value: object) -> bool:
     return False
 
 
-class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGroup):
+class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup):
     """Base class for rank operations that preserve row count.
 
     Rank operations assign a rank or position to each row within a

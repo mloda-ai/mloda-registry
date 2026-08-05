@@ -7,6 +7,10 @@ from collections.abc import Callable
 from enum import Enum
 from typing import Any, TypeVar
 
+from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
+from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
+from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
+from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.options import Options
 
 T = TypeVar("T")
@@ -215,3 +219,93 @@ _PARAMETRIC_SUFFIX_PATTERN = re.compile(r"[1-9][0-9]*")
 def is_parametric_suffix(suffix: str) -> bool:
     """True for the ASCII positive-integer suffix of a parametric operation token (e.g. the 4 in ntile_4)."""
     return _PARAMETRIC_SUFFIX_PATTERN.fullmatch(suffix) is not None
+
+
+# ---------------------------------------------------------------------------
+# Shared rejection-reason reporting
+# ---------------------------------------------------------------------------
+
+
+class RejectionReasonMixin(FeatureChainParserMixin):
+    """Names guard and required_when rejections that core's rejection-reason hook leaves silent."""
+
+    @classmethod
+    def _strict_validation_rejection_reason(cls, feature_name: str | FeatureName, options: Options) -> str | None:
+        reason = super()._strict_validation_rejection_reason(feature_name, options)
+        if reason is not None:
+            return reason
+        property_mapping = cls._get_property_mapping()
+        if property_mapping is None:
+            return None
+        prefix_patterns = cls._get_prefix_patterns()
+        # Only name a missing required_when key for a candidate that would otherwise match.
+        # Guard rejections need no such gate: they fire only on values that are present.
+        try:
+            matched = FeatureChainParser.match_configuration_feature_chain_parser(
+                feature_name, options, property_mapping=property_mapping, prefix_patterns=prefix_patterns
+            )
+        except ValueError:
+            matched = False
+        if matched and not cls._validate_required_when(True, feature_name, prefix_patterns, property_mapping, options):
+            key = cls._missing_required_when_key(feature_name, prefix_patterns, property_mapping, options)
+            if key is not None:
+                return (
+                    f"required option '{key}' was not provided; context options do not propagate to "
+                    f"chained input features unless listed in propagate_context_keys"
+                )
+        rejected = cls._rejected_match_guard(options, property_mapping)
+        if rejected is not None:
+            key, value, guard_name = rejected
+            return f"match_guard '{guard_name}' for option '{key}' rejected value {value!r}"
+        return None
+
+    @classmethod
+    def _missing_required_when_key(
+        cls,
+        feature_name: str | FeatureName,
+        prefix_patterns: list[str],
+        property_mapping: dict[str, Any],
+        options: Options,
+    ) -> str | None:
+        """First key whose required_when predicate fires while the effective options leave it unset."""
+        effective_options = cls._build_effective_options(str(feature_name), prefix_patterns, property_mapping, options)
+        for key, mapping_entry in property_mapping.items():
+            if not isinstance(mapping_entry, dict):
+                continue
+            predicate = mapping_entry.get(DefaultOptionKeys.required_when)
+            if predicate is None or not callable(predicate):
+                continue
+            if predicate(effective_options) and effective_options.get(key) is None:
+                return key
+        return None
+
+    @classmethod
+    def _rejected_match_guard(cls, options: Options, property_mapping: dict[str, Any]) -> tuple[str, Any, str] | None:
+        """First (key, value, guard name) whose match_guard rejects a present value for more than arity."""
+        for key, mapping_entry in property_mapping.items():
+            if not isinstance(mapping_entry, dict):
+                continue
+            guard = mapping_entry.get(DefaultOptionKeys.match_guard)
+            if guard is None:
+                continue
+            value = options.get(key)
+            if value is None:
+                continue
+            if cls._guard_accepts(guard, value):
+                continue
+            # A multi-element container of individually accepted values fails only on arity,
+            # which stays a silent non-match.
+            if isinstance(value, (list, tuple, set, frozenset)) and all(
+                cls._guard_accepts(guard, element) for element in value
+            ):
+                continue
+            return key, value, getattr(guard, "__name__", repr(guard))
+        return None
+
+    @staticmethod
+    def _guard_accepts(guard: Callable[[Any], Any], value: Any) -> bool:
+        """Run one guard, treating a raised TypeError/ValueError/AttributeError as rejection."""
+        try:
+            return bool(guard(value))
+        except (TypeError, ValueError, AttributeError):
+            return False

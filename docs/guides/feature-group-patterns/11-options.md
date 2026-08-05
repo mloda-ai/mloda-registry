@@ -115,7 +115,7 @@ A spec validates itself when it is built, so a `strict=True` `default` outside t
 When using `PROPERTY_MAPPING` with `FeatureChainParserMixin`, you can declare validation rules and conditional requirements directly on option entries:
 
 - **`element_validator`**: Validate each parsed element with a callable (requires `strict=True`). A falsy return raises `ValueError`, which the mixin turns into a non-match plus a rejection reason in the resolution error.
-- **`match_guard`**: Check the raw option value with a callable (no `strict_validation` needed). Useful for composite types like lists or dicts. A falsy return is a plain non-match, with no reason reported.
+- **`match_guard`**: Check the raw option value with a callable (no `strict_validation` needed). Useful for composite types like lists or dicts. A falsy return is a plain non-match, with no reason reported unless the feature group extends the rejection-reason hook, as the data operation families do.
 - **`required_when`**: Make an option conditionally required based on a predicate callable.
 
 For `element_validator` and membership, the spec declares the arity: `list`, `tuple`, `set` and `frozenset` unpack element-wise and identically, a `str` stays a scalar, and a `dict` is one composite value. `match_guard` still sees the raw value with its original container type.

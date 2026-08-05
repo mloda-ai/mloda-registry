@@ -143,6 +143,21 @@ class TestFfillRequiredOrderBy:
                 plugin_collector=plugin_collector,
             )
 
+    def test_missing_order_by_resolution_error_names_order_by(self) -> None:
+        """Engine level: the resolution error names the missing order_by."""
+        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowFfill})
+        feature = Feature(
+            "value_float__ffill",
+            options=Options(context={"partition_by": ["region"]}),
+        )
+
+        with pytest.raises(ValueError, match=r"required option 'order_by'"):
+            mloda.run_all(
+                [feature],
+                compute_frameworks={PyArrowTable},
+                plugin_collector=plugin_collector,
+            )
+
 
 class TestIntegrationMultipleFeatures:
     """Run multiple ffill features in a single ``run_all`` call."""
