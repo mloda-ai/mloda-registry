@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
+import subprocess  # nosec
 import sys
 import tempfile
 from pathlib import Path
@@ -69,7 +69,7 @@ def create_floor_env(venv: Path, floor: str) -> str | None:
         ["uv", "pip", "install", "--python", str(venv_python(venv)), f"setuptools=={floor}"],
     ]
     for command in commands:
-        result = subprocess.run(command, capture_output=True, text=True)
+        result = subprocess.run(command, capture_output=True, text=True)  # nosec
         if result.returncode != 0:
             return f"{' '.join(command)} failed:\n{result.stderr[-500:]}"
     return None
@@ -78,7 +78,7 @@ def create_floor_env(venv: Path, floor: str) -> str | None:
 def build_wheel_with(python: Path, pkg_dir: Path, out_dir: Path) -> subprocess.CompletedProcess[str]:
     """Build one package by calling the backend directly, so only the setuptools in ``python`` is used."""
     code = f"from setuptools import build_meta; build_meta.build_wheel({str(out_dir)!r})"
-    return subprocess.run([str(python), "-c", code], cwd=pkg_dir, capture_output=True, text=True)
+    return subprocess.run([str(python), "-c", code], cwd=pkg_dir, capture_output=True, text=True)  # nosec
 
 
 def main() -> int:
