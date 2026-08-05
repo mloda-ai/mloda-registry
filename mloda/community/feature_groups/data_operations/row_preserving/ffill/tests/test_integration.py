@@ -129,22 +129,7 @@ class TestFfillRequiredOrderBy:
         assert not PyArrowFfill.match_feature_group_criteria("my_result", options, None)
 
     def test_missing_order_by_rejected_at_discovery(self) -> None:
-        """Engine level: missing order_by fails resolution with core's generic no-feature-group error, not compute."""
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowFfill})
-        feature = Feature(
-            "value_float__ffill",
-            options=Options(context={"partition_by": ["region"]}),
-        )
-
-        with pytest.raises(ValueError, match=r"(?i)no feature group"):
-            mloda.run_all(
-                [feature],
-                compute_frameworks={PyArrowTable},
-                plugin_collector=plugin_collector,
-            )
-
-    def test_missing_order_by_resolution_error_names_order_by(self) -> None:
-        """Engine level: the resolution error names the missing order_by."""
+        """Engine level: missing order_by fails resolution, and the error names order_by, not compute."""
         plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, PyArrowFfill})
         feature = Feature(
             "value_float__ffill",

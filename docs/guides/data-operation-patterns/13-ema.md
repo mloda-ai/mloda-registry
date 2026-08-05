@@ -75,7 +75,7 @@ result = mloda.run_all(features, compute_frameworks={"PandasDataFrame"})
 
 ## Chained names
 
-A chained name writes the child inline: `price__ema_10__ema_5` builds `price__ema_10` as its own input feature. Context options stay local, so the child never receives `order_by` or `partition_by` and fails resolution, with the missing key named in the error. List the keys in `propagate_context_keys` to send them down the chain (group options propagate too, but they affect feature hashing and splitting).
+A chained name writes the child inline: `price__ema_10__ema_5` builds `price__ema_10` as its own input feature. Context options stay local, so the child receives neither `order_by` nor `partition_by`: the missing `order_by` fails resolution with the key named in the error, while a missing `partition_by` silently computes the child unpartitioned and changes the result. List the keys in `propagate_context_keys` to send them down the chain (group options propagate too, but they affect feature hashing and splitting).
 
 ```python
 Feature(

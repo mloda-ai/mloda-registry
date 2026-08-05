@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import reprlib
 from collections.abc import Callable
 from enum import Enum
 from typing import Any, TypeVar
@@ -226,6 +227,14 @@ def is_parametric_suffix(suffix: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _safe_repr(value: Any) -> str:
+    """A capped repr that never raises: a hostile __repr__ falls back to the type name."""
+    try:
+        return reprlib.repr(value)
+    except Exception:
+        return f"<unreprable {type(value).__name__}>"
+
+
 class RejectionReasonMixin(FeatureChainParserMixin):
     """Names guard and required_when rejections that core's rejection-reason hook leaves silent."""
 
@@ -238,25 +247,29 @@ class RejectionReasonMixin(FeatureChainParserMixin):
         if property_mapping is None:
             return None
         prefix_patterns = cls._get_prefix_patterns()
-        # Only name a missing required_when key for a candidate that would otherwise match.
-        # Guard rejections need no such gate: they fire only on values that are present.
+        # Both checks only fire for a candidate that would otherwise match; a non-candidate
+        # carrying a stray mistyped option stays silent.
         try:
             matched = FeatureChainParser.match_configuration_feature_chain_parser(
                 feature_name, options, property_mapping=property_mapping, prefix_patterns=prefix_patterns
             )
         except ValueError:
             matched = False
-        if matched and not cls._validate_required_when(True, feature_name, prefix_patterns, property_mapping, options):
-            key = cls._missing_required_when_key(feature_name, prefix_patterns, property_mapping, options)
-            if key is not None:
-                return (
-                    f"required option '{key}' was not provided; context options do not propagate to "
-                    f"chained input features unless listed in propagate_context_keys"
-                )
-        rejected = cls._rejected_match_guard(options, property_mapping)
-        if rejected is not None:
-            key, value, guard_name = rejected
-            return f"match_guard '{guard_name}' for option '{key}' rejected value {value!r}"
+        if matched:
+            # Whether a key is missing goes through cls._validate_required_when so subclass overrides
+            # (frame_aggregate's name-path carve-out) win; only the key lookup mirrors the base loop.
+            if not cls._validate_required_when(True, feature_name, prefix_patterns, property_mapping, options):
+                key = cls._missing_required_when_key(feature_name, prefix_patterns, property_mapping, options)
+                if key is not None:
+                    return (
+                        f"required option '{key}' was not provided; provide it in Options(context=...). "
+                        f"For a chained name, the child receives only the context keys listed in "
+                        f"propagate_context_keys"
+                    )
+            rejected = cls._rejected_match_guard(options, property_mapping)
+            if rejected is not None:
+                key, value, guard_name = rejected
+                return f"match_guard '{guard_name}' for option '{key}' rejected value {_safe_repr(value)}"
         return None
 
     @classmethod
@@ -293,10 +306,12 @@ class RejectionReasonMixin(FeatureChainParserMixin):
                 continue
             if cls._guard_accepts(guard, value):
                 continue
-            # A multi-element container of individually accepted values fails only on arity,
-            # which stays a silent non-match.
-            if isinstance(value, (list, tuple, set, frozenset)) and all(
-                cls._guard_accepts(guard, element) for element in value
+            # Only a genuinely multi-element container of individually accepted values fails on
+            # arity alone, which stays a silent non-match; a nested singleton is a real rejection.
+            if (
+                isinstance(value, (list, tuple, set, frozenset))
+                and len(value) > 1
+                and all(cls._guard_accepts(guard, element) for element in value)
             ):
                 continue
             return key, value, getattr(guard, "__name__", repr(guard))
