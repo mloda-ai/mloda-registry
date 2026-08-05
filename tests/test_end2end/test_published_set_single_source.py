@@ -35,6 +35,9 @@ _SHARED_CONFIG = _REPO_ROOT / "config" / "shared.toml"
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
 _PUBLISHED_SCRIPT = _REPO_ROOT / "scripts" / "published_packages.py"
+_IMPORTS_SCRIPT = _REPO_ROOT / "scripts" / "verify_published_imports.py"
+_INDEPENDENT_SCRIPT = _REPO_ROOT / "scripts" / "verify_independent_installs.py"
+_EXTRAS_SCRIPT = _REPO_ROOT / "scripts" / "verify_extras.py"
 _RELEASE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "release.yaml"
 _TOX_INI = _REPO_ROOT / "tox.ini"
 
@@ -97,7 +100,27 @@ _TOX_PUBLISHED_ENVS = ["verify-published", "security"]
 # The tox env that import-checks every installed distribution.
 _VERIFY_PUBLISHED_ENV = "verify-published"
 
+# The tox env that installs each top-level distribution into its own venv.
+_INDEPENDENT_ENV = "verify-published-independent"
+
+# The tox env that installs internal extras and import-checks their members.
+_EXTRAS_ENV = "verify-extras"
+
+# Every tox env that installs distributions by name; none may hand-type them.
+_TOX_DERIVED_SET_ENVS = [*_TOX_PUBLISHED_ENVS, _INDEPENDENT_ENV, _EXTRAS_ENV]
+
 _SCRIPT_INVOCATION = "scripts/published_packages.py"
+
+_IMPORTS_INVOCATION = "scripts/verify_published_imports.py"
+_INDEPENDENT_INVOCATION = "scripts/verify_independent_installs.py"
+_EXTRAS_INVOCATION = "scripts/verify_extras.py"
+
+# Each PyPI-verifying env with the config-derived script that carries its checks.
+_TOX_VERIFY_SCRIPTS = [
+    (_VERIFY_PUBLISHED_ENV, _IMPORTS_INVOCATION),
+    (_INDEPENDENT_ENV, _INDEPENDENT_INVOCATION),
+    (_EXTRAS_ENV, _EXTRAS_INVOCATION),
+]
 
 _BUILD_STEP = "Build packages"
 
@@ -133,6 +156,12 @@ def _dotted_path(pkg_name: str) -> str:
     return path.replace("/", ".")
 
 
+def _expected_surface(path: str) -> list[str]:
+    """The import surface of a package path: the dotted root plus base when the checkout ships base.py."""
+    dotted = path.replace("/", ".")
+    return [dotted, f"{dotted}.base"] if (_REPO_ROOT / path / "base.py").exists() else [dotted]
+
+
 def _published_children() -> list[str]:
     """Published packages nested under the data-operations path, in config order."""
     packages = _packages()
@@ -155,6 +184,50 @@ def _published_packages_fn() -> Callable[[dict[str, dict[str, Any]]], list[str]]
     )
     assert callable(reader), "published_packages.published_packages must be a callable"
     return reader
+
+
+def _script_fn(path: Path, attr: str, purpose: str) -> Callable[..., Any]:
+    """A callable exposed by a config-derived verify script."""
+    assert path.exists(), f"{path} is missing; it must {purpose}"
+    fn: Callable[..., Any] | None = getattr(load_script(path.stem, path), attr, None)
+    assert callable(fn), f"{path.name} must expose a callable {attr}"
+    return fn
+
+
+def _import_modules(packages: dict[str, dict[str, Any]]) -> list[str]:
+    """The smoke-import list verify_published_imports derives from a config."""
+    modules: list[str] = _script_fn(
+        _IMPORTS_SCRIPT, "import_modules", "derive one smoke import per configured package from config/packages.toml"
+    )(packages)
+    return modules
+
+
+def _top_level_distributions(packages: dict[str, dict[str, Any]]) -> list[str]:
+    """The independently installed distributions verify_independent_installs derives from a config."""
+    names: list[str] = _script_fn(
+        _INDEPENDENT_SCRIPT,
+        "top_level_distributions",
+        "derive the independently installed distributions from config/packages.toml",
+    )(packages)
+    return names
+
+
+def _probe_modules(name: str, packages: dict[str, dict[str, Any]]) -> list[str]:
+    """The modules verify_independent_installs probes after installing one distribution on its own."""
+    modules: list[str] = _script_fn(
+        _INDEPENDENT_SCRIPT,
+        "probe_modules",
+        "derive the import surface each independent install probes from config/packages.toml",
+    )(name, packages)
+    return modules
+
+
+def _internal_extra_entries(packages: dict[str, dict[str, Any]]) -> list[tuple[str, str, list[str]]]:
+    """The (package, extra, members) entries verify_extras derives from a config, normalized to tuples."""
+    entries = _script_fn(
+        _EXTRAS_SCRIPT, "internal_extra_members", "derive the internal extras to verify from config/packages.toml"
+    )(packages)
+    return [(package, extra, list(members)) for package, extra, members in entries]
 
 
 def _cli(monkeypatch: pytest.MonkeyPatch, cwd: Path, argv: list[str]) -> Callable[[], int]:
@@ -384,13 +457,13 @@ def test_release_workflow_builds_from_the_published_script() -> None:
     )
 
 
-@pytest.mark.parametrize("env_name", _TOX_PUBLISHED_ENVS)
+@pytest.mark.parametrize("env_name", _TOX_DERIVED_SET_ENVS)
 def test_tox_env_names_no_distribution_itself(env_name: str) -> None:
-    """tox must not re-type the released set to install it, pinned or unpinned."""
+    """tox must not re-type any distribution name; every installed set is derived from the config."""
     names = sorted(set(_DISTRIBUTION_NAME_RE.findall(_tox_block(env_name))))
     assert names == [], (
         f"tox.ini [testenv:{env_name}] names {len(names)} distribution(s) by hand, starting with "
-        f"{names[:3]}; build the list from 'python {_SCRIPT_INVOCATION} --pin ...' instead."
+        f"{names[:3]}; derive the list from config/packages.toml through a scripts/ helper instead."
     )
 
 
@@ -398,9 +471,197 @@ def test_tox_env_names_no_distribution_itself(env_name: str) -> None:
 def test_verify_published_imports_every_published_distribution(pkg_name: str) -> None:
     """Installing the released set proves nothing about importing it, so every distribution needs a smoke import."""
     dotted = _dotted_path(pkg_name)
-    assert dotted in _tox_block(_VERIFY_PUBLISHED_ENV), (
-        f"tox.ini [testenv:{_VERIFY_PUBLISHED_ENV}] never imports {dotted}, so {pkg_name} is installed "
-        "from PyPI and never import-checked; add a smoke import line for it."
+    assert dotted in _import_modules(_packages()), (
+        f"verify_published_imports.import_modules() never yields {dotted}, so {pkg_name} is installed "
+        "from PyPI and never import-checked."
+    )
+
+
+@pytest.mark.parametrize("pkg_name", _BUNDLE_ONLY)
+def test_verify_published_imports_every_bundle_only_package(pkg_name: str) -> None:
+    """Bundle-only code has no wheel of its own, so its smoke import is what proves the bundles carry it."""
+    dotted = _dotted_path(pkg_name)
+    assert dotted in _import_modules(_packages()), (
+        f"verify_published_imports.import_modules() never yields {dotted}, so nothing proves the bundle "
+        f"wheels carry the {pkg_name} code."
+    )
+
+
+def test_import_modules_covers_every_configured_package_in_config_order() -> None:
+    """Every configured package ships in some wheel, so its whole import surface gets a smoke import."""
+    packages = _packages()
+    expected = [module for cfg in packages.values() for module in _expected_surface(cfg["path"])]
+    modules = _import_modules(packages)
+    assert modules == expected, (
+        f"import_modules() returned {modules!r}, expected the import surface (root plus base module "
+        f"where <path>/base.py exists) of every configured package in config order {expected!r}"
+    )
+
+
+@pytest.mark.parametrize(("env_name", "script"), _TOX_VERIFY_SCRIPTS)
+def test_tox_verify_env_runs_its_config_derived_script(env_name: str, script: str) -> None:
+    """Each PyPI-verifying env invokes the config-reading script with an argument, not in a comment."""
+    invocation = re.compile(rf"^[^\n;#]*{re.escape(script)}\s+\S", re.MULTILINE)
+    assert invocation.search(_tox_block(env_name)) is not None, (
+        f"tox.ini [testenv:{env_name}] does not invoke {script} with an argument on a non-comment "
+        "line, so its checks are a hand-written copy of the configured package set."
+    )
+
+
+def test_top_level_distributions_are_the_bundles() -> None:
+    """On the real config only the bundle distributions sit at the top of the package layout."""
+    names = _top_level_distributions(_packages())
+    assert names == _BUNDLES, (
+        f"top_level_distributions() returned {names!r}, expected the bundle distributions in config order {_BUNDLES!r}"
+    )
+
+
+def test_top_level_distributions_follows_the_config() -> None:
+    """A new top-level package joins the independent installs without any hand-edited list."""
+    packages = deepcopy(_packages())
+    packages["mloda-extras"] = {"description": "sandbox", "path": "mloda/extras", "published": True}
+
+    names = _top_level_distributions(packages)
+
+    assert names == [*_BUNDLES, "mloda-extras"], (
+        f"top_level_distributions() returned {names!r}; a configured package whose path sits under no "
+        "other configured package's path must be installed independently."
+    )
+
+
+def test_top_level_distributions_never_includes_a_nested_package() -> None:
+    """A nested package is covered through its parent's install, never as an independent top-level one."""
+    packages: dict[str, dict[str, Any]] = {
+        "mloda-registry": {"description": "sandbox", "path": "mloda/registry", "published": True},
+        "mloda-registry-child": {"description": "sandbox", "path": "mloda/registry/child", "published": True},
+    }
+
+    names = _top_level_distributions(packages)
+
+    assert names == ["mloda-registry"], (
+        f"top_level_distributions() returned {names!r}; a package whose path sits under another "
+        "configured package's path is never an independent top-level install."
+    )
+
+
+def test_top_level_distributions_excludes_an_unpublished_top_level_package() -> None:
+    """Only the released set installs from PyPI, so an unpublished top-level package has no wheel to probe."""
+    packages: dict[str, dict[str, Any]] = {
+        "mloda-registry": {"description": "sandbox", "path": "mloda/registry", "published": True},
+        "mloda-sandbox": {"description": "sandbox", "path": "mloda/sandbox"},
+    }
+
+    names = _top_level_distributions(packages)
+
+    assert names == ["mloda-registry"], (
+        f"top_level_distributions() returned {names!r}; a top-level package without 'published = true' "
+        "ships no wheel, so it can never be installed independently."
+    )
+
+
+def test_top_level_distributions_keeps_a_trailing_slash_path() -> None:
+    """A trailing-slash path equals its own prefix string, so it must not exclude itself."""
+    packages: dict[str, dict[str, Any]] = {
+        "mloda-registry": {"description": "sandbox", "path": "mloda/registry/", "published": True},
+    }
+
+    names = _top_level_distributions(packages)
+
+    assert names == ["mloda-registry"], (
+        f"top_level_distributions() returned {names!r}; a package path with a trailing slash starts "
+        "with its own prefix, so the comparison must normalize the path before checking."
+    )
+
+
+def test_every_unpublished_package_is_nested_under_an_entry_point_bundle() -> None:
+    """import_modules() probes every configured package in the released venv; an unpublished package
+    only reaches that venv inside a bundle wheel, so none may sit outside every bundle path."""
+    packages = _packages()
+    bundle_prefixes = [cfg["path"] + "/" for cfg in packages.values() if cfg.get("entry_point_bundle") is True]
+    stranded = [
+        name
+        for name, cfg in packages.items()
+        if not cfg.get("published") and not any(cfg["path"].startswith(prefix) for prefix in bundle_prefixes)
+    ]
+    assert stranded == [], (
+        f"configured packages {stranded} are neither published nor nested under a package flagged "
+        "'entry_point_bundle = true'; no wheel ships their code, so the verify-published smoke "
+        "imports would fail for them."
+    )
+
+
+@pytest.mark.parametrize("bundle", _ENTRY_POINT_BUNDLES)
+def test_probe_modules_covers_every_surface_nested_under_a_bundle(bundle: str) -> None:
+    """The bundle wheels ship all nested code, so a payload-less bundle wheel must fail the probe."""
+    packages = _packages()
+    prefix = packages[bundle]["path"] + "/"
+    nested = [name for name, cfg in packages.items() if cfg["path"].startswith(prefix)]
+    assert nested, f"fixture assumption: {bundle} has configured packages nested under {prefix}"
+    expected = [module for name in [bundle, *nested] for module in _expected_surface(packages[name]["path"])]
+
+    modules = _probe_modules(bundle, packages)
+
+    assert modules == expected, (
+        f"probe_modules({bundle!r}) returned {modules!r}, expected its own import surface plus every "
+        f"nested configured package's surface in config order {expected!r}"
+    )
+
+
+def test_probe_modules_for_a_top_level_leaf_is_its_own_surface() -> None:
+    """A distribution with nothing nested under its path probes exactly its own import surface."""
+    packages = _packages()
+
+    modules = _probe_modules("mloda-registry", packages)
+
+    expected = _expected_surface(packages["mloda-registry"]["path"])
+    assert modules == expected, (
+        f"probe_modules('mloda-registry') returned {modules!r}, expected only its own import surface {expected!r}"
+    )
+
+
+def test_internal_extra_members_yields_exactly_the_internal_extras() -> None:
+    """The extras that pull in configured packages are the only ones verify-extras must exercise."""
+    entries = _internal_extra_entries(_packages())
+    expected = [
+        (_COMMUNITY_EXAMPLE, "all", ["mloda-community-example-a", _EXAMPLE_B]),
+        (_DATA_OPERATIONS, "all", _published_children()),
+    ]
+    assert entries == expected, f"internal_extra_members() yielded {entries!r}, expected exactly {expected!r}"
+
+
+def test_internal_extra_members_always_skips_the_dev_extra() -> None:
+    """The dev extra is tooling, never shipped code, so it is skipped even when it names a configured package."""
+    packages: dict[str, dict[str, Any]] = {
+        "mloda-registry": {
+            "description": "sandbox",
+            "path": "mloda/registry",
+            "published": True,
+            "optional_dependencies": {"dev": ["mloda-testing"], "all": ["mloda-testing"]},
+        },
+        "mloda-testing": {"description": "sandbox", "path": "mloda/testing", "published": True},
+    }
+
+    entries = _internal_extra_entries(packages)
+
+    assert entries == [("mloda-registry", "all", ["mloda-testing"])], (
+        f"internal_extra_members() yielded {entries!r}; the dev extra must never be verified, even when "
+        "it lists a configured package."
+    )
+
+
+def test_internal_extra_members_drops_external_names() -> None:
+    """External extras (pyarrow, pandas, ...) resolve on PyPI anyway; only internal members need the check."""
+    packages = _packages()
+    entries = _internal_extra_entries(packages)
+    stray = sorted({member for _, _, members in entries for member in members if member not in packages})
+    assert stray == [], (
+        f"internal_extra_members() yielded external names {stray} as members; only configured package "
+        "names can be import-checked through their dotted paths."
+    )
+    named = sorted({package for package, _, _ in entries})
+    assert "mloda-community-aggregation" not in named, (
+        "internal_extra_members() yielded mloda-community-aggregation, whose non-dev extras list only "
+        "external names; a package with no internal members has nothing to verify."
     )
 
 
