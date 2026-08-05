@@ -6,7 +6,7 @@ from __future__ import annotations
 import configparser
 import re
 import shutil
-import subprocess
+import subprocess  # nosec
 import sys
 import tempfile
 import zipfile
@@ -340,7 +340,7 @@ def main() -> int:
 
         for pkg_name, _ in PACKAGES:
             print(f"\nBuilding {pkg_name}...")
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 B607
                 ["uv", "build", "--package", pkg_name, "--out-dir", tmpdir, "--wheel", "--no-build-isolation"],
                 capture_output=True,
                 text=True,

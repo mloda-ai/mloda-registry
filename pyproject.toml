@@ -73,19 +73,33 @@ module = ["pyarrow.compute", "pyarrow.compute.*"]
 follow_imports = "skip"
 
 [tool.bandit]
+# Anchored globs, not bare names: bandit also substring-matches plain entries against the full path.
 exclude_dirs = [
-    "venv",
-    ".venv",
-    "migrations",
-    "__pycache__",
-    "build",
-    "dist",
-    ".devcontainer",
-    ".tox",
-    ".vscode",
-    "attribution",
+    "venv/*",
+    "*/venv/*",
+    ".venv/*",
+    "*/.venv/*",
+    "migrations/*",
+    "*/migrations/*",
+    "__pycache__/*",
+    "*/__pycache__/*",
+    "build/*",
+    "*/build/*",
+    "dist/*",
+    "*/dist/*",
+    ".devcontainer/*",
+    "*/.devcontainer/*",
+    ".tox/*",
+    "*/.tox/*",
+    ".vscode/*",
+    "*/.vscode/*",
+    "attribution/*",
+    "*/attribution/*",
     "*.egg-info",
-    "site-packages"
+    "*.egg-info/*",
+    "*/*.egg-info/*",
+    "site-packages/*",
+    "*/site-packages/*"
 ]
 skips = [
     "B101", # Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
