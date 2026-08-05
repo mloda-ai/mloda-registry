@@ -16,9 +16,24 @@ import subprocess  # nosec
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, NamedTuple
+from types import ModuleType
+from typing import Any, Callable, NamedTuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+def _load_sibling(name: str) -> ModuleType:
+    """Load another scripts/*.py module by path so we share one import_surface definition."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parent / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load sibling script {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 
 # The distribution name a PEP 508 dependency string starts with; "{core_dependency}" starts with none.
 DEP_NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
@@ -41,19 +56,14 @@ def _normalize(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def _import_modules(path: str) -> tuple[str, ...]:
-    """The dotted package root, plus its base module when <path>/base.py exists in the checkout."""
-    root = path.replace("/", ".")
-    # Most leaf __init__.py files are empty and the cross-package imports live in the leaf's base
-    # module, so importing only the root is vacuous. Resolve against the checkout, never the cwd.
-    if (REPO_ROOT / path / "base.py").exists():
-        return (root, f"{root}.base")
-    return (root,)
 
 
 def internal_floor_pairs(packages: dict[str, dict[str, Any]]) -> list[FloorPair]:
     """Pairs of every published package whose dependency names another key of the packages table."""
     canonical = {_normalize(name): name for name in packages}
+    import_surface: Callable[[str], tuple[str, ...]] = _load_sibling(
+        "verify_published_imports"
+    ).import_surface
     pairs: list[FloorPair] = []
     for pkg_name, pkg_config in packages.items():
         if pkg_config.get("published") is not True:
@@ -70,7 +80,7 @@ def internal_floor_pairs(packages: dict[str, dict[str, Any]]) -> list[FloorPair]
             floor_match = FLOOR_RE.search(requirement)
             if floor_match is None:
                 raise ValueError(f"{pkg_name}: in-repo dependency {dependency!r} declares no '>=' floor")
-            modules = _import_modules(str(pkg_config["path"]))
+            modules = import_surface(str(pkg_config["path"]))
             pairs.append(FloorPair(pkg_name, dep_name, floor_match.group(1), modules))
     return pairs
 
