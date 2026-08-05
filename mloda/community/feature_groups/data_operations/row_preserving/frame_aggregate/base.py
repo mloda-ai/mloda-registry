@@ -8,7 +8,6 @@ from typing import Any
 
 from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
@@ -18,6 +17,7 @@ from mloda.community.feature_groups.data_operations.base import (
     FRAME_SIZE as _FRAME_SIZE_KEY,
     FRAME_TYPE as _FRAME_TYPE_KEY,
     FRAME_UNIT as _FRAME_UNIT_KEY,
+    RejectionReasonMixin,
     column_ref_value,
     is_column_ref,
     is_in_features_value,
@@ -119,7 +119,7 @@ def _parse_frame_feature_cached(feature_name: str) -> dict[str, Any] | None:
     return None
 
 
-class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGroup):
+class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup):
     """Base class for frame aggregate operations that preserve row count.
 
     Frame aggregation computes an aggregate over a sliding or expanding window

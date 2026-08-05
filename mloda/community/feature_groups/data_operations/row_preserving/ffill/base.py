@@ -35,16 +35,20 @@ from typing import Any
 
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
-from mloda.community.feature_groups.data_operations.base import always_required, column_ref_value, is_column_ref
+from mloda.community.feature_groups.data_operations.base import (
+    RejectionReasonMixin,
+    always_required,
+    column_ref_value,
+    is_column_ref,
+)
 
 
-class FfillFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+class FfillFeatureGroup(RejectionReasonMixin, FeatureGroup):
     """Base class for forward-fill-by-time operations that preserve row count.
 
     ffill is a single-op operation (no op/unit matrix). All backends support it

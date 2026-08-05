@@ -99,7 +99,7 @@ PROPERTY_MAPPING supports additional capabilities that reduce boilerplate in `ma
 
 - **`allowed_values`**: The kwarg that declares a key's accepted value space; `strict=True` (the builder kwarg that sets the `strict_validation` field) makes membership enforced, and the spec validates itself at construction. See [Options: PROPERTY_MAPPING value space](11-options.md#property_mapping-value-space) and [Options: Builder `property_spec`](11-options.md#builder-property_spec).
 - **`required_when`**: Declare options that are only required under certain conditions via a predicate callable.
-- **`match_guard`**: Check the raw option value with a callable (e.g., that it is a list of strings). Does not require `strict_validation`; a falsy return is a non-match, not an error.
+- **`match_guard`**: Check the raw option value with a callable (e.g., that it is a list of strings). Does not require `strict_validation`; a falsy return is a non-match, not an error, with no reason reported unless the feature group extends the rejection-reason hook, as the data operation families do.
 - **`element_validator`**: Validate each parsed element when `strict_validation` is enabled (e.g., that it is a positive integer). A falsy return raises `ValueError`, which the mixin turns into a non-match plus a rejection reason in the resolution error.
 
 See [Feature Matching: Key Differences](14-feature-matching.md#key-differences-from-element_validator) for the comparison table and examples, and [PROPERTY_MAPPING Configuration](https://mloda-ai.github.io/mloda/in_depth/property-mapping/) for the precedence and lifecycle rules.

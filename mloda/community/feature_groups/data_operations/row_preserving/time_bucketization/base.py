@@ -39,13 +39,12 @@ from typing import Any
 
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
-from mloda.community.feature_groups.data_operations.base import is_op_token, op_token_value
+from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, is_op_token, op_token_value
 
 TIME_BUCKETIZATION_OPS: dict[str, str] = {
     "floor": "Round timestamp down to the start of the enclosing bucket",
@@ -108,7 +107,7 @@ def _parse_bucket_op(token: str) -> tuple[str, int, str]:
     return op, n, unit
 
 
-class TimeBucketizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+class TimeBucketizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
     """Base class for element-wise timestamp bucketization.
 
     Subclasses must implement ``_compute_bucket`` (the backend-specific

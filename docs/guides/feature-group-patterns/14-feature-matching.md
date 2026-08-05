@@ -252,7 +252,7 @@ Use `element_validator` to validate option values with a callable instead of che
 
 When an element validator is present, it **replaces** the `allowed_values` membership check rather than adding to it. It receives each parsed element and must return `True` if valid.
 
-A falsy return raises `ValueError`, but the mixin catches it and returns `False`, so both mechanisms end in a non-match and another candidate can still take the feature. The difference is diagnostics: if nothing matches, an `element_validator` rejection is listed as a reason in the end user's "No feature groups found" error, while a `match_guard` rejection leaves only a debug log.
+A falsy return raises `ValueError`, but the mixin catches it and returns `False`, so both mechanisms end in a non-match and another candidate can still take the feature. The difference is diagnostics: if nothing matches, an `element_validator` rejection is listed as a reason in the end user's "No feature groups found" error, while a `match_guard` rejection leaves only a debug log unless the feature group extends the rejection-reason hook, as the data operation families do (via `RejectionReasonMixin` in `mloda/community/feature_groups/data_operations/base.py`).
 
 ```python
 from mloda.provider import property_spec

@@ -80,6 +80,24 @@ The result has one row per occupied hour per symbol, not one row per input event
 
 ---
 
+## Chained names
+
+A chained name writes the child inline: `value__resample_1_hour_mean__resample_1_day_max` builds `value__resample_1_hour_mean` as its own input feature. Context options stay local, so the child never receives `time_column` and fails resolution, with the missing key named in the error. List the key in `propagate_context_keys` to send it down the chain (group options propagate too, but they affect feature hashing and splitting).
+
+```python
+Feature(
+    "value__resample_1_hour_mean__resample_1_day_max",
+    Options(
+        context={"time_column": "ts"},
+        propagate_context_keys=frozenset({"time_column"}),
+    ),
+)
+```
+
+See [Context Propagation](../feature-group-patterns/11-options.md#context-propagation).
+
+---
+
 ## Related
 
 - [Time bucketization](11-time-bucketization.md) - The row-preserving floor that resample reuses for bucket alignment.

@@ -7,10 +7,9 @@ from typing import Any
 from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.provider import DefaultOptionKeys, FeatureGroup
-from mloda.community.feature_groups.data_operations.base import is_op_token, op_token_value
+from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, is_op_token, op_token_value
 
 STRING_OPS = {
     "upper": "Convert string to uppercase",
@@ -21,7 +20,7 @@ STRING_OPS = {
 }
 
 
-class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
+class StringFeatureGroup(RejectionReasonMixin, FeatureGroup):
     """Base class for element-wise string operations that preserve row count.
 
     String operations transform a single string column element by element.

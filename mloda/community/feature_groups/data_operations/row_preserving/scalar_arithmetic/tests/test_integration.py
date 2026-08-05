@@ -318,3 +318,21 @@ class TestMistypedConstantReported:
                 compute_frameworks={PyArrowTable},
                 plugin_collector=plugin_collector,
             )
+
+
+class TestMistypedPatternConstantReported:
+    """A wrong-typed constant on a pattern name must surface as a reported guard rejection."""
+
+    def test_pattern_path_mistyped_constant_reported_in_resolution_error(self) -> None:
+        plugin_collector = PluginCollector.enabled_feature_groups(
+            {PyArrowDataOpsTestDataCreator, PyArrowScalarArithmetic}
+        )
+
+        feature = Feature("value_int__add_constant", options=Options(context={"constant": "five"}))
+
+        with pytest.raises(ValueError, match=r"match_guard.*'constant'"):
+            mloda.run_all(
+                [feature],
+                compute_frameworks={PyArrowTable},
+                plugin_collector=plugin_collector,
+            )
