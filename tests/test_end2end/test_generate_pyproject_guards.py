@@ -140,3 +140,31 @@ def test_meta_package_without_py_typed_still_generates() -> None:
 
     assert "packages = []" in content, content
     assert "package-data" not in content, content
+
+
+def test_discover_packages_excludes_real_egg_info_dirs(tmp_path: Path) -> None:
+    """A planted ``<package>.egg-info/__init__.py`` must not be discovered as a package.
+
+    ``discover_packages`` excluded directories via an exact-part match
+    against the literal string ``".egg-info"``. Real egg-info directories are
+    named ``<package>.egg-info`` (e.g. ``foo.egg-info``), so the exact
+    comparison never matched and the entry was dead: a synthetic
+    ``foo.egg-info`` package directory got discovered like any other package.
+    """
+    pkg_root = tmp_path / "mloda" / "demo"
+    real_pkg = pkg_root / "widgets"
+    real_pkg.mkdir(parents=True)
+    (real_pkg / "__init__.py").write_text("")
+
+    egg_info_pkg = pkg_root / "widgets.egg-info"
+    egg_info_pkg.mkdir(parents=True)
+    (egg_info_pkg / "__init__.py").write_text("")
+
+    discovered = gen.discover_packages(str(pkg_root))
+
+    assert any(pkg.endswith("widgets") and "egg-info" not in pkg for pkg in discovered), (
+        f"expected the real widgets package to be discovered, got: {discovered}"
+    )
+    assert not any("egg-info" in pkg for pkg in discovered), (
+        f"a synthetic '.egg-info' package leaked into discovery: {discovered}"
+    )
