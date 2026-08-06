@@ -639,6 +639,13 @@ class TestExtractParams:
         assert params["frame_type"] == "expanding"
         assert params["partition_by"] == ["region"]
 
+    def test_extract_from_name_without_order_by_raises(self) -> None:
+        """The order_by backstop sits above the name/config branch, so the name path hits it too."""
+        with pytest.raises(ValueError, match="order_by"):
+            FrameAggregateFeatureGroup._extract_params(
+                Feature("sales__sum_rolling_3", options=Options(context={"partition_by": ["region"]}))
+            )
+
 
 class TestReturnDataTypeRule:
     """return_data_type_rule should fix the output type only for deterministic ops.
@@ -721,7 +728,7 @@ class TestFrameAggregateMatchValidation(MatchValidationTestBase):
             TokenCase("frame_unit", "day", "week", context={"frame_type": "rolling"}),
             # order_by and frame_size are scalar too: one column, one positive int, so a
             # zero-sized frame and a bool stay out at every arity.
-            TokenCase("order_by", "timestamp", "region"),
+            TokenCase("order_by", "timestamp", "region", required=True),
             TokenCase("frame_size", 3, 5, invalid=(0, True)),
         ]
 

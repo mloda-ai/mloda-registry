@@ -408,6 +408,11 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
         feature_name = feature.name
         parsed = cls._parse_frame_feature(feature_name)
 
+        # Compute-time backstop for direct calls; match time enforces presence declaratively.
+        order_by = option_value(feature.options, cls.ORDER_BY, column_ref_value)
+        if order_by is None:
+            raise ValueError("frame_aggregate requires an 'order_by' column in Options context.")
+
         if parsed is not None:
             return {
                 "source_col": parsed["source_col"],
@@ -416,7 +421,7 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
                 "frame_size": parsed["frame_size"],
                 "frame_unit": parsed["frame_unit"],
                 "partition_by": feature.options.get(cls.PARTITION_BY),
-                "order_by": option_value(feature.options, cls.ORDER_BY, column_ref_value),
+                "order_by": order_by,
             }
 
         source_features = cls._extract_source_features(feature)
@@ -427,7 +432,7 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
             "frame_size": option_value(feature.options, cls.FRAME_SIZE, positive_int_value),
             "frame_unit": _option_token(feature.options, cls.FRAME_UNIT),
             "partition_by": feature.options.get(cls.PARTITION_BY),
-            "order_by": option_value(feature.options, cls.ORDER_BY, column_ref_value),
+            "order_by": order_by,
         }
 
     @classmethod

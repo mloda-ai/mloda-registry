@@ -214,8 +214,8 @@ class TestRejectionReporting:
             assert reason is not None
             assert "constant" in reason
 
-    def test_multi_element_constant_stays_a_silent_non_match(self) -> None:
-        # The arity guard, not strict validation, rejects a multi-element constant.
+    def test_multi_element_constant_reports_an_arity_reason(self) -> None:
+        """A multi-element constant stays a non-match, but the reason names the arity."""
         options = Options(
             context={
                 "arithmetic_op": "add",
@@ -223,8 +223,12 @@ class TestRejectionReporting:
                 "constant": [5, 10],
             }
         )
-        assert ScalarArithmeticFeatureGroup._strict_validation_rejection_reason("my_result", options) is None
         assert ScalarArithmeticFeatureGroup.match_feature_group_criteria("my_result", options, None) is False
+        reason = ScalarArithmeticFeatureGroup._strict_validation_rejection_reason("my_result", options)
+        assert reason is not None
+        assert "'constant'" in reason
+        assert "exactly one" in reason
+        assert "got 2 elements" in reason
 
 
 class TestSingleColumnEnforcement:
