@@ -54,7 +54,14 @@ def _is_ordered_in_features(value: object) -> bool:
 
 
 class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
-    PREFIX_PATTERN = r".*__([\w]+)_point$"
+    # The source side must carry the '&' separator: point arithmetic needs two
+    # operands, so a one-operand name like 'x__add_point' cannot be computed.
+    # Without the '&' here such a name matched at resolution time and only blew
+    # up later in _extract_source_features, so the user got a compute-time
+    # ValueError instead of a "no feature group found" error naming the real
+    # problem. The config path (arithmetic_op plus a two-element in_features)
+    # does not go through this pattern and is unaffected.
+    PREFIX_PATTERN = r".*&.*__([\w]+)_point$"
 
     MIN_IN_FEATURES = 2
     MAX_IN_FEATURES = 2

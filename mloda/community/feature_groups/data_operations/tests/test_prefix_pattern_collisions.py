@@ -110,7 +110,9 @@ FAMILIES: tuple[FamilySpec, ...] = (
         "point_arithmetic",
         f"{_DO}.row_preserving.point_arithmetic.base",
         "PointArithmeticFeatureGroup",
-        ("x__add_point",),
+        # Two operands: the documented pattern is ``{col_a}&{col_b}__{op}_point``,
+        # so the one-operand form is not a valid name for this family (#403).
+        ("x&y__add_point",),
     ),
     FamilySpec("rank", f"{_DO}.row_preserving.rank.base", "RankFeatureGroup", ("sales__row_number_ranked",)),
     FamilySpec(
@@ -318,12 +320,14 @@ def _gen_scalar_arithmetic() -> tuple[str, ...]:
 
 
 def _gen_point_arithmetic() -> tuple[str, ...]:
-    # Vocabulary: point_arithmetic.base.ARITHMETIC_OPERATIONS. Names: ``{col}__{op}_point``.
+    # Vocabulary: point_arithmetic.base.ARITHMETIC_OPERATIONS.
+    # Names: ``{col_a}&{col_b}__{op}_point`` - the family needs two operands, so
+    # the one-operand form is not part of its vocabulary (#403).
     from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
         ARITHMETIC_OPERATIONS,
     )
 
-    return tuple(f"x__{op}_point" for op in ARITHMETIC_OPERATIONS)
+    return tuple(f"x&y__{op}_point" for op in ARITHMETIC_OPERATIONS)
 
 
 def _gen_rank() -> tuple[str, ...]:
