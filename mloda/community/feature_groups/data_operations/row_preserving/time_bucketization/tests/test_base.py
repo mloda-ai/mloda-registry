@@ -77,7 +77,11 @@ class TestPatternMatching:
     @pytest.mark.parametrize(
         "feature_name",
         [
-            pytest.param("timestamp__truncate_1_day", id="wrong_suffix"),
+            # A valid op, n and unit, but PREFIX_PATTERN is anchored at ``$``, so
+            # anything trailing the unit puts the name outside this family. This
+            # input used to be ``timestamp__truncate_1_day``, identical to the
+            # ``invalid_op`` case below, so nothing covered a wrong suffix (#400).
+            pytest.param("timestamp__floor_1_day_bucket", id="wrong_suffix"),
             pytest.param("timestamp", id="no_suffix"),
             pytest.param("floor_1_day", id="no_source_column"),
             pytest.param("timestamp__truncate_1_day", id="invalid_op"),
