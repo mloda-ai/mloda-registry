@@ -133,12 +133,13 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-          # PyPI answers 429 above roughly 20 uploads per minute, and the released set is
-          # 24 packages, so a single batch `twine upload dist/*` trips the limit mid-way and
-          # leaves the release partially published. Upload one file at a time with a pause
-          # between them to stay under the limit.
-          PYPI_UPLOAD_DELAY_SECONDS: '5'
+          # PyPI answered 429 part way through the 0.4.1 release, leaving it partially
+          # published. Which limiter fires is still unconfirmed, so upload one file at a
+          # time with a pause between them rather than one batch `twine upload dist/*`.
+          PYPI_UPLOAD_DELAY_SECONDS: '10'
         # --skip-existing keeps a rerun after a partial upload from failing on files already on PyPI.
+        # --verbose so a 429 prints the response body and the RateLimit / RateLimit-Policy
+        # headers; without it twine reports a bare "Too Many Requests" that names no policy.
         run: |
           shopt -s nullglob
           dists=(dist/*)
@@ -147,14 +148,14 @@ jobs:
             exit 1
           fi
 
-          delay="${PYPI_UPLOAD_DELAY_SECONDS:-5}"
+          delay="${PYPI_UPLOAD_DELAY_SECONDS:-10}"
           total=${#dists[@]}
           index=0
 
           for dist in "${dists[@]}"; do
             index=$((index + 1))
             echo "Uploading $index/$total: $(basename "$dist")"
-            twine upload --non-interactive --skip-existing "$dist"
+            twine upload --non-interactive --skip-existing --verbose "$dist"
             if [ "$index" -lt "$total" ]; then
               sleep "$delay"
             fi
