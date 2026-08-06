@@ -63,12 +63,28 @@ class TestPatternMatching:
             pytest.param("value_int&amount__add", id="no_suffix"),
             pytest.param("add_point", id="no_source_column"),
             pytest.param("value_int&amount__unknown_point", id="invalid_operation"),
+            pytest.param("x__add_point", id="single_operand"),
+            pytest.param("value_int__divide_point", id="single_operand_valid_op"),
         ],
     )
     def test_no_match(self, feature_name: str) -> None:
         options = Options()
         result = PointArithmeticFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is False
+
+    def test_single_operand_name_is_rejected_at_match_time(self) -> None:
+        """Point arithmetic needs two operands, so a one-operand name must not match.
+
+        A name that matches but cannot compute is worse than a plain non-match:
+        resolution commits the feature to this family, so the user gets a
+        compute-time ValueError out of ``_extract_source_features`` rather than
+        a "no feature group found" error naming the real problem. Sibling
+        families in this package reject unusable inputs at match time.
+        """
+        assert PointArithmeticFeatureGroup.match_feature_group_criteria("x__add_point", Options(), None) is False
+
+        # The two-operand form of the same op is unaffected.
+        assert PointArithmeticFeatureGroup.match_feature_group_criteria("x&y__add_point", Options(), None) is True
 
 
 class TestPatternParsing:
