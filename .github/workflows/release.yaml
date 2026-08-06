@@ -133,5 +133,31 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+          # PyPI answers 429 above roughly 20 uploads per minute, and the released set is
+          # 24 packages, so a single batch `twine upload dist/*` trips the limit mid-way and
+          # leaves the release partially published. Upload one file at a time with a pause
+          # between them to stay under the limit.
+          PYPI_UPLOAD_DELAY_SECONDS: '5'
         # --skip-existing keeps a rerun after a partial upload from failing on files already on PyPI.
-        run: twine upload --non-interactive --skip-existing dist/*
+        run: |
+          shopt -s nullglob
+          dists=(dist/*)
+          if [ ${#dists[@]} -eq 0 ]; then
+            echo "::error ::No distributions found in dist/ to publish"
+            exit 1
+          fi
+
+          delay="${PYPI_UPLOAD_DELAY_SECONDS:-5}"
+          total=${#dists[@]}
+          index=0
+
+          for dist in "${dists[@]}"; do
+            index=$((index + 1))
+            echo "Uploading $index/$total: $(basename "$dist")"
+            twine upload --non-interactive --skip-existing "$dist"
+            if [ "$index" -lt "$total" ]; then
+              sleep "$delay"
+            fi
+          done
+
+          echo "Published $total distributions."
