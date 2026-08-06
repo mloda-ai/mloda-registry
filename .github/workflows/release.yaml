@@ -136,7 +136,7 @@ jobs:
           # PyPI answered 429 part way through the 0.4.1 release, leaving it partially
           # published. Which limiter fires is still unconfirmed, so upload one file at a
           # time with a pause between them rather than one batch `twine upload dist/*`.
-          PYPI_UPLOAD_DELAY_SECONDS: '10'
+          PYPI_UPLOAD_DELAY_SECONDS: '5'
         # --skip-existing keeps a rerun after a partial upload from failing on files already on PyPI.
         # --verbose so a 429 prints the response body and the RateLimit / RateLimit-Policy
         # headers; without it twine reports a bare "Too Many Requests" that names no policy.
@@ -148,7 +148,7 @@ jobs:
             exit 1
           fi
 
-          delay="${PYPI_UPLOAD_DELAY_SECONDS:-10}"
+          delay="${PYPI_UPLOAD_DELAY_SECONDS:-5}"
           total=${#dists[@]}
           index=0
 
