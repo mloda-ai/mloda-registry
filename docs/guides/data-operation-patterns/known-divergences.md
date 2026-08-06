@@ -38,7 +38,7 @@ mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/polars_lazy_scalar_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/polars_lazy_window_aggregation.py
 regression_test:
-- mloda/testing/feature_groups/data_operations/aggregation/aggregation.py::AggregationTestBase::test_null_policy_skip_all_null_column
+- mloda/testing/feature_groups/data_operations/aggregation/aggregation.py::AggregationTestBase::test_all_null_column_per_group
 -->
 
 - **Operations**: `aggregation`, `scalar_aggregate`, `window_aggregation`.
@@ -47,7 +47,7 @@ regression_test:
 - **Native Polars behavior**: `pl.col(...).sum()` returns `0` for the same input.
 - **Mitigation kind**: Implementation fix.
 - **How**: The Polars implementation wraps the `sum` expression with `pl.when(count > 0).then(sum).otherwise(None)`, so an all-null group maps back to `null`.
-- **Regression signal**: The canonical 12-row fixture has a `score` column that is all-null. `test_null_policy_skip_all_null_column` in `mloda/testing/feature_groups/data_operations/aggregation/aggregation.py` asserts `score__sum_agg` is all-null per region, and fails if this correction is removed.
+- **Regression signal**: The canonical 12-row fixture has a `score` column that is all-null. `test_all_null_column_per_group[sum]` in `mloda/testing/feature_groups/data_operations/aggregation/aggregation.py` asserts `score__sum_agg` is all-null per region, and fails if this correction is removed.
 
 ### Polars `rank()` returns null for null inputs
 
@@ -82,8 +82,8 @@ mitigation_location:
 - mloda/community/feature_groups/data_operations/polars_mode_helpers.py
 - mloda/community/feature_groups/data_operations/pandas_helpers.py
 regression_test:
-- mloda/testing/feature_groups/data_operations/aggregation/aggregation.py::AggregationTestBase::test_cross_framework_mode
-- mloda/testing/feature_groups/data_operations/row_preserving/window_aggregation/window_aggregation.py::WindowAggregationTestBase::test_cross_framework_mode
+- mloda/testing/feature_groups/data_operations/aggregation/aggregation.py::AggregationTestBase::test_cross_framework_agg
+- mloda/testing/feature_groups/data_operations/row_preserving/window_aggregation/window_aggregation.py::WindowAggregationTestBase::test_cross_framework
 -->
 
 - **Operations**: `aggregation` (`mode` agg type), `window_aggregation` (`mode` agg type).
@@ -92,7 +92,7 @@ regression_test:
 - **Native framework behavior**: Polars' `.mode()` and Pandas' `.mode()` break ties differently (sorted order / multiple returned values / unspecified).
 - **Mitigation kind**: Implementation fix.
 - **How**: Both frameworks explicitly rank candidate values by `(count desc, first_occurrence_index asc)` and take the head. The Polars Lazy implementation stays inside the lazy / vectorised path: it adds per-`(partition, value)` count and first-index columns via `.over()`, then uses `sort_by([cnt, first_idx], descending=[True, False], maintain_order=True).first()` (no Python callback). On Pandas this is a single vectorized groupby over `(partition_by, value)` that aggregates count and first-occurrence index, avoiding a per-group Python reducer.
-- **Regression signal**: The canonical fixture has values that tie; mode tests compare against the PyArrow reference via `_compare_with_reference`.
+- **Regression signal**: The canonical fixture has values that tie; `test_cross_framework_agg[mode]` and `test_cross_framework[mode]` compare against the PyArrow reference via `_compare_with_reference`.
 
 ### SQLite divide-by-zero returns NULL instead of IEEE-754 inf/nan
 
@@ -124,9 +124,7 @@ condition: UPPER/LOWER are ASCII-only and REVERSE has no native function
 mitigation_location:
 - mloda/community/feature_groups/data_operations/string/sqlite_string.py
 regression_test:
-- mloda/community/feature_groups/data_operations/string/tests/test_sqlite.py::TestSqliteUnsupportedOps::test_upper_does_not_match
-- mloda/community/feature_groups/data_operations/string/tests/test_sqlite.py::TestSqliteUnsupportedOps::test_lower_does_not_match
-- mloda/community/feature_groups/data_operations/string/tests/test_sqlite.py::TestSqliteUnsupportedOps::test_reverse_does_not_match
+- mloda/community/feature_groups/data_operations/string/tests/test_sqlite.py::TestSqliteUnsupportedOps::test_unsupported_op_does_not_match
 -->
 
 - **Operations**: `string` (`upper`, `lower`, `reverse`).
@@ -135,7 +133,7 @@ regression_test:
 - **Native SQLite behavior**: `UPPER('héllo')` returns `'HéLLO'`. `REVERSE` is not implemented.
 - **Mitigation kind**: Excluded op.
 - **How**: `SqliteStringOps._validate_string_match` returns `True` only for `trim` and `length`. Requesting `name__upper`, `name__lower`, or `name__reverse` with `compute_frameworks={"SqliteRelation"}` refuses to match at resolution time. The test class mirrors the decision through `supported_ops()`.
-- **Regression signal**: `test_sqlite.py` inherits the unicode expected values (row 10 = `"héllo"` / `"HÉLLO"` / `"oll\u00e9h"`) and `supported_ops()` restricts the test suite to `{"trim", "length"}`. Adding an op without also enabling a Unicode-safe expression is caught immediately by cross-framework comparison.
+- **Regression signal**: `test_unsupported_op_does_not_match[upper|lower|reverse]` pins the refusal, and `test_sqlite.py` inherits the unicode expected values (row 10 = `"héllo"` / `"HÉLLO"` / `"oll\u00e9h"`) and `supported_ops()` restricts the test suite to `{"trim", "length"}`. Adding an op without also enabling a Unicode-safe expression is caught immediately by cross-framework comparison.
 - **Related**: Resolved from #146 via #147.
 
 ### Float accumulation order across SQL engines vs. columnar reductions
@@ -218,7 +216,7 @@ condition: SQLite has no percentile implementation and no native reverse
 mitigation_location:
 - mloda/community/feature_groups/data_operations/string/sqlite_string.py
 regression_test:
-- mloda/community/feature_groups/data_operations/string/tests/test_sqlite.py::TestSqliteUnsupportedOps::test_reverse_does_not_match
+- mloda/community/feature_groups/data_operations/string/tests/test_sqlite.py::TestSqliteUnsupportedOps::test_unsupported_op_does_not_match
 - mloda/community/feature_groups/data_operations/tests/test_framework_support_matrix.py::test_framework_support_matrix_is_in_sync
 -->
 

@@ -65,26 +65,19 @@ class TestPatternMatching:
         name = f"ts__sessionize_30_{unit}"
         assert PandasSessionization.match_feature_group_criteria(name, _match_options()) is True
 
-    def test_matches_n1_hour(self) -> None:
-        assert PandasSessionization.match_feature_group_criteria("x__sessionize_1_hour", _match_options()) is True
-
-    def test_matches_underscore_source(self) -> None:
-        assert (
-            PandasSessionization.match_feature_group_criteria("created_at__sessionize_15_minute", _match_options())
-            is True
-        )
-
-    def test_no_match_no_unit(self) -> None:
-        assert PandasSessionization.match_feature_group_criteria("ts__sessionize", _match_options()) is False
-
-    def test_no_match_missing_unit_token(self) -> None:
-        assert PandasSessionization.match_feature_group_criteria("ts__sessionize_30", _match_options()) is False
-
-    def test_no_match_invalid_unit(self) -> None:
-        assert PandasSessionization.match_feature_group_criteria("ts__sessionize_30_month", _match_options()) is False
-
-    def test_no_match_no_source_column(self) -> None:
-        assert PandasSessionization.match_feature_group_criteria("sessionize_30_minute", _match_options()) is False
+    @pytest.mark.parametrize(
+        ("feature_name", "expected"),
+        [
+            pytest.param("x__sessionize_1_hour", True, id="n1_hour"),
+            pytest.param("created_at__sessionize_15_minute", True, id="underscore_source"),
+            pytest.param("ts__sessionize", False, id="no_unit"),
+            pytest.param("ts__sessionize_30", False, id="missing_unit_token"),
+            pytest.param("ts__sessionize_30_month", False, id="invalid_unit"),
+            pytest.param("sessionize_30_minute", False, id="no_source_column"),
+        ],
+    )
+    def test_match_by_name(self, feature_name: str, expected: bool) -> None:
+        assert PandasSessionization.match_feature_group_criteria(feature_name, _match_options()) is expected
 
     def test_n_zero_matches_regex_but_rejected_at_parse(self) -> None:
         """``sessionize_0_minute`` matches the ``\\d+`` regex but n=0 is rejected at parse time.
@@ -97,41 +90,41 @@ class TestPatternMatching:
 
 
 class TestThresholdParser:
-    def test_parse_30_minute(self) -> None:
-        assert _parse_sessionize_op("sessionize_30_minute") == (30, "minute")
+    @pytest.mark.parametrize(
+        ("op_token", "expected"),
+        [
+            pytest.param("sessionize_30_minute", (30, "minute"), id="30_minute"),
+            pytest.param("sessionize_1_hour", (1, "hour"), id="1_hour"),
+            pytest.param("sessionize_2_day", (2, "day"), id="2_day"),
+            pytest.param("sessionize_1_week", (1, "week"), id="1_week"),
+        ],
+    )
+    def test_parse_op_components(self, op_token: str, expected: tuple[int, str]) -> None:
+        assert _parse_sessionize_op(op_token) == expected
 
-    def test_parse_1_hour(self) -> None:
-        assert _parse_sessionize_op("sessionize_1_hour") == (1, "hour")
+    @pytest.mark.parametrize(
+        ("n", "unit", "expected"),
+        [
+            pytest.param(30, "minute", 30 * 60, id="minute"),
+            pytest.param(1, "hour", 3600, id="hour"),
+            pytest.param(2, "day", 2 * 86400, id="day"),
+            pytest.param(1, "week", 604800, id="week"),
+        ],
+    )
+    def test_threshold_seconds(self, n: int, unit: str, expected: int) -> None:
+        assert _sessionize_threshold_seconds(n, unit) == expected
 
-    def test_parse_2_day(self) -> None:
-        assert _parse_sessionize_op("sessionize_2_day") == (2, "day")
-
-    def test_parse_1_week(self) -> None:
-        assert _parse_sessionize_op("sessionize_1_week") == (1, "week")
-
-    def test_threshold_seconds_minute(self) -> None:
-        assert _sessionize_threshold_seconds(30, "minute") == 30 * 60
-
-    def test_threshold_seconds_hour(self) -> None:
-        assert _sessionize_threshold_seconds(1, "hour") == 3600
-
-    def test_threshold_seconds_day(self) -> None:
-        assert _sessionize_threshold_seconds(2, "day") == 2 * 86400
-
-    def test_threshold_seconds_week(self) -> None:
-        assert _sessionize_threshold_seconds(1, "week") == 604800
-
-    def test_threshold_seconds_rejects_bad_unit(self) -> None:
-        with pytest.raises(ValueError, match=r"(?i)unit|month"):
-            _sessionize_threshold_seconds(1, "month")
-
-    def test_threshold_seconds_rejects_n_zero(self) -> None:
-        with pytest.raises(ValueError, match=r"(?i)positive|> 0|n"):
-            _sessionize_threshold_seconds(0, "minute")
-
-    def test_threshold_seconds_rejects_negative_n(self) -> None:
-        with pytest.raises(ValueError, match=r"(?i)positive|> 0|n"):
-            _sessionize_threshold_seconds(-5, "minute")
+    @pytest.mark.parametrize(
+        ("n", "unit", "match"),
+        [
+            pytest.param(1, "month", r"(?i)unit|month", id="bad_unit"),
+            pytest.param(0, "minute", r"(?i)positive|> 0|n", id="n_zero"),
+            pytest.param(-5, "minute", r"(?i)positive|> 0|n", id="negative_n"),
+        ],
+    )
+    def test_threshold_seconds_rejects(self, n: int, unit: str, match: str) -> None:
+        with pytest.raises(ValueError, match=match):
+            _sessionize_threshold_seconds(n, unit)
 
     def test_parse_rejects_bad_unit(self) -> None:
         with pytest.raises(ValueError, match=r"(?i)unit|month"):

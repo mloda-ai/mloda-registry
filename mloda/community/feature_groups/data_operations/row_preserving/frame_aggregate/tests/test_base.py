@@ -59,35 +59,21 @@ class TestPatternParsing:
         result = FrameAggregateFeatureGroup._parse_frame_feature("plain_feature")
         assert result is None
 
-    def test_rolling_large_window(self) -> None:
-        result = FrameAggregateFeatureGroup._parse_frame_feature("value__max_rolling_100")
+    @pytest.mark.parametrize(
+        ("feature_name", "expected_fields"),
+        [
+            pytest.param("value__max_rolling_100", {"frame_size": 100, "agg_type": "max"}, id="rolling_large_window"),
+            pytest.param("temp__min_24_hour_window", {"frame_unit": "hour", "frame_size": 24}, id="time_window_hour"),
+            pytest.param("price__cummin", {"agg_type": "min", "frame_type": "cumulative"}, id="cummin"),
+            pytest.param("price__cummax", {"agg_type": "max", "frame_type": "cumulative"}, id="cummax"),
+            pytest.param("price__cumcount", {"agg_type": "count", "frame_type": "cumulative"}, id="cumcount"),
+        ],
+    )
+    def test_parse_frame_fields(self, feature_name: str, expected_fields: dict[str, Any]) -> None:
+        result = FrameAggregateFeatureGroup._parse_frame_feature(feature_name)
         assert result is not None
-        assert result["frame_size"] == 100
-        assert result["agg_type"] == "max"
-
-    def test_time_window_hour(self) -> None:
-        result = FrameAggregateFeatureGroup._parse_frame_feature("temp__min_24_hour_window")
-        assert result is not None
-        assert result["frame_unit"] == "hour"
-        assert result["frame_size"] == 24
-
-    def test_cummin(self) -> None:
-        result = FrameAggregateFeatureGroup._parse_frame_feature("price__cummin")
-        assert result is not None
-        assert result["agg_type"] == "min"
-        assert result["frame_type"] == "cumulative"
-
-    def test_cummax(self) -> None:
-        result = FrameAggregateFeatureGroup._parse_frame_feature("price__cummax")
-        assert result is not None
-        assert result["agg_type"] == "max"
-        assert result["frame_type"] == "cumulative"
-
-    def test_cumcount(self) -> None:
-        result = FrameAggregateFeatureGroup._parse_frame_feature("price__cumcount")
-        assert result is not None
-        assert result["agg_type"] == "count"
-        assert result["frame_type"] == "cumulative"
+        for field, expected in expected_fields.items():
+            assert result[field] == expected, f"{feature_name}: {field}"
 
 
 class TestParseFrameFeatureMemoization:
@@ -117,25 +103,24 @@ class TestPatternMatching:
     def _base_options(self) -> Options:
         return Options(context={"partition_by": ["region"], "order_by": "timestamp"})
 
-    def test_matches_rolling_string(self) -> None:
+    @pytest.mark.parametrize(
+        ("feature_name", "expected"),
+        [
+            pytest.param("sales__sum_rolling_3", True, id="rolling_string"),
+            pytest.param("sales__avg_7_day_window", True, id="time_window_string"),
+            pytest.param("sales__cumsum", True, id="cumulative_string"),
+            pytest.param("sales__expanding_avg", True, id="expanding_string"),
+            # cumavg is a valid cumulative operation (cumulative and expanding are aliases).
+            pytest.param("sales__cumavg", True, id="cumavg"),
+            pytest.param("sales__unknown_rolling_3", False, id="invalid_agg_type"),
+            pytest.param("sales__avg_7_banana_window", False, id="invalid_time_unit"),
+            pytest.param("plain_feature", False, id="plain_feature_without_config"),
+        ],
+    )
+    def test_match_by_name(self, feature_name: str, expected: bool) -> None:
         options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
-        assert result is True
-
-    def test_matches_time_window_string(self) -> None:
-        options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__avg_7_day_window", options, None)
-        assert result is True
-
-    def test_matches_cumulative_string(self) -> None:
-        options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__cumsum", options, None)
-        assert result is True
-
-    def test_matches_expanding_string(self) -> None:
-        options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__expanding_avg", options, None)
-        assert result is True
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria(feature_name, options, None)
+        assert result is expected
 
     def test_rejects_no_partition_by(self) -> None:
         options = Options(context={"order_by": "timestamp"})
@@ -168,30 +153,9 @@ class TestPatternMatching:
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
         assert result is False
 
-    def test_rejects_invalid_agg_type(self) -> None:
-        options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__unknown_rolling_3", options, None)
-        assert result is False
-
-    def test_accepts_cumavg(self) -> None:
-        """cumavg is a valid cumulative operation (cumulative and expanding are aliases)."""
-        options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__cumavg", options, None)
-        assert result is True
-
-    def test_rejects_invalid_time_unit(self) -> None:
-        options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__avg_7_banana_window", options, None)
-        assert result is False
-
     def test_rejects_partition_by_as_string(self) -> None:
         options = Options(context={"partition_by": "region", "order_by": "timestamp"})
         result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
-        assert result is False
-
-    def test_rejects_plain_feature_without_config(self) -> None:
-        options = self._base_options()
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria("plain_feature", options, None)
         assert result is False
 
 
@@ -448,20 +412,19 @@ class TestNameBasedUnaffectedByConfigValidation:
 class TestNameBasedFrameTypeInOptions:
     """A frame name already encodes its size, so a frame_type carried in Options must not demand frame_size."""
 
-    def test_rolling_name_with_frame_type_option(self) -> None:
-        options = Options(context={"frame_type": "rolling", "partition_by": ["region"], "order_by": "timestamp"})
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
-        assert result is True
-
-    def test_time_window_name_with_frame_type_option(self) -> None:
-        options = Options(context={"frame_type": "time", "partition_by": ["region"], "order_by": "timestamp"})
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__avg_7_day_window", options, None)
-        assert result is True
-
-    def test_rolling_name_with_stray_time_frame_type_option(self) -> None:
-        """A time frame_type option contradicting a rolling name must not trigger config-path size/unit rules."""
-        options = Options(context={"frame_type": "time", "partition_by": ["region"], "order_by": "timestamp"})
-        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
+    @pytest.mark.parametrize(
+        ("feature_name", "frame_type"),
+        [
+            pytest.param("sales__sum_rolling_3", "rolling", id="rolling_name"),
+            pytest.param("sales__avg_7_day_window", "time", id="time_window_name"),
+            # A time frame_type option contradicting a rolling name must not trigger
+            # config-path size/unit rules.
+            pytest.param("sales__sum_rolling_3", "time", id="rolling_name_with_stray_time"),
+        ],
+    )
+    def test_name_with_frame_type_option(self, feature_name: str, frame_type: str) -> None:
+        options = Options(context={"frame_type": frame_type, "partition_by": ["region"], "order_by": "timestamp"})
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True
 
     def test_rolling_name_with_propagated_frame_type(self) -> None:

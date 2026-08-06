@@ -297,36 +297,24 @@ class RankTestBase(DataOpsTestBase):
 
     # -- Cross-framework comparison (matches reference) --------------
 
-    def test_cross_framework_row_number(self) -> None:
-        """Row number must match reference."""
-        self._compare_with_reference("value_int__row_number_ranked", partition_by=["region"], order_by="value_int")
-
-    def test_cross_framework_rank(self) -> None:
-        """Rank must match reference."""
-        self._compare_with_reference("value_int__rank_ranked", partition_by=["region"], order_by="value_int")
-
-    def test_cross_framework_dense_rank(self) -> None:
-        """Dense rank must match reference."""
-        self._compare_with_reference("value_int__dense_rank_ranked", partition_by=["region"], order_by="value_int")
-
-    def test_cross_framework_percent_rank(self) -> None:
-        """Percent rank must match reference."""
-        self._skip_if_unsupported("percent_rank")
-        self._compare_with_reference(
-            "value_int__percent_rank_ranked", partition_by=["region"], order_by="value_int", use_approx=True
-        )
-
-    def test_cross_framework_ntile(self) -> None:
-        """Ntile must match reference."""
-        self._compare_with_reference("value_int__ntile_2_ranked", partition_by=["region"], order_by="value_int")
-
-    def test_cross_framework_top_n(self) -> None:
-        """Top N must match reference."""
-        self._compare_with_reference("value_int__top_3_ranked", partition_by=["region"], order_by="value_int")
-
-    def test_cross_framework_bottom_n(self) -> None:
-        """Bottom N must match reference."""
-        self._compare_with_reference("value_int__bottom_2_ranked", partition_by=["region"], order_by="value_int")
+    @pytest.mark.parametrize(
+        ("feature_name", "skip_rank_type", "use_approx"),
+        [
+            pytest.param("value_int__row_number_ranked", None, False, id="row_number"),
+            pytest.param("value_int__rank_ranked", None, False, id="rank"),
+            pytest.param("value_int__dense_rank_ranked", None, False, id="dense_rank"),
+            # percent_rank is fractional, so it is compared approximately and only
+            # on frameworks that support it.
+            pytest.param("value_int__percent_rank_ranked", "percent_rank", True, id="percent_rank"),
+            pytest.param("value_int__ntile_2_ranked", None, False, id="ntile"),
+            pytest.param("value_int__top_3_ranked", None, False, id="top_n"),
+            pytest.param("value_int__bottom_2_ranked", None, False, id="bottom_n"),
+        ],
+    )
+    def test_cross_framework(self, feature_name: str, skip_rank_type: str | None, use_approx: bool) -> None:
+        if skip_rank_type is not None:
+            self._skip_if_unsupported(skip_rank_type)
+        self._compare_with_reference(feature_name, partition_by=["region"], order_by="value_int", use_approx=use_approx)
 
     # -- All-null column tests -----------------------------------------------
 

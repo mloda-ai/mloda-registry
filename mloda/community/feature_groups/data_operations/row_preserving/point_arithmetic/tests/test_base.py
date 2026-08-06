@@ -56,47 +56,34 @@ class TestPatternMatching:
         result = PointArithmeticFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
 
-    def test_no_match_wrong_suffix(self) -> None:
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("value_int&amount__add_constant", id="wrong_suffix"),
+            pytest.param("value_int&amount__add", id="no_suffix"),
+            pytest.param("add_point", id="no_source_column"),
+            pytest.param("value_int&amount__unknown_point", id="invalid_operation"),
+        ],
+    )
+    def test_no_match(self, feature_name: str) -> None:
         options = Options()
-        result = PointArithmeticFeatureGroup.match_feature_group_criteria(
-            "value_int&amount__add_constant", options, None
-        )
-        assert result is False
-
-    def test_no_match_no_suffix(self) -> None:
-        options = Options()
-        result = PointArithmeticFeatureGroup.match_feature_group_criteria("value_int&amount__add", options, None)
-        assert result is False
-
-    def test_no_match_no_source_column(self) -> None:
-        options = Options()
-        result = PointArithmeticFeatureGroup.match_feature_group_criteria("add_point", options, None)
-        assert result is False
-
-    def test_no_match_invalid_operation(self) -> None:
-        options = Options()
-        result = PointArithmeticFeatureGroup.match_feature_group_criteria(
-            "value_int&amount__unknown_point", options, None
-        )
+        result = PointArithmeticFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is False
 
 
 class TestPatternParsing:
-    def test_parse_add_operation(self) -> None:
-        operation = PointArithmeticFeatureGroup.get_arithmetic_op("value_int&amount__add_point")
-        assert operation == "add"
-
-    def test_parse_subtract_operation(self) -> None:
-        operation = PointArithmeticFeatureGroup.get_arithmetic_op("value_int&amount__subtract_point")
-        assert operation == "subtract"
-
-    def test_parse_multiply_operation(self) -> None:
-        operation = PointArithmeticFeatureGroup.get_arithmetic_op("value_int&amount__multiply_point")
-        assert operation == "multiply"
-
-    def test_parse_divide_operation(self) -> None:
-        operation = PointArithmeticFeatureGroup.get_arithmetic_op("value_int&amount__divide_point")
-        assert operation == "divide"
+    @pytest.mark.parametrize(
+        ("feature_name", "expected"),
+        [
+            pytest.param("value_int&amount__add_point", "add", id="add"),
+            pytest.param("value_int&amount__subtract_point", "subtract", id="subtract"),
+            pytest.param("value_int&amount__multiply_point", "multiply", id="multiply"),
+            pytest.param("value_int&amount__divide_point", "divide", id="divide"),
+        ],
+    )
+    def test_parse_operation(self, feature_name: str, expected: str) -> None:
+        operation = PointArithmeticFeatureGroup.get_arithmetic_op(feature_name)
+        assert operation == expected
 
     def test_parse_source_features(self) -> None:
         feature = Feature("value_int&amount__add_point", options=Options())

@@ -51,19 +51,17 @@ class TestPatternMatching:
         result = BinningFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
 
-    def test_no_match_wrong_suffix(self) -> None:
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("value_int__bucket_3", id="wrong_suffix"),
+            pytest.param("value_int__bin", id="no_number"),
+            pytest.param("bin_3", id="no_source_column"),
+        ],
+    )
+    def test_no_match(self, feature_name: str) -> None:
         options = Options()
-        result = BinningFeatureGroup.match_feature_group_criteria("value_int__bucket_3", options, None)
-        assert result is False
-
-    def test_no_match_no_number(self) -> None:
-        options = Options()
-        result = BinningFeatureGroup.match_feature_group_criteria("value_int__bin", options, None)
-        assert result is False
-
-    def test_no_match_no_source_column(self) -> None:
-        options = Options()
-        result = BinningFeatureGroup.match_feature_group_criteria("bin_3", options, None)
+        result = BinningFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is False
 
     @pytest.mark.parametrize(

@@ -39,25 +39,19 @@ class TestPatternMatching:
         result = StringFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
 
-    def test_no_match_wrong_suffix(self) -> None:
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("name__split", id="wrong_suffix"),
+            pytest.param("name", id="no_suffix"),
+            pytest.param("upper", id="no_source_column"),
+            # The prefix before __ requires at least one character.
+            pytest.param("__upper", id="empty_prefix"),
+        ],
+    )
+    def test_no_match(self, feature_name: str) -> None:
         options = Options()
-        result = StringFeatureGroup.match_feature_group_criteria("name__split", options, None)
-        assert result is False
-
-    def test_no_match_no_suffix(self) -> None:
-        options = Options()
-        result = StringFeatureGroup.match_feature_group_criteria("name", options, None)
-        assert result is False
-
-    def test_no_match_no_source_column(self) -> None:
-        options = Options()
-        result = StringFeatureGroup.match_feature_group_criteria("upper", options, None)
-        assert result is False
-
-    def test_no_match_empty_prefix(self) -> None:
-        """Empty prefix before __ must not match (requires at least one character)."""
-        options = Options()
-        result = StringFeatureGroup.match_feature_group_criteria("__upper", options, None)
+        result = StringFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is False
 
     def test_multi_underscore_source_column(self) -> None:

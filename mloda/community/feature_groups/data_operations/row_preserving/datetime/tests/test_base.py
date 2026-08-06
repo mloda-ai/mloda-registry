@@ -53,19 +53,17 @@ class TestPatternMatching:
         result = DateTimeFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
 
-    def test_no_match_wrong_suffix(self) -> None:
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("timestamp__weekday", id="wrong_suffix"),
+            pytest.param("timestamp", id="no_suffix"),
+            pytest.param("year", id="no_source_column"),
+        ],
+    )
+    def test_no_match(self, feature_name: str) -> None:
         options = Options()
-        result = DateTimeFeatureGroup.match_feature_group_criteria("timestamp__weekday", options, None)
-        assert result is False
-
-    def test_no_match_no_suffix(self) -> None:
-        options = Options()
-        result = DateTimeFeatureGroup.match_feature_group_criteria("timestamp", options, None)
-        assert result is False
-
-    def test_no_match_no_source_column(self) -> None:
-        options = Options()
-        result = DateTimeFeatureGroup.match_feature_group_criteria("year", options, None)
+        result = DateTimeFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is False
 
 

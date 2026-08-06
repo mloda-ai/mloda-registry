@@ -220,27 +220,23 @@ class OffsetTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
 
     # -- Cross-framework comparison ------------------------------------------
 
-    def test_cross_framework_lag(self) -> None:
-        self._compare_with_reference("value_int__lag_1_offset", partition_by=["region"], order_by="value_int")
-
-    def test_cross_framework_lead(self) -> None:
-        self._compare_with_reference("value_int__lead_1_offset", partition_by=["region"], order_by="value_int")
-
-    def test_cross_framework_first_value(self) -> None:
-        self._compare_with_reference("value_int__first_value_offset", partition_by=["region"], order_by="value_int")
-
-    def test_cross_framework_last_value(self) -> None:
-        self._compare_with_reference("value_int__last_value_offset", partition_by=["region"], order_by="value_int")
-
-    def test_cross_framework_diff(self) -> None:
-        self._skip_if_unsupported("diff")
-        self._compare_with_reference("value_int__diff_1_offset", partition_by=["region"], order_by="value_int")
-
-    def test_cross_framework_pct_change(self) -> None:
-        self._skip_if_unsupported("pct_change")
-        self._compare_with_reference(
-            "value_int__pct_change_1_offset", partition_by=["region"], order_by="value_int", use_approx=True
-        )
+    @pytest.mark.parametrize(
+        ("feature_name", "skip_offset_type", "use_approx"),
+        [
+            pytest.param("value_int__lag_1_offset", None, False, id="lag"),
+            pytest.param("value_int__lead_1_offset", None, False, id="lead"),
+            pytest.param("value_int__first_value_offset", None, False, id="first_value"),
+            pytest.param("value_int__last_value_offset", None, False, id="last_value"),
+            pytest.param("value_int__diff_1_offset", "diff", False, id="diff"),
+            # pct_change is fractional, so it is compared approximately and only
+            # on frameworks that support it.
+            pytest.param("value_int__pct_change_1_offset", "pct_change", True, id="pct_change"),
+        ],
+    )
+    def test_cross_framework(self, feature_name: str, skip_offset_type: str | None, use_approx: bool) -> None:
+        if skip_offset_type is not None:
+            self._skip_if_unsupported(skip_offset_type)
+        self._compare_with_reference(feature_name, partition_by=["region"], order_by="value_int", use_approx=use_approx)
 
     # -- All-null column tests -----------------------------------------------
 

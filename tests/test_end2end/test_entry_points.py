@@ -65,33 +65,35 @@ def _generate(pkg_name: str) -> str:
     return str(gen.generate_pyproject(pkg_name, packages[pkg_name], shared, packages))
 
 
-def test_feature_group_package_declares_entry_point() -> None:
-    """A FeatureGroup plugin package must declare a mloda.feature_groups entry point."""
-    content = _generate("mloda-community-ffill")
-    assert '[project.entry-points."mloda.feature_groups"]' in content, content
-    assert (
-        'mloda-community-ffill = "mloda.community.feature_groups.data_operations.row_preserving.ffill.manifest:FEATURE_GROUPS"'
-        in content
-    ), content
+# (package, entry-point group, exact entry line it must emit), one package per group.
+_PLUGIN_ENTRY_POINTS = [
+    pytest.param(
+        "mloda-community-ffill",
+        "mloda.feature_groups",
+        'mloda-community-ffill = "mloda.community.feature_groups.data_operations.row_preserving.ffill.manifest:FEATURE_GROUPS"',
+        id="feature_group",
+    ),
+    pytest.param(
+        "mloda-community-compute-frameworks-example",
+        "mloda.compute_frameworks",
+        'mloda-community-compute-frameworks-example = "mloda.community.compute_frameworks.example.manifest:COMPUTE_FRAMEWORKS"',
+        id="compute_framework",
+    ),
+    pytest.param(
+        "mloda-community-extenders-example",
+        "mloda.extenders",
+        'mloda-community-extenders-example = "mloda.community.extenders.example.manifest:EXTENDERS"',
+        id="extender",
+    ),
+]
 
 
-def test_compute_framework_package_declares_entry_point() -> None:
-    """A ComputeFramework plugin package must declare a mloda.compute_frameworks entry point."""
-    content = _generate("mloda-community-compute-frameworks-example")
-    assert '[project.entry-points."mloda.compute_frameworks"]' in content, content
-    assert (
-        'mloda-community-compute-frameworks-example = "mloda.community.compute_frameworks.example.manifest:COMPUTE_FRAMEWORKS"'
-        in content
-    ), content
-
-
-def test_extender_package_declares_entry_point() -> None:
-    """An Extender plugin package must declare a mloda.extenders entry point."""
-    content = _generate("mloda-community-extenders-example")
-    assert '[project.entry-points."mloda.extenders"]' in content, content
-    assert 'mloda-community-extenders-example = "mloda.community.extenders.example.manifest:EXTENDERS"' in content, (
-        content
-    )
+@pytest.mark.parametrize(("pkg_name", "group", "entry"), _PLUGIN_ENTRY_POINTS)
+def test_plugin_package_declares_entry_point(pkg_name: str, group: str, entry: str) -> None:
+    """A plugin package must declare its entry point under the group matching its plugin type."""
+    content = _generate(pkg_name)
+    assert f'[project.entry-points."{group}"]' in content, content
+    assert entry in content, content
 
 
 def test_bundle_aggregates_child_entry_points() -> None:

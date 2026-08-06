@@ -35,35 +35,35 @@ class TestClassAttributes:
         for op in expected_ops:
             assert op in RankFeatureGroup.RANK_TYPES, f"Missing rank type: {op}"
 
-    def test_supports_ntile(self) -> None:
-        assert RankFeatureGroup._supports_rank_type("ntile_4")
-        assert RankFeatureGroup._supports_rank_type("ntile_10")
+    @pytest.mark.parametrize(
+        "rank_types",
+        [
+            pytest.param(["ntile_4", "ntile_10"], id="ntile"),
+            pytest.param(["top_5", "top_1"], id="top_n"),
+            pytest.param(["bottom_5", "bottom_1"], id="bottom_n"),
+        ],
+    )
+    def test_supports_parametric_rank_types(self, rank_types: list[str]) -> None:
+        for rank_type in rank_types:
+            assert RankFeatureGroup._supports_rank_type(rank_type)
 
-    def test_rejects_invalid_ntile(self) -> None:
-        assert not RankFeatureGroup._supports_rank_type("ntile_0")
-        assert not RankFeatureGroup._supports_rank_type("ntile_abc")
+    @pytest.mark.parametrize(
+        "rank_types",
+        [
+            pytest.param(["ntile_0", "ntile_abc"], id="ntile"),
+            pytest.param(["top_0", "top_abc"], id="top_n"),
+            pytest.param(["bottom_0", "bottom_abc"], id="bottom_n"),
+        ],
+    )
+    def test_rejects_invalid_parametric_rank_types(self, rank_types: list[str]) -> None:
+        for rank_type in rank_types:
+            assert not RankFeatureGroup._supports_rank_type(rank_type)
 
     def test_supports_ntile_1(self) -> None:
         assert RankFeatureGroup._supports_rank_type("ntile_1")
 
     def test_rejects_ntile_negative(self) -> None:
         assert not RankFeatureGroup._supports_rank_type("ntile_-1")
-
-    def test_supports_top_n(self) -> None:
-        assert RankFeatureGroup._supports_rank_type("top_5")
-        assert RankFeatureGroup._supports_rank_type("top_1")
-
-    def test_supports_bottom_n(self) -> None:
-        assert RankFeatureGroup._supports_rank_type("bottom_5")
-        assert RankFeatureGroup._supports_rank_type("bottom_1")
-
-    def test_rejects_invalid_top_n(self) -> None:
-        assert not RankFeatureGroup._supports_rank_type("top_0")
-        assert not RankFeatureGroup._supports_rank_type("top_abc")
-
-    def test_rejects_invalid_bottom_n(self) -> None:
-        assert not RankFeatureGroup._supports_rank_type("bottom_0")
-        assert not RankFeatureGroup._supports_rank_type("bottom_abc")
 
     def test_min_in_features_is_one(self) -> None:
         assert RankFeatureGroup.MIN_IN_FEATURES == 1
@@ -117,59 +117,39 @@ class TestPatternMatching:
         result = RankFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
 
-    def test_matches_ntile(self) -> None:
+    @pytest.mark.parametrize(
+        ("feature_name", "expected"),
+        [
+            pytest.param("value_int__ntile_4_ranked", True, id="ntile"),
+            pytest.param("value_int__rank_window", False, id="wrong_suffix"),
+            pytest.param("rank_ranked", False, id="no_source_column"),
+            pytest.param("value_int__unknown_ranked", False, id="invalid_rank_type"),
+            pytest.param("value_int__top_5_ranked", True, id="top_n"),
+            pytest.param("value_int__bottom_3_ranked", True, id="bottom_n"),
+        ],
+    )
+    def test_match_by_name(self, feature_name: str, expected: bool) -> None:
         options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
-        result = RankFeatureGroup.match_feature_group_criteria("value_int__ntile_4_ranked", options, None)
-        assert result is True
-
-    def test_no_match_wrong_suffix(self) -> None:
-        options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
-        result = RankFeatureGroup.match_feature_group_criteria("value_int__rank_window", options, None)
-        assert result is False
-
-    def test_no_match_no_source_column(self) -> None:
-        options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
-        result = RankFeatureGroup.match_feature_group_criteria("rank_ranked", options, None)
-        assert result is False
-
-    def test_no_match_invalid_rank_type(self) -> None:
-        options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
-        result = RankFeatureGroup.match_feature_group_criteria("value_int__unknown_ranked", options, None)
-        assert result is False
-
-    def test_matches_top_n(self) -> None:
-        options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
-        result = RankFeatureGroup.match_feature_group_criteria("value_int__top_5_ranked", options, None)
-        assert result is True
-
-    def test_matches_bottom_n(self) -> None:
-        options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
-        result = RankFeatureGroup.match_feature_group_criteria("value_int__bottom_3_ranked", options, None)
-        assert result is True
+        result = RankFeatureGroup.match_feature_group_criteria(feature_name, options, None)
+        assert result is expected
 
 
 class TestPatternParsing:
     """Tests for extracting rank type and source column."""
 
-    def test_parse_row_number(self) -> None:
-        rank_type = RankFeatureGroup.get_rank_type("value_int__row_number_ranked")
-        assert rank_type == "row_number"
-
-    def test_parse_dense_rank(self) -> None:
-        rank_type = RankFeatureGroup.get_rank_type("my_col__dense_rank_ranked")
-        assert rank_type == "dense_rank"
-
-    def test_parse_ntile(self) -> None:
-        rank_type = RankFeatureGroup.get_rank_type("value_int__ntile_4_ranked")
-        assert rank_type == "ntile_4"
-
-    def test_parse_top_n(self) -> None:
-        rank_type = RankFeatureGroup.get_rank_type("value_int__top_5_ranked")
-        assert rank_type == "top_5"
-
-    def test_parse_bottom_n(self) -> None:
-        rank_type = RankFeatureGroup.get_rank_type("value_int__bottom_3_ranked")
-        assert rank_type == "bottom_3"
+    @pytest.mark.parametrize(
+        ("feature_name", "expected"),
+        [
+            pytest.param("value_int__row_number_ranked", "row_number", id="row_number"),
+            pytest.param("my_col__dense_rank_ranked", "dense_rank", id="dense_rank"),
+            pytest.param("value_int__ntile_4_ranked", "ntile_4", id="ntile"),
+            pytest.param("value_int__top_5_ranked", "top_5", id="top_n"),
+            pytest.param("value_int__bottom_3_ranked", "bottom_3", id="bottom_n"),
+        ],
+    )
+    def test_parse_rank_type(self, feature_name: str, expected: str) -> None:
+        rank_type = RankFeatureGroup.get_rank_type(feature_name)
+        assert rank_type == expected
 
     def test_parse_source_feature(self) -> None:
         from mloda.user import Feature

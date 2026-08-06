@@ -26,9 +26,21 @@ def test_empty_tree_only_root_index(tmp_path: Path) -> None:
     assert lint_docs.find_orphan_guides(tmp_path) == []
 
 
-def test_linked_guide_not_flagged(tmp_path: Path) -> None:
-    _write(tmp_path / "index.md", "# Root\n\n[Guide](guide.md)\n")
-    _write(tmp_path / "guide.md", "# Guide\n")
+# (root index body, target file name, target body) triples whose link form must reach the target.
+REACHING_LINK_FORMS = [
+    pytest.param("# Root\n\n[Guide](guide.md)\n", "guide.md", "# Guide\n", id="linked_guide"),
+    pytest.param(
+        "# Root\n\n[Guide](guide.md#section)\n", "guide.md", "# Guide\n\n## Section\n", id="anchor_bearing_link"
+    ),
+    # A link with nested brackets in its text must still resolve to the target.
+    pytest.param("# Root\n\n[a [nested] label](foo.md)\n", "foo.md", "# Foo\n", id="nested_bracket_link_text"),
+]
+
+
+@pytest.mark.parametrize(("index_body", "target_name", "target_body"), REACHING_LINK_FORMS)
+def test_link_form_reaches_target(index_body: str, target_name: str, target_body: str, tmp_path: Path) -> None:
+    _write(tmp_path / "index.md", index_body)
+    _write(tmp_path / target_name, target_body)
     assert lint_docs.find_orphan_guides(tmp_path) == []
 
 
@@ -69,24 +81,11 @@ def test_link_inside_code_fence_is_ignored(tmp_path: Path) -> None:
     assert any("only-in-fence.md" in err for err in errors)
 
 
-def test_anchor_bearing_link_reaches_target(tmp_path: Path) -> None:
-    _write(tmp_path / "index.md", "# Root\n\n[Guide](guide.md#section)\n")
-    _write(tmp_path / "guide.md", "# Guide\n\n## Section\n")
-    assert lint_docs.find_orphan_guides(tmp_path) == []
-
-
 def test_http_link_does_not_count_as_local(tmp_path: Path) -> None:
     _write(tmp_path / "index.md", "# Root\n\n[Ext](https://example.com/foo.md)\n")
     _write(tmp_path / "foo.md", "# Local foo\n")
     errors = lint_docs.find_orphan_guides(tmp_path)
     assert any("foo.md" in err for err in errors)
-
-
-def test_nested_bracket_link_text_is_reachable(tmp_path: Path) -> None:
-    """A link with nested brackets in its text must still resolve to the target."""
-    _write(tmp_path / "index.md", "# Root\n\n[a [nested] label](foo.md)\n")
-    _write(tmp_path / "foo.md", "# Foo\n")
-    assert lint_docs.find_orphan_guides(tmp_path) == []
 
 
 def test_missing_root_index_returns_sentinel(tmp_path: Path) -> None:
@@ -365,10 +364,104 @@ def test_check_retired_property_spec_spellings_allows_surviving_option_key(field
     assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
 
 
-def test_check_retired_property_spec_spellings_ignores_prose_match(tmp_path: Path) -> None:
-    """Like the internal-import check, only fenced code blocks are scanned."""
+# Snippets the retired-spelling check must leave alone, each with the reason it is legal.
+ACCEPTED_SPEC_SNIPPETS = [
+    # Like the internal-import check, only fenced code blocks are scanned.
+    pytest.param(
+        "# A\n\nThe retired `DefaultOptionKeys.allowed_values` spelling is gone; use `property_spec` instead.\n",
+        id="prose_match",
+    ),
+    # The builder form is the supported spelling; its ``allowed_values={...}`` kwarg is not a spec value.
+    pytest.param(
+        "# A\n"
+        "\n"
+        "```python\n"
+        "PROPERTY_MAPPING = {\n"
+        '    "operation_type": property_spec(\n'
+        '        "Arithmetic operation",\n'
+        "        strict=True,\n"
+        '        allowed_values={"add": "Addition", "sub": "Subtraction"},\n'
+        '        default="add",\n'
+        "    ),\n"
+        "}\n"
+        "```\n",
+        id="property_spec_value",
+    ),
+    # ``DefaultOptionKeys.in_features`` as the mapping KEY stays valid when the value is a ``property_spec``.
+    pytest.param(
+        "# A\n"
+        "\n"
+        "```python\n"
+        "PROPERTY_MAPPING = {\n"
+        "    DefaultOptionKeys.in_features: property_spec(\n"
+        '        "Source feature",\n'
+        "        context=True,\n"
+        "    ),\n"
+        "}\n"
+        "```\n",
+        id="in_features_mapping_key",
+    ),
+    # ``: {`` inside an explanation string is prose, not a raw dict value.
+    pytest.param(
+        '# A\n\n```python\nPROPERTY_MAPPING = {\n    "fmt": property_spec("Template, e.g. {col}: {value}"),\n}\n```\n',
+        id="colon_brace_inside_string",
+    ),
+    # ``: {`` inside a trailing comment is not a raw dict value either.
+    pytest.param(
+        "# A\n"
+        "\n"
+        "```python\n"
+        "PROPERTY_MAPPING = {\n"
+        '    "op": property_spec("Arithmetic"),  # shape: {value: doc}\n'
+        "}\n"
+        "```\n",
+        id="colon_brace_in_comment",
+    ),
+    # A dict nested inside a ``property_spec(...)`` kwarg is not a PROPERTY_MAPPING value.
+    pytest.param(
+        "# A\n"
+        "\n"
+        "```python\n"
+        "PROPERTY_MAPPING = {\n"
+        '    "op": property_spec("Arithmetic", allowed_values={"add": {"alias": "plus"}}),\n'
+        "}\n"
+        "```\n",
+        id="nested_dict_in_kwarg",
+    ),
+    # A ```text fence quoting a migration message is documentation, not code: skip both checks.
+    pytest.param(
+        "# A\n"
+        "\n"
+        "```text\n"
+        "AttributeError: DefaultOptionKeys.allowed_values does not exist on the unreleased core.\n"
+        "The old shape was: PROPERTY_MAPPING = {\n"
+        '    "operation_type": {"explanation": "Arithmetic operation"},\n'
+        "}\n"
+        "```\n",
+        id="non_python_fence",
+    ),
+    # Guide snippets are often fragments: a bare dict body must not raise and must not be read as a raw dict.
+    pytest.param(
+        '# A\n\n```python\n    "aggregation_type": ...,\n    "order_by": property_spec("x"),\n```\n',
+        id="unparseable_fence",
+    ),
+    # A mapping cut off before its closing brace must not fall back to a scan that misreads the entries.
+    pytest.param(
+        "# A\n"
+        "\n"
+        "```python\n"
+        "PROPERTY_MAPPING = {\n"
+        '    "fmt": property_spec("Template, e.g. {col}: {value}"),\n'
+        "    ...\n"
+        "```\n",
+        id="truncated_mapping_fence",
+    ),
+]
+
+
+@pytest.mark.parametrize("content", ACCEPTED_SPEC_SNIPPETS)
+def test_check_retired_property_spec_spellings_accepts_snippet(content: str, tmp_path: Path) -> None:
     md_file = tmp_path / "a.md"
-    content = "# A\n\nThe retired `DefaultOptionKeys.allowed_values` spelling is gone; use `property_spec` instead.\n"
     _write(md_file, content)
     assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
 
@@ -382,10 +475,10 @@ def test_check_retired_property_spec_spellings_reports_file_and_line(tmp_path: P
     assert errors[0].startswith(f"{md_file}:7:")
 
 
-def test_check_retired_property_spec_spellings_flags_raw_dict_spec(tmp_path: Path) -> None:
-    """A raw dict as a PROPERTY_MAPPING value now raises ValueError at class definition; flag where it opens."""
-    md_file = tmp_path / "a.md"
-    content = (
+# Raw dict PROPERTY_MAPPING values, paired with the 1-based line the single error must point at.
+# A raw dict value now raises ValueError at class definition, so the error is reported where the dict opens.
+FLAGGED_RAW_DICT_SNIPPETS = [
+    pytest.param(
         "# A\n"
         "\n"
         "```python\n"
@@ -394,89 +487,30 @@ def test_check_retired_property_spec_spellings_flags_raw_dict_spec(tmp_path: Pat
         '        "explanation": "Arithmetic operation",\n'
         "    },\n"
         "}\n"
-        "```\n"
-    )
-    _write(md_file, content)
-    errors = lint_docs.check_retired_property_spec_spellings(md_file, content)
-    assert len(errors) == 1
-    assert errors[0].startswith(f"{md_file}:5:")
-    assert "property_spec" in errors[0]
-
-
-def test_check_retired_property_spec_spellings_accepts_property_spec_value(tmp_path: Path) -> None:
-    """The builder form is the supported spelling; its ``allowed_values={...}`` kwarg is not a spec value."""
-    md_file = tmp_path / "a.md"
-    content = (
-        "# A\n"
-        "\n"
-        "```python\n"
-        "PROPERTY_MAPPING = {\n"
-        '    "operation_type": property_spec(\n'
-        '        "Arithmetic operation",\n'
-        "        strict=True,\n"
-        '        allowed_values={"add": "Addition", "sub": "Subtraction"},\n'
-        '        default="add",\n'
-        "    ),\n"
-        "}\n"
-        "```\n"
-    )
-    _write(md_file, content)
-    assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
-
-
-def test_check_retired_property_spec_spellings_accepts_in_features_mapping_key(tmp_path: Path) -> None:
-    """``DefaultOptionKeys.in_features`` as the mapping KEY stays valid when the value is a ``property_spec``."""
-    md_file = tmp_path / "a.md"
-    content = (
-        "# A\n"
-        "\n"
-        "```python\n"
-        "PROPERTY_MAPPING = {\n"
-        "    DefaultOptionKeys.in_features: property_spec(\n"
-        '        "Source feature",\n'
-        "        context=True,\n"
-        "    ),\n"
-        "}\n"
-        "```\n"
-    )
-    _write(md_file, content)
-    assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
-
-
-def test_check_retired_property_spec_spellings_flags_single_line_raw_dict(tmp_path: Path) -> None:
-    """A raw dict value written entirely on the PROPERTY_MAPPING opener line is still a raw dict."""
-    md_file = tmp_path / "a.md"
-    content = '# A\n\n```python\nPROPERTY_MAPPING = {"operation_type": {"explanation": "Arithmetic operation"}}\n```\n'
-    _write(md_file, content)
-    errors = lint_docs.check_retired_property_spec_spellings(md_file, content)
-    assert len(errors) == 1
-    assert errors[0].startswith(f"{md_file}:4:")
-    assert "property_spec" in errors[0]
-
-
-def test_check_retired_property_spec_spellings_flags_raw_dict_opened_on_mapping_line(tmp_path: Path) -> None:
-    """The first entry may open on the opener line and close later; it must still be checked."""
-    md_file = tmp_path / "a.md"
-    content = (
+        "```\n",
+        5,
+        id="raw_dict_spec",
+    ),
+    # A raw dict value written entirely on the PROPERTY_MAPPING opener line is still a raw dict.
+    pytest.param(
+        '# A\n\n```python\nPROPERTY_MAPPING = {"operation_type": {"explanation": "Arithmetic operation"}}\n```\n',
+        4,
+        id="single_line_raw_dict",
+    ),
+    # The first entry may open on the opener line and close later; it must still be checked.
+    pytest.param(
         "# A\n"
         "\n"
         "```python\n"
         'PROPERTY_MAPPING = {"operation_type": {\n'
         '    "explanation": "Arithmetic operation",\n'
         "}}\n"
-        "```\n"
-    )
-    _write(md_file, content)
-    errors = lint_docs.check_retired_property_spec_spellings(md_file, content)
-    assert len(errors) == 1
-    assert errors[0].startswith(f"{md_file}:4:")
-    assert "property_spec" in errors[0]
-
-
-def test_check_retired_property_spec_spellings_flags_raw_dict_after_paren_in_string(tmp_path: Path) -> None:
-    """An unbalanced paren inside a string literal must not hide the following raw dict entry."""
-    md_file = tmp_path / "a.md"
-    content = (
+        "```\n",
+        4,
+        id="raw_dict_opened_on_mapping_line",
+    ),
+    # An unbalanced paren inside a string literal must not hide the following raw dict entry.
+    pytest.param(
         "# A\n"
         "\n"
         "```python\n"
@@ -484,19 +518,12 @@ def test_check_retired_property_spec_spellings_flags_raw_dict_after_paren_in_str
         '    "a": property_spec("mismatched ( paren in text"),\n'
         '    "b": {"explanation": "raw"},\n'
         "}\n"
-        "```\n"
-    )
-    _write(md_file, content)
-    errors = lint_docs.check_retired_property_spec_spellings(md_file, content)
-    assert len(errors) == 1
-    assert errors[0].startswith(f"{md_file}:6:")
-    assert "property_spec" in errors[0]
-
-
-def test_check_retired_property_spec_spellings_flags_raw_dict_after_brace_in_string(tmp_path: Path) -> None:
-    """An unbalanced brace inside a string literal must not hide the following raw dict entry."""
-    md_file = tmp_path / "a.md"
-    content = (
+        "```\n",
+        6,
+        id="raw_dict_after_paren_in_string",
+    ),
+    # An unbalanced brace inside a string literal must not hide the following raw dict entry.
+    pytest.param(
         "# A\n"
         "\n"
         "```python\n"
@@ -504,72 +531,23 @@ def test_check_retired_property_spec_spellings_flags_raw_dict_after_brace_in_str
         '    "a": property_spec(r"pattern with a { brace"),\n'
         '    "b": {"explanation": "raw"},\n'
         "}\n"
-        "```\n"
-    )
+        "```\n",
+        6,
+        id="raw_dict_after_brace_in_string",
+    ),
+]
+
+
+@pytest.mark.parametrize(("content", "expected_line"), FLAGGED_RAW_DICT_SNIPPETS)
+def test_check_retired_property_spec_spellings_flags_raw_dict_value(
+    content: str, expected_line: int, tmp_path: Path
+) -> None:
+    md_file = tmp_path / "a.md"
     _write(md_file, content)
     errors = lint_docs.check_retired_property_spec_spellings(md_file, content)
     assert len(errors) == 1
-    assert errors[0].startswith(f"{md_file}:6:")
+    assert errors[0].startswith(f"{md_file}:{expected_line}:")
     assert "property_spec" in errors[0]
-
-
-def test_check_retired_property_spec_spellings_accepts_colon_brace_inside_string(tmp_path: Path) -> None:
-    """``: {`` inside an explanation string is prose, not a raw dict value."""
-    md_file = tmp_path / "a.md"
-    content = (
-        '# A\n\n```python\nPROPERTY_MAPPING = {\n    "fmt": property_spec("Template, e.g. {col}: {value}"),\n}\n```\n'
-    )
-    _write(md_file, content)
-    assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
-
-
-def test_check_retired_property_spec_spellings_accepts_colon_brace_in_comment(tmp_path: Path) -> None:
-    """``: {`` inside a trailing comment is not a raw dict value either."""
-    md_file = tmp_path / "a.md"
-    content = (
-        "# A\n"
-        "\n"
-        "```python\n"
-        "PROPERTY_MAPPING = {\n"
-        '    "op": property_spec("Arithmetic"),  # shape: {value: doc}\n'
-        "}\n"
-        "```\n"
-    )
-    _write(md_file, content)
-    assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
-
-
-def test_check_retired_property_spec_spellings_accepts_nested_dict_in_kwarg(tmp_path: Path) -> None:
-    """A dict nested inside a ``property_spec(...)`` kwarg is not a PROPERTY_MAPPING value."""
-    md_file = tmp_path / "a.md"
-    content = (
-        "# A\n"
-        "\n"
-        "```python\n"
-        "PROPERTY_MAPPING = {\n"
-        '    "op": property_spec("Arithmetic", allowed_values={"add": {"alias": "plus"}}),\n'
-        "}\n"
-        "```\n"
-    )
-    _write(md_file, content)
-    assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
-
-
-def test_check_retired_property_spec_spellings_ignores_non_python_fence(tmp_path: Path) -> None:
-    """A ```text fence quoting a migration message is documentation, not code: skip both checks."""
-    md_file = tmp_path / "a.md"
-    content = (
-        "# A\n"
-        "\n"
-        "```text\n"
-        "AttributeError: DefaultOptionKeys.allowed_values does not exist on the unreleased core.\n"
-        "The old shape was: PROPERTY_MAPPING = {\n"
-        '    "operation_type": {"explanation": "Arithmetic operation"},\n'
-        "}\n"
-        "```\n"
-    )
-    _write(md_file, content)
-    assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
 
 
 def test_check_retired_property_spec_spellings_scans_py_alias_fence(tmp_path: Path) -> None:
@@ -590,30 +568,6 @@ def test_check_retired_property_spec_spellings_scans_py_alias_fence(tmp_path: Pa
     assert len(errors) == 2
     assert any(err.startswith(f"{md_file}:5:") and "property_spec" in err for err in errors)
     assert any("DefaultOptionKeys.allowed_values" in err for err in errors)
-
-
-def test_check_retired_property_spec_spellings_tolerates_unparseable_fence(tmp_path: Path) -> None:
-    """Guide snippets are often fragments: a bare dict body must not raise and must not be read as a raw dict."""
-    md_file = tmp_path / "a.md"
-    content = '# A\n\n```python\n    "aggregation_type": ...,\n    "order_by": property_spec("x"),\n```\n'
-    _write(md_file, content)
-    assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
-
-
-def test_check_retired_property_spec_spellings_tolerates_truncated_mapping_fence(tmp_path: Path) -> None:
-    """A mapping cut off before its closing brace must not fall back to a scan that misreads the entries."""
-    md_file = tmp_path / "a.md"
-    content = (
-        "# A\n"
-        "\n"
-        "```python\n"
-        "PROPERTY_MAPPING = {\n"
-        '    "fmt": property_spec("Template, e.g. {col}: {value}"),\n'
-        "    ...\n"
-        "```\n"
-    )
-    _write(md_file, content)
-    assert lint_docs.check_retired_property_spec_spellings(md_file, content) == []
 
 
 def test_main_reports_retired_property_spec_spellings(

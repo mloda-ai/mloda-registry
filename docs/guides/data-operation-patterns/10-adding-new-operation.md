@@ -98,6 +98,7 @@ File: `mloda/testing/feature_groups/data_operations/{category}/{your_op}/{your_o
 
 ```python
 from typing import Any
+import pytest
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.community.feature_groups.data_operations.{category}.{your_op}.pyarrow_{your_op} import (
     PyArrowYourOp,
@@ -113,16 +114,21 @@ class YourOpTestBase(DataOpsTestBase):
     def supported_ops(cls) -> set[str]:
         return {"op_a", "op_b"}
 
-    def test_op_a_basic(self) -> None:
-        self._skip_if_unsupported("op_a")
-        self._compare_with_reference("value_int__op_a")
-
-    def test_op_b_partitioned(self) -> None:
-        self._skip_if_unsupported("op_b")
-        self._compare_with_reference("value_int__op_b", partition_by=["region"])
+    @pytest.mark.parametrize(
+        ("op", "partition_by"),
+        [
+            pytest.param("op_a", None, id="op_a"),
+            pytest.param("op_b", ["region"], id="op_b"),
+        ],
+    )
+    def test_cross_framework(self, op: str, partition_by: list[str] | None) -> None:
+        self._skip_if_unsupported(op)
+        self._compare_with_reference(f"value_int__{op}", partition_by=partition_by)
 ```
 
-The test methods call `_compare_with_reference`, which runs both the implementation under test and PyArrow and asserts they match. Every framework's concrete test class will inherit these methods.
+The test method calls `_compare_with_reference`, which runs both the implementation under test and PyArrow and asserts they match. Every framework's concrete test class inherits it.
+
+One parametrized method per family, not one method per op: the explicit ids name the failing case (`test_cross_framework[op_b]`), and calling `_skip_if_unsupported` inside the body keeps the skip per case, so an unsupported op skips alone.
 
 ---
 

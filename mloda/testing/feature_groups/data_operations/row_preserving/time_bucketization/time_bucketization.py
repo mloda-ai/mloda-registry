@@ -438,86 +438,56 @@ class TimeBucketizationTestBase(DataOpsTestBase):
             else:
                 assert fw_v == ref_v, f"row {i}: {fw_v!r} != reference {ref_v!r}"
 
-    def test_cross_framework_floor_1_day(self) -> None:
-        self._compare_bucket_with_reference("timestamp__floor_1_day")
-
-    def test_cross_framework_floor_2_day(self) -> None:
-        """Multi-day fixed-freq floor must agree with PyArrow's epoch-anchored buckets.
-
-        Backends that use a built-in ``time_bucket`` (DuckDB) anchor sub-month
-        widths at 2000-01-03 by default, which diverges from PyArrow's
-        epoch-anchored (multiples since 1970-01-01) buckets. This test pins
-        agreement and would catch a regression on that anchor.
-        """
-        self._compare_bucket_with_reference("timestamp__floor_2_day")
-
-    def test_cross_framework_floor_3_day(self) -> None:
-        """3-day floor: extra coverage for multi-day anchor alignment with PyArrow."""
-        self._compare_bucket_with_reference("timestamp__floor_3_day")
-
-    def test_cross_framework_ceil_1_day(self) -> None:
-        self._compare_bucket_with_reference("timestamp__ceil_1_day")
-
-    def test_cross_framework_round_5_minute(self) -> None:
-        self._compare_bucket_with_reference("timestamp__round_5_minute")
-
-    def test_cross_framework_floor_1_week(self) -> None:
-        self._compare_bucket_with_reference("timestamp__floor_1_week")
-
-    def test_cross_framework_floor_1_month(self) -> None:
-        self._compare_bucket_with_reference("timestamp__floor_1_month")
-
-    def test_cross_framework_floor_1_year(self) -> None:
-        self._compare_bucket_with_reference("timestamp__floor_1_year")
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("timestamp__floor_1_day", id="floor_1_day"),
+            # Backends with a built-in ``time_bucket`` (DuckDB) anchor sub-month widths
+            # at 2000-01-03 by default, which diverges from PyArrow's epoch-anchored
+            # buckets (multiples since 1970-01-01). These two cases pin that anchor.
+            pytest.param("timestamp__floor_2_day", id="floor_2_day"),
+            pytest.param("timestamp__floor_3_day", id="floor_3_day"),
+            pytest.param("timestamp__ceil_1_day", id="ceil_1_day"),
+            pytest.param("timestamp__round_5_minute", id="round_5_minute"),
+            pytest.param("timestamp__floor_1_week", id="floor_1_week"),
+            pytest.param("timestamp__floor_1_month", id="floor_1_month"),
+            pytest.param("timestamp__floor_1_year", id="floor_1_year"),
+        ],
+    )
+    def test_cross_framework(self, feature_name: str) -> None:
+        """Every bucket op must agree with the PyArrow reference."""
+        self._compare_bucket_with_reference(feature_name)
 
     # -- Error / validation --------------------------------------------------
 
-    def test_unsupported_bucket_op_raises(self) -> None:
-        """A bogus op in Options must raise ValueError at compute time."""
+    @pytest.mark.parametrize(
+        ("result_name", "bucket_op", "match"),
+        [
+            pytest.param(
+                "bogus_result",
+                "bogus_1_day",
+                r"(?i)bucket_op|unsupported|could not extract",
+                id="unsupported_bucket_op",
+            ),
+            pytest.param("bad_unit", "floor_1_century", r"(?i)unit|unsupported|century", id="unsupported_unit"),
+            # ``n=0`` is not a valid bucket size.
+            pytest.param("zero_bucket", "floor_0_day", r"(?i)positive|n|0", id="n_zero"),
+        ],
+    )
+    def test_invalid_bucket_op_rejected(self, result_name: str, bucket_op: str, match: str) -> None:
+        """An invalid op in Options must raise ValueError at compute time."""
         feature = Feature(
-            "bogus_result",
+            result_name,
             options=Options(
                 context={
-                    "bucket_op": "bogus_1_day",
+                    "bucket_op": bucket_op,
                     "in_features": "timestamp",
                 }
             ),
         )
         fs = FeatureSet()
         fs.add(feature)
-        with pytest.raises(ValueError, match=r"(?i)bucket_op|unsupported|could not extract"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
-
-    def test_unsupported_unit_raises(self) -> None:
-        """A bogus unit (e.g. ``century``) in Options must raise ValueError at compute."""
-        feature = Feature(
-            "bad_unit",
-            options=Options(
-                context={
-                    "bucket_op": "floor_1_century",
-                    "in_features": "timestamp",
-                }
-            ),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        with pytest.raises(ValueError, match=r"(?i)unit|unsupported|century"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
-
-    def test_n_zero_rejected(self) -> None:
-        """``n=0`` is not a valid bucket size and must raise ValueError at compute."""
-        feature = Feature(
-            "zero_bucket",
-            options=Options(
-                context={
-                    "bucket_op": "floor_0_day",
-                    "in_features": "timestamp",
-                }
-            ),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        with pytest.raises(ValueError, match=r"(?i)positive|n|0"):
+        with pytest.raises(ValueError, match=match):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
     @pytest.mark.parametrize("unit", ["week", "month", "year"])

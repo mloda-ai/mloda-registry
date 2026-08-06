@@ -342,43 +342,37 @@ class TestOffsetCell:
 
 
 class TestIsSupported:
-    def test_exact_cell_sqlite_median_false(self) -> None:
-        """SQLite cannot compute a median aggregation."""
-        assert DataOperationsCatalog.is_supported("aggregation", "median", "SqliteFramework") is False
-
-    def test_exact_cell_duckdb_median_true(self) -> None:
-        """DuckDB computes median natively."""
-        pytest.importorskip("duckdb")
-        assert DataOperationsCatalog.is_supported("aggregation", "median", "DuckDBFramework") is True
-
-    def test_exact_cell_sqlite_mean_true(self) -> None:
-        """SQLite supports mean via its AVG alias."""
-        assert DataOperationsCatalog.is_supported("aggregation", "mean", "SqliteFramework") is True
-
-    def test_exact_cell_duckdb_rank_ntile_true(self) -> None:
-        """DuckDB supports the parametric ntile rank family."""
-        pytest.importorskip("duckdb")
-        assert DataOperationsCatalog.is_supported("rank", "ntile", "DuckDBFramework") is True
-
-    def test_operation_level_ema_pyarrow_false(self) -> None:
-        """subtype=None asks whether the operation exists on the framework at all."""
-        assert DataOperationsCatalog.is_supported("ema", framework="PyArrowTable") is False
-
-    def test_operation_level_ema_pandas_true(self) -> None:
-        pytest.importorskip("pandas")
-        assert DataOperationsCatalog.is_supported("ema", framework="PandasDataFrame") is True
-
-    def test_operation_level_percentile_sqlite_false(self) -> None:
-        assert DataOperationsCatalog.is_supported("percentile", framework="SqliteFramework") is False
-
-    def test_framework_matching_is_case_insensitive(self) -> None:
-        """Framework names match case-insensitively."""
-        assert DataOperationsCatalog.is_supported("aggregation", "sum", "sqliteframework") is True
-
-    def test_any_framework_median_true(self) -> None:
-        """framework=None asks whether at least one framework supports the subtype."""
-        pytest.importorskip("duckdb")
-        assert DataOperationsCatalog.is_supported("aggregation", subtype="median") is True
+    @pytest.mark.parametrize(
+        ("operation", "subtype", "framework", "expected", "requires"),
+        [
+            pytest.param("aggregation", "median", "SqliteFramework", False, None, id="sqlite_median_false"),
+            pytest.param("aggregation", "median", "DuckDBFramework", True, "duckdb", id="duckdb_median_true"),
+            # SQLite supports mean via its AVG alias.
+            pytest.param("aggregation", "mean", "SqliteFramework", True, None, id="sqlite_mean_true"),
+            # ntile is a parametric rank family, not a fixed rank type.
+            pytest.param("rank", "ntile", "DuckDBFramework", True, "duckdb", id="duckdb_rank_ntile_true"),
+            # subtype=None asks whether the operation exists on the framework at all.
+            pytest.param("ema", None, "PyArrowTable", False, None, id="ema_pyarrow_false"),
+            pytest.param("ema", None, "PandasDataFrame", True, "pandas", id="ema_pandas_true"),
+            pytest.param("percentile", None, "SqliteFramework", False, None, id="percentile_sqlite_false"),
+            pytest.param("aggregation", "sum", "sqliteframework", True, None, id="case_insensitive_framework"),
+            # framework=None asks whether at least one framework supports the subtype.
+            pytest.param("aggregation", "median", None, True, "duckdb", id="any_framework_median_true"),
+            # Unknown or absent frameworks return False (open world, no error).
+            pytest.param("aggregation", "sum", "NoSuchFramework", False, None, id="unknown_framework_false"),
+        ],
+    )
+    def test_is_supported(
+        self,
+        operation: str,
+        subtype: str | None,
+        framework: str | None,
+        expected: bool,
+        requires: str | None,
+    ) -> None:
+        if requires is not None:
+            pytest.importorskip(requires)
+        assert DataOperationsCatalog.is_supported(operation, subtype, framework) is expected
 
     def test_unknown_operation_raises_value_error_listing_operations(self) -> None:
         """Unknown operations raise ValueError listing the valid operation names."""
@@ -397,7 +391,3 @@ class TestIsSupported:
         assert "bogus" in message
         assert "median" in message
         assert "sum" in message
-
-    def test_unknown_framework_returns_false(self) -> None:
-        """Unknown or absent frameworks return False (open world, no error)."""
-        assert DataOperationsCatalog.is_supported("aggregation", "sum", "NoSuchFramework") is False

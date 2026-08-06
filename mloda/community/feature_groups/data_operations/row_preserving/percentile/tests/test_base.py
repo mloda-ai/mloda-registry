@@ -53,53 +53,36 @@ class TestPatternMatching:
         result = PercentileFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
 
-    def test_no_match_wrong_suffix(self) -> None:
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("value_int__p50_grouped", id="wrong_suffix"),
+            pytest.param("value_int__p50", id="no_suffix"),
+            pytest.param("p50_percentile", id="no_source_column"),
+            pytest.param("value_int__p101_percentile", id="invalid_percentile_too_high"),
+            pytest.param("value_int__p-1_percentile", id="invalid_percentile_negative"),
+            pytest.param("value_int__pfoo_percentile", id="non_numeric"),
+        ],
+    )
+    def test_no_match(self, feature_name: str) -> None:
         options = Options(context={"partition_by": ["region"]})
-        result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_grouped", options, None)
-        assert result is False
-
-    def test_no_match_no_suffix(self) -> None:
-        options = Options(context={"partition_by": ["region"]})
-        result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p50", options, None)
-        assert result is False
-
-    def test_no_match_no_source_column(self) -> None:
-        options = Options(context={"partition_by": ["region"]})
-        result = PercentileFeatureGroup.match_feature_group_criteria("p50_percentile", options, None)
-        assert result is False
-
-    def test_no_match_invalid_percentile_too_high(self) -> None:
-        options = Options(context={"partition_by": ["region"]})
-        result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p101_percentile", options, None)
-        assert result is False
-
-    def test_no_match_invalid_percentile_negative(self) -> None:
-        options = Options(context={"partition_by": ["region"]})
-        result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p-1_percentile", options, None)
-        assert result is False
-
-    def test_no_match_non_numeric(self) -> None:
-        options = Options(context={"partition_by": ["region"]})
-        result = PercentileFeatureGroup.match_feature_group_criteria("value_int__pfoo_percentile", options, None)
+        result = PercentileFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is False
 
 
 class TestPatternParsing:
-    def test_parse_p50(self) -> None:
-        result = PercentileFeatureGroup.get_percentile_value("value_int__p50_percentile")
-        assert result == 0.5
-
-    def test_parse_p25(self) -> None:
-        result = PercentileFeatureGroup.get_percentile_value("value_int__p25_percentile")
-        assert result == 0.25
-
-    def test_parse_p0(self) -> None:
-        result = PercentileFeatureGroup.get_percentile_value("value_int__p0_percentile")
-        assert result == 0.0
-
-    def test_parse_p100(self) -> None:
-        result = PercentileFeatureGroup.get_percentile_value("value_int__p100_percentile")
-        assert result == 1.0
+    @pytest.mark.parametrize(
+        ("feature_name", "expected"),
+        [
+            pytest.param("value_int__p50_percentile", 0.5, id="p50"),
+            pytest.param("value_int__p25_percentile", 0.25, id="p25"),
+            pytest.param("value_int__p0_percentile", 0.0, id="p0"),
+            pytest.param("value_int__p100_percentile", 1.0, id="p100"),
+        ],
+    )
+    def test_parse_percentile_value(self, feature_name: str, expected: float) -> None:
+        result = PercentileFeatureGroup.get_percentile_value(feature_name)
+        assert result == expected
 
     def test_parse_source_feature(self) -> None:
         feature = Feature(
@@ -119,104 +102,30 @@ class TestPatternParsing:
 
 
 class TestConfigBasedFeatures:
-    def test_config_based_match(self) -> None:
+    @pytest.mark.parametrize(
+        ("percentile", "expected"),
+        [
+            pytest.param(0.75, True, id="valid"),
+            pytest.param(1.5, False, id="rejects_invalid_percentile_too_high"),
+            pytest.param(-0.1, False, id="rejects_invalid_percentile_negative"),
+            pytest.param(True, False, id="rejects_bool_true"),
+            pytest.param(False, False, id="rejects_bool_false"),
+            pytest.param(1, True, id="boundary_int_one"),
+            pytest.param(0, True, id="boundary_int_zero"),
+            pytest.param(1.0, True, id="boundary_float_one"),
+            pytest.param(0.0, True, id="boundary_float_zero"),
+        ],
+    )
+    def test_config_based_match(self, percentile: float | int | bool, expected: bool) -> None:
         options = Options(
             context={
-                "percentile": 0.75,
+                "percentile": percentile,
                 "in_features": "value_int",
                 "partition_by": ["region"],
             }
         )
         result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is True
-
-    def test_config_based_match_rejects_invalid_percentile_too_high(self) -> None:
-        options = Options(
-            context={
-                "percentile": 1.5,
-                "in_features": "value_int",
-                "partition_by": ["region"],
-            }
-        )
-        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is False
-
-    def test_config_based_match_rejects_invalid_percentile_negative(self) -> None:
-        options = Options(
-            context={
-                "percentile": -0.1,
-                "in_features": "value_int",
-                "partition_by": ["region"],
-            }
-        )
-        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is False
-
-    def test_config_based_match_rejects_bool_true(self) -> None:
-        options = Options(
-            context={
-                "percentile": True,
-                "in_features": "value_int",
-                "partition_by": ["region"],
-            }
-        )
-        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is False
-
-    def test_config_based_match_rejects_bool_false(self) -> None:
-        options = Options(
-            context={
-                "percentile": False,
-                "in_features": "value_int",
-                "partition_by": ["region"],
-            }
-        )
-        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is False
-
-    def test_config_based_match_boundary_int_one(self) -> None:
-        options = Options(
-            context={
-                "percentile": 1,
-                "in_features": "value_int",
-                "partition_by": ["region"],
-            }
-        )
-        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is True
-
-    def test_config_based_match_boundary_int_zero(self) -> None:
-        options = Options(
-            context={
-                "percentile": 0,
-                "in_features": "value_int",
-                "partition_by": ["region"],
-            }
-        )
-        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is True
-
-    def test_config_based_match_boundary_float_one(self) -> None:
-        options = Options(
-            context={
-                "percentile": 1.0,
-                "in_features": "value_int",
-                "partition_by": ["region"],
-            }
-        )
-        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is True
-
-    def test_config_based_match_boundary_float_zero(self) -> None:
-        options = Options(
-            context={
-                "percentile": 0.0,
-                "in_features": "value_int",
-                "partition_by": ["region"],
-            }
-        )
-        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is True
+        assert result is expected
 
     def test_config_based_match_rejects_missing_partition_by(self) -> None:
         options = Options(

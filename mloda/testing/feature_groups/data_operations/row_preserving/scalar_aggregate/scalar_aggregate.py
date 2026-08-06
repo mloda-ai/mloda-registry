@@ -334,123 +334,75 @@ class ScalarAggregateTestBase(MaskTestMixin, DataOpsTestBase):
 
     # -- Cross-framework comparison ------------------------------------------
 
-    def test_cross_framework_sum(self) -> None:
-        self._compare_with_reference("value_int__sum_scalar")
-
-    def test_cross_framework_avg(self) -> None:
-        self._compare_with_reference("value_int__avg_scalar", use_approx=True)
-
-    def test_cross_framework_count(self) -> None:
-        self._compare_with_reference("value_int__count_scalar")
-
-    def test_cross_framework_min(self) -> None:
-        self._compare_with_reference("value_int__min_scalar")
-
-    def test_cross_framework_max(self) -> None:
-        self._compare_with_reference("value_int__max_scalar")
+    @pytest.mark.parametrize(
+        ("feature_name", "use_approx"),
+        [
+            pytest.param("value_int__sum_scalar", False, id="sum"),
+            pytest.param("value_int__avg_scalar", True, id="avg"),
+            pytest.param("value_int__count_scalar", False, id="count"),
+            pytest.param("value_int__min_scalar", False, id="min"),
+            pytest.param("value_int__max_scalar", False, id="max"),
+            # score is all-null
+            pytest.param("score__min_scalar", False, id="all_null_min"),
+            pytest.param("score__max_scalar", False, id="all_null_max"),
+            pytest.param("score__avg_scalar", False, id="all_null_avg"),
+            pytest.param("score__count_scalar", False, id="all_null_count"),
+            # value_float has 2 nulls (rows 2, 11)
+            pytest.param("value_float__sum_scalar", True, id="multi_null_sum"),
+            pytest.param("value_float__count_scalar", False, id="multi_null_count"),
+            # amount has 2 nulls (rows 1, 7)
+            pytest.param("amount__sum_scalar", True, id="amount_sum"),
+            pytest.param("amount__count_scalar", False, id="amount_count"),
+        ],
+    )
+    def test_cross_framework(self, feature_name: str, use_approx: bool) -> None:
+        self._compare_with_reference(feature_name, use_approx=use_approx)
 
     # -- Null consistency tests (all-null column: score) ---------------------
 
-    def test_all_null_column_sum(self) -> None:
-        """score is all-null. Sum should broadcast None to every row."""
-        fs = make_feature_set("score__sum_scalar")
+    @pytest.mark.parametrize(
+        ("feature_name", "skip_op"),
+        [
+            pytest.param("score__sum_scalar", None, id="sum"),
+            pytest.param("score__min_scalar", None, id="min"),
+            pytest.param("score__max_scalar", None, id="max"),
+            pytest.param("score__avg_scalar", None, id="avg"),
+            pytest.param("score__std_scalar", "std", id="std"),
+            pytest.param("score__var_scalar", "var", id="var"),
+            pytest.param("score__median_scalar", "median", id="median"),
+        ],
+    )
+    def test_all_null_column(self, feature_name: str, skip_op: str | None) -> None:
+        """score is all-null. Every aggregate except count should broadcast None to every row.
+
+        count broadcasts 0 instead; see test_null_column_count.
+        """
+        if skip_op is not None:
+            self._skip_if_unsupported(skip_op)
+        fs = make_feature_set(feature_name)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
-        result_col = self.extract_column(result, "score__sum_scalar")
+        result_col = self.extract_column(result, feature_name)
         assert all(v is None for v in result_col)
 
-    def test_all_null_column_min(self) -> None:
-        """score is all-null. Min should broadcast None."""
-        fs = make_feature_set("score__min_scalar")
+    # -- Null consistency tests (count of non-nulls) -------------------------
+
+    @pytest.mark.parametrize(
+        ("feature_name", "expected"),
+        [
+            # score is all-null
+            pytest.param("score__count_scalar", 0, id="all_null"),
+            # value_float has 2 nulls (rows 2, 11)
+            pytest.param("value_float__count_scalar", 10, id="multi_null"),
+            # amount has 2 nulls (rows 1, 7)
+            pytest.param("amount__count_scalar", 10, id="amount"),
+        ],
+    )
+    def test_null_column_count(self, feature_name: str, expected: int) -> None:
+        """Count should broadcast the number of non-null values to every row."""
+        fs = make_feature_set(feature_name)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
-        result_col = self.extract_column(result, "score__min_scalar")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_max(self) -> None:
-        """score is all-null. Max should broadcast None."""
-        fs = make_feature_set("score__max_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        result_col = self.extract_column(result, "score__max_scalar")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_avg(self) -> None:
-        """score is all-null. Avg should broadcast None."""
-        fs = make_feature_set("score__avg_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        result_col = self.extract_column(result, "score__avg_scalar")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_count(self) -> None:
-        """score is all-null. Count of non-nulls should broadcast 0."""
-        fs = make_feature_set("score__count_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        result_col = self.extract_column(result, "score__count_scalar")
-        assert all(v == 0 for v in result_col)
-
-    def test_all_null_column_std(self) -> None:
-        """score is all-null. Std should broadcast None."""
-        self._skip_if_unsupported("std")
-        fs = make_feature_set("score__std_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        result_col = self.extract_column(result, "score__std_scalar")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_var(self) -> None:
-        """score is all-null. Var should broadcast None."""
-        self._skip_if_unsupported("var")
-        fs = make_feature_set("score__var_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        result_col = self.extract_column(result, "score__var_scalar")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_median(self) -> None:
-        """score is all-null. Median should broadcast None."""
-        self._skip_if_unsupported("median")
-        fs = make_feature_set("score__median_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        result_col = self.extract_column(result, "score__median_scalar")
-        assert all(v is None for v in result_col)
-
-    # -- Null consistency tests (multi-null columns) -------------------------
-
-    def test_multi_null_column_count(self) -> None:
-        """value_float has 2 nulls (rows 2, 11). Count should be 10."""
-        fs = make_feature_set("value_float__count_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        result_col = self.extract_column(result, "value_float__count_scalar")
-        assert all(v == 10 for v in result_col)
-
-    def test_amount_null_count(self) -> None:
-        """amount has 2 nulls (rows 1, 7). Count should be 10."""
-        fs = make_feature_set("amount__count_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        result_col = self.extract_column(result, "amount__count_scalar")
-        assert all(v == 10 for v in result_col)
-
-    # -- Cross-framework null comparisons ------------------------------------
-
-    def test_cross_framework_all_null_min(self) -> None:
-        self._compare_with_reference("score__min_scalar")
-
-    def test_cross_framework_all_null_max(self) -> None:
-        self._compare_with_reference("score__max_scalar")
-
-    def test_cross_framework_all_null_avg(self) -> None:
-        self._compare_with_reference("score__avg_scalar")
-
-    def test_cross_framework_all_null_count(self) -> None:
-        self._compare_with_reference("score__count_scalar")
-
-    def test_cross_framework_multi_null_sum(self) -> None:
-        self._compare_with_reference("value_float__sum_scalar", use_approx=True)
-
-    def test_cross_framework_multi_null_count(self) -> None:
-        self._compare_with_reference("value_float__count_scalar")
-
-    def test_cross_framework_amount_sum(self) -> None:
-        self._compare_with_reference("amount__sum_scalar", use_approx=True)
-
-    def test_cross_framework_amount_count(self) -> None:
-        self._compare_with_reference("amount__count_scalar")
+        result_col = self.extract_column(result, feature_name)
+        assert all(v == expected for v in result_col)
 
     # -- Mask tests ------------------------------------------------------------
 

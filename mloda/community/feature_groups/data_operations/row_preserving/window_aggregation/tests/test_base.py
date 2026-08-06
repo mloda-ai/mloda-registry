@@ -86,28 +86,18 @@ class TestPatternMatching:
         result = WindowAggregationFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
 
-    def test_no_match_wrong_suffix(self) -> None:
-        """Feature with wrong suffix (grouped instead of groupby) should not match."""
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("value_int__avg_grouped", id="wrong_suffix"),
+            pytest.param("value_int__avg", id="no_suffix"),
+            pytest.param("avg_window", id="no_source_column"),
+            pytest.param("value_int__unknown_window", id="invalid_operation"),
+        ],
+    )
+    def test_no_match(self, feature_name: str) -> None:
         options = Options(context={"partition_by": ["region"]})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__avg_grouped", options, None)
-        assert result is False
-
-    def test_no_match_no_suffix(self) -> None:
-        """Feature without _window suffix should not match."""
-        options = Options(context={"partition_by": ["region"]})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__avg", options, None)
-        assert result is False
-
-    def test_no_match_no_source_column(self) -> None:
-        """Feature with no source column (just operation_window) should not match."""
-        options = Options(context={"partition_by": ["region"]})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("avg_window", options, None)
-        assert result is False
-
-    def test_no_match_invalid_operation(self) -> None:
-        """Feature with an unknown/invalid operation should not match."""
-        options = Options(context={"partition_by": ["region"]})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__unknown_window", options, None)
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is False
 
 
@@ -150,47 +140,37 @@ class TestPatternParsing:
 class TestConfigValidation:
     """Tests for partition_by configuration validation."""
 
-    def test_partition_by_required(self) -> None:
-        """match_feature_group_criteria should fail without partition_by in options."""
-        options = Options(context={})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_window", options, None)
-        assert result is False
-
-    def test_partition_by_accepts_list_of_strings(self) -> None:
-        """partition_by should accept a list of strings."""
-        options = Options(context={"partition_by": ["region", "country"]})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_window", options, None)
-        assert result is True
-
-    def test_partition_by_must_be_list(self) -> None:
-        """partition_by as a plain string (not a list) should fail validation."""
-        options = Options(context={"partition_by": "region"})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_window", options, None)
-        assert result is False
-
-    def test_first_requires_order_by(self) -> None:
-        """first_window without order_by should not match."""
-        options = Options(context={"partition_by": ["region"]})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__first_window", options, None)
-        assert result is False
-
-    def test_last_requires_order_by(self) -> None:
-        """last_window without order_by should not match."""
-        options = Options(context={"partition_by": ["region"]})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__last_window", options, None)
-        assert result is False
-
-    def test_first_matches_with_order_by(self) -> None:
-        """first_window with order_by should match."""
-        options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__first_window", options, None)
-        assert result is True
-
-    def test_sum_does_not_require_order_by(self) -> None:
-        """sum_window should match without order_by (order-independent)."""
-        options = Options(context={"partition_by": ["region"]})
-        result = WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_window", options, None)
-        assert result is True
+    @pytest.mark.parametrize(
+        ("feature_name", "context", "expected"),
+        [
+            pytest.param("value_int__sum_window", {}, False, id="partition_by_required"),
+            pytest.param(
+                "value_int__sum_window",
+                {"partition_by": ["region", "country"]},
+                True,
+                id="partition_by_accepts_list_of_strings",
+            ),
+            pytest.param("value_int__sum_window", {"partition_by": "region"}, False, id="partition_by_must_be_list"),
+            pytest.param("value_int__first_window", {"partition_by": ["region"]}, False, id="first_requires_order_by"),
+            pytest.param("value_int__last_window", {"partition_by": ["region"]}, False, id="last_requires_order_by"),
+            pytest.param(
+                "value_int__first_window",
+                {"partition_by": ["region"], "order_by": "value_int"},
+                True,
+                id="first_matches_with_order_by",
+            ),
+            # sum is order-independent
+            pytest.param(
+                "value_int__sum_window", {"partition_by": ["region"]}, True, id="sum_does_not_require_order_by"
+            ),
+        ],
+    )
+    def test_match_feature_group_criteria(self, feature_name: str, context: dict[str, Any], expected: bool) -> None:
+        # Options keeps the dict it is handed and mutates it on other paths, so the shared
+        # argvalue must not be passed in directly.
+        options = Options(context=dict(context))
+        result = WindowAggregationFeatureGroup.match_feature_group_criteria(feature_name, options, None)
+        assert result is expected
 
 
 class TestConfigBasedFeatures:
