@@ -74,67 +74,49 @@ class TestPatternMatching:
         result = TimeBucketizationFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
 
-    def test_no_match_wrong_suffix(self) -> None:
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("timestamp__truncate_1_day", id="wrong_suffix"),
+            pytest.param("timestamp", id="no_suffix"),
+            pytest.param("floor_1_day", id="no_source_column"),
+            pytest.param("timestamp__truncate_1_day", id="invalid_op"),
+            pytest.param("timestamp__floor_1_century", id="invalid_unit"),
+            # The pattern itself allows ``\d+`` to include 0; the FG's
+            # _validate_string_match must reject n=0 so this match returns False.
+            pytest.param("timestamp__floor_0_day", id="n_zero"),
+        ],
+    )
+    def test_no_match(self, feature_name: str) -> None:
         options = Options()
-        result = TimeBucketizationFeatureGroup.match_feature_group_criteria("timestamp__truncate_1_day", options, None)
-        assert result is False
-
-    def test_no_match_no_suffix(self) -> None:
-        options = Options()
-        result = TimeBucketizationFeatureGroup.match_feature_group_criteria("timestamp", options, None)
-        assert result is False
-
-    def test_no_match_no_source_column(self) -> None:
-        options = Options()
-        # ``floor_1_day`` alone has no source-column prefix.
-        result = TimeBucketizationFeatureGroup.match_feature_group_criteria("floor_1_day", options, None)
-        assert result is False
-
-    def test_no_match_invalid_op(self) -> None:
-        options = Options()
-        result = TimeBucketizationFeatureGroup.match_feature_group_criteria("timestamp__truncate_1_day", options, None)
-        assert result is False
-
-    def test_no_match_invalid_unit(self) -> None:
-        options = Options()
-        result = TimeBucketizationFeatureGroup.match_feature_group_criteria("timestamp__floor_1_century", options, None)
-        assert result is False
-
-    def test_no_match_n_zero(self) -> None:
-        """``floor_0_day`` is grammatically valid for the regex (``\\d+``) but ``n=0``
-        is rejected by validation. The pattern accepts; the FG validation rejects."""
-        options = Options()
-        result = TimeBucketizationFeatureGroup.match_feature_group_criteria("timestamp__floor_0_day", options, None)
-        # Pattern itself allows ``\d+`` to include 0; the FG's _validate_string_match
-        # must reject n=0 so this match returns False.
+        result = TimeBucketizationFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is False
 
 
 class TestPatternParsing:
-    def test_parse_floor_1_day(self) -> None:
-        op = TimeBucketizationFeatureGroup.get_bucket_op("timestamp__floor_1_day")
-        assert op == "floor_1_day"
+    @pytest.mark.parametrize(
+        ("feature_name", "expected"),
+        [
+            pytest.param("timestamp__floor_1_day", "floor_1_day", id="floor_1_day"),
+            pytest.param("timestamp__ceil_5_minute", "ceil_5_minute", id="ceil_5_minute"),
+            pytest.param("timestamp__round_1_week", "round_1_week", id="round_1_week"),
+        ],
+    )
+    def test_parse_bucket_op(self, feature_name: str, expected: str) -> None:
+        op = TimeBucketizationFeatureGroup.get_bucket_op(feature_name)
+        assert op == expected
 
-    def test_parse_ceil_5_minute(self) -> None:
-        op = TimeBucketizationFeatureGroup.get_bucket_op("timestamp__ceil_5_minute")
-        assert op == "ceil_5_minute"
-
-    def test_parse_round_1_week(self) -> None:
-        op = TimeBucketizationFeatureGroup.get_bucket_op("timestamp__round_1_week")
-        assert op == "round_1_week"
-
-    def test_parse_op_components_floor_1_day(self) -> None:
-        """Module-level helper splits the op token into (op, n, unit)."""
-        components = _parse_bucket_op("floor_1_day")
-        assert components == ("floor", 1, "day")
-
-    def test_parse_op_components_ceil_15_minute(self) -> None:
-        components = _parse_bucket_op("ceil_15_minute")
-        assert components == ("ceil", 15, "minute")
-
-    def test_parse_op_components_round_1_year(self) -> None:
-        components = _parse_bucket_op("round_1_year")
-        assert components == ("round", 1, "year")
+    @pytest.mark.parametrize(
+        ("op_token", "expected"),
+        [
+            pytest.param("floor_1_day", ("floor", 1, "day"), id="floor_1_day"),
+            pytest.param("ceil_15_minute", ("ceil", 15, "minute"), id="ceil_15_minute"),
+            pytest.param("round_1_year", ("round", 1, "year"), id="round_1_year"),
+        ],
+    )
+    def test_parse_op_components(self, op_token: str, expected: tuple[str, int, str]) -> None:
+        components = _parse_bucket_op(op_token)
+        assert components == expected
 
     def test_parse_source_feature(self) -> None:
         feature = Feature("timestamp__floor_1_day", options=Options())
@@ -163,45 +145,24 @@ class TestPatternParsing:
 
 
 class TestConfigBasedFeatures:
-    def test_config_based_match(self) -> None:
+    @pytest.mark.parametrize(
+        ("bucket_op", "expected"),
+        [
+            pytest.param("floor_1_day", True, id="valid"),
+            pytest.param("bogus_1_day", False, id="rejects_invalid_op"),
+            pytest.param("floor_1_century", False, id="rejects_invalid_unit"),
+            pytest.param("floor_0_day", False, id="rejects_n_zero"),
+        ],
+    )
+    def test_config_based_match(self, bucket_op: str, expected: bool) -> None:
         options = Options(
             context={
-                "bucket_op": "floor_1_day",
+                "bucket_op": bucket_op,
                 "in_features": "timestamp",
             }
         )
         result = TimeBucketizationFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is True
-
-    def test_config_based_match_rejects_invalid_op(self) -> None:
-        options = Options(
-            context={
-                "bucket_op": "bogus_1_day",
-                "in_features": "timestamp",
-            }
-        )
-        result = TimeBucketizationFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is False
-
-    def test_config_based_match_rejects_invalid_unit(self) -> None:
-        options = Options(
-            context={
-                "bucket_op": "floor_1_century",
-                "in_features": "timestamp",
-            }
-        )
-        result = TimeBucketizationFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is False
-
-    def test_config_based_match_rejects_n_zero(self) -> None:
-        options = Options(
-            context={
-                "bucket_op": "floor_0_day",
-                "in_features": "timestamp",
-            }
-        )
-        result = TimeBucketizationFeatureGroup.match_feature_group_criteria("my_result", options, None)
-        assert result is False
+        assert result is expected
 
 
 class TestSingleColumnEnforcement:

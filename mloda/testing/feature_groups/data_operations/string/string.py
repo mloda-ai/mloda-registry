@@ -245,28 +245,22 @@ class StringTestBase(DataOpsTestBase):
 
     # -- Cross-framework comparison (matches reference) --------------
 
-    def test_cross_framework_upper(self) -> None:
-        """Upper must match reference."""
-        self._skip_if_unsupported("upper")
-        self._compare_with_reference("name__upper")
-
-    def test_cross_framework_lower(self) -> None:
-        """Lower must match reference."""
-        self._skip_if_unsupported("lower")
-        self._compare_with_reference("name__lower")
-
-    def test_cross_framework_trim(self) -> None:
-        """Trim must match reference."""
-        self._compare_with_reference("name__trim")
-
-    def test_cross_framework_length(self) -> None:
-        """Length must match reference."""
-        self._compare_with_reference("name__length")
-
-    def test_cross_framework_reverse(self) -> None:
-        """Reverse must match reference."""
-        self._skip_if_unsupported("reverse")
-        self._compare_with_reference("name__reverse")
+    @pytest.mark.parametrize(
+        ("operation", "may_skip"),
+        [
+            pytest.param("upper", True, id="upper"),
+            pytest.param("lower", True, id="lower"),
+            # No framework in this repo excludes trim or length from supported_ops(),
+            # so these two cases are not given a skip.
+            pytest.param("trim", False, id="trim"),
+            pytest.param("length", False, id="length"),
+            pytest.param("reverse", True, id="reverse"),
+        ],
+    )
+    def test_cross_framework(self, operation: str, may_skip: bool) -> None:
+        if may_skip:
+            self._skip_if_unsupported(operation)
+        self._compare_with_reference(f"name__{operation}")
 
     # -- Unsupported operation error path ------------------------------------
 

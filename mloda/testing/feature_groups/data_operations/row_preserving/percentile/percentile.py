@@ -297,31 +297,22 @@ class PercentileTestBase(MaskTestMixin, DataOpsTestBase):
 
     # -- Cross-framework comparison (matches reference) ----------------
 
-    def test_cross_framework_p50(self) -> None:
-        """P50 must match reference."""
-        self._compare_with_reference("value_int__p50_percentile", partition_by=["region"], use_approx=True)
-
-    def test_cross_framework_p25(self) -> None:
-        """P25 must match reference."""
-        self._compare_with_reference("value_int__p25_percentile", partition_by=["region"], use_approx=True)
-
-    def test_cross_framework_p75(self) -> None:
-        """P75 must match reference."""
-        self._compare_with_reference("value_int__p75_percentile", partition_by=["region"], use_approx=True)
-
-    # -- Cross-framework null comparisons --------------------------------------
-
-    def test_cross_framework_all_null_p50(self) -> None:
-        """All-null column p50 must match reference."""
-        self._compare_with_reference("score__p50_percentile", partition_by=["region"])
-
-    def test_cross_framework_multi_null_p50(self) -> None:
-        """Multi-null column (value_float) p50 must match reference."""
-        self._compare_with_reference("value_float__p50_percentile", partition_by=["region"], use_approx=True)
-
-    def test_cross_framework_amount_p50(self) -> None:
-        """Amount column (2 nulls) p50 must match reference."""
-        self._compare_with_reference("amount__p50_percentile", partition_by=["region"], use_approx=True)
+    @pytest.mark.parametrize(
+        ("feature_name", "use_approx"),
+        [
+            pytest.param("value_int__p50_percentile", True, id="p50"),
+            pytest.param("value_int__p25_percentile", True, id="p25"),
+            pytest.param("value_int__p75_percentile", True, id="p75"),
+            # score is all null, so the comparison is exact (no approx needed).
+            pytest.param("score__p50_percentile", False, id="all_null_p50"),
+            # value_float has 2 nulls (rows 2, 11).
+            pytest.param("value_float__p50_percentile", True, id="multi_null_p50"),
+            # amount has 2 nulls (rows 1, 7).
+            pytest.param("amount__p50_percentile", True, id="amount_p50"),
+        ],
+    )
+    def test_cross_framework(self, feature_name: str, use_approx: bool) -> None:
+        self._compare_with_reference(feature_name, partition_by=["region"], use_approx=use_approx)
 
     # -- Edge case tests -------------------------------------------------------
 

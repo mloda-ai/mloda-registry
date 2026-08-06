@@ -38,6 +38,61 @@ EXPECTED_MAX_BY_REGION: dict[Any, int] = {"A": 20, "B": 60, "C": 40, None: -10}
 
 
 # ---------------------------------------------------------------------------
+# Parametrized case tables
+# ---------------------------------------------------------------------------
+
+# (agg_type, needs_skip, use_approx). ``needs_skip`` is False for the operations
+# every framework must support; True means the case skips when the agg type is
+# missing from supported_agg_types().
+CROSS_FRAMEWORK_AGG_CASES: list[tuple[str, bool, bool]] = [
+    ("sum", False, False),
+    ("avg", False, True),
+    ("mean", True, True),
+    ("count", False, False),
+    ("min", False, False),
+    ("max", False, False),
+    ("std", True, True),
+    ("var", True, True),
+    ("median", True, True),
+    ("nunique", True, False),
+    # PyArrow skips nulls (Group B returns 50, not None).
+    ("first", True, False),
+    ("last", True, False),
+    # PyArrow picks the first-encountered value on ties (Group A=10, Group B=50).
+    ("mode", True, False),
+]
+
+# (agg_type, expected {region: value}) for the advanced aggregations.
+ADVANCED_AGG_CASES: list[tuple[str, dict[Any, int]]] = [
+    # On ties (the all-unique groups A and B), PyArrow picks the first-encountered value.
+    # Frameworks that use different tie-breaking must exclude 'mode' from supported_agg_types().
+    ("mode", {"A": 10, "B": 50, "C": 15, None: -10}),
+    # Distinct non-null values: A={10,-5,0,20}, B={50,30,60}, C={15,40}, None={-10}.
+    ("nunique", {"A": 4, "B": 3, "C": 2, None: 1}),
+    # PyArrow skips nulls, so Group B returns 50 (first non-null), not None.
+    # Frameworks that cannot match must exclude 'first' from supported_agg_types().
+    ("first", {"A": 10, "B": 50, "C": 15, None: -10}),
+    # Group values in insertion order: A=[10,-5,0,20], B=[None,50,30,60], C=[15,15,40],
+    # None=[-10]. No group has a trailing null, so all frameworks agree on the last value.
+    ("last", {"A": 20, "B": 60, "C": 40, None: -10}),
+]
+
+# (agg_type, needs_skip) for aggregations over the all-null ``score`` column.
+ALL_NULL_COLUMN_AGG_CASES: list[tuple[str, bool]] = [
+    ("sum", False),
+    ("min", False),
+    ("max", False),
+    ("avg", False),
+    ("median", True),
+    ("mode", True),
+    ("std", True),
+    ("var", True),
+    ("first", True),
+    ("last", True),
+]
+
+
+# ---------------------------------------------------------------------------
 # Standalone helpers
 # ---------------------------------------------------------------------------
 
@@ -299,74 +354,15 @@ class AggregationTestBase(MaskTestMixin, DataOpsTestBase):
             else:
                 assert result_map[key] == ref_map[key], f"group {key}: {result_map[key]} != reference {ref_map[key]}"
 
-    def test_cross_framework_sum(self) -> None:
-        """Sum must match reference."""
-        self._compare_agg_with_reference("value_int__sum_agg", ["region"])
-
-    def test_cross_framework_avg(self) -> None:
-        """Avg must match reference."""
-        self._compare_agg_with_reference("value_int__avg_agg", ["region"], use_approx=True)
-
-    def test_cross_framework_mean(self) -> None:
-        """Mean (avg alias) must match reference."""
-        self._skip_if_unsupported("mean")
-        self._compare_agg_with_reference("value_int__mean_agg", ["region"], use_approx=True)
-
-    def test_cross_framework_count(self) -> None:
-        """Count must match reference."""
-        self._compare_agg_with_reference("value_int__count_agg", ["region"])
-
-    def test_cross_framework_min(self) -> None:
-        """Min must match reference."""
-        self._compare_agg_with_reference("value_int__min_agg", ["region"])
-
-    def test_cross_framework_max(self) -> None:
-        """Max must match reference."""
-        self._compare_agg_with_reference("value_int__max_agg", ["region"])
-
-    def test_cross_framework_std(self) -> None:
-        """Std must match reference."""
-        self._skip_if_unsupported("std")
-        self._compare_agg_with_reference("value_int__std_agg", ["region"], use_approx=True)
-
-    def test_cross_framework_var(self) -> None:
-        """Var must match reference."""
-        self._skip_if_unsupported("var")
-        self._compare_agg_with_reference("value_int__var_agg", ["region"], use_approx=True)
-
-    def test_cross_framework_median(self) -> None:
-        """Median must match reference."""
-        self._skip_if_unsupported("median")
-        self._compare_agg_with_reference("value_int__median_agg", ["region"], use_approx=True)
-
-    def test_cross_framework_nunique(self) -> None:
-        """Nunique must match reference."""
-        self._skip_if_unsupported("nunique")
-        self._compare_agg_with_reference("value_int__nunique_agg", ["region"])
-
-    def test_cross_framework_first(self) -> None:
-        """First must match reference.
-
-        PyArrow skips nulls (Group B returns 50, not None).
-        Frameworks that cannot match must exclude 'first' from supported_agg_types().
-        """
-        self._skip_if_unsupported("first")
-        self._compare_agg_with_reference("value_int__first_agg", ["region"])
-
-    def test_cross_framework_last(self) -> None:
-        """Last must match reference."""
-        self._skip_if_unsupported("last")
-        self._compare_agg_with_reference("value_int__last_agg", ["region"])
-
-    def test_cross_framework_mode(self) -> None:
-        """Mode must match reference.
-
-        PyArrow picks the first-encountered value on ties (Group A=10,
-        Group B=50).  Frameworks that use different tie-breaking must
-        exclude 'mode' from supported_agg_types().
-        """
-        self._skip_if_unsupported("mode")
-        self._compare_agg_with_reference("value_int__mode_agg", ["region"])
+    @pytest.mark.parametrize(
+        ("agg_type", "needs_skip", "use_approx"),
+        CROSS_FRAMEWORK_AGG_CASES,
+        ids=[case[0] for case in CROSS_FRAMEWORK_AGG_CASES],
+    )
+    def test_cross_framework_agg(self, agg_type: str, needs_skip: bool, use_approx: bool) -> None:
+        if needs_skip:
+            self._skip_if_unsupported(agg_type)
+        self._compare_agg_with_reference(f"value_int__{agg_type}_agg", ["region"], use_approx=use_approx)
 
     # -- Statistical aggregation tests (skipped if unsupported) --------------
 
@@ -465,86 +461,39 @@ class AggregationTestBase(MaskTestMixin, DataOpsTestBase):
 
     # -- Advanced aggregation tests (skipped if unsupported) -----------------
 
-    def test_mode_agg_region(self) -> None:
-        """Mode of value_int grouped by region.
-
-        reference: A=10, B=50, C=15, None=-10.
-        On ties (all-unique groups A, B), PyArrow picks the first-encountered value.
-        """
-        self._skip_if_unsupported("mode")
-        fs = make_feature_set("value_int__mode_agg", ["region"])
+    @pytest.mark.parametrize(
+        ("agg_type", "expected"),
+        ADVANCED_AGG_CASES,
+        ids=[case[0] for case in ADVANCED_AGG_CASES],
+    )
+    def test_advanced_agg_region(self, agg_type: str, expected: dict[Any, int]) -> None:
+        self._skip_if_unsupported(agg_type)
+        feature_name = f"value_int__{agg_type}_agg"
+        fs = make_feature_set(feature_name, ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         region_col = self.extract_column(result, "region")
-        result_col = self.extract_column(result, "value_int__mode_agg")
+        result_col = self.extract_column(result, feature_name)
         result_map = _build_result_map(region_col, result_col)
-        assert result_map["A"] == 10
-        assert result_map["B"] == 50
-        assert result_map["C"] == 15
-        assert result_map[None] == -10
-
-    def test_nunique_agg_region(self) -> None:
-        """Count of unique value_int values grouped by region."""
-        self._skip_if_unsupported("nunique")
-        fs = make_feature_set("value_int__nunique_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        region_col = self.extract_column(result, "region")
-        result_col = self.extract_column(result, "value_int__nunique_agg")
-        result_map = _build_result_map(region_col, result_col)
-        assert result_map["A"] == 4  # {10, -5, 0, 20}
-        assert result_map["B"] == 3  # {50, 30, 60} - nulls excluded
-        assert result_map["C"] == 2  # {15, 40}
-        assert result_map[None] == 1  # {-10}
-
-    def test_first_agg_region(self) -> None:
-        """First value of value_int grouped by region.
-
-        reference: A=10, B=50, C=15, None=-10.
-        PyArrow skips nulls, so Group B returns 50 (first non-null), not None.
-        Frameworks that cannot match must exclude 'first' from supported_agg_types().
-        """
-        self._skip_if_unsupported("first")
-        fs = make_feature_set("value_int__first_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        region_col = self.extract_column(result, "region")
-        result_col = self.extract_column(result, "value_int__first_agg")
-        result_map = _build_result_map(region_col, result_col)
-
-        assert result_map["A"] == 10
-        assert result_map["B"] == 50
-        assert result_map["C"] == 15
-        assert result_map[None] == -10
-
-    def test_last_agg_region(self) -> None:
-        """Last value of value_int grouped by region.
-
-        Group values (insertion order): A=[10,-5,0,20], B=[None,50,30,60],
-        C=[15,15,40], None=[-10]. No group has a trailing null, so all
-        frameworks agree on the last value.
-        """
-        self._skip_if_unsupported("last")
-        fs = make_feature_set("value_int__last_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        region_col = self.extract_column(result, "region")
-        result_col = self.extract_column(result, "value_int__last_agg")
-        result_map = _build_result_map(region_col, result_col)
-
-        assert result_map["A"] == 20
-        assert result_map["B"] == 60
-        assert result_map["C"] == 40
-        assert result_map[None] == -10
+        for region, value in expected.items():
+            assert result_map[region] == value, f"region={region}"
 
     # -- Null edge case tests ------------------------------------------------
 
-    def test_null_policy_skip_all_null_column(self) -> None:
-        """NullPolicy.SKIP: score column is all null. Aggregation should produce all nulls."""
-        fs = make_feature_set("score__sum_agg", ["region"])
+    @pytest.mark.parametrize(
+        ("agg_type", "needs_skip"),
+        ALL_NULL_COLUMN_AGG_CASES,
+        ids=[case[0] for case in ALL_NULL_COLUMN_AGG_CASES],
+    )
+    def test_all_null_column_per_group(self, agg_type: str, needs_skip: bool) -> None:
+        """NullPolicy.SKIP: score is all-null, so each group aggregates to None."""
+        if needs_skip:
+            self._skip_if_unsupported(agg_type)
+        feature_name = f"score__{agg_type}_agg"
+        fs = make_feature_set(feature_name, ["region"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "score__sum_agg")
+        result_col = self.extract_column(result, feature_name)
         assert all(v is None for v in result_col)
 
     def test_all_null_column_count_per_group(self) -> None:
@@ -554,84 +503,6 @@ class AggregationTestBase(MaskTestMixin, DataOpsTestBase):
 
         result_col = self.extract_column(result, "score__count_agg")
         assert all(v == 0 for v in result_col)
-
-    def test_all_null_column_min_per_group(self) -> None:
-        """score is all-null. Min per group should be None."""
-        fs = make_feature_set("score__min_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "score__min_agg")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_max_per_group(self) -> None:
-        """score is all-null. Max per group should be None."""
-        fs = make_feature_set("score__max_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "score__max_agg")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_avg_per_group(self) -> None:
-        """score is all-null. Avg per group should be None."""
-        fs = make_feature_set("score__avg_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "score__avg_agg")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_median_per_group(self) -> None:
-        """score is all-null. Median per group should be None."""
-        self._skip_if_unsupported("median")
-        fs = make_feature_set("score__median_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "score__median_agg")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_mode_per_group(self) -> None:
-        """score is all-null. Mode per group should be None."""
-        self._skip_if_unsupported("mode")
-        fs = make_feature_set("score__mode_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "score__mode_agg")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_std_per_group(self) -> None:
-        """score is all-null. Std per group should be None."""
-        self._skip_if_unsupported("std")
-        fs = make_feature_set("score__std_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "score__std_agg")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_var_per_group(self) -> None:
-        """score is all-null. Var per group should be None."""
-        self._skip_if_unsupported("var")
-        fs = make_feature_set("score__var_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "score__var_agg")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_first_per_group(self) -> None:
-        """score is all-null. First per group should be None."""
-        self._skip_if_unsupported("first")
-        fs = make_feature_set("score__first_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "score__first_agg")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_last_per_group(self) -> None:
-        """score is all-null. Last per group should be None."""
-        self._skip_if_unsupported("last")
-        fs = make_feature_set("score__last_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "score__last_agg")
-        assert all(v is None for v in result_col)
 
     def test_all_null_column_nunique_per_group(self) -> None:
         """score is all-null. Nunique per group should be 0 (no distinct non-null values).

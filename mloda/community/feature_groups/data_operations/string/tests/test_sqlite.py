@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from mloda.community.feature_groups.data_operations.string.sqlite_string import (
     SqliteStringOps,
 )
@@ -44,25 +46,12 @@ class TestSqliteUnsupportedOps:
     """SQLite refuses upper/lower/reverse at match time; the resolver falls
     back to another framework rather than silently producing ASCII-only output."""
 
-    def test_upper_does_not_match(self) -> None:
+    @pytest.mark.parametrize("operation", ["upper", "lower", "reverse"])
+    def test_unsupported_op_does_not_match(self, operation: str) -> None:
         from mloda.core.abstract_plugins.components.options import Options
 
         options = Options()
-        result = SqliteStringOps.match_feature_group_criteria("name__upper", options, None)
-        assert result is False
-
-    def test_lower_does_not_match(self) -> None:
-        from mloda.core.abstract_plugins.components.options import Options
-
-        options = Options()
-        result = SqliteStringOps.match_feature_group_criteria("name__lower", options, None)
-        assert result is False
-
-    def test_reverse_does_not_match(self) -> None:
-        from mloda.core.abstract_plugins.components.options import Options
-
-        options = Options()
-        result = SqliteStringOps.match_feature_group_criteria("name__reverse", options, None)
+        result = SqliteStringOps.match_feature_group_criteria(f"name__{operation}", options, None)
         assert result is False
 
     def test_supported_ops_still_match(self) -> None:

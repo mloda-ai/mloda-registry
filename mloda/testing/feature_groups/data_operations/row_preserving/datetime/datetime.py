@@ -292,55 +292,36 @@ class DateTimeTestBase(DataOpsTestBase):
         assert len(result_col) == len(ref_col), f"row count {len(result_col)} != reference {len(ref_col)}"
         assert result_col == ref_col
 
-    def test_cross_framework_year(self) -> None:
-        """Year must match reference."""
-        self._compare_with_reference("timestamp__year")
-
-    def test_cross_framework_month(self) -> None:
-        """Month must match reference."""
-        self._compare_with_reference("timestamp__month")
-
-    def test_cross_framework_day(self) -> None:
-        """Day must match reference."""
-        self._compare_with_reference("timestamp__day")
-
-    def test_cross_framework_hour(self) -> None:
-        """Hour must match reference."""
-        self._compare_with_reference("timestamp__hour")
-
-    def test_cross_framework_minute(self) -> None:
-        """Minute must match reference."""
-        self._compare_with_reference("timestamp__minute")
-
-    def test_cross_framework_second(self) -> None:
-        """Second must match reference."""
-        self._compare_with_reference("timestamp__second")
-
-    def test_cross_framework_dayofweek(self) -> None:
-        """Day of week must match reference."""
-        self._compare_with_reference("timestamp__dayofweek")
-
-    def test_cross_framework_is_weekend(self) -> None:
-        """Is-weekend must match reference."""
-        self._compare_with_reference("timestamp__is_weekend")
-
-    def test_cross_framework_quarter(self) -> None:
-        """Quarter must match reference."""
-        self._compare_with_reference("timestamp__quarter")
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("timestamp__year", id="year"),
+            pytest.param("timestamp__month", id="month"),
+            pytest.param("timestamp__day", id="day"),
+            pytest.param("timestamp__hour", id="hour"),
+            pytest.param("timestamp__minute", id="minute"),
+            pytest.param("timestamp__second", id="second"),
+            pytest.param("timestamp__dayofweek", id="dayofweek"),
+            pytest.param("timestamp__is_weekend", id="is_weekend"),
+            pytest.param("timestamp__quarter", id="quarter"),
+        ],
+    )
+    def test_cross_framework(self, feature_name: str) -> None:
+        self._compare_with_reference(feature_name)
 
     # -- Cross-framework comparison on varied-times dataset ------------------
 
-    def test_cross_framework_varied_hour(self) -> None:
-        """Non-zero hours must match reference on varied dataset."""
-        self._compare_varied_with_reference("timestamp__hour")
-
-    def test_cross_framework_varied_minute(self) -> None:
-        """Non-zero minutes must match reference on varied dataset."""
-        self._compare_varied_with_reference("timestamp__minute")
-
-    def test_cross_framework_varied_second(self) -> None:
-        """Non-zero seconds must match reference on varied dataset."""
-        self._compare_varied_with_reference("timestamp__second")
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("timestamp__hour", id="hour"),
+            pytest.param("timestamp__minute", id="minute"),
+            pytest.param("timestamp__second", id="second"),
+        ],
+    )
+    def test_cross_framework_varied(self, feature_name: str) -> None:
+        """The varied dataset has non-zero hours, minutes and seconds."""
+        self._compare_varied_with_reference(feature_name)
 
     # -- All-null column tests -----------------------------------------------
 

@@ -29,20 +29,18 @@ class TestClassAttributes:
         assert OffsetFeatureGroup._supports_offset_type("lag_1")
         assert OffsetFeatureGroup._supports_offset_type("lag_5")
 
-    def test_supports_lead(self) -> None:
-        assert OffsetFeatureGroup._supports_offset_type("lead_1")
-
-    def test_supports_diff(self) -> None:
-        assert OffsetFeatureGroup._supports_offset_type("diff_1")
-
-    def test_supports_pct_change(self) -> None:
-        assert OffsetFeatureGroup._supports_offset_type("pct_change_1")
-
-    def test_supports_first_value(self) -> None:
-        assert OffsetFeatureGroup._supports_offset_type("first_value")
-
-    def test_supports_last_value(self) -> None:
-        assert OffsetFeatureGroup._supports_offset_type("last_value")
+    @pytest.mark.parametrize(
+        "offset_type",
+        [
+            pytest.param("lead_1", id="lead"),
+            pytest.param("diff_1", id="diff"),
+            pytest.param("pct_change_1", id="pct_change"),
+            pytest.param("first_value", id="first_value"),
+            pytest.param("last_value", id="last_value"),
+        ],
+    )
+    def test_supports_offset_type(self, offset_type: str) -> None:
+        assert OffsetFeatureGroup._supports_offset_type(offset_type)
 
     def test_rejects_invalid(self) -> None:
         assert not OffsetFeatureGroup._supports_offset_type("lag_0")
@@ -87,14 +85,16 @@ class TestPatternMatching:
 
 
 class TestPatternParsing:
-    def test_parse_lag(self) -> None:
-        assert OffsetFeatureGroup.get_offset_type("value_int__lag_1_offset") == "lag_1"
-
-    def test_parse_lead(self) -> None:
-        assert OffsetFeatureGroup.get_offset_type("value_int__lead_3_offset") == "lead_3"
-
-    def test_parse_first_value(self) -> None:
-        assert OffsetFeatureGroup.get_offset_type("value_int__first_value_offset") == "first_value"
+    @pytest.mark.parametrize(
+        ("feature_name", "expected"),
+        [
+            pytest.param("value_int__lag_1_offset", "lag_1", id="lag"),
+            pytest.param("value_int__lead_3_offset", "lead_3", id="lead"),
+            pytest.param("value_int__first_value_offset", "first_value", id="first_value"),
+        ],
+    )
+    def test_parse_offset_type(self, feature_name: str, expected: str) -> None:
+        assert OffsetFeatureGroup.get_offset_type(feature_name) == expected
 
     def test_parse_source_feature(self) -> None:
         from mloda.user import Feature

@@ -274,27 +274,22 @@ def _make_fs_with_constant(name: str, constant: Any) -> FeatureSet:
 class TestConstantTypeValidation:
     """Regression guards: ``constant`` must be a real int or float (bool is rejected)."""
 
-    def test_constant_true_rejected(self) -> None:
-        """``constant=True`` must be rejected even though ``bool`` is an ``int`` subclass."""
+    @pytest.mark.parametrize(
+        ("constant", "match"),
+        [
+            # ``constant=True`` must be rejected even though ``bool`` is an ``int`` subclass.
+            pytest.param(True, r"int or float|bool", id="true"),
+            # ``constant=False`` must be rejected, not silently coerced to ``0`` (which would
+            # collapse into a divide-by-zero on op=divide). Every case uses op=add so this asserts
+            # the type check fires, independent of the divide-by-zero check.
+            pytest.param(False, r"int or float|bool", id="false"),
+            pytest.param("five", r"int or float", id="string"),
+        ],
+    )
+    def test_non_numeric_constant_rejected(self, constant: Any, match: str) -> None:
         arrow_table = PyArrowDataOpsTestDataCreator.create()
-        fs = _make_fs_with_constant("value_int__add_constant", True)
-        with pytest.raises(ValueError, match=r"int or float|bool"):
-            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
-
-    def test_constant_false_rejected(self) -> None:
-        """``constant=False`` must be rejected, not silently coerced to ``0`` (which would
-        collapse into a divide-by-zero on op=divide). Use op=add so this asserts the
-        type check fires, independent of the divide-by-zero check.
-        """
-        arrow_table = PyArrowDataOpsTestDataCreator.create()
-        fs = _make_fs_with_constant("value_int__add_constant", False)
-        with pytest.raises(ValueError, match=r"int or float|bool"):
-            PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
-
-    def test_constant_string_rejected(self) -> None:
-        arrow_table = PyArrowDataOpsTestDataCreator.create()
-        fs = _make_fs_with_constant("value_int__add_constant", "five")
-        with pytest.raises(ValueError, match=r"int or float"):
+        fs = _make_fs_with_constant("value_int__add_constant", constant)
+        with pytest.raises(ValueError, match=match):
             PyArrowScalarArithmetic.calculate_feature(arrow_table, fs)
 
     def test_constant_multi_element_list_rejected(self) -> None:

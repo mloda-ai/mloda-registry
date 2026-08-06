@@ -18,6 +18,8 @@ across lines or bound to an intermediate variable.
 import re
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -130,71 +132,41 @@ def _write(path: Path, body: str) -> None:
     path.write_text(body)
 
 
-def test_named_form_single_quoted_string_flagged(tmp_path: Path) -> None:
-    """A single-quoted named-form string credential value is flagged."""
-    _write(tmp_path / "m.py", "credentials={'prod': 'dsn-string'}\n")
+# Single lines of ``m.py`` whose named-form credential value is a bare string.
+_FLAGGED_LINES = [
+    pytest.param("credentials={'prod': 'dsn-string'}\n", id="single_quoted_string"),
+    pytest.param('credentials={"prod": "dsn-string"}\n', id="double_quoted_string"),
+    pytest.param("collection.add_credentials({'prod': 'dsn-string'})\n", id="add_credentials_string"),
+    # Every entry is inspected, not only the first: here the first value is a legal nested mapping.
+    pytest.param("credentials={'prod': {'dsn': 'ok'}, 'staging': 'dsn-string'}\n", id="multi_entry_later_string"),
+]
+
+# Single lines of ``m.py`` whose credential form is legal, so the guard must leave them alone.
+_ACCEPTED_LINES = [
+    pytest.param("credentials={'prod': {'dsn': 'dsn-string'}}\n", id="nested_mapping_value"),
+    pytest.param("credentials={'pg-prod': Credential(host='h')}\n", id="credential_object_value"),
+    pytest.param("credentials={'prod': {'dsn': 'x'}, 'staging': {'dsn': 'y'}}\n", id="multi_entry_all_mappings"),
+    pytest.param(
+        "credentials={'prod': Credential(host='h'), 'staging': Credential(host='h2')}\n",
+        id="multi_entry_all_credentials",
+    ),
+    # Auto-named form: the string is a Credential kwarg, not a mapping value.
+    pytest.param("credentials=Credential(dsn='dsn-string')\n", id="bare_credential_object"),
+    pytest.param("credentials=[Credential(host='h'), {'host': 'h2'}]\n", id="list_form"),
+]
+
+
+@pytest.mark.parametrize("line", _FLAGGED_LINES)
+def test_named_form_string_value_flagged(line: str, tmp_path: Path) -> None:
+    _write(tmp_path / "m.py", line)
     hits = find_named_form_string_credential_usages(tmp_path)
     assert len(hits) == 1
     assert "m.py" in hits[0]
 
 
-def test_named_form_double_quoted_string_flagged(tmp_path: Path) -> None:
-    """A double-quoted named-form string credential value is flagged."""
-    _write(tmp_path / "m.py", 'credentials={"prod": "dsn-string"}\n')
-    hits = find_named_form_string_credential_usages(tmp_path)
-    assert len(hits) == 1
-    assert "m.py" in hits[0]
-
-
-def test_add_credentials_named_form_string_flagged(tmp_path: Path) -> None:
-    """A named-form string value passed to add_credentials is flagged."""
-    _write(tmp_path / "m.py", "collection.add_credentials({'prod': 'dsn-string'})\n")
-    hits = find_named_form_string_credential_usages(tmp_path)
-    assert len(hits) == 1
-    assert "m.py" in hits[0]
-
-
-def test_nested_mapping_value_not_flagged(tmp_path: Path) -> None:
-    """A named-form value that is a nested mapping is not flagged."""
-    _write(tmp_path / "m.py", "credentials={'prod': {'dsn': 'dsn-string'}}\n")
-    assert find_named_form_string_credential_usages(tmp_path) == []
-
-
-def test_named_form_credential_object_value_not_flagged(tmp_path: Path) -> None:
-    """A named-form value that is a Credential(...) is not flagged."""
-    _write(tmp_path / "m.py", "credentials={'pg-prod': Credential(host='h')}\n")
-    assert find_named_form_string_credential_usages(tmp_path) == []
-
-
-def test_multi_entry_later_string_value_flagged(tmp_path: Path) -> None:
-    """A multi-entry mapping whose first value is a nested mapping but a later value is a bare string is flagged."""
-    _write(tmp_path / "m.py", "credentials={'prod': {'dsn': 'ok'}, 'staging': 'dsn-string'}\n")
-    hits = find_named_form_string_credential_usages(tmp_path)
-    assert len(hits) == 1
-    assert "m.py" in hits[0]
-
-
-def test_multi_entry_all_mapping_values_not_flagged(tmp_path: Path) -> None:
-    """A multi-entry mapping where every value is a nested mapping is not flagged."""
-    _write(tmp_path / "m.py", "credentials={'prod': {'dsn': 'x'}, 'staging': {'dsn': 'y'}}\n")
-    assert find_named_form_string_credential_usages(tmp_path) == []
-
-
-def test_multi_entry_all_credential_values_not_flagged(tmp_path: Path) -> None:
-    """A multi-entry mapping where every value is a Credential(...) is not flagged."""
-    _write(tmp_path / "m.py", "credentials={'prod': Credential(host='h'), 'staging': Credential(host='h2')}\n")
-    assert find_named_form_string_credential_usages(tmp_path) == []
-
-
-def test_bare_credential_object_not_flagged(tmp_path: Path) -> None:
-    """A bare auto-named Credential(...) with a string kwarg is not flagged."""
-    _write(tmp_path / "m.py", "credentials=Credential(dsn='dsn-string')\n")
-    assert find_named_form_string_credential_usages(tmp_path) == []
-
-
-def test_list_form_not_flagged(tmp_path: Path) -> None:
-    """A list-form credentials value is not flagged."""
-    _write(tmp_path / "m.py", "credentials=[Credential(host='h'), {'host': 'h2'}]\n")
+@pytest.mark.parametrize("line", _ACCEPTED_LINES)
+def test_valid_credential_form_not_flagged(line: str, tmp_path: Path) -> None:
+    _write(tmp_path / "m.py", line)
     assert find_named_form_string_credential_usages(tmp_path) == []
 
 

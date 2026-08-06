@@ -415,27 +415,20 @@ class PointArithmeticTestBase(DataOpsTestBase):
             else:
                 assert fw_val == pytest.approx(ref_val, rel=1e-6), f"row {i}: {fw_val} != {ref_val}"
 
-    def test_cross_framework_add(self) -> None:
-        self._compare_arithmetic_with_reference("value_int&amount__add_point")
-
-    def test_cross_framework_subtract(self) -> None:
-        self._compare_arithmetic_with_reference("value_int&amount__subtract_point")
-
-    def test_cross_framework_multiply(self) -> None:
-        self._compare_arithmetic_with_reference("value_int&amount__multiply_point")
-
-    def test_cross_framework_divide(self) -> None:
-        """Cross-framework divide parity, excluding the zero-divisor row.
-
-        Row 5 (50 / 0.0) legitimately diverges between backends (SQLite NULL
-        vs PyArrow inf); that row is pinned per-backend by
-        ``test_divide_by_zero_returns_inf_or_null_per_backend`` and is excluded
-        here.
-        """
-        self._compare_arithmetic_with_reference(
-            "value_int&amount__divide_point",
-            skip_rows={i for i, b in enumerate(AMOUNT) if b == 0},
-        )
+    @pytest.mark.parametrize(
+        ("feature_name", "skip_rows"),
+        [
+            pytest.param("value_int&amount__add_point", None, id="add"),
+            pytest.param("value_int&amount__subtract_point", None, id="subtract"),
+            pytest.param("value_int&amount__multiply_point", None, id="multiply"),
+            # Row 5 (50 / 0.0) legitimately diverges between backends (SQLite NULL vs PyArrow
+            # inf); that row is pinned per-backend by
+            # ``test_divide_by_zero_returns_inf_or_null_per_backend`` and is excluded here.
+            pytest.param("value_int&amount__divide_point", {i for i, b in enumerate(AMOUNT) if b == 0}, id="divide"),
+        ],
+    )
+    def test_cross_framework(self, feature_name: str, skip_rows: set[int] | None) -> None:
+        self._compare_arithmetic_with_reference(feature_name, skip_rows=skip_rows)
 
     # -- Divide-by-zero per-backend semantics -------------------------------
 

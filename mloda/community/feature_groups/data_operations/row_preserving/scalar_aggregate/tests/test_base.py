@@ -54,24 +54,18 @@ class TestPatternMatching:
         result = ScalarAggregateFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
 
-    def test_no_match_wrong_suffix(self) -> None:
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("value_int__sum_grouped", id="wrong_suffix"),
+            pytest.param("value_int__sum", id="no_suffix"),
+            pytest.param("sum_scalar", id="no_source_column"),
+            pytest.param("value_int__unknown_scalar", id="invalid_operation"),
+        ],
+    )
+    def test_no_match(self, feature_name: str) -> None:
         options = Options()
-        result = ScalarAggregateFeatureGroup.match_feature_group_criteria("value_int__sum_grouped", options, None)
-        assert result is False
-
-    def test_no_match_no_suffix(self) -> None:
-        options = Options()
-        result = ScalarAggregateFeatureGroup.match_feature_group_criteria("value_int__sum", options, None)
-        assert result is False
-
-    def test_no_match_no_source_column(self) -> None:
-        options = Options()
-        result = ScalarAggregateFeatureGroup.match_feature_group_criteria("sum_scalar", options, None)
-        assert result is False
-
-    def test_no_match_invalid_operation(self) -> None:
-        options = Options()
-        result = ScalarAggregateFeatureGroup.match_feature_group_criteria("value_int__unknown_scalar", options, None)
+        result = ScalarAggregateFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is False
 
 

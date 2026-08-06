@@ -65,43 +65,34 @@ class TestPatternMatching:
         result = ScalarArithmeticFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
 
-    def test_no_match_wrong_suffix(self) -> None:
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("value_int__add_scalar", id="wrong_suffix"),
+            pytest.param("value_int__add", id="no_suffix"),
+            pytest.param("add_constant", id="no_source_column"),
+            pytest.param("value_int__unknown_constant", id="invalid_operation"),
+        ],
+    )
+    def test_no_match(self, feature_name: str) -> None:
         options = Options()
-        result = ScalarArithmeticFeatureGroup.match_feature_group_criteria("value_int__add_scalar", options, None)
-        assert result is False
-
-    def test_no_match_no_suffix(self) -> None:
-        options = Options()
-        result = ScalarArithmeticFeatureGroup.match_feature_group_criteria("value_int__add", options, None)
-        assert result is False
-
-    def test_no_match_no_source_column(self) -> None:
-        options = Options()
-        result = ScalarArithmeticFeatureGroup.match_feature_group_criteria("add_constant", options, None)
-        assert result is False
-
-    def test_no_match_invalid_operation(self) -> None:
-        options = Options()
-        result = ScalarArithmeticFeatureGroup.match_feature_group_criteria("value_int__unknown_constant", options, None)
+        result = ScalarArithmeticFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is False
 
 
 class TestPatternParsing:
-    def test_parse_add_operation(self) -> None:
-        operation = ScalarArithmeticFeatureGroup.get_arithmetic_op("value_int__add_constant")
-        assert operation == "add"
-
-    def test_parse_subtract_operation(self) -> None:
-        operation = ScalarArithmeticFeatureGroup.get_arithmetic_op("value_int__subtract_constant")
-        assert operation == "subtract"
-
-    def test_parse_multiply_operation(self) -> None:
-        operation = ScalarArithmeticFeatureGroup.get_arithmetic_op("value_int__multiply_constant")
-        assert operation == "multiply"
-
-    def test_parse_divide_operation(self) -> None:
-        operation = ScalarArithmeticFeatureGroup.get_arithmetic_op("value_int__divide_constant")
-        assert operation == "divide"
+    @pytest.mark.parametrize(
+        ("feature_name", "expected"),
+        [
+            pytest.param("value_int__add_constant", "add", id="add"),
+            pytest.param("value_int__subtract_constant", "subtract", id="subtract"),
+            pytest.param("value_int__multiply_constant", "multiply", id="multiply"),
+            pytest.param("value_int__divide_constant", "divide", id="divide"),
+        ],
+    )
+    def test_parse_operation(self, feature_name: str, expected: str) -> None:
+        operation = ScalarArithmeticFeatureGroup.get_arithmetic_op(feature_name)
+        assert operation == expected
 
     def test_parse_source_feature(self) -> None:
         feature = Feature("value_int__add_constant", options=Options(context={"constant": 5}))

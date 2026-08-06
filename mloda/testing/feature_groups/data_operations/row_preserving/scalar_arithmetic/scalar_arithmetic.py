@@ -298,17 +298,17 @@ class ScalarArithmeticTestBase(DataOpsTestBase):
             else:
                 assert fw_val == pytest.approx(ref_val, rel=1e-6), f"row {i}: {fw_val} != {ref_val}"
 
-    def test_cross_framework_add(self) -> None:
-        self._compare_arithmetic_with_reference("value_int__add_constant", 5)
-
-    def test_cross_framework_subtract(self) -> None:
-        self._compare_arithmetic_with_reference("value_int__subtract_constant", 10)
-
-    def test_cross_framework_multiply(self) -> None:
-        self._compare_arithmetic_with_reference("value_int__multiply_constant", 2)
-
-    def test_cross_framework_divide(self) -> None:
-        self._compare_arithmetic_with_reference("value_int__divide_constant", 2.0)
+    @pytest.mark.parametrize(
+        ("feature_name", "constant"),
+        [
+            pytest.param("value_int__add_constant", 5, id="add"),
+            pytest.param("value_int__subtract_constant", 10, id="subtract"),
+            pytest.param("value_int__multiply_constant", 2, id="multiply"),
+            pytest.param("value_int__divide_constant", 2.0, id="divide"),
+        ],
+    )
+    def test_cross_framework(self, feature_name: str, constant: int | float) -> None:
+        self._compare_arithmetic_with_reference(feature_name, constant)
 
     def test_divide_by_integer_constant_returns_float(self) -> None:
         """Cross-backend: dividing by an INT constant must still produce float results.

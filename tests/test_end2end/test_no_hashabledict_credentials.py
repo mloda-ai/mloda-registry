@@ -15,6 +15,8 @@ This is a best-effort proximity heuristic and can miss a reintroduction where
 
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -72,25 +74,16 @@ def _write(path: Path, body: str) -> None:
     path.write_text(body)
 
 
-def test_credentials_list_hashabledict_flagged(tmp_path: Path) -> None:
-    """A HashableDict inside a credentials= list on one line is flagged."""
-    _write(tmp_path / "m.py", "credentials=[HashableDict({'host': 'h'})]\n")
-    hits = find_hashabledict_credential_usages(tmp_path)
-    assert len(hits) == 1
-    assert "m.py" in hits[0]
-
-
-def test_credentials_dict_value_hashabledict_flagged(tmp_path: Path) -> None:
-    """A HashableDict as a credentials dict value is flagged."""
-    _write(tmp_path / "m.py", "credentials={'pg-prod': HashableDict({'host': 'h'})}\n")
-    hits = find_hashabledict_credential_usages(tmp_path)
-    assert len(hits) == 1
-    assert "m.py" in hits[0]
-
-
-def test_add_credentials_hashabledict_flagged(tmp_path: Path) -> None:
-    """A HashableDict passed to add_credentials is flagged."""
-    _write(tmp_path / "m.py", "collection.add_credentials(HashableDict({'host': 'h'}))\n")
+@pytest.mark.parametrize(
+    "line",
+    [
+        pytest.param("credentials=[HashableDict({'host': 'h'})]\n", id="credentials_list"),
+        pytest.param("credentials={'pg-prod': HashableDict({'host': 'h'})}\n", id="credentials_dict_value"),
+        pytest.param("collection.add_credentials(HashableDict({'host': 'h'}))\n", id="add_credentials"),
+    ],
+)
+def test_credential_hashabledict_on_one_line_flagged(line: str, tmp_path: Path) -> None:
+    _write(tmp_path / "m.py", line)
     hits = find_hashabledict_credential_usages(tmp_path)
     assert len(hits) == 1
     assert "m.py" in hits[0]

@@ -86,54 +86,37 @@ class TestPatternMatching:
         result = AggregationFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is True, f"Should match: {feature_name}"
 
-    def test_rejects_unimplemented_dynamic_type(self) -> None:
-        """Unimplemented dynamic types like percentile_75 should not match."""
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            # percentile_75 parses as a dynamic type but has no implementation.
+            pytest.param("value_int__percentile_75_agg", id="unimplemented_dynamic_type"),
+            pytest.param("value_int__avg_window", id="wrong_suffix"),
+            pytest.param("value_int__avg", id="no_suffix"),
+            pytest.param("avg_agg", id="no_source_column"),
+            pytest.param("value_int__unknown_agg", id="invalid_operation"),
+        ],
+    )
+    def test_no_match(self, feature_name: str) -> None:
         options = Options(context={"partition_by": ["region"]})
-        result = AggregationFeatureGroup.match_feature_group_criteria("value_int__percentile_75_agg", options, None)
-        assert result is False
-
-    def test_no_match_wrong_suffix(self) -> None:
-        """Feature with wrong suffix (window instead of agg) should not match."""
-        options = Options(context={"partition_by": ["region"]})
-        result = AggregationFeatureGroup.match_feature_group_criteria("value_int__avg_window", options, None)
-        assert result is False
-
-    def test_no_match_no_suffix(self) -> None:
-        """Feature without _agg suffix should not match."""
-        options = Options(context={"partition_by": ["region"]})
-        result = AggregationFeatureGroup.match_feature_group_criteria("value_int__avg", options, None)
-        assert result is False
-
-    def test_no_match_no_source_column(self) -> None:
-        """Feature with no source column (just operation_agg) should not match."""
-        options = Options(context={"partition_by": ["region"]})
-        result = AggregationFeatureGroup.match_feature_group_criteria("avg_agg", options, None)
-        assert result is False
-
-    def test_no_match_invalid_operation(self) -> None:
-        """Feature with an unknown/invalid operation should not match."""
-        options = Options(context={"partition_by": ["region"]})
-        result = AggregationFeatureGroup.match_feature_group_criteria("value_int__unknown_agg", options, None)
+        result = AggregationFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is False
 
 
 class TestPatternParsing:
     """Tests for extracting operation and source column from feature names."""
 
-    def test_parse_avg_operation(self) -> None:
-        """Parsing value_int__avg_agg should yield operation=avg."""
-        operation = AggregationFeatureGroup.get_aggregation_type("value_int__avg_agg")
-        assert operation == "avg"
-
-    def test_parse_sum_operation(self) -> None:
-        """Parsing my_col__sum_agg should yield operation=sum."""
-        operation = AggregationFeatureGroup.get_aggregation_type("my_col__sum_agg")
-        assert operation == "sum"
-
-    def test_parse_percentile_operation(self) -> None:
-        """Parsing value_int__percentile_75_agg should yield operation=percentile_75."""
-        operation = AggregationFeatureGroup.get_aggregation_type("value_int__percentile_75_agg")
-        assert operation == "percentile_75"
+    @pytest.mark.parametrize(
+        ("feature_name", "expected"),
+        [
+            pytest.param("value_int__avg_agg", "avg", id="avg"),
+            pytest.param("my_col__sum_agg", "sum", id="sum"),
+            pytest.param("value_int__percentile_75_agg", "percentile_75", id="percentile"),
+        ],
+    )
+    def test_parse_operation(self, feature_name: str, expected: str) -> None:
+        operation = AggregationFeatureGroup.get_aggregation_type(feature_name)
+        assert operation == expected
 
     def test_parse_source_feature_from_avg(self) -> None:
         """Source feature should be extracted correctly from value_int__avg_agg."""

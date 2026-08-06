@@ -4,11 +4,10 @@ Expected values are computed from the canonical 12-row dataset in
 DataOperationsTestDataCreator, partitioned by the 'region' column
 (A=rows 0-3, B=rows 4-7, C=rows 8-10, None=row 11).
 
-The ``WindowAggregationTestBase`` class provides 16 concrete test methods
-(10 per-framework + 5 cross-framework comparison + 1 column check) that
-any framework implementation inherits by subclassing and implementing
-5 abstract methods. This follows the same pattern as mloda core's
-``DataFrameTestBase`` in ``tests/test_plugins/compute_framework/test_tooling/``.
+The ``WindowAggregationTestBase`` class provides concrete test methods that any
+framework implementation inherits by subclassing and implementing the abstract
+methods. This follows the same pattern as mloda core's ``DataFrameTestBase`` in
+``tests/test_plugins/compute_framework/test_tooling/``.
 """
 
 from __future__ import annotations
@@ -250,70 +249,33 @@ class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOps
 
     # -- Cross-framework comparison (matches reference) --------------
 
-    def test_cross_framework_sum(self) -> None:
-        """Sum must match reference."""
-        self._compare_with_reference("value_int__sum_window", partition_by=["region"])
-
-    def test_cross_framework_avg(self) -> None:
-        """Avg must match reference."""
-        self._compare_with_reference("value_int__avg_window", partition_by=["region"], use_approx=True)
-
-    def test_cross_framework_mean(self) -> None:
-        """Mean (avg alias) must match reference."""
-        self._skip_if_unsupported("mean")
-        self._compare_with_reference("value_int__mean_window", partition_by=["region"], use_approx=True)
-
-    def test_cross_framework_count(self) -> None:
-        """Count must match reference."""
-        self._compare_with_reference("value_int__count_window", partition_by=["region"])
-
-    def test_cross_framework_min(self) -> None:
-        """Min must match reference."""
-        self._compare_with_reference("value_int__min_window", partition_by=["region"])
-
-    def test_cross_framework_max(self) -> None:
-        """Max must match reference."""
-        self._compare_with_reference("value_int__max_window", partition_by=["region"])
-
-    def test_cross_framework_std(self) -> None:
-        """Std must match reference."""
-        self._skip_if_unsupported("std")
-        self._compare_with_reference("value_int__std_window", partition_by=["region"], use_approx=True)
-
-    def test_cross_framework_var(self) -> None:
-        """Var must match reference."""
-        self._skip_if_unsupported("var")
-        self._compare_with_reference("value_int__var_window", partition_by=["region"], use_approx=True)
-
-    def test_cross_framework_median(self) -> None:
-        """Median must match reference."""
-        self._skip_if_unsupported("median")
-        self._compare_with_reference("value_int__median_window", partition_by=["region"], use_approx=True)
-
-    def test_cross_framework_nunique(self) -> None:
-        """Nunique must match reference."""
-        self._skip_if_unsupported("nunique")
-        self._compare_with_reference("value_int__nunique_window", partition_by=["region"])
-
-    def test_cross_framework_first(self) -> None:
-        """First must match reference (with order_by)."""
-        self._skip_if_unsupported("first")
-        self._compare_with_reference("value_int__first_window", partition_by=["region"], order_by="value_int")
-
-    def test_cross_framework_last(self) -> None:
-        """Last must match reference (with order_by)."""
-        self._skip_if_unsupported("last")
-        self._compare_with_reference("value_int__last_window", partition_by=["region"], order_by="value_int")
-
-    def test_cross_framework_mode(self) -> None:
-        """Mode must match reference.
-
-        PyArrow picks the first-encountered value on ties.
-        Frameworks that use different tie-breaking must exclude
-        'mode' from supported_agg_types().
-        """
-        self._skip_if_unsupported("mode")
-        self._compare_with_reference("value_int__mode_window", partition_by=["region"])
+    @pytest.mark.parametrize(
+        ("feature_name", "skip_op", "order_by", "use_approx"),
+        [
+            pytest.param("value_int__sum_window", None, None, False, id="sum"),
+            pytest.param("value_int__avg_window", None, None, True, id="avg"),
+            # mean is an avg alias
+            pytest.param("value_int__mean_window", "mean", None, True, id="mean"),
+            pytest.param("value_int__count_window", None, None, False, id="count"),
+            pytest.param("value_int__min_window", None, None, False, id="min"),
+            pytest.param("value_int__max_window", None, None, False, id="max"),
+            pytest.param("value_int__std_window", "std", None, True, id="std"),
+            pytest.param("value_int__var_window", "var", None, True, id="var"),
+            pytest.param("value_int__median_window", "median", None, True, id="median"),
+            pytest.param("value_int__nunique_window", "nunique", None, False, id="nunique"),
+            pytest.param("value_int__first_window", "first", "value_int", False, id="first"),
+            pytest.param("value_int__last_window", "last", "value_int", False, id="last"),
+            # PyArrow picks the first-encountered value on ties. Frameworks that use
+            # different tie-breaking must exclude 'mode' from supported_agg_types().
+            pytest.param("value_int__mode_window", "mode", None, False, id="mode"),
+        ],
+    )
+    def test_cross_framework(
+        self, feature_name: str, skip_op: str | None, order_by: str | None, use_approx: bool
+    ) -> None:
+        if skip_op is not None:
+            self._skip_if_unsupported(skip_op)
+        self._compare_with_reference(feature_name, partition_by=["region"], order_by=order_by, use_approx=use_approx)
 
     # -- Statistical aggregation tests (skipped if unsupported) --------------
 
@@ -467,52 +429,31 @@ class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOps
 
     # -- Null edge case tests ------------------------------------------------
 
-    def test_null_policy_skip_all_null_column(self) -> None:
-        """NullPolicy.SKIP: score column is all null. Aggregation should produce all nulls or zeros.
+    @pytest.mark.parametrize(
+        ("agg_type", "needs_skip", "order_by"),
+        [
+            # NullPolicy.SKIP: PyArrow/Polars/DuckDB/SQLite return null for the sum of an
+            # all-null group. Pandas returns 0 (groupby.transform("sum") treats all-null as 0).
+            pytest.param("sum", False, None, id="sum"),
+            pytest.param("std", True, None, id="std"),
+            pytest.param("var", True, None, id="var"),
+            # first/last need an order_by; score (the all-null column) is used as its own key.
+            pytest.param("first", True, "score", id="first"),
+            pytest.param("last", True, "score", id="last"),
+        ],
+    )
+    def test_all_null_column(self, agg_type: str, needs_skip: bool, order_by: str | None) -> None:
+        """score is all-null. Every aggregate listed here should produce None for every row.
 
-        PyArrow/Polars/DuckDB/SQLite return null for sum of all-null group.
-        Pandas returns 0 (groupby.transform("sum") treats all-null as 0).
+        nunique is the exception and produces 0; see test_all_null_column_nunique.
         """
-        fs = make_feature_set("score__sum_window", ["region"])
+        if needs_skip:
+            self._skip_if_unsupported(agg_type)
+        feature_name = f"score__{agg_type}_window"
+        fs = make_feature_set(feature_name, ["region"], order_by=order_by)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "score__sum_window")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_std(self) -> None:
-        """score is all-null. Std per group should be None."""
-        self._skip_if_unsupported("std")
-        fs = make_feature_set("score__std_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "score__std_window")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_var(self) -> None:
-        """score is all-null. Var per group should be None."""
-        self._skip_if_unsupported("var")
-        fs = make_feature_set("score__var_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "score__var_window")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_first(self) -> None:
-        """score is all-null. First per group should be None."""
-        self._skip_if_unsupported("first")
-        fs = make_feature_set("score__first_window", ["region"], order_by="score")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "score__first_window")
-        assert all(v is None for v in result_col)
-
-    def test_all_null_column_last(self) -> None:
-        """score is all-null. Last per group should be None."""
-        self._skip_if_unsupported("last")
-        fs = make_feature_set("score__last_window", ["region"], order_by="score")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "score__last_window")
+        result_col = self.extract_column(result, feature_name)
         assert all(v is None for v in result_col)
 
     def test_all_null_column_nunique(self) -> None:
@@ -610,59 +551,34 @@ class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOps
         assert result_col[1] == pytest.approx(1.25, rel=1e-6)
         assert result_col[3] == pytest.approx(1.25, rel=1e-6)
 
-    def test_multi_key_partition_median(self) -> None:
-        """Median of value_int partitioned by [region, category]."""
-        self._skip_if_unsupported("median")
-        fs = make_feature_set("value_int__median_window", ["region", "category"])
+    @pytest.mark.parametrize(
+        ("agg_type", "a_x_expected", "a_y_expected", "c_y_expected"),
+        [
+            pytest.param("median", 5.0, 7.5, 27.5, id="median"),
+            # std and var are the population forms (ddof=0)
+            pytest.param("std", 5.0, 12.5, 12.5, id="std"),
+            pytest.param("var", 25.0, 156.25, 156.25, id="var"),
+        ],
+    )
+    def test_multi_key_partition_stats(
+        self, agg_type: str, a_x_expected: float, a_y_expected: float, c_y_expected: float
+    ) -> None:
+        self._skip_if_unsupported(agg_type)
+        feature_name = f"value_int__{agg_type}_window"
+        fs = make_feature_set(feature_name, ["region", "category"])
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
-        result_col = self.extract_column(result, "value_int__median_window")
-        # (A,X) rows 0,2: median([10, 0]) = 5.0
-        assert result_col[0] == pytest.approx(5.0, rel=1e-6)
-        assert result_col[2] == pytest.approx(5.0, rel=1e-6)
-        # (A,Y) rows 1,3: median([-5, 20]) = 7.5
-        assert result_col[1] == pytest.approx(7.5, rel=1e-6)
-        assert result_col[3] == pytest.approx(7.5, rel=1e-6)
-        # (C,Y) rows 8,10: median([15, 40]) = 27.5
-        assert result_col[8] == pytest.approx(27.5, rel=1e-6)
-        assert result_col[10] == pytest.approx(27.5, rel=1e-6)
-
-    def test_multi_key_partition_std(self) -> None:
-        """Population std of value_int partitioned by [region, category].
-
-        Only groups with >= 2 non-null values are checked.
-        """
-        self._skip_if_unsupported("std")
-        fs = make_feature_set("value_int__std_window", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "value_int__std_window")
-        # (A,X) rows 0,2: std([10, 0]) = 5.0
-        assert result_col[0] == pytest.approx(5.0, rel=1e-6)
-        assert result_col[2] == pytest.approx(5.0, rel=1e-6)
-        # (A,Y) rows 1,3: std([-5, 20]) = 12.5
-        assert result_col[1] == pytest.approx(12.5, rel=1e-6)
-        assert result_col[3] == pytest.approx(12.5, rel=1e-6)
-        # (C,Y) rows 8,10: std([15, 40]) = 12.5
-        assert result_col[8] == pytest.approx(12.5, rel=1e-6)
-        assert result_col[10] == pytest.approx(12.5, rel=1e-6)
-
-    def test_multi_key_partition_var(self) -> None:
-        """Population variance of value_int partitioned by [region, category]."""
-        self._skip_if_unsupported("var")
-        fs = make_feature_set("value_int__var_window", ["region", "category"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "value_int__var_window")
-        # (A,X) rows 0,2: var([10, 0]) = 25.0
-        assert result_col[0] == pytest.approx(25.0, rel=1e-6)
-        assert result_col[2] == pytest.approx(25.0, rel=1e-6)
-        # (A,Y) rows 1,3: var([-5, 20]) = 156.25
-        assert result_col[1] == pytest.approx(156.25, rel=1e-6)
-        assert result_col[3] == pytest.approx(156.25, rel=1e-6)
-        # (C,Y) rows 8,10: var([15, 40]) = 156.25
-        assert result_col[8] == pytest.approx(156.25, rel=1e-6)
-        assert result_col[10] == pytest.approx(156.25, rel=1e-6)
+        result_col = self.extract_column(result, feature_name)
+        # Only groups with >= 2 non-null values are checked.
+        # (A,X) rows 0,2: values [10, 0]
+        assert result_col[0] == pytest.approx(a_x_expected, rel=1e-6)
+        assert result_col[2] == pytest.approx(a_x_expected, rel=1e-6)
+        # (A,Y) rows 1,3: values [-5, 20]
+        assert result_col[1] == pytest.approx(a_y_expected, rel=1e-6)
+        assert result_col[3] == pytest.approx(a_y_expected, rel=1e-6)
+        # (C,Y) rows 8,10: values [15, 40]
+        assert result_col[8] == pytest.approx(c_y_expected, rel=1e-6)
+        assert result_col[10] == pytest.approx(c_y_expected, rel=1e-6)
 
     def test_multi_key_partition_nunique(self) -> None:
         """Nunique of value_int partitioned by [region, category]."""

@@ -497,45 +497,38 @@ class ResampleTestBase(DataOpsTestBase):
 
         self._assert_map_equals(result_map, ref_map, use_approx=use_approx)
 
-    def test_cross_framework_1_hour_mean(self) -> None:
-        self._compare_resample_with_reference("value__resample_1_hour_mean", ["region"], use_approx=True)
-
-    def test_cross_framework_1_hour_sum(self) -> None:
-        self._compare_resample_with_reference("value__resample_1_hour_sum", ["region"], use_approx=True)
-
-    def test_cross_framework_1_hour_count(self) -> None:
-        self._compare_resample_with_reference("value__resample_1_hour_count", ["region"])
-
-    def test_cross_framework_15_minute_mean(self) -> None:
-        self._compare_resample_with_reference("value__resample_15_minute_mean", ["region"], use_approx=True)
-
-    def test_cross_framework_whole_table(self) -> None:
-        self._compare_resample_with_reference("value__resample_1_hour_mean", [], use_approx=True)
+    @pytest.mark.parametrize(
+        ("feature_name", "partition_by", "use_approx"),
+        [
+            pytest.param("value__resample_1_hour_mean", ["region"], True, id="1_hour_mean"),
+            pytest.param("value__resample_1_hour_sum", ["region"], True, id="1_hour_sum"),
+            # count is an exact integer, so no approximate comparison.
+            pytest.param("value__resample_1_hour_count", ["region"], False, id="1_hour_count"),
+            pytest.param("value__resample_15_minute_mean", ["region"], True, id="15_minute_mean"),
+            pytest.param("value__resample_1_hour_mean", [], True, id="whole_table"),
+        ],
+    )
+    def test_cross_framework(self, feature_name: str, partition_by: list[str], use_approx: bool) -> None:
+        """Every resample spec must agree with the PyArrow reference."""
+        self._compare_resample_with_reference(feature_name, partition_by, use_approx=use_approx)
 
     # -- Error / validation --------------------------------------------------
 
-    def test_bad_unit_rejected(self) -> None:
-        """A bogus unit (``century``) must raise ValueError."""
-        fs = self._resample_fs("value__resample_1_century_mean", ["region"])
-        with pytest.raises(ValueError, match=r"(?i)unit|unsupported|century"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
-
-    def test_bad_agg_median_rejected(self) -> None:
-        """``median`` is not in the v1 agg set and must raise ValueError."""
-        fs = self._resample_fs("value__resample_1_hour_median", ["region"])
-        with pytest.raises(ValueError, match=r"(?i)agg|unsupported|median"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
-
-    def test_bad_agg_last_rejected(self) -> None:
-        """Order-DEPENDENT ``last`` is deliberately excluded in v1 and must raise ValueError."""
-        fs = self._resample_fs("value__resample_1_hour_last", ["region"])
-        with pytest.raises(ValueError, match=r"(?i)agg|unsupported|last"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
-
-    def test_n_zero_rejected(self) -> None:
-        """``n=0`` is not a valid bucket size and must raise ValueError."""
-        fs = self._resample_fs("value__resample_0_hour_mean", ["region"])
-        with pytest.raises(ValueError, match=r"(?i)positive|n|0"):
+    @pytest.mark.parametrize(
+        ("feature_name", "match"),
+        [
+            pytest.param("value__resample_1_century_mean", r"(?i)unit|unsupported|century", id="bad_unit"),
+            # ``median`` is not in the v1 agg set.
+            pytest.param("value__resample_1_hour_median", r"(?i)agg|unsupported|median", id="bad_agg_median"),
+            # Order-DEPENDENT ``last`` is deliberately excluded in v1.
+            pytest.param("value__resample_1_hour_last", r"(?i)agg|unsupported|last", id="bad_agg_last"),
+            # ``n=0`` is not a valid bucket size.
+            pytest.param("value__resample_0_hour_mean", r"(?i)positive|n|0", id="n_zero"),
+        ],
+    )
+    def test_bad_spec_rejected(self, feature_name: str, match: str) -> None:
+        fs = self._resample_fs(feature_name, ["region"])
+        with pytest.raises(ValueError, match=match):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
     def test_missing_time_column_rejected(self) -> None:

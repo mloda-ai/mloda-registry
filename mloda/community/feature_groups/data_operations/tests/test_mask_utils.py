@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from mloda.community.feature_groups.data_operations.mask_utils import (
@@ -15,41 +17,44 @@ class TestParseMaskSpec:
     def test_none_returns_none(self) -> None:
         assert parse_mask_spec(None) is None
 
-    def test_single_tuple(self) -> None:
-        result = parse_mask_spec(("col", "equal", "X"))
-        assert result == [("col", "equal", "X")]
+    @pytest.mark.parametrize(
+        ("mask_option", "expected"),
+        [
+            pytest.param(("col", "equal", "X"), [("col", "equal", "X")], id="single_tuple"),
+            pytest.param(
+                [("a", "equal", 1), ("b", "greater_equal", 10)],
+                [("a", "equal", 1), ("b", "greater_equal", 10)],
+                id="list_of_tuples",
+            ),
+            pytest.param(("col", "is_in", ["A", "B"]), [("col", "is_in", ["A", "B"])], id="is_in_list"),
+            pytest.param(("col", "greater_than", 10), [("col", "greater_than", 10)], id="greater_than"),
+            # A 2-element tuple sets val=None, which is valid for 'equal'.
+            pytest.param(("col", "equal"), [("col", "equal", None)], id="two_element_equal_none"),
+        ],
+    )
+    def test_accepts_valid_spec(self, mask_option: Any, expected: list[tuple[str, str, Any]]) -> None:
+        result = parse_mask_spec(mask_option)
+        assert result == expected
 
-    def test_list_of_tuples(self) -> None:
-        result = parse_mask_spec([("a", "equal", 1), ("b", "greater_equal", 10)])
-        assert result == [("a", "equal", 1), ("b", "greater_equal", 10)]
-
-    def test_invalid_operator(self) -> None:
-        with pytest.raises(ValueError, match="Unsupported mask operator"):
-            parse_mask_spec(("col", "not_equal", "X"))
-
-    def test_invalid_type(self) -> None:
-        with pytest.raises(ValueError, match="must be a tuple or list"):
-            parse_mask_spec("bad")
-
-    def test_wrong_tuple_length(self) -> None:
-        with pytest.raises(ValueError, match="2 or 3 elements"):
-            parse_mask_spec(("a",))
-
-    def test_non_string_column(self) -> None:
-        with pytest.raises(ValueError, match="column must be a string"):
-            parse_mask_spec((123, "equal", "X"))
-
-    def test_is_in_string_rejected(self) -> None:
-        with pytest.raises(ValueError, match="is_in values must be a list"):
-            parse_mask_spec(("col", "is_in", "DE"))
-
-    def test_is_in_bytes_rejected(self) -> None:
-        with pytest.raises(ValueError, match="is_in values must be a list"):
-            parse_mask_spec(("col", "is_in", b"DE"))
-
-    def test_is_in_list_accepted(self) -> None:
-        result = parse_mask_spec(("col", "is_in", ["A", "B"]))
-        assert result == [("col", "is_in", ["A", "B"])]
+    @pytest.mark.parametrize(
+        ("mask_option", "message"),
+        [
+            pytest.param(("col", "not_equal", "X"), "Unsupported mask operator", id="invalid_operator"),
+            pytest.param("bad", "must be a tuple or list", id="invalid_type"),
+            pytest.param(("a",), "2 or 3 elements", id="wrong_tuple_length"),
+            pytest.param((123, "equal", "X"), "column must be a string", id="non_string_column"),
+            pytest.param(("col", "is_in", "DE"), "is_in values must be a list", id="is_in_string"),
+            pytest.param(("col", "is_in", b"DE"), "is_in values must be a list", id="is_in_bytes"),
+            pytest.param(("col", "is_in", []), "must not be empty", id="is_in_empty_list"),
+            pytest.param(("col", "is_in", set()), "must not be empty", id="is_in_empty_set"),
+            # A 2-element tuple is only valid for 'equal', not for other operators.
+            pytest.param(("col", "greater_than"), "only valid for 'equal'", id="two_element_greater_than"),
+            pytest.param(("col", "is_in"), "only valid for 'equal'", id="two_element_is_in"),
+        ],
+    )
+    def test_rejects_invalid_spec(self, mask_option: Any, message: str) -> None:
+        with pytest.raises(ValueError, match=message):
+            parse_mask_spec(mask_option)
 
     def test_is_in_set_accepted(self) -> None:
         result = parse_mask_spec(("col", "is_in", {"A", "B"}))
@@ -61,32 +66,6 @@ class TestParseMaskSpec:
 
         with pytest.raises(ValueError, match="Mask value must be"):
             parse_mask_spec(("col", "equal", datetime.now()))
-
-    def test_greater_than_operator(self) -> None:
-        result = parse_mask_spec(("col", "greater_than", 10))
-        assert result == [("col", "greater_than", 10)]
-
-    def test_two_element_equal_none(self) -> None:
-        """2-element tuple sets val=None, which is valid for 'equal'."""
-        result = parse_mask_spec(("col", "equal"))
-        assert result == [("col", "equal", None)]
-
-    def test_is_in_empty_list_rejected(self) -> None:
-        with pytest.raises(ValueError, match="must not be empty"):
-            parse_mask_spec(("col", "is_in", []))
-
-    def test_is_in_empty_set_rejected(self) -> None:
-        with pytest.raises(ValueError, match="must not be empty"):
-            parse_mask_spec(("col", "is_in", set()))
-
-    def test_two_element_greater_than_rejected(self) -> None:
-        """2-element tuple is only valid for 'equal', not other operators."""
-        with pytest.raises(ValueError, match="only valid for 'equal'"):
-            parse_mask_spec(("col", "greater_than"))
-
-    def test_two_element_is_in_rejected(self) -> None:
-        with pytest.raises(ValueError, match="only valid for 'equal'"):
-            parse_mask_spec(("col", "is_in"))
 
 
 class TestBuildPolarsMaskExpr:
@@ -131,9 +110,23 @@ class TestBuildPolarsMaskExpr:
 
 
 class TestBuildSqlCaseWhen:
-    def test_single_equal(self) -> None:
-        result = build_sql_case_when([("status", "equal", "active")], '"value"')
-        assert result == """CASE WHEN "status" = 'active' THEN "value" END"""
+    @pytest.mark.parametrize(
+        ("column", "operator", "value", "expected"),
+        [
+            pytest.param(
+                "status", "equal", "active", """CASE WHEN "status" = 'active' THEN "value" END""", id="single_equal"
+            ),
+            pytest.param("amount", "greater_than", 100, 'CASE WHEN "amount" > 100 THEN "value" END', id="greater_than"),
+            pytest.param("amount", "less_than", 100, 'CASE WHEN "amount" < 100 THEN "value" END', id="less_than"),
+            pytest.param("amount", "less_equal", 100, 'CASE WHEN "amount" <= 100 THEN "value" END', id="less_equal"),
+            pytest.param(
+                "amount", "greater_equal", 100, 'CASE WHEN "amount" >= 100 THEN "value" END', id="greater_equal"
+            ),
+        ],
+    )
+    def test_single_condition(self, column: str, operator: str, value: str | int, expected: str) -> None:
+        result = build_sql_case_when([(column, operator, value)], '"value"')
+        assert result == expected
 
     def test_multiple_conditions(self) -> None:
         result = build_sql_case_when(
@@ -148,23 +141,7 @@ class TestBuildSqlCaseWhen:
         result = build_sql_case_when([("col", "is_in", ["a", "b"])], '"src"')
         assert "IN ('a', 'b')" in result
 
-    def test_greater_than(self) -> None:
-        result = build_sql_case_when([("amount", "greater_than", 100)], '"value"')
-        assert result == """CASE WHEN "amount" > 100 THEN "value" END"""
-
     def test_equal_none_produces_is_null(self) -> None:
         result = build_sql_case_when([("col", "equal", None)], '"src"')
         assert "IS NULL" in result
         assert "= NULL" not in result
-
-    def test_less_than(self) -> None:
-        result = build_sql_case_when([("amount", "less_than", 100)], '"value"')
-        assert result == 'CASE WHEN "amount" < 100 THEN "value" END'
-
-    def test_less_equal(self) -> None:
-        result = build_sql_case_when([("amount", "less_equal", 100)], '"value"')
-        assert result == 'CASE WHEN "amount" <= 100 THEN "value" END'
-
-    def test_greater_equal(self) -> None:
-        result = build_sql_case_when([("amount", "greater_equal", 100)], '"value"')
-        assert result == 'CASE WHEN "amount" >= 100 THEN "value" END'
