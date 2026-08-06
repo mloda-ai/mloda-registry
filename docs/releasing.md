@@ -59,6 +59,14 @@ the four bundles and `mloda-community-example`, not the set as a whole.
 Flagging a package does not publish it: it ships with the next release run, and
 `tox -e verify-published` and `tox -e verify-floor-installs` fail for it until then.
 
+A release that introduces packages new to PyPI can be rejected with
+`429 Too many new projects created`. PyPI throttles the creation of *new* project names,
+independently of uploads to projects that already exist, and in practice the threshold is
+low (around four) and the lockout lasts many hours. It is not something the release
+workflow can pace or retry around. See
+[pypi/support#10572](https://github.com/pypi/support/issues/10572) and
+[this monorepo release thread](https://discuss.python.org/t/request-temporary-new-project-rate-limit-lift-on-pypi-for-a-coordinated-monorepo-release-user-pace/108030).
+
 Not every package ships standalone. Most demo and example packages reach users inside the
 `mloda-community` / `mloda-enterprise` bundle wheels instead; `mloda-community-example`
 and `mloda-community-example-a` are the exceptions, published to keep end-to-end PyPI
