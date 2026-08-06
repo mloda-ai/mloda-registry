@@ -47,13 +47,16 @@ from __future__ import annotations
 from typing import Any
 
 from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
-from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, column_ref_value, is_column_ref
+from mloda.community.feature_groups.data_operations.base import (
+    OrderedSourceMixin,
+    RejectionReasonMixin,
+    is_column_ref,
+)
 
 # Supported sessionization units mapped to their length in seconds. The four
 # keys also define the units accepted by the feature-name regex.
@@ -103,13 +106,18 @@ def _sessionize_threshold_seconds(n: int, unit: str) -> int:
     return n * SESSIONIZATION_UNITS[unit]
 
 
-class SessionizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class SessionizationFeatureGroup(RejectionReasonMixin, FeatureGroup, OrderedSourceMixin):
     """Base class for gap-threshold sessionization operations that preserve row count."""
 
     PREFIX_PATTERN = r".*__sessionize_\d+_(?:minute|hour|day|week)$"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
+
+    SOURCE_LABEL = "sessionize"
+    ENFORCE_MIN_IN_FEATURES = True
+    ENFORCE_MAX_IN_FEATURES = True
+    ORDER_BY_DEFAULTS_TO_SOURCE = True
 
     PARTITION_BY = "partition_by"
     ORDER_BY = "order_by"
@@ -134,55 +142,19 @@ class SessionizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
     }
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        _feature_name = str(feature_name)
-
-        prefix_patterns = self._get_prefix_patterns()
-        _operation_config, source_feature = FeatureChainParser.parse_feature_name(_feature_name, prefix_patterns)
-
-        if source_feature:
+        # Not _single_source_input_features: the Options branch reports the family arity error
+        # (MAX only, so an empty in_features still resolves) instead of core's count check.
+        source_feature = self._source_from_name(str(feature_name))
+        if source_feature is not None:
             return {Feature(source_feature)}
 
         in_features_set = options.get_in_features()
-        source_names = [str(f.name) for f in in_features_set]
-        if len(source_names) > self.MAX_IN_FEATURES:
-            raise ValueError(
-                f"sessionize supports at most {self.MAX_IN_FEATURES} source feature, "
-                f"but got {len(source_names)}: {source_names}"
-            )
+        self._reject_extra_sources([str(f.name) for f in in_features_set])
         return set(in_features_set)
 
     @classmethod
     def _extract_source_features(cls, feature: Feature) -> list[str]:
-        """Extract and validate the single source feature.
-
-        Returns a one-element list containing the source column name. Raises
-        ``ValueError`` if more than one source feature is found, since
-        sessionize supports at most one source column.
-        """
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-
-        _operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-
-        if source_feature:
-            return [source_feature]
-
-        in_features_set = feature.options.get_in_features()
-        source_names: list[str] = [str(f.name) for f in in_features_set]
-
-        if len(source_names) < cls.MIN_IN_FEATURES:
-            raise ValueError(
-                f"sessionize requires at least {cls.MIN_IN_FEATURES} source feature, "
-                f"but got {len(source_names)} (in_features is empty)."
-            )
-
-        if len(source_names) > cls.MAX_IN_FEATURES:
-            raise ValueError(
-                f"sessionize supports at most {cls.MAX_IN_FEATURES} source feature, "
-                f"but got {len(source_names)}: {source_names}"
-            )
-
-        return source_names
+        return cls._single_source_features(feature)
 
     @classmethod
     def _extract_threshold_token(cls, feature: Feature) -> str:
@@ -193,22 +165,6 @@ class SessionizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
         except IndexError as exc:
             raise ValueError(f"Could not extract a sessionize token from feature name {name!r}.") from exc
         return f"sessionize_{token}"
-
-    @classmethod
-    def _extract_partition_by(cls, feature: Feature) -> list[str]:
-        """Return ``partition_by`` as a list (defaulting to ``[]`` when absent)."""
-        partition_by = feature.options.get(cls.PARTITION_BY)
-        if partition_by is None:
-            return []
-        return list(partition_by)
-
-    @classmethod
-    def _extract_order_by(cls, feature: Feature, source_col: str) -> str:
-        """Return ``order_by``, defaulting to the source timestamp column when absent."""
-        order_by = feature.options.get(cls.ORDER_BY)
-        if order_by is None:
-            return source_col
-        return column_ref_value(order_by)
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

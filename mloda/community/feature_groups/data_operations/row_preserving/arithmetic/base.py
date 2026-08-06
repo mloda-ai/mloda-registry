@@ -1,19 +1,12 @@
 """Shared skeleton for the arithmetic feature-group families.
 
-The point-arithmetic and scalar-arithmetic families share the same
-arithmetic-op extraction and numeric-source contract: they parse the same four
-operation names (``add``/``subtract``/``multiply``/``divide``) out of the
-feature name or options, and they reject non-numeric source columns with the
-same error format. Issue #214 had this logic duplicated byte-for-byte across
-the two families' ``base.py`` files.
-
-``ArithmeticFeatureGroupBase`` holds the identical parts. The families subclass
-it and override ``OPERATION_LABEL`` (so the rejection message names the right
-operation) plus the family-specific bits (operand count, constant handling,
-PROPERTY_MAPPING). Per-backend numeric introspection lives in
-``numeric_source``; the per-backend mixins supply the
-``_non_numeric_descriptor`` hook consumed by the
-``_assert_source_column_is_numeric`` template defined here.
+The point-arithmetic and scalar-arithmetic families share the same arithmetic-op extraction and
+numeric-source contract, so ``ArithmeticFeatureGroupBase`` holds it. The families subclass it and
+override ``OPERATION_LABEL`` (so the rejection message names the right operation) plus the
+family-specific bits (operand count, constant handling, PROPERTY_MAPPING). Per-backend numeric
+introspection lives in ``numeric_source``; the per-backend mixins supply the
+``_non_numeric_descriptor`` hook consumed by the ``_assert_source_column_is_numeric`` template
+defined here.
 """
 
 from __future__ import annotations
@@ -21,10 +14,9 @@ from __future__ import annotations
 from typing import Any
 
 from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.provider import FeatureGroup
 
-from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, op_token_value
+from mloda.community.feature_groups.data_operations.base import OpTypeAccessorMixin, RejectionReasonMixin
 
 ARITHMETIC_OP_NAMES: frozenset[str] = frozenset({"add", "subtract", "multiply", "divide"})
 
@@ -32,12 +24,19 @@ ARITHMETIC_OP_NAMES: frozenset[str] = frozenset({"add", "subtract", "multiply", 
 SQL_ARITHMETIC_OPS: dict[str, str] = {"add": "+", "subtract": "-", "multiply": "*", "divide": "/"}
 
 
-class ArithmeticFeatureGroupBase(RejectionReasonMixin, FeatureGroup):
+class ArithmeticFeatureGroupBase(RejectionReasonMixin, FeatureGroup, OpTypeAccessorMixin):
     ARITHMETIC_OP = "arithmetic_op"
+
+    OP_TYPE_LABEL = "arithmetic operation"
 
     #: Operation label used in the numeric-source rejection message.
     #: Subclasses override with ``"point arithmetic"`` / ``"scalar arithmetic"``.
     OPERATION_LABEL: str = ""
+
+    @classmethod
+    def _op_type_key(cls) -> str:
+        """The option key the arithmetic op falls back to, read live so an override of it applies."""
+        return cls.ARITHMETIC_OP
 
     @classmethod
     def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
@@ -45,23 +44,11 @@ class ArithmeticFeatureGroupBase(RejectionReasonMixin, FeatureGroup):
 
     @classmethod
     def get_arithmetic_op(cls, feature_name: str) -> str:
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        raise ValueError(f"Could not extract arithmetic operation from feature name: {feature_name}")
+        return cls._extract_op_type(feature_name)
 
     @classmethod
     def _extract_arithmetic_op(cls, feature: Feature) -> str:
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        op = feature.options.get(cls.ARITHMETIC_OP)
-        if op is None:
-            raise ValueError(f"Could not extract arithmetic operation for {feature_name}")
-        return op_token_value(op)
+        return cls._extract_op_type(feature.name, feature.options)
 
     @classmethod
     def _raise_non_numeric_source(cls, source_col: str, got: object) -> None:

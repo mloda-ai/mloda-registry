@@ -6,12 +6,16 @@ from typing import Any
 
 from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
-from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, is_op_token, op_token_value
+from mloda.community.feature_groups.data_operations.base import (
+    OpTypeAccessorMixin,
+    RejectionReasonMixin,
+    SingleSourceMixin,
+    is_op_token,
+)
 
 DATETIME_OPS = {
     "year": "Extract year from datetime",
@@ -26,7 +30,7 @@ DATETIME_OPS = {
 }
 
 
-class DateTimeFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class DateTimeFeatureGroup(RejectionReasonMixin, FeatureGroup, SingleSourceMixin, OpTypeAccessorMixin):
     """Base class for element-wise datetime extraction operations.
 
     Extracts scalar integer components from datetime columns. The output
@@ -89,6 +93,8 @@ class DateTimeFeatureGroup(RejectionReasonMixin, FeatureGroup):
 
     DATETIME_OP = "datetime_op"
 
+    OP_TYPE_LABEL = "datetime operation"
+
     PROPERTY_MAPPING = {
         DATETIME_OP: {
             "explanation": "Datetime component extracted from the source column",
@@ -109,24 +115,17 @@ class DateTimeFeatureGroup(RejectionReasonMixin, FeatureGroup):
         return operation_config in DATETIME_OPS
 
     @classmethod
+    def _op_type_key(cls) -> str:
+        """The option key the datetime operation falls back to, read live so an override of it applies."""
+        return cls.DATETIME_OP
+
+    @classmethod
     def get_datetime_op(cls, feature_name: str) -> str:
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        raise ValueError(f"Could not extract datetime operation from feature name: {feature_name}")
+        return cls._extract_op_type(feature_name)
 
     @classmethod
     def _extract_datetime_op(cls, feature: Feature) -> str:
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        op = feature.options.get(cls.DATETIME_OP)
-        if op is None:
-            raise ValueError(f"Could not extract datetime operation for {feature_name}")
-        return op_token_value(op)
+        return cls._extract_op_type(feature.name, feature.options)
 
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:
@@ -135,30 +134,11 @@ class DateTimeFeatureGroup(RejectionReasonMixin, FeatureGroup):
         return DataType.INT64
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        _feature_name = str(feature_name)
-
-        prefix_patterns = self._get_prefix_patterns()
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(_feature_name, prefix_patterns)
-
-        if operation_config is not None and source_feature is not None and source_feature:
-            return {Feature(source_feature)}
-
-        in_features_set = options.get_in_features()
-        self._validate_in_feature_count(list(in_features_set), _feature_name)
-        return set(in_features_set)
+        return self._single_source_input_features(options, feature_name)
 
     @classmethod
     def _extract_source_features(cls, feature: Feature) -> list[str]:
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-
-        if operation_config is not None and source_feature is not None and source_feature:
-            return [source_feature]
-
-        in_features_set = feature.options.get_in_features()
-        return [str(f.name) for f in in_features_set]
+        return cls._single_source_features(feature)
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

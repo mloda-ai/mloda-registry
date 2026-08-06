@@ -6,10 +6,13 @@ from typing import Any
 
 from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.provider import DefaultOptionKeys, FeatureGroup
-from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, is_op_token, op_token_value
+from mloda.community.feature_groups.data_operations.base import (
+    OpTypeAccessorMixin,
+    RejectionReasonMixin,
+    is_op_token,
+)
 
 STRING_OPS = {
     "upper": "Convert string to uppercase",
@@ -20,7 +23,7 @@ STRING_OPS = {
 }
 
 
-class StringFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class StringFeatureGroup(RejectionReasonMixin, FeatureGroup, OpTypeAccessorMixin):
     """Base class for element-wise string operations that preserve row count.
 
     String operations transform a single string column element by element.
@@ -65,6 +68,8 @@ class StringFeatureGroup(RejectionReasonMixin, FeatureGroup):
 
     STRING_OP = "string_op"
 
+    OP_TYPE_LABEL = "string operation"
+
     PROPERTY_MAPPING = {
         STRING_OP: {
             "explanation": "String operation applied to the source column",
@@ -90,26 +95,19 @@ class StringFeatureGroup(RejectionReasonMixin, FeatureGroup):
         return operation_config in STRING_OPS
 
     @classmethod
+    def _op_type_key(cls) -> str:
+        """The option key the string operation falls back to, read live so an override of it applies."""
+        return cls.STRING_OP
+
+    @classmethod
     def get_string_op(cls, feature_name: str) -> str:
         """Extract the string operation from a pattern-based feature name."""
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        raise ValueError(f"Could not extract string operation from feature name: {feature_name}")
+        return cls._extract_op_type(feature_name)
 
     @classmethod
     def _extract_string_op(cls, feature: Feature) -> str:
         """Extract string operation from feature (string-based or config-based)."""
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        op = feature.options.get(cls.STRING_OP)
-        if op is None:
-            raise ValueError(f"Could not extract string operation for {feature_name}")
-        return op_token_value(op)
+        return cls._extract_op_type(feature.name, feature.options)
 
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:

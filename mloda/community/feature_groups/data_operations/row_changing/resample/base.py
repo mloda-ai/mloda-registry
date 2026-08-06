@@ -46,6 +46,7 @@ from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
 from mloda.community.feature_groups.data_operations.base import (
+    PartitionedSourceMixin,
     RejectionReasonMixin,
     always_required,
     column_ref_value,
@@ -118,7 +119,7 @@ def _is_valid_resample_op(value: object) -> bool:
     return True
 
 
-class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup, PartitionedSourceMixin):
     """Base class for resample operations that CHANGE the row count.
 
     Subclasses must implement ``_compute_resample`` (the backend-specific
@@ -129,6 +130,11 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
+
+    SOURCE_LABEL = "resample"
+    ENFORCE_MIN_IN_FEATURES = True
+    ENFORCE_MAX_IN_FEATURES = True
+    VALIDATE_IN_FEATURE_COUNT = False
 
     PARTITION_BY = "partition_by"
     TIME_COLUMN = "time_column"
@@ -161,12 +167,7 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
     }
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        source_feature = self._source_from_name(str(feature_name))
-        if source_feature is not None:
-            return {Feature(source_feature)}
-
-        in_features_set = options.get_in_features()
-        return set(in_features_set)
+        return self._single_source_input_features(options, feature_name)
 
     # -- Name / token parsing ----------------------------------------------
 
@@ -174,10 +175,10 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
     def _source_from_name(cls, feature_name: str) -> str | None:
         """Return the source column from a ``{src}__resample_...`` name, else None.
 
-        Permissive on purpose: it splits on the LAST ``__resample_`` marker so
-        that invalid-unit / invalid-agg / n=0 feature names (e.g.
-        ``value__resample_1_century_mean``) still yield the source column and
-        the raw token, letting ``_parse_resample_op`` raise the SPECIFIC error.
+        Overrides the mixin's pattern-based read on purpose: splitting on the LAST
+        ``__resample_`` marker lets invalid-unit / invalid-agg / n=0 names (e.g.
+        ``value__resample_1_century_mean``) still yield the source column and the raw
+        token, so ``_parse_resample_op`` can raise the SPECIFIC error.
         """
         marker = f"__{_RESAMPLE_MARKER}_"
         idx = feature_name.rfind(marker)
@@ -199,32 +200,7 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
 
     @classmethod
     def _extract_source_features(cls, feature: Feature) -> list[str]:
-        """Extract and validate the single source feature.
-
-        Name-based extraction is tried first; otherwise the source comes from
-        ``in_features``. Raises ``ValueError`` if more than one source feature
-        is supplied (MAX_IN_FEATURES=1).
-        """
-        source_feature = cls._source_from_name(feature.name)
-        if source_feature is not None:
-            return [source_feature]
-
-        in_features_set = feature.options.get_in_features()
-        source_names: list[str] = [str(f.name) for f in in_features_set]
-
-        if len(source_names) < cls.MIN_IN_FEATURES:
-            raise ValueError(
-                f"resample requires at least {cls.MIN_IN_FEATURES} source feature, "
-                f"but got {len(source_names)} (in_features is empty)."
-            )
-
-        if len(source_names) > cls.MAX_IN_FEATURES:
-            raise ValueError(
-                f"resample supports at most {cls.MAX_IN_FEATURES} source feature, but got {len(source_names)}: "
-                f"{source_names}"
-            )
-
-        return source_names
+        return cls._single_source_features(feature)
 
     @classmethod
     def _extract_resample_op(cls, feature: Feature) -> str:
@@ -236,14 +212,6 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
         if op is None:
             raise ValueError(f"Could not extract resample op for {feature.name}")
         return op_token_value(op)
-
-    @classmethod
-    def _extract_partition_by(cls, feature: Feature) -> list[str]:
-        """Return ``partition_by`` as a list (defaulting to ``[]`` when absent)."""
-        partition_by = feature.options.get(cls.PARTITION_BY)
-        if partition_by is None:
-            return []
-        return list(partition_by)
 
     @classmethod
     def _extract_time_column(cls, feature: Feature) -> str:

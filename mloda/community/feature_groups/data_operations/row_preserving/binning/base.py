@@ -13,6 +13,7 @@ from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 from mloda.community.feature_groups.data_operations.base import (
     RejectionReasonMixin,
+    SingleSourceMixin,
     is_op_token,
     is_positive_int,
     op_token_value,
@@ -25,7 +26,7 @@ BINNING_OPS = {
 }
 
 
-class BinningFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class BinningFeatureGroup(RejectionReasonMixin, FeatureGroup, SingleSourceMixin):
     PREFIX_PATTERN = r".*__(bin|qbin)_[1-9]\d*$"
 
     MIN_IN_FEATURES = 1
@@ -101,12 +102,11 @@ class BinningFeatureGroup(RejectionReasonMixin, FeatureGroup):
         return None
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        # Not _single_source_input_features: binning also runs core's count check on the name branch.
         _feature_name = str(feature_name)
 
-        prefix_patterns = self._get_prefix_patterns()
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(_feature_name, prefix_patterns)
-
-        if operation_config is not None and source_feature is not None and source_feature:
+        source_feature = self._source_from_name(_feature_name)
+        if source_feature is not None:
             in_features = [Feature(source_feature)]
             self._validate_in_feature_count(in_features, _feature_name)
             return set(in_features)
@@ -117,16 +117,7 @@ class BinningFeatureGroup(RejectionReasonMixin, FeatureGroup):
 
     @classmethod
     def _extract_source_features(cls, feature: Feature) -> list[str]:
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-
-        if operation_config is not None and source_feature is not None and source_feature:
-            return [source_feature]
-
-        in_features_set = feature.options.get_in_features()
-        return [str(f.name) for f in in_features_set]
+        return cls._single_source_features(feature)
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import re
 import reprlib
-from collections.abc import Callable
+from collections.abc import Callable, Container
 from enum import Enum
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
+from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.provider import FeatureGroup
 
 T = TypeVar("T")
 
@@ -222,6 +224,18 @@ def is_parametric_suffix(suffix: str) -> bool:
     return _PARAMETRIC_SUFFIX_PATTERN.fullmatch(suffix) is not None
 
 
+def is_supported_op_type(value: object, fixed_types: Container[str], parametric_families: tuple[str, ...]) -> bool:
+    """True for one of ``fixed_types``, or a ``{family}_{N}`` token of a parametric family with N >= 1."""
+    if not isinstance(value, str):
+        return False
+    if value in fixed_types:
+        return True
+    return any(
+        value.startswith(f"{family}_") and is_parametric_suffix(value[len(family) + 1 :])
+        for family in parametric_families
+    )
+
+
 # ---------------------------------------------------------------------------
 # Shared rejection-reason reporting
 # ---------------------------------------------------------------------------
@@ -326,3 +340,223 @@ class RejectionReasonMixin(FeatureChainParserMixin):
             return bool(guard(value))
         except (TypeError, ValueError, AttributeError):
             return False
+
+
+# ---------------------------------------------------------------------------
+# Shared source-column and operation-type plumbing
+# ---------------------------------------------------------------------------
+
+if TYPE_CHECKING:
+    # Borrowed for type checking only. Inheriting the chain-parser API at runtime would move
+    # FeatureChainParserMixin and FeatureGroup in every family's __mro__, and core reads that
+    # index as link specificity (resolve_links._inheritance_distance).
+    _ChainParserApi = FeatureChainParserMixin
+else:
+    _ChainParserApi = object
+
+
+def _own_names(cls: type) -> frozenset[str]:
+    """Every non-dunder name the class itself defines."""
+    return frozenset(name for name in vars(cls) if not name.startswith("__"))
+
+
+#: Names core resolves BEFORE an appended mixin at runtime, so a mixin defining one would be dead code.
+_CORE_OWNED_NAMES = frozenset(
+    name for klass in (*FeatureChainParserMixin.__mro__, *FeatureGroup.__mro__) for name in _own_names(klass)
+)
+
+
+class _MixinContract(_ChainParserApi):
+    """Class-creation guard for the accessor mixins below: what mypy --strict cannot see.
+
+    ``_ChainParserApi`` is FeatureChainParserMixin while type checking and ``object`` at runtime, so a
+    type checker puts these mixins AHEAD of core in the ``__mro__`` while CPython puts them BEHIND it.
+    A mixin name core also owns therefore type-checks as the winner while being dead at runtime; a bare
+    annotation (``PARTITION_BY: str``) is a declaration to mypy that does not exist at runtime; and a
+    mixin not listed last moves the ancestors behind it. Each raises here, naming class and attribute.
+    """
+
+    #: Names a mixin reads off the mixing class without defining them itself.
+    REQUIRED_ATTRS: ClassVar[tuple[str, ...]] = ()
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if cls.__module__ == __name__:
+            shadowed = sorted(_own_names(cls) & _CORE_OWNED_NAMES)
+            if shadowed:
+                raise TypeError(f"{cls.__name__} defines {shadowed[0]!r}, which core owns and resolves first")
+            return
+        appended = tuple(
+            base for base in cls.__bases__ if base.__module__ == __name__ and issubclass(base, _MixinContract)
+        )
+        if appended and cls.__bases__[-len(appended) :] != appended:
+            raise TypeError(
+                f"{cls.__name__} must list {appended[0].__name__} last in its bases, so every other "
+                f"ancestor keeps its __mro__ index (core reads that index as link specificity)"
+            )
+        declared = frozenset(name for base in cls.__mro__ if base.__module__ != __name__ for name in _own_names(base))
+        for mixin in cls.__mro__:
+            if mixin.__module__ != __name__:
+                continue
+            for attr in vars(mixin).get("REQUIRED_ATTRS", ()):
+                if attr not in declared:
+                    raise TypeError(f"{cls.__name__} must declare {attr!r}, which {mixin.__name__} reads at runtime")
+
+
+class SingleSourceMixin(_MixinContract):
+    """One source column per feature: the name-or-in_features read and its arity errors.
+
+    Mix in LAST so appending leaves every existing ancestor at its current ``__mro__`` index (see
+    ``_ChainParserApi`` above). Core owns ``_extract_source_features`` and ``input_features`` and
+    resolves both BEFORE an appended mixin, so a family delegates those two explicitly.
+    """
+
+    #: Family name rendered in the arity and ordering errors; None renders the class name instead.
+    SOURCE_LABEL: ClassVar[str | None] = None
+
+    #: Reject an empty ``in_features`` instead of returning an empty source list.
+    ENFORCE_MIN_IN_FEATURES: ClassVar[bool] = False
+
+    #: Report more than MAX_IN_FEATURES sources as a family arity error instead of leaving it to core.
+    ENFORCE_MAX_IN_FEATURES: ClassVar[bool] = False
+
+    #: Run core's in-feature count check on the ``in_features`` branch of ``_single_source_input_features``.
+    VALIDATE_IN_FEATURE_COUNT: ClassVar[bool] = True
+
+    @classmethod
+    def _source_label(cls) -> str:
+        """The noun the arity and ordering errors name the family with."""
+        return cls.SOURCE_LABEL or cls.__name__
+
+    @classmethod
+    def _source_from_name(cls, feature_name: str) -> str | None:
+        """The source column encoded in the feature name, or None when the name encodes none."""
+        _operation_config, source_feature = FeatureChainParser.parse_feature_name(
+            feature_name, cls._get_prefix_patterns()
+        )
+        # The parser returns both halves or neither (a match without a source raises), so an
+        # empty source is always the no-match case.
+        return source_feature or None
+
+    @classmethod
+    def _single_source_features(cls, feature: Feature) -> list[str]:
+        """The one source column, from the feature name when it encodes one, else from ``in_features``."""
+        source_feature = cls._source_from_name(feature.name)
+        if source_feature is not None:
+            return [source_feature]
+
+        source_names = [str(f.name) for f in feature.options.get_in_features()]
+        cls._validate_source_arity(source_names)
+        return source_names
+
+    @classmethod
+    def _validate_source_arity(cls, source_names: list[str]) -> None:
+        """Reject an ``in_features`` list outside the family's arity."""
+        if cls.ENFORCE_MIN_IN_FEATURES and len(source_names) < cls.MIN_IN_FEATURES:
+            raise ValueError(
+                f"{cls._source_label()} requires at least {cls.MIN_IN_FEATURES} source feature, "
+                f"but got {len(source_names)} (in_features is empty)."
+            )
+        cls._reject_extra_sources(source_names)
+
+    @classmethod
+    def _reject_extra_sources(cls, source_names: list[str]) -> None:
+        """Reject more than MAX_IN_FEATURES source columns."""
+        maximum = cls.MAX_IN_FEATURES
+        if not cls.ENFORCE_MAX_IN_FEATURES or maximum is None or len(source_names) <= maximum:
+            return
+        raise ValueError(
+            f"{cls._source_label()} supports at most {maximum} source feature, "
+            f"but got {len(source_names)}: {source_names}"
+        )
+
+    def _single_source_input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        """The one input Feature the name encodes, else the ``in_features`` set."""
+        source_feature = self._source_from_name(str(feature_name))
+        if source_feature is not None:
+            return {Feature(source_feature)}
+
+        in_features_set = options.get_in_features()
+        if self.VALIDATE_IN_FEATURE_COUNT:
+            self._validate_in_feature_count(list(in_features_set), str(feature_name))
+        return set(in_features_set)
+
+
+class PartitionedSourceMixin(SingleSourceMixin):
+    """SingleSourceMixin plus the PARTITION_BY read, split out so no family inherits an accessor it cannot honour."""
+
+    REQUIRED_ATTRS = ("PARTITION_BY",)
+
+    PARTITION_BY: str
+
+    @classmethod
+    def _extract_partition_by(cls, feature: Feature) -> list[str]:
+        """Return ``partition_by`` as a list (defaulting to ``[]`` when absent)."""
+        partition_by = feature.options.get(cls.PARTITION_BY)
+        if partition_by is None:
+            return []
+        return list(partition_by)
+
+
+class OrderedSourceMixin(PartitionedSourceMixin):
+    """PartitionedSourceMixin plus the ORDER_BY read, for the families that declare both keys."""
+
+    REQUIRED_ATTRS = ("ORDER_BY",)
+
+    ORDER_BY: str
+
+    #: Order by the source column when ``order_by`` is absent; False makes the key required.
+    ORDER_BY_DEFAULTS_TO_SOURCE: ClassVar[bool] = False
+
+    @classmethod
+    def _extract_order_by(cls, feature: Feature, source_col: str | None = None) -> str:
+        """Return ``order_by``, falling back to ``source_col`` only for a family whose contract defaults to it."""
+        order_by = option_value(feature.options, cls.ORDER_BY, column_ref_value)
+        if order_by is not None:
+            return order_by
+        if cls.ORDER_BY_DEFAULTS_TO_SOURCE and source_col is not None:
+            return source_col
+        raise ValueError(f"{cls._source_label()} requires an 'order_by' column in Options context.")
+
+
+class OpTypeAccessorMixin(_MixinContract):
+    """One operation-type token per feature: the name-first read, its options fallback, and their errors.
+
+    Mix in LAST, like SingleSourceMixin. Families keep their own accessor names as delegators, so a
+    subclass override of e.g. ``_resolve_agg_type`` still wins at every call site.
+    """
+
+    REQUIRED_ATTRS = ("_op_type_key", "OP_TYPE_LABEL")
+
+    #: Noun rendered in the extraction errors (e.g. ``"rank type"``).
+    OP_TYPE_LABEL: ClassVar[str]
+
+    @classmethod
+    def _op_type_key(cls) -> str:
+        """The option key the token falls back to; a family returns its own constant so overriding it stays live."""
+        raise NotImplementedError(f"{cls.__name__} must return its operation-type option key from _op_type_key")
+
+    @classmethod
+    def _extract_op_type(cls, feature_name: str, options: Options | None = None) -> str:
+        """The type the name encodes, else the one in ``options`` when a caller passes them; raises on neither."""
+        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, cls._get_prefix_patterns())
+        if operation_config is not None:
+            return operation_config
+        if options is None:
+            raise ValueError(f"Could not extract {cls.OP_TYPE_LABEL} from feature name: {feature_name}")
+        op_type = options.get(cls._op_type_key())
+        if op_type is None:
+            raise ValueError(f"Could not extract {cls.OP_TYPE_LABEL} for {feature_name}")
+        return op_token_value(op_type)
+
+    @classmethod
+    def _resolve_op_type(cls, feature_name: str, options: Options) -> str | None:
+        """The same read as _extract_op_type, with every miss (an unparsable name included) reported as None."""
+        try:
+            operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, cls._get_prefix_patterns())
+        except ValueError:
+            return None
+        if operation_config is not None:
+            return operation_config
+        op_type = options.get(cls._op_type_key())
+        return None if op_type is None else op_token_value(op_type)

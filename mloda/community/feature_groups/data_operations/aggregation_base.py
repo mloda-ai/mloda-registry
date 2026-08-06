@@ -1,29 +1,20 @@
 """Shared skeleton for the aggregation feature-group families.
 
-The aggregation, window-aggregation, scalar-aggregate, and frame-aggregate
-families share the same aggregation-type extraction machinery: they parse the
-same aggregation names out of the feature name or options, validate them against
-a canonical aggregation-type table, and declare INT64 for counting ops. Issue
-#246 had this logic duplicated across the families' ``base.py`` files.
-
-``AggregationFeatureGroupBase`` holds the identical parts, mirroring the
-``ArithmeticFeatureGroupBase`` consolidation from issue #214. The families
-subclass it and override ``AGGREGATION_TYPES`` (so each family advertises its
-own supported set / descriptions) and ``_COUNTING_AGG_TYPES`` (which agg types
-produce an integer count), plus the family-specific bits (operand count,
-matching, PROPERTY_MAPPING). Per-backend computation lives in the backend
-modules.
+The aggregation, window-aggregation, scalar-aggregate, and frame-aggregate families share the same
+aggregation-type extraction machinery, so ``AggregationFeatureGroupBase`` holds it. The families
+subclass it and override ``AGGREGATION_TYPES`` (each family advertises its own supported set) and
+``_COUNTING_AGG_TYPES`` (which agg types produce an integer count), plus the family-specific bits
+(operand count, matching, PROPERTY_MAPPING). Per-backend computation lives in the backend modules.
 """
 
 from __future__ import annotations
 
 from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import FeatureGroup
 
-from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, op_token_value
+from mloda.community.feature_groups.data_operations.base import OpTypeAccessorMixin, RejectionReasonMixin
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 
 AGGREGATION_TYPES: dict[str, str] = {
@@ -47,8 +38,10 @@ AGGREGATION_TYPES: dict[str, str] = {
 }
 
 
-class AggregationFeatureGroupBase(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup):
+class AggregationFeatureGroupBase(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup, OpTypeAccessorMixin):
     AGGREGATION_TYPE = "aggregation_type"
+
+    OP_TYPE_LABEL = "aggregation type"
 
     #: Canonical aggregation-type table. Subclasses override to advertise their
     #: own supported set / descriptions.
@@ -59,6 +52,11 @@ class AggregationFeatureGroupBase(SubtypeCapabilityHook, RejectionReasonMixin, F
     _COUNTING_AGG_TYPES: frozenset[str] = frozenset({"count", "nunique"})
 
     @classmethod
+    def _op_type_key(cls) -> str:
+        """The option key the aggregation type falls back to, read live so an override of it applies."""
+        return cls.AGGREGATION_TYPE
+
+    @classmethod
     def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
         """Validate that the parsed aggregation type is in AGGREGATION_TYPES."""
         return operation_config in cls.AGGREGATION_TYPES
@@ -66,36 +64,17 @@ class AggregationFeatureGroupBase(SubtypeCapabilityHook, RejectionReasonMixin, F
     @classmethod
     def get_aggregation_type(cls, feature_name: str) -> str:
         """Extract the aggregation type from a feature name string."""
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        raise ValueError(f"Could not extract aggregation type from feature name: {feature_name}")
+        return cls._extract_op_type(feature_name)
 
     @classmethod
     def _extract_aggregation_type(cls, feature: Feature) -> str:
         """Extract aggregation type from feature (string-based or config-based)."""
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        agg_type = feature.options.get(cls.AGGREGATION_TYPE)
-        if agg_type is None:
-            raise ValueError(f"Could not extract aggregation type for {feature_name}")
-        return op_token_value(agg_type)
+        return cls._extract_op_type(feature.name, feature.options)
 
     @classmethod
     def _resolve_agg_type(cls, feature_name: str, options: Options) -> str | None:
         """Resolve the aggregation type from the feature name or options; None if unresolvable."""
-        try:
-            operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, cls._get_prefix_patterns())
-        except ValueError:
-            return None
-        if operation_config is not None:
-            return operation_config
-        agg_type = options.get(cls.AGGREGATION_TYPE)
-        return None if agg_type is None else op_token_value(agg_type)
+        return cls._resolve_op_type(feature_name, options)
 
     @classmethod
     def _capability_subtype(cls, feature_name: str, options: Options) -> str | None:

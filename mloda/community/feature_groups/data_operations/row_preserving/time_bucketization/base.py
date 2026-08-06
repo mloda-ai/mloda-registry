@@ -38,13 +38,17 @@ from __future__ import annotations
 from typing import Any
 
 from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
-from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, is_op_token, op_token_value
+from mloda.community.feature_groups.data_operations.base import (
+    OpTypeAccessorMixin,
+    RejectionReasonMixin,
+    SingleSourceMixin,
+    is_op_token,
+)
 
 TIME_BUCKETIZATION_OPS: dict[str, str] = {
     "floor": "Round timestamp down to the start of the enclosing bucket",
@@ -107,7 +111,7 @@ def _parse_bucket_op(token: str) -> tuple[str, int, str]:
     return op, n, unit
 
 
-class TimeBucketizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class TimeBucketizationFeatureGroup(RejectionReasonMixin, FeatureGroup, SingleSourceMixin, OpTypeAccessorMixin):
     """Base class for element-wise timestamp bucketization.
 
     Subclasses must implement ``_compute_bucket`` (the backend-specific
@@ -122,7 +126,13 @@ class TimeBucketizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
 
+    SOURCE_LABEL = "Time bucketization"
+    ENFORCE_MIN_IN_FEATURES = True
+    ENFORCE_MAX_IN_FEATURES = True
+
     BUCKET_OP = "bucket_op"
+
+    OP_TYPE_LABEL = "bucket op"
 
     @staticmethod
     def _is_valid_bucket_op_value(value: Any) -> bool:
@@ -174,72 +184,26 @@ class TimeBucketizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
         return True
 
     @classmethod
+    def _op_type_key(cls) -> str:
+        """The option key the bucket op falls back to, read live so an override of it applies."""
+        return cls.BUCKET_OP
+
+    @classmethod
     def get_bucket_op(cls, feature_name: str) -> str:
         """Extract the full op token from a string-pattern feature name."""
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        raise ValueError(f"Could not extract bucket op from feature name: {feature_name}")
+        return cls._extract_op_type(feature_name)
 
     @classmethod
     def _extract_bucket_op(cls, feature: Feature) -> str:
         """Extract the op token from the feature name or from Options."""
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        op = feature.options.get(cls.BUCKET_OP)
-        if op is None:
-            raise ValueError(f"Could not extract bucket op for {feature_name}")
-        return op_token_value(op)
+        return cls._extract_op_type(feature.name, feature.options)
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        _feature_name = str(feature_name)
-
-        prefix_patterns = self._get_prefix_patterns()
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(_feature_name, prefix_patterns)
-
-        if operation_config and source_feature:
-            return {Feature(source_feature)}
-
-        in_features_set = options.get_in_features()
-        self._validate_in_feature_count(list(in_features_set), _feature_name)
-        return set(in_features_set)
+        return self._single_source_input_features(options, feature_name)
 
     @classmethod
     def _extract_source_features(cls, feature: Feature) -> list[str]:
-        """Extract and validate the single source feature.
-
-        Returns a one-element list containing the source column name.
-        Raises ValueError if more than one source feature is found, since
-        time bucketization only supports a single source column.
-        """
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-
-        if operation_config and source_feature:
-            return [source_feature]
-
-        in_features_set = feature.options.get_in_features()
-        source_names: list[str] = [str(f.name) for f in in_features_set]
-
-        if len(source_names) < cls.MIN_IN_FEATURES:
-            raise ValueError(
-                f"Time bucketization requires at least {cls.MIN_IN_FEATURES} source feature, "
-                f"but got {len(source_names)} (in_features is empty)."
-            )
-
-        if len(source_names) > cls.MAX_IN_FEATURES:
-            raise ValueError(
-                f"Time bucketization supports at most {cls.MAX_IN_FEATURES} source feature, "
-                f"but got {len(source_names)}: {source_names}"
-            )
-
-        return source_names
+        return cls._single_source_features(feature)
 
     @staticmethod
     def _raise_non_timestamp_source(source_col: str, got: object) -> None:

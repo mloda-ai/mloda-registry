@@ -56,10 +56,42 @@ The base class owns:
 
 - The feature-name regex.
 - The loop over `features.features`.
-- Extraction of source column, operation, and any options from `Options(context=...)`.
 - Delegation to a per-framework `_compute` hook.
 
-Existing bases to crib from: `row_preserving/binning/base.py` (simple), `row_preserving/window_aggregation/base.py` (with `partition_by`/`order_by`/masks). They compose `FeatureChainParserMixin` to parse the suffix of the feature name; copy that detail verbatim from the closest existing base.
+Source-column extraction, the ordering reads and the op-type accessors are inherited, not written. Mix in the one that matches your operation, always **last** in the bases (inserting it earlier shifts `__mro__.index()` for every ancestor behind it, and core reads that index as link specificity in `resolve_links`), and declare the attributes that drive it. Both rules are checked at class creation: a mixin listed before another base, or a driving attribute you never declared, raises `TypeError` on import.
+
+| Mixin | Gives you | Declare |
+|---|---|---|
+| `SingleSourceMixin` | `_single_source_features`, `_single_source_input_features` | `MIN_IN_FEATURES`, `MAX_IN_FEATURES`, `SOURCE_LABEL`, `ENFORCE_MIN_IN_FEATURES`, `ENFORCE_MAX_IN_FEATURES`, `VALIDATE_IN_FEATURE_COUNT` |
+| `PartitionedSourceMixin` | the above plus `_extract_partition_by` | `PARTITION_BY` |
+| `OrderedSourceMixin` | the above plus `_extract_order_by` | `ORDER_BY`, `ORDER_BY_DEFAULTS_TO_SOURCE` |
+| `OpTypeAccessorMixin` | `_extract_op_type`, `_resolve_op_type` | `_op_type_key()`, `OP_TYPE_LABEL` |
+
+`SOURCE_LABEL` is only the noun the arity and ordering errors name your family with (unset, they name the class). What turns the checks on is `ENFORCE_MIN_IN_FEATURES` / `ENFORCE_MAX_IN_FEATURES`, and the bounds they read are core's `MIN_IN_FEATURES` / `MAX_IN_FEATURES`, so declare all four or the family accepts any number of source features. `ORDER_BY_DEFAULTS_TO_SOURCE` decides the other contract: leave it `False` and a missing `order_by` raises, set it `True` (sessionization) and the ordering falls back to the source column. `_op_type_key` is a classmethod rather than a constant so that a subclass overriding your family's option-key constant changes the key that is read.
+
+Core owns `_extract_source_features` and `input_features` and resolves them before an appended mixin, so those two stay one-line delegators in your class:
+
+```python
+class YourOpFeatureGroup(RejectionReasonMixin, FeatureGroup, OrderedSourceMixin):
+    MIN_IN_FEATURES = 1
+    MAX_IN_FEATURES = 1
+
+    SOURCE_LABEL = "your_op"
+    ENFORCE_MIN_IN_FEATURES = True
+    ENFORCE_MAX_IN_FEATURES = True
+
+    PARTITION_BY = "partition_by"
+    ORDER_BY = "order_by"
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        return self._single_source_input_features(options, feature_name)
+
+    @classmethod
+    def _extract_source_features(cls, feature: Feature) -> list[str]:
+        return cls._single_source_features(feature)
+```
+
+Existing bases to crib from: `row_preserving/datetime/base.py` or `row_preserving/scalar_aggregate/base.py` for the plain case, `row_preserving/ema/base.py` or `row_preserving/ffill/base.py` for the ordered one. `row_preserving/binning/base.py` and `row_preserving/sessionization/base.py` hand-write `input_features` where their contract differs from the mixin default, each with a comment saying why. `row_preserving/window_aggregation/base.py` predates the mixins and reads `partition_by` / `order_by` from `options` directly: crib its masks, not its extraction.
 
 ---
 
@@ -215,6 +247,7 @@ class YourOpTestBase(MaskTestMixin, DataOpsTestBase):
 ## Checklist
 
 - [ ] Base class with `PREFIX_PATTERN`, `calculate_feature`, and an abstract `_compute` hook.
+- [ ] The matching extraction mixin appended last, with its driving attributes declared.
 - [ ] PyArrow implementation first; it is the reference.
 - [ ] Test base in `mloda/testing/.../{your_op}.py` with inherited test methods.
 - [ ] One framework implementation per target framework, each respecting row-preserving if applicable.

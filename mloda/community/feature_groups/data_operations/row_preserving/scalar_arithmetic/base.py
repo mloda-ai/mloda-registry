@@ -22,7 +22,6 @@ from __future__ import annotations
 from typing import Any
 
 from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
@@ -30,6 +29,7 @@ from mloda.provider import DefaultOptionKeys
 
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
 from mloda.community.feature_groups.data_operations.base import (
+    SingleSourceMixin,
     is_number_element,
     is_op_token,
     is_scalar_number,
@@ -44,12 +44,14 @@ ARITHMETIC_OPERATIONS: dict[str, str] = {
 }
 
 
-class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
+class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase, SingleSourceMixin):
     PREFIX_PATTERN = r".*__([\w]+)_constant$"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
 
+    SOURCE_LABEL = "Scalar arithmetic"
+    ENFORCE_MAX_IN_FEATURES = True
     OPERATION_LABEL = "scalar arithmetic"
     CONSTANT = "constant"
 
@@ -76,44 +78,11 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
     }
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        _feature_name = str(feature_name)
-
-        prefix_patterns = self._get_prefix_patterns()
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(_feature_name, prefix_patterns)
-
-        if operation_config and source_feature:
-            return {Feature(source_feature)}
-
-        in_features_set = options.get_in_features()
-        self._validate_in_feature_count(list(in_features_set), _feature_name)
-        return set(in_features_set)
+        return self._single_source_input_features(options, feature_name)
 
     @classmethod
     def _extract_source_features(cls, feature: Feature) -> list[str]:
-        """Extract and validate the single source feature for the arithmetic op.
-
-        Returns a one-element list containing the source column name.
-        Raises ValueError if more than one source feature is found, since
-        this package only supports single-column arithmetic.
-        """
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-
-        if operation_config and source_feature:
-            return [source_feature]
-
-        in_features_set = feature.options.get_in_features()
-        source_names: list[str] = [str(f.name) for f in in_features_set]
-
-        if len(source_names) > cls.MAX_IN_FEATURES:
-            raise ValueError(
-                f"Scalar arithmetic supports at most {cls.MAX_IN_FEATURES} source feature, "
-                f"but got {len(source_names)}: {source_names}"
-            )
-
-        return source_names
+        return cls._single_source_features(feature)
 
     @classmethod
     def _extract_constant(cls, feature: Feature) -> int | float:

@@ -6,18 +6,18 @@ from typing import Any
 
 from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
 from mloda.community.feature_groups.data_operations.base import (
+    OpTypeAccessorMixin,
     RejectionReasonMixin,
     column_ref_value,
     is_column_ref,
     is_in_features_value,
     is_op_token,
     is_parametric_suffix,
-    op_token_value,
+    is_supported_op_type,
     option_value,
 )
 
@@ -33,19 +33,10 @@ _PARAMETRIC_OFFSET_FAMILIES: tuple[str, ...] = ("lag", "lead", "diff", "pct_chan
 
 def _is_supported_offset_type(value: object) -> bool:
     """Fixed offset types plus parametric lag_N / lead_N / diff_N / pct_change_N with N >= 1."""
-    if not isinstance(value, str):
-        return False
-    if value in _OFFSET_TYPES:
-        return True
-    for family in _PARAMETRIC_OFFSET_FAMILIES:
-        prefix = f"{family}_"
-        if value.startswith(prefix):
-            if is_parametric_suffix(value[len(prefix) :]):
-                return True
-    return False
+    return is_supported_op_type(value, _OFFSET_TYPES, _PARAMETRIC_OFFSET_FAMILIES)
 
 
-class OffsetFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class OffsetFeatureGroup(RejectionReasonMixin, FeatureGroup, OpTypeAccessorMixin):
     """Base class for offset operations that preserve row count.
 
     Offset operations access values at a fixed offset from the current row
@@ -118,6 +109,8 @@ class OffsetFeatureGroup(RejectionReasonMixin, FeatureGroup):
     OFFSET_TYPE = "offset_type"
     PARTITION_BY = "partition_by"
     ORDER_BY = "order_by"
+
+    OP_TYPE_LABEL = "offset type"
 
     # Aliases of the module tables the validator reads: overriding them in a subclass has no
     # effect, per-backend narrowing belongs in SubtypeCapabilityHook.
@@ -193,26 +186,19 @@ class OffsetFeatureGroup(RejectionReasonMixin, FeatureGroup):
         return True
 
     @classmethod
+    def _op_type_key(cls) -> str:
+        """The option key the offset type falls back to, read live so an override of it applies."""
+        return cls.OFFSET_TYPE
+
+    @classmethod
     def get_offset_type(cls, feature_name: str) -> str:
         """Extract the offset type from a feature name string."""
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        raise ValueError(f"Could not extract offset type from feature name: {feature_name}")
+        return cls._extract_op_type(feature_name)
 
     @classmethod
     def _extract_offset_type(cls, feature: Feature) -> str:
         """Extract offset type from feature (string-based or config-based)."""
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        offset_type = feature.options.get(cls.OFFSET_TYPE)
-        if offset_type is None:
-            raise ValueError(f"Could not extract offset type for {feature_name}")
-        return op_token_value(offset_type)
+        return cls._extract_op_type(feature.name, feature.options)
 
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:

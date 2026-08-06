@@ -6,20 +6,20 @@ from typing import Any
 
 from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 from mloda.community.feature_groups.data_operations.base import (
+    OpTypeAccessorMixin,
     RejectionReasonMixin,
     column_ref_value,
     is_column_ref,
     is_in_features_value,
     is_op_token,
     is_parametric_suffix,
-    op_token_value,
+    is_supported_op_type,
     option_value,
 )
 
@@ -37,19 +37,10 @@ _PARAMETRIC_RANK_FAMILIES: tuple[str, ...] = ("ntile", "top", "bottom")
 
 def _is_supported_rank_type(value: object) -> bool:
     """Fixed rank types plus parametric ntile_N / top_N / bottom_N with N >= 1."""
-    if not isinstance(value, str):
-        return False
-    if value in _RANK_TYPES:
-        return True
-    for family in _PARAMETRIC_RANK_FAMILIES:
-        prefix = f"{family}_"
-        if value.startswith(prefix):
-            if is_parametric_suffix(value[len(prefix) :]):
-                return True
-    return False
+    return is_supported_op_type(value, _RANK_TYPES, _PARAMETRIC_RANK_FAMILIES)
 
 
-class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup):
+class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup, OpTypeAccessorMixin):
     """Base class for rank operations that preserve row count.
 
     Rank operations assign a rank or position to each row within a
@@ -135,6 +126,8 @@ class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup
     PARTITION_BY = "partition_by"
     ORDER_BY = "order_by"
 
+    OP_TYPE_LABEL = "rank type"
+
     # Aliases of the module tables the validator reads: overriding them in a subclass has no
     # effect, per-backend narrowing belongs in SubtypeCapabilityHook.
     RANK_TYPES = _RANK_TYPES
@@ -213,38 +206,24 @@ class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup
         return True
 
     @classmethod
+    def _op_type_key(cls) -> str:
+        """The option key the rank type falls back to, read live so an override of it applies."""
+        return cls.RANK_TYPE
+
+    @classmethod
     def get_rank_type(cls, feature_name: str) -> str:
         """Extract the rank type from a feature name string."""
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        raise ValueError(f"Could not extract rank type from feature name: {feature_name}")
+        return cls._extract_op_type(feature_name)
 
     @classmethod
     def _extract_rank_type(cls, feature: Feature) -> str:
         """Extract rank type from feature (string-based or config-based)."""
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-        if operation_config is not None:
-            return operation_config
-        rank_type = feature.options.get(cls.RANK_TYPE)
-        if rank_type is None:
-            raise ValueError(f"Could not extract rank type for {feature_name}")
-        return op_token_value(rank_type)
+        return cls._extract_op_type(feature.name, feature.options)
 
     @classmethod
     def _resolve_rank_type(cls, feature_name: str, options: Options) -> str | None:
         """Resolve the rank type from the feature name or options; None if unresolvable."""
-        try:
-            operation_config, _ = FeatureChainParser.parse_feature_name(feature_name, cls._get_prefix_patterns())
-        except ValueError:
-            return None
-        if operation_config is not None:
-            return operation_config
-        rank_type = options.get(cls.RANK_TYPE)
-        return None if rank_type is None else op_token_value(rank_type)
+        return cls._resolve_op_type(feature_name, options)
 
     @classmethod
     def _capability_subtype(cls, feature_name: str, options: Options) -> str | None:
