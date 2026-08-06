@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community-sessionization"
-version = "0.4.0"
+version = "0.4.1"
 description = "Sessionization feature group (gap-threshold session id on an ordered timestamp, per partition, row-preserving)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]

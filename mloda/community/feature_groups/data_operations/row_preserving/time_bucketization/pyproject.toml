@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community-time-bucketization"
-version = "0.4.0"
+version = "0.4.1"
 description = "Time bucketization feature group (floor, ceil, round a timestamp to a bucket interval, row-preserving)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
