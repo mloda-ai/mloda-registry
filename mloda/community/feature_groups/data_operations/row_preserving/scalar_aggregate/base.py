@@ -22,6 +22,7 @@ from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
 
 from mloda.community.feature_groups.data_operations.aggregation_base import AggregationFeatureGroupBase
+from mloda.community.feature_groups.data_operations.family import DataOperationFamily
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 from mloda.community.feature_groups.data_operations.base import is_op_token
 
@@ -42,8 +43,10 @@ AGGREGATION_TYPES = {
 }
 
 
-class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase):
+class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase, DataOperationFamily):
     PREFIX_PATTERN = r".*__([\w]+)_scalar$"
+    FAMILY_NAME = "scalar_aggregate"
+    SUBTYPE_LABEL = "agg type"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -75,6 +78,18 @@ class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase):
             DefaultOptionKeys.default: None,
         },
     }
+
+    @classmethod
+    def catalog_subtypes(cls) -> tuple[str, ...]:
+        return tuple(cls.AGGREGATION_TYPES)
+
+    @classmethod
+    def catalog_probe(cls, subtype: str) -> tuple[str, Options]:
+        return f"value__{subtype}_scalar", Options()
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        return tuple(f"value__{agg_type}_scalar" for agg_type in cls.AGGREGATION_TYPES)
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         _feature_name = str(feature_name)

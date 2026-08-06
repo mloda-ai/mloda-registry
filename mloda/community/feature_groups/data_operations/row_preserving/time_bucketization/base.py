@@ -45,6 +45,7 @@ from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
 from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, is_op_token, op_token_value
+from mloda.community.feature_groups.data_operations.family import DataOperationFamily
 
 TIME_BUCKETIZATION_OPS: dict[str, str] = {
     "floor": "Round timestamp down to the start of the enclosing bucket",
@@ -107,7 +108,7 @@ def _parse_bucket_op(token: str) -> tuple[str, int, str]:
     return op, n, unit
 
 
-class TimeBucketizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class TimeBucketizationFeatureGroup(RejectionReasonMixin, FeatureGroup, DataOperationFamily):
     """Base class for element-wise timestamp bucketization.
 
     Subclasses must implement ``_compute_bucket`` (the backend-specific
@@ -118,6 +119,7 @@ class TimeBucketizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
     # group. The validation in ``_validate_string_match`` calls
     # ``_parse_bucket_op`` to reject ``n=0`` and ``n>1`` calendar-unit tokens.
     PREFIX_PATTERN = r".*__((?:floor|ceil|round)_\d+_(?:minute|hour|day|week|month|year))$"
+    FAMILY_NAME = "time_bucketization"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -156,6 +158,23 @@ class TimeBucketizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
             DefaultOptionKeys.strict_validation: False,
         },
     }
+
+    @classmethod
+    def catalog_subtypes(cls) -> tuple[str, ...]:
+        return tuple(TIME_BUCKETIZATION_OPS)
+
+    @classmethod
+    def catalog_probe(cls, subtype: str) -> tuple[str, Options]:
+        return f"ts__{subtype}_1_day", Options()
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        # A calendar unit only parses with n=1; every other unit takes any positive n.
+        return tuple(
+            f"ts__{op}_{1 if unit in _CALENDAR_UNITS else 30}_{unit}"
+            for op in TIME_BUCKETIZATION_OPS
+            for unit in TIME_BUCKETIZATION_UNITS
+        )
 
     @classmethod
     def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:

@@ -6,13 +6,22 @@ the ``supports_compute_framework`` hook, and match-time restrictions), queried v
 ``DataOperationsCatalog``. When ``test_framework_support_matrix_is_in_sync`` fails,
 regenerate the block between the ``BEGIN GENERATED`` / ``END GENERATED`` markers so it
 matches what this module renders, then rerun.
+
+Both axes of the rendered block come from the catalog rather than from a table kept
+here: the columns are ``catalog.FRAMEWORKS`` in order, and the rows are
+``operations_in_declaration_order()`` (the ``FAMILY_BASE_MODULES`` registry order).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from mloda.community.feature_groups.data_operations import DataOperationsCatalog, OperationInfo
+from mloda.community.feature_groups.data_operations import OperationInfo
+from mloda.community.feature_groups.data_operations.catalog import (
+    FRAMEWORKS,
+    FrameworkInfo,
+    operations_in_declaration_order,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 DOC_PATH = REPO_ROOT / "docs" / "guides" / "data-operation-patterns" / "framework-support-matrix.md"
@@ -30,73 +39,22 @@ def is_artifact_path(rel_path: Path) -> bool:
     return any(part in ARTIFACT_DIR_PARTS or part.endswith(".egg-info") for part in rel_path.parts)
 
 
-#: Doc column order: (framework key, doc column label).
-FRAMEWORKS: list[tuple[str, str]] = [
-    ("pyarrow", "PyArrow"),
-    ("pandas", "Pandas"),
-    ("polars_lazy", "Polars lazy"),
-    ("duckdb", "DuckDB"),
-    ("sqlite", "SQLite"),
-]
-
-#: Catalog framework key (``OperationInfo.frameworks``) per framework key.
-FRAMEWORK_CATALOG_KEYS: dict[str, str] = {
-    "pyarrow": "PyArrowTable",
-    "pandas": "PandasDataFrame",
-    "polars_lazy": "PolarsLazyDataFrame",
-    "duckdb": "DuckDBFramework",
-    "sqlite": "SqliteFramework",
-}
-
-#: Doc display order for operations. ``DataOperationsCatalog.list()`` is
-#: name-sorted; the doc keeps its historical grouping instead.
-OPERATIONS: list[str] = [
-    "aggregation",
-    "binning",
-    "datetime",
-    "frame_aggregate",
-    "offset",
-    "percentile",
-    "rank",
-    "scalar_aggregate",
-    "scalar_arithmetic",
-    "point_arithmetic",
-    "time_bucketization",
-    "ffill",
-    "ema",
-    "sessionization",
-    "window_aggregation",
-    "string",
-    "resample",
-]
+def _framework_supported(info: OperationInfo, framework: FrameworkInfo) -> frozenset[str] | None:
+    """The catalog's supported-subtype set for *framework*, or None when absent or subtype-less."""
+    return info.frameworks.get(framework.catalog_key)
 
 
-def ordered_operations() -> list[OperationInfo]:
-    """Catalog entries in doc display order; fails loudly on any name mismatch."""
-    infos = {info.name: info for info in DataOperationsCatalog.list()}
-    missing = sorted(name for name in OPERATIONS if name not in infos)
-    extra = sorted(name for name in infos if name not in OPERATIONS)
-    if missing or extra:
-        raise RuntimeError(f"OPERATIONS is out of sync with DataOperationsCatalog: missing={missing} extra={extra}")
-    return [infos[name] for name in OPERATIONS]
-
-
-def _framework_supported(info: OperationInfo, fw_key: str) -> frozenset[str] | None:
-    """The catalog's supported-subtype set for *fw_key*, or None when absent or subtype-less."""
-    return info.frameworks.get(FRAMEWORK_CATALOG_KEYS[fw_key])
-
-
-def render_summary_table(infos: list[OperationInfo]) -> list[str]:
-    header = "| Operation | " + " | ".join(label for _, label in FRAMEWORKS) + " |"
+def render_summary_table(infos: tuple[OperationInfo, ...]) -> list[str]:
+    header = "| Operation | " + " | ".join(framework.label for framework in FRAMEWORKS) + " |"
     sep = "|" + "|".join(["---"] * (len(FRAMEWORKS) + 1)) + "|"
     lines = [header, sep]
     for info in infos:
         cells: list[str] = [info.name]
-        for fw_key, _label in FRAMEWORKS:
-            if FRAMEWORK_CATALOG_KEYS[fw_key] not in info.frameworks:
+        for framework in FRAMEWORKS:
+            if framework.catalog_key not in info.frameworks:
                 cells.append("--")
                 continue
-            supported = _framework_supported(info, fw_key)
+            supported = _framework_supported(info, framework)
             if info.subtypes is None or supported is None or set(supported) == set(info.subtypes):
                 cells.append("full")
             else:
@@ -106,7 +64,7 @@ def render_summary_table(infos: list[OperationInfo]) -> list[str]:
 
 
 def render_detail_table(info: OperationInfo) -> list[str]:
-    header_cells = [info.subtype_label.capitalize()] + [label for _, label in FRAMEWORKS]
+    header_cells = [info.subtype_label.capitalize()] + [framework.label for framework in FRAMEWORKS]
     header = "| " + " | ".join(header_cells) + " |"
     sep = "|" + "|".join(["---"] * len(header_cells)) + "|"
     lines = [f"### {info.name}", ""]
@@ -114,25 +72,25 @@ def render_detail_table(info: OperationInfo) -> list[str]:
     if info.subtypes is None:
         # Single-row table: either the framework ships an implementation or it does not.
         row = ["(all)"]
-        for fw_key, _label in FRAMEWORKS:
-            row.append("✓" if FRAMEWORK_CATALOG_KEYS[fw_key] in info.frameworks else "--")
+        for framework in FRAMEWORKS:
+            row.append("✓" if framework.catalog_key in info.frameworks else "--")
         lines += [header, sep, "| " + " | ".join(row) + " |"]
         return lines
 
     lines += [header, sep]
     for subtype in info.subtypes:
         row = [f"`{subtype}`"]
-        for fw_key, _label in FRAMEWORKS:
-            if FRAMEWORK_CATALOG_KEYS[fw_key] not in info.frameworks:
+        for framework in FRAMEWORKS:
+            if framework.catalog_key not in info.frameworks:
                 row.append("--")
                 continue
-            supported = _framework_supported(info, fw_key)
+            supported = _framework_supported(info, framework)
             row.append("✓" if supported is None or subtype in supported else "✗")
         lines.append("| " + " | ".join(row) + " |")
     return lines
 
 
-def render_generated_block(infos: list[OperationInfo]) -> str:
+def render_generated_block(infos: tuple[OperationInfo, ...]) -> str:
     out: list[str] = [BEGIN_MARKER, ""]
     out.append("## Summary")
     out.append("")
@@ -185,7 +143,7 @@ def discover_operation_dirs_on_disk(root: Path = DATA_OPERATIONS_ROOT) -> set[st
             continue
         if is_artifact_path(tests_dir.relative_to(root)):
             continue
-        if not any((tests_dir / f"test_{fw_key}.py").exists() for fw_key, _label in FRAMEWORKS):
+        if not any((tests_dir / f"test_{framework.module_prefix}.py").exists() for framework in FRAMEWORKS):
             continue
         ops.add(tests_dir.parent.name)
     return ops
@@ -194,12 +152,12 @@ def discover_operation_dirs_on_disk(root: Path = DATA_OPERATIONS_ROOT) -> set[st
 _REGENERATION_HINT = (
     "Regenerate the block between the `BEGIN GENERATED` / `END GENERATED` markers in\n"
     f"{DOC_PATH.relative_to(REPO_ROOT)}\n"
-    "so it matches render_generated_block(ordered_operations()) from this module, then rerun."
+    "so it matches render_generated_block(operations_in_declaration_order()) from this module, then rerun."
 )
 
 
 def test_framework_support_matrix_is_in_sync() -> None:
-    generated = render_generated_block(ordered_operations())
+    generated = render_generated_block(operations_in_declaration_order())
 
     current = DOC_PATH.read_text()
     expected = splice_into_doc(current, generated)
@@ -209,12 +167,8 @@ def test_framework_support_matrix_is_in_sync() -> None:
     )
 
 
-def test_operations_list_covers_every_data_operation_on_disk() -> None:
-    catalog_names = {info.name for info in DataOperationsCatalog.list()}
-    assert sorted(OPERATIONS) == sorted(catalog_names), (
-        f"OPERATIONS does not match DataOperationsCatalog.list() names: "
-        f"missing={sorted(catalog_names - set(OPERATIONS))} extra={sorted(set(OPERATIONS) - catalog_names)}"
-    )
+def test_catalog_covers_every_data_operation_on_disk() -> None:
+    catalog_names = {info.name for info in operations_in_declaration_order()}
     on_disk = discover_operation_dirs_on_disk()
     uncovered = sorted(on_disk - catalog_names)
     assert uncovered == [], (

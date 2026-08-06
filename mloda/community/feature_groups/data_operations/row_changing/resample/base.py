@@ -53,6 +53,7 @@ from mloda.community.feature_groups.data_operations.base import (
     is_op_token,
     op_token_value,
 )
+from mloda.community.feature_groups.data_operations.family import DataOperationFamily
 
 # Order-independent aggregations supported in v1. Order-dependent aggregations
 # (e.g. ``first`` / ``last``) and ``median`` are deliberately excluded.
@@ -118,7 +119,7 @@ def _is_valid_resample_op(value: object) -> bool:
     return True
 
 
-class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup, DataOperationFamily):
     """Base class for resample operations that CHANGE the row count.
 
     Subclasses must implement ``_compute_resample`` (the backend-specific
@@ -126,6 +127,7 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
     """
 
     PREFIX_PATTERN = r".*__resample_[1-9]\d*_(?:minute|hour|day)_(?:mean|sum|count|min|max)$"
+    FAMILY_NAME = "resample"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -159,6 +161,11 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
             DefaultOptionKeys.match_guard: _is_valid_resample_op,
         },
     }
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        # The bucket-size slot is numeric; unit and agg are the categorical axes.
+        return tuple(f"metric__resample_60_{unit}_{agg}" for unit in RESAMPLE_UNITS for agg in RESAMPLE_AGGS)
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         source_feature = self._source_from_name(str(feature_name))

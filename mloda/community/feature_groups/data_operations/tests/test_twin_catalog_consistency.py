@@ -17,10 +17,7 @@ import inspect
 from dataclasses import dataclass
 
 from mloda.community.feature_groups.data_operations import DataOperationsCatalog
-from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import (
-    FRAMEWORK_CATALOG_KEYS,
-    FRAMEWORKS,
-)
+from mloda.community.feature_groups.data_operations.catalog import FRAMEWORKS
 
 _COMMUNITY = "mloda.community.feature_groups.data_operations"
 _TESTING = "mloda.testing.feature_groups.data_operations"
@@ -204,9 +201,9 @@ def test_twin_classes_exist_exactly_for_catalog_frameworks() -> None:
         spec = TWIN_SPECS[info.name]
         base_cls = _twin_base_class(info.name)
         present = {
-            FRAMEWORK_CATALOG_KEYS[fw_key]
-            for fw_key, _label in FRAMEWORKS
-            if import_test_class(spec.tests_pkg, fw_key, base_cls) is not None
+            framework.catalog_key
+            for framework in FRAMEWORKS
+            if import_test_class(spec.tests_pkg, framework.module_prefix, base_cls) is not None
         }
         if present != set(info.frameworks):
             problems.append(
@@ -223,16 +220,16 @@ def test_twin_supported_sets_equal_catalog() -> None:
             continue
         spec = TWIN_SPECS[info.name]
         base_cls = _twin_base_class(info.name)
-        for fw_key, _label in FRAMEWORKS:
-            supported = info.frameworks.get(FRAMEWORK_CATALOG_KEYS[fw_key])
-            cls = import_test_class(spec.tests_pkg, fw_key, base_cls)
+        for framework in FRAMEWORKS:
+            supported = info.frameworks.get(framework.catalog_key)
+            cls = import_test_class(spec.tests_pkg, framework.module_prefix, base_cls)
             if cls is None or supported is None:
                 # Presence mismatches are covered by the twin-presence test.
                 continue
             twin = twin_supported_set(info.name, cls, info.subtypes)
             if twin != set(supported):
                 problems.append(
-                    f"{info.name}/{FRAMEWORK_CATALOG_KEYS[fw_key]}: "
+                    f"{info.name}/{framework.catalog_key}: "
                     f"twin-only={sorted(twin - set(supported))} catalog-only={sorted(set(supported) - twin)}"
                 )
     assert problems == [], "twin supported_*() sets diverge from DataOperationsCatalog:\n  " + "\n  ".join(problems)

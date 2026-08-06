@@ -11,10 +11,9 @@ from mloda.provider import FeatureGroup
 
 from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
-FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
-    __package__ or __name__.rpartition(".")[0],
-    [
-        ("pandas_ema", "PandasEma"),
-        ("polars_lazy_ema", "PolarsLazyEma"),
-    ],
-)
+BACKENDS: list[tuple[str, str]] = [
+    ("pandas_ema", "PandasEma"),
+    ("polars_lazy_ema", "PolarsLazyEma"),
+]
+
+FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(__package__ or __name__.rpartition(".")[0], BACKENDS)

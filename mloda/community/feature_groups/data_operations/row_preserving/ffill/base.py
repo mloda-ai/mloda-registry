@@ -46,9 +46,10 @@ from mloda.community.feature_groups.data_operations.base import (
     column_ref_value,
     is_column_ref,
 )
+from mloda.community.feature_groups.data_operations.family import DataOperationFamily
 
 
-class FfillFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class FfillFeatureGroup(RejectionReasonMixin, FeatureGroup, DataOperationFamily):
     """Base class for forward-fill-by-time operations that preserve row count.
 
     ffill is a single-op operation (no op/unit matrix). All backends support it
@@ -56,6 +57,7 @@ class FfillFeatureGroup(RejectionReasonMixin, FeatureGroup):
     """
 
     PREFIX_PATTERN = r".*__ffill$"
+    FAMILY_NAME = "ffill"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -82,6 +84,11 @@ class FfillFeatureGroup(RejectionReasonMixin, FeatureGroup):
             DefaultOptionKeys.required_when: always_required,
         },
     }
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        # Single-op family: the whole vocabulary is the ffill suffix itself.
+        return ("sales__ffill",)
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         _feature_name = str(feature_name)

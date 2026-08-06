@@ -18,6 +18,7 @@ from mloda.community.feature_groups.data_operations.base import (
     op_token_value,
     positive_int_value,
 )
+from mloda.community.feature_groups.data_operations.family import DataOperationFamily
 
 BINNING_OPS = {
     "bin": "Equal-width binning (value range divided into n equal intervals)",
@@ -25,8 +26,9 @@ BINNING_OPS = {
 }
 
 
-class BinningFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class BinningFeatureGroup(RejectionReasonMixin, FeatureGroup, DataOperationFamily):
     PREFIX_PATTERN = r".*__(bin|qbin)_[1-9]\d*$"
+    FAMILY_NAME = "binning"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -54,6 +56,19 @@ class BinningFeatureGroup(RejectionReasonMixin, FeatureGroup):
             DefaultOptionKeys.strict_validation: False,
         },
     }
+
+    @classmethod
+    def catalog_subtypes(cls) -> tuple[str, ...]:
+        return tuple(BINNING_OPS)
+
+    @classmethod
+    def catalog_probe(cls, subtype: str) -> tuple[str, Options]:
+        return f"value__{subtype}_5", Options()
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        # Both bin counts are emitted so the numeric slot is exercised beyond a single value.
+        return tuple(f"value__{op}_{n}" for op in BINNING_OPS for n in (5, 10))
 
     @classmethod
     def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:

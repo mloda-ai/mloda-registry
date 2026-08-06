@@ -11,12 +11,11 @@ from mloda.provider import FeatureGroup
 
 from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
-FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
-    __package__ or __name__.rpartition(".")[0],
-    [
-        ("duckdb_resample", "DuckdbResample"),
-        ("pandas_resample", "PandasResample"),
-        ("polars_lazy_resample", "PolarsLazyResample"),
-        ("pyarrow_resample", "PyArrowResample"),
-    ],
-)
+BACKENDS: list[tuple[str, str]] = [
+    ("duckdb_resample", "DuckdbResample"),
+    ("pandas_resample", "PandasResample"),
+    ("polars_lazy_resample", "PolarsLazyResample"),
+    ("pyarrow_resample", "PyArrowResample"),
+]
+
+FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(__package__ or __name__.rpartition(".")[0], BACKENDS)

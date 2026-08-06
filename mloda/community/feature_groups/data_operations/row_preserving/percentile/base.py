@@ -16,6 +16,7 @@ from mloda.community.feature_groups.data_operations.base import (
     is_scalar_number,
     scalar_number_value,
 )
+from mloda.community.feature_groups.data_operations.family import DataOperationFamily
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 
@@ -39,7 +40,7 @@ def _is_unit_interval_element(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and 0.0 <= value <= 1.0
 
 
-class PercentileFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class PercentileFeatureGroup(RejectionReasonMixin, FeatureGroup, DataOperationFamily):
     """Base class for percentile operations that preserve row count.
 
     Computes a percentile over a partitioned group using PERCENTILE_CONT
@@ -75,6 +76,7 @@ class PercentileFeatureGroup(RejectionReasonMixin, FeatureGroup):
     """
 
     PREFIX_PATTERN = r".*__(p\d+)_percentile$"
+    FAMILY_NAME = "percentile"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -107,6 +109,11 @@ class PercentileFeatureGroup(RejectionReasonMixin, FeatureGroup):
             DefaultOptionKeys.default: None,
         },
     }
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        # The pN slot is numeric, so one fixed value covers the whole vocabulary.
+        return ("sales__p50_percentile",)
 
     @classmethod
     def _parse_percentile_from_config(cls, operation_config: str) -> float | None:

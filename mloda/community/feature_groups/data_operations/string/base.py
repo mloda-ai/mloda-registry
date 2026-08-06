@@ -8,8 +8,10 @@ from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, is_op_token, op_token_value
+from mloda.community.feature_groups.data_operations.family import DataOperationFamily
 
 STRING_OPS = {
     "upper": "Convert string to uppercase",
@@ -20,7 +22,7 @@ STRING_OPS = {
 }
 
 
-class StringFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class StringFeatureGroup(RejectionReasonMixin, FeatureGroup, DataOperationFamily):
     """Base class for element-wise string operations that preserve row count.
 
     String operations transform a single string column element by element.
@@ -59,6 +61,7 @@ class StringFeatureGroup(RejectionReasonMixin, FeatureGroup):
     """
 
     PREFIX_PATTERN = r".+__(upper|lower|trim|length|reverse)$"
+    FAMILY_NAME = "string"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -79,6 +82,18 @@ class StringFeatureGroup(RejectionReasonMixin, FeatureGroup):
             DefaultOptionKeys.strict_validation: False,
         },
     }
+
+    @classmethod
+    def catalog_subtypes(cls) -> tuple[str, ...]:
+        return tuple(STRING_OPS)
+
+    @classmethod
+    def catalog_probe(cls, subtype: str) -> tuple[str, Options]:
+        return f"value__{subtype}", Options()
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        return tuple(f"name__{op}" for op in STRING_OPS)
 
     @classmethod
     def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
@@ -21,6 +21,10 @@ from mloda.community.feature_groups.data_operations.base import (
     is_parametric_suffix,
     op_token_value,
     option_value,
+)
+from mloda.community.feature_groups.data_operations.family import (
+    DataOperationFamily,
+    partition_order_probe_options,
 )
 
 
@@ -49,7 +53,7 @@ def _is_supported_rank_type(value: object) -> bool:
     return False
 
 
-class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup):
+class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup, DataOperationFamily):
     """Base class for rank operations that preserve row count.
 
     Rank operations assign a rank or position to each row within a
@@ -127,6 +131,8 @@ class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup
     """
 
     PREFIX_PATTERN = r".*__([\w]+)_ranked$"
+    FAMILY_NAME = "rank"
+    SUBTYPE_LABEL = "rank type"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -140,6 +146,9 @@ class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup
     RANK_TYPES = _RANK_TYPES
 
     PARAMETRIC_RANK_FAMILIES: tuple[str, ...] = _PARAMETRIC_RANK_FAMILIES
+
+    #: Representative N per parametric family, shared by the catalog probe and the example names.
+    PARAMETRIC_RANK_N: ClassVar[dict[str, int]] = {"ntile": 2, "top": 3, "bottom": 2}
 
     PROPERTY_MAPPING = {
         RANK_TYPE: {
@@ -168,6 +177,31 @@ class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup
             DefaultOptionKeys.match_guard: is_column_ref,
         },
     }
+
+    @classmethod
+    def _rank_token(cls, subtype: str) -> str:
+        """A subtype as a name token: a parametric family carries its representative N."""
+        if subtype not in cls.PARAMETRIC_RANK_FAMILIES:
+            return subtype
+        # A parametric family without an N would silently probe a name nothing matches.
+        n = cls.PARAMETRIC_RANK_N.get(subtype)
+        if n is None:
+            raise ValueError(
+                f"{cls.__name__}.PARAMETRIC_RANK_N has no representative N for parametric family '{subtype}'"
+            )
+        return f"{subtype}_{n}"
+
+    @classmethod
+    def catalog_subtypes(cls) -> tuple[str, ...]:
+        return tuple(cls.RANK_TYPES) + tuple(cls.PARAMETRIC_RANK_FAMILIES)
+
+    @classmethod
+    def catalog_probe(cls, subtype: str) -> tuple[str, Options]:
+        return f"value__{cls._rank_token(subtype)}_ranked", partition_order_probe_options()
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        return tuple(f"sales__{cls._rank_token(subtype)}_ranked" for subtype in cls.catalog_subtypes())
 
     @classmethod
     def _supports_rank_type(cls, rank_type: str) -> bool:

@@ -54,6 +54,7 @@ from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
 from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, column_ref_value, is_column_ref
+from mloda.community.feature_groups.data_operations.family import DataOperationFamily
 
 # Supported sessionization units mapped to their length in seconds. The four
 # keys also define the units accepted by the feature-name regex.
@@ -103,10 +104,11 @@ def _sessionize_threshold_seconds(n: int, unit: str) -> int:
     return n * SESSIONIZATION_UNITS[unit]
 
 
-class SessionizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class SessionizationFeatureGroup(RejectionReasonMixin, FeatureGroup, DataOperationFamily):
     """Base class for gap-threshold sessionization operations that preserve row count."""
 
     PREFIX_PATTERN = r".*__sessionize_\d+_(?:minute|hour|day|week)$"
+    FAMILY_NAME = "sessionization"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -132,6 +134,11 @@ class SessionizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
             DefaultOptionKeys.match_guard: is_column_ref,
         },
     }
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        # The threshold slot is numeric; only the unit is categorical.
+        return tuple(f"session__sessionize_30_{unit}" for unit in SESSIONIZATION_UNITS)
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         _feature_name = str(feature_name)

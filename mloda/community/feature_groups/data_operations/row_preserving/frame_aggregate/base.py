@@ -29,6 +29,10 @@ from mloda.community.feature_groups.data_operations.base import (
     positive_int_value,
 )
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
+from mloda.community.feature_groups.data_operations.family import (
+    DataOperationFamily,
+    partition_order_probe_options,
+)
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 
@@ -51,7 +55,17 @@ _EXPANDING_PATTERN = re.compile(r"^.+__expanding_(\w+)$")
 # than a derivation from the shared table. Cumulative and expanding accept this
 # full set, so they need no narrower table of their own.
 _AGGREGATION_TYPES = frozenset({"sum", "avg", "count", "min", "max", "std", "var", "median"})
-_TIME_UNITS = {"second", "minute", "hour", "day", "week", "month", "year"}
+
+#: The frame-type and time-unit vocabularies in documentation order; the membership sets derive from them.
+_FRAME_TYPE_ORDER: tuple[str, ...] = ("rolling", "time", "cumulative", "expanding")
+_TIME_UNIT_ORDER: tuple[str, ...] = ("second", "minute", "hour", "day", "week", "month", "year")
+_TIME_UNITS = set(_TIME_UNIT_ORDER)
+
+
+def _ordered(values: Any, hint: tuple[str, ...]) -> tuple[str, ...]:
+    """Sort *values* by their position in *hint* (unknown entries last, alphabetically)."""
+    index = {name: pos for pos, name in enumerate(hint)}
+    return tuple(sorted((str(value) for value in values), key=lambda name: (index.get(name, len(hint)), name)))
 
 
 def _option_token(options: Options, key: str) -> str | None:
@@ -120,7 +134,7 @@ def _parse_frame_feature_cached(feature_name: str) -> dict[str, Any] | None:
     return None
 
 
-class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup):
+class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup, DataOperationFamily):
     """Base class for frame aggregate operations that preserve row count.
 
     Frame aggregation computes an aggregate over a sliding or expanding window
@@ -194,8 +208,10 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
         _EXPANDING_PATTERN.pattern,
     )
     PREFIX_PATTERN = _ROLLING_PATTERN.pattern
+    FAMILY_NAME = "frame_aggregate"
+    SUBTYPE_LABEL = "frame type"
 
-    SUPPORTED_FRAME_TYPES: set[str] = {"rolling", "time", "cumulative", "expanding"}
+    SUPPORTED_FRAME_TYPES: set[str] = set(_FRAME_TYPE_ORDER)
     SUPPORTED_TIME_UNITS: set[str] = _TIME_UNITS
 
     MIN_IN_FEATURES = 1
@@ -275,6 +291,49 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
             DefaultOptionKeys.default: None,
         },
     }
+
+    @classmethod
+    def matching_patterns(cls) -> tuple[str, ...]:
+        return cls.FRAME_PATTERNS
+
+    @classmethod
+    def catalog_subtypes(cls) -> tuple[str, ...]:
+        """Flatten (frame_type, time_unit) into compound subtypes such as ``time:month``."""
+        time_units = _ordered(cls.SUPPORTED_TIME_UNITS, _TIME_UNIT_ORDER)
+        out: list[str] = []
+        for frame_type in _ordered(cls.SUPPORTED_FRAME_TYPES, _FRAME_TYPE_ORDER):
+            if frame_type == "time":
+                out.extend(f"time:{unit}" for unit in time_units)
+            else:
+                out.append(frame_type)
+        return tuple(out)
+
+    @classmethod
+    def catalog_probe(cls, subtype: str) -> tuple[str, Options]:
+        """Probe rolling via the string pattern; time/cumulative/expanding via config Options."""
+        if subtype == "rolling":
+            return "value__sum_rolling_3", partition_order_probe_options()
+        context: dict[str, Any] = {
+            "aggregation_type": "sum",
+            "in_features": "value",
+            "partition_by": ["region"],
+            "order_by": "ts",
+        }
+        if subtype.startswith("time:"):
+            context.update({"frame_type": "time", "frame_size": 3, "frame_unit": subtype.split(":", 1)[1]})
+        else:
+            context["frame_type"] = subtype
+        return "value_frame_probe", Options(context=context)
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        """Every aggregation type expanded over the four name shapes."""
+        aggs = sorted(_AGGREGATION_TYPES)
+        rolling = tuple(f"sales__{agg}_rolling_3" for agg in aggs)
+        time_window = tuple(f"sales__{agg}_7_{unit}_window" for agg in aggs for unit in sorted(_TIME_UNITS))
+        cumulative = tuple(f"sales__cum{agg}" for agg in aggs)
+        expanding = tuple(f"sales__expanding_{agg}" for agg in aggs)
+        return rolling + time_window + cumulative + expanding
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         """Parse input features from the four frame patterns or config fallback."""

@@ -11,11 +11,10 @@ from mloda.provider import FeatureGroup
 
 from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
-FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
-    __package__ or __name__.rpartition(".")[0],
-    [
-        ("duckdb_percentile", "DuckdbPercentile"),
-        ("pandas_percentile", "PandasPercentile"),
-        ("polars_lazy_percentile", "PolarsLazyPercentile"),
-    ],
-)
+BACKENDS: list[tuple[str, str]] = [
+    ("duckdb_percentile", "DuckdbPercentile"),
+    ("pandas_percentile", "PandasPercentile"),
+    ("polars_lazy_percentile", "PolarsLazyPercentile"),
+]
+
+FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(__package__ or __name__.rpartition(".")[0], BACKENDS)

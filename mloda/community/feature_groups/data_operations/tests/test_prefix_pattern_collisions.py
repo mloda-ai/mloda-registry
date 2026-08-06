@@ -1,36 +1,36 @@
 """Lint: data-operation families must not claim overlapping feature-name patterns.
 
 Feature resolution is name-driven: the matcher routes a feature like
-``value_int__sum_agg`` to a family by testing that family's ``PREFIX_PATTERN``
-(and, for ``frame_aggregate``, its four real module-level patterns). As the
-catalog grows, two families could claim overlapping name patterns, producing
-order-dependent or ambiguous routing that nothing currently catches. This module
-is the guardrail (issue #248), in the same spirit as the reflection invariants
-in ``test_framework_support_matrix.py``.
+``value_int__sum_agg`` to a family by testing that family's declared
+``matching_patterns()`` (one pattern for most families, several for
+``frame_aggregate``). As the catalog grows, two families could claim overlapping
+name patterns, producing order-dependent or ambiguous routing that nothing
+currently catches. This module is the guardrail, in the same spirit as the
+reflection invariants in ``test_framework_support_matrix.py``.
 
-Two complementary checks run here:
+Both checks below run over each family's FULL vocabulary, read from its own
+``example_feature_names()``, with the families themselves coming from
+``installed_family_classes()``. A new family is therefore covered the moment it
+joins the registry; that the registry matches the packages on disk is guarded by
+``test_family_registry.py``.
 
-- ``test_no_routing_collisions`` is the authoritative invariant. For every
-  family's representative *valid* feature names, exactly one family's
-  ``match_feature_group_criteria`` must accept the name. This uses the real
-  router, so a raw-regex overlap that subtype validation disambiguates (e.g.
+- ``test_routing_is_exhaustive_over_family_vocabularies`` is the authoritative
+  invariant: for every valid feature name of every family, exactly one family's
+  ``match_feature_group_criteria`` must accept it. It uses the real router, so a
+  raw-regex overlap that subtype validation disambiguates (e.g.
   ``window_aggregation`` rejecting ``sales__avg_7_day_window``) is not flagged.
-  ``test_routing_is_exhaustive_over_generated_names`` raises the bar from the
-  hand-picked representatives to each family's full vocabulary, generated from
-  the family's own live op-type table (see :data:`NAME_GENERATORS`), so a
-  collision on an unsampled categorical variant cannot slip through.
 
-- ``test_no_unexpected_pattern_overlaps`` is the blunter check the issue asks
-  for: it collects every family's ``PREFIX_PATTERN`` and fails if a
-  representative name of one family is also matched (raw regex) by another
-  family's pattern, unless the pair is in :data:`KNOWN_PATTERN_OVERLAPS` (a
-  documented allowlist whose entries double as regression guards that the
-  overlap is still disambiguated at routing time). This check is sampled over
-  the representative names (the issue's chosen primitive), not an exhaustive
-  regex-intersection proof.
+- ``test_no_unexpected_pattern_overlaps`` is the blunter check: it collects every
+  family's ``matching_patterns()`` and fails when a name of one family is also
+  matched (raw regex) by another family's pattern, unless the ordered family PAIR
+  is in :data:`KNOWN_PATTERN_OVERLAPS`. Allowlisting is per pair rather than per
+  name because a single pair covers dozens of names; the pair maps to the expected
+  overlap SIZE so that a new overlapping name shape inside an already allowlisted
+  pair still gets noticed (``test_known_overlap_sizes_are_pinned``).
 
-``test_every_family_is_covered`` guards against a new family ``base.py`` being
-added without a registry entry, so nothing escapes the lint.
+The vocabularies these checks read are kept non-vacuous per family by
+``test_family_registry.test_example_feature_names_cover_every_catalog_subtype``; the
+total below is only the global half of that guard.
 
 The negative tests (``test_find_*_detects_*``) feed planted collisions to the
 detector functions so the guardrail is proven to fire, not merely to pass.
@@ -38,134 +38,41 @@ detector functions so the guardrail is proven to fire, not merely to pass.
 
 from __future__ import annotations
 
-import importlib
 import re
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
-from collections.abc import Callable
-from dataclasses import dataclass, replace
-from pathlib import Path
-
-import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import is_artifact_path
+from mloda.community.feature_groups.data_operations.catalog import installed_family_classes
+
+# The name-driven Options live in the family-registry lint, which owns the registry
+# contract, so every module exercising name-driven matching uses the same instance.
+from mloda.community.feature_groups.data_operations.tests.test_family_registry import PERMISSIVE_OPTIONS
+
+FAMILY_CLASSES: tuple[type[Any], ...] = installed_family_classes()
 
 
-REPO_ROOT = Path(__file__).resolve().parents[5]
-DATA_OPERATIONS_ROOT = REPO_ROOT / "mloda" / "community" / "feature_groups" / "data_operations"
-
-# Matches a class-level ``PREFIX_PATTERN = ...`` / ``PREFIX_PATTERN: ...`` definition,
-# not a mere mention in a docstring or comment.
-_PREFIX_DEF_RE = re.compile(r"^\s*PREFIX_PATTERN\s*[:=]", re.MULTILINE)
-
-# Structural-only options: enough for families that require ``partition_by`` /
-# ``order_by`` / ``time_column`` to accept their string-based names, but deliberately
-# free of any operation-type key (``aggregation_type``, ``frame_type``, ...) so no
-# family can match via the config-based path. Matching stays purely name-driven.
-PERMISSIVE_OPTIONS = Options(context={"partition_by": ["g"], "order_by": "t", "time_column": "t"})
-
-
-@dataclass(frozen=True)
-class FamilySpec:
-    """A data-operation family: where its base class lives, its representative
-    valid feature names, and how to collect its matching patterns."""
-
-    key: str
-    module: str
-    class_name: str
-    representative_names: tuple[str, ...]
-    # ``frame_aggregate``'s PREFIX_PATTERN is only the rolling member of its four
-    # module-level compiled patterns (the set ``_get_prefix_patterns()`` returns). When
-    # ``pattern_module_attrs`` is set these module attributes are collected, and
-    # ``ignore_prefix_pattern`` drops the duplicated rolling entry.
-    pattern_module_attrs: tuple[str, ...] = ()
-    ignore_prefix_pattern: bool = False
-
-
-_DO = "mloda.community.feature_groups.data_operations"
-
-FAMILIES: tuple[FamilySpec, ...] = (
-    FamilySpec("aggregation", f"{_DO}.aggregation.base", "AggregationFeatureGroup", ("sales__sum_agg",)),
-    FamilySpec(
-        "binning", f"{_DO}.row_preserving.binning.base", "BinningFeatureGroup", ("value__bin_5", "value__qbin_10")
-    ),
-    FamilySpec(
-        "datetime", f"{_DO}.row_preserving.datetime.base", "DateTimeFeatureGroup", ("ts__year", "ts__dayofweek")
-    ),
-    FamilySpec("ema", f"{_DO}.row_preserving.ema.base", "EmaFeatureGroup", ("price__ema_20",)),
-    FamilySpec("ffill", f"{_DO}.row_preserving.ffill.base", "FfillFeatureGroup", ("sales__ffill",)),
-    FamilySpec(
-        "frame_aggregate",
-        f"{_DO}.row_preserving.frame_aggregate.base",
-        "FrameAggregateFeatureGroup",
-        ("sales__sum_rolling_3", "sales__avg_7_day_window", "sales__cumsum", "sales__expanding_avg"),
-        pattern_module_attrs=("_ROLLING_PATTERN", "_TIME_WINDOW_PATTERN", "_CUMULATIVE_PATTERN", "_EXPANDING_PATTERN"),
-        ignore_prefix_pattern=True,
-    ),
-    FamilySpec("offset", f"{_DO}.row_preserving.offset.base", "OffsetFeatureGroup", ("sales__lag_1_offset",)),
-    FamilySpec(
-        "percentile", f"{_DO}.row_preserving.percentile.base", "PercentileFeatureGroup", ("sales__p50_percentile",)
-    ),
-    FamilySpec(
-        "point_arithmetic",
-        f"{_DO}.row_preserving.point_arithmetic.base",
-        "PointArithmeticFeatureGroup",
-        ("x__add_point",),
-    ),
-    FamilySpec("rank", f"{_DO}.row_preserving.rank.base", "RankFeatureGroup", ("sales__row_number_ranked",)),
-    FamilySpec(
-        "resample", f"{_DO}.row_changing.resample.base", "ResampleFeatureGroup", ("metric__resample_60_minute_mean",)
-    ),
-    FamilySpec(
-        "scalar_aggregate",
-        f"{_DO}.row_preserving.scalar_aggregate.base",
-        "ScalarAggregateFeatureGroup",
-        ("value__sum_scalar",),
-    ),
-    FamilySpec(
-        "scalar_arithmetic",
-        f"{_DO}.row_preserving.scalar_arithmetic.base",
-        "ScalarArithmeticFeatureGroup",
-        ("value__add_constant",),
-    ),
-    FamilySpec(
-        "sessionization",
-        f"{_DO}.row_preserving.sessionization.base",
-        "SessionizationFeatureGroup",
-        ("session__sessionize_30_minute",),
-    ),
-    FamilySpec("string", f"{_DO}.string.base", "StringFeatureGroup", ("name__upper",)),
-    FamilySpec(
-        "time_bucketization",
-        f"{_DO}.row_preserving.time_bucketization.base",
-        "TimeBucketizationFeatureGroup",
-        ("ts__floor_30_minute",),
-    ),
-    FamilySpec(
-        "window_aggregation",
-        f"{_DO}.row_preserving.window_aggregation.base",
-        "WindowAggregationFeatureGroup",
-        ("sales__sum_window",),
-    ),
-)
-
-
-# (owner_key, representative_name, other_key): raw-regex PREFIX_PATTERN overlaps that
-# are known-safe because the other family's ``match_feature_group_criteria`` rejects
-# the name via subtype validation. Each entry is asserted (below) to still be both a
-# real raw overlap and disambiguated at routing time, so a stale entry fails loudly.
-KNOWN_PATTERN_OVERLAPS: frozenset[tuple[str, str, str]] = frozenset(
-    {
-        ("frame_aggregate", "sales__avg_7_day_window", "window_aggregation"),
-    }
-)
+#: ``(owner_family, other_family) -> number of overlapping owner names``: raw-regex
+#: overlaps between two families' ``matching_patterns()`` that are known-safe because
+#: the other family's ``match_feature_group_criteria`` rejects every overlapping name
+#: via subtype validation. Each pair is asserted (below) to still be a real raw overlap,
+#: to still be fully disambiguated at routing time, and to still overlap on exactly the
+#: pinned number of names, so neither a stale entry nor a newly overlapping name shape
+#: inside an allowlisted pair passes unnoticed.
+KNOWN_PATTERN_OVERLAPS: Mapping[tuple[str, str], int] = {
+    # frame_aggregate's time-window names end in ``_window``, which is all
+    # window_aggregation's pattern requires; its agg-type validation rejects them.
+    # 56 = 8 aggregation types x 7 time units.
+    ("frame_aggregate", "window_aggregation"): 56,
+}
 
 
 @dataclass(frozen=True)
 class Collision:
-    """A representative name whose set of accepting families is not exactly its owner."""
+    """A feature name whose set of accepting families is not exactly its owner."""
 
-    representative_name: str
+    feature_name: str
     owner: str
     acceptors: tuple[str, ...]
 
@@ -174,385 +81,149 @@ class Collision:
         return "OWNER_REJECTS" if self.owner not in self.acceptors else "MULTI_MATCH"
 
 
-def _load_class(spec: FamilySpec) -> Any:
-    return getattr(importlib.import_module(spec.module), spec.class_name)
+def family_vocabulary(families: tuple[type[Any], ...]) -> dict[str, tuple[str, ...]]:
+    """Each family's full valid-name vocabulary, keyed by ``FAMILY_NAME``."""
+    return {str(cls.FAMILY_NAME): cls.example_feature_names() for cls in families}
 
 
-def collect_prefix_patterns(families: tuple[FamilySpec, ...]) -> dict[str, list[re.Pattern[str]]]:
-    """Collect each family's matching patterns as compiled regexes.
+def family_classes(families: tuple[type[Any], ...]) -> dict[str, Any]:
+    """The family classes keyed by ``FAMILY_NAME``."""
+    return {str(cls.FAMILY_NAME): cls for cls in families}
 
-    Uses ``PREFIX_PATTERN`` by default. For families that declare
-    ``pattern_module_attrs`` (``frame_aggregate``) the named module-level patterns
-    are collected, and when ``ignore_prefix_pattern`` is set the placeholder
-    ``PREFIX_PATTERN`` is skipped.
-    """
-    patterns: dict[str, list[re.Pattern[str]]] = {}
-    for spec in families:
-        module = importlib.import_module(spec.module)
-        compiled: list[re.Pattern[str]] = []
-        if not spec.ignore_prefix_pattern:
-            compiled.append(re.compile(getattr(module, spec.class_name).PREFIX_PATTERN))
-        for attr in spec.pattern_module_attrs:
-            value = getattr(module, attr)
-            compiled.append(value if isinstance(value, re.Pattern) else re.compile(value))
-        patterns[spec.key] = compiled
-    return patterns
+
+def collect_prefix_patterns(families: tuple[type[Any], ...]) -> dict[str, list[re.Pattern[str]]]:
+    """Each family's declared ``matching_patterns()``, compiled, keyed by ``FAMILY_NAME``."""
+    return {str(cls.FAMILY_NAME): [re.compile(pattern) for pattern in cls.matching_patterns()] for cls in families}
 
 
 def find_pattern_overlaps(
-    family_patterns: dict[str, list[re.Pattern[str]]],
-    families: tuple[FamilySpec, ...],
-) -> list[tuple[str, str, str]]:
-    """Raw-regex overlaps as ``(owner_key, representative_name, other_key)``.
+    family_patterns: Mapping[str, list[re.Pattern[str]]],
+    family_names: Mapping[str, tuple[str, ...]],
+) -> dict[tuple[str, str], list[str]]:
+    """Raw-regex overlaps, keyed by ``(owner_family, other_family)``.
 
-    For each family's representative names, report every *other* family whose
-    collected patterns also match the name (``re.Pattern.search``). The allowlist
-    is NOT applied here; callers filter against :data:`KNOWN_PATTERN_OVERLAPS`.
+    Maps each ordered family pair to the owner's feature names that the other
+    family's patterns also match (``re.Pattern.search``). The allowlist is NOT
+    applied here; callers filter against :data:`KNOWN_PATTERN_OVERLAPS`.
     """
-    overlaps: list[tuple[str, str, str]] = []
-    for spec in families:
-        for name in spec.representative_names:
-            for other_key, compiled in family_patterns.items():
-                if other_key == spec.key:
+    overlaps: dict[tuple[str, str], list[str]] = {}
+    for owner, names in family_names.items():
+        for name in names:
+            for other, compiled in family_patterns.items():
+                if other == owner:
                     continue
                 if any(pattern.search(name) for pattern in compiled):
-                    overlaps.append((spec.key, name, other_key))
+                    overlaps.setdefault((owner, other), []).append(name)
     return overlaps
 
 
 def find_collisions(
-    families: tuple[FamilySpec, ...],
+    family_names: Mapping[str, tuple[str, ...]],
     options: Options,
-    classes: dict[str, Any],
+    classes: Mapping[str, Any],
 ) -> list[Collision]:
     """Routing-level collisions via ``match_feature_group_criteria``.
 
-    For each family's representative names, the set of families in ``classes``
-    that accept the name must be exactly ``{owner}``. Returns a :class:`Collision`
-    for every name where that does not hold (owner rejects its own name, or more
-    than one family accepts).
+    For each family's feature names, the set of families in ``classes`` that accept
+    the name must be exactly ``{owner}``. Returns a :class:`Collision` for every
+    name where that does not hold (owner rejects its own name, or more than one
+    family accepts).
     """
     collisions: list[Collision] = []
-    for spec in families:
-        for name in spec.representative_names:
+    for owner, names in family_names.items():
+        for name in names:
             acceptors = tuple(key for key, cls in classes.items() if cls.match_feature_group_criteria(name, options))
-            if acceptors != (spec.key,):
-                collisions.append(Collision(name, spec.key, acceptors))
+            if acceptors != (owner,):
+                collisions.append(Collision(name, owner, acceptors))
     return collisions
-
-
-def discover_family_base_modules(root: Path = DATA_OPERATIONS_ROOT, repo_root: Path = REPO_ROOT) -> set[str]:
-    """Dotted modules of every non-artifact ``base.py`` under *root* that defines a ``PREFIX_PATTERN``."""
-    modules: set[str] = set()
-    for base_py in root.rglob("base.py"):
-        rel = base_py.relative_to(repo_root)
-        if is_artifact_path(rel):
-            continue
-        if not _PREFIX_DEF_RE.search(base_py.read_text()):
-            continue
-        modules.add(".".join(rel.with_suffix("").parts))
-    return modules
-
-
-def discover_uncovered_families(root: Path = DATA_OPERATIONS_ROOT, repo_root: Path = REPO_ROOT) -> list[str]:
-    """Dotted module paths of ``data_operations`` ``base.py`` files that define a
-    ``PREFIX_PATTERN`` but are absent from :data:`FAMILIES`. Build artifact copies are skipped."""
-    covered = {spec.module for spec in FAMILIES}
-    return sorted(discover_family_base_modules(root, repo_root) - covered)
 
 
 def _format_collision(collision: Collision) -> str:
     if collision.kind == "OWNER_REJECTS":
         return (
-            f"{collision.representative_name!r}: owner {collision.owner!r} does not accept its own "
-            f"representative name (acceptors={list(collision.acceptors)}). "
-            "Fix the representative name or the family's matcher."
+            f"{collision.feature_name!r}: owner {collision.owner!r} does not accept its own "
+            f"feature name (acceptors={list(collision.acceptors)}). "
+            "Fix the family's vocabulary or its matcher."
         )
     return (
-        f"{collision.representative_name!r}: routed to multiple families {list(collision.acceptors)} "
+        f"{collision.feature_name!r}: routed to multiple families {list(collision.acceptors)} "
         f"(owner={collision.owner!r}). Two families claim overlapping feature-name patterns."
     )
-
-
-def _real_classes() -> dict[str, Any]:
-    return {spec.key: _load_class(spec) for spec in FAMILIES}
-
-
-# --- exhaustive valid-name generators -----------------------------------------
-
-
-# One generator per ``FamilySpec.key``, each producing that family's full set of
-# valid feature names from the family's OWN live vocabulary (imported, never
-# re-listed here). This lets routing be verified over every categorical op-type
-# variant instead of a hand-picked sample. The ``NAME_GENERATORS`` registry below
-# maps each FAMILIES key to its generator, and ``generate_valid_names`` looks up
-# and calls it.
-def _gen_aggregation() -> tuple[str, ...]:
-    # Vocabulary: AGGREGATION_TYPES (aggregation_base). Names: ``{col}__{type}_agg``.
-    from mloda.community.feature_groups.data_operations.aggregation_base import AGGREGATION_TYPES
-
-    return tuple(f"sales__{t}_agg" for t in AGGREGATION_TYPES)
-
-
-def _gen_window_aggregation() -> tuple[str, ...]:
-    # Vocabulary: window_aggregation.base.AGGREGATION_TYPES. Names: ``{col}__{type}_window``.
-    from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import AGGREGATION_TYPES
-
-    return tuple(f"sales__{t}_window" for t in AGGREGATION_TYPES)
-
-
-def _gen_scalar_aggregate() -> tuple[str, ...]:
-    # Vocabulary: scalar_aggregate.base.AGGREGATION_TYPES. Names: ``{col}__{type}_scalar``.
-    from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import AGGREGATION_TYPES
-
-    return tuple(f"value__{t}_scalar" for t in AGGREGATION_TYPES)
-
-
-def _gen_scalar_arithmetic() -> tuple[str, ...]:
-    # Vocabulary: scalar_arithmetic.base.ARITHMETIC_OPERATIONS. Names: ``{col}__{op}_constant``.
-    from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
-        ARITHMETIC_OPERATIONS,
-    )
-
-    return tuple(f"value__{op}_constant" for op in ARITHMETIC_OPERATIONS)
-
-
-def _gen_point_arithmetic() -> tuple[str, ...]:
-    # Vocabulary: point_arithmetic.base.ARITHMETIC_OPERATIONS. Names: ``{col}__{op}_point``.
-    from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
-        ARITHMETIC_OPERATIONS,
-    )
-
-    return tuple(f"x__{op}_point" for op in ARITHMETIC_OPERATIONS)
-
-
-def _gen_rank() -> tuple[str, ...]:
-    # Vocabulary: RankFeatureGroup.RANK_TYPES (static) plus the dynamic numeric forms
-    # ``ntile_N/top_N/bottom_N`` + digit >= 1 accepted by ``_supports_rank_type``
-    # (rank/base.py; the >= 1 guard lives there, not in PREFIX_PATTERN). Names:
-    # ``{col}__{type}_ranked``.
-    from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
-
-    static = tuple(f"sales__{t}_ranked" for t in RankFeatureGroup.RANK_TYPES)
-    dynamic = tuple(f"sales__{t}_ranked" for t in ("ntile_4", "top_5", "bottom_3"))
-    return static + dynamic
-
-
-def _gen_offset() -> tuple[str, ...]:
-    # Vocabulary: OffsetFeatureGroup.OFFSET_TYPES (static) plus the inline dynamic prefixes
-    # ``lag_/lead_/diff_/pct_change_`` + digit >= 1 accepted by ``_supports_offset_type``
-    # (offset/base.py:123). Names: ``{col}__{type}_offset``.
-    from mloda.community.feature_groups.data_operations.row_preserving.offset.base import OffsetFeatureGroup
-
-    static = tuple(f"sales__{t}_offset" for t in OffsetFeatureGroup.OFFSET_TYPES)
-    dynamic = tuple(f"sales__{p}1_offset" for p in ("lag_", "lead_", "diff_", "pct_change_"))
-    return static + dynamic
-
-
-def _gen_binning() -> tuple[str, ...]:
-    # Vocabulary: BINNING_OPS (binning/base.py). Names: ``{col}__{op}_{N}``; both rep numerics
-    # (bin_5, qbin_10) are emitted so reps stay a subset of the generated set.
-    from mloda.community.feature_groups.data_operations.row_preserving.binning.base import BINNING_OPS
-
-    return tuple(f"value__{op}_{n}" for op in BINNING_OPS for n in (5, 10))
-
-
-def _gen_datetime() -> tuple[str, ...]:
-    # Vocabulary: DATETIME_OPS (datetime/base.py). The op is the whole suffix: ``{col}__{op}``.
-    from mloda.community.feature_groups.data_operations.row_preserving.datetime.base import DATETIME_OPS
-
-    return tuple(f"ts__{c}" for c in DATETIME_OPS)
-
-
-def _gen_string() -> tuple[str, ...]:
-    # Vocabulary: STRING_OPS (string/base.py). The op is the whole suffix: ``{col}__{op}``.
-    from mloda.community.feature_groups.data_operations.string.base import STRING_OPS
-
-    return tuple(f"name__{op}" for op in STRING_OPS)
-
-
-def _gen_percentile() -> tuple[str, ...]:
-    # Pattern ``(p\d+)_percentile`` (percentile/base.py); numeric slot, one fixed value suffices.
-    return ("sales__p50_percentile",)
-
-
-def _gen_ema() -> tuple[str, ...]:
-    # Pattern ``ema_\d+`` (ema/base.py); numeric slot, one fixed value suffices.
-    return ("price__ema_20",)
-
-
-def _gen_ffill() -> tuple[str, ...]:
-    # Pattern ``__ffill`` (ffill/base.py); no vocabulary.
-    return ("sales__ffill",)
-
-
-def _gen_sessionization() -> tuple[str, ...]:
-    # Vocabulary: SESSIONIZATION_UNITS (sessionization/base.py). Names: ``{col}__sessionize_{N}_{unit}``.
-    from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import SESSIONIZATION_UNITS
-
-    return tuple(f"session__sessionize_30_{unit}" for unit in SESSIONIZATION_UNITS)
-
-
-def _gen_time_bucketization() -> tuple[str, ...]:
-    # Vocabulary: TIME_BUCKETIZATION_OPS x TIME_BUCKETIZATION_UNITS (time_bucketization/base.py).
-    # Names: ``{col}__{op}_{N}_{unit}``; _parse_bucket_op only accepts n=1 for the calendar units
-    # in _CALENDAR_UNITS (base.py:103), so the numeric slot is 1 there and a fixed 30 otherwise.
-    from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
-        _CALENDAR_UNITS,
-        TIME_BUCKETIZATION_OPS,
-        TIME_BUCKETIZATION_UNITS,
-    )
-
-    return tuple(
-        f"ts__{op}_{1 if unit in _CALENDAR_UNITS else 30}_{unit}"
-        for op in TIME_BUCKETIZATION_OPS
-        for unit in TIME_BUCKETIZATION_UNITS
-    )
-
-
-def _gen_resample() -> tuple[str, ...]:
-    # Vocabulary: RESAMPLE_AGGS x RESAMPLE_UNITS (resample/base.py). Names: ``{col}__resample_{N}_{unit}_{agg}``.
-    from mloda.community.feature_groups.data_operations.row_changing.resample.base import RESAMPLE_AGGS, RESAMPLE_UNITS
-
-    return tuple(f"metric__resample_60_{unit}_{agg}" for unit in RESAMPLE_UNITS for agg in RESAMPLE_AGGS)
-
-
-def _gen_frame_aggregate() -> tuple[str, ...]:
-    # Vocabulary: _AGGREGATION_TYPES (and _TIME_UNITS) from frame_aggregate/base.py, expanded over
-    # the four module-level patterns (_ROLLING/_TIME_WINDOW/_CUMULATIVE/_EXPANDING_PATTERN).
-    from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
-        _AGGREGATION_TYPES,
-        _TIME_UNITS,
-    )
-
-    aggs = sorted(_AGGREGATION_TYPES)
-    rolling = tuple(f"sales__{t}_rolling_3" for t in aggs)
-    time_window = tuple(f"sales__{t}_7_{unit}_window" for t in aggs for unit in sorted(_TIME_UNITS))
-    cumulative = tuple(f"sales__cum{t}" for t in aggs)
-    expanding = tuple(f"sales__expanding_{t}" for t in aggs)
-    return rolling + time_window + cumulative + expanding
-
-
-NAME_GENERATORS: dict[str, Callable[[], tuple[str, ...]]] = {
-    "aggregation": _gen_aggregation,
-    "binning": _gen_binning,
-    "datetime": _gen_datetime,
-    "ema": _gen_ema,
-    "ffill": _gen_ffill,
-    "frame_aggregate": _gen_frame_aggregate,
-    "offset": _gen_offset,
-    "percentile": _gen_percentile,
-    "point_arithmetic": _gen_point_arithmetic,
-    "rank": _gen_rank,
-    "resample": _gen_resample,
-    "scalar_aggregate": _gen_scalar_aggregate,
-    "scalar_arithmetic": _gen_scalar_arithmetic,
-    "sessionization": _gen_sessionization,
-    "string": _gen_string,
-    "time_bucketization": _gen_time_bucketization,
-    "window_aggregation": _gen_window_aggregation,
-}
-
-
-def generate_valid_names(spec: FamilySpec) -> tuple[str, ...]:
-    """Exhaustive valid feature names for a family, from its live vocabulary.
-
-    Returns the family's full set of valid feature names from its registered
-    generator, or () if no generator is registered for the key."""
-    gen = NAME_GENERATORS.get(spec.key)
-    return gen() if gen is not None else ()
 
 
 # --- authoritative invariants -------------------------------------------------
 
 
-def test_no_routing_collisions() -> None:
-    collisions = find_collisions(FAMILIES, PERMISSIVE_OPTIONS, _real_classes())
-    assert collisions == [], "Routing collisions across data-operation families:\n" + "\n".join(
+def test_routing_is_exhaustive_over_family_vocabularies() -> None:
+    """Every valid name of every family is accepted by exactly that family."""
+    vocabulary = family_vocabulary(FAMILY_CLASSES)
+    total = sum(len(names) for names in vocabulary.values())
+    assert total > 5 * len(FAMILY_CLASSES), (
+        f"Family vocabulary is near-vacuous ({total} names for {len(FAMILY_CLASSES)} families); "
+        "example_feature_names() lost its live vocabulary, so exhaustive routing would pass trivially."
+    )
+    collisions = find_collisions(vocabulary, PERMISSIVE_OPTIONS, family_classes(FAMILY_CLASSES))
+    assert collisions == [], "Routing collisions over the family vocabularies:\n" + "\n".join(
         _format_collision(c) for c in collisions
     )
 
 
-def test_every_family_has_a_name_generator() -> None:
-    missing = [spec.key for spec in FAMILIES if spec.key not in NAME_GENERATORS]
-    assert missing == [], (
-        "These families have no entry in NAME_GENERATORS (register a generator that builds each "
-        "family's valid feature names from its live vocabulary):\n  " + "\n  ".join(missing)
-    )
-
-
-def test_representative_names_are_generated() -> None:
-    for spec in FAMILIES:
-        generated = set(generate_valid_names(spec))
-        missing = sorted(set(spec.representative_names) - generated)
-        assert missing == [], (
-            f"{spec.key}: representative names {missing} are absent from the generated vocabulary. "
-            "The sampled reps drifted from the exhaustive set; fix the generator or the reps."
-        )
-
-
-def test_routing_is_exhaustive_over_generated_names() -> None:
-    exhaustive = tuple(replace(spec, representative_names=generate_valid_names(spec)) for spec in FAMILIES)
-    total = sum(len(generate_valid_names(s)) for s in FAMILIES)
-    assert total > len(FAMILIES), (
-        "Generated vocabulary is vacuous (expected many names per family); NAME_GENERATORS is empty "
-        "or under-populated, so exhaustive routing would pass trivially."
-    )
-    collisions = find_collisions(exhaustive, PERMISSIVE_OPTIONS, _real_classes())
-    assert collisions == [], "Routing collisions over generated vocabulary:\n" + "\n".join(
-        _format_collision(c) for c in collisions
-    )
-
-
-def test_generator_drift_is_caught_as_owner_rejects() -> None:
-    spec = FAMILIES[0]
-    bad = replace(spec, representative_names=(*generate_valid_names(spec), "col__NOTAREALOP_zzz"))
-    collisions = find_collisions((bad,), PERMISSIVE_OPTIONS, _real_classes())
-    assert any(c.kind == "OWNER_REJECTS" and c.representative_name == "col__NOTAREALOP_zzz" for c in collisions), (
+def test_vocabulary_drift_is_caught_as_owner_rejects() -> None:
+    """Self-proof: a name no family accepts surfaces as OWNER_REJECTS for its owner."""
+    owner = str(FAMILY_CLASSES[0].FAMILY_NAME)
+    planted = {owner: (*family_vocabulary(FAMILY_CLASSES)[owner], "col__NOTAREALOP_zzz")}
+    collisions = find_collisions(planted, PERMISSIVE_OPTIONS, family_classes(FAMILY_CLASSES))
+    assert any(c.kind == "OWNER_REJECTS" and c.feature_name == "col__NOTAREALOP_zzz" for c in collisions), (
         "Planted bogus name 'col__NOTAREALOP_zzz' was not flagged as OWNER_REJECTS for its owning "
-        "family; the self-validation proof that generator drift surfaces as a collision does not hold."
+        "family; the self-validation proof that vocabulary drift surfaces as a collision does not hold."
     )
 
 
 def test_no_unexpected_pattern_overlaps() -> None:
-    overlaps = find_pattern_overlaps(collect_prefix_patterns(FAMILIES), FAMILIES)
-    unexpected = [o for o in overlaps if o not in KNOWN_PATTERN_OVERLAPS]
+    overlaps = find_pattern_overlaps(collect_prefix_patterns(FAMILY_CLASSES), family_vocabulary(FAMILY_CLASSES))
+    unexpected = sorted(pair for pair in overlaps if pair not in KNOWN_PATTERN_OVERLAPS)
     assert unexpected == [], (
-        "Unexpected PREFIX_PATTERN overlaps (a representative name of one family is also "
-        "matched by another family's pattern):\n  "
+        "Unexpected matching-pattern overlaps (feature names of one family are also matched by "
+        "another family's pattern):\n  "
         + "\n  ".join(
-            f"{name!r} (owner={owner}) also matched by {other}'s pattern" for owner, name, other in unexpected
+            f"{len(overlaps[(owner, other)])} {owner} name(s) also matched by {other}'s pattern, "
+            f"e.g. {overlaps[(owner, other)][0]!r}"
+            for owner, other in unexpected
         )
     )
 
 
 def test_known_overlaps_are_present_and_still_disambiguated() -> None:
-    actual = set(find_pattern_overlaps(collect_prefix_patterns(FAMILIES), FAMILIES))
-    classes = _real_classes()
-    for owner, name, other in KNOWN_PATTERN_OVERLAPS:
-        assert (owner, name, other) in actual, (
-            f"Allowlisted overlap {(owner, name, other)} no longer occurs as a raw-regex overlap; "
+    """Each allowlisted pair must still overlap, and every overlapping name must still be rejected."""
+    overlaps = find_pattern_overlaps(collect_prefix_patterns(FAMILY_CLASSES), family_vocabulary(FAMILY_CLASSES))
+    classes = family_classes(FAMILY_CLASSES)
+    for owner, other in sorted(KNOWN_PATTERN_OVERLAPS):
+        names = overlaps.get((owner, other), [])
+        assert names != [], (
+            f"Allowlisted overlap {(owner, other)} no longer produces a raw-regex overlap; "
             "remove the stale KNOWN_PATTERN_OVERLAPS entry."
         )
-        assert not classes[other].match_feature_group_criteria(name, PERMISSIVE_OPTIONS), (
-            f"Allowlisted overlap {(owner, name, other)} is no longer disambiguated: {other} now "
-            f"accepts {name!r}. This is a real collision, not a safe overlap."
+        accepted = [name for name in names if classes[other].match_feature_group_criteria(name, PERMISSIVE_OPTIONS)]
+        assert accepted == [], (
+            f"Allowlisted overlap {(owner, other)} is no longer disambiguated: {other} now accepts "
+            f"{accepted}. These are real collisions, not a safe overlap."
         )
 
 
-def test_every_family_is_covered() -> None:
-    uncovered = discover_uncovered_families()
-    assert uncovered == [], (
-        "These data-operation base.py modules define a PREFIX_PATTERN but are missing from "
-        "FAMILIES (extend it so the collision lint covers them):\n  " + "\n  ".join(uncovered)
-    )
+def test_known_overlap_sizes_are_pinned() -> None:
+    """Each allowlisted pair must still overlap on exactly the pinned number of names.
 
-
-def test_every_family_module_is_discovered_on_disk() -> None:
-    missing = sorted({spec.module for spec in FAMILIES} - discover_family_base_modules())
-    assert missing == [], (
-        "These FAMILIES modules were not discovered on disk; an over-broad build-artifact skip "
-        "(is_artifact_path) would hide real family modules like this:\n  " + "\n  ".join(missing)
+    A per-pair allowlist cannot notice a NEW overlapping name shape once the pair is listed, so
+    the size is pinned separately from the safety property above; the two stay independent tests
+    so a legitimate vocabulary growth reports as a size change while the safety check still runs.
+    """
+    overlaps = find_pattern_overlaps(collect_prefix_patterns(FAMILY_CLASSES), family_vocabulary(FAMILY_CLASSES))
+    actual = {pair: len(overlaps.get(pair, [])) for pair in KNOWN_PATTERN_OVERLAPS}
+    assert actual == dict(KNOWN_PATTERN_OVERLAPS), (
+        f"Allowlisted overlap sizes changed: expected {dict(KNOWN_PATTERN_OVERLAPS)}, got {actual}. "
+        "A family vocabulary grew (or shrank) a name shape the other family's pattern also raw-matches. "
+        "Confirm test_known_overlaps_are_present_and_still_disambiguated passes (routing still rejects "
+        "every overlapping name), then update the pinned count in KNOWN_PATTERN_OVERLAPS."
     )
 
 
@@ -572,49 +243,23 @@ class _AcceptNone:
 
 
 def test_find_collisions_detects_multi_match() -> None:
-    specs = (FamilySpec("alpha", "m", "C", ("col__op_x",)),)
-    collisions = find_collisions(specs, PERMISSIVE_OPTIONS, {"alpha": _AcceptAll, "beta": _AcceptAll})
+    collisions = find_collisions(
+        {"alpha": ("col__op_x",)}, PERMISSIVE_OPTIONS, {"alpha": _AcceptAll, "beta": _AcceptAll}
+    )
     assert len(collisions) == 1
     assert collisions[0].kind == "MULTI_MATCH"
     assert set(collisions[0].acceptors) == {"alpha", "beta"}
 
 
 def test_find_collisions_detects_owner_rejects() -> None:
-    specs = (FamilySpec("alpha", "m", "C", ("col__op_x",)),)
-    collisions = find_collisions(specs, PERMISSIVE_OPTIONS, {"alpha": _AcceptNone})
+    collisions = find_collisions({"alpha": ("col__op_x",)}, PERMISSIVE_OPTIONS, {"alpha": _AcceptNone})
     assert len(collisions) == 1
     assert collisions[0].kind == "OWNER_REJECTS"
 
 
 def test_find_pattern_overlaps_detects_planted_overlap() -> None:
-    specs = (
-        FamilySpec("alpha", "m", "C", ("col__op_zz",)),
-        FamilySpec("beta", "m", "C", ("col__op_yy",)),
-    )
     patterns = {"alpha": [re.compile(r".*_zz$")], "beta": [re.compile(r".*_zz$")]}
-    overlaps = find_pattern_overlaps(patterns, specs)
-    assert ("alpha", "col__op_zz", "beta") in overlaps
-    assert all(owner != other for owner, _name, other in overlaps)
-
-
-def test_discover_uncovered_families_reports_planted_family(tmp_path: Path) -> None:
-    """A planted base.py defining a PREFIX_PATTERN under root is reported by its dotted path."""
-    base_py = tmp_path / "pkg" / "some_family" / "base.py"
-    base_py.parent.mkdir(parents=True)
-    base_py.write_text("PREFIX_PATTERN = r'__op$'\n")
-    uncovered = discover_uncovered_families(root=tmp_path / "pkg", repo_root=tmp_path)
-    assert uncovered == ["pkg.some_family.base"]
-
-
-@pytest.mark.parametrize("artifact_part", ["build", "dist", "something.egg-info", ".tox", ".venv"])
-def test_discover_uncovered_families_skips_build_artifact_dirs(tmp_path: Path, artifact_part: str) -> None:
-    """A base.py copy under a build artifact directory is not reported alongside the real module."""
-    body = "PREFIX_PATTERN = r'__op$'\n"
-    real = tmp_path / "pkg" / "some_family" / "base.py"
-    real.parent.mkdir(parents=True)
-    real.write_text(body)
-    copy = tmp_path / "pkg" / "some_family" / artifact_part / "lib" / "pkg" / "some_family" / "base.py"
-    copy.parent.mkdir(parents=True)
-    copy.write_text(body)
-    uncovered = discover_uncovered_families(root=tmp_path / "pkg", repo_root=tmp_path)
-    assert uncovered == ["pkg.some_family.base"]
+    names = {"alpha": ("col__op_zz",), "beta": ("col__op_yy",)}
+    overlaps = find_pattern_overlaps(patterns, names)
+    assert overlaps == {("alpha", "beta"): ["col__op_zz"]}
+    assert all(owner != other for owner, other in overlaps)

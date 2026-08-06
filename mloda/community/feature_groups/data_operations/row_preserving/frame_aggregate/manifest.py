@@ -11,12 +11,11 @@ from mloda.provider import FeatureGroup
 
 from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
-FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
-    __package__ or __name__.rpartition(".")[0],
-    [
-        ("duckdb_frame_aggregate", "DuckdbFrameAggregate"),
-        ("pandas_frame_aggregate", "PandasFrameAggregate"),
-        ("polars_lazy_frame_aggregate", "PolarsLazyFrameAggregate"),
-        ("sqlite_frame_aggregate", "SqliteFrameAggregate"),
-    ],
-)
+BACKENDS: list[tuple[str, str]] = [
+    ("duckdb_frame_aggregate", "DuckdbFrameAggregate"),
+    ("pandas_frame_aggregate", "PandasFrameAggregate"),
+    ("polars_lazy_frame_aggregate", "PolarsLazyFrameAggregate"),
+    ("sqlite_frame_aggregate", "SqliteFrameAggregate"),
+]
+
+FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(__package__ or __name__.rpartition(".")[0], BACKENDS)

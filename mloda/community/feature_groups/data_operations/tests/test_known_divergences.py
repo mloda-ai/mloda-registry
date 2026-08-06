@@ -61,20 +61,22 @@ from typing import Any
 
 import pytest
 
-from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import (
+from mloda.community.feature_groups.data_operations.catalog import (
     FRAMEWORKS,
-    OPERATIONS,
+    operations_in_declaration_order,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 DOC_PATH = REPO_ROOT / "docs" / "guides" / "data-operation-patterns" / "known-divergences.md"
 
-# Known vocabularies, reused from the sibling support-matrix drift check so the two
-# checks cannot disagree about what a valid framework / operation name is. Validating
-# the machine block's ``framework`` and ``operation`` fields against these turns a typo
-# or a stale name into a failure instead of letting those fields hold arbitrary text.
-KNOWN_FRAMEWORKS: frozenset[str] = frozenset(key for key, _label in FRAMEWORKS)
-KNOWN_OPERATIONS: frozenset[str] = frozenset(OPERATIONS)
+# Known vocabularies, read from the shared catalog so this check and the support-matrix
+# one cannot disagree about what a valid framework / operation name is. Validating the
+# machine block's ``framework`` and ``operation`` fields against these turns a typo or a
+# stale name into a failure instead of letting those fields hold arbitrary text. The doc
+# spells frameworks as the backend-module prefix (``polars_lazy``), not the compute
+# framework class name, so ``module_prefix`` is the field to compare against.
+KNOWN_FRAMEWORKS: frozenset[str] = frozenset(str(framework.module_prefix) for framework in FRAMEWORKS)
+KNOWN_OPERATIONS: frozenset[str] = frozenset(info.name for info in operations_in_declaration_order())
 
 ENTRIES_HEADING = "## Entries"
 BLOCK_BEGIN = "<!-- machine-checked"
@@ -277,9 +279,8 @@ def test_operation_and_framework_values_are_known() -> None:
 
     Without this, the two fields are write-only metadata: ``test_..._required_keys``
     only checks they are non-empty, so a typo (``polars_lzy``) or a stale operation
-    name would stay green. Validating against the same vocabularies the sibling
-    support-matrix check derives from keeps the fields meaningful and the two drift
-    checks from disagreeing about valid names.
+    name would stay green. Validating against the shared catalog vocabularies keeps
+    the fields meaningful and the drift checks from disagreeing about valid names.
     """
     for title, data in _collected_entries():
         for op in (tok.strip() for tok in str(data["operation"]).split(",")):

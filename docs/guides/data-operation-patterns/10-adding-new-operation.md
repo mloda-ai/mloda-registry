@@ -6,7 +6,7 @@ End-to-end recipe for introducing a new data operation: base class, framework im
 **When**: You want a declarative transform that behaves identically on PyArrow, Pandas, Polars, DuckDB, and SQLite.
 **Why**: The existing pattern enforces the row-preserving contract, reference-implementation comparison, and supported-ops skipping for free. Following it gets you coverage without reinventing test harnesses.
 **Where**: Code in `mloda/community/feature_groups/data_operations/{your_category}/`, test bases in `mloda/testing/feature_groups/data_operations/{your_category}/`.
-**How**: Follow the seven steps below in order. Every existing category (binning, window_aggregation, rank, offset, percentile, scalar_aggregate, scalar_arithmetic, point_arithmetic, frame_aggregate, string, aggregation) was built the same way.
+**How**: Follow the eight steps below in order. Every existing category (binning, window_aggregation, rank, offset, percentile, scalar_aggregate, scalar_arithmetic, point_arithmetic, frame_aggregate, string, aggregation) was built the same way.
 
 ---
 
@@ -63,7 +63,42 @@ Existing bases to crib from: `row_preserving/binning/base.py` (simple), `row_pre
 
 ---
 
-## Step 3: Write the PyArrow implementation first
+## Step 3: Register the family
+
+The family list lives in exactly one place: `FAMILY_BASE_MODULES` in `data_operations/catalog.py`. Add your base module there, in the position the documentation should show it, and have the base class describe itself through the `DataOperationFamily` mixin:
+
+```python
+from mloda.user import Options
+from mloda.community.feature_groups.data_operations.family import DataOperationFamily
+
+
+class YourOpFeatureGroup(FeatureGroup, DataOperationFamily):
+    PREFIX_PATTERN = r".+__(op_a|op_b)$"
+    FAMILY_NAME = "your_op"
+    SUBTYPE_LABEL = "op"          # only when it is not "op": "agg type", "rank type", ...
+
+    @classmethod
+    def catalog_subtypes(cls) -> tuple[str, ...]:
+        return tuple(YOUR_OPS)     # omit entirely when the family has no subtype axis
+
+    @classmethod
+    def catalog_probe(cls, subtype: str) -> tuple[str, Options]:
+        return f"value__{subtype}", Options()
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        return tuple(f"value__{op}" for op in YOUR_OPS)
+```
+
+Build both name-producing methods from the family's own live vocabulary, never from a re-typed list: that is what keeps them from drifting. `catalog_probe` must return a name and `Options` that reach match time, so include whatever context the family requires to match (`partition_by`, `order_by`); `family.py` ships shared helpers for that. Override `matching_patterns()` only if the family routes on more than one regex, as `frame_aggregate` does.
+
+Finally add the entry-point manifest (`manifest.py`) listing your backend modules in `BACKENDS`.
+
+`tests/test_family_registry.py` fails until the registry, the self-description and the manifest all agree. The catalog, the framework support matrix and the collision lint then pick the family up with no further edits.
+
+---
+
+## Step 4: Write the PyArrow implementation first
 
 PyArrow is the reference. Write it first; it defines correctness for everything else.
 
@@ -92,7 +127,7 @@ Preserve row order. Preserve NULL. Handle the empty-table case.
 
 ---
 
-## Step 4: Write the operation's test base
+## Step 5: Write the operation's test base
 
 File: `mloda/testing/feature_groups/data_operations/{category}/{your_op}/{your_op}.py`.
 
@@ -132,7 +167,7 @@ One parametrized method per family, not one method per op: the explicit ids name
 
 ---
 
-## Step 5: Add the other framework implementations
+## Step 6: Add the other framework implementations
 
 One file per framework, all subclassing `YourOpFeatureGroup`:
 
@@ -150,7 +185,7 @@ Each class implements `_compute` using its native primitives. For row-preserving
 
 ---
 
-## Step 6: Wire up the framework test classes
+## Step 7: Wire up the framework test classes
 
 One file per framework, all inheriting from your test base and the framework's mixin:
 
@@ -180,7 +215,7 @@ No test method bodies. Everything is inherited. If the framework cannot do one o
 
 ---
 
-## Step 7: Decide if it needs mask support
+## Step 8: Decide if it needs mask support
 
 If the new op is an aggregate (or anything that consumes source values that a user might want to conditionally include), wire it up to `MaskTestMixin`:
 
@@ -215,6 +250,7 @@ class YourOpTestBase(MaskTestMixin, DataOpsTestBase):
 ## Checklist
 
 - [ ] Base class with `PREFIX_PATTERN`, `calculate_feature`, and an abstract `_compute` hook.
+- [ ] Family registered: `FAMILY_BASE_MODULES` entry, `DataOperationFamily` self-description, `manifest.py` with `BACKENDS`.
 - [ ] PyArrow implementation first; it is the reference.
 - [ ] Test base in `mloda/testing/.../{your_op}.py` with inherited test methods.
 - [ ] One framework implementation per target framework, each respecting row-preserving if applicable.

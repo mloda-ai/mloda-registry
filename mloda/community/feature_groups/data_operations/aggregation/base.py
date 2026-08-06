@@ -5,17 +5,19 @@ from __future__ import annotations
 from typing import Any
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
 
 from mloda.community.feature_groups.data_operations.aggregation_base import (
     AGGREGATION_TYPES,
     AggregationFeatureGroupBase,
 )
+from mloda.community.feature_groups.data_operations.family import DataOperationFamily, partition_probe_options
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 from mloda.community.feature_groups.data_operations.base import is_op_token
 
 
-class AggregationFeatureGroup(AggregationFeatureGroupBase):
+class AggregationFeatureGroup(AggregationFeatureGroupBase, DataOperationFamily):
     """Base class for aggregation operations that reduce rows.
 
     Aggregation computes an aggregate over partitioned groups and
@@ -82,6 +84,8 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase):
     """
 
     PREFIX_PATTERN = r".*__([\w]+)_agg$"
+    FAMILY_NAME = "aggregation"
+    SUBTYPE_LABEL = "agg type"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -113,6 +117,18 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase):
             DefaultOptionKeys.default: None,
         },
     }
+
+    @classmethod
+    def catalog_subtypes(cls) -> tuple[str, ...]:
+        return tuple(cls.AGGREGATION_TYPES)
+
+    @classmethod
+    def catalog_probe(cls, subtype: str) -> tuple[str, Options]:
+        return f"value__{subtype}_agg", partition_probe_options()
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        return tuple(f"sales__{agg_type}_agg" for agg_type in cls.AGGREGATION_TYPES)
 
     @classmethod
     def match_feature_group_criteria(

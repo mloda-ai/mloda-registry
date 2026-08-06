@@ -25,16 +25,15 @@ type, framed around the post-selection reality:
 
 - ``test_matched_numeric_boundary_never_raises`` (the generalized numeric-boundary
   fuzzer): the same post-selection invariant, but proven for EVERY family instead of
-  a hand-picked few. It reuses the ``FAMILIES`` registry from
-  ``test_prefix_pattern_collisions.py``, takes each family's generated valid feature
-  names, mutates every numeric slot to a non-positive/zero count (``0`` and ``00``),
-  and asserts that any variant a family still SELECTS also types without raising. This
-  replaces the old hand-picked ``BOUNDARY_CASES`` numeric rows (binning/resample), so
-  a future op with a loose ``\\d+`` name pattern cannot silently reintroduce the gap.
-  A family's numeric-axis coverage depends on its generator (``generate_valid_names``)
-  emitting a digit-bearing exemplar; ``offset`` and ``rank`` do so explicitly for their
-  dynamic ``lag_/lead_`` and ``ntile_/top_/bottom_`` numeric forms (whose ``>= 1`` guard
-  lives in the extractor, not the pattern).
+  a hand-picked few. It walks the family registry (``installed_family_classes()``),
+  takes each family's own ``example_feature_names()``, mutates every numeric slot to a
+  non-positive/zero count (``0`` and ``00``), and asserts that any variant a family
+  still SELECTS also types without raising. This replaces the old hand-picked
+  ``BOUNDARY_CASES`` numeric rows (binning/resample), so a future op with a loose
+  ``\\d+`` name pattern cannot silently reintroduce the gap. A family's numeric-axis
+  coverage depends on its vocabulary carrying a digit-bearing exemplar; ``offset`` and
+  ``rank`` emit one for their dynamic ``lag_/lead_`` and ``ntile_/top_/bottom_`` forms
+  (whose ``>= 1`` guard lives in the extractor, not the pattern).
   The config-only axis that is not derivable from the name registry (a
   ``frame_aggregate`` config feature missing ``in_features``) stays explicit in
   ``test_matched_config_boundary_never_raises``.
@@ -56,16 +55,11 @@ from mloda.core.abstract_plugins.components.options import Options
 from mloda.core.abstract_plugins.feature_group import FeatureGroup
 from mloda.user import DataType
 
-# Reuse the sibling module's family registry (DRY): the same FAMILIES tuple, valid-name
-# generators, class loader, and name-driven Options that drive the routing-collision lint.
-# Importing the module-private ``_load_class`` from within the same test package is fine;
-# the underscore only marks it module-private, not import-forbidden.
-from mloda.community.feature_groups.data_operations.tests.test_prefix_pattern_collisions import (
-    FAMILIES,
-    PERMISSIVE_OPTIONS,
-    _load_class,
-    generate_valid_names,
-)
+# The families and their vocabularies come from the shared registry; the name-driven
+# Options come from the sibling family-registry lint so the two cannot disagree about
+# what "matching stays name-driven" means.
+from mloda.community.feature_groups.data_operations.catalog import installed_family_classes
+from mloda.community.feature_groups.data_operations.tests.test_family_registry import PERMISSIVE_OPTIONS
 
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import ResampleFeatureGroup
@@ -87,20 +81,20 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 from mloda.community.feature_groups.data_operations.string.base import StringFeatureGroup
 
 
-# The ten base classes that declare a deterministic output type. Kept as a named
-# tuple so both tests can assert they cover all ten.
-ALL_BASE_CLASSES: tuple[type[FeatureGroup], ...] = (
-    AggregationFeatureGroup,
-    BinningFeatureGroup,
-    DateTimeFeatureGroup,
-    FrameAggregateFeatureGroup,
-    OffsetFeatureGroup,
-    RankFeatureGroup,
-    ResampleFeatureGroup,
-    ScalarAggregateFeatureGroup,
-    StringFeatureGroup,
-    WindowAggregationFeatureGroup,
-)
+FAMILY_CLASSES: tuple[type[Any], ...] = installed_family_classes()
+
+
+def _overrides_return_data_type_rule(cls: type[Any]) -> bool:
+    """Whether *cls* resolves ``return_data_type_rule`` to something other than core's default."""
+    own = cls.return_data_type_rule
+    core = FeatureGroup.return_data_type_rule
+    return getattr(own, "__func__", own) is not getattr(core, "__func__", core)
+
+
+#: The families that declare a deterministic output type, derived from the registry rather
+#: than listed: exactly those overriding core's ``return_data_type_rule``. A new such family
+#: with no COMPLETENESS_CASES row therefore fails ``test_completeness_covers_every_base_class``.
+ALL_BASE_CLASSES: tuple[type[Any], ...] = tuple(cls for cls in FAMILY_CLASSES if _overrides_return_data_type_rule(cls))
 
 
 def _opts(**context: object) -> Options:
@@ -191,10 +185,14 @@ COMPLETENESS_CASES: list[tuple[type[FeatureGroup], Feature, DataType]] = [
 
 
 def test_completeness_covers_every_base_class() -> None:
-    """Sanity: the completeness table must touch all ten base classes (catches a
-    new deterministic operation added without a representative row here)."""
+    """The completeness table must touch every family that declares a deterministic output type."""
     covered = {cls for cls, _feature, _expected in COMPLETENESS_CASES}
-    assert covered == set(ALL_BASE_CLASSES)
+    missing = sorted(cls.__name__ for cls in set(ALL_BASE_CLASSES) - covered)
+    extra = sorted(cls.__name__ for cls in covered - set(ALL_BASE_CLASSES))
+    assert (missing, extra) == ([], []), (
+        "COMPLETENESS_CASES diverges from the families overriding return_data_type_rule: "
+        f"uncovered={missing} (add a representative row) non-overriding={extra} (drop the row)"
+    )
 
 
 @pytest.mark.parametrize(
@@ -224,7 +222,7 @@ def test_matching_feature_never_raises(feature_group_class: type[FeatureGroup], 
     The rule is only ever invoked post-selection (mloda core PR #493), so the
     relevant contract is over MATCHING features, not unselected garbage. Every base
     class in ``ALL_BASE_CLASSES`` is exercised here because ``COMPLETENESS_CASES``
-    covers all ten (guarded by ``test_completeness_covers_every_base_class``).
+    covers every one of them (guarded by ``test_completeness_covers_every_base_class``).
     """
     result = feature_group_class.return_data_type_rule(feature)
     assert result is None or isinstance(result, DataType)
@@ -233,8 +231,8 @@ def test_matching_feature_never_raises(feature_group_class: type[FeatureGroup], 
 # --- generalized numeric-boundary fuzzer (registry-driven) --------------------
 #
 # The numeric axis of the pattern/extractor-alignment contract, generalized across
-# EVERY family via the reused FAMILIES registry (was a hand-picked binning/resample
-# list). For each family we take its generated valid feature names and mutate every
+# EVERY family via the shared family registry (was a hand-picked binning/resample
+# list). For each family we take its example_feature_names() and mutate every
 # maximal digit-run to a non-positive/zero count. A loose ``\d+`` pattern would still
 # SELECT such a name, but its extractor (needing a positive count/size) may not be
 # able to type it. The contract under test: whatever matching SELECTS, the rule must
@@ -257,33 +255,33 @@ def numeric_boundary_variants(name: str) -> set[str]:
 
 
 def _build_numeric_boundary_cases() -> tuple[list[tuple[str, Any, str]], frozenset[str]]:
-    """Enumerate ``(family_key, class, variant)`` boundary cases over ALL families.
+    """Enumerate ``(family_name, class, variant)`` boundary cases over ALL families.
 
-    Iterates every family in ``FAMILIES`` (recording the iterated keys so the
-    coverage guard can prove no family is skipped), generates each family's valid
-    names, and dedups their numeric-boundary variants per family. Families whose
-    generated names carry no digit contribute zero variants; that is expected and
-    guarded against becoming universal by ``test_numeric_boundary_fuzz_is_not_vacuous``.
+    Iterates every registry family (recording the iterated names so the coverage guard
+    can prove no family is skipped), reads each family's ``example_feature_names()``, and
+    dedups their numeric-boundary variants per family. Families whose vocabulary carries
+    no digit contribute zero variants; that is expected and guarded against becoming
+    universal by ``test_numeric_boundary_fuzz_is_not_vacuous``.
     """
     cases: list[tuple[str, Any, str]] = []
     iterated: set[str] = set()
-    for spec in FAMILIES:
-        iterated.add(spec.key)
-        cls = _load_class(spec)
+    for cls in FAMILY_CLASSES:
+        family_name = str(cls.FAMILY_NAME)
+        iterated.add(family_name)
         variants: set[str] = set()
-        for name in generate_valid_names(spec):
+        for name in cls.example_feature_names():
             variants |= numeric_boundary_variants(name)
         for variant in sorted(variants):
-            cases.append((spec.key, cls, variant))
+            cases.append((family_name, cls, variant))
     return cases, frozenset(iterated)
 
 
 _NUMERIC_BOUNDARY_CASES, _FUZZED_FAMILY_KEYS = _build_numeric_boundary_cases()
 
 # Families whose live vocabulary is known to contain a numeric slot (verified against
-# generate_valid_names before hard-coding). Each MUST contribute at least one boundary
-# variant; a zero here signals the generator or the family vocabulary drifted, which the
-# non-vacuity guard turns into a loud failure rather than silently shrinking coverage.
+# example_feature_names() before hard-coding). Each MUST contribute at least one boundary
+# variant; a zero here signals the family vocabulary drifted, which the non-vacuity guard
+# turns into a loud failure rather than silently shrinking coverage.
 _KNOWN_NUMERIC_FAMILIES: frozenset[str] = frozenset(
     {
         "binning",
@@ -324,11 +322,11 @@ def _boundary_case_raises(cls: Any, variant: str) -> bool:
 def test_numeric_boundary_fuzz_covers_every_family() -> None:
     """The fuzzer must iterate EVERY family in the registry (no family silently skipped).
 
-    Piggybacks on ``test_prefix_pattern_collisions.test_every_family_is_covered``, which
-    forces ``FAMILIES`` to stay complete as new op families are added.
+    Piggybacks on ``test_family_registry.test_every_family_on_disk_is_in_the_registry``,
+    which forces the registry to stay complete as new op families are added.
     """
-    assert _FUZZED_FAMILY_KEYS == {spec.key for spec in FAMILIES}, (
-        "The numeric-boundary fuzzer did not iterate every family in FAMILIES; a family "
+    assert _FUZZED_FAMILY_KEYS == {str(cls.FAMILY_NAME) for cls in FAMILY_CLASSES}, (
+        "The numeric-boundary fuzzer did not iterate every registry family; a family "
         "was skipped during case generation."
     )
 
@@ -338,20 +336,23 @@ def test_numeric_boundary_fuzz_is_not_vacuous() -> None:
 
     Asserts a comfortably large total variant count and that each known-numeric family
     contributes at least one boundary variant. If a known-numeric key yields zero, that
-    is a real drift signal in the generator or the family vocabulary; the assertion fails
-    loudly rather than weakening coverage.
+    is a real drift signal in the family vocabulary; the assertion fails loudly rather
+    than weakening coverage. The total is the global half of the guard: the per-family
+    floor on ``example_feature_names()`` (at least one name per catalog subtype, so a
+    single family cannot collapse its vocabulary behind a healthy total) lives in
+    ``test_family_registry.test_example_feature_names_cover_every_catalog_subtype``.
     """
     assert len(_NUMERIC_BOUNDARY_CASES) > 15, (
         f"Numeric-boundary fuzz is near-vacuous ({len(_NUMERIC_BOUNDARY_CASES)} cases); the "
-        "generators or vocabularies likely lost their numeric slots."
+        "family vocabularies likely lost their numeric slots."
     )
     per_family: dict[str, int] = {}
     for family_key, _cls, _variant in _NUMERIC_BOUNDARY_CASES:
         per_family[family_key] = per_family.get(family_key, 0) + 1
     missing = sorted(key for key in _KNOWN_NUMERIC_FAMILIES if per_family.get(key, 0) < 1)
     assert missing == [], (
-        f"Known-numeric families produced no boundary variant: {missing}. Their generated valid "
-        "names lost a digit slot (generator or vocabulary drift); fix the generator, do not drop the key."
+        f"Known-numeric families produced no boundary variant: {missing}. Their example_feature_names() "
+        "lost a digit slot (vocabulary drift); fix the vocabulary, do not drop the key."
     )
 
 

@@ -6,11 +6,16 @@ from typing import Any
 
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
 
 from mloda.community.feature_groups.data_operations.aggregation_base import (
     AGGREGATION_TYPES as _BASE_AGGREGATION_TYPES,
     AggregationFeatureGroupBase,
+)
+from mloda.community.feature_groups.data_operations.family import (
+    DataOperationFamily,
+    partition_order_probe_options,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 from mloda.community.feature_groups.data_operations.base import (
@@ -31,7 +36,7 @@ AGGREGATION_TYPES = {
 }
 
 
-class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
+class WindowAggregationFeatureGroup(AggregationFeatureGroupBase, DataOperationFamily):
     """Base class for window aggregation operations that preserve row count.
 
     Window aggregation computes an aggregate over a partitioned group and
@@ -103,6 +108,8 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
     """
 
     PREFIX_PATTERN = r".*__([\w]+)_window$"
+    FAMILY_NAME = "window_aggregation"
+    SUBTYPE_LABEL = "agg type"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -144,6 +151,19 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
             DefaultOptionKeys.default: None,
         },
     }
+
+    @classmethod
+    def catalog_subtypes(cls) -> tuple[str, ...]:
+        return tuple(cls.AGGREGATION_TYPES)
+
+    @classmethod
+    def catalog_probe(cls, subtype: str) -> tuple[str, Options]:
+        # order_by is in the probe because first/last reject a name without it.
+        return f"value__{subtype}_window", partition_order_probe_options()
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        return tuple(f"sales__{agg_type}_window" for agg_type in cls.AGGREGATION_TYPES)
 
     @classmethod
     def match_feature_group_criteria(

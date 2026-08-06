@@ -11,13 +11,12 @@ from mloda.provider import FeatureGroup
 
 from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
-FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
-    __package__ or __name__.rpartition(".")[0],
-    [
-        ("duckdb_point_arithmetic", "DuckdbPointArithmetic"),
-        ("pandas_point_arithmetic", "PandasPointArithmetic"),
-        ("polars_lazy_point_arithmetic", "PolarsLazyPointArithmetic"),
-        ("pyarrow_point_arithmetic", "PyArrowPointArithmetic"),
-        ("sqlite_point_arithmetic", "SqlitePointArithmetic"),
-    ],
-)
+BACKENDS: list[tuple[str, str]] = [
+    ("duckdb_point_arithmetic", "DuckdbPointArithmetic"),
+    ("pandas_point_arithmetic", "PandasPointArithmetic"),
+    ("polars_lazy_point_arithmetic", "PolarsLazyPointArithmetic"),
+    ("pyarrow_point_arithmetic", "PyArrowPointArithmetic"),
+    ("sqlite_point_arithmetic", "SqlitePointArithmetic"),
+]
+
+FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(__package__ or __name__.rpartition(".")[0], BACKENDS)

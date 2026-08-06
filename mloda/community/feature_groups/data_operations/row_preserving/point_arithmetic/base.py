@@ -25,10 +25,12 @@ from typing import Any
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
 
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
 from mloda.community.feature_groups.data_operations.base import is_op_token
+from mloda.community.feature_groups.data_operations.family import DataOperationFamily
 
 ARITHMETIC_OPERATIONS: dict[str, str] = {
     "add": "Element-wise addition of two columns",
@@ -53,8 +55,9 @@ def _is_ordered_in_features(value: object) -> bool:
     return isinstance(value, (list, tuple))
 
 
-class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
+class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase, DataOperationFamily):
     PREFIX_PATTERN = r".*__([\w]+)_point$"
+    FAMILY_NAME = "point_arithmetic"
 
     MIN_IN_FEATURES = 2
     MAX_IN_FEATURES = 2
@@ -76,6 +79,20 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
             DefaultOptionKeys.match_guard: _is_ordered_in_features,
         },
     }
+
+    @classmethod
+    def catalog_subtypes(cls) -> tuple[str, ...]:
+        return tuple(ARITHMETIC_OPERATIONS)
+
+    @classmethod
+    def catalog_probe(cls, subtype: str) -> tuple[str, Options]:
+        # Two operands joined by IN_FEATURE_SEPARATOR: point arithmetic matches nothing with one.
+        return f"a&b__{subtype}_point", Options()
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        # Two operands, like catalog_probe: a one-operand name matches but _extract_source_features rejects it.
+        return tuple(f"x&y__{op}_point" for op in ARITHMETIC_OPERATIONS)
 
     @classmethod
     def _extract_source_features(cls, feature: Feature) -> list[str]:

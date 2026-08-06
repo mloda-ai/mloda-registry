@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 
 from mloda.community.feature_groups.data_operations.base import (
@@ -19,6 +20,10 @@ from mloda.community.feature_groups.data_operations.base import (
     is_parametric_suffix,
     op_token_value,
     option_value,
+)
+from mloda.community.feature_groups.data_operations.family import (
+    DataOperationFamily,
+    partition_order_probe_options,
 )
 
 
@@ -45,7 +50,7 @@ def _is_supported_offset_type(value: object) -> bool:
     return False
 
 
-class OffsetFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class OffsetFeatureGroup(RejectionReasonMixin, FeatureGroup, DataOperationFamily):
     """Base class for offset operations that preserve row count.
 
     Offset operations access values at a fixed offset from the current row
@@ -111,6 +116,8 @@ class OffsetFeatureGroup(RejectionReasonMixin, FeatureGroup):
     """
 
     PREFIX_PATTERN = r".*__([\w]+)_offset$"
+    FAMILY_NAME = "offset"
+    SUBTYPE_LABEL = "offset type"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -124,6 +131,9 @@ class OffsetFeatureGroup(RejectionReasonMixin, FeatureGroup):
     OFFSET_TYPES = _OFFSET_TYPES
 
     PARAMETRIC_OFFSET_FAMILIES: tuple[str, ...] = _PARAMETRIC_OFFSET_FAMILIES
+
+    #: Representative N every parametric family probes with, shared by the catalog probe and the example names.
+    PARAMETRIC_OFFSET_N: ClassVar[int] = 1
 
     PROPERTY_MAPPING = {
         OFFSET_TYPE: {
@@ -152,6 +162,25 @@ class OffsetFeatureGroup(RejectionReasonMixin, FeatureGroup):
             DefaultOptionKeys.match_guard: is_column_ref,
         },
     }
+
+    @classmethod
+    def _offset_token(cls, subtype: str) -> str:
+        """A subtype as a name token: a parametric family carries the representative N."""
+        if subtype not in cls.PARAMETRIC_OFFSET_FAMILIES:
+            return subtype
+        return f"{subtype}_{cls.PARAMETRIC_OFFSET_N}"
+
+    @classmethod
+    def catalog_subtypes(cls) -> tuple[str, ...]:
+        return tuple(cls.PARAMETRIC_OFFSET_FAMILIES) + tuple(cls.OFFSET_TYPES)
+
+    @classmethod
+    def catalog_probe(cls, subtype: str) -> tuple[str, Options]:
+        return f"value__{cls._offset_token(subtype)}_offset", partition_order_probe_options()
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        return tuple(f"sales__{cls._offset_token(subtype)}_offset" for subtype in cls.catalog_subtypes())
 
     @classmethod
     def _supports_offset_type(cls, offset_type: str) -> bool:

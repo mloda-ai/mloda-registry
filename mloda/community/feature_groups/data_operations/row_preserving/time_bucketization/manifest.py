@@ -11,13 +11,12 @@ from mloda.provider import FeatureGroup
 
 from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
-FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
-    __package__ or __name__.rpartition(".")[0],
-    [
-        ("duckdb_time_bucketization", "DuckdbTimeBucketization"),
-        ("pandas_time_bucketization", "PandasTimeBucketization"),
-        ("polars_lazy_time_bucketization", "PolarsLazyTimeBucketization"),
-        ("pyarrow_time_bucketization", "PyArrowTimeBucketization"),
-        ("sqlite_time_bucketization", "SqliteTimeBucketization"),
-    ],
-)
+BACKENDS: list[tuple[str, str]] = [
+    ("duckdb_time_bucketization", "DuckdbTimeBucketization"),
+    ("pandas_time_bucketization", "PandasTimeBucketization"),
+    ("polars_lazy_time_bucketization", "PolarsLazyTimeBucketization"),
+    ("pyarrow_time_bucketization", "PyArrowTimeBucketization"),
+    ("sqlite_time_bucketization", "SqliteTimeBucketization"),
+]
+
+FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(__package__ or __name__.rpartition(".")[0], BACKENDS)

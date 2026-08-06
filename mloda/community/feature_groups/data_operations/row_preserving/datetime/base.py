@@ -12,6 +12,7 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys, FeatureGroup
 from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, is_op_token, op_token_value
+from mloda.community.feature_groups.data_operations.family import DataOperationFamily
 
 DATETIME_OPS = {
     "year": "Extract year from datetime",
@@ -26,7 +27,7 @@ DATETIME_OPS = {
 }
 
 
-class DateTimeFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class DateTimeFeatureGroup(RejectionReasonMixin, FeatureGroup, DataOperationFamily):
     """Base class for element-wise datetime extraction operations.
 
     Extracts scalar integer components from datetime columns. The output
@@ -83,6 +84,7 @@ class DateTimeFeatureGroup(RejectionReasonMixin, FeatureGroup):
     """
 
     PREFIX_PATTERN = r".*__(year|month|day|hour|minute|second|dayofweek|is_weekend|quarter)$"
+    FAMILY_NAME = "datetime"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -103,6 +105,18 @@ class DateTimeFeatureGroup(RejectionReasonMixin, FeatureGroup):
             DefaultOptionKeys.strict_validation: False,
         },
     }
+
+    @classmethod
+    def catalog_subtypes(cls) -> tuple[str, ...]:
+        return tuple(DATETIME_OPS)
+
+    @classmethod
+    def catalog_probe(cls, subtype: str) -> tuple[str, Options]:
+        return f"ts__{subtype}", Options()
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        return tuple(f"ts__{op}" for op in DATETIME_OPS)
 
     @classmethod
     def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:

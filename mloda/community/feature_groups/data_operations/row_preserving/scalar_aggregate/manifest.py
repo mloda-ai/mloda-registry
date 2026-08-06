@@ -11,13 +11,12 @@ from mloda.provider import FeatureGroup
 
 from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
-FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
-    __package__ or __name__.rpartition(".")[0],
-    [
-        ("duckdb_scalar_aggregate", "DuckdbScalarAggregate"),
-        ("pandas_scalar_aggregate", "PandasScalarAggregate"),
-        ("polars_lazy_scalar_aggregate", "PolarsLazyScalarAggregate"),
-        ("pyarrow_scalar_aggregate", "PyArrowScalarAggregate"),
-        ("sqlite_scalar_aggregate", "SqliteScalarAggregate"),
-    ],
-)
+BACKENDS: list[tuple[str, str]] = [
+    ("duckdb_scalar_aggregate", "DuckdbScalarAggregate"),
+    ("pandas_scalar_aggregate", "PandasScalarAggregate"),
+    ("polars_lazy_scalar_aggregate", "PolarsLazyScalarAggregate"),
+    ("pyarrow_scalar_aggregate", "PyArrowScalarAggregate"),
+    ("sqlite_scalar_aggregate", "SqliteScalarAggregate"),
+]
+
+FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(__package__ or __name__.rpartition(".")[0], BACKENDS)

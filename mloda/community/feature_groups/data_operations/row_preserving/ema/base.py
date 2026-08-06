@@ -55,12 +55,14 @@ from mloda.community.feature_groups.data_operations.base import (
     column_ref_value,
     is_column_ref,
 )
+from mloda.community.feature_groups.data_operations.family import DataOperationFamily
 
 
-class EmaFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class EmaFeatureGroup(RejectionReasonMixin, FeatureGroup, DataOperationFamily):
     """Base class for exponential-moving-average operations that preserve row count."""
 
     PREFIX_PATTERN = r".*__ema_\d+$"
+    FAMILY_NAME = "ema"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -87,6 +89,11 @@ class EmaFeatureGroup(RejectionReasonMixin, FeatureGroup):
             DefaultOptionKeys.required_when: always_required,
         },
     }
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        # The span slot is numeric, so one fixed value covers the whole vocabulary.
+        return ("price__ema_20",)
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         _feature_name = str(feature_name)

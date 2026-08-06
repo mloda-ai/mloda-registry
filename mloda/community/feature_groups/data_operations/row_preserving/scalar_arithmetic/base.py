@@ -29,6 +29,7 @@ from mloda.core.abstract_plugins.components.options import Options
 from mloda.provider import DefaultOptionKeys
 
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
+from mloda.community.feature_groups.data_operations.family import DataOperationFamily
 from mloda.community.feature_groups.data_operations.base import (
     is_number_element,
     is_op_token,
@@ -44,8 +45,9 @@ ARITHMETIC_OPERATIONS: dict[str, str] = {
 }
 
 
-class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
+class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase, DataOperationFamily):
     PREFIX_PATTERN = r".*__([\w]+)_constant$"
+    FAMILY_NAME = "scalar_arithmetic"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -74,6 +76,18 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
             DefaultOptionKeys.match_guard: is_scalar_number,
         },
     }
+
+    @classmethod
+    def catalog_subtypes(cls) -> tuple[str, ...]:
+        return tuple(ARITHMETIC_OPERATIONS)
+
+    @classmethod
+    def catalog_probe(cls, subtype: str) -> tuple[str, Options]:
+        return f"value__{subtype}_constant", Options()
+
+    @classmethod
+    def example_feature_names(cls) -> tuple[str, ...]:
+        return tuple(f"value__{op}_constant" for op in ARITHMETIC_OPERATIONS)
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         _feature_name = str(feature_name)

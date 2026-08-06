@@ -11,13 +11,12 @@ from mloda.provider import FeatureGroup
 
 from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
-FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
-    __package__ or __name__.rpartition(".")[0],
-    [
-        ("duckdb_window_aggregation", "DuckdbWindowAggregation"),
-        ("pandas_window_aggregation", "PandasWindowAggregation"),
-        ("polars_lazy_window_aggregation", "PolarsLazyWindowAggregation"),
-        ("pyarrow_window_aggregation", "PyArrowWindowAggregation"),
-        ("sqlite_window_aggregation", "SqliteWindowAggregation"),
-    ],
-)
+BACKENDS: list[tuple[str, str]] = [
+    ("duckdb_window_aggregation", "DuckdbWindowAggregation"),
+    ("pandas_window_aggregation", "PandasWindowAggregation"),
+    ("polars_lazy_window_aggregation", "PolarsLazyWindowAggregation"),
+    ("pyarrow_window_aggregation", "PyArrowWindowAggregation"),
+    ("sqlite_window_aggregation", "SqliteWindowAggregation"),
+]
+
+FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(__package__ or __name__.rpartition(".")[0], BACKENDS)

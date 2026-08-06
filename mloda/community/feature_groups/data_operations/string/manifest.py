@@ -11,13 +11,12 @@ from mloda.provider import FeatureGroup
 
 from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
-FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
-    __package__ or __name__.rpartition(".")[0],
-    [
-        ("duckdb_string", "DuckdbStringOps"),
-        ("pandas_string", "PandasStringOps"),
-        ("polars_lazy_string", "PolarsLazyStringOps"),
-        ("pyarrow_string", "PyArrowStringOps"),
-        ("sqlite_string", "SqliteStringOps"),
-    ],
-)
+BACKENDS: list[tuple[str, str]] = [
+    ("duckdb_string", "DuckdbStringOps"),
+    ("pandas_string", "PandasStringOps"),
+    ("polars_lazy_string", "PolarsLazyStringOps"),
+    ("pyarrow_string", "PyArrowStringOps"),
+    ("sqlite_string", "SqliteStringOps"),
+]
+
+FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(__package__ or __name__.rpartition(".")[0], BACKENDS)
