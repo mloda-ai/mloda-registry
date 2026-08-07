@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community-scalar-arithmetic"
-version = "0.4.1"
+version = "0.4.2"
 description = "Scalar arithmetic feature group (element-wise column op constant: add, subtract, multiply, divide)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
