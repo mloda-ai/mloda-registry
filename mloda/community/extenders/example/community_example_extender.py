@@ -19,3 +19,4 @@ class CommunityExampleExtender(Extender):
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         """Execute the wrapped function without modification."""
         return func(*args, **kwargs)
+
