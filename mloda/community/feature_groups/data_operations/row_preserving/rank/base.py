@@ -126,14 +126,16 @@ class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup
     - ``order_by``: Column to order by within each partition
     """
 
-    PREFIX_PATTERN = r".*__([\w]+)_ranked$"
-
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
 
     RANK_TYPE = "rank_type"
     PARTITION_BY = "partition_by"
     ORDER_BY = "order_by"
+
+    # Named after RANK_TYPE so bind_name_captures binds it, including the parametric families
+    # (ntile_N / top_N / bottom_N) the old allowed_values-based fallback missed.
+    PREFIX_PATTERN = rf".*__(?P<{RANK_TYPE}>[\w]+)_ranked$"
 
     # Aliases of the module tables the validator reads: overriding them in a subclass has no
     # effect, per-backend narrowing belongs in SubtypeCapabilityHook.
@@ -148,7 +150,6 @@ class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup
             allowed_values=RANK_TYPES,
             element_validator=_is_supported_rank_type,
             match_guard=is_op_token,
-            deferred_binding=True,
         ),
         DefaultOptionKeys.in_features: property_spec(
             "Source feature for rank ordering",

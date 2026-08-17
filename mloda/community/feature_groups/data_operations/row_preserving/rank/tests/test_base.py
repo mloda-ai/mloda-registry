@@ -397,6 +397,34 @@ class TestReturnDataTypeRule:
         assert RankFeatureGroup.return_data_type_rule(feature) is None
 
 
+class TestForwardedRankTypeMismatch:
+    """A group-forwarded ``rank_type`` that contradicts the name-parsed type must be rejected, not silently ignored."""
+
+    def test_mismatched_forwarded_rank_type_raises(self) -> None:
+        consumer_options = Options(group={"rank_type": "ntile_8"})
+        child_options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
+        child_options.inherit_from(consumer_options)
+
+        with pytest.raises(ValueError, match="rank_type"):
+            RankFeatureGroup.match_feature_group_criteria("value_int__ntile_4_ranked", child_options, None)
+
+    def test_matching_forwarded_rank_type_is_accepted(self) -> None:
+        consumer_options = Options(group={"rank_type": "ntile_4"})
+        child_options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
+        child_options.inherit_from(consumer_options)
+
+        result = RankFeatureGroup.match_feature_group_criteria("value_int__ntile_4_ranked", child_options, None)
+        assert result is True
+
+    def test_mismatched_forwarded_fixed_rank_type_raises(self) -> None:
+        consumer_options = Options(group={"rank_type": "rank"})
+        child_options = Options(context={"partition_by": ["region"], "order_by": "value_int"})
+        child_options.inherit_from(consumer_options)
+
+        with pytest.raises(ValueError, match="rank_type"):
+            RankFeatureGroup.match_feature_group_criteria("value_int__dense_rank_ranked", child_options, None)
+
+
 class TestRankMatchValidation(MatchValidationTestBase):
     @classmethod
     def feature_group_class(cls) -> Any:

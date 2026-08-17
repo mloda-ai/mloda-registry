@@ -303,6 +303,34 @@ class TestReturnDataTypeRule:
         assert OffsetFeatureGroup.return_data_type_rule(feature) is None
 
 
+class TestForwardedOffsetTypeMismatch:
+    """A group-forwarded ``offset_type`` that contradicts the name-parsed type is rejected, not silently ignored."""
+
+    def test_mismatched_forwarded_offset_type_raises(self) -> None:
+        consumer_options = Options(group={"offset_type": "lag_5"})
+        child_options = Options(context={"partition_by": ["region"], "order_by": "ts"})
+        child_options.inherit_from(consumer_options)
+
+        with pytest.raises(ValueError, match="offset_type"):
+            OffsetFeatureGroup.match_feature_group_criteria("value_int__lag_1_offset", child_options, None)
+
+    def test_matching_forwarded_offset_type_is_accepted(self) -> None:
+        consumer_options = Options(group={"offset_type": "lag_1"})
+        child_options = Options(context={"partition_by": ["region"], "order_by": "ts"})
+        child_options.inherit_from(consumer_options)
+
+        result = OffsetFeatureGroup.match_feature_group_criteria("value_int__lag_1_offset", child_options, None)
+        assert result is True
+
+    def test_mismatched_forwarded_fixed_offset_type_raises(self) -> None:
+        consumer_options = Options(group={"offset_type": "first_value"})
+        child_options = Options(context={"partition_by": ["region"], "order_by": "ts"})
+        child_options.inherit_from(consumer_options)
+
+        with pytest.raises(ValueError, match="offset_type"):
+            OffsetFeatureGroup.match_feature_group_criteria("value_int__last_value_offset", child_options, None)
+
+
 class TestOffsetMatchValidation(MatchValidationTestBase):
     @classmethod
     def feature_group_class(cls) -> Any:

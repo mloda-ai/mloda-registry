@@ -294,6 +294,26 @@ class TestBucketOpExtraction:
         assert result == op_token
 
 
+class TestForwardedBucketOpMismatch:
+    """A group-forwarded ``bucket_op`` that contradicts the name-parsed op must be rejected, not silently ignored."""
+
+    def test_mismatched_forwarded_bucket_op_raises(self) -> None:
+        consumer_options = Options(group={"bucket_op": "ceil_1_day"})
+        child_options = Options()
+        child_options.inherit_from(consumer_options)
+
+        with pytest.raises(ValueError, match="bucket_op"):
+            TimeBucketizationFeatureGroup.match_feature_group_criteria("ts__floor_1_day", child_options, None)
+
+    def test_matching_forwarded_bucket_op_is_accepted(self) -> None:
+        consumer_options = Options(group={"bucket_op": "floor_1_day"})
+        child_options = Options()
+        child_options.inherit_from(consumer_options)
+
+        result = TimeBucketizationFeatureGroup.match_feature_group_criteria("ts__floor_1_day", child_options, None)
+        assert result is True
+
+
 class TestTimeBucketizationMatchValidation(MatchValidationTestBase):
     """Shared match-validation tests adapted for time bucketization.
 

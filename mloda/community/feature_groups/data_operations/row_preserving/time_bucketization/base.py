@@ -114,15 +114,14 @@ class TimeBucketizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
     arithmetic) and ``_assert_source_column_is_timestamp`` (the dtype guard).
     """
 
-    # Regex captures the FULL op token (e.g. ``floor_1_day``) in a single
-    # group. The validation in ``_validate_string_match`` calls
-    # ``_parse_bucket_op`` to reject ``n=0`` and ``n>1`` calendar-unit tokens.
-    PREFIX_PATTERN = r".*__((?:floor|ceil|round)_\d+_(?:minute|hour|day|week|month|year))$"
-
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
 
     BUCKET_OP = "bucket_op"
+
+    # Named after BUCKET_OP so bind_name_captures binds it, enabling the forwarded-value vs.
+    # name-parsed-value mismatch check.
+    PREFIX_PATTERN = rf".*__(?P<{BUCKET_OP}>(?:floor|ceil|round)_\d+_(?:minute|hour|day|week|month|year))$"
 
     @staticmethod
     def _is_valid_bucket_op_value(value: Any) -> bool:
@@ -148,7 +147,6 @@ class TimeBucketizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
             strict=True,
             element_validator=_is_valid_bucket_op_value,
             match_guard=is_op_token,
-            deferred_binding=True,
         ),
         DefaultOptionKeys.in_features: property_spec(
             "Single source timestamp column to bucketize",
