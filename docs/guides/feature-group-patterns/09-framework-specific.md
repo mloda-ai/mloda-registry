@@ -98,6 +98,59 @@ class MyFeaturePolars(MyFeatureBase):
         return {PolarsDataFrame}
 ```
 
+### Column-Wise Data Hooks
+
+A base built on `FeatureChainParserMixin` (Pattern 3) that touches columns directly, rather than returning a whole new frame, owes its framework subclasses the column-wise data hooks its `calculate_feature` calls, drawn from `_get_available_columns`, `_check_source_features_exist`, `_add_result_to_data`. The mixin defines all three as non-abstract classmethods that raise `NotImplementedError` naming the class and hook, so a framework subclass that skips one fails at compute time rather than at class-definition time.
+
+Declare which of the three your base's `calculate_feature` actually calls with `REQUIRED_COLUMNWISE_HOOKS`, normally set to one of two constants from `mloda.provider`:
+
+| Constant | Declares |
+|----------|----------|
+| `COLUMNWISE_HOOKS` | `_check_source_features_exist`, `_add_result_to_data` |
+| `COLUMN_DISCOVERY_HOOKS` | those two plus `_get_available_columns`, for a base that resolves column names against the data |
+
+```python
+from mloda.provider import COLUMN_DISCOVERY_HOOKS, FeatureChainParserMixin, FeatureGroup
+from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+
+
+class MyFeatureBase(FeatureChainParserMixin, FeatureGroup):
+    PREFIX_PATTERN = r"^.+__my_op$"
+    REQUIRED_COLUMNWISE_HOOKS = COLUMN_DISCOVERY_HOOKS
+
+
+class MyFeaturePandas(MyFeatureBase):
+    @classmethod
+    def compute_framework_rule(cls):
+        return {PandasDataFrame}
+
+    @classmethod
+    def _get_available_columns(cls, data):
+        return set(data.columns)
+
+    @classmethod
+    def _check_source_features_exist(cls, data, feature_names):
+        if set(feature_names) - set(data.columns):
+            raise ValueError(f"Missing source features, available: {list(data.columns)}")
+
+    @classmethod
+    def _add_result_to_data(cls, data, feature_name, result):
+        data[feature_name] = result
+        return data
+```
+
+Assert the contract holds in your own test suite instead of discovering a gap mid-run. `missing_columnwise_hooks` only checks the hooks a class declares, so pin the declaration too or a class that never sets `REQUIRED_COLUMNWISE_HOOKS` passes vacuously:
+
+```python
+from mloda.provider import COLUMN_DISCOVERY_HOOKS, missing_columnwise_hooks
+
+def test_my_feature_pandas_implements_its_hooks():
+    assert MyFeaturePandas.REQUIRED_COLUMNWISE_HOOKS == COLUMN_DISCOVERY_HOOKS
+    assert missing_columnwise_hooks(MyFeaturePandas) == []
+```
+
+A hook that is not a `@classmethod` or `@staticmethod` counts as missing: `cls._hook(data, ...)` passes the class into the first parameter, so a plain function never receives the data. Assert `missing_columnwise_hooks` on the framework-bound class, not the base: the base declares the contract but implements none of it itself, so it reports every hook it declares as missing.
+
 ## Combines With
 
 - **Chained** (Pattern 3): Different implementations per framework
