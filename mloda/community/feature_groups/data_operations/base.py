@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import reprlib
 from collections.abc import Callable
 from enum import Enum
 from typing import Any, TypeVar
 
-from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
+from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import (
+    FeatureChainParser,
+    option_key_is_present,
+)
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.core.abstract_plugins.components.utils import contained_raise_log_level, contained_raise_reason
+from mloda.provider import PropertySpec
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -240,64 +247,90 @@ class RejectionReasonMixin(FeatureChainParserMixin):
 
     @classmethod
     def _strict_validation_rejection_reason(cls, feature_name: str | FeatureName, options: Options) -> str | None:
-        reason = super()._strict_validation_rejection_reason(feature_name, options)
-        if reason is not None:
-            return reason
+        # Core's own hook already gets the value-rejection / name-path-presence / strict-guard
+        # precedence right (see its docstring: value rejection first, then name-path presence,
+        # then a match_guard rejection on a strict-validation spec), so it is trusted first. Only
+        # when it has nothing to report do this mixin's own diagnostics get a turn, for the two
+        # gaps core intentionally leaves silent: a required_when miss (core's hook never evaluates
+        # required_when at all) and a match_guard rejection on a non-strict spec (core treats that
+        # as "this feature group does not match", not "this value is wrong").
+        core_reason = super()._strict_validation_rejection_reason(feature_name, options)
+        if core_reason is not None:
+            return core_reason
+
         property_mapping = cls._get_property_mapping()
         if property_mapping is None:
             return None
+
         prefix_patterns = cls._get_prefix_patterns()
-        # Both checks only fire for a candidate that would otherwise match; a non-candidate
-        # carrying a stray mistyped option stays silent.
         try:
             matched = FeatureChainParser.match_configuration_feature_chain_parser(
                 feature_name, options, property_mapping=property_mapping, prefix_patterns=prefix_patterns
             )
         except ValueError:
-            matched = False
-        if matched:
-            # Whether a key is missing goes through cls._validate_required_when so subclass overrides
-            # (frame_aggregate's name-path carve-out) win; only the key lookup mirrors the base loop.
-            if not cls._validate_required_when(True, feature_name, prefix_patterns, property_mapping, options):
-                key = cls._missing_required_when_key(feature_name, prefix_patterns, property_mapping, options)
-                if key is not None:
-                    return (
-                        f"required option '{key}' was not provided; provide it in Options(context=...). "
-                        f"For a chained name, the child receives only the context keys listed in "
-                        f"propagate_context_keys"
-                    )
-            guard_reason = cls._match_guard_rejection_reason(options, property_mapping)
-            if guard_reason is not None:
-                return guard_reason
-        return None
+            # Both match paths validate present option values the same way core's own hook just
+            # did above, so a value-rejection ValueError here would already have been returned by
+            # super(). A ValueError reaching this point is therefore a parse error (a matched
+            # PREFIX_PATTERN with no source feature), which core's own hook also treats as nothing
+            # to report.
+            return None
+        if not matched:
+            return None
+
+        # The effective options fold in any name-derived bindings, so a required_when predicate
+        # and a match_guard see a name-carried value exactly as the real match path does.
+        effective_options = FeatureChainParser.build_effective_options(
+            feature_name, prefix_patterns, property_mapping, options
+        )
+        key = cls._missing_required_when_key(effective_options, property_mapping)
+        if key is not None:
+            return (
+                f"required option '{key}' was not provided; provide it in Options(context=...). "
+                f"For a chained name, the child receives only the context keys listed in "
+                f"propagate_context_keys"
+            )
+        # Checked last: the one gap core's own hook leaves silent by design.
+        return cls._match_guard_rejection_reason(effective_options, property_mapping)
 
     @classmethod
     def _missing_required_when_key(
         cls,
-        feature_name: str | FeatureName,
-        prefix_patterns: list[str],
+        effective_options: Options,
         property_mapping: dict[str, Any],
-        options: Options,
     ) -> str | None:
         """First key whose required_when predicate fires while the effective options leave it unset."""
-        effective_options = cls._build_effective_options(str(feature_name), prefix_patterns, property_mapping, options)
-        for key, mapping_entry in property_mapping.items():
-            if not isinstance(mapping_entry, dict):
+        for key, spec in property_mapping.items():
+            if not isinstance(spec, PropertySpec):
                 continue
-            predicate = mapping_entry.get(DefaultOptionKeys.required_when)
+            predicate = spec.required_when
             if predicate is None or not callable(predicate):
                 continue
-            if predicate(effective_options) and effective_options.get(key) is None:
+            try:
+                is_required = bool(predicate(effective_options))
+            # Contained exactly like core's own check_required_when (feature_chain_author_guards.py):
+            # a predicate that raises cannot judge, so this key is skipped rather than aborting the
+            # whole diagnostic.
+            except Exception as exc:
+                logger.log(
+                    contained_raise_log_level(exc),
+                    "required_when predicate for '%s' %s; treating it as non-required.",
+                    key,
+                    contained_raise_reason(exc),
+                )
+                continue
+            # An opted-in explicit None counts as present (#768), same presence test core's own
+            # check_required_when uses.
+            if is_required and not option_key_is_present(spec, key, effective_options):
                 return key
         return None
 
     @classmethod
     def _match_guard_rejection_reason(cls, options: Options, property_mapping: dict[str, Any]) -> str | None:
         """Formatted reason for the first match_guard rejection of a present value, or None."""
-        for key, mapping_entry in property_mapping.items():
-            if not isinstance(mapping_entry, dict):
+        for key, spec in property_mapping.items():
+            if not isinstance(spec, PropertySpec):
                 continue
-            guard = mapping_entry.get(DefaultOptionKeys.match_guard)
+            guard = spec.match_guard
             if guard is None:
                 continue
             value = options.get(key)

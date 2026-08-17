@@ -8,7 +8,7 @@ from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
 
 from mloda.community.feature_groups.data_operations.base import (
     RejectionReasonMixin,
@@ -126,31 +126,28 @@ class OffsetFeatureGroup(RejectionReasonMixin, FeatureGroup):
     PARAMETRIC_OFFSET_FAMILIES: tuple[str, ...] = _PARAMETRIC_OFFSET_FAMILIES
 
     PROPERTY_MAPPING = {
-        OFFSET_TYPE: {
-            "explanation": "Offset type applied within each partition",
-            DefaultOptionKeys.allowed_values: OFFSET_TYPES,
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.element_validator: _is_supported_offset_type,
-            DefaultOptionKeys.match_guard: is_op_token,
-        },
-        DefaultOptionKeys.in_features: {
-            "explanation": "Source feature for offset operation",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.match_guard: is_in_features_value,
-        },
-        PARTITION_BY: {
-            "explanation": "List of columns to partition by",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        ORDER_BY: {
-            "explanation": "Column to order by within each partition",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.match_guard: is_column_ref,
-        },
+        OFFSET_TYPE: property_spec(
+            "Offset type applied within each partition",
+            strict=True,
+            allowed_values=OFFSET_TYPES,
+            element_validator=_is_supported_offset_type,
+            match_guard=is_op_token,
+            deferred_binding=True,
+        ),
+        DefaultOptionKeys.in_features: property_spec(
+            "Source feature for offset operation",
+            strict=False,
+            match_guard=is_in_features_value,
+        ),
+        PARTITION_BY: property_spec(
+            "List of columns to partition by",
+            strict=False,
+        ),
+        ORDER_BY: property_spec(
+            "Column to order by within each partition",
+            strict=False,
+            match_guard=is_column_ref,
+        ),
     }
 
     @classmethod

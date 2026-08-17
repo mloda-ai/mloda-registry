@@ -321,7 +321,7 @@ class TestMistypedConstantReported:
 
 
 class TestMistypedPatternConstantReported:
-    """A wrong-typed constant on a pattern name must surface as a reported guard rejection."""
+    """A wrong-typed constant on a pattern name must surface as a reported validation failure."""
 
     def test_pattern_path_mistyped_constant_reported_in_resolution_error(self) -> None:
         plugin_collector = PluginCollector.enabled_feature_groups(
@@ -330,7 +330,9 @@ class TestMistypedPatternConstantReported:
 
         feature = Feature("value_int__add_constant", options=Options(context={"constant": "five"}))
 
-        with pytest.raises(ValueError, match=r"match_guard.*'constant'"):
+        # mloda 0.11.0's FeatureResolutionError names the mistyped value and the key it failed for
+        # instead of the older "match_guard" wording.
+        with pytest.raises(ValueError, match=r"'five'.*failed validation for 'constant'"):
             mloda.run_all(
                 [feature],
                 compute_frameworks={PyArrowTable},

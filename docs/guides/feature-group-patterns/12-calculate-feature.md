@@ -128,7 +128,7 @@ The check runs during execution, not inside `calculate_feature()`, so a unit tes
 | `homogenize_rows(rows)` | Fill missing keys with `None` so rows pivot cleanly |
 
 ```python
-from mloda.user import columnar_to_rows, homogenize_rows, is_columnar, rows_to_columnar
+from mloda.user.python_dict import columnar_to_rows, homogenize_rows, is_columnar, rows_to_columnar
 ```
 
 ## Extracting the Operation Type

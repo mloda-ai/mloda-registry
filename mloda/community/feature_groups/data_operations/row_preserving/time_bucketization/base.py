@@ -42,7 +42,7 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
 
 from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, is_op_token, op_token_value
 
@@ -143,18 +143,16 @@ class TimeBucketizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
         return True
 
     PROPERTY_MAPPING = {
-        BUCKET_OP: {
-            "explanation": "Full bucketization op token (e.g. 'floor_1_day', 'ceil_5_minute')",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.element_validator: _is_valid_bucket_op_value,
-            DefaultOptionKeys.match_guard: is_op_token,
-        },
-        DefaultOptionKeys.in_features: {
-            "explanation": "Single source timestamp column to bucketize",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
+        BUCKET_OP: property_spec(
+            "Full bucketization op token (e.g. 'floor_1_day', 'ceil_5_minute')",
+            strict=True,
+            element_validator=_is_valid_bucket_op_value,
+            match_guard=is_op_token,
+            deferred_binding=True,
+        ),
+        DefaultOptionKeys.in_features: property_spec(
+            "Single source timestamp column to bucketize",
+        ),
     }
 
     @classmethod

@@ -10,7 +10,7 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
 from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, is_op_token, op_token_value
 
 DATETIME_OPS = {
@@ -90,18 +90,15 @@ class DateTimeFeatureGroup(RejectionReasonMixin, FeatureGroup):
     DATETIME_OP = "datetime_op"
 
     PROPERTY_MAPPING = {
-        DATETIME_OP: {
-            "explanation": "Datetime component extracted from the source column",
-            DefaultOptionKeys.allowed_values: DATETIME_OPS,
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.match_guard: is_op_token,
-        },
-        DefaultOptionKeys.in_features: {
-            "explanation": "Source datetime column",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
+        DATETIME_OP: property_spec(
+            "Datetime component extracted from the source column",
+            strict=True,
+            allowed_values=DATETIME_OPS,
+            match_guard=is_op_token,
+        ),
+        DefaultOptionKeys.in_features: property_spec(
+            "Source datetime column",
+        ),
     }
 
     @classmethod

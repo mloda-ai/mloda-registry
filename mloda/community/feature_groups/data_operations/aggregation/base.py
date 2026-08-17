@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.provider import DefaultOptionKeys
+from mloda.provider import DefaultOptionKeys, property_spec
 
 from mloda.community.feature_groups.data_operations.aggregation_base import (
     AGGREGATION_TYPES,
@@ -89,29 +89,25 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase):
     PARTITION_BY = "partition_by"
 
     PROPERTY_MAPPING = {
-        AggregationFeatureGroupBase.AGGREGATION_TYPE: {
-            "explanation": "Aggregation applied per partition group",
-            DefaultOptionKeys.allowed_values: AGGREGATION_TYPES,
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.match_guard: is_op_token,
-        },
-        DefaultOptionKeys.in_features: {
-            "explanation": "Source feature for aggregation",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        PARTITION_BY: {
-            "explanation": "List of columns to partition by",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        MASK_KEY: {
-            "explanation": "Conditional mask: (column, operator, value) tuple or list of tuples",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.default: None,
-        },
+        AggregationFeatureGroupBase.AGGREGATION_TYPE: property_spec(
+            "Aggregation applied per partition group",
+            strict=True,
+            allowed_values=AGGREGATION_TYPES,
+            match_guard=is_op_token,
+        ),
+        DefaultOptionKeys.in_features: property_spec(
+            "Source feature for aggregation",
+            strict=False,
+        ),
+        PARTITION_BY: property_spec(
+            "List of columns to partition by",
+            strict=False,
+        ),
+        MASK_KEY: property_spec(
+            "Conditional mask: (column, operator, value) tuple or list of tuples",
+            strict=False,
+            default=None,
+        ),
     }
 
     @classmethod

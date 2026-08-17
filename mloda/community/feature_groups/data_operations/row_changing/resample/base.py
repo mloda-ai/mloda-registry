@@ -43,7 +43,7 @@ from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
 
 from mloda.community.feature_groups.data_operations.base import (
     RejectionReasonMixin,
@@ -126,6 +126,7 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
     """
 
     PREFIX_PATTERN = r".*__resample_[1-9]\d*_(?:minute|hour|day)_(?:mean|sum|count|min|max)$"
+    RECOGNITION_ONLY_PATTERN = True
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -135,29 +136,23 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
     RESAMPLE_OP = "resample_op"
 
     PROPERTY_MAPPING = {
-        DefaultOptionKeys.in_features: {
-            "explanation": "Single source column to aggregate per bucket",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        PARTITION_BY: {
-            "explanation": "List of columns to partition by (default: whole table as one partition)",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        TIME_COLUMN: {
-            "explanation": "Column to floor into fixed-freq buckets",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.match_guard: is_column_ref,
-            DefaultOptionKeys.required_when: always_required,
-        },
-        RESAMPLE_OP: {
-            "explanation": "Resample token '{n}_{unit}_{agg}' (e.g. '1_hour_mean') when the op is not encoded in the feature name.",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.match_guard: _is_valid_resample_op,
-        },
+        DefaultOptionKeys.in_features: property_spec(
+            "Single source column to aggregate per bucket",
+        ),
+        PARTITION_BY: property_spec(
+            "List of columns to partition by (default: whole table as one partition)",
+            default=None,
+        ),
+        TIME_COLUMN: property_spec(
+            "Column to floor into fixed-freq buckets",
+            match_guard=is_column_ref,
+            required_when=always_required,
+        ),
+        RESAMPLE_OP: property_spec(
+            "Resample token '{n}_{unit}_{agg}' (e.g. '1_hour_mean') when the op is not encoded in the feature name.",
+            match_guard=_is_valid_resample_op,
+            deferred_binding=True,
+        ),
     }
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:

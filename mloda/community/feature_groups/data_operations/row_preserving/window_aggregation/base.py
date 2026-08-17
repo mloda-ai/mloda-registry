@@ -6,7 +6,7 @@ from typing import Any
 
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.provider import DefaultOptionKeys
+from mloda.provider import DefaultOptionKeys, property_spec
 
 from mloda.community.feature_groups.data_operations.aggregation_base import (
     AGGREGATION_TYPES as _BASE_AGGREGATION_TYPES,
@@ -113,36 +113,31 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
     AGGREGATION_TYPES = AGGREGATION_TYPES
 
     PROPERTY_MAPPING = {
-        AggregationFeatureGroupBase.AGGREGATION_TYPE: {
-            "explanation": "Aggregation applied over the window",
-            DefaultOptionKeys.allowed_values: AGGREGATION_TYPES,
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.match_guard: is_op_token,
-        },
-        DefaultOptionKeys.in_features: {
-            "explanation": "Source feature for window aggregation",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        PARTITION_BY: {
-            "explanation": "List of columns to partition by",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        ORDER_BY: {
-            "explanation": "Column to order by (required for first/last)",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.default: None,
-            DefaultOptionKeys.match_guard: is_column_ref,
-        },
-        MASK_KEY: {
-            "explanation": "Conditional mask: (column, operator, value) tuple or list of tuples",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.default: None,
-        },
+        AggregationFeatureGroupBase.AGGREGATION_TYPE: property_spec(
+            "Aggregation applied over the window",
+            strict=True,
+            allowed_values=AGGREGATION_TYPES,
+            match_guard=is_op_token,
+        ),
+        DefaultOptionKeys.in_features: property_spec(
+            "Source feature for window aggregation",
+            strict=False,
+        ),
+        PARTITION_BY: property_spec(
+            "List of columns to partition by",
+            strict=False,
+        ),
+        ORDER_BY: property_spec(
+            "Column to order by (required for first/last)",
+            strict=False,
+            default=None,
+            match_guard=is_column_ref,
+        ),
+        MASK_KEY: property_spec(
+            "Conditional mask: (column, operator, value) tuple or list of tuples",
+            strict=False,
+            default=None,
+        ),
     }
 
     @classmethod
