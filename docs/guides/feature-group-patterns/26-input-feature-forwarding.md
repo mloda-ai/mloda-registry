@@ -45,6 +45,8 @@ Set these on the `Feature(...)` you return from `input_features()`:
 
 `forward_group=False` combined with a non-empty `forward_group_exclude` is contradictory and raises `ValueError`.
 
+`feature_chainer_parser_key` carries no special meaning here: a leftover key from an older integration forwards like any other group option and can trigger the "extra group option(s)" rejection above if the upstream does not recognize it.
+
 ## Worked Example: A Connector Consuming a Source Feature
 
 `GraphRagConnector` runs a query against a knowledge graph. It consumes the `knowledge_graph` root feature published by a different group. The connector accepts a `backend` selector (which the upstream also understands, so it *should* forward) and a `top_k` (purely consumer-local, which the upstream rejects, so it must **not** forward).

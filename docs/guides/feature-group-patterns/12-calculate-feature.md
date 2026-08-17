@@ -66,7 +66,7 @@ Every framework above also accepts a columnar `dict[str, list]` as the whole-fra
 
 ### PythonDictFramework Is Columnar
 
-The native structure is columnar `dict[str, list[Any]]`: one key per column, all value-lists the same length.
+PythonDictFramework's native structure is columnar `dict[str, list[Any]]`: one key per column, all value-lists the same length.
 
 ```python
 @classmethod
