@@ -23,8 +23,9 @@ _SCRIPT_PATH = _REPO_ROOT / "scripts" / "verify_floor_installs.py"
 _SHARED_CONFIG = _REPO_ROOT / "config" / "shared.toml"
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
 
-# First data-operations release shipping the shared guard helpers the leaves import; 0.3.3 never shipped.
-_DATA_OPERATIONS_FIRST_RELEASE = (0, 4, 0)
+# First data-operations release shipping the shared guard helpers the leaves import; 0.3.3 never shipped
+# and 0.4.0 predates the helpers.
+_DATA_OPERATIONS_FIRST_RELEASE = (0, 4, 1)
 
 # Oldest usable mloda-community-example release: 0.2.0 through 0.2.3 never reached PyPI, and
 # 0.2.4/0.2.5 lack the base module the variants import.
@@ -198,13 +199,13 @@ def test_real_floors_are_numeric_and_at_most_the_workspace_version() -> None:
 
 
 def test_data_operations_floors_point_at_a_released_version() -> None:
-    """0.3.3 was never released; 0.4.0 first shipped the shared guard helpers the leaves import."""
+    """0.3.3 was never released; 0.4.1 first shipped the shared guard helpers the leaves import."""
     pairs = [pair for pair in _real_pairs() if pair.dependency == _DEP]
     assert pairs, f"expected published leaves flooring {_DEP} in config/packages.toml"
     for pair in pairs:
         assert _version_tuple(pair.floor) >= _DATA_OPERATIONS_FIRST_RELEASE, (
             f"{pair.package}: floors {_DEP} at {pair.floor}, which was never released; the first release "
-            "shipping the shared guard helpers is 0.4.0, so an install at the floor could not import"
+            "shipping the shared guard helpers is 0.4.1, so an install at the floor could not import"
         )
 
 
