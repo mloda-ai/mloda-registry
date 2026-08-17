@@ -106,7 +106,7 @@ class TestOptionsPathInFeatureCount:
 
 
 class TestForwardedResampleOpMismatch:
-    """A forwarded ``resample_op`` that contradicts the name-parsed op must be rejected, not silently ignored."""
+    """A group-forwarded ``resample_op`` that contradicts the name-parsed op must be rejected, not silently ignored."""
 
     def test_mismatched_forwarded_resample_op_raises(self) -> None:
         consumer_options = Options(group={"resample_op": "2_hour_sum"})

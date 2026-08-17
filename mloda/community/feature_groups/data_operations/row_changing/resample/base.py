@@ -124,20 +124,20 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
     floor + group-by + aggregate) and the two presence guards.
     """
 
-    # Broad capture: 0 or a positive integer with no leading zero, then two lowercase-letter runs for
-    # unit/agg. [a-z]+ (not \w+) keeps unit and agg disjoint from the "_" separator, so there is exactly
-    # one way to split the token and no catastrophic backtracking. n=0 and an unknown unit/agg (e.g.
-    # "century", "median") still match the pattern; _validate_string_match narrows via _parse_resample_op,
-    # which already enumerates the valid units/aggs and rejects n<=0 (mirrors time_bucketization).
-    # Named "resample_op" so bind_name_captures can feed it into the forwarded-value mismatch check.
-    PREFIX_PATTERN = r".*__resample_(?P<resample_op>(?:[1-9]\d*|0)_[a-z]+_[a-z]+)$"
-
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
 
     PARTITION_BY = "partition_by"
     TIME_COLUMN = "time_column"
     RESAMPLE_OP = "resample_op"
+
+    # Broad capture: 0 or a positive integer with no leading zero, then two lowercase-letter runs for
+    # unit/agg. [a-z]+ (not \w+) keeps unit and agg disjoint from the "_" separator, so there is exactly
+    # one way to split the token and no catastrophic backtracking. n=0 and an unknown unit/agg (e.g.
+    # "century", "median") still match the pattern; _validate_string_match narrows via _parse_resample_op,
+    # which already enumerates the valid units/aggs and rejects n<=0 (mirrors time_bucketization). Named
+    # after RESAMPLE_OP so bind_name_captures can feed it into the forwarded-value mismatch check.
+    PREFIX_PATTERN = rf".*__resample_(?P<{RESAMPLE_OP}>(?:[1-9]\d*|0)_[a-z]+_[a-z]+)$"
 
     PROPERTY_MAPPING = {
         DefaultOptionKeys.in_features: property_spec(
@@ -155,7 +155,6 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
         RESAMPLE_OP: property_spec(
             "Resample token '{n}_{unit}_{agg}' (e.g. '1_hour_mean') when the op is not encoded in the feature name.",
             match_guard=_is_valid_resample_op,
-            deferred_binding=True,
         ),
     }
 
