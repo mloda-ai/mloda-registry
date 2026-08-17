@@ -133,6 +133,9 @@ def test_broken_link_suppresses_orphan_cascade(
     _write(tmp_path / "guides" / "plugins" / "a.md", "# A\n")
     monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path)
     monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path / "guides")
+    empty_plugin_source = tmp_path / "empty_plugin_source"
+    empty_plugin_source.mkdir()
+    monkeypatch.setattr(lint_docs, "PLUGIN_SOURCE_DIR", empty_plugin_source)
     rc = lint_docs.main()
     out = capsys.readouterr().out
     assert rc == 1
@@ -151,6 +154,9 @@ def test_docs_root_link_error_does_not_suppress_guides_orphan_check(
     _write(tmp_path / "packaging.md", "# Packaging\n\n[Missing](missing.md)\n")
     monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path)
     monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path / "guides")
+    empty_plugin_source = tmp_path / "empty_plugin_source"
+    empty_plugin_source.mkdir()
+    monkeypatch.setattr(lint_docs, "PLUGIN_SOURCE_DIR", empty_plugin_source)
     rc = lint_docs.main()
     out = capsys.readouterr().out
     assert rc == 1
@@ -168,6 +174,9 @@ def test_clean_tree_runs_orphan_check(
     _write(tmp_path / "orphan.md", "# Orphan\n")
     monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path)
     monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path)
+    empty_plugin_source = tmp_path / "empty_plugin_source"
+    empty_plugin_source.mkdir()
+    monkeypatch.setattr(lint_docs, "PLUGIN_SOURCE_DIR", empty_plugin_source)
     rc = lint_docs.main()
     out = capsys.readouterr().out
     assert rc == 1
@@ -185,6 +194,9 @@ def test_main_flags_broken_link_outside_guides(
     _write(tmp_path / "packaging.md", "# Packaging\n\n[Missing](missing.md)\n")
     monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path)
     monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path / "guides")
+    empty_plugin_source = tmp_path / "empty_plugin_source"
+    empty_plugin_source.mkdir()
+    monkeypatch.setattr(lint_docs, "PLUGIN_SOURCE_DIR", empty_plugin_source)
     rc = lint_docs.main()
     out = capsys.readouterr().out
     assert rc == 1
@@ -202,6 +214,9 @@ def test_main_flags_bare_fence_outside_guides(
     _write(tmp_path / "releasing.md", "# Releasing\n\n```\nuv build\n```\n")
     monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path)
     monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path / "guides")
+    empty_plugin_source = tmp_path / "empty_plugin_source"
+    empty_plugin_source.mkdir()
+    monkeypatch.setattr(lint_docs, "PLUGIN_SOURCE_DIR", empty_plugin_source)
     rc = lint_docs.main()
     out = capsys.readouterr().out
     assert rc == 1
@@ -220,6 +235,9 @@ def test_orphan_check_stays_scoped_to_guides(
     _write(tmp_path / "packaging.md", "# Packaging\n")
     monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path)
     monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path / "guides")
+    empty_plugin_source = tmp_path / "empty_plugin_source"
+    empty_plugin_source.mkdir()
+    monkeypatch.setattr(lint_docs, "PLUGIN_SOURCE_DIR", empty_plugin_source)
     rc = lint_docs.main()
     out = capsys.readouterr().out
     assert rc == 1
@@ -328,8 +346,8 @@ def test_check_internal_imports_ignores_prose_match(tmp_path: Path) -> None:
     assert lint_docs.check_internal_imports(md_file, content) == []
 
 
-# Spec-field spellings that DefaultOptionKeys must not be used for: they are gone from the unreleased core,
-# and ``explanation`` was never a member at all (the attribute access already raises AttributeError on 0.10.0).
+# Spec-field spellings that DefaultOptionKeys must not be used for: none of them are members of the
+# current DefaultOptionKeys, and ``explanation`` was never a member at all.
 RETIRED_SPEC_FIELDS = [
     "explanation",
     "allowed_values",
@@ -581,6 +599,9 @@ def test_main_reports_retired_property_spec_spellings(
     )
     monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path)
     monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path)
+    empty_plugin_source = tmp_path / "empty_plugin_source"
+    empty_plugin_source.mkdir()
+    monkeypatch.setattr(lint_docs, "PLUGIN_SOURCE_DIR", empty_plugin_source)
     rc = lint_docs.main()
     out = capsys.readouterr().out
     assert rc == 1
@@ -603,6 +624,9 @@ def test_main_flags_broken_link_in_top_level_markdown(
     monkeypatch.setattr(lint_docs, "DOCS_DIR", docs)
     monkeypatch.setattr(lint_docs, "GUIDES_DIR", guides)
     monkeypatch.setattr(lint_docs, "REPO_ROOT", tmp_path)
+    empty_plugin_source = tmp_path / "empty_plugin_source"
+    empty_plugin_source.mkdir()
+    monkeypatch.setattr(lint_docs, "PLUGIN_SOURCE_DIR", empty_plugin_source)
     rc = lint_docs.main()
     out = capsys.readouterr().out
     assert rc == 1
@@ -623,6 +647,9 @@ def test_main_flags_bare_fence_in_top_level_markdown(
     monkeypatch.setattr(lint_docs, "DOCS_DIR", docs)
     monkeypatch.setattr(lint_docs, "GUIDES_DIR", guides)
     monkeypatch.setattr(lint_docs, "REPO_ROOT", tmp_path)
+    empty_plugin_source = tmp_path / "empty_plugin_source"
+    empty_plugin_source.mkdir()
+    monkeypatch.setattr(lint_docs, "PLUGIN_SOURCE_DIR", empty_plugin_source)
     rc = lint_docs.main()
     out = capsys.readouterr().out
     assert rc == 1
@@ -642,6 +669,9 @@ def test_main_orphan_check_ignores_top_level_markdown(
     monkeypatch.setattr(lint_docs, "DOCS_DIR", docs)
     monkeypatch.setattr(lint_docs, "GUIDES_DIR", guides)
     monkeypatch.setattr(lint_docs, "REPO_ROOT", tmp_path)
+    empty_plugin_source = tmp_path / "empty_plugin_source"
+    empty_plugin_source.mkdir()
+    monkeypatch.setattr(lint_docs, "PLUGIN_SOURCE_DIR", empty_plugin_source)
     rc = lint_docs.main()
     out = capsys.readouterr().out
     assert rc == 0
@@ -661,6 +691,9 @@ def test_main_reads_markdown_as_utf8(
     monkeypatch.setattr(lint_docs, "DOCS_DIR", docs)
     monkeypatch.setattr(lint_docs, "GUIDES_DIR", guides)
     monkeypatch.setattr(lint_docs, "REPO_ROOT", tmp_path)
+    empty_plugin_source = tmp_path / "empty_plugin_source"
+    empty_plugin_source.mkdir()
+    monkeypatch.setattr(lint_docs, "PLUGIN_SOURCE_DIR", empty_plugin_source)
     rc = lint_docs.main()
     assert rc == 0
 
@@ -669,3 +702,127 @@ def test_missing_root_index_uses_relative_path(tmp_path: Path) -> None:
     errors = lint_docs.find_orphan_guides(tmp_path)
     assert len(errors) == 1
     assert str(tmp_path) not in errors[0]
+
+
+# check_source_property_mapping: same checks as check_retired_property_spec_spellings, applied
+# directly to a whole .py file's content (no markdown fence extraction, offset always 0).
+
+
+def test_plugin_source_dir_is_repo_mloda_root() -> None:
+    """PLUGIN_SOURCE_DIR is the mloda/ package root scanned for source-level checks."""
+    assert lint_docs.PLUGIN_SOURCE_DIR == _REPO_ROOT / "mloda"
+    assert lint_docs.PLUGIN_SOURCE_DIR.is_dir()
+
+
+def test_check_source_property_mapping_flags_raw_dict_value(tmp_path: Path) -> None:
+    py_file = tmp_path / "base.py"
+    content = (
+        'PROPERTY_MAPPING = {\n    "operation_type": {\n        "explanation": "Arithmetic operation",\n    },\n}\n'
+    )
+    _write(py_file, content)
+    errors = lint_docs.check_source_property_mapping(py_file, content)
+    assert len(errors) == 1
+    # The nested dict literal opens on line 2; the error must point there, not at the
+    # PROPERTY_MAPPING assignment line.
+    assert errors[0].startswith(f"{py_file}:2:")
+    assert "property_spec" in errors[0]
+
+
+def test_check_source_property_mapping_accepts_property_spec_values(tmp_path: Path) -> None:
+    """No false positive when every PROPERTY_MAPPING value is a property_spec(...) call."""
+    py_file = tmp_path / "base.py"
+    content = (
+        "PROPERTY_MAPPING = {\n"
+        '    "operation_type": property_spec(\n'
+        '        "Arithmetic operation",\n'
+        "        strict=True,\n"
+        '        allowed_values={"add": "Addition", "sub": "Subtraction"},\n'
+        '        default="add",\n'
+        "    ),\n"
+        "}\n"
+    )
+    _write(py_file, content)
+    assert lint_docs.check_source_property_mapping(py_file, content) == []
+
+
+def test_check_source_property_mapping_flags_retired_option_key(tmp_path: Path) -> None:
+    """The retired-spelling check is exhaustively field-tested against RETIRED_SPEC_FIELDS for
+    check_retired_property_spec_spellings above; check_source_property_mapping delegates to the
+    same underlying walk, so one representative field is enough to prove the delegation works."""
+    py_file = tmp_path / "base.py"
+    content = "key = DefaultOptionKeys.allowed_values\n"
+    _write(py_file, content)
+    errors = lint_docs.check_source_property_mapping(py_file, content)
+    assert len(errors) == 1
+    assert "DefaultOptionKeys.allowed_values" in errors[0]
+    assert "retired" in errors[0].lower()
+    assert errors[0].startswith(f"{py_file}:1:")
+
+
+def test_check_source_property_mapping_accepts_surviving_option_key(tmp_path: Path) -> None:
+    """``context`` still exists on DefaultOptionKeys; see the note on the retired-key test above
+    for why one representative field suffices here."""
+    py_file = tmp_path / "base.py"
+    content = "key = DefaultOptionKeys.context\n"
+    _write(py_file, content)
+    assert lint_docs.check_source_property_mapping(py_file, content) == []
+
+
+def test_check_source_property_mapping_returns_empty_for_syntax_error(tmp_path: Path) -> None:
+    """A .py file that fails to parse yields no findings; unlike the markdown-fence path, there is no
+    textual fallback scan. The fixture carries a retired DefaultOptionKeys spelling that a textual
+    fallback (``_textual_retired_option_keys``) would catch if it were wired in, so this actually
+    distinguishes the two behaviors rather than passing regardless."""
+    py_file = tmp_path / "broken.py"
+    content = "if True\n    x = DefaultOptionKeys.explanation\n"
+    _write(py_file, content)
+    assert lint_docs.check_source_property_mapping(py_file, content) == []
+
+
+def test_main_reports_raw_dict_in_plugin_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    docs = tmp_path / "docs"
+    _write(docs / "index.md", "# Root\n")
+    plugin_src = tmp_path / "plugin_src"
+    _write(
+        plugin_src / "a" / "b" / "base.py",
+        'PROPERTY_MAPPING = {\n    "operation_type": {\n        "explanation": "Arithmetic operation",\n    },\n}\n',
+    )
+    monkeypatch.setattr(lint_docs, "DOCS_DIR", docs)
+    monkeypatch.setattr(lint_docs, "GUIDES_DIR", docs)
+    monkeypatch.setattr(lint_docs, "PLUGIN_SOURCE_DIR", plugin_src)
+    rc = lint_docs.main()
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "raw dict PROPERTY_MAPPING" in out
+    assert "base.py" in out
+
+
+def test_check_source_property_mapping_has_no_findings_in_real_plugin_source() -> None:
+    """Regression guard: production PROPERTY_MAPPING declarations are property_spec(...) calls,
+    not raw dicts, and plugin source uses no retired DefaultOptionKeys spelling."""
+    findings = [
+        error
+        for py_file in sorted(lint_docs.PLUGIN_SOURCE_DIR.rglob("*.py"))
+        for error in lint_docs.check_source_property_mapping(py_file, py_file.read_text(encoding="utf-8"))
+    ]
+    assert findings == []
+
+
+def test_main_reports_missing_plugin_source_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    docs = tmp_path / "docs"
+    _write(docs / "guides" / "index.md", "# Root\n")
+    monkeypatch.setattr(lint_docs, "DOCS_DIR", docs)
+    monkeypatch.setattr(lint_docs, "GUIDES_DIR", docs / "guides")
+    monkeypatch.setattr(lint_docs, "PLUGIN_SOURCE_DIR", tmp_path / "does_not_exist")
+    rc = lint_docs.main()
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "Plugin source directory not found" in out

@@ -62,8 +62,6 @@ Use propagation sparingly; most context should remain local. Common use cases in
 
 A `PROPERTY_MAPPING` entry declares one parameter: its accepted values plus its metadata. Build every value with `property_spec(...)`, which returns a typed `PropertySpec`; a raw dict raises `ValueError` at class definition. Throughout this page the builder's `strict=` kwarg sets the spec field named `strict_validation`.
 
-The old flattened form, where accepted values sat among the spec's other keys, is gone.
-
 ### Accepted values: `allowed_values`
 
 `allowed_values` is the kwarg that declares a key's accepted value space:

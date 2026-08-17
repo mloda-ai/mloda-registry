@@ -17,6 +17,8 @@ DOCS_DIR = REPO_ROOT / "docs"
 # The orphan BFS is rooted at the guides index; docs-root files are linted but not part of that graph.
 GUIDES_DIR = DOCS_DIR / "guides"
 
+PLUGIN_SOURCE_DIR = REPO_ROOT / "mloda"
+
 INTERNAL_IMPORT_RE = re.compile(r"from mloda\.core\.")
 
 MD_LINK_RE = re.compile(r"\[.*?\]\((?!https?://|mailto:)([^)#\s]+\.md)(?:#([^)\s]+))?\)")
@@ -25,7 +27,7 @@ HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 
 CODE_BLOCK_RE = re.compile(r"^```", re.MULTILINE)
 
-# Spec fields DefaultOptionKeys must not be used for: six are gone from the unreleased core, and ``explanation``
+# Spec fields DefaultOptionKeys must not be used for: six are gone from the current core, and ``explanation``
 # was never a member at all. ``context``, ``group`` and ``in_features`` survive and must never be flagged.
 RETIRED_SPEC_FIELDS = frozenset(
     {
@@ -278,15 +280,15 @@ def _property_mapping_value(node: ast.AST) -> ast.Dict | None:
     return None
 
 
-def _retired_key_error(md_file: Path, line: int, spelling: str) -> tuple[int, str]:
-    return line, f"{md_file}:{line}: retired spelling {spelling} (use property_spec(...) instead)"
+def _retired_key_error(path: Path, line: int, spelling: str) -> tuple[int, str]:
+    return line, f"{path}:{line}: retired spelling {spelling} (use property_spec(...) instead)"
 
 
-def _raw_dict_error(md_file: Path, line: int) -> tuple[int, str]:
-    return line, f"{md_file}:{line}: raw dict PROPERTY_MAPPING value (use property_spec(...) instead)"
+def _raw_dict_error(path: Path, line: int) -> tuple[int, str]:
+    return line, f"{path}:{line}: raw dict PROPERTY_MAPPING value (use property_spec(...) instead)"
 
 
-def _parsed_fence_errors(md_file: Path, offset: int, tree: ast.Module) -> list[tuple[int, str]]:
+def _parsed_fence_errors(path: Path, offset: int, tree: ast.Module) -> list[tuple[int, str]]:
     """Collect (file line, message) pairs from a parsed fence."""
     found: list[tuple[int, str]] = []
     for node in ast.walk(tree):
@@ -297,13 +299,13 @@ def _parsed_fence_errors(md_file: Path, offset: int, tree: ast.Module) -> list[t
             and node.value.id == OPTION_KEYS_NAME
         ):
             spelling = f"{OPTION_KEYS_NAME}.{node.attr}"
-            found.append(_retired_key_error(md_file, offset + node.lineno, spelling))
+            found.append(_retired_key_error(path, offset + node.lineno, spelling))
         mapping = _property_mapping_value(node)
         if mapping is None:
             continue
         for value in mapping.values:
             if isinstance(value, ast.Dict):
-                found.append(_raw_dict_error(md_file, offset + value.lineno))
+                found.append(_raw_dict_error(path, offset + value.lineno))
     return found
 
 
@@ -341,9 +343,23 @@ def check_retired_property_spec_spellings(md_file: Path, content: str) -> list[s
     return [message for _, message in sorted(found, key=lambda item: item[0])]
 
 
+def check_source_property_mapping(py_file: Path, content: str) -> list[str]:
+    """Same checks as ``check_retired_property_spec_spellings``, applied directly to a whole .py file;
+    unlike the markdown-fence path, a file that fails to parse yields no findings (no textual fallback)."""
+    tree = _parse_python(content)
+    if tree is None:
+        return []
+    found = _parsed_fence_errors(py_file, 0, tree)
+    return [message for _, message in sorted(found, key=lambda item: item[0])]
+
+
 def main() -> int:
     if not DOCS_DIR.is_dir():
         print(f"Docs directory not found: {DOCS_DIR}")
+        return 1
+
+    if not PLUGIN_SOURCE_DIR.is_dir():
+        print(f"Plugin source directory not found: {PLUGIN_SOURCE_DIR}")
         return 1
 
     all_errors: list[str] = []
@@ -371,6 +387,10 @@ def main() -> int:
         content = md_file.read_text(encoding="utf-8")
         link_errors.extend(check_relative_links_and_anchors(md_file, content))
         all_errors.extend(check_bare_fence_openers(md_file, content))
+
+    for py_file in sorted(PLUGIN_SOURCE_DIR.rglob("*.py")):
+        content = py_file.read_text(encoding="utf-8")
+        all_errors.extend(check_source_property_mapping(py_file, content))
 
     all_errors.extend(link_errors)
 
