@@ -422,6 +422,26 @@ class RankTestBase(DataOpsTestBase):
         with pytest.raises((ValueError, KeyError)):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
+    def test_partition_by_empty_raises(self) -> None:
+        """Calling calculate_feature directly with partition_by=[] should raise a clear ValueError."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Feature
+
+        feature = Feature(
+            "value_int__row_number_ranked",
+            options=Options(
+                context={
+                    "partition_by": [],
+                    "order_by": "value_int",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        with pytest.raises(ValueError, match="non-empty partition_by"):
+            self.implementation_class().calculate_feature(self.test_data, fs)
+
     # -- Tier 3: Partition / order_by null tests ------------------------------
 
     def test_null_partition_key_rank(self) -> None:

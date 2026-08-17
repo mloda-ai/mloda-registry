@@ -273,6 +273,23 @@ class PercentileTestBase(MaskTestMixin, DataOpsTestBase):
         with pytest.raises(ValueError, match="at most 1"):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
+    def test_partition_by_empty_raises(self) -> None:
+        """calculate_feature must reject an empty partition_by with a clear ValueError naming it."""
+        feature = Feature(
+            "my_result",
+            options=Options(
+                context={
+                    "percentile": 0.5,
+                    "in_features": "value_int",
+                    "partition_by": [],
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        with pytest.raises(ValueError, match="non-empty partition_by"):
+            self.implementation_class().calculate_feature(self.test_data, fs)
+
     # -- Null consistency tests (multi-null columns) ---------------------------
 
     def test_multi_null_column_p50(self) -> None:

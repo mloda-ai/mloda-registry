@@ -172,6 +172,14 @@ class TestConfigValidation:
         result = WindowAggregationFeatureGroup.match_feature_group_criteria(feature_name, options, None)
         assert result is expected
 
+    def test_partition_by_rejects_empty_list(self) -> None:
+        options = Options(context={"partition_by": []})
+        assert not WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_window", options, None)
+
+    def test_partition_by_rejects_empty_tuple(self) -> None:
+        options = Options(context={"partition_by": ()})
+        assert not WindowAggregationFeatureGroup.match_feature_group_criteria("value_int__sum_window", options, None)
+
 
 class TestConfigBasedFeatures:
     """Tests for configuration-based feature matching (non-string features)."""
