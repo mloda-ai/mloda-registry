@@ -108,6 +108,24 @@ Omitting `default` declares no default, so the key is required; `default=None` d
 
 A spec validates itself when it is built, so a `strict=True` `default` outside the accepted set (or one the key's `element_validator` rejects) raises `ValueError` from the `property_spec(...)` call, not from the `FeatureGroup` class definition that reads the mapping. The message names the spec's explanation and the rejected default. A `default` of `None` is exempt (the conventional "unset" sentinel), and the check is a no-op under `strict=False`.
 
+### Annotate with ClassVar
+
+`FeatureGroup` declares `PROPERTY_MAPPING: ClassVar[...]`, but ruff's `RUF012` (mutable class defaults) does not follow inheritance across files, so a plain `PROPERTY_MAPPING = {...}` in a subclass still trips it once that rule is enabled. Annotate the assignment:
+
+```python
+from typing import ClassVar
+
+from mloda.provider import FeatureGroup, property_spec
+
+
+class ArithmeticFeature(FeatureGroup):
+    PROPERTY_MAPPING: ClassVar = {
+        "operation_type": property_spec("Arithmetic operation", context=False),
+    }
+```
+
+A bare `ClassVar` is enough: `mypy --strict` infers `dict[str, PropertySpec]` from the initializer, so no `PropertySpec` import is needed just for the annotation. Apply the same to any other mutable class-level default on a plugin class, such as a backend registry dict or a set of supported methods.
+
 ## Validation and Conditional Requirements
 
 When using `PROPERTY_MAPPING` with `FeatureChainParserMixin`, you can declare validation rules and conditional requirements directly on option entries:

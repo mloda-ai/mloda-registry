@@ -69,6 +69,8 @@ class MeanImputedFeature(FeatureChainParserMixin, FeatureGroup):
 
 > **Manual alternative**: Before `_resolve_operation()`, plugins called `FeatureChainParser.parse_feature_name()` directly and handled the options fallback themselves. The helper handles this dual-path lookup automatically, so prefer `_resolve_operation()` in new code.
 
+> **Linting**: `PROPERTY_MAPPING` and other mutable class-level defaults trip ruff `RUF012` unless annotated `ClassVar`. See [Options: Annotate with ClassVar](11-options.md#annotate-with-classvar).
+
 ## Usage
 
 ```python
