@@ -40,6 +40,7 @@ from typing import Any
 
 from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
+from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
@@ -70,8 +71,6 @@ RESAMPLE_UNITS: dict[str, str] = {
     "hour": "Hour-aligned buckets (sub-day, fixed length)",
     "day": "Day-aligned buckets (calendar day, midnight UTC)",
 }
-
-_RESAMPLE_MARKER = "resample"
 
 
 def _parse_resample_op(token: str) -> tuple[int, str, str]:
@@ -125,8 +124,12 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
     floor + group-by + aggregate) and the two presence guards.
     """
 
-    PREFIX_PATTERN = r".*__resample_[1-9]\d*_(?:minute|hour|day)_(?:mean|sum|count|min|max)$"
-    RECOGNITION_ONLY_PATTERN = True
+    # Broad capture: 0 or a positive integer with no leading zero, then two lowercase-letter runs for
+    # unit/agg. [a-z]+ (not \w+) keeps unit and agg disjoint from the "_" separator, so there is exactly
+    # one way to split the token and no catastrophic backtracking. n=0 and an unknown unit/agg (e.g.
+    # "century", "median") still match the pattern; _validate_string_match narrows via _parse_resample_op,
+    # which already enumerates the valid units/aggs and rejects n<=0 (mirrors time_bucketization).
+    PREFIX_PATTERN = r".*__resample_((?:[1-9]\d*|0)_[a-z]+_[a-z]+)$"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -155,9 +158,19 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
         ),
     }
 
+    @classmethod
+    def _validate_string_match(cls, feature_name: str, operation_config: str, source_feature: str) -> bool:
+        """Reject pattern matches whose token fails ``_parse_resample_op`` validation (bad unit/agg or n<=0)."""
+        try:
+            _parse_resample_op(operation_config)
+        except ValueError:
+            return False
+        return True
+
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        source_feature = self._source_from_name(str(feature_name))
-        if source_feature is not None:
+        prefix_patterns = self._get_prefix_patterns()
+        operation_config, source_feature = FeatureChainParser.parse_feature_name(str(feature_name), prefix_patterns)
+        if operation_config and source_feature:
             return {Feature(source_feature)}
 
         in_features_set = options.get_in_features()
@@ -166,42 +179,11 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
     # -- Name / token parsing ----------------------------------------------
 
     @classmethod
-    def _source_from_name(cls, feature_name: str) -> str | None:
-        """Return the source column from a ``{src}__resample_...`` name, else None.
-
-        Permissive on purpose: it splits on the LAST ``__resample_`` marker so
-        that invalid-unit / invalid-agg / n=0 feature names (e.g.
-        ``value__resample_1_century_mean``) still yield the source column and
-        the raw token, letting ``_parse_resample_op`` raise the SPECIFIC error.
-        """
-        marker = f"__{_RESAMPLE_MARKER}_"
-        idx = feature_name.rfind(marker)
-        # Intentionally stricter than _token_from_name: idx == 0 means the name
-        # begins with the marker and carries no source column, so return None
-        # (whereas _token_from_name still yields the trailing token).
-        if idx <= 0:
-            return None
-        return feature_name[:idx]
-
-    @classmethod
-    def _token_from_name(cls, feature_name: str) -> str | None:
-        """Return the raw ``{n}_{unit}_{agg}`` token from the name, else None."""
-        marker = f"__{_RESAMPLE_MARKER}_"
-        idx = feature_name.rfind(marker)
-        if idx < 0:
-            return None
-        return feature_name[idx + len(marker) :]
-
-    @classmethod
     def _extract_source_features(cls, feature: Feature) -> list[str]:
-        """Extract and validate the single source feature.
-
-        Name-based extraction is tried first; otherwise the source comes from
-        ``in_features``. Raises ``ValueError`` if more than one source feature
-        is supplied (MAX_IN_FEATURES=1).
-        """
-        source_feature = cls._source_from_name(feature.name)
-        if source_feature is not None:
+        """Extract the single source feature, from the name if possible, else from ``in_features``."""
+        prefix_patterns = cls._get_prefix_patterns()
+        operation_config, source_feature = FeatureChainParser.parse_feature_name(feature.name, prefix_patterns)
+        if operation_config and source_feature:
             return [source_feature]
 
         in_features_set = feature.options.get_in_features()
@@ -224,7 +206,8 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
     @classmethod
     def _extract_resample_op(cls, feature: Feature) -> str:
         """Extract the raw ``{n}_{unit}_{agg}`` token from the name or Options."""
-        token = cls._token_from_name(feature.name)
+        prefix_patterns = cls._get_prefix_patterns()
+        token, _source_feature = FeatureChainParser.parse_feature_name(feature.name, prefix_patterns)
         if token is not None:
             return token
         op = feature.options.get(cls.RESAMPLE_OP)

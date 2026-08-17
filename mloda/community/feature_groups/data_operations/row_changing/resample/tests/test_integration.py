@@ -125,8 +125,10 @@ class TestResampleMatchFeatureGroupCriteria:
         assert not PyArrowResample.match_feature_group_criteria("value_float__ffill", options)
 
     def test_zero_bucket_names_do_not_match(self) -> None:
-        # n must be a positive integer (n >= 1); a zero bucket size is not selectable,
-        # so a resample_0 / resample_00 name must not match the tightened pattern.
+        # n must be a positive integer (n >= 1); a zero bucket size is not selectable.
+        # resample_0_* matches PREFIX_PATTERN (n=0 is accepted so _validate_string_match has
+        # real work to do) but is rejected there via _parse_resample_op; resample_00_* fails
+        # PREFIX_PATTERN outright (no leading-zero form of n is accepted).
         options = Options(context={"time_column": "timestamp", "partition_by": ["region"]})
         assert not PyArrowResample.match_feature_group_criteria("value_float__resample_0_hour_mean", options)
         assert not PyArrowResample.match_feature_group_criteria("value_float__resample_0_minute_count", options)

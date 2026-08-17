@@ -60,8 +60,7 @@ from mloda.community.feature_groups.data_operations.base import (
 class EmaFeatureGroup(RejectionReasonMixin, FeatureGroup):
     """Base class for exponential-moving-average operations that preserve row count."""
 
-    PREFIX_PATTERN = r".*__ema_\d+$"
-    RECOGNITION_ONLY_PATTERN = True
+    PREFIX_PATTERN = r".*__ema_(\d+)$"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -132,10 +131,13 @@ class EmaFeatureGroup(RejectionReasonMixin, FeatureGroup):
     def _extract_span(cls, feature: Feature) -> int:
         """Parse the positive-integer span from the ``{col}__ema_{span}`` name."""
         name = feature.name
-        try:
-            span = int(name.rsplit("__ema_", 1)[1])
-        except (IndexError, ValueError) as exc:
-            raise ValueError(f"Could not extract a positive integer span from feature name {name!r}.") from exc
+        prefix_patterns = cls._get_prefix_patterns()
+        operation_config, _source_feature = FeatureChainParser.parse_feature_name(name, prefix_patterns)
+
+        if operation_config is None:
+            raise ValueError(f"Could not extract a positive integer span from feature name {name!r}.")
+        # PREFIX_PATTERN's capture group is \d+, so operation_config is all digits; int() cannot raise here.
+        span = int(operation_config)
         if span <= 0:
             raise ValueError(f"ema span must be a positive integer (span > 0), got {span} in {name!r}.")
         return span

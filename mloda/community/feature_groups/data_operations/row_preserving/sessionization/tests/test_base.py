@@ -47,7 +47,7 @@ class TestClassAttributes:
         assert isinstance(SessionizationFeatureGroup.PREFIX_PATTERN, str)
 
     def test_prefix_pattern_value(self) -> None:
-        assert SessionizationFeatureGroup.PREFIX_PATTERN == r".*__sessionize_\d+_(?:minute|hour|day|week)$"
+        assert SessionizationFeatureGroup.PREFIX_PATTERN == r".*__(sessionize_\d+_(?:minute|hour|day|week))$"
 
     def test_sessionization_units_contains_four_units(self) -> None:
         assert set(SESSIONIZATION_UNITS.keys()) == {"minute", "hour", "day", "week"}

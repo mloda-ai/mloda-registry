@@ -106,8 +106,7 @@ def _sessionize_threshold_seconds(n: int, unit: str) -> int:
 class SessionizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
     """Base class for gap-threshold sessionization operations that preserve row count."""
 
-    PREFIX_PATTERN = r".*__sessionize_\d+_(?:minute|hour|day|week)$"
-    RECOGNITION_ONLY_PATTERN = True
+    PREFIX_PATTERN = r".*__(sessionize_\d+_(?:minute|hour|day|week))$"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -188,11 +187,12 @@ class SessionizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
     def _extract_threshold_token(cls, feature: Feature) -> str:
         """Return the ``sessionize_{n}_{unit}`` token from the feature name."""
         name = feature.name
-        try:
-            token = name.split("__sessionize_", 1)[1]
-        except IndexError as exc:
-            raise ValueError(f"Could not extract a sessionize token from feature name {name!r}.") from exc
-        return f"sessionize_{token}"
+        prefix_patterns = cls._get_prefix_patterns()
+        operation_config, _source_feature = FeatureChainParser.parse_feature_name(name, prefix_patterns)
+
+        if operation_config is None:
+            raise ValueError(f"Could not extract a sessionize token from feature name {name!r}.")
+        return operation_config
 
     @classmethod
     def _extract_partition_by(cls, feature: Feature) -> list[str]:

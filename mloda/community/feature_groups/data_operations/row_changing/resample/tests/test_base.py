@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from typing import Any
 
@@ -34,21 +35,18 @@ class TestReturnDataTypeRule:
 
 
 class TestChainedNameParsing:
-    """Token / source parsing must agree with the anchored (end-matched) pattern.
-
-    The PREFIX_PATTERN is anchored at the end, so on a chained name the operative
-    token is the LAST ``resample`` segment and the source is everything before it.
-    ``_token_from_name`` / ``_source_from_name`` must split on the LAST marker.
-    """
+    """On a chained name, parsing must resolve the LAST ``resample`` marker, not the first."""
 
     CHAINED_SUM = "value__resample_1_hour_mean__resample_2_hour_sum"
     CHAINED_COUNT = "value__resample_1_hour_mean__resample_2_hour_count"
 
     def test_token_from_chained_name_uses_last_marker(self) -> None:
-        assert ResampleFeatureGroup._token_from_name(self.CHAINED_SUM) == "2_hour_sum"
+        feature = Feature(self.CHAINED_SUM, options=Options())
+        assert ResampleFeatureGroup._extract_resample_op(feature) == "2_hour_sum"
 
     def test_source_from_chained_name_uses_last_marker(self) -> None:
-        assert ResampleFeatureGroup._source_from_name(self.CHAINED_SUM) == "value__resample_1_hour_mean"
+        feature = Feature(self.CHAINED_SUM, options=Options())
+        assert ResampleFeatureGroup._extract_source_features(feature) == ["value__resample_1_hour_mean"]
 
     def test_rule_reflects_last_token_count(self) -> None:
         # LAST token is a count -> deterministic INT64; must not raise.
@@ -59,6 +57,28 @@ class TestChainedNameParsing:
         # LAST token is a sum -> input-dependent -> None; must not raise.
         feature = Feature(self.CHAINED_SUM, options=Options())
         assert ResampleFeatureGroup.return_data_type_rule(feature) is None
+
+
+class TestPrefixPatternPerformance:
+    """PREFIX_PATTERN must reject an adversarial name in bounded time.
+
+    An earlier draft captured unit/agg with an ambiguous ``\\w+_\\w+`` (``_`` is
+    itself a ``\\w`` character), which took ~22s of catastrophic backtracking on a
+    ~6.4KB adversarial name. ``[a-z]+`` keeps unit/agg disjoint from the ``_``
+    separator, so there is exactly one way to split the token and matching stays
+    fast regardless of input length.
+    """
+
+    def test_adversarial_name_rejected_quickly(self) -> None:
+        adversarial = "value" + ("__resample_1_a_b" * 400) + "!"
+        options = Options(context={"time_column": "timestamp", "partition_by": ["region"]})
+
+        start = time.monotonic()
+        result = ResampleFeatureGroup.match_feature_group_criteria(adversarial, options, None)
+        elapsed = time.monotonic() - start
+
+        assert result is False
+        assert elapsed < 2.0, f"match_feature_group_criteria took {elapsed:.3f}s on an adversarial name; expected < 2s"
 
 
 class TestResampleOpConfig:
