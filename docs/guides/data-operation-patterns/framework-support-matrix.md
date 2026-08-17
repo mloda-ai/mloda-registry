@@ -60,7 +60,7 @@ Unsupported combinations are also rejected at match time when running a pipeline
 
 ## Not in this matrix: joins
 
-This matrix only covers data-operation feature groups (single-source column transforms). Joins are a separate concern handled by the compute frameworks' merge engines in core, not by registry feature groups, so they do not appear above. The **as-of (point-in-time) join** added in mloda 0.8.0 has its own per-backend support table and a worked example in [Links and joins](../feature-group-patterns/08-links-joins.md#as-of-point-in-time-joins).
+This matrix only covers data-operation feature groups (single-source column transforms). Joins are a separate concern handled by the compute frameworks' merge engines in core, not by registry feature groups, so they do not appear above. The **as-of (point-in-time) join** has its own per-backend support table and a worked example in [Links and joins](../feature-group-patterns/08-links-joins.md#as-of-point-in-time-joins).
 
 ---
 

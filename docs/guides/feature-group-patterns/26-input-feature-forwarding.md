@@ -8,8 +8,6 @@ When a feature group declares **another group's** feature in `input_features()`,
 **Where**: `input_features()` return values, on the `Feature(...)` objects you construct there.
 **How**: Leave children at the default to inherit everything, or use the typed opt-outs `forward_group`, `forward_group_exclude`, and the context pull/push pair `inherit_context_keys` / `propagate_context_keys`.
 
-> Requires `mloda>=0.9.0`. Earlier releases used a `feature_chainer_parser_key` denylist shield that is removed in 0.9.0; do not use it. The API below is the replacement.
-
 ## The Default: Group Options Forward
 
 A consumer's **group** options flow onto every input feature by default. **Context** options never flow through this forwarding merge (the one exception is a bare-string child, which shares the consumer's `Options` outright: see the caveat below). `in_features` itself never flows.

@@ -69,7 +69,7 @@ below for the keyword reference, per-backend support, and a runnable end-to-end 
 ## As-of (point-in-time) joins
 
 A plain `Link.inner()` / `Link.left()` is an equi-join: rows pair up only when their
-join keys are exactly equal. An as-of join (added in mloda 0.8.0) adds a per-row time
+join keys are exactly equal. An as-of join adds a per-row time
 match on top of that: for each left row, mloda picks the right row that was valid at
 the left row's timestamp. This is the join that recsys, slowly-changing-dimension
 lookups, and event-vs-state pipelines need, and it cannot be expressed as an equi-join.
@@ -107,7 +107,7 @@ both factories (`Link.asof(left_spec, right_spec, *, left_time_column=..., ...)`
 
 `direction="nearest"` and `timedelta` tolerances work only on the Pandas and Polars
 backends; PyArrow and the SQL backends reject them (see the table). Two guards apply to
-every backend (mloda 0.9.0): as-of time columns must be ordered, so a non-ordered
+every backend: as-of time columns must be ordered, so a non-ordered
 (e.g. string) column raises a clear `ValueError` naming it
 ([mloda#529](https://github.com/mloda-ai/mloda/pull/529)); and `coerce_time_columns=True`
 opts in to coercing ISO-8601 string columns per backend

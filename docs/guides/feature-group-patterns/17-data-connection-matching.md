@@ -57,7 +57,7 @@ class CsvFeature(FeatureGroup):
     ) -> bool:
         if data_access_collection is None or not data_access_collection.folders:
             return False
-        # `folders` is a dict[handle, path] in mloda 0.7.0+; iterate `.values()`
+        # `folders` is a dict[handle, path]; iterate `.values()`
         # for the path (iterating the dict directly yields handle names).
         options.set("_data_folder", next(iter(data_access_collection.folders.values())))
         return True
@@ -77,7 +77,7 @@ The `options` parameter is required. For the full reader-selection contract
 
 ## Named Handles and Multi-Source Disambiguation
 
-Since mloda 0.7.0, `DataAccessCollection` registers each resource under a stable
+`DataAccessCollection` registers each resource under a stable
 **handle**. Pass a `dict[handle, value]` to name resources explicitly; a `set`/`list`
 still works and auto-assigns internal handles.
 
@@ -123,7 +123,7 @@ binding the wrong source.
 
 Credentials are a resource kind alongside connections, files, and folders, but with
 one twist: a credential *is* a dict, so a bare `{connector_id: slot}` dict collides
-with the named `{handle: value}` form. Since mloda 0.9.0, wrap each credential slot
+with the named `{handle: value}` form. Wrap each credential slot
 in the typed `Credential` class so the meaning comes from the type, not the nesting
 depth:
 
