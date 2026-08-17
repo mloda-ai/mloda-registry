@@ -47,7 +47,7 @@ authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
 
 [defaults]
 license = "Apache-2.0"
-core_dependency = "mloda>=0.10.0,<0.11.0"
+core_dependency = "mloda>=0.11.0,<0.12.0"
 optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 ```
 
