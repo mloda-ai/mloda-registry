@@ -128,8 +128,10 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
     # unit/agg. [a-z]+ (not \w+) keeps unit and agg disjoint from the "_" separator, so there is exactly
     # one way to split the token and no catastrophic backtracking. n=0 and an unknown unit/agg (e.g.
     # "century", "median") still match the pattern; _validate_string_match narrows via _parse_resample_op,
-    # which already enumerates the valid units/aggs and rejects n<=0 (mirrors time_bucketization).
-    PREFIX_PATTERN = r".*__resample_((?:[1-9]\d*|0)_[a-z]+_[a-z]+)$"
+    # which already enumerates the valid units/aggs and rejects n<=0 (mirrors time_bucketization). Named
+    # so FeatureChainParser.bind_name_captures binds it to resample_op, enabling the forwarded-value vs.
+    # name-parsed-value mismatch check in _validate_forwarded_name_mismatch.
+    PREFIX_PATTERN = r".*__resample_(?P<resample_op>(?:[1-9]\d*|0)_[a-z]+_[a-z]+)$"
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -168,12 +170,14 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
         return True
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        _feature_name = str(feature_name)
         prefix_patterns = self._get_prefix_patterns()
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(str(feature_name), prefix_patterns)
+        operation_config, source_feature = FeatureChainParser.parse_feature_name(_feature_name, prefix_patterns)
         if operation_config and source_feature:
             return {Feature(source_feature)}
 
         in_features_set = options.get_in_features()
+        self._validate_in_feature_count(list(in_features_set), _feature_name)
         return set(in_features_set)
 
     # -- Name / token parsing ----------------------------------------------

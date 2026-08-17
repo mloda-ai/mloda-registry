@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 from mloda.user import DataType, Feature
@@ -86,6 +87,42 @@ class TestResampleOpConfig:
 
     def test_resample_op_in_property_mapping(self) -> None:
         assert ResampleFeatureGroup.RESAMPLE_OP in ResampleFeatureGroup.PROPERTY_MAPPING
+
+
+class TestOptionsPathInFeatureCount:
+    """The options-based fallback in ``input_features`` must validate in_feature count like the name path."""
+
+    def test_input_features_rejects_multiple_option_in_features(self) -> None:
+        options = Options(
+            context={
+                "resample_op": "1_hour_mean",
+                "time_column": "timestamp",
+                "in_features": ["value_a", "value_b"],
+            }
+        )
+        instance = ResampleFeatureGroup()
+        with pytest.raises(ValueError, match="at most 1"):
+            instance.input_features(options, FeatureName("my_result"))
+
+
+class TestForwardedResampleOpMismatch:
+    """A forwarded ``resample_op`` that contradicts the name-parsed op must be rejected, not silently ignored."""
+
+    def test_mismatched_forwarded_resample_op_raises(self) -> None:
+        consumer_options = Options(group={"resample_op": "2_hour_sum"})
+        child_options = Options(context={"time_column": "timestamp"})
+        child_options.inherit_from(consumer_options)
+
+        with pytest.raises(ValueError, match="resample_op"):
+            ResampleFeatureGroup.match_feature_group_criteria("value__resample_1_hour_mean", child_options, None)
+
+    def test_matching_forwarded_resample_op_is_accepted(self) -> None:
+        consumer_options = Options(group={"resample_op": "1_hour_mean"})
+        child_options = Options(context={"time_column": "timestamp"})
+        child_options.inherit_from(consumer_options)
+
+        result = ResampleFeatureGroup.match_feature_group_criteria("value__resample_1_hour_mean", child_options, None)
+        assert result is True
 
 
 class TestResampleMatchValidation(MatchValidationTestBase):
