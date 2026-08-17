@@ -26,7 +26,7 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import DefaultOptionKeys
+from mloda.provider import DefaultOptionKeys, property_spec
 
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
 from mloda.community.feature_groups.data_operations.base import (
@@ -54,25 +54,23 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
     CONSTANT = "constant"
 
     PROPERTY_MAPPING = {
-        ArithmeticFeatureGroupBase.ARITHMETIC_OP: {
-            "explanation": "Arithmetic operation applied between the source column and the constant",
-            DefaultOptionKeys.allowed_values: ARITHMETIC_OPERATIONS,
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.match_guard: is_op_token,
-        },
-        DefaultOptionKeys.in_features: {
-            "explanation": "Single source feature column for the arithmetic operation",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        CONSTANT: {
-            "explanation": "Numeric constant applied element-wise to the source column",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.element_validator: is_number_element,
-            DefaultOptionKeys.match_guard: is_scalar_number,
-        },
+        ArithmeticFeatureGroupBase.ARITHMETIC_OP: property_spec(
+            "Arithmetic operation applied between the source column and the constant",
+            strict=True,
+            allowed_values=ARITHMETIC_OPERATIONS,
+            match_guard=is_op_token,
+        ),
+        DefaultOptionKeys.in_features: property_spec(
+            "Single source feature column for the arithmetic operation",
+            strict=False,
+        ),
+        CONSTANT: property_spec(
+            "Numeric constant applied element-wise to the source column",
+            strict=True,
+            element_validator=is_number_element,
+            match_guard=is_scalar_number,
+            deferred_binding=True,
+        ),
     }
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:

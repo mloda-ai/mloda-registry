@@ -79,25 +79,25 @@ class TestPropertyMapping:
         mapping = RankFeatureGroup.PROPERTY_MAPPING
         assert RankFeatureGroup.PARTITION_BY in mapping
         entry = mapping[RankFeatureGroup.PARTITION_BY]
-        assert entry[DefaultOptionKeys.context] is True
+        assert entry.context is True
 
     def test_property_mapping_contains_order_by(self) -> None:
         mapping = RankFeatureGroup.PROPERTY_MAPPING
         assert RankFeatureGroup.ORDER_BY in mapping
         entry = mapping[RankFeatureGroup.ORDER_BY]
-        assert entry[DefaultOptionKeys.context] is True
+        assert entry.context is True
 
     def test_property_mapping_contains_rank_type(self) -> None:
         mapping = RankFeatureGroup.PROPERTY_MAPPING
         assert RankFeatureGroup.RANK_TYPE in mapping
         entry = mapping[RankFeatureGroup.RANK_TYPE]
-        assert entry[DefaultOptionKeys.context] is True
+        assert entry.context is True
 
     def test_property_mapping_contains_in_features(self) -> None:
         mapping = RankFeatureGroup.PROPERTY_MAPPING
         assert DefaultOptionKeys.in_features in mapping
         entry = mapping[DefaultOptionKeys.in_features]
-        assert entry[DefaultOptionKeys.context] is True
+        assert entry.context is True
 
 
 class TestPatternMatching:

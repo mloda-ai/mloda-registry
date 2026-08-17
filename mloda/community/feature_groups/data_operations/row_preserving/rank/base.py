@@ -9,7 +9,7 @@ from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
 
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 from mloda.community.feature_groups.data_operations.base import (
@@ -142,31 +142,28 @@ class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup
     PARAMETRIC_RANK_FAMILIES: tuple[str, ...] = _PARAMETRIC_RANK_FAMILIES
 
     PROPERTY_MAPPING = {
-        RANK_TYPE: {
-            "explanation": "Rank type applied within each partition",
-            DefaultOptionKeys.allowed_values: RANK_TYPES,
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.element_validator: _is_supported_rank_type,
-            DefaultOptionKeys.match_guard: is_op_token,
-        },
-        DefaultOptionKeys.in_features: {
-            "explanation": "Source feature for rank ordering",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.match_guard: is_in_features_value,
-        },
-        PARTITION_BY: {
-            "explanation": "List of columns to partition by",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        ORDER_BY: {
-            "explanation": "Column to order by within each partition",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.match_guard: is_column_ref,
-        },
+        RANK_TYPE: property_spec(
+            "Rank type applied within each partition",
+            strict=True,
+            allowed_values=RANK_TYPES,
+            element_validator=_is_supported_rank_type,
+            match_guard=is_op_token,
+            deferred_binding=True,
+        ),
+        DefaultOptionKeys.in_features: property_spec(
+            "Source feature for rank ordering",
+            strict=False,
+            match_guard=is_in_features_value,
+        ),
+        PARTITION_BY: property_spec(
+            "List of columns to partition by",
+            strict=False,
+        ),
+        ORDER_BY: property_spec(
+            "Column to order by within each partition",
+            strict=False,
+            match_guard=is_column_ref,
+        ),
     }
 
     @classmethod

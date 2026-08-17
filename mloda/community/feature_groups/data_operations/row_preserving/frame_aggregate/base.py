@@ -11,7 +11,7 @@ from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
 
 from mloda.community.feature_groups.data_operations.base import (
     FRAME_SIZE as _FRAME_SIZE_KEY,
@@ -212,68 +212,61 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
     PARTITION_BY = "partition_by"
     ORDER_BY = "order_by"
 
-    #: Keys a frame name supplies via _parse_frame_feature; exempt from required_when on the name path.
-    _NAME_SUPPLIED_KEYS: tuple[str, ...] = (FRAME_TYPE, FRAME_SIZE, FRAME_UNIT)
-
     PROPERTY_MAPPING = {
-        AGGREGATION_TYPE: {
-            "explanation": "Aggregation applied over the frame",
-            DefaultOptionKeys.allowed_values: {k: k for k in _AGGREGATION_TYPES},
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.match_guard: is_op_token,
-        },
-        FRAME_TYPE: {
-            "explanation": "Frame semantics of the window",
-            DefaultOptionKeys.allowed_values: {
+        AGGREGATION_TYPE: property_spec(
+            "Aggregation applied over the frame",
+            strict=True,
+            allowed_values={k: k for k in _AGGREGATION_TYPES},
+            match_guard=is_op_token,
+        ),
+        FRAME_TYPE: property_spec(
+            "Frame semantics of the window",
+            strict=True,
+            allowed_values={
                 "rolling": "Fixed-size row-count window",
                 "time": "Time-interval window",
                 "cumulative": "Running aggregate from start",
                 "expanding": "Same as cumulative",
             },
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.match_guard: is_op_token,
-        },
-        FRAME_SIZE: {
-            "explanation": "Window size (rows for rolling, integer for time)",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.match_guard: is_positive_int,
-            DefaultOptionKeys.required_when: _needs_frame_size,
-        },
-        FRAME_UNIT: {
-            "explanation": "Time unit for time windows",
-            DefaultOptionKeys.allowed_values: {unit: f"{unit} interval" for unit in sorted(_TIME_UNITS)},
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.match_guard: is_op_token,
-            DefaultOptionKeys.required_when: _needs_frame_unit,
-        },
-        DefaultOptionKeys.in_features: {
-            "explanation": "Source feature for frame aggregation",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.match_guard: is_in_features_value,
-        },
-        PARTITION_BY: {
-            "explanation": "List of columns to partition by",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        ORDER_BY: {
-            "explanation": "Column to order by within each partition",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.match_guard: is_column_ref,
-            DefaultOptionKeys.required_when: always_required,
-        },
-        MASK_KEY: {
-            "explanation": "Conditional mask: (column, operator, value) tuple or list of tuples",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.default: None,
-        },
+            match_guard=is_op_token,
+            # A frame name carries its own type via _parse_frame_feature, not a named capture.
+            deferred_binding=True,
+        ),
+        FRAME_SIZE: property_spec(
+            "Window size (rows for rolling, integer for time)",
+            match_guard=is_positive_int,
+            # Optional by declaration: conditional requiredness (rolling/time only) is hand-enforced
+            # in match_feature_group_criteria's config-path branch, not via required_when. A
+            # required_when predicate here would also fire on the name path through core's
+            # class-definition-time required_when guard, which evaluates it against Options alone
+            # (with no notion of "this feature name already supplies the value"), rejecting a
+            # name-parsed feature that merely carries a stray/matching frame_type option.
+            default=None,
+        ),
+        FRAME_UNIT: property_spec(
+            "Time unit for time windows",
+            strict=True,
+            allowed_values={unit: f"{unit} interval" for unit in sorted(_TIME_UNITS)},
+            match_guard=is_op_token,
+            # Same rationale as FRAME_SIZE above: conditional requiredness is hand-enforced below.
+            default=None,
+        ),
+        DefaultOptionKeys.in_features: property_spec(
+            "Source feature for frame aggregation",
+            match_guard=is_in_features_value,
+        ),
+        PARTITION_BY: property_spec(
+            "List of columns to partition by",
+        ),
+        ORDER_BY: property_spec(
+            "Column to order by within each partition",
+            match_guard=is_column_ref,
+            required_when=always_required,
+        ),
+        MASK_KEY: property_spec(
+            "Conditional mask: (column, operator, value) tuple or list of tuples",
+            default=None,
+        ),
     }
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
@@ -327,20 +320,6 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
         return True
 
     @classmethod
-    def _validate_required_when(
-        cls,
-        result: bool,
-        feature_name: str | FeatureName,
-        prefix_patterns: list[str],
-        property_mapping: dict[str, Any] | None,
-        options: Options,
-    ) -> bool:
-        # A frame name carries its own type, size and unit; order_by stays required on every path.
-        if property_mapping is not None and cls._parse_frame_feature(str(feature_name)) is not None:
-            property_mapping = {k: v for k, v in property_mapping.items() if k not in cls._NAME_SUPPLIED_KEYS}
-        return super()._validate_required_when(result, feature_name, prefix_patterns, property_mapping, options)
-
-    @classmethod
     def match_feature_group_criteria(
         cls,
         feature_name: Any,
@@ -356,9 +335,15 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
             return False
 
         # Config path only: SUPPORTED_* narrows per subclass, so it cannot be declared once on the base.
+        # frame_size/frame_unit requiredness is hand-enforced here (not via PROPERTY_MAPPING
+        # required_when) so it can never mis-fire on the name path; see the PROPERTY_MAPPING comment.
         if cls._parse_frame_feature(str(feature_name)) is None:
             frame_type = _option_token(options, cls.FRAME_TYPE)
             if frame_type not in cls.SUPPORTED_FRAME_TYPES:
+                return False
+            if _needs_frame_size(options) and options.get(cls.FRAME_SIZE) is None:
+                return False
+            if _needs_frame_unit(options) and options.get(cls.FRAME_UNIT) is None:
                 return False
             if frame_type == "time" and _option_token(options, cls.FRAME_UNIT) not in cls.SUPPORTED_TIME_UNITS:
                 return False

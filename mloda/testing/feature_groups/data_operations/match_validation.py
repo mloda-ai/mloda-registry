@@ -36,7 +36,7 @@ from typing import Any
 import pytest
 
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import DefaultOptionKeys
+from mloda.provider import PropertySpec
 
 
 def _is_container(value: Any) -> bool:
@@ -195,7 +195,7 @@ class ScalarArityTestBase:
         mapping = getattr(cls.feature_group_class(), "PROPERTY_MAPPING", None) or {}
         predicates = {}
         for key, entry in mapping.items():
-            predicate = entry.get(DefaultOptionKeys.required_when) if isinstance(entry, dict) else None
+            predicate = entry.required_when if isinstance(entry, PropertySpec) else None
             if callable(predicate):
                 predicates[key] = predicate
         return predicates

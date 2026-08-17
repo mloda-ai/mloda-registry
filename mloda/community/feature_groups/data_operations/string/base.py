@@ -8,7 +8,7 @@ from mloda.core.abstract_plugins.components.data_types import DataType
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
 from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, is_op_token, op_token_value
 
 STRING_OPS = {
@@ -66,18 +66,16 @@ class StringFeatureGroup(RejectionReasonMixin, FeatureGroup):
     STRING_OP = "string_op"
 
     PROPERTY_MAPPING = {
-        STRING_OP: {
-            "explanation": "String operation applied to the source column",
-            DefaultOptionKeys.allowed_values: STRING_OPS,
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.match_guard: is_op_token,
-        },
-        DefaultOptionKeys.in_features: {
-            "explanation": "Source string column",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
+        STRING_OP: property_spec(
+            "String operation applied to the source column",
+            strict=True,
+            allowed_values=STRING_OPS,
+            match_guard=is_op_token,
+        ),
+        DefaultOptionKeys.in_features: property_spec(
+            "Source string column",
+            strict=False,
+        ),
     }
 
     @classmethod

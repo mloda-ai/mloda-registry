@@ -47,7 +47,7 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
 
 from mloda.community.feature_groups.data_operations.base import (
     RejectionReasonMixin,
@@ -61,6 +61,7 @@ class EmaFeatureGroup(RejectionReasonMixin, FeatureGroup):
     """Base class for exponential-moving-average operations that preserve row count."""
 
     PREFIX_PATTERN = r".*__ema_\d+$"
+    RECOGNITION_ONLY_PATTERN = True
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -69,23 +70,18 @@ class EmaFeatureGroup(RejectionReasonMixin, FeatureGroup):
     ORDER_BY = "order_by"
 
     PROPERTY_MAPPING = {
-        DefaultOptionKeys.in_features: {
-            "explanation": "Single source column to compute the EMA of",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        PARTITION_BY: {
-            "explanation": "List of columns to partition by (default: whole table as one partition)",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        ORDER_BY: {
-            "explanation": "Column to order by (ascending) within each partition",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.match_guard: is_column_ref,
-            DefaultOptionKeys.required_when: always_required,
-        },
+        DefaultOptionKeys.in_features: property_spec(
+            "Single source column to compute the EMA of",
+        ),
+        PARTITION_BY: property_spec(
+            "List of columns to partition by (default: whole table as one partition)",
+            default=None,
+        ),
+        ORDER_BY: property_spec(
+            "Column to order by (ascending) within each partition",
+            match_guard=is_column_ref,
+            required_when=always_required,
+        ),
     }
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:

@@ -8,11 +8,11 @@ from collections.abc import Callable
 from enum import Enum
 from typing import Any, TypeVar
 
-from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.provider import PropertySpec
 
 T = TypeVar("T")
 
@@ -240,51 +240,52 @@ class RejectionReasonMixin(FeatureChainParserMixin):
 
     @classmethod
     def _strict_validation_rejection_reason(cls, feature_name: str | FeatureName, options: Options) -> str | None:
-        reason = super()._strict_validation_rejection_reason(feature_name, options)
-        if reason is not None:
-            return reason
         property_mapping = cls._get_property_mapping()
-        if property_mapping is None:
-            return None
-        prefix_patterns = cls._get_prefix_patterns()
-        # Both checks only fire for a candidate that would otherwise match; a non-candidate
-        # carrying a stray mistyped option stays silent.
-        try:
-            matched = FeatureChainParser.match_configuration_feature_chain_parser(
-                feature_name, options, property_mapping=property_mapping, prefix_patterns=prefix_patterns
-            )
-        except ValueError:
-            matched = False
-        if matched:
-            # Whether a key is missing goes through cls._validate_required_when so subclass overrides
-            # (frame_aggregate's name-path carve-out) win; only the key lookup mirrors the base loop.
-            if not cls._validate_required_when(True, feature_name, prefix_patterns, property_mapping, options):
-                key = cls._missing_required_when_key(feature_name, prefix_patterns, property_mapping, options)
+        if property_mapping is not None:
+            prefix_patterns = cls._get_prefix_patterns()
+            # Both checks only fire for a candidate that would otherwise match; a non-candidate
+            # carrying a stray mistyped option stays silent. A raised ValueError (a present value
+            # failing strict validation, or a malformed PREFIX_PATTERN match with no source feature)
+            # still means this candidate is relevant: treat it as matched so our own, more specific
+            # match_guard/required_when diagnostics get a chance before core's generic one.
+            try:
+                matched = FeatureChainParser.match_configuration_feature_chain_parser(
+                    feature_name, options, property_mapping=property_mapping, prefix_patterns=prefix_patterns
+                )
+            except ValueError:
+                matched = True
+            if matched:
+                # The effective options fold in any name-derived bindings, so a required_when predicate
+                # and a match_guard see a name-carried value exactly as the real match path does.
+                effective_options = FeatureChainParser.build_effective_options(
+                    feature_name, prefix_patterns, property_mapping, options
+                )
+                key = cls._missing_required_when_key(effective_options, property_mapping)
                 if key is not None:
                     return (
                         f"required option '{key}' was not provided; provide it in Options(context=...). "
                         f"For a chained name, the child receives only the context keys listed in "
                         f"propagate_context_keys"
                     )
-            guard_reason = cls._match_guard_rejection_reason(options, property_mapping)
-            if guard_reason is not None:
-                return guard_reason
-        return None
+                # Checked before falling back to core's own hook: core reports a match_guard rejection
+                # on a strict-validation spec too, but with a generic message that neither names the
+                # arity of a rejected multi-element value nor covers a guard on a non-strict spec.
+                guard_reason = cls._match_guard_rejection_reason(effective_options, property_mapping)
+                if guard_reason is not None:
+                    return guard_reason
+        return super()._strict_validation_rejection_reason(feature_name, options)
 
     @classmethod
     def _missing_required_when_key(
         cls,
-        feature_name: str | FeatureName,
-        prefix_patterns: list[str],
+        effective_options: Options,
         property_mapping: dict[str, Any],
-        options: Options,
     ) -> str | None:
         """First key whose required_when predicate fires while the effective options leave it unset."""
-        effective_options = cls._build_effective_options(str(feature_name), prefix_patterns, property_mapping, options)
-        for key, mapping_entry in property_mapping.items():
-            if not isinstance(mapping_entry, dict):
+        for key, spec in property_mapping.items():
+            if not isinstance(spec, PropertySpec):
                 continue
-            predicate = mapping_entry.get(DefaultOptionKeys.required_when)
+            predicate = spec.required_when
             if predicate is None or not callable(predicate):
                 continue
             if predicate(effective_options) and effective_options.get(key) is None:
@@ -294,10 +295,10 @@ class RejectionReasonMixin(FeatureChainParserMixin):
     @classmethod
     def _match_guard_rejection_reason(cls, options: Options, property_mapping: dict[str, Any]) -> str | None:
         """Formatted reason for the first match_guard rejection of a present value, or None."""
-        for key, mapping_entry in property_mapping.items():
-            if not isinstance(mapping_entry, dict):
+        for key, spec in property_mapping.items():
+            if not isinstance(spec, PropertySpec):
                 continue
-            guard = mapping_entry.get(DefaultOptionKeys.match_guard)
+            guard = spec.match_guard
             if guard is None:
                 continue
             value = options.get(key)

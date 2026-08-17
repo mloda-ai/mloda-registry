@@ -51,7 +51,7 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
 
 from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, column_ref_value, is_column_ref
 
@@ -107,6 +107,7 @@ class SessionizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
     """Base class for gap-threshold sessionization operations that preserve row count."""
 
     PREFIX_PATTERN = r".*__sessionize_\d+_(?:minute|hour|day|week)$"
+    RECOGNITION_ONLY_PATTERN = True
 
     MIN_IN_FEATURES = 1
     MAX_IN_FEATURES = 1
@@ -115,22 +116,21 @@ class SessionizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
     ORDER_BY = "order_by"
 
     PROPERTY_MAPPING = {
-        DefaultOptionKeys.in_features: {
-            "explanation": "Single source timestamp column to sessionize",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        PARTITION_BY: {
-            "explanation": "List of columns to partition by (default: whole table as one stream)",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        ORDER_BY: {
-            "explanation": "Column to order by (ascending); defaults to the source timestamp column",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.match_guard: is_column_ref,
-        },
+        DefaultOptionKeys.in_features: property_spec(
+            "Single source timestamp column to sessionize",
+            strict=False,
+        ),
+        PARTITION_BY: property_spec(
+            "List of columns to partition by (default: whole table as one stream)",
+            strict=False,
+            default=None,
+        ),
+        ORDER_BY: property_spec(
+            "Column to order by (ascending); defaults to the source timestamp column",
+            strict=False,
+            default=None,
+            match_guard=is_column_ref,
+        ),
     }
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:

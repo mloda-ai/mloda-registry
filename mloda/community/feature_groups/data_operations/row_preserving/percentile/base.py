@@ -9,7 +9,7 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import DefaultOptionKeys, FeatureGroup
+from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
 
 from mloda.community.feature_groups.data_operations.base import (
     RejectionReasonMixin,
@@ -83,29 +83,26 @@ class PercentileFeatureGroup(RejectionReasonMixin, FeatureGroup):
     PARTITION_BY = "partition_by"
 
     PROPERTY_MAPPING = {
-        PERCENTILE: {
-            "explanation": "Percentile value (float between 0.0 and 1.0)",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.element_validator: _is_unit_interval_element,
-            DefaultOptionKeys.match_guard: is_scalar_number,
-        },
-        DefaultOptionKeys.in_features: {
-            "explanation": "Source feature for percentile computation",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        PARTITION_BY: {
-            "explanation": "List of columns to partition by",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-        },
-        MASK_KEY: {
-            "explanation": "Conditional mask: (column, operator, value) tuple or list of tuples",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.default: None,
-        },
+        PERCENTILE: property_spec(
+            "Percentile value (float between 0.0 and 1.0)",
+            strict=True,
+            element_validator=_is_unit_interval_element,
+            match_guard=is_scalar_number,
+            deferred_binding=True,
+        ),
+        DefaultOptionKeys.in_features: property_spec(
+            "Source feature for percentile computation",
+            strict=False,
+        ),
+        PARTITION_BY: property_spec(
+            "List of columns to partition by",
+            strict=False,
+        ),
+        MASK_KEY: property_spec(
+            "Conditional mask: (column, operator, value) tuple or list of tuples",
+            strict=False,
+            default=None,
+        ),
     }
 
     @classmethod

@@ -25,7 +25,7 @@ from typing import Any
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.provider import DefaultOptionKeys
+from mloda.provider import DefaultOptionKeys, property_spec
 
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
 from mloda.community.feature_groups.data_operations.base import is_op_token
@@ -69,19 +69,17 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
     OPERATION_LABEL = "point arithmetic"
 
     PROPERTY_MAPPING = {
-        ArithmeticFeatureGroupBase.ARITHMETIC_OP: {
-            "explanation": "Element-wise arithmetic operation applied to the two source columns",
-            DefaultOptionKeys.allowed_values: ARITHMETIC_OPERATIONS,
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.match_guard: is_op_token,
-        },
-        DefaultOptionKeys.in_features: {
-            "explanation": "Two source feature columns for the element-wise arithmetic operation",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.match_guard: _is_ordered_in_features,
-        },
+        ArithmeticFeatureGroupBase.ARITHMETIC_OP: property_spec(
+            "Element-wise arithmetic operation applied to the two source columns",
+            strict=True,
+            allowed_values=ARITHMETIC_OPERATIONS,
+            match_guard=is_op_token,
+        ),
+        DefaultOptionKeys.in_features: property_spec(
+            "Two source feature columns for the element-wise arithmetic operation",
+            strict=False,
+            match_guard=_is_ordered_in_features,
+        ),
     }
 
     @classmethod
