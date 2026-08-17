@@ -2,7 +2,7 @@
 
 Three related row-preserving families for analytic windows: percentile (value-at-rank), rank (rank-of-value), and offset (shift-relative-to-row). They share naming and parameter conventions.
 
-**What**: Three feature groups that each compute a per-row analytic value within an optional partition.
+**What**: Three feature groups that each compute a per-row analytic value within a partition. `partition_by` is required for all three — none has a whole-table fallback — unlike `ema`, `ffill`, `sessionization`, and `resample`, which treat `partition_by` as optional and fall back to the whole table when it's omitted.
 **When**: You need percentiles, ranks, lags, or cumulative positions alongside the original rows.
 **Why**: These are the core analytic-window primitives that power feature engineering for time series and grouped analytics.
 **Where**: `mloda/community/feature_groups/data_operations/row_preserving/{percentile,rank,offset}/`.
