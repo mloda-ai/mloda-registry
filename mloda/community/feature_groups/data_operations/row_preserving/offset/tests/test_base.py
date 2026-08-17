@@ -132,6 +132,14 @@ class TestConfigValidation:
         options = Options(context={"partition_by": [123], "order_by": "value_int"})
         assert not OffsetFeatureGroup.match_feature_group_criteria("value_int__lag_1_offset", options, None)
 
+    def test_partition_by_rejects_empty_list(self) -> None:
+        options = Options(context={"partition_by": [], "order_by": "value_int"})
+        assert not OffsetFeatureGroup.match_feature_group_criteria("value_int__lag_1_offset", options, None)
+
+    def test_partition_by_rejects_empty_tuple(self) -> None:
+        options = Options(context={"partition_by": (), "order_by": "value_int"})
+        assert not OffsetFeatureGroup.match_feature_group_criteria("value_int__lag_1_offset", options, None)
+
     def test_order_by_rejects_non_string(self) -> None:
         options = Options(context={"partition_by": ["region"], "order_by": 123})
         assert not OffsetFeatureGroup.match_feature_group_criteria("value_int__lag_1_offset", options, None)
