@@ -187,6 +187,41 @@ class TestReturnDataTypeRule:
         assert BinningFeatureGroup.return_data_type_rule(feature) == DataType.INT64
 
 
+class TestForwardedNBinsMismatch:
+    """A group-forwarded ``n_bins`` that contradicts the name-parsed value is rejected, not silently ignored."""
+
+    def test_mismatched_forwarded_n_bins_raises(self) -> None:
+        consumer_options = Options(group={"n_bins": 10})
+        child_options = Options()
+        child_options.inherit_from(consumer_options)
+
+        with pytest.raises(ValueError, match="n_bins"):
+            BinningFeatureGroup.match_feature_group_criteria("value_int__bin_5", child_options, None)
+
+    def test_matching_forwarded_n_bins_is_accepted(self) -> None:
+        consumer_options = Options(group={"n_bins": 5})
+        child_options = Options()
+        child_options.inherit_from(consumer_options)
+
+        result = BinningFeatureGroup.match_feature_group_criteria("value_int__bin_5", child_options, None)
+        assert result is True
+
+    def test_locally_set_contradictory_n_bins_is_not_flagged(self) -> None:
+        options = Options(context={"n_bins": 10})
+
+        result = BinningFeatureGroup.match_feature_group_criteria("value_int__bin_5", options, None)
+        assert result is True
+
+    def test_mismatched_n_bins_env_downgrade_is_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MLODA_ALLOW_FORWARDED_NAME_MISMATCH", "1")
+        consumer_options = Options(group={"n_bins": 10})
+        child_options = Options()
+        child_options.inherit_from(consumer_options)
+
+        result = BinningFeatureGroup.match_feature_group_criteria("value_int__bin_5", child_options, None)
+        assert result is True
+
+
 class TestBinningMatchValidation(MatchValidationTestBase):
     @classmethod
     def feature_group_class(cls) -> Any:

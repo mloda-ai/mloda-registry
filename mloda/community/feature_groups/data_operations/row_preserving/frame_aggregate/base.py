@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import functools
+import logging
+import os
 import re
 from typing import Any
 
@@ -11,6 +13,7 @@ from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.core.abstract_plugins.components.utils import escalate_match_abort
 from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec, record_match_rejection
 
 from mloda.community.feature_groups.data_operations.base import (
@@ -52,6 +55,8 @@ _EXPANDING_PATTERN = re.compile(r"^.+__expanding_(\w+)$")
 # full set, so they need no narrower table of their own.
 _AGGREGATION_TYPES = frozenset({"sum", "avg", "count", "min", "max", "std", "var", "median"})
 _TIME_UNITS = {"second", "minute", "hour", "day", "week", "month", "year"}
+
+logger = logging.getLogger(__name__)
 
 
 def _option_token(options: Options, key: str) -> str | None:
@@ -229,7 +234,8 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
                 "expanding": "Same as cumulative",
             },
             match_guard=is_op_token,
-            # A frame name carries its own type via _parse_frame_feature, not a named capture.
+            # A frame name carries its own type via _parse_frame_feature, not a named capture; see
+            # _validate_forwarded_frame_mismatch for the forwarded-value protection this loses.
             deferred_binding=True,
         ),
         FRAME_SIZE: property_spec(
@@ -334,10 +340,14 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
         if not super().match_feature_group_criteria(feature_name, options, _data_access_collection):
             return False
 
+        parsed = cls._parse_frame_feature(str(feature_name))
+        if parsed is not None:
+            cls._validate_forwarded_frame_mismatch(feature_name, options, parsed)
+
         # Config path only: SUPPORTED_* narrows per subclass, so it cannot be declared once on the base.
         # frame_size/frame_unit requiredness is hand-enforced here (not via PROPERTY_MAPPING
         # required_when) so it can never mis-fire on the name path; see the PROPERTY_MAPPING comment.
-        if cls._parse_frame_feature(str(feature_name)) is None:
+        if parsed is None:
             frame_type = _option_token(options, cls.FRAME_TYPE)
             if frame_type not in cls.SUPPORTED_FRAME_TYPES:
                 return False
@@ -363,6 +373,44 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
             return False
 
         return True
+
+    @classmethod
+    def _validate_forwarded_frame_mismatch(cls, feature_name: Any, options: Any, parsed: dict[str, Any]) -> None:
+        """Reject a forwarded frame_type/frame_size/frame_unit that contradicts the name-parsed value.
+
+        None of the three bind by name the way aggregation_type does: frame_type is inferred from
+        which PREFIX_PATTERN shape matched rather than captured text (not all of its values are
+        literal substrings of the name); frame_size's captured digits are a str while its match_guard
+        only accepts a real int; and frame_unit, though captured and a member of its own
+        allowed_values, is the pattern's third capture, which the legacy first-capture-only fallback
+        never reaches. Compares the already-typed parsed values directly.
+        """
+        inherited = options.inherited_group_keys or ()
+        for key, name_value, unwrap in (
+            (cls.FRAME_TYPE, parsed["frame_type"], op_token_value),
+            (cls.FRAME_SIZE, parsed["frame_size"], positive_int_value),
+            (cls.FRAME_UNIT, parsed["frame_unit"], op_token_value),
+        ):
+            if key not in inherited or name_value is None:
+                continue
+            forwarded = options.get(key)
+            if forwarded is None:
+                continue
+            if unwrap(forwarded) == name_value:
+                continue
+            message = (
+                f"Feature '{feature_name}': option '{key}' was forwarded from a consumer with value "
+                f"'{forwarded}', but the feature name parses to '{name_value}'. The name-parsed value "
+                f"takes precedence, so the forwarded value would be silently ignored. Carve the key out "
+                f"with forward_group_exclude={{'{key}'}} on the child in the consumer's input_features, "
+                f"or use an allowlist / forward_group=False. Set MLODA_ALLOW_FORWARDED_NAME_MISMATCH=1 to "
+                f"downgrade this error to a warning."
+            )
+            if os.environ.get("MLODA_ALLOW_FORWARDED_NAME_MISMATCH", "").lower() in ("1", "true"):
+                logger.warning(message)
+                continue
+            # Marked: user misconfiguration; containing it would let a rival group win with the value ignored.
+            raise escalate_match_abort(ValueError(message))
 
     @classmethod
     def _capability_subtype(cls, feature_name: str, options: Options) -> str | None:
