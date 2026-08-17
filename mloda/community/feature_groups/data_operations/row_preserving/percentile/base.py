@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from typing import Any
 
 from mloda.core.abstract_plugins.components.feature import Feature
@@ -9,6 +11,7 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.core.abstract_plugins.components.utils import escalate_match_abort
 from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
 
 from mloda.community.feature_groups.data_operations.base import (
@@ -17,6 +20,8 @@ from mloda.community.feature_groups.data_operations.base import (
     scalar_number_value,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
+
+logger = logging.getLogger(__name__)
 
 
 def _unit_percentile(value: object) -> float | None:
@@ -83,6 +88,7 @@ class PercentileFeatureGroup(RejectionReasonMixin, FeatureGroup):
     PARTITION_BY = "partition_by"
 
     PROPERTY_MAPPING = {
+        # deferred_binding stays True: see _validate_forwarded_percentile_mismatch for why.
         PERCENTILE: property_spec(
             "Percentile value (float between 0.0 and 1.0)",
             strict=True,
@@ -125,7 +131,7 @@ class PercentileFeatureGroup(RejectionReasonMixin, FeatureGroup):
         options: Any,
         _data_access_collection: Any = None,
     ) -> bool:
-        """Extend mixin matching with partition_by and percentile validation.
+        """Extend mixin matching with forwarded-percentile protection and partition_by validation.
 
         The mixin handles:
         - Pattern and config matching via PROPERTY_MAPPING
@@ -133,11 +139,20 @@ class PercentileFeatureGroup(RejectionReasonMixin, FeatureGroup):
         - MIN/MAX_IN_FEATURES enforcement
 
         We add:
-        - partition_by type validation (must be a list of strings)
+        - forwarded-value vs. name-parsed-value protection for ``percentile``
         - percentile range validation for config-based features (0.0-1.0)
+        - partition_by type validation (must be a list of strings)
         """
         if not super().match_feature_group_criteria(feature_name, options, _data_access_collection):
             return False
+
+        # None covers both halves: unresolvable, and resolved but outside 0.0-1.0.
+        resolved_percentile, name_matched = cls._resolve_percentile(feature_name, options)
+        if resolved_percentile is None:
+            return False
+
+        if name_matched:
+            cls._validate_forwarded_percentile_mismatch(feature_name, options, resolved_percentile)
 
         partition_by = options.get(cls.PARTITION_BY)
         if not isinstance(partition_by, (list, tuple)):
@@ -147,21 +162,49 @@ class PercentileFeatureGroup(RejectionReasonMixin, FeatureGroup):
         if not all(isinstance(item, str) for item in partition_by):
             return False
 
-        # None covers both halves: unresolvable, and resolved but outside 0.0-1.0.
-        if cls._resolve_percentile(feature_name, options) is None:
-            return False
-
         return True
 
     @classmethod
-    def _resolve_percentile(cls, feature_name: Any, options: Any) -> float | None:
-        """Extract percentile as a float in 0.0-1.0 from feature name or options; None if there is none."""
+    def _validate_forwarded_percentile_mismatch(
+        cls, feature_name: Any, options: Any, resolved_percentile: float
+    ) -> None:
+        """Reject a forwarded ``percentile`` that contradicts the name-parsed value.
+
+        PREFIX_PATTERN captures a "pN" percent token, while ``percentile`` is a 0.0-1.0 fraction, so
+        the two can't share a name binding the way bucket_op / rank_type / offset_type do; this
+        compares the shared float value directly instead.
+        """
+        if cls.PERCENTILE not in (options.inherited_group_keys or ()):
+            return
+        forwarded = options.get(cls.PERCENTILE)
+        forwarded_value = _unit_percentile(forwarded)
+        if forwarded_value is None or forwarded_value == resolved_percentile:
+            return
+        message = (
+            f"Feature '{feature_name}': option '{cls.PERCENTILE}' was forwarded from a consumer with value "
+            f"'{forwarded}', but the feature name parses to percentile {resolved_percentile}. The name-parsed "
+            f"value takes precedence, so the forwarded value would be silently ignored. Carve the key out with "
+            f"forward_group_exclude={{'{cls.PERCENTILE}'}} on the child in the consumer's input_features, or use "
+            f"an allowlist / forward_group=False. Set MLODA_ALLOW_FORWARDED_NAME_MISMATCH=1 to downgrade this "
+            f"error to a warning."
+        )
+        if os.environ.get("MLODA_ALLOW_FORWARDED_NAME_MISMATCH", "").lower() in ("1", "true"):
+            logger.warning(message)
+            return
+        raise escalate_match_abort(ValueError(message))
+
+    @classmethod
+    def _resolve_percentile(cls, feature_name: Any, options: Any) -> tuple[float | None, bool]:
+        """Extract percentile as a float in 0.0-1.0 from feature name or options; None if there is none.
+
+        Second element is True when the name identified the group.
+        """
         name = str(feature_name)
         prefix_patterns = cls._get_prefix_patterns()
         operation_config, _ = FeatureChainParser.parse_feature_name(name, prefix_patterns)
         if operation_config is not None:
-            return cls._parse_percentile_from_config(operation_config)
-        return _unit_percentile(options.get(cls.PERCENTILE))
+            return cls._parse_percentile_from_config(operation_config), True
+        return _unit_percentile(options.get(cls.PERCENTILE)), False
 
     @classmethod
     def get_percentile_value(cls, feature_name: str) -> float:

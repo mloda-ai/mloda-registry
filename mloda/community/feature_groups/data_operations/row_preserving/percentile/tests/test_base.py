@@ -214,6 +214,57 @@ class TestRejectionReporting:
         assert reason is None
 
 
+class TestForwardedPercentileMismatch:
+    """A group-forwarded ``percentile`` that contradicts the name-parsed value is rejected, not silently ignored."""
+
+    def test_mismatched_forwarded_percentile_raises(self) -> None:
+        consumer_options = Options(group={"percentile": 0.75})
+        child_options = Options(context={"partition_by": ["region"]})
+        child_options.inherit_from(consumer_options)
+
+        with pytest.raises(ValueError, match="percentile"):
+            PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", child_options, None)
+
+    def test_matching_forwarded_percentile_is_accepted(self) -> None:
+        consumer_options = Options(group={"percentile": 0.5})
+        child_options = Options(context={"partition_by": ["region"]})
+        child_options.inherit_from(consumer_options)
+
+        result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", child_options, None)
+        assert result is True
+
+    def test_matching_forwarded_integer_percentile_is_accepted(self) -> None:
+        consumer_options = Options(group={"percentile": 1})
+        child_options = Options(context={"partition_by": ["region"]})
+        child_options.inherit_from(consumer_options)
+
+        result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p100_percentile", child_options, None)
+        assert result is True
+
+    def test_mismatched_percentile_env_downgrade_is_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MLODA_ALLOW_FORWARDED_NAME_MISMATCH", "1")
+        consumer_options = Options(group={"percentile": 0.75})
+        child_options = Options(context={"partition_by": ["region"]})
+        child_options.inherit_from(consumer_options)
+
+        result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", child_options, None)
+        assert result is True
+
+    def test_locally_set_contradictory_percentile_is_not_flagged(self) -> None:
+        options = Options(context={"percentile": 0.75, "partition_by": ["region"]})
+
+        result = PercentileFeatureGroup.match_feature_group_criteria("value_int__p50_percentile", options, None)
+        assert result is True
+
+    def test_config_based_feature_ignores_unrelated_forwarded_percentile(self) -> None:
+        consumer_options = Options(group={"percentile": 0.75})
+        child_options = Options(context={"in_features": "value_int", "partition_by": ["region"]})
+        child_options.inherit_from(consumer_options)
+
+        result = PercentileFeatureGroup.match_feature_group_criteria("my_result", child_options, None)
+        assert result is True
+
+
 class TestPercentileMatchValidation(MatchValidationTestBase):
     @classmethod
     def feature_group_class(cls) -> Any:
