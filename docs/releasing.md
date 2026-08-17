@@ -40,12 +40,10 @@ It sets `MLODA_REGISTRY_VERSION` and runs five tox envs:
 | `verify-floor-installs` | Each package's import surface loads with its internal dependency pinned to the declared floor |
 | `verify-typed-install` | A standalone leaf install is typed under mypy --strict |
 
-`verify-typed-install` stays red until the release that first ships the
-data-operations `py.typed` marker. `verify-floor-installs` is red for any package
-flagged published whose first release has not shipped yet (currently the five
-data-operations leaves first shipping with the next release), the same
-fails-until-release pattern `verify-published` has; distinct from the follow-up
-floor-bump red described in [packaging.md](packaging.md#cross-package-dependency-floors).
+Both follow the fails-until-release pattern `verify-published` has: `verify-floor-installs`
+goes red for a package not yet shipped or a floor lagging what a leaf imports (see
+[packaging.md](packaging.md#cross-package-dependency-floors)); `verify-typed-install`
+goes red until the base's `py.typed` marker ships.
 
 ## Published packages
 

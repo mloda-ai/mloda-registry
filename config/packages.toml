@@ -90,7 +90,7 @@ path = "mloda/enterprise/extenders/example"
 entry_point_groups = ["mloda.extenders"]
 
 # --- Data Operations ---
-# Leaf floors are 0.4.1, the first release of mloda-community-data-operations shipping the py.typed marker; policy in docs/packaging.md.
+# Floor 0.4.1: first release shipping the py.typed marker; policy in docs/packaging.md.
 
 [packages.mloda-community-data-operations]
 description = "Shared base classes for data operation feature groups"
