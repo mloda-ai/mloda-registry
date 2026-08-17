@@ -54,3 +54,11 @@ class TestEnterpriseExampleComputeFrameworkBasicFunctionality:
 
         instance = EnterpriseExampleComputeFramework()
         assert instance is not None
+
+    def test_default_instances_have_unique_uuid(self) -> None:
+        """Test that two default-constructed instances get distinct uuids."""
+        from mloda.enterprise.compute_frameworks.example import EnterpriseExampleComputeFramework
+
+        instance1 = EnterpriseExampleComputeFramework()
+        instance2 = EnterpriseExampleComputeFramework()
+        assert instance1.uuid != instance2.uuid

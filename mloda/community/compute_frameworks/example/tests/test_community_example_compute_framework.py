@@ -54,3 +54,11 @@ class TestCommunityExampleComputeFrameworkBasicFunctionality:
 
         instance = CommunityExampleComputeFramework()
         assert instance is not None
+
+    def test_default_instances_have_unique_uuid(self) -> None:
+        """Test that two default-constructed instances get distinct uuids."""
+        from mloda.community.compute_frameworks.example import CommunityExampleComputeFramework
+
+        instance1 = CommunityExampleComputeFramework()
+        instance2 = CommunityExampleComputeFramework()
+        assert instance1.uuid != instance2.uuid
