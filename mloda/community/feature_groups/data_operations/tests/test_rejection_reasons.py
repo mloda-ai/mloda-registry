@@ -23,13 +23,17 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
 
 
 class TestPatternPathGuardRejectionReported:
-    """A pattern-path match_guard rejection must be named, not a silent non-match."""
+    """A pattern-path value rejection must be named, not a silent non-match."""
 
     def test_mistyped_constant_reports_a_reason(self) -> None:
+        """``constant`` is validated by element_validator before match_guard ever runs, so this is
+        the value-rejection reason core's own hook reports (the same message the real match pass
+        records), not a match_guard-worded one.
+        """
         options = Options(context={"constant": "five"})
         reason = PyArrowScalarArithmetic._strict_validation_rejection_reason("value_int__add_constant", options)
         assert reason is not None
-        assert "match_guard" in reason
+        assert "failed validation" in reason
         assert "'constant'" in reason
         assert "'five'" in reason
 

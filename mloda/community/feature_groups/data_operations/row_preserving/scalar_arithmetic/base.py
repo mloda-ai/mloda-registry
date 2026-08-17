@@ -12,9 +12,13 @@ non-null value in ``value_int`` by 2.
 
 The ``constant`` option is strict with an element validator, so a
 wrong-typed value is reported as a rejection reason in the resolution
-error. A pattern match skips property validation, so
-``{col}__{op}_constant`` still matches without a constant; the
-missing-constant check then fires at compute time with a clear error.
+error. The name path validates present option values and enforces
+required presence on absent ones, but ``{col}__{op}_constant`` still
+matches without an explicit ``constant`` because ``CONSTANT``'s
+``property_spec(...)`` declares ``deferred_binding=True``: its real
+value is supplied via ``Options`` and checked at compute time, not
+parsed from the name. The missing-constant check then fires at compute
+time with a clear error.
 """
 
 from __future__ import annotations

@@ -11,7 +11,7 @@ from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
+from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec, record_match_rejection
 
 from mloda.community.feature_groups.data_operations.base import (
     FRAME_SIZE as _FRAME_SIZE_KEY,
@@ -342,8 +342,16 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
             if frame_type not in cls.SUPPORTED_FRAME_TYPES:
                 return False
             if _needs_frame_size(options) and options.get(cls.FRAME_SIZE) is None:
+                record_match_rejection(
+                    cls.get_class_name(),
+                    f"required option '{cls.FRAME_SIZE}' is absent for frame_type '{frame_type}'",
+                )
                 return False
             if _needs_frame_unit(options) and options.get(cls.FRAME_UNIT) is None:
+                record_match_rejection(
+                    cls.get_class_name(),
+                    f"required option '{cls.FRAME_UNIT}' is absent for frame_type '{frame_type}'",
+                )
                 return False
             if frame_type == "time" and _option_token(options, cls.FRAME_UNIT) not in cls.SUPPORTED_TIME_UNITS:
                 return False

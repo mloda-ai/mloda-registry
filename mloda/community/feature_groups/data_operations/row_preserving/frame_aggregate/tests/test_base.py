@@ -438,7 +438,9 @@ class TestNameBasedFrameTypeInOptions:
 
 class TestNameSuppliedFrameTypeRequiredWhen:
     """The name supplies frame_type just like frame_size and frame_unit, so a required_when on it
-    must not fire on the name path; the config path, which has no name to supply it, still enforces it.
+    should not fire on the name path; the one test below documents that this guarantee does not yet
+    hold under mloda 0.11.0 (hence its xfail), while the config path, which has no name to supply it,
+    still enforces it.
     """
 
     @staticmethod
