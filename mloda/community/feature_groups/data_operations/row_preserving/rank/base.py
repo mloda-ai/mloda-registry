@@ -284,6 +284,10 @@ class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup
 
             rank_type = cls._extract_rank_type(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
+            if not partition_by:
+                raise ValueError(
+                    f"rank requires a non-empty partition_by, got {partition_by!r} for feature {feature_name!r}."
+                )
             # Any: matching requires order_by, but a direct call still passes an absent one through.
             order_by: Any = option_value(feature.options, cls.ORDER_BY, column_ref_value)
 

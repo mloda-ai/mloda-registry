@@ -17,6 +17,7 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
+from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
@@ -776,7 +777,6 @@ class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOps
     def test_option_based_sum_window(self) -> None:
         """Option-based configuration (not string pattern) produces the same result."""
         from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.core.abstract_plugins.components.options import Options
         from mloda.user import Feature
 
         feature = Feature(
@@ -799,7 +799,6 @@ class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOps
     def test_unsupported_aggregation_type_raises(self) -> None:
         """Calling calculate_feature with an unknown aggregation type should raise."""
         from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.core.abstract_plugins.components.options import Options
         from mloda.user import Feature
 
         feature = Feature(
@@ -814,6 +813,16 @@ class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOps
         fs.add(feature)
         with pytest.raises((ValueError, KeyError)):
             self.implementation_class().calculate_feature(self.test_data, fs)
+
+    # -- Matching tests -------------------------------------------------------
+
+    def test_match_rejects_empty_partition_by(self) -> None:
+        """Empty partition_by must be rejected at match time, not reach backend-specific compute."""
+        options = Options(context={"partition_by": [], "order_by": "value_int"})
+        assert not self.implementation_class().match_feature_group_criteria("value_int__sum_window", options, None)
+
+        valid_options = Options(context={"partition_by": ["region"]})
+        assert self.implementation_class().match_feature_group_criteria("value_int__sum_window", valid_options, None)
 
     # -- Row-order preservation ------------------------------------------------
 

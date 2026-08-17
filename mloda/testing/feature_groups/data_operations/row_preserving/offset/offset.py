@@ -315,6 +315,25 @@ class OffsetTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
         with pytest.raises((ValueError, KeyError)):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
+    def test_partition_by_empty_raises(self) -> None:
+        """Calling calculate_feature directly with partition_by=[] should raise a clear ValueError."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.user import Feature
+
+        feature = Feature(
+            "value_int__lag_1_offset",
+            options=Options(
+                context={
+                    "partition_by": [],
+                    "order_by": "value_int",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        with pytest.raises(ValueError):
+            self.implementation_class().calculate_feature(self.test_data, fs)
+
     # -- Matching tests -------------------------------------------------------
 
     def test_match_rejects_empty_partition_by(self) -> None:
