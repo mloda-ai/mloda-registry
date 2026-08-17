@@ -41,6 +41,12 @@ uv sync --all-extras
 uv run tox
 ```
 
+`uv sync --all-extras` alone does not register any plugin's entry points, so
+`PluginLoader.all()` finds no feature groups in this venv (tests use
+`PluginCollector.enabled_feature_groups(...)` instead, which does not need entry
+points). To exercise `PluginLoader.all()` locally, editable-install the plugin
+package you need, e.g. `uv pip install -e mloda/community`.
+
 ## Code Style
 
 All code must pass the automated checks enforced by tox. The toolchain includes:

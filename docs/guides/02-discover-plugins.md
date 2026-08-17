@@ -8,7 +8,7 @@ How to find what plugins are available and what's installed in your environment.
 
 The simplest way to discover available plugins:
 
-1. **This repository**: Browse the `plugins/` directory for community and official plugins
+1. **This repository**: Browse [`mloda/community/`](../../mloda/community/) and [`mloda/enterprise/`](../../mloda/enterprise/), or see the [Plugins table](../../README.md#plugins) in the README
 2. **Plugin READMEs**: Each plugin package has a README describing its feature groups
 
 ## Discovering Installed Plugins

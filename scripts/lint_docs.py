@@ -10,6 +10,12 @@ import re
 import sys
 from collections import deque
 from pathlib import Path
+from typing import Any
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = REPO_ROOT / "docs"
@@ -18,6 +24,15 @@ DOCS_DIR = REPO_ROOT / "docs"
 GUIDES_DIR = DOCS_DIR / "guides"
 
 PLUGIN_SOURCE_DIR = REPO_ROOT / "mloda"
+
+README_PATH = REPO_ROOT / "README.md"
+
+PACKAGES_CONFIG = REPO_ROOT / "config" / "packages.toml"
+
+# Nested under this prefix, excluding the shared base package itself at the prefix path.
+DATA_OPERATIONS_PATH_PREFIX = "mloda/community/feature_groups/data_operations/"
+
+PLUGINS_SECTION_RE = re.compile(r"^## Plugins\n(.*?)(?=^## )", re.MULTILINE | re.DOTALL)
 
 INTERNAL_IMPORT_RE = re.compile(r"from mloda\.core\.")
 
@@ -137,6 +152,37 @@ def check_internal_imports(md_file: Path, content: str) -> list[str]:
             if INTERNAL_IMPORT_RE.search(stripped):
                 errors.append(f"{md_file}:{opener_lineno + lineno}: internal import in code snippet -> {stripped}")
     return errors
+
+
+def _load_packages_config(packages_config: Path) -> dict[str, dict[str, Any]]:
+    with open(packages_config, "rb") as f:
+        data = tomllib.load(f)
+    packages: dict[str, dict[str, Any]] = data.get("packages", {})
+    return packages
+
+
+def _published_data_operation_packages(packages: dict[str, dict[str, Any]]) -> list[str]:
+    """Published data-operation plugin packages, excluding the shared base package itself."""
+    names = [
+        name
+        for name, cfg in packages.items()
+        if cfg.get("published") and cfg.get("path", "").startswith(DATA_OPERATIONS_PATH_PREFIX)
+    ]
+    return sorted(names)
+
+
+def check_readme_plugin_table(readme_path: Path, packages_config: Path) -> list[str]:
+    """Flag published data-operation packages missing from the README Plugins table."""
+    if not readme_path.is_file() or not packages_config.is_file():
+        return []
+    names = _published_data_operation_packages(_load_packages_config(packages_config))
+    match = PLUGINS_SECTION_RE.search(readme_path.read_text(encoding="utf-8"))
+    section = match.group(1) if match else ""
+    return [
+        f"{readme_path}: Plugins table missing published package `{name}`"
+        for name in names
+        if f"`{name}`" not in section
+    ]
 
 
 def _collect_linked_md(md_file: Path, content: str) -> set[Path]:
@@ -392,6 +438,7 @@ def main() -> int:
         content = py_file.read_text(encoding="utf-8")
         all_errors.extend(check_source_property_mapping(py_file, content))
 
+    all_errors.extend(check_readme_plugin_table(README_PATH, PACKAGES_CONFIG))
     all_errors.extend(link_errors)
 
     # Only link errors inside guides can corrupt the reachability BFS.
