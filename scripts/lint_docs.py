@@ -29,10 +29,10 @@ README_PATH = REPO_ROOT / "README.md"
 
 PACKAGES_CONFIG = REPO_ROOT / "config" / "packages.toml"
 
-# Nested under this prefix, excluding the shared base package itself at the prefix path.
+# Trailing slash excludes the shared base package itself, whose path has no nested segment.
 DATA_OPERATIONS_PATH_PREFIX = "mloda/community/feature_groups/data_operations/"
 
-PLUGINS_SECTION_RE = re.compile(r"^## Plugins\n(.*?)(?=^## )", re.MULTILINE | re.DOTALL)
+PLUGINS_SECTION_RE = re.compile(r"^## Plugins\n(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
 
 INTERNAL_IMPORT_RE = re.compile(r"from mloda\.core\.")
 
@@ -171,17 +171,22 @@ def _published_data_operation_packages(packages: dict[str, dict[str, Any]]) -> l
     return sorted(names)
 
 
+def _table_rows(section: str) -> str:
+    """Join the section's table-row lines (those starting with ``|``), so prose mentions don't count."""
+    return "\n".join(line for line in section.splitlines() if line.lstrip().startswith("|"))
+
+
 def check_readme_plugin_table(readme_path: Path, packages_config: Path) -> list[str]:
     """Flag published data-operation packages missing from the README Plugins table."""
-    if not readme_path.is_file() or not packages_config.is_file():
-        return []
+    if not readme_path.is_file():
+        return [f"{readme_path}: README not found for Plugins table check"]
+    if not packages_config.is_file():
+        return [f"{packages_config}: packages config not found for Plugins table check"]
     names = _published_data_operation_packages(_load_packages_config(packages_config))
     match = PLUGINS_SECTION_RE.search(readme_path.read_text(encoding="utf-8"))
-    section = match.group(1) if match else ""
+    rows = _table_rows(match.group(1)) if match else ""
     return [
-        f"{readme_path}: Plugins table missing published package `{name}`"
-        for name in names
-        if f"`{name}`" not in section
+        f"{readme_path}: Plugins table missing published package `{name}`" for name in names if f"`{name}`" not in rows
     ]
 
 
