@@ -61,6 +61,6 @@ Execution models, framework abstractions, dependency handling, and compute engin
 
 ## 7. Data Operation Patterns
 
-Contracts, cross-framework semantics, and extension path for the built-in data operations (row-preserving, aggregation, string).
+Contracts, cross-framework semantics, and extension path for the built-in data operations (row-preserving, row-changing, aggregation, string).
 
-- [Data operation patterns index](data-operation-patterns/index.md) - Start here for row-preserving, aggregation, and string operations
+- [Data operation patterns index](data-operation-patterns/index.md) - Start here for row-preserving, row-changing, aggregation, and string operations

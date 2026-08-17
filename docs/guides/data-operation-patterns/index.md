@@ -1,6 +1,6 @@
 # Data Operation Patterns
 
-Data operations are built-in feature groups that transform existing columns: row-preserving analytics (binning, ranks, windows, offsets, percentiles), group-reducing aggregations, and element-wise string transforms.
+Data operations are built-in feature groups that transform existing columns: row-preserving analytics (binning, ranks, windows, offsets, percentiles), row-changing operations (resample), group-reducing aggregations, and element-wise string transforms.
 
 These guides describe the contracts each category must honor, the cross-framework reference-implementation pattern, and the end-to-end recipe for adding a new operation.
 
