@@ -2,7 +2,7 @@
 
 Data operations are feature groups that transform existing columns using declarative feature names. They ship in `mloda.community` and run unchanged across every supported compute framework.
 
-**What**: Three categories of built-in feature groups: row-preserving analytics, row-reducing aggregations, and element-wise string transforms.
+**What**: Four categories of built-in feature groups: row-preserving analytics, row-changing operations (resample), row-reducing aggregations, and element-wise string transforms.
 **When**: You want common analytic transforms (binning, windows, rolling aggregates, group-bys, string cleanup) without writing a custom feature group.
 **Why**: A single feature name like `value_int__sum_agg` produces the same result on PyArrow, Pandas, Polars, DuckDB, and SQLite. Users pick the framework; the operation contract is identical.
 **Where**: `mloda/community/feature_groups/data_operations/{row_preserving,aggregation,row_changing,string}/`.

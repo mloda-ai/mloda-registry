@@ -113,6 +113,15 @@ Q26: Does it declare another feature group's feature (source, connector) in inpu
 
 Q27: Is it a standard column transform (binning, window/scalar/frame aggregate, rank, offset, percentile, string op, time bucketization, ffill, EMA, resample, sessionization)?
     YES → See Data Operation Patterns below
+
+Q28: Ready to test your implementation?
+    YES → See 10-testing-guide
+
+Q29: Need to decide whether an option affects feature identity/resolution (group) vs is runtime-only metadata (context)?
+    YES → See 11-options
+
+Q30: Need to define what feature names your FeatureGroup provides (beyond the default class name)?
+    YES → See 13-feature-naming
 ```
 
 ### Feature Group Pattern Guides
@@ -155,7 +164,7 @@ Location: `docs/guides/feature-group-patterns/`
 
 Location: `docs/guides/data-operation-patterns/`
 
-Built-in feature groups that transform existing columns: row-preserving analytics (binning, ranks, windows, offsets, percentiles), group-reducing aggregations, element-wise string transforms.
+Built-in feature groups that transform existing columns: row-preserving analytics (binning, ranks, windows, offsets, percentiles), row-changing operations (resample), group-reducing aggregations, element-wise string transforms.
 
 | # | Guide | Description |
 |---|-------|-------------|

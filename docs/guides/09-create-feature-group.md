@@ -77,7 +77,7 @@ Q22: Need to build the execution plan once at startup and reuse it for repeated 
     YES → See 24-realtime
 
 Q23: Need both plan reuse and incremental per-group delivery?
-    YES → Use session.stream_run() — see 23-streaming and 24-realtime
+    YES → Use session.stream_run(), see 23-streaming and 24-realtime
 
 Q24: Need conditional aggregation (include only rows matching a predicate)?
     YES → See 25-masking
@@ -87,6 +87,15 @@ Q25: Several readers under one root group, or a non-file (HTTP/API) source?
 
 Q26: Does it declare another feature group's feature (source, connector) in input_features(), and need to control which of its own options forward to that input?
     YES → See 26-input-feature-forwarding
+
+Q27: Ready to test your implementation?
+    YES → See 10-testing-guide
+
+Q28: Need to decide whether an option affects feature identity/resolution (group) vs is runtime-only metadata (context)?
+    YES → See 11-options
+
+Q29: Need to define what feature names your FeatureGroup provides (beyond the default class name)?
+    YES → See 13-feature-naming
 ```
 
 ## Pattern Guides
