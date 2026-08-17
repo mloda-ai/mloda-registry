@@ -35,12 +35,14 @@ _DEP = "mloda-community-data-operations"
 _LEAF = "mloda-community-aggregation"
 _LEAF_PATH = "mloda/community/feature_groups/data_operations/aggregation"
 _LEAF_MODULE = "mloda.community.feature_groups.data_operations.aggregation"
-# The dotted path is always the first probe; aggregation ships base.py, so its base module probes too.
-_LEAF_MODULES = (_LEAF_MODULE, f"{_LEAF_MODULE}.base")
+# The dotted path is always the first probe; aggregation ships base.py and manifest.py, so both probe too.
+_LEAF_MODULES = (_LEAF_MODULE, f"{_LEAF_MODULE}.base", f"{_LEAF_MODULE}.manifest")
 
-# A leaf whose checkout directory has no base.py, so the dotted path is its only probe.
+# A leaf whose checkout directory has no base.py (but does ship manifest.py), so the dotted path plus
+# the manifest module are its only probes.
 _NO_BASE_PATH = "mloda/community/feature_groups/example/example_a"
 _NO_BASE_MODULE = "mloda.community.feature_groups.example.example_a"
+_NO_BASE_MODULES = (_NO_BASE_MODULE, f"{_NO_BASE_MODULE}.manifest")
 
 
 def _internal_floor_pairs() -> Callable[[dict[str, dict[str, Any]]], list[Any]]:
@@ -86,7 +88,8 @@ def _real_pairs() -> list[Any]:
 
 def test_a_published_leaf_yields_its_internal_floor_pair() -> None:
     """The pair carries the leaf, the floored distribution, the floor, and the import probes: the dotted
-    path first, then its '.base' module because <path>/base.py exists in the checkout."""
+    path first, then its '.base' and '.manifest' modules because <path>/base.py and <path>/manifest.py
+    exist in the checkout."""
     pairs = _internal_floor_pairs()(_synthetic_packages())
 
     assert len(pairs) == 1, f"expected exactly one pair, got {pairs!r}"
@@ -95,20 +98,21 @@ def test_a_published_leaf_yields_its_internal_floor_pair() -> None:
     assert pair.dependency == _DEP, f"pair.dependency must be the floored distribution, got {pair.dependency!r}"
     assert pair.floor == "0.4.0", f"pair.floor must be the '>=' bound, got {pair.floor!r}"
     assert pair.modules == _LEAF_MODULES, (
-        f"pair.modules must be the dotted path plus its base module, got {pair.modules!r}"
+        f"pair.modules must be the dotted path plus its base and manifest modules, got {pair.modules!r}"
     )
     assert tuple(pair) == (_LEAF, _DEP, "0.4.0", _LEAF_MODULES), (
         "FloorPair must be a NamedTuple ordered (package, dependency, floor, modules)"
     )
 
 
-def test_a_leaf_without_a_base_module_probes_only_its_package_root() -> None:
-    """example_a ships no base.py, so the dotted package root is its only import probe."""
+def test_a_leaf_without_a_base_module_probes_only_its_package_root_and_manifest() -> None:
+    """example_a ships no base.py but does ship manifest.py, so the dotted package root plus the
+    manifest module are its only import probes."""
     pairs = _internal_floor_pairs()(_synthetic_packages(path=_NO_BASE_PATH))
 
     assert len(pairs) == 1, f"expected exactly one pair, got {pairs!r}"
-    assert pairs[0].modules == (_NO_BASE_MODULE,), (
-        f"a leaf without base.py must probe only its package root, got {pairs[0].modules!r}"
+    assert pairs[0].modules == _NO_BASE_MODULES, (
+        f"a leaf without base.py must probe only its package root and manifest module, got {pairs[0].modules!r}"
     )
 
 

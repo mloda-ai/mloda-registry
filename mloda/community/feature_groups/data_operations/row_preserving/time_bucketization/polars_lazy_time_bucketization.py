@@ -15,32 +15,17 @@ import polars as pl
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
+from mloda.community.feature_groups.data_operations.polars_helpers import duration_token
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
     TIME_BUCKETIZATION_OPS,
     TimeBucketizationFeatureGroup,
 )
-
-# Polars duration aliases for each unit. Polars' ``dt.truncate('1w')`` is
-# Monday-anchored, which matches the ISO week convention pinned by the FG.
-_POLARS_UNIT_ALIASES: dict[str, str] = {
-    "minute": "m",
-    "hour": "h",
-    "day": "d",
-    "week": "w",
-    "month": "mo",
-    "year": "y",
-}
 
 # Calendar units whose ``ceil`` always advances by one bucket even on
 # aligned input (matches PyArrow's ``ceil_temporal`` behaviour for
 # ``week`` / ``month`` / ``year``). Fixed-freq units are idempotent on
 # aligned input.
 _CALENDAR_CEIL_ALWAYS_ADVANCES: frozenset[str] = frozenset({"week", "month", "year"})
-
-
-def _duration_token(n: int, unit: str) -> str:
-    """Format the Polars duration token for ``(n, unit)`` (e.g. ``5m``, ``1d``)."""
-    return f"{n}{_POLARS_UNIT_ALIASES[unit]}"
 
 
 class PolarsLazyTimeBucketization(TimeBucketizationFeatureGroup):
@@ -72,7 +57,7 @@ class PolarsLazyTimeBucketization(TimeBucketizationFeatureGroup):
         unit: str,
     ) -> pl.LazyFrame:
         col = pl.col(source_col)
-        duration = _duration_token(n, unit)
+        duration = duration_token(n, unit)
 
         if op == "floor":
             expr = col.dt.truncate(duration)

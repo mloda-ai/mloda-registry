@@ -2,7 +2,8 @@
 """Smoke-import every configured package inside the venv holding the released set.
 
 Every configured package ships in some wheel, so every import surface (the dotted root plus its
-base module when the checkout ships a base.py) gets probed.
+base module when the checkout ships a base.py, and its manifest module when the checkout ships a
+manifest.py) gets probed.
 
 Run: python scripts/verify_published_imports.py <venv-python>
 Exit code: 1 if any module fails to import, 0 otherwise.
@@ -22,17 +23,23 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def import_surface(path: str) -> tuple[str, ...]:
-    """The dotted package root, plus its base module when <path>/base.py exists in the checkout."""
+    """The dotted package root, plus its base module when <path>/base.py exists in the checkout, and its
+    manifest module when <path>/manifest.py exists in the checkout."""
     root = path.replace("/", ".")
     # Most leaf __init__.py files are empty and the cross-package imports live in the leaf's base
     # module, so importing only the root is vacuous. Resolve against the checkout, never the cwd.
+    modules = [root]
     if (REPO_ROOT / path / "base.py").exists():
-        return (root, f"{root}.base")
-    return (root,)
+        modules.append(f"{root}.base")
+    # manifest.py is mloda's real plugin entry-point discovery module; a package can ship one without
+    # a base.py, so this check is independent of the one above.
+    if (REPO_ROOT / path / "manifest.py").exists():
+        modules.append(f"{root}.manifest")
+    return tuple(modules)
 
 
 def import_modules(packages: dict[str, dict[str, Any]]) -> list[str]:
-    """The import surface of every configured package, in config order (roots plus base modules)."""
+    """The import surface of every configured package, in config order (roots plus base/manifest modules)."""
     modules: list[str] = []
     for pkg_config in packages.values():
         modules.extend(import_surface(str(pkg_config["path"])))

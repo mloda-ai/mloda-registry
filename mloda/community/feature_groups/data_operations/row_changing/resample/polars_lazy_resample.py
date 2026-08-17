@@ -1,7 +1,7 @@
 """Polars Lazy implementation of resample.
 
-Floors the time column with ``dt.truncate`` (same duration tokens as
-``polars_lazy_time_bucketization``), groups by ``(*partition_by, bucket)`` and
+Floors the time column with ``dt.truncate`` (the same shared duration-token
+helper used for bucketization), groups by ``(*partition_by, bucket)`` and
 aggregates. Polars ``sum()`` returns ``0`` for an all-null group, so the sum
 path coerces all-null buckets to ``None`` to match the PyArrow oracle.
 """
@@ -15,12 +15,10 @@ import polars as pl
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
+from mloda.community.feature_groups.data_operations.polars_helpers import duration_token
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     RESAMPLE_AGGS,
     ResampleFeatureGroup,
-)
-from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.polars_lazy_time_bucketization import (
-    _duration_token,
 )
 
 # Resample agg -> Polars expression builder over the source column.
@@ -71,7 +69,7 @@ class PolarsLazyResample(ResampleFeatureGroup):
         if agg not in _POLARS_AGG_EXPRS:
             raise ValueError(f"Unsupported resample agg {agg!r} for Polars; supported: {sorted(RESAMPLE_AGGS)}.")
 
-        duration = _duration_token(n, unit)
+        duration = duration_token(n, unit)
         # Floor the time column in place (bucket start keeps the original name).
         data = data.with_columns(pl.col(time_column).dt.truncate(duration).alias(time_column))
 

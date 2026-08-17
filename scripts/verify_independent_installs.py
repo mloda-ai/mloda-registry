@@ -52,7 +52,8 @@ def top_level_distributions(packages: dict[str, dict[str, Any]]) -> list[str]:
 
 
 def probe_modules(name: str, packages: dict[str, dict[str, Any]]) -> list[str]:
-    """The distribution's own import surface plus every nested configured package's, in config order."""
+    """The distribution's own import surface (root plus base/manifest modules) plus every nested
+    configured package's, in config order."""
     # The single derivation point for import surfaces lives in verify_published_imports.
     surface: Callable[[str], tuple[str, ...]] = _load_sibling("verify_published_imports").import_surface
     path = str(packages[name]["path"]).rstrip("/")

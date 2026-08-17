@@ -17,17 +17,11 @@ import pandas as pd
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
+from mloda.community.feature_groups.data_operations.pandas_helpers import FIXED_FREQ_ALIASES
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
     TIME_BUCKETIZATION_OPS,
     TimeBucketizationFeatureGroup,
 )
-
-# Pandas frequency aliases for fixed-freq dt floor/ceil/round.
-_FIXED_FREQ_ALIASES: dict[str, str] = {
-    "minute": "min",
-    "hour": "h",
-    "day": "D",
-}
 
 # Pandas period-based floor for calendar units (n=1 only). For ISO weeks
 # (Monday start) we use ``W-SUN`` (week ending Sunday), so a Sunday rolls
@@ -117,14 +111,14 @@ class PandasTimeBucketization(TimeBucketizationFeatureGroup):
 
     @classmethod
     def _floor_series(cls, col: pd.Series, n: int, unit: str) -> pd.Series:
-        if unit in _FIXED_FREQ_ALIASES:
-            return col.dt.floor(f"{n}{_FIXED_FREQ_ALIASES[unit]}")
+        if unit in FIXED_FREQ_ALIASES:
+            return col.dt.floor(f"{n}{FIXED_FREQ_ALIASES[unit]}")
         return _calendar_floor(col, unit)
 
     @classmethod
     def _ceil_series(cls, col: pd.Series, n: int, unit: str) -> pd.Series:
-        if unit in _FIXED_FREQ_ALIASES:
-            return col.dt.ceil(f"{n}{_FIXED_FREQ_ALIASES[unit]}")
+        if unit in FIXED_FREQ_ALIASES:
+            return col.dt.ceil(f"{n}{FIXED_FREQ_ALIASES[unit]}")
         # Calendar units: always advance one bucket (matches PyArrow).
         floored = _calendar_floor(col, unit)
         offset = _calendar_offset(unit)
@@ -140,9 +134,9 @@ class PandasTimeBucketization(TimeBucketizationFeatureGroup):
         we still rely on ``dt.floor`` / ``dt.ceil`` to get the bracket
         bucket and then pick via midpoint comparison.
         """
-        if unit in _FIXED_FREQ_ALIASES:
-            floored = col.dt.floor(f"{n}{_FIXED_FREQ_ALIASES[unit]}")
-            ceiled = col.dt.ceil(f"{n}{_FIXED_FREQ_ALIASES[unit]}")
+        if unit in FIXED_FREQ_ALIASES:
+            floored = col.dt.floor(f"{n}{FIXED_FREQ_ALIASES[unit]}")
+            ceiled = col.dt.ceil(f"{n}{FIXED_FREQ_ALIASES[unit]}")
         else:
             floored = _calendar_floor(col, unit)
             ceiled = floored + _calendar_offset(unit)

@@ -1,7 +1,7 @@
 """Pandas implementation of resample.
 
-Floors the time column with ``Series.dt.floor`` (same fixed-freq aliases as
-``pandas_time_bucketization``), groups by ``(*partition_by, bucket)`` with
+Floors the time column with ``Series.dt.floor`` (the same shared fixed-freq
+aliases used for bucketization), groups by ``(*partition_by, bucket)`` with
 ``dropna=False`` and aggregates via the shared pandas helpers. ``sum`` uses
 ``min_count=1`` so an all-null bucket yields NaN (then coerced to ``None``),
 matching the PyArrow oracle rather than pandas' default ``0.0``.
@@ -15,6 +15,7 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.pandas_helpers import (
+    FIXED_FREQ_ALIASES,
     PANDAS_AGG_FUNCS,
     apply_null_safe_agg,
     coerce_count_dtype,
@@ -23,9 +24,6 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     RESAMPLE_AGGS,
     ResampleFeatureGroup,
-)
-from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pandas_time_bucketization import (
-    _FIXED_FREQ_ALIASES,
 )
 
 
@@ -68,7 +66,7 @@ class PandasResample(ResampleFeatureGroup):
 
         data = data.copy()
         # Floor the time column in place (bucket start keeps the original name).
-        data[time_column] = data[time_column].dt.floor(f"{n}{_FIXED_FREQ_ALIASES[unit]}")
+        data[time_column] = data[time_column].dt.floor(f"{n}{FIXED_FREQ_ALIASES[unit]}")
 
         keys = [*partition_by, time_column]
         grouped = null_safe_groupby(data, keys, source_col)
