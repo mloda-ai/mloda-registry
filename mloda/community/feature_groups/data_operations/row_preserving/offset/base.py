@@ -233,10 +233,11 @@ class OffsetFeatureGroup(RejectionReasonMixin, FeatureGroup):
             source_col = source_features[0]
             offset_type = cls._extract_offset_type(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
-            if not partition_by:
+            if not isinstance(partition_by, (list, tuple)) or not partition_by:
                 raise ValueError(
                     f"offset requires a non-empty partition_by, got {partition_by!r} for feature {feature_name!r}."
                 )
+            partition_by = list(partition_by)
             # Any: matching requires order_by, but a direct call still passes an absent one through.
             order_by: Any = option_value(feature.options, cls.ORDER_BY, column_ref_value)
 

@@ -824,6 +824,20 @@ class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOps
         valid_options = Options(context={"partition_by": ["region"]})
         assert self.implementation_class().match_feature_group_criteria("value_int__sum_window", valid_options, None)
 
+    def test_partition_by_empty_raises(self) -> None:
+        """Calling calculate_feature directly with partition_by=[] should raise a clear ValueError naming it."""
+        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.user import Feature
+
+        feature = Feature(
+            "value_int__sum_window",
+            options=Options(context={"partition_by": []}),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        with pytest.raises(ValueError, match="non-empty partition_by"):
+            self.implementation_class().calculate_feature(self.test_data, fs)
+
     # -- Row-order preservation ------------------------------------------------
 
     def test_row_order_preserved_first(self) -> None:

@@ -252,6 +252,11 @@ class PercentileFeatureGroup(RejectionReasonMixin, FeatureGroup):
             source_col = source_features[0]
             percentile = cls._extract_percentile(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
+            if not isinstance(partition_by, (list, tuple)) or not partition_by:
+                raise ValueError(
+                    f"percentile requires a non-empty partition_by, got {partition_by!r} for feature {feature_name!r}."
+                )
+            partition_by = list(partition_by)
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
 
             table = cls._compute_percentile(table, feature_name, source_col, partition_by, percentile, mask_spec)

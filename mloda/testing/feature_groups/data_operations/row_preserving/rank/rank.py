@@ -439,7 +439,7 @@ class RankTestBase(DataOpsTestBase):
         )
         fs = FeatureSet()
         fs.add(feature)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="non-empty partition_by"):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
     # -- Tier 3: Partition / order_by null tests ------------------------------

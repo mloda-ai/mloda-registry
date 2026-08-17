@@ -331,7 +331,7 @@ class OffsetTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
         )
         fs = FeatureSet()
         fs.add(feature)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="non-empty partition_by"):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
     # -- Matching tests -------------------------------------------------------
