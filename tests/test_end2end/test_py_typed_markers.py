@@ -18,12 +18,13 @@ else:
 
 import pytest
 
-from tests.script_loader import load_script
+from tests.script_loader import load_script, version_tuple
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
 _VERIFY_BUILDS_PATH = _REPO_ROOT / "scripts" / "verify_builds.py"
 _PUBLISHED_PACKAGES_PATH = _REPO_ROOT / "scripts" / "published_packages.py"
+_VERIFY_FLOOR_INSTALLS_PATH = _REPO_ROOT / "scripts" / "verify_floor_installs.py"
 
 # The bundle distributions, always part of the released set.
 _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterprise"]
@@ -32,9 +33,13 @@ _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterpr
 # module path, so the two ancestor markers also type the leaf distributions shipped from below them.
 _TYPED_PACKAGES = [*_BUNDLES, "mloda-community-data-operations", "mloda-community-example"]
 
+# Confirmed by inspecting the published wheels directly: py.typed first appears in each base's 0.4.1 wheel.
+_MARKER_FLOORS = {"mloda-community-data-operations": "0.4.1", "mloda-community-example": "0.4.1"}
+
 
 gen = load_script("generate_pyproject", _GEN_PATH)
 vb = load_script("verify_builds", _VERIFY_BUILDS_PATH)
+vf = load_script("verify_floor_installs", _VERIFY_FLOOR_INSTALLS_PATH)
 
 
 def _packages() -> dict[str, dict[str, Any]]:
@@ -183,6 +188,64 @@ def test_every_published_distribution_has_a_typed_ancestor(pkg_name: str) -> Non
         f"{pkg_name} ({pkg_path}) ships untyped: none of its own or dependency-reachable packages carries a "
         f"py.typed at or above that path. It needs either 'py_typed = true' plus a committed "
         f"{pkg_path}/py.typed, or a dependency on a package that already ships an ancestor marker."
+    )
+
+
+def test_marker_floors_cover_exactly_the_non_bundle_typed_packages() -> None:
+    """_MARKER_FLOORS must track _TYPED_PACKAGES minus the bundles: those are the only "shared base" typed
+    packages leaves declare a dependency floor on. If a third typed base is ever added to _TYPED_PACKAGES
+    without a matching _MARKER_FLOORS entry, this must fail instead of the floor-enforcement test below
+    silently covering fewer packages than it should."""
+    assert set(_MARKER_FLOORS) == set(_TYPED_PACKAGES) - set(_BUNDLES), (
+        f"_MARKER_FLOORS {sorted(_MARKER_FLOORS)} must equal _TYPED_PACKAGES minus _BUNDLES "
+        f"{sorted(set(_TYPED_PACKAGES) - set(_BUNDLES))}"
+    )
+
+
+def _declared_floor(dep: str, base_name: str) -> str | None:
+    """The '>=' version floor a dependency string declares on ``base_name``, or None if it names another package
+    (or names ``base_name`` without a '>=' floor). Reuses verify_floor_installs' DEP_NAME_RE/FLOOR_RE so extras
+    markers (e.g. "pkg[all]>=0.4.0") and other PEP 508 spellings parse the same way here as they do there."""
+    requirement = dep.strip()
+    name_match = vf.DEP_NAME_RE.match(requirement)
+    if not name_match:
+        return None
+    name = re.sub(r"[-_.]+", "-", name_match.group(1)).lower()
+    if name != base_name:
+        return None
+    floor_match = vf.FLOOR_RE.search(requirement)
+    return floor_match.group(1) if floor_match else None
+
+
+def _leaves_with_marker_floor_dependency() -> list[tuple[str, str, str]]:
+    """(leaf_pkg_name, base_pkg_name, declared_floor) for every configured, non-typed package depending on one of
+    _MARKER_FLOORS' keys."""
+    packages = _packages()
+    found: list[tuple[str, str, str]] = []
+    for pkg_name, cfg in packages.items():
+        if pkg_name in _TYPED_PACKAGES:
+            continue
+        for dep in cfg.get("dependencies", []):
+            for base_name in _MARKER_FLOORS:
+                floor = _declared_floor(dep, base_name)
+                if floor is not None:
+                    found.append((pkg_name, base_name, floor))
+    assert found, (
+        "expected at least one configured, non-typed package to declare a '>=' floor on a _MARKER_FLOORS base; "
+        "an empty result here would silently skip test_leaf_dependency_floor_meets_py_typed_marker instead of "
+        "failing it"
+    )
+    return found
+
+
+@pytest.mark.parametrize("pkg_name,base_name,declared_floor", _leaves_with_marker_floor_dependency())
+def test_leaf_dependency_floor_meets_py_typed_marker(pkg_name: str, base_name: str, declared_floor: str) -> None:
+    """A leaf's declared floor on its typed base must be at or above the base release that first shipped py.typed,
+    or an environment can resolve an older, unmarked base and the leaf silently installs untyped."""
+    required = _MARKER_FLOORS[base_name]
+    assert version_tuple(declared_floor) >= version_tuple(required), (
+        f"{pkg_name}: declares '{base_name}>={declared_floor}', but {base_name}'s py.typed marker first shipped "
+        f"in {required}; bump config/packages.toml to '{base_name}>={required}' for {pkg_name}"
     )
 
 
