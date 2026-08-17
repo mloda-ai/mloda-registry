@@ -13,6 +13,13 @@ import pandas as pd
 
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 
+# Pandas frequency aliases for fixed-freq dt floor/ceil/round.
+FIXED_FREQ_ALIASES: dict[str, str] = {
+    "minute": "min",
+    "hour": "h",
+    "day": "D",
+}
+
 PANDAS_AGG_FUNCS: dict[str, str] = {
     "sum": "sum",
     "avg": "mean",

@@ -1,7 +1,7 @@
 """DuckDB implementation of resample.
 
-Floors the time column with the SAME epoch-anchored expression as
-``duckdb_time_bucketization`` (``DATE_TRUNC`` for n=1, ``time_bucket`` with a
+Floors the time column with the shared ``floor_expr`` epoch-anchored
+expression (``DATE_TRUNC`` for n=1, ``time_bucket`` with a
 ``DATE '1970-01-01'`` origin for n>1 -- NOT the native 2000-01-03 anchor) so
 buckets align with the PyArrow oracle. SQL ``SUM`` / ``AVG`` ignore nulls and
 return NULL for all-null groups, and ``COUNT(col)`` counts non-null values, so
@@ -15,12 +15,10 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
+from mloda.community.feature_groups.data_operations.duckdb_helpers import floor_expr
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     RESAMPLE_AGGS,
     ResampleFeatureGroup,
-)
-from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.duckdb_time_bucketization import (
-    floor_expr,
 )
 
 # Resample agg -> DuckDB aggregate function. SUM/AVG/MIN/MAX ignore nulls and

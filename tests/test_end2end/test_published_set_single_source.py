@@ -157,9 +157,13 @@ def _dotted_path(pkg_name: str) -> str:
 
 
 def _expected_surface(path: str) -> list[str]:
-    """The import surface of a package path: the dotted root plus base when the checkout ships base.py."""
+    """The import surface of a package path: the dotted root, base when the checkout ships base.py, and
+    manifest when the checkout ships manifest.py."""
     dotted = path.replace("/", ".")
-    return [dotted, f"{dotted}.base"] if (_REPO_ROOT / path / "base.py").exists() else [dotted]
+    surface = [dotted, f"{dotted}.base"] if (_REPO_ROOT / path / "base.py").exists() else [dotted]
+    if (_REPO_ROOT / path / "manifest.py").exists():
+        surface.append(f"{dotted}.manifest")
+    return surface
 
 
 def _published_children() -> list[str]:

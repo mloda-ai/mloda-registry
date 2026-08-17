@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Install each published package with its in-repo dependency pinned to the declared floor, probing its import surface.
 
-The import surface is the dotted package root plus its base module when the checkout ships a base.py.
+The import surface is the dotted package root plus its base module when the checkout ships a
+base.py, and its manifest module when the checkout ships a manifest.py.
 
 Run: python scripts/verify_floor_installs.py <version>
 Exit code: 1 if any floored pair fails to install or its import surface fails to load, 0 otherwise.
