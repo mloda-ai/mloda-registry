@@ -31,11 +31,11 @@ print(result[0])
 # 1         BOB             3
 ```
 
-Every plugin is requested by feature name (`{column}__{operation}`) and produces the same result on PyArrow, Pandas, Polars, DuckDB, and SQLite. Swap `compute_frameworks` to change the engine. See [Use an existing plugin](docs/guides/01-use-existing-plugin.md) for streaming, realtime, and column ordering.
+Every plugin is requested by feature name (usually `{column}__{operation}`) and runs on PyArrow, Pandas, Polars lazy, DuckDB, and SQLite, each backend checked against the PyArrow reference; per-plugin coverage is in the [framework support matrix](docs/guides/data-operation-patterns/framework-support-matrix.md). Swap `compute_frameworks` between `PyArrowTable`, `PandasDataFrame`, and `PolarsLazyDataFrame` as-is; `DuckDBFramework` and `SqliteFramework` also need a connection passed via `data_access_collection` ([stateful connections](docs/guides/compute-framework-patterns/03-stateful-connection.md)). See [Use an existing plugin](docs/guides/01-use-existing-plugin.md) for streaming, realtime, and column ordering.
 
 ## Plugins
 
-`mloda-community` bundles all plugins below. Each is also published on its own (`pip install mloda-community-ema`) for minimal installs.
+`mloda-community` bundles all plugins below. Each is also published on its own for minimal installs, with the backend as an extra (`pip install "mloda-community-ema[pandas]"`).
 
 | Plugin | Feature name | Guide |
 |--------|--------------|-------|
@@ -45,8 +45,8 @@ Every plugin is requested by feature name (`{column}__{operation}`) and produces
 | `mloda-community-frame-aggregate` | `{col}__sum_rolling_3`, `{col}__cumsum`, `{col}__expanding_avg`, `{col}__avg_7_day_window` | [scalar and frame aggregate](docs/guides/data-operation-patterns/08-scalar-and-frame-aggregate.md) |
 | `mloda-community-scalar-arithmetic` | `{col}__{op}_constant` (add, subtract, multiply, divide by a constant) | [scalar and frame aggregate](docs/guides/data-operation-patterns/08-scalar-and-frame-aggregate.md) |
 | `mloda-community-point-arithmetic` | `{a}&{b}__{op}_point` (element-wise two-column arithmetic) | [scalar and frame aggregate](docs/guides/data-operation-patterns/08-scalar-and-frame-aggregate.md) |
-| `mloda-community-rank` | `{col}__{rank_type}_ranked` (row_number, rank, dense_rank, percent_rank, ntile) | [percentile, rank, offset](docs/guides/data-operation-patterns/07-percentile-rank-offset.md) |
-| `mloda-community-offset` | `{col}__lag_1_offset` (lag, lead, diff, pct_change, first_value, last_value) | [percentile, rank, offset](docs/guides/data-operation-patterns/07-percentile-rank-offset.md) |
+| `mloda-community-rank` | `{col}__{rank_type}_ranked` (row_number, rank, dense_rank, percent_rank, ntile_N, top_N, bottom_N) | [percentile, rank, offset](docs/guides/data-operation-patterns/07-percentile-rank-offset.md) |
+| `mloda-community-offset` | `{col}__lag_1_offset` (lag_N, lead_N, diff_N, pct_change_N, first_value, last_value) | [percentile, rank, offset](docs/guides/data-operation-patterns/07-percentile-rank-offset.md) |
 | `mloda-community-percentile` | `{col}__p95_percentile` | [percentile, rank, offset](docs/guides/data-operation-patterns/07-percentile-rank-offset.md) |
 | `mloda-community-binning` | `{col}__bin_5`, `{col}__qbin_10` (equal-width, quantile) | [binning](docs/guides/data-operation-patterns/05-binning.md) |
 | `mloda-community-datetime` | `{col}__year`, `{col}__dayofweek`, ... | [datetime](docs/guides/data-operation-patterns/framework-support-matrix.md#datetime) |
@@ -57,21 +57,21 @@ Every plugin is requested by feature name (`{column}__{operation}`) and produces
 | `mloda-community-sessionization` | `{ts}__sessionize_30_minute` (gap-threshold session id) | [sessionization](docs/guides/data-operation-patterns/15-sessionization.md) |
 | `mloda-community-resample` | `{col}__resample_1_hour_mean` (events onto a regular time grid) | [resample](docs/guides/data-operation-patterns/14-resample.md) |
 
-Which operations each compute framework supports: [framework support matrix](docs/guides/data-operation-patterns/framework-support-matrix.md). Options such as `partition_by` and `order_by`, plus the shared contracts, are in the [data operation patterns](docs/guides/data-operation-patterns/index.md). `config/packages.toml` is the source of truth for the package list.
+Options such as `partition_by` and `order_by`, plus the shared contracts, are in the [data operation patterns](docs/guides/data-operation-patterns/index.md). Also published: `mloda-community-data-operations` (the shared base classes) and the example packages `mloda-community-example` and `mloda-community-example-a`. `config/packages.toml` is the source of truth for the package list.
 
 ## PyPI packages
 
 | Package | Description | License | Install |
 |---------|-------------|---------|---------|
 | `mloda-community` | All community plugins (bundle) | Apache 2.0 | `pip install mloda-community` |
-| `mloda-community-<plugin>` | One plugin from the table above | Apache 2.0 | `pip install mloda-community-rank` |
+| `mloda-community-<plugin>` | One plugin from the table above | Apache 2.0 | `pip install "mloda-community-rank[pandas]"` |
 | `mloda-registry` | Plugin discovery and search | Apache 2.0 | `pip install mloda-registry` |
 | `mloda-testing` | Test utilities for plugin development | Apache 2.0 | `pip install mloda-testing` |
 | `mloda-enterprise` | All enterprise plugins (bundle) | [Source-available](mloda/enterprise/LICENSE) ([Get license](https://mloda.ai/enterprise)) | `pip install mloda-enterprise` |
 
 > **Note:** Only `mloda/enterprise/` and its PyPI package require a license. Everything else in this repository is Apache 2.0 (see [LICENSE](LICENSE)).
 
-Packages not published to PyPI (the example plugins) install straight from git; replace the subdirectory with the package `path` from `config/packages.toml`:
+The remaining example packages are not on PyPI; install them from git, replacing the subdirectory with the package `path` from `config/packages.toml`:
 
 ```bash
 pip install "git+https://github.com/mloda-ai/mloda-registry.git#subdirectory=mloda/community/feature_groups/example/example_b"
