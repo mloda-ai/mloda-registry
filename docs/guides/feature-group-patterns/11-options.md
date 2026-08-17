@@ -60,9 +60,9 @@ Use propagation sparingly; most context should remain local. Common use cases in
 
 ## PROPERTY_MAPPING value space
 
-A `PROPERTY_MAPPING` entry declares one parameter: its accepted values plus its metadata. Build every value with `property_spec(...)`. From mloda 0.11.0 that returns a typed `PropertySpec` and a raw dict raises `ValueError` at class definition; on mloda 0.10.0 it returns a plain dict, and `PropertySpec` is not importable there. Throughout this page the builder's `strict=` kwarg sets the spec field named `strict_validation`.
+A `PROPERTY_MAPPING` entry declares one parameter: its accepted values plus its metadata. Build every value with `property_spec(...)`, which returns a typed `PropertySpec`; a raw dict raises `ValueError` at class definition. Throughout this page the builder's `strict=` kwarg sets the spec field named `strict_validation`.
 
-A hand-written dict still works on 0.10.0, where it rejects unknown spec keys at class definition, which is where the renames `validation_function` to `element_validator` and `type_validator` to `match_guard` surface. The old flattened form, where accepted values sat among the spec's other keys, is gone.
+The old flattened form, where accepted values sat among the spec's other keys, is gone.
 
 ### Accepted values: `allowed_values`
 
@@ -80,7 +80,7 @@ PROPERTY_MAPPING = {
 }
 ```
 
-Pass a mapping of value to one-line docstring, or a `list`, `tuple`, `set` or `frozenset` of accepted values (materialized to a tuple). From mloda 0.11.0 those shapes are the whole declared type, which keeps a forgotten comma a typing error rather than a silent substring value space, so avoid a generator even though the runtime materializes one. A bare `str` is rejected outright, since membership would otherwise become a substring test.
+Pass a mapping of value to one-line docstring, or a `list`, `tuple`, `set` or `frozenset` of accepted values (materialized to a tuple). Those shapes are the whole declared type, which keeps a forgotten comma a typing error rather than a silent substring value space, so avoid a generator even though the runtime materializes one. A bare `str` is rejected outright, since membership would otherwise become a substring test.
 
 ### Builder: `property_spec`
 
@@ -102,13 +102,13 @@ PROPERTY_MAPPING = {
 
 `context` defaults to `True`, so `context=False` is how you declare a group-scoped key, one that lands in group options and therefore affects resolution and splitting. A caller who passes the key explicitly under `group=` or `context=` overrides that declaration.
 
-`property_spec` also accepts `element_validator`, `required_when`, and `match_guard`, plus `allow_explicit_none` and `deferred_binding` from mloda 0.11.0. `allow_explicit_none` makes an explicitly passed `None` count as present. `deferred_binding` exempts a key without a default from the name-path required-presence check, for values bound outside match-time name capture; it does not change config-path requiredness.
+`property_spec` also accepts `element_validator`, `required_when`, `match_guard`, `allow_explicit_none`, and `deferred_binding`. `allow_explicit_none` makes an explicitly passed `None` count as present. `deferred_binding` exempts a key without a default from the name-path required-presence check, for values bound outside match-time name capture; it does not change config-path requiredness.
 
-Version note on `default=None`: mloda 0.10.0 drops it, so the key stays required, and a hand-written dict entry is the only way to express an optional key with a `None` default there. From mloda 0.11.0, omitting `default` declares no default (the key is required) and `default=None` declares a default of `None`, which makes the key optional.
+Omitting `default` declares no default, so the key is required; `default=None` declares a default of `None`, which makes the key optional.
 
 ### Strict defaults are checked at construction
 
-A spec validates itself when it is built, so a `strict=True` `default` outside the accepted set (or one the key's `element_validator` rejects) raises `ValueError` from the `property_spec(...)` call, not from the `FeatureGroup` class definition that reads the mapping. The message names the spec's explanation and the rejected default; mloda 0.10.0 also lists the accepted values. A `default` of `None` is exempt (the conventional "unset" sentinel), and the check is a no-op under `strict=False`.
+A spec validates itself when it is built, so a `strict=True` `default` outside the accepted set (or one the key's `element_validator` rejects) raises `ValueError` from the `property_spec(...)` call, not from the `FeatureGroup` class definition that reads the mapping. The message names the spec's explanation and the rejected default. A `default` of `None` is exempt (the conventional "unset" sentinel), and the check is a no-op under `strict=False`.
 
 ## Validation and Conditional Requirements
 
