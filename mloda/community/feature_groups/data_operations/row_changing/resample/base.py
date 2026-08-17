@@ -128,9 +128,8 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
     # unit/agg. [a-z]+ (not \w+) keeps unit and agg disjoint from the "_" separator, so there is exactly
     # one way to split the token and no catastrophic backtracking. n=0 and an unknown unit/agg (e.g.
     # "century", "median") still match the pattern; _validate_string_match narrows via _parse_resample_op,
-    # which already enumerates the valid units/aggs and rejects n<=0 (mirrors time_bucketization). Named
-    # so FeatureChainParser.bind_name_captures binds it to resample_op, enabling the forwarded-value vs.
-    # name-parsed-value mismatch check in _validate_forwarded_name_mismatch.
+    # which already enumerates the valid units/aggs and rejects n<=0 (mirrors time_bucketization).
+    # Named "resample_op" so bind_name_captures can feed it into the forwarded-value mismatch check.
     PREFIX_PATTERN = r".*__resample_(?P<resample_op>(?:[1-9]\d*|0)_[a-z]+_[a-z]+)$"
 
     MIN_IN_FEATURES = 1
