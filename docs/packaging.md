@@ -39,6 +39,7 @@ keeps its own, higher, independent floor: it is the dev-only workspace package,
 is never published, declares no `license`, and its floor is Dependabot-managed.
 
 ```toml
+# Illustrative values; see config/shared.toml for the current ones.
 [project]
 version = "0.4.0"
 requires-python = ">=3.10,<3.15"
@@ -46,7 +47,7 @@ authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
 
 [defaults]
 license = "Apache-2.0"
-core_dependency = "mloda>=0.10.0,<0.11.0"
+core_dependency = "mloda>=0.11.0,<0.12.0"
 optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 ```
 
