@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from typing import Any
 
 from mloda.core.abstract_plugins.components.data_types import DataType
@@ -10,6 +12,7 @@ from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser
 from mloda.core.abstract_plugins.components.feature_name import FeatureName
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.core.abstract_plugins.components.options import Options
+from mloda.core.abstract_plugins.components.utils import escalate_match_abort
 from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
 from mloda.community.feature_groups.data_operations.base import (
     RejectionReasonMixin,
@@ -18,6 +21,8 @@ from mloda.community.feature_groups.data_operations.base import (
     op_token_value,
     positive_int_value,
 )
+
+logger = logging.getLogger(__name__)
 
 BINNING_OPS = {
     "bin": "Equal-width binning (value range divided into n equal intervals)",
@@ -41,6 +46,7 @@ class BinningFeatureGroup(RejectionReasonMixin, FeatureGroup):
             allowed_values=BINNING_OPS,
             match_guard=is_op_token,
         ),
+        # deferred_binding stays True: see _validate_forwarded_n_bins_mismatch for why.
         N_BINS: property_spec(
             "Number of bins (positive integer)",
             match_guard=is_positive_int,
@@ -56,6 +62,58 @@ class BinningFeatureGroup(RejectionReasonMixin, FeatureGroup):
         return operation_config in BINNING_OPS
 
     @classmethod
+    def match_feature_group_criteria(
+        cls,
+        feature_name: Any,
+        options: Any,
+        _data_access_collection: Any = None,
+    ) -> bool:
+        if not super().match_feature_group_criteria(feature_name, options, _data_access_collection):
+            return False
+        cls._validate_forwarded_n_bins_mismatch(feature_name, options)
+        return True
+
+    @classmethod
+    def _validate_forwarded_n_bins_mismatch(cls, feature_name: Any, options: Any) -> None:
+        """Reject a forwarded ``n_bins`` that contradicts the name-parsed value.
+
+        The name's digit suffix is never captured by PREFIX_PATTERN (it is parsed by hand in
+        get_binning_params), and its match_guard (is_positive_int) rejects raw capture text anyway,
+        so n_bins can't bind by name like binning_op does; this compares the parsed int directly.
+        """
+        if cls.N_BINS not in (options.inherited_group_keys or ()):
+            return
+        prefix_patterns = cls._get_prefix_patterns()
+        operation_config, source_feature = FeatureChainParser.parse_feature_name(str(feature_name), prefix_patterns)
+        if operation_config is None or source_feature is None:
+            return
+        name_n_bins = cls._name_n_bins(str(feature_name))
+        forwarded = options.get(cls.N_BINS)
+        if forwarded is None:
+            return
+        forwarded_n_bins = positive_int_value(forwarded)
+        if forwarded_n_bins == name_n_bins:
+            return
+        message = (
+            f"Feature '{feature_name}': option '{cls.N_BINS}' was forwarded from a consumer with value "
+            f"'{forwarded}', but the feature name parses to {name_n_bins}. The name-parsed value takes "
+            f"precedence, so the forwarded value would be silently ignored. Carve the key out with "
+            f"forward_group_exclude={{'{cls.N_BINS}'}} on the child in the consumer's input_features, or use "
+            f"an allowlist / forward_group=False. Set MLODA_ALLOW_FORWARDED_NAME_MISMATCH=1 to downgrade this "
+            f"error to a warning."
+        )
+        if os.environ.get("MLODA_ALLOW_FORWARDED_NAME_MISMATCH", "").lower() in ("1", "true"):
+            logger.warning(message)
+            return
+        # Marked: user misconfiguration; containing it would let a rival group win with the value ignored.
+        raise escalate_match_abort(ValueError(message))
+
+    @staticmethod
+    def _name_n_bins(feature_name: str) -> int:
+        """The digit suffix PREFIX_PATTERN anchors on, e.g. 5 in ``value__bin_5``."""
+        return int(feature_name.rsplit("_", 1)[-1])
+
+    @classmethod
     def _validate_n_bins(cls, n_bins: int, feature_name: str) -> None:
         if n_bins < 1:
             raise ValueError(f"n_bins must be >= 1, got {n_bins} (feature: {feature_name})")
@@ -65,7 +123,7 @@ class BinningFeatureGroup(RejectionReasonMixin, FeatureGroup):
         prefix_patterns = cls._get_prefix_patterns()
         operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
         if operation_config is not None and source_feature is not None:
-            n_bins = int(feature_name.rsplit("_", 1)[-1])
+            n_bins = cls._name_n_bins(feature_name)
             cls._validate_n_bins(n_bins, feature_name)
             return operation_config, n_bins
         raise ValueError(f"Could not extract binning parameters from feature name: {feature_name}")
@@ -76,7 +134,7 @@ class BinningFeatureGroup(RejectionReasonMixin, FeatureGroup):
         prefix_patterns = cls._get_prefix_patterns()
         operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
         if operation_config is not None:
-            n_bins = int(feature_name.rsplit("_", 1)[-1])
+            n_bins = cls._name_n_bins(feature_name)
             cls._validate_n_bins(n_bins, feature_name)
             return operation_config, n_bins
         op = feature.options.get(cls.BINNING_OP)

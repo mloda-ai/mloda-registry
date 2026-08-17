@@ -517,6 +517,50 @@ class TestForwardedNameMismatch:
         with pytest.raises(ValueError):
             FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
 
+    def test_forwarded_frame_type_mismatch_raises(self) -> None:
+        consumer = Options(group={"frame_type": "time"})
+        options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
+        options.inherit_from(consumer)
+        with pytest.raises(ValueError, match="frame_type"):
+            FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
+
+    def test_forwarded_frame_size_mismatch_raises(self) -> None:
+        consumer = Options(group={"frame_size": 99})
+        options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
+        options.inherit_from(consumer)
+        with pytest.raises(ValueError, match="frame_size"):
+            FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
+
+    def test_forwarded_frame_unit_mismatch_raises(self) -> None:
+        consumer = Options(group={"frame_unit": "hour"})
+        options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
+        options.inherit_from(consumer)
+        with pytest.raises(ValueError, match="frame_unit"):
+            FrameAggregateFeatureGroup.match_feature_group_criteria("sales__avg_7_day_window", options, None)
+
+    def test_matching_forwarded_frame_params_is_accepted(self) -> None:
+        consumer = Options(group={"frame_type": "time", "frame_size": 7, "frame_unit": "day"})
+        options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
+        options.inherit_from(consumer)
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__avg_7_day_window", options, None)
+        assert result is True
+
+    def test_forwarded_frame_type_mismatch_env_downgrade_is_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MLODA_ALLOW_FORWARDED_NAME_MISMATCH", "1")
+        consumer = Options(group={"frame_type": "time"})
+        options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
+        options.inherit_from(consumer)
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria("sales__sum_rolling_3", options, None)
+        assert result is True
+
+    @pytest.mark.parametrize("feature_name", ["sales__cumsum", "sales__expanding_avg"])
+    def test_sizeless_shapes_ignore_forwarded_frame_size_and_unit(self, feature_name: str) -> None:
+        consumer = Options(group={"frame_size": 99, "frame_unit": "hour"})
+        options = Options(context={"partition_by": ["region"], "order_by": "timestamp"})
+        options.inherit_from(consumer)
+        result = FrameAggregateFeatureGroup.match_feature_group_criteria(feature_name, options, None)
+        assert result is True
+
 
 #: Each frame name shape, its configuration equivalent, and the same shape with a malformed agg token.
 _FRAME_SHAPE_PAIRS: list[tuple[str, dict[str, Any], str]] = [
