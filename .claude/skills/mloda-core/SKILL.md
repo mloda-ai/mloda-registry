@@ -23,7 +23,6 @@ If path is empty, ask user to set `MLODA_PATH` environment variable or clone mlo
 | `mloda_plugins/compute_framework/` | Compute framework plugins |
 | `mloda_plugins/feature_group/` | Feature group plugins |
 | `mloda_plugins/function_extender/` | Function extender plugins |
-| `mloda_plugins/config/` | Plugin configuration |
 | `docs/docs/` | Documentation source (MkDocs, same as mloda-ai.github.io/mloda/) |
 | `docs/mkdocs.yml` | MkDocs configuration |
 | `tests/` | Test suite (1500+ tests) |
