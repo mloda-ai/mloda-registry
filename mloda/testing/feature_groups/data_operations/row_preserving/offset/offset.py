@@ -17,6 +17,7 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
+from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
@@ -315,6 +316,11 @@ class OffsetTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
         fs.add(feature)
         with pytest.raises((ValueError, KeyError)):
             self.implementation_class().calculate_feature(self.test_data, fs)
+
+    def test_match_rejects_empty_partition_by(self) -> None:
+        """Empty partition_by must be rejected at match time, not reach backend-specific compute."""
+        options = Options(context={"partition_by": [], "order_by": "value_int"})
+        assert not self.implementation_class().match_feature_group_criteria("value_int__lag_1_offset", options, None)
 
     # -- Tier 3: Partition / order_by null tests ------------------------------
 

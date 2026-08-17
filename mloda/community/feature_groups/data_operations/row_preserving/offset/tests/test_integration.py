@@ -79,3 +79,7 @@ class TestIntegrationPluginDiscovery:
     def test_match_rejects_missing_order_by(self) -> None:
         options = Options(context={"partition_by": ["region"]})
         assert not ReferenceOffset.match_feature_group_criteria("value_int__lag_1_offset", options)
+
+    def test_match_rejects_empty_partition_by(self) -> None:
+        options = Options(context={"partition_by": [], "order_by": "value_int"})
+        assert not ReferenceOffset.match_feature_group_criteria("value_int__lag_1_offset", options)
