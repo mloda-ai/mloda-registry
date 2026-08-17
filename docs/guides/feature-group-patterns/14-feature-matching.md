@@ -281,7 +281,7 @@ The spec declares the arity, not the caller. For membership and `element_validat
 - An empty container is present and vacuously valid: no element runs, and it still satisfies the required-presence check.
 - Both only see values in `Options`. A `PREFIX_PATTERN` match short-circuits property validation, so membership and `element_validator` never run on a name-parsed value, and `match_guard` is skipped when the option is absent. Constrain the string path with the regex itself (see [Return Data Type Rule](../data-operation-patterns/16-return-data-type-rule.md)).
 
-Migration: before mloda 0.10.0 a sequence was stringified, so a validator received `"('a', 'b')"` and behavior depended on whether the caller typed a list or a tuple. An `element_validator` that inspects a whole container (`isinstance(x, list) and all(...)`) must become a per-element rule, or move to `match_guard` if it genuinely is a whole-value check.
+An `element_validator` that inspects a whole container (`isinstance(x, list) and all(...)`) is a mistake: elements unpack one at a time, so write a per-element rule, or move to `match_guard` for a genuine whole-value check.
 
 ### When to Use Each Validation Approach
 

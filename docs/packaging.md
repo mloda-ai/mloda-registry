@@ -39,6 +39,7 @@ keeps its own, higher, independent floor: it is the dev-only workspace package,
 is never published, declares no `license`, and its floor is Dependabot-managed.
 
 ```toml
+# Illustrative values; see config/shared.toml for the current ones.
 [project]
 version = "0.4.0"
 requires-python = ">=3.10,<3.15"
