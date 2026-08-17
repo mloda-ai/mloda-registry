@@ -812,6 +812,94 @@ def test_check_source_property_mapping_has_no_findings_in_real_plugin_source() -
     assert findings == []
 
 
+# check_readme_plugin_table: published data-operation packages must appear in the README Plugins table.
+
+_DATA_OP_PACKAGES_TOML = """
+[packages.mloda-community-data-operations]
+path = "mloda/community/feature_groups/data_operations"
+published = true
+
+[packages.mloda-community-aggregation]
+path = "mloda/community/feature_groups/data_operations/aggregation"
+published = true
+
+[packages.mloda-community-rank]
+path = "mloda/community/feature_groups/data_operations/row_preserving/rank"
+published = true
+
+[packages.mloda-community-unreleased]
+path = "mloda/community/feature_groups/data_operations/row_preserving/unreleased"
+"""
+
+
+def test_check_readme_plugin_table_accepts_complete_table(tmp_path: Path) -> None:
+    readme = tmp_path / "README.md"
+    _write(readme, "## Plugins\n\n`mloda-community-aggregation`\n`mloda-community-rank`\n\n## PyPI packages\n")
+    packages_config = tmp_path / "packages.toml"
+    _write(packages_config, _DATA_OP_PACKAGES_TOML)
+    assert lint_docs.check_readme_plugin_table(readme, packages_config) == []
+
+
+def test_check_readme_plugin_table_flags_missing_package(tmp_path: Path) -> None:
+    readme = tmp_path / "README.md"
+    _write(readme, "## Plugins\n\n`mloda-community-aggregation`\n\n## PyPI packages\n")
+    packages_config = tmp_path / "packages.toml"
+    _write(packages_config, _DATA_OP_PACKAGES_TOML)
+    errors = lint_docs.check_readme_plugin_table(readme, packages_config)
+    assert len(errors) == 1
+    assert "mloda-community-rank" in errors[0]
+
+
+def test_check_readme_plugin_table_excludes_base_and_unpublished_packages(tmp_path: Path) -> None:
+    """The shared data-operations base and an unpublished package must never be required in the table."""
+    readme = tmp_path / "README.md"
+    _write(readme, "## Plugins\n\n`mloda-community-aggregation`\n`mloda-community-rank`\n\n## PyPI packages\n")
+    packages_config = tmp_path / "packages.toml"
+    _write(packages_config, _DATA_OP_PACKAGES_TOML)
+    assert lint_docs.check_readme_plugin_table(readme, packages_config) == []
+
+
+def test_check_readme_plugin_table_ignores_matches_outside_plugins_section(tmp_path: Path) -> None:
+    """A package name mentioned elsewhere in the README does not satisfy the Plugins table requirement."""
+    readme = tmp_path / "README.md"
+    _write(
+        readme,
+        "## Plugins\n\n`mloda-community-aggregation`\n\n## PyPI packages\n\n`mloda-community-rank`\n",
+    )
+    packages_config = tmp_path / "packages.toml"
+    _write(packages_config, _DATA_OP_PACKAGES_TOML)
+    errors = lint_docs.check_readme_plugin_table(readme, packages_config)
+    assert len(errors) == 1
+    assert "mloda-community-rank" in errors[0]
+
+
+def test_check_readme_plugin_table_real_repo_readme_is_complete() -> None:
+    """Regression guard: the real README Plugins table stays in sync with published data-operation packages."""
+    assert lint_docs.check_readme_plugin_table(lint_docs.README_PATH, lint_docs.PACKAGES_CONFIG) == []
+
+
+def test_main_flags_readme_missing_published_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _write(tmp_path / "guides" / "index.md", "# Guides\n")
+    _write(tmp_path / "README.md", "## Plugins\n\n`mloda-community-aggregation`\n\n## PyPI packages\n")
+    _write(tmp_path / "packages.toml", _DATA_OP_PACKAGES_TOML)
+    monkeypatch.setattr(lint_docs, "DOCS_DIR", tmp_path / "guides")
+    monkeypatch.setattr(lint_docs, "GUIDES_DIR", tmp_path / "guides")
+    monkeypatch.setattr(lint_docs, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(lint_docs, "README_PATH", tmp_path / "README.md")
+    monkeypatch.setattr(lint_docs, "PACKAGES_CONFIG", tmp_path / "packages.toml")
+    empty_plugin_source = tmp_path / "empty_plugin_source"
+    empty_plugin_source.mkdir()
+    monkeypatch.setattr(lint_docs, "PLUGIN_SOURCE_DIR", empty_plugin_source)
+    rc = lint_docs.main()
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "mloda-community-rank" in out
+
+
 def test_main_reports_missing_plugin_source_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
