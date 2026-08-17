@@ -8,8 +8,6 @@ When a feature group declares **another group's** feature in `input_features()`,
 **Where**: `input_features()` return values, on the `Feature(...)` objects you construct there.
 **How**: Leave children at the default to inherit everything, or use the typed opt-outs `forward_group`, `forward_group_exclude`, and the context pull/push pair `inherit_context_keys` / `propagate_context_keys`.
 
-> Requires `mloda>=0.9.0`. Earlier releases used a `feature_chainer_parser_key` denylist shield that is removed in 0.9.0; do not use it. The API below is the replacement.
-
 ## The Default: Group Options Forward
 
 A consumer's **group** options flow onto every input feature by default. **Context** options never flow through this forwarding merge (the one exception is a bare-string child, which shares the consumer's `Options` outright: see the caveat below). `in_features` itself never flows.
@@ -46,6 +44,8 @@ Set these on the `Feature(...)` you return from `input_features()`:
 | `inherit_context_keys={"tenant"}` | Pull these **context** keys from the consumer into the child's context. |
 
 `forward_group=False` combined with a non-empty `forward_group_exclude` is contradictory and raises `ValueError`.
+
+`feature_chainer_parser_key` carries no special meaning here: a leftover key from an older integration forwards like any other group option and can trigger the "extra group option(s)" rejection above if the upstream does not recognize it.
 
 ## Worked Example: A Connector Consuming a Source Feature
 
