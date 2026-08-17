@@ -25,7 +25,7 @@ If path is empty, ask user to set `MLODA_PATH` environment variable or clone mlo
 | `mloda_plugins/function_extender/` | Function extender plugins |
 | `docs/docs/` | Documentation source (MkDocs, same as mloda-ai.github.io/mloda/) |
 | `docs/mkdocs.yml` | MkDocs configuration |
-| `tests/` | Test suite (1500+ tests) |
+| `tests/` | Test suite |
 
 **Online fallback:**
 - Docs: https://mloda-ai.github.io/mloda/

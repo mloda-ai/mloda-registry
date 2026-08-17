@@ -81,6 +81,12 @@ Q23: Need both plan reuse and incremental per-group delivery?
 
 Q24: Need conditional aggregation (include only rows matching a predicate)?
     YES → See 25-masking
+
+Q25: Several readers under one root group, or a non-file (HTTP/API) source?
+    YES → See 27-input-data-readers
+
+Q26: Does it declare another feature group's feature (source, connector) in input_features(), and need to control which of its own options forward to that input?
+    YES → See 26-input-feature-forwarding
 ```
 
 ## Pattern Guides
@@ -117,3 +123,5 @@ Q24: Need conditional aggregation (include only rows matching a predicate)?
 | [23-streaming](feature-group-patterns/23-streaming.md) | Consume results incrementally with `stream_all` |
 | [24-realtime](feature-group-patterns/24-realtime.md) | Reuse execution plans with `prepare` + `run` |
 | [25-masking](feature-group-patterns/25-masking.md) | Conditional aggregation via `mask` context option |
+| [26-input-feature-forwarding](feature-group-patterns/26-input-feature-forwarding.md) | Consuming another group's feature; controlling option forwarding |
+| [27-input-data-readers](feature-group-patterns/27-input-data-readers.md) | Sibling reader selection; non-file / HTTP readers |

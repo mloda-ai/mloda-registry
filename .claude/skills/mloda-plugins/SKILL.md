@@ -110,6 +110,9 @@ Q25: Several readers under one root group, or a non-file (HTTP/API) source?
 
 Q26: Does it declare another feature group's feature (source, connector) in input_features(), and need to control which of its own options forward to that input?
     YES → See 26-input-feature-forwarding
+
+Q27: Is it a standard column transform (binning, window/scalar/frame aggregate, rank, offset, percentile, string op, time bucketization, ffill, EMA, resample, sessionization)?
+    YES → See Data Operation Patterns below
 ```
 
 ### Feature Group Pattern Guides
