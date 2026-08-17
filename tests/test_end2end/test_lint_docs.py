@@ -831,10 +831,19 @@ published = true
 path = "mloda/community/feature_groups/data_operations/row_preserving/unreleased"
 """
 
+_COMPLETE_TABLE = (
+    "## Plugins\n\n"
+    "| Plugin | Feature name |\n"
+    "|--------|--------------|\n"
+    "| `mloda-community-aggregation` | ... |\n"
+    "| `mloda-community-rank` | ... |\n"
+    "\n## PyPI packages\n"
+)
+
 
 def test_check_readme_plugin_table_accepts_complete_table(tmp_path: Path) -> None:
     readme = tmp_path / "README.md"
-    _write(readme, "## Plugins\n\n`mloda-community-aggregation`\n`mloda-community-rank`\n\n## PyPI packages\n")
+    _write(readme, _COMPLETE_TABLE)
     packages_config = tmp_path / "packages.toml"
     _write(packages_config, _DATA_OP_PACKAGES_TOML)
     assert lint_docs.check_readme_plugin_table(readme, packages_config) == []
@@ -842,7 +851,7 @@ def test_check_readme_plugin_table_accepts_complete_table(tmp_path: Path) -> Non
 
 def test_check_readme_plugin_table_flags_missing_package(tmp_path: Path) -> None:
     readme = tmp_path / "README.md"
-    _write(readme, "## Plugins\n\n`mloda-community-aggregation`\n\n## PyPI packages\n")
+    _write(readme, "## Plugins\n\n| `mloda-community-aggregation` | ... |\n\n## PyPI packages\n")
     packages_config = tmp_path / "packages.toml"
     _write(packages_config, _DATA_OP_PACKAGES_TOML)
     errors = lint_docs.check_readme_plugin_table(readme, packages_config)
@@ -850,13 +859,15 @@ def test_check_readme_plugin_table_flags_missing_package(tmp_path: Path) -> None
     assert "mloda-community-rank" in errors[0]
 
 
-def test_check_readme_plugin_table_excludes_base_and_unpublished_packages(tmp_path: Path) -> None:
+def test_published_data_operation_packages_excludes_base_and_unpublished(tmp_path: Path) -> None:
     """The shared data-operations base and an unpublished package must never be required in the table."""
-    readme = tmp_path / "README.md"
-    _write(readme, "## Plugins\n\n`mloda-community-aggregation`\n`mloda-community-rank`\n\n## PyPI packages\n")
     packages_config = tmp_path / "packages.toml"
     _write(packages_config, _DATA_OP_PACKAGES_TOML)
-    assert lint_docs.check_readme_plugin_table(readme, packages_config) == []
+    packages = lint_docs._load_packages_config(packages_config)
+    assert lint_docs._published_data_operation_packages(packages) == [
+        "mloda-community-aggregation",
+        "mloda-community-rank",
+    ]
 
 
 def test_check_readme_plugin_table_ignores_matches_outside_plugins_section(tmp_path: Path) -> None:
@@ -864,13 +875,63 @@ def test_check_readme_plugin_table_ignores_matches_outside_plugins_section(tmp_p
     readme = tmp_path / "README.md"
     _write(
         readme,
-        "## Plugins\n\n`mloda-community-aggregation`\n\n## PyPI packages\n\n`mloda-community-rank`\n",
+        "## Plugins\n\n| `mloda-community-aggregation` | ... |\n\n## PyPI packages\n\n`mloda-community-rank`\n",
     )
     packages_config = tmp_path / "packages.toml"
     _write(packages_config, _DATA_OP_PACKAGES_TOML)
     errors = lint_docs.check_readme_plugin_table(readme, packages_config)
     assert len(errors) == 1
     assert "mloda-community-rank" in errors[0]
+
+
+def test_check_readme_plugin_table_ignores_prose_mention_inside_plugins_section(tmp_path: Path) -> None:
+    """A package name mentioned in prose inside the Plugins section, but not in a table row, still counts missing."""
+    readme = tmp_path / "README.md"
+    _write(
+        readme,
+        "## Plugins\n\n"
+        "| `mloda-community-aggregation` | ... |\n\n"
+        "Also published: `mloda-community-rank` (not yet in the table above).\n\n"
+        "## PyPI packages\n",
+    )
+    packages_config = tmp_path / "packages.toml"
+    _write(packages_config, _DATA_OP_PACKAGES_TOML)
+    errors = lint_docs.check_readme_plugin_table(readme, packages_config)
+    assert len(errors) == 1
+    assert "mloda-community-rank" in errors[0]
+
+
+def test_check_readme_plugin_table_handles_plugins_as_last_section(tmp_path: Path) -> None:
+    """The Plugins section must be read to end-of-file when no further ``## `` heading follows."""
+    readme = tmp_path / "README.md"
+    _write(readme, "# Root\n\n" + _COMPLETE_TABLE.rsplit("\n## PyPI packages\n", 1)[0] + "\n")
+    packages_config = tmp_path / "packages.toml"
+    _write(packages_config, _DATA_OP_PACKAGES_TOML)
+    assert lint_docs.check_readme_plugin_table(readme, packages_config) == []
+
+
+def test_check_readme_plugin_table_missing_readme_is_flagged(tmp_path: Path) -> None:
+    packages_config = tmp_path / "packages.toml"
+    _write(packages_config, _DATA_OP_PACKAGES_TOML)
+    errors = lint_docs.check_readme_plugin_table(tmp_path / "missing.md", packages_config)
+    assert len(errors) == 1
+    assert "not found" in errors[0]
+
+
+def test_check_readme_plugin_table_missing_packages_config_is_flagged(tmp_path: Path) -> None:
+    readme = tmp_path / "README.md"
+    _write(readme, _COMPLETE_TABLE)
+    errors = lint_docs.check_readme_plugin_table(readme, tmp_path / "missing.toml")
+    assert len(errors) == 1
+    assert "not found" in errors[0]
+
+
+def test_published_data_operation_packages_real_config_excludes_base() -> None:
+    """Regression guard: the real config/packages.toml base package stays excluded from the required set."""
+    packages = lint_docs._load_packages_config(lint_docs.PACKAGES_CONFIG)
+    names = lint_docs._published_data_operation_packages(packages)
+    assert "mloda-community-data-operations" not in names
+    assert "mloda-community-aggregation" in names
 
 
 def test_check_readme_plugin_table_real_repo_readme_is_complete() -> None:
