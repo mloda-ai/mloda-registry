@@ -16,7 +16,7 @@ else:
 
 import pytest
 
-from tests.script_loader import load_script
+from tests.script_loader import load_script, version_tuple
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = _REPO_ROOT / "scripts" / "verify_floor_installs.py"
@@ -54,11 +54,6 @@ def _internal_floor_pairs() -> Callable[[dict[str, dict[str, Any]]], list[Any]]:
 def _load_toml(path: Path) -> dict[str, Any]:
     with open(path, "rb") as f:
         return tomllib.load(f)
-
-
-def _version_tuple(version: str) -> tuple[int, ...]:
-    """Comparable form of a numeric release version."""
-    return tuple(int(part) for part in version.split("."))
 
 
 def _synthetic_packages(
@@ -191,7 +186,7 @@ def test_real_floors_are_numeric_and_at_most_the_workspace_version() -> None:
         assert len(parts) == 3 and all(part.isdigit() for part in parts), (
             f"{pair.package}: floor {pair.floor!r} on {pair.dependency} is not three dot-separated integers"
         )
-        assert _version_tuple(pair.floor) <= _version_tuple(workspace), (
+        assert version_tuple(pair.floor) <= version_tuple(workspace), (
             f"{pair.package}: floors {pair.dependency} at {pair.floor}, above the workspace version {workspace}; "
             "per docs/packaging.md that floor is undeclarable"
         )
@@ -202,7 +197,7 @@ def test_data_operations_floors_point_at_a_released_version() -> None:
     pairs = [pair for pair in _real_pairs() if pair.dependency == _DEP]
     assert pairs, f"expected published leaves flooring {_DEP} in config/packages.toml"
     for pair in pairs:
-        assert _version_tuple(pair.floor) >= _DATA_OPERATIONS_FIRST_RELEASE, (
+        assert version_tuple(pair.floor) >= _DATA_OPERATIONS_FIRST_RELEASE, (
             f"{pair.package}: floors {_DEP} at {pair.floor}, which was never released; the first release "
             "shipping the shared guard helpers is 0.4.0, so an install at the floor could not import"
         )
@@ -228,7 +223,7 @@ def test_example_a_floors_the_oldest_usable_example_release() -> None:
     pairs = [pair for pair in _real_pairs() if pair.package == "mloda-community-example-a"]
     assert pairs, "expected mloda-community-example-a to floor an in-repo distribution"
     for pair in pairs:
-        assert _version_tuple(pair.floor) >= _EXAMPLE_FIRST_RELEASE, (
+        assert version_tuple(pair.floor) >= _EXAMPLE_FIRST_RELEASE, (
             f"mloda-community-example-a: floors {pair.dependency} at {pair.floor}; the oldest usable "
             "mloda-community-example release is 0.2.6"
         )

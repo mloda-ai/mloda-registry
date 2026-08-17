@@ -15,3 +15,8 @@ def load_script(name: str, path: Path) -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def version_tuple(version: str) -> tuple[int, ...]:
+    """Comparable form of a numeric release version."""
+    return tuple(int(part) for part in version.split("."))
