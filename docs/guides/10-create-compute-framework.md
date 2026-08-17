@@ -43,6 +43,9 @@ Q10: Should connections be auto-created or user-provided?
 
 Q11: Ready to test your implementation?
     YES → See 09-testing-guide
+
+Q12: Need to map a native column type (e.g. pandas dtype, Arrow type) to mloda's DataType?
+    YES → See 10-data-type-extraction
 ```
 
 ## Category Guides

@@ -107,6 +107,12 @@ Q24: Need conditional aggregation that nulls out non-matching values instead of 
 
 Q25: Several readers under one root group, or a non-file (HTTP/API) source?
     YES → See 27-input-data-readers
+
+Q26: Does it declare another feature group's feature (source, connector) in input_features(), and need to control which of its own options forward to that input?
+    YES → See 26-input-feature-forwarding
+
+Q27: Is it a standard column transform (binning, window/scalar/frame aggregate, rank, offset, percentile, string op, time bucketization, ffill, EMA, resample, sessionization)?
+    YES → See Data Operation Patterns below
 ```
 
 ### Feature Group Pattern Guides
@@ -142,6 +148,35 @@ Location: `docs/guides/feature-group-patterns/`
 | 25 | `25-masking.md` | Conditional aggregation via FilterMask |
 | 26 | `26-input-feature-forwarding.md` | Consume another group's root feature; option forwarding |
 | 27 | `27-input-data-readers.md` | Sibling reader selection; non-file / HTTP readers |
+
+---
+
+## Data Operation Patterns
+
+Location: `docs/guides/data-operation-patterns/`
+
+Built-in feature groups that transform existing columns: row-preserving analytics (binning, ranks, windows, offsets, percentiles), group-reducing aggregations, element-wise string transforms.
+
+| # | Guide | Description |
+|---|-------|-------------|
+| 01 | `01-overview.md` | Categories, naming patterns, code layout |
+| 02 | `02-row-preserving-contract.md` | Output row count/order must match input |
+| 03 | `03-reference-implementation.md` | PyArrow as source of truth |
+| 04 | `04-supported-ops.md` | Ops excluded per framework |
+| 05 | `05-binning.md` | `bin` vs `qbin` |
+| 06 | `06-window-aggregation.md` | Partitioned aggregates broadcast per row |
+| 07 | `07-percentile-rank-offset.md` | Analytic window family |
+| 08 | `08-scalar-and-frame-aggregate.md` | Global/rolling aggregates, arithmetic |
+| 09 | `09-string-operations.md` | Element-wise string transforms |
+| 10 | `10-adding-new-operation.md` | End-to-end recipe for a new operation |
+| 11 | `11-time-bucketization.md` | Floor/ceil/round timestamp to a bucket |
+| 12 | `12-ffill-by-time.md` | Forward fill across time gaps |
+| 13 | `13-ema.md` | Exponential moving average |
+| 14 | `14-resample.md` | Collapse events onto a regular time grid |
+| 15 | `15-sessionization.md` | Gap-threshold session id |
+| 16 | `16-return-data-type-rule.md` | Fail-fast return-type contract |
+
+See also `framework-support-matrix.md` (op x framework support) and `known-divergences.md` (audited framework divergences).
 
 ---
 
@@ -186,6 +221,9 @@ Q10: Should connections be auto-created or user-provided?
 
 Q11: Ready to test your implementation?
     YES → See 09-testing-guide
+
+Q12: Need to map a native column type (e.g. pandas dtype, Arrow type) to mloda's DataType?
+    YES → See 10-data-type-extraction
 ```
 
 ### Compute Framework Pattern Guides
@@ -203,6 +241,7 @@ Location: `docs/guides/compute-framework-patterns/`
 | 07 | `07-filter-engine.md` | Filter operations |
 | 08 | `08-framework-transformer.md` | Cross-framework conversion |
 | 09 | `09-testing-guide.md` | Testing your implementation |
+| 10 | `10-data-type-extraction.md` | Mapping native column types to mloda `DataType` |
 
 ---
 
