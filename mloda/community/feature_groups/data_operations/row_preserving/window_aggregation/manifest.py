@@ -18,6 +18,7 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
         ("pandas_window_aggregation", "PandasWindowAggregation"),
         ("polars_lazy_window_aggregation", "PolarsLazyWindowAggregation"),
         ("pyarrow_window_aggregation", "PyArrowWindowAggregation"),
+        ("python_dict_window_aggregation", "PythonDictWindowAggregation"),
         ("sqlite_window_aggregation", "SqliteWindowAggregation"),
     ],
 )

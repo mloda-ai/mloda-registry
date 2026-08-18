@@ -86,7 +86,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 | ffill | full | full | full | full | full | full |
 | ema | -- | full | full | -- | -- | full |
 | sessionization | full | full | full | full | full | full |
-| window_aggregation | partial (15/17) | full | full | full | partial (6/17) | -- |
+| window_aggregation | partial (15/17) | full | full | full | partial (6/17) | full |
 | string | full | full | full | full | partial (2/5) | -- |
 | resample | full | full | full | full | -- | -- |
 
@@ -247,23 +247,23 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 
 | Agg type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
 |---|---|---|---|---|---|---|
-| `sum` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `avg` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `mean` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `count` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `min` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `max` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `std` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `var` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `std_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `std_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `var_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `var_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `median` | ✗ | ✓ | ✓ | ✓ | ✗ | -- |
-| `mode` | ✗ | ✓ | ✓ | ✓ | ✗ | -- |
-| `nunique` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `first` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `last` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `sum` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `avg` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `mean` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `count` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `min` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `max` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `std` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `var` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `std_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `std_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `var_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `var_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `median` | ✗ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `mode` | ✗ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `nunique` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `first` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `last` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
 
 ### string
 
