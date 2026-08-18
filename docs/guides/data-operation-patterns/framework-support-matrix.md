@@ -78,7 +78,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 | frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) | full |
 | offset | -- | full | full | full | full | full |
 | percentile | -- | full | full | full | -- | full |
-| rank | -- | full | full | full | full | -- |
+| rank | -- | full | full | full | full | full |
 | scalar_aggregate | full | full | full | full | partial (6/13) | -- |
 | scalar_arithmetic | full | full | full | full | full | -- |
 | point_arithmetic | full | full | full | full | full | -- |
@@ -173,13 +173,13 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 
 | Rank type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
 |---|---|---|---|---|---|---|
-| `row_number` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `rank` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `dense_rank` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `percent_rank` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `ntile` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `top` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `bottom` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `row_number` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `rank` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `dense_rank` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `percent_rank` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `ntile` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `top` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `bottom` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ### scalar_aggregate
 
