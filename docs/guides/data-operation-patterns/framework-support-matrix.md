@@ -79,7 +79,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 | offset | -- | full | full | full | full | full |
 | percentile | -- | full | full | full | -- | full |
 | rank | -- | full | full | full | full | full |
-| scalar_aggregate | full | full | full | full | partial (6/13) | -- |
+| scalar_aggregate | full | full | full | full | partial (6/13) | full |
 | scalar_arithmetic | full | full | full | full | full | -- |
 | point_arithmetic | full | full | full | full | full | -- |
 | time_bucketization | full | full | full | full | full | -- |
@@ -185,19 +185,19 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 
 | Agg type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
 |---|---|---|---|---|---|---|
-| `sum` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `min` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `max` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `avg` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `mean` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `count` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `std` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `var` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `std_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `std_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `var_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `var_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `median` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `sum` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `min` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `max` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `avg` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `mean` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `count` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `std` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `var` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `std_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `std_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `var_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `var_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `median` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
 
 ### scalar_arithmetic
 
