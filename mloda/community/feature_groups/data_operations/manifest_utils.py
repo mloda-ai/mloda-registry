@@ -19,7 +19,7 @@ from typing import Any
 # Optional compute-framework roots used by data_operations backends. A missing
 # import whose root is one of these means "framework not installed" -> skip that
 # backend only. Any other ModuleNotFoundError is a real error and re-raised.
-_OPTIONAL_BACKENDS = frozenset({"pandas", "polars", "duckdb", "pyarrow"})
+_OPTIONAL_BACKENDS = frozenset({"pandas", "polars", "duckdb", "pyarrow", "numpy"})
 
 
 def load_plugin_classes(package: str, specs: Iterable[tuple[str, str]]) -> list[type[Any]]:
