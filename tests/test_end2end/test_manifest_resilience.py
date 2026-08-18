@@ -8,18 +8,43 @@ transitive: it is only ever missing because pandas needs it, not because a
 backend module targets a "numpy compute framework" directly. These tests drive
 that behaviour by monkeypatching the helper module's ``importlib.import_module``,
 so they need no optional framework installed and touch no network.
+
+A further test walks the real data_operations tree on disk and asserts every
+module's top-level third-party import root is covered by ``_OPTIONAL_BACKENDS``,
+so a backend module that top-imports an uncovered root fails this test instead
+of silently breaking a bare floor install. ``third_party_import_roots_by_file``
+is the public scanner backing that guard; a ``tmp_path`` battery below pins its
+behaviour directly, including that an import inside a module-level ``except:``
+handler is walked, and the real-tree test also asserts the walk is non-vacuous
+so a moved or emptied ``data_operations`` tree cannot make the guard pass
+silently. The guard only sees direct top-level third-party imports under
+``data_operations/**``; an optional framework reached only indirectly through
+mloda core's own compute-framework shims (e.g. duckdb, which has no direct
+import anywhere under ``data_operations/**`` and is only ever imported inside
+``mloda_plugins.compute_framework.base_implementations.duckdb.*``) is invisible
+to this guard and relies on core's own try/except shims guarding it.
 """
 
 from __future__ import annotations
 
+import ast
+import sys
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
 
+from mloda.community.feature_groups.data_operations import manifest_utils
 from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
 _IMPORT_MODULE_TARGET = "mloda.community.feature_groups.data_operations.manifest_utils.importlib.import_module"
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_DATA_OPERATIONS_ROOT = _REPO_ROOT / "mloda" / "community" / "feature_groups" / "data_operations"
+
+# mloda and mloda_plugins are required core dependencies, not optional backends.
+_FIRST_PARTY_IMPORT_ROOTS = frozenset({"mloda", "mloda_plugins"})
 
 
 class _KeptClass:
@@ -83,3 +108,119 @@ def test_reraises_non_optional_module_not_found(monkeypatch: pytest.MonkeyPatch)
 
 def test_empty_specs_returns_empty_list() -> None:
     assert load_plugin_classes("pkg", []) == []
+
+
+def _module_level_import_roots(tree: ast.Module) -> set[str]:
+    """Import roots from module-scope import statements only, skipping def/class bodies."""
+    roots: set[str] = set()
+    stack: list[ast.AST] = list(tree.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.Import):
+            roots.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0 and node.module:
+                roots.add(node.module.split(".")[0])
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        else:
+            stack.extend(ast.iter_child_nodes(node))
+    return roots
+
+
+def third_party_import_roots_by_file(root_dir: Path) -> dict[str, list[Path]]:
+    """Map each non-stdlib, non-mloda top-level import root under root_dir to the files that use it."""
+    stdlib_roots = set(sys.stdlib_module_names)
+    files_by_root: dict[str, list[Path]] = {}
+    for py_file in sorted(root_dir.rglob("*.py")):
+        rel_path = py_file.relative_to(root_dir)
+        if "tests" in rel_path.parts or "__pycache__" in rel_path.parts:
+            continue
+        tree = ast.parse(py_file.read_text(encoding="utf-8"))
+        for root in _module_level_import_roots(tree):
+            if root in stdlib_roots or root in _FIRST_PARTY_IMPORT_ROOTS:
+                continue
+            files_by_root.setdefault(root, []).append(rel_path)
+    return files_by_root
+
+
+def _write(path: Path, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body)
+
+
+@pytest.mark.parametrize(
+    "body,expected_root",
+    [
+        pytest.param("import numpy\n", "numpy", id="plain_import"),
+        pytest.param("from pandas import DataFrame\n", "pandas", id="import_from"),
+        pytest.param("from polars import *\n", "polars", id="star_import"),
+    ],
+)
+def test_third_party_import_roots_by_file_catches_module_level_import(
+    body: str, expected_root: str, tmp_path: Path
+) -> None:
+    _write(tmp_path / "m.py", body)
+    files_by_root = third_party_import_roots_by_file(tmp_path)
+    assert files_by_root == {expected_root: [Path("m.py")]}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("def f() -> None:\n    import numpy\n", id="import_in_function_body"),
+        pytest.param("class C:\n    import numpy\n", id="import_in_class_body"),
+        pytest.param("from . import x\n", id="relative_import_dot"),
+        pytest.param("from ..pkg import x\n", id="relative_import_dotdot"),
+        pytest.param("import json\n", id="stdlib_import"),
+        pytest.param("import mloda_plugins.something\n", id="first_party_import"),
+    ],
+)
+def test_third_party_import_roots_by_file_ignores_out_of_scope_import(body: str, tmp_path: Path) -> None:
+    _write(tmp_path / "m.py", body)
+    assert third_party_import_roots_by_file(tmp_path) == {}
+
+
+def test_third_party_import_roots_by_file_catches_both_roots_like_pandas_binning(tmp_path: Path) -> None:
+    """Regression shape: numpy imported before pandas, both top-level in one file (see pandas_binning.py)."""
+    body = "import numpy as np\nimport pandas as pd\n"
+    _write(tmp_path / "pandas_binning.py", body)
+    files_by_root = third_party_import_roots_by_file(tmp_path)
+    assert files_by_root == {
+        "numpy": [Path("pandas_binning.py")],
+        "pandas": [Path("pandas_binning.py")],
+    }
+
+
+def test_except_handler_fallback_import_root_is_caught(tmp_path: Path) -> None:
+    """An import inside a module-level ``except ImportError:`` handler must be caught.
+
+    mloda core's framework shims use ``try: import <framework> / except ImportError: ...``;
+    if the except body itself falls back to importing a *different* optional root, that
+    fallback import lives only inside the ``ExceptHandler`` node. A naive walk that only
+    recurses into ``ast.stmt`` children would miss it, since ``ast.ExceptHandler`` is not
+    an ``ast.stmt``. This pins the fixed walker's behaviour: it descends into the handler
+    body and catches the fallback root.
+    """
+    body = "try:\n    import polars as pl\nexcept ImportError:\n    import pandas as pl\n"
+    _write(tmp_path / "m.py", body)
+    files_by_root = third_party_import_roots_by_file(tmp_path)
+    assert files_by_root == {
+        "polars": [Path("m.py")],
+        "pandas": [Path("m.py")],
+    }
+
+
+def test_data_operations_import_roots_are_covered_by_optional_backends() -> None:
+    assert _DATA_OPERATIONS_ROOT.is_dir(), f"data_operations tree not found at {_DATA_OPERATIONS_ROOT}"
+
+    files_by_root = third_party_import_roots_by_file(_DATA_OPERATIONS_ROOT)
+    assert files_by_root, "walk found no third-party import roots under data_operations; guard is vacuous"
+
+    missing = sorted(set(files_by_root) - manifest_utils._OPTIONAL_BACKENDS)
+    assert not missing, (
+        "manifest_utils._OPTIONAL_BACKENDS is missing root(s) top-imported under data_operations: "
+        + "; ".join(f"{root} (used by {', '.join(str(p) for p in files_by_root[root])})" for root in missing)
+        + "; add it to _OPTIONAL_BACKENDS only if it is an optional framework or a transitive dependency of one, "
+        "a required dependency must stay a hard failure."
+    )
