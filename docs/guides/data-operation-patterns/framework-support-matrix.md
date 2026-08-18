@@ -72,7 +72,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 
 | Operation | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
 |---|---|---|---|---|---|---|
-| aggregation | partial (15/17) | full | full | full | partial (6/17) | -- |
+| aggregation | partial (15/17) | full | full | full | partial (6/17) | full |
 | binning | full | full | full | full | full | full |
 | datetime | full | full | full | full | full | -- |
 | frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) | -- |
@@ -98,23 +98,23 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 
 | Agg type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
 |---|---|---|---|---|---|---|
-| `sum` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `avg` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `mean` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `count` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `min` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `max` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `std` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `var` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `std_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `std_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `var_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `var_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `median` | ✗ | ✓ | ✓ | ✓ | ✗ | -- |
-| `mode` | ✗ | ✓ | ✓ | ✓ | ✗ | -- |
-| `nunique` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `first` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
-| `last` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `sum` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `avg` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `mean` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `count` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `min` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `max` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `std` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `var` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `std_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `std_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `var_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `var_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `median` | ✗ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `mode` | ✗ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `nunique` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `first` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| `last` | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
 
 ### binning
 

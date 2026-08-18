@@ -18,6 +18,7 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
         ("pandas_aggregation", "PandasAggregation"),
         ("polars_lazy_aggregation", "PolarsLazyAggregation"),
         ("pyarrow_aggregation", "PyArrowAggregation"),
+        ("python_dict_aggregation", "PythonDictAggregation"),
         ("sqlite_aggregation", "SqliteAggregation"),
     ],
 )
