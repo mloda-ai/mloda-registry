@@ -47,6 +47,7 @@ _IMPORT_MODULE_TARGET = "mloda.community.feature_groups.data_operations.manifest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DATA_OPERATIONS_ROOT = _REPO_ROOT / "mloda" / "community" / "feature_groups" / "data_operations"
+_DATA_OPERATIONS_REL = _DATA_OPERATIONS_ROOT.relative_to(_REPO_ROOT).as_posix()
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
 
 # mloda and mloda_plugins are required core dependencies, not optional backends.
@@ -54,6 +55,11 @@ _FIRST_PARTY_IMPORT_ROOTS = frozenset({"mloda", "mloda_plugins"})
 
 # numpy is only ever missing because pandas needs it, never its own optional extra.
 _TRANSITIVE_ONLY_OPTIONAL_ROOTS = frozenset({"numpy"})
+
+# Extras that never name a compute framework: 'all' just re-aggregates the others; 'dev' is
+# tooling (see config/shared.toml [defaults].optional_dependencies and mloda-testing's own
+# 'dev' extra in this file), never a compute-framework backend.
+_NON_FRAMEWORK_EXTRAS = frozenset({"all", "dev"})
 
 
 class _KeptClass:
@@ -226,20 +232,32 @@ def _load_toml(path: Path) -> dict[str, Any]:
 
 def _dep_name(spec: str) -> str:
     """Extract the bare package name from a PEP 508 requirement string."""
-    return re.split(r"[<>=!~\s\[]", spec, maxsplit=1)[0].strip()
+    return re.split(r"[<>=!~;\s\[(@]", spec.strip(), maxsplit=1)[0]
 
 
 def _declared_optional_framework_roots() -> set[str]:
-    """Third-party import roots the data_operations packages declare as optional extras in packages.toml."""
+    """PyPI distribution names the data_operations packages declare as optional extras in packages.toml.
+
+    Compared directly against manifest_utils._OPTIONAL_BACKENDS' import roots; this only works because
+    today's optional frameworks share their distribution name with their import name. A future optional
+    framework whose distribution name differs from its import root (e.g. scikit-learn -> sklearn) needs
+    its own explicit mapping, not a _TRANSITIVE_ONLY_OPTIONAL_ROOTS entry (reserved for genuinely
+    transitive dependencies, e.g. numpy via pandas).
+    """
+    assert _PACKAGES_CONFIG.is_file(), f"packages config not found at {_PACKAGES_CONFIG}"
     packages: dict[str, dict[str, Any]] = _load_toml(_PACKAGES_CONFIG).get("packages", {})
     roots: set[str] = set()
     for pkg_config in packages.values():
-        if not pkg_config.get("path", "").startswith("mloda/community/feature_groups/data_operations"):
+        path = pkg_config.get("path", "")
+        if path != _DATA_OPERATIONS_REL and not path.startswith(_DATA_OPERATIONS_REL + "/"):
             continue
         for extra_name, specs in pkg_config.get("optional_dependencies", {}).items():
-            if extra_name == "all":
+            if extra_name in _NON_FRAMEWORK_EXTRAS:
                 continue
-            roots.update(_dep_name(spec) for spec in specs)
+            assert isinstance(specs, list), (
+                f"{pkg_config.get('path')}: optional_dependencies.{extra_name} must be a list, got {specs!r}"
+            )
+            roots.update(_dep_name(spec) for spec in specs if "{" not in spec)
     return roots
 
 
@@ -265,10 +283,13 @@ def test_optional_backends_matches_packages_config_declared_frameworks() -> None
     declared optional in config/packages.toml nor in _TRANSITIVE_ONLY_OPTIONAL_ROOTS fails this test.
     """
     expected = _declared_optional_framework_roots() | _TRANSITIVE_ONLY_OPTIONAL_ROOTS
-    assert manifest_utils._OPTIONAL_BACKENDS == expected, (
-        f"manifest_utils._OPTIONAL_BACKENDS {sorted(manifest_utils._OPTIONAL_BACKENDS)} does not match "
-        f"config/packages.toml's declared optional frameworks plus transitive roots {sorted(expected)}; "
-        "add a genuinely optional framework to config/packages.toml's optional_dependencies (not just "
-        "_OPTIONAL_BACKENDS), or if it is purely transitive (like numpy), add it to "
-        "_TRANSITIVE_ONLY_OPTIONAL_ROOTS above."
+    unexpected = manifest_utils._OPTIONAL_BACKENDS - expected
+    missing = expected - manifest_utils._OPTIONAL_BACKENDS
+    assert not unexpected and not missing, (
+        f"manifest_utils._OPTIONAL_BACKENDS diverges from config/packages.toml's declared optional "
+        f"frameworks plus transitive roots. "
+        f"In _OPTIONAL_BACKENDS but not declared optional or transitive (may be a required dependency "
+        f"added to the allowlist by mistake): {sorted(unexpected)}. "
+        f"Declared optional in config/packages.toml but missing from _OPTIONAL_BACKENDS (add it there so "
+        f"its backend is skipped when not installed): {sorted(missing)}."
     )
