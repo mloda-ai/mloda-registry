@@ -22,6 +22,26 @@ class TestPythonDictTimeBucketization(PythonDictTestMixin, TimeBucketizationTest
     def implementation_class(cls) -> Any:
         return PythonDictTimeBucketization
 
+    # -- Non-divisor bucket sizes (epoch-anchored floor regression guards) --
+
+    def test_cross_framework_non_divisor_minute_bucket(self) -> None:
+        """``n=7`` does not evenly divide 60: ``_floor_dt``'s ``(minute // n) * n``
+        anchoring (reset to zero at the top of the enclosing hour) only agrees
+        with PyArrow's epoch-anchored ``floor_temporal`` (multiples of the
+        bucket duration since 1970-01-01 UTC) when ``n`` divides 60 evenly.
+        Must match the live PyArrow oracle row-for-row via the shared
+        ``_compare_bucket_with_reference`` mechanism (no hand-computed values).
+        """
+        self._compare_bucket_with_reference("timestamp__floor_7_minute")
+
+    def test_cross_framework_non_divisor_hour_bucket(self) -> None:
+        """``n=5`` does not evenly divide 24: same enclosing-day-vs-epoch
+        anchoring mismatch as the 7-minute case, one level up. Must match the
+        live PyArrow oracle row-for-row via the shared
+        ``_compare_bucket_with_reference`` mechanism (no hand-computed values).
+        """
+        self._compare_bucket_with_reference("timestamp__floor_5_hour")
+
 
 class TestPythonDictDateSourceRejected:
     """DATE-only source columns (Python datetime.date, no time component) are rejected.
@@ -85,3 +105,52 @@ class TestPythonDictNonUtcTimezoneSupported:
         assert actual.utcoffset() == expected.utcoffset(), (
             f"expected matching UTC offset (DST-correct): {actual.utcoffset()!r} != {expected.utcoffset()!r}"
         )
+
+
+class TestPythonDictRoundDstCrossing:
+    """``round``'s distance-to-boundary math must use absolute (not wall-clock) elapsed time.
+
+    ``_round_dt`` computes ``offset = dt - floored`` and ``length = next_boundary
+    - floored`` from ``_floor_dt`` / ``_next_boundary`` results that carry a
+    genuine ``zoneinfo.ZoneInfo`` tzinfo, so the ``datetime`` subtraction itself
+    is UTC-instant-based -- but ``_floor_dt``'s ``day`` floor and
+    ``_next_boundary``'s ``+timedelta(days=n)`` derive the boundary
+    datetimes from wall-clock replace()/arithmetic, which silently assumes
+    every local day is exactly 24 wall-clock hours. On a DST transition day
+    that assumption is false (a spring-forward day is only 23 real hours), so
+    the computed ``length`` and thus the midpoint are wrong relative to
+    PyArrow's DST-aware ``round_temporal``. Compared against the live PyArrow
+    oracle, mirroring TestPythonDictNonUtcTimezoneSupported above.
+    """
+
+    def test_round_1_day_spring_forward_matches_pyarrow_oracle(self) -> None:
+        from datetime import datetime
+
+        import pyarrow as pa
+
+        from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pyarrow_time_bucketization import (  # noqa: E501
+            PyArrowTimeBucketization,
+        )
+        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+
+        # pa.array() interprets a naive Python datetime as a UTC instant, so
+        # 16:00 UTC on 2023-03-12 displays as 12:00:00-04:00 (EDT) in
+        # America/New_York -- local noon on the spring-forward day, where
+        # clocks jump 02:00 -> 03:00 (the day is 23 real hours, not 24).
+        arrow_table = pa.table(
+            {
+                "timestamp": pa.array(
+                    [datetime(2023, 3, 12, 16, 0, 0)],
+                    type=pa.timestamp("us", tz="America/New_York"),
+                ),
+            }
+        )
+        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        fs = make_feature_set("timestamp__round_1_day")
+
+        result = PythonDictTimeBucketization.calculate_feature(data, fs)
+        oracle = PyArrowTimeBucketization.calculate_feature(arrow_table, fs)
+
+        actual = result["timestamp__round_1_day"][0]
+        expected = oracle.column("timestamp__round_1_day").to_pylist()[0]
+        assert actual == expected, f"{actual!r} != oracle {expected!r}"

@@ -5,17 +5,21 @@ Bucket math runs directly on native ``datetime.datetime`` objects, which
 tzinfo, so DST-aware offsets recompute automatically and non-UTC tz-aware
 sources need no special-casing.
 
-Floors: minute/hour use ``value // n * n`` within the enclosing hour/day;
-day is epoch-anchored (multiples of ``n`` days since 1970-01-01, matching
-PyArrow's ``floor_temporal``); week is ISO-Monday; month/year use a
+Floors: minute/hour/day are all epoch-anchored (multiples of the bucket
+duration since 1970-01-01), matching PyArrow's ``floor_temporal`` -- see
+``_wall_clock_epoch_seconds`` for why the anchor is computed from *wall-clock*
+fields rather than the true UTC instant. Week is ISO-Monday; month/year use a
 calendar ``.replace(...)`` floor. ``ceil`` derives from floor plus one
 bucket, matching PyArrow's ``ceil_temporal`` convention; ``round`` is
-half-up, matching PyArrow's ``round_temporal`` default.
+half-up, matching PyArrow's ``round_temporal`` default, with the
+floor-to-midpoint distance measured in true elapsed seconds (see
+``_elapsed_seconds``) so a DST-shortened/lengthened day is not silently
+treated as exactly 24 hours.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from mloda.provider import ComputeFramework
@@ -33,25 +37,60 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
 # ``year``; fixed-freq units are idempotent on aligned input).
 _CALENDAR_CEIL_ALWAYS_ADVANCES: frozenset[str] = frozenset({"week", "month", "year"})
 
-_EPOCH_DATE = date(1970, 1, 1)
+_EPOCH_UTC = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+# Fixed-duration units bucketed by an epoch-anchored floor (see _floor_dt).
+_SECONDS_PER_UNIT: dict[str, int] = {"minute": 60, "hour": 3600, "day": 86400}
+
+
+def _wall_clock_epoch_seconds(dt: datetime) -> int:
+    """Whole seconds between 1970-01-01T00:00:00 and *dt*'s wall-clock fields.
+
+    Computed by discarding ``dt``'s real ``tzinfo`` and treating its
+    calendar/clock fields as if they were already UTC. PyArrow's
+    ``floor/ceil/round_temporal`` bucket minute/hour/day by a timestamp's
+    *local* wall-clock representation, not its true UTC instant: e.g. 08:37
+    local in a UTC+05:30 zone floors a 5-hour bucket to 08:00 local, not to
+    the real-instant-equivalent 08:30. Anchoring this wall-clock value to the
+    Unix epoch (rather than resetting within the enclosing hour/day, the
+    previous bug) makes the floor correct for any ``n``, including values
+    that don't evenly divide 60 (minute) or 24 (hour).
+    """
+    delta = dt.replace(tzinfo=timezone.utc) - _EPOCH_UTC
+    return delta.days * 86400 + delta.seconds
+
+
+def _elapsed_seconds(later: datetime, earlier: datetime) -> float:
+    """True elapsed real-world seconds from *earlier* to *later*.
+
+    Uses ``datetime.timestamp()`` rather than ``later - earlier``:
+    ``datetime.timestamp()`` always resolves against the UTC epoch (a
+    datetime with a *different* tzinfo object), so it correctly reflects any
+    DST-driven UTC-offset change. Plain subtraction, by contrast, ignores
+    ``tzinfo`` -- and any offset change it represents -- whenever both
+    operands share the *same* tzinfo object (e.g. two datetimes both derived
+    from one ``zoneinfo.ZoneInfo`` instance via ``_floor_dt``/
+    ``_next_boundary``), silently assuming every local day/hour has the same
+    real length. A day that crosses a DST transition is not 24 real hours;
+    without this fix that error would leak into ``_round_dt``'s midpoint
+    comparison.
+    """
+
+    def _epoch(dt: datetime) -> float:
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc).timestamp()
+        return dt.timestamp()
+
+    return _epoch(later) - _epoch(earlier)
 
 
 def _floor_dt(dt: datetime, n: int, unit: str) -> datetime:
     """Floor ``dt`` to the start of its ``(n, unit)`` bucket, preserving tzinfo."""
-    if unit == "minute":
-        bucket = (dt.minute // n) * n
-        return dt.replace(minute=bucket, second=0, microsecond=0)
-    if unit == "hour":
-        bucket = (dt.hour // n) * n
-        return dt.replace(hour=bucket, minute=0, second=0, microsecond=0)
-    if unit == "day":
-        # Epoch-anchored (multiples of n days since 1970-01-01), matching
-        # PyArrow's floor_temporal bucket alignment.
-        local_date = dt.date()
-        days_since_epoch = (local_date - _EPOCH_DATE).days
-        bucket_days = (days_since_epoch // n) * n
-        floor_date = _EPOCH_DATE + timedelta(days=bucket_days)
-        return datetime.combine(floor_date, time.min, tzinfo=dt.tzinfo)
+    if unit in _SECONDS_PER_UNIT:
+        bucket_seconds = n * _SECONDS_PER_UNIT[unit]
+        floored_seconds = (_wall_clock_epoch_seconds(dt) // bucket_seconds) * bucket_seconds
+        floored = _EPOCH_UTC + timedelta(seconds=floored_seconds)
+        return floored.replace(tzinfo=dt.tzinfo)
     if unit == "week":
         day_floor = _floor_dt(dt, 1, "day")
         return day_floor - timedelta(days=day_floor.weekday())
@@ -95,8 +134,8 @@ def _ceil_dt(dt: datetime, n: int, unit: str) -> datetime:
 def _round_dt(dt: datetime, n: int, unit: str) -> datetime:
     floored = _floor_dt(dt, n, unit)
     next_boundary = _next_boundary(floored, n, unit)
-    offset = dt - floored
-    length = next_boundary - floored
+    offset = _elapsed_seconds(dt, floored)
+    length = _elapsed_seconds(next_boundary, floored)
     if offset * 2 >= length:
         return next_boundary
     return floored

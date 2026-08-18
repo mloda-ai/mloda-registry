@@ -10,7 +10,7 @@ with no non-null values still emits: ``count = 0``, other aggs ``None``.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from mloda.provider import ComputeFramework
@@ -24,25 +24,38 @@ from mloda.community.feature_groups.data_operations.row_changing.resample.base i
     ResampleFeatureGroup,
 )
 
-_EPOCH_DATE = date(1970, 1, 1)
+_EPOCH_UTC = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+# Fixed-duration units bucketed by an epoch-anchored floor (see _floor_dt).
+_SECONDS_PER_UNIT: dict[str, int] = {"minute": 60, "hour": 3600, "day": 86400}
+
+
+def _wall_clock_epoch_seconds(dt: datetime) -> int:
+    """Whole seconds between 1970-01-01T00:00:00 and *dt*'s wall-clock fields.
+
+    Computed by discarding ``dt``'s real ``tzinfo`` and treating its
+    calendar/clock fields as if they were already UTC. PyArrow's
+    ``floor_temporal`` (the reference oracle for resample bucketing) buckets
+    minute/hour/day by a timestamp's *local* wall-clock representation, not
+    its true UTC instant: e.g. 08:37 local in a UTC+05:30 zone floors a
+    5-hour bucket to 08:00 local, not to the real-instant-equivalent 08:30.
+    Anchoring this wall-clock value to the Unix epoch (rather than resetting
+    within the enclosing hour/day, the previous bug) makes the floor correct
+    for any ``n``, including values that don't evenly divide 60 (minute) or
+    24 (hour). See ``python_dict_time_bucketization`` for the identical
+    helper this mirrors.
+    """
+    delta = dt.replace(tzinfo=timezone.utc) - _EPOCH_UTC
+    return delta.days * 86400 + delta.seconds
 
 
 def _floor_dt(dt: datetime, n: int, unit: str) -> datetime:
     """Floor ``dt`` to the start of its ``(n, unit)`` bucket, preserving tzinfo."""
-    if unit == "minute":
-        bucket = (dt.minute // n) * n
-        return dt.replace(minute=bucket, second=0, microsecond=0)
-    if unit == "hour":
-        bucket = (dt.hour // n) * n
-        return dt.replace(hour=bucket, minute=0, second=0, microsecond=0)
-    if unit == "day":
-        # Epoch-anchored (multiples of n days since 1970-01-01), matching
-        # PyArrow's floor_temporal bucket alignment.
-        local_date = dt.date()
-        days_since_epoch = (local_date - _EPOCH_DATE).days
-        bucket_days = (days_since_epoch // n) * n
-        floor_date = _EPOCH_DATE + timedelta(days=bucket_days)
-        return datetime.combine(floor_date, time.min, tzinfo=dt.tzinfo)
+    if unit in _SECONDS_PER_UNIT:
+        bucket_seconds = n * _SECONDS_PER_UNIT[unit]
+        floored_seconds = (_wall_clock_epoch_seconds(dt) // bucket_seconds) * bucket_seconds
+        floored = _EPOCH_UTC + timedelta(seconds=floored_seconds)
+        return floored.replace(tzinfo=dt.tzinfo)
     raise ValueError(f"Unsupported resample unit for PythonDict: {unit!r}")
 
 
