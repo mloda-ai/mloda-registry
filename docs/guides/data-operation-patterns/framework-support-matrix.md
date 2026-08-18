@@ -73,7 +73,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 | Operation | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
 |---|---|---|---|---|---|---|
 | aggregation | partial (15/17) | full | full | full | partial (6/17) | -- |
-| binning | full | full | full | full | full | -- |
+| binning | full | full | full | full | full | full |
 | datetime | full | full | full | full | full | -- |
 | frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) | -- |
 | offset | -- | full | full | full | full | -- |
@@ -120,8 +120,8 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 
 | Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
 |---|---|---|---|---|---|---|
-| `bin` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `qbin` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `bin` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `qbin` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ### datetime
 
