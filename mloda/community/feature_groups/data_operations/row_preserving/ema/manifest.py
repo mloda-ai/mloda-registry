@@ -16,5 +16,6 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
     [
         ("pandas_ema", "PandasEma"),
         ("polars_lazy_ema", "PolarsLazyEma"),
+        ("python_dict_ema", "PythonDictEma"),
     ],
 )
