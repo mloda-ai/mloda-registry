@@ -27,10 +27,8 @@ class TestLoadPluginClasses:
         assert result == []
 
     def test_skips_numpy_rooted_module_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # pandas_binning.py imports numpy directly before pandas, so a missing
-        # numpy install fails the import with exc.name == "numpy" before the
-        # pandas import is ever reached. numpy should be skipped exactly like
-        # the other optional backend roots (pandas, polars, duckdb, pyarrow).
+        # pandas_binning.py imports numpy before pandas, so a missing numpy
+        # install must be skipped as an optional backend root too.
         monkeypatch.setattr(importlib, "import_module", _raise_module_not_found("numpy"))
 
         result = load_plugin_classes("some.package", [("pandas_backend", "SomeClass")])
