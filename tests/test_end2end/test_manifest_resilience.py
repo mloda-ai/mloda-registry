@@ -22,16 +22,24 @@ silently. The guard only sees direct top-level third-party imports under
 mloda core's own compute-framework shims (e.g. duckdb, which has no direct
 import anywhere under ``data_operations/**`` and is only ever imported inside
 ``mloda_plugins.compute_framework.base_implementations.duckdb.*``) is invisible
-to this guard and relies on core's own try/except shims guarding it.
+to this guard and relies on core's own try/except shims guarding it. A second guard
+cross-validates the allowlist against ``config/packages.toml``'s declared optional
+frameworks, so a required dependency cannot be silently marked optional.
 """
 
 from __future__ import annotations
 
 import ast
+import re
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 import pytest
 
@@ -42,9 +50,13 @@ _IMPORT_MODULE_TARGET = "mloda.community.feature_groups.data_operations.manifest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DATA_OPERATIONS_ROOT = _REPO_ROOT / "mloda" / "community" / "feature_groups" / "data_operations"
+_PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
 
 # mloda and mloda_plugins are required core dependencies, not optional backends.
 _FIRST_PARTY_IMPORT_ROOTS = frozenset({"mloda", "mloda_plugins"})
+
+# numpy is only ever missing because pandas needs it, never its own optional extra.
+_TRANSITIVE_ONLY_OPTIONAL_ROOTS = frozenset({"numpy"})
 
 
 class _KeptClass:
@@ -211,6 +223,30 @@ def test_except_handler_fallback_import_root_is_caught(tmp_path: Path) -> None:
     }
 
 
+def _load_toml(path: Path) -> dict[str, Any]:
+    with open(path, "rb") as f:
+        return tomllib.load(f)
+
+
+def _dep_name(spec: str) -> str:
+    """Extract the bare package name from a PEP 508 requirement string."""
+    return re.split(r"[<>=!~\s\[]", spec, maxsplit=1)[0].strip()
+
+
+def _declared_optional_framework_roots() -> set[str]:
+    """Third-party import roots the data_operations packages declare as optional extras in packages.toml."""
+    packages: dict[str, dict[str, Any]] = _load_toml(_PACKAGES_CONFIG).get("packages", {})
+    roots: set[str] = set()
+    for pkg_config in packages.values():
+        if not pkg_config.get("path", "").startswith("mloda/community/feature_groups/data_operations"):
+            continue
+        for extra_name, specs in pkg_config.get("optional_dependencies", {}).items():
+            if extra_name == "all":
+                continue
+            roots.update(_dep_name(spec) for spec in specs)
+    return roots
+
+
 def test_data_operations_import_roots_are_covered_by_optional_backends() -> None:
     assert _DATA_OPERATIONS_ROOT.is_dir(), f"data_operations tree not found at {_DATA_OPERATIONS_ROOT}"
 
@@ -223,4 +259,20 @@ def test_data_operations_import_roots_are_covered_by_optional_backends() -> None
         + "; ".join(f"{root} (used by {', '.join(str(p) for p in files_by_root[root])})" for root in missing)
         + "; add it to _OPTIONAL_BACKENDS only if it is an optional framework or a transitive dependency of one, "
         "a required dependency must stay a hard failure."
+    )
+
+
+def test_optional_backends_matches_packages_config_declared_frameworks() -> None:
+    """_OPTIONAL_BACKENDS must equal packages.toml's declared optional frameworks plus documented transitive roots.
+
+    Catches a required dependency being silently added to the allowlist: any root that is neither
+    declared optional in config/packages.toml nor in _TRANSITIVE_ONLY_OPTIONAL_ROOTS fails this test.
+    """
+    expected = _declared_optional_framework_roots() | _TRANSITIVE_ONLY_OPTIONAL_ROOTS
+    assert manifest_utils._OPTIONAL_BACKENDS == expected, (
+        f"manifest_utils._OPTIONAL_BACKENDS {sorted(manifest_utils._OPTIONAL_BACKENDS)} does not match "
+        f"config/packages.toml's declared optional frameworks plus transitive roots {sorted(expected)}; "
+        "add a genuinely optional framework to config/packages.toml's optional_dependencies (not just "
+        "_OPTIONAL_BACKENDS), or if it is purely transitive (like numpy), add it to "
+        "_TRANSITIVE_ONLY_OPTIONAL_ROOTS above."
     )
