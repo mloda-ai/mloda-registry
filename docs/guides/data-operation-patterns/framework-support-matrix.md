@@ -83,7 +83,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 | scalar_arithmetic | full | full | full | full | full | full |
 | point_arithmetic | full | full | full | full | full | full |
 | time_bucketization | full | full | full | full | full | full |
-| ffill | full | full | full | full | full | -- |
+| ffill | full | full | full | full | full | full |
 | ema | -- | full | full | -- | -- | -- |
 | sessionization | full | full | full | full | full | -- |
 | window_aggregation | partial (15/17) | full | full | full | partial (6/17) | -- |
@@ -229,7 +229,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 
 | Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
 |---|---|---|---|---|---|---|
-| (all) | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| (all) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ### ema
 
