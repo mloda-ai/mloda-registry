@@ -123,6 +123,15 @@ def _module_level_import_roots(tree: ast.Module) -> set[str]:
                 roots.add(node.module.split(".")[0])
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue
+        elif isinstance(node, ast.If):
+            is_type_checking = (
+                (isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING") or
+                (isinstance(node.test, ast.Attribute) and getattr(node.test, "attr", "") == "TYPE_CHECKING")
+            )
+            if is_type_checking:
+                stack.extend(node.orelse)
+                continue
+            stack.extend(ast.iter_child_nodes(node))
         else:
             stack.extend(ast.iter_child_nodes(node))
     return roots
@@ -131,6 +140,12 @@ def _module_level_import_roots(tree: ast.Module) -> set[str]:
 def third_party_import_roots_by_file(root_dir: Path) -> dict[str, list[Path]]:
     """Map each non-stdlib, non-mloda top-level import root under root_dir to the files that use it."""
     stdlib_roots = set(sys.stdlib_module_names)
+    # Bridge stdlib drift across the 3.10-3.14 support window (e.g. PEP 594 removals, tomllib addition).
+    stdlib_roots.update({
+        "aifc", "audioop", "cgi", "cgitb", "chunk", "crypt", "imghdr", "mailcap", "msilib",
+        "nis", "nntplib", "ossaudiodev", "pipes", "smtpd", "sndhdr", "spwd", "sunau",
+        "telnetlib", "tomllib", "uu", "xdrlib"
+    })
     files_by_root: dict[str, list[Path]] = {}
     for py_file in sorted(root_dir.rglob("*.py")):
         rel_path = py_file.relative_to(root_dir)
@@ -168,6 +183,8 @@ def test_third_party_import_roots_by_file_catches_module_level_import(
 @pytest.mark.parametrize(
     "body",
     [
+        pytest.param("if TYPE_CHECKING:\n    import numpy\n", id="import_in_type_checking_name"),
+        pytest.param("if typing.TYPE_CHECKING:\n    import numpy\n", id="import_in_type_checking_attr"),
         pytest.param("def f() -> None:\n    import numpy\n", id="import_in_function_body"),
         pytest.param("class C:\n    import numpy\n", id="import_in_class_body"),
         pytest.param("from . import x\n", id="relative_import_dot"),
