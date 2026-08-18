@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import importlib
 from types import ModuleType
 from typing import Any
 
 import pytest
 
-from mloda.community.feature_groups.data_operations import manifest_utils
 from mloda.community.feature_groups.data_operations.manifest_utils import load_plugin_classes
 
 
@@ -20,7 +20,7 @@ def _raise_module_not_found(missing_root: str) -> Any:
 
 class TestLoadPluginClasses:
     def test_skips_pandas_rooted_module_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(manifest_utils.importlib, "import_module", _raise_module_not_found("pandas"))
+        monkeypatch.setattr(importlib, "import_module", _raise_module_not_found("pandas"))
 
         result = load_plugin_classes("some.package", [("pandas_backend", "SomeClass")])
 
@@ -31,7 +31,7 @@ class TestLoadPluginClasses:
         # numpy install fails the import with exc.name == "numpy" before the
         # pandas import is ever reached. numpy should be skipped exactly like
         # the other optional backend roots (pandas, polars, duckdb, pyarrow).
-        monkeypatch.setattr(manifest_utils.importlib, "import_module", _raise_module_not_found("numpy"))
+        monkeypatch.setattr(importlib, "import_module", _raise_module_not_found("numpy"))
 
         result = load_plugin_classes("some.package", [("pandas_backend", "SomeClass")])
 
@@ -39,7 +39,7 @@ class TestLoadPluginClasses:
 
     def test_reraises_unrelated_module_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            manifest_utils.importlib,
+            importlib,
             "import_module",
             _raise_module_not_found("totally_bogus_required_module"),
         )
