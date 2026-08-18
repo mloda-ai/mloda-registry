@@ -81,7 +81,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 | rank | -- | full | full | full | full | full |
 | scalar_aggregate | full | full | full | full | partial (6/13) | full |
 | scalar_arithmetic | full | full | full | full | full | full |
-| point_arithmetic | full | full | full | full | full | -- |
+| point_arithmetic | full | full | full | full | full | full |
 | time_bucketization | full | full | full | full | full | -- |
 | ffill | full | full | full | full | full | -- |
 | ema | -- | full | full | -- | -- | -- |
@@ -212,10 +212,10 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 
 | Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
 |---|---|---|---|---|---|---|
-| `add` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `subtract` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `multiply` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `divide` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `add` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `subtract` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `multiply` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `divide` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ### time_bucketization
 

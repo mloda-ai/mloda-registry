@@ -18,6 +18,7 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
         ("pandas_point_arithmetic", "PandasPointArithmetic"),
         ("polars_lazy_point_arithmetic", "PolarsLazyPointArithmetic"),
         ("pyarrow_point_arithmetic", "PyArrowPointArithmetic"),
+        ("python_dict_point_arithmetic", "PythonDictPointArithmetic"),
         ("sqlite_point_arithmetic", "SqlitePointArithmetic"),
     ],
 )
