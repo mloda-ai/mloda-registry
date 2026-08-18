@@ -80,3 +80,61 @@ class TestPythonDictNonDivisorBucketRowCount:
         result_map = dict(zip(result_ts, extract_column(result, "v__resample_7_minute_sum")))
         oracle_map = dict(zip(oracle_ts, extract_column(oracle, "v__resample_7_minute_sum")))
         assert result_map == oracle_map, f"{result_map!r} != oracle {oracle_map!r}"
+
+
+class TestPythonDictNullTimestamp:
+    """A null ``time_column`` value must not crash resample.
+
+    ``PythonDictResample._compute_resample`` calls ``_floor_dt(value, n, unit)``
+    for every row's timestamp with no null check. ``_floor_dt(None, ...)``
+    calls ``_wall_clock_epoch_seconds(None)``, which does
+    ``dt.replace(tzinfo=timezone.utc)`` and raises
+    ``AttributeError: 'NoneType' object has no attribute 'replace'``.
+
+    PyArrow (the live reference oracle) does not crash:
+    ``pyarrow.compute.floor_temporal`` propagates the null through to its own
+    bucket, i.e. a non-empty bucket whose ``time_column`` key is ``None``,
+    aggregating whatever rows share that null bucket.
+    """
+
+    def test_null_timestamp_matches_pyarrow_oracle(self) -> None:
+        from datetime import datetime, timezone
+
+        import pyarrow as pa
+
+        from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import (
+            PyArrowResample,
+        )
+        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+
+        u = timezone.utc
+        arrow_table = pa.table(
+            {
+                "region": pa.array(["A", "A", "A", "B"], type=pa.string()),
+                "ts": pa.array(
+                    [
+                        datetime(2023, 1, 1, 10, 5, 0, tzinfo=u),
+                        None,
+                        datetime(2023, 1, 1, 10, 40, 0, tzinfo=u),
+                        datetime(2023, 1, 1, 11, 0, 0, tzinfo=u),
+                    ],
+                    type=pa.timestamp("us", tz="UTC"),
+                ),
+                "value": pa.array([10.0, 20.0, 30.0, 40.0], type=pa.float64()),
+            }
+        )
+        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        fs = make_feature_set("value__resample_1_hour_mean", partition_by=["region"], time_column="ts")
+
+        result = PythonDictResample.calculate_feature(data, fs)
+        oracle = PyArrowResample.calculate_feature(arrow_table, fs)
+
+        def _bucket_map(res: Any) -> dict[tuple[Any, Any], Any]:
+            regions = extract_column(res, "region")
+            buckets = extract_column(res, "ts")
+            values = extract_column(res, "value__resample_1_hour_mean")
+            return {(regions[i], buckets[i]): values[i] for i in range(len(regions))}
+
+        result_map = _bucket_map(result)
+        oracle_map = _bucket_map(oracle)
+        assert result_map == oracle_map, f"{result_map!r} != PyArrow oracle {oracle_map!r}"

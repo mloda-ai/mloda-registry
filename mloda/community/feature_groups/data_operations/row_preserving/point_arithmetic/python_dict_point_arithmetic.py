@@ -18,16 +18,22 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
 
 
 def _div(a: float, b: float) -> float:
-    """IEEE-754 divide semantics: N/0 -> signed inf, 0/0 -> nan.
+    """IEEE-754 divide semantics: N/0 -> signed inf, 0/0 -> nan, nan/x -> nan.
 
     Python's bare ``/`` raises ``ZeroDivisionError`` on zero denominators,
     unlike PyArrow/Pandas/Polars/DuckDB, which all return IEEE-754 inf/nan.
     PythonDict matches that four-backend majority behavior explicitly here.
+    A NaN numerator or denominator always yields nan, checked before the
+    zero-divisor branch. The sign of an inf result is ``sign(a) * sign(b)``
+    (via ``math.copysign``), which also gets signed-zero denominators
+    (``-0.0``) right, not just ``sign(a)`` alone.
     """
+    if math.isnan(a) or math.isnan(b):
+        return float("nan")
     if b == 0.0:
         if a == 0.0:
             return float("nan")
-        return math.copysign(float("inf"), a)
+        return math.copysign(float("inf"), a) * math.copysign(1.0, b)
     return a / b
 
 

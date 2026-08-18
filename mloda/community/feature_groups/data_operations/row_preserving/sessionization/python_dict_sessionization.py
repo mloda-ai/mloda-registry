@@ -59,27 +59,53 @@ class PythonDictSessionization(SessionizationFeatureGroup):
         def partition_key(i: int) -> tuple[Any, ...]:
             return tuple(col[i] for col in partition_cols)
 
-        # Sort row indices by [*partition_by, order_by] ascending (stable).
-        sorted_indices = sorted(range(num_rows), key=lambda i: (partition_key(i), order_vals[i]))
+        def _null_safe_key(value: Any) -> tuple[bool, Any]:
+            return (value is None, value if value is not None else 0)
+
+        def sort_key(i: int) -> tuple[Any, ...]:
+            return tuple(_null_safe_key(v) for v in partition_key(i)) + (_null_safe_key(order_vals[i]),)
+
+        # Sort row indices by [*partition_by, order_by] ascending (stable), nulls last.
+        sorted_indices = sorted(range(num_rows), key=sort_key)
 
         threshold = timedelta(seconds=threshold_seconds)
         result_values: list[Any] = [None] * num_rows
 
         session_id = -1
-        prev_key: tuple[Any, ...] | None = None
-        prev_order_val: Any = None
+        poisoned = False
 
-        for row_index in sorted_indices:
+        for pos, row_index in enumerate(sorted_indices):
             key = partition_key(row_index)
             order_val = order_vals[row_index]
 
-            is_new = prev_key is None or key != prev_key or (order_val - prev_order_val) > threshold
-            if is_new:
+            if pos == 0:
+                ambiguous = False
+                is_new = True
+            else:
+                prev_index = sorted_indices[pos - 1]
+                prev_key = partition_key(prev_index)
+                prev_order_val = order_vals[prev_index]
+                # A null on either side of the partition-key or order-by comparison makes
+                # "same partition?"/"gap exceeded?" unknown rather than False. That mirrors
+                # the PyArrow oracle's Arrow-compute-kernel comparisons (``not_equal``,
+                # ``greater``), which yield null whenever an operand is null; once such a
+                # null reaches ``pc.cumulative_sum`` (default ``skip_nulls=False``), the
+                # session id for that row and every following row in sorted order becomes
+                # (and stays) null, rather than resuming the count once nulls are behind.
+                ambiguous = (
+                    any(v is None for v in key)
+                    or any(v is None for v in prev_key)
+                    or order_val is None
+                    or prev_order_val is None
+                )
+                is_new = not ambiguous and (key != prev_key or (order_val - prev_order_val) > threshold)
+
+            if ambiguous:
+                poisoned = True
+            elif is_new:
                 session_id += 1
 
-            result_values[row_index] = session_id
-            prev_key = key
-            prev_order_val = order_val
+            result_values[row_index] = None if poisoned else session_id
 
         result[feature_name] = result_values
         return result

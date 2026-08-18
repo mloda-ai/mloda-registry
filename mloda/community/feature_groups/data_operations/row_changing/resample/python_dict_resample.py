@@ -118,7 +118,7 @@ class PythonDictResample(ResampleFeatureGroup):
         source_values = data[source_col]
         partition_cols = [data[col] for col in partition_by]
 
-        buckets = [_floor_dt(value, n, unit) for value in time_col]
+        buckets = [None if value is None else _floor_dt(value, n, unit) for value in time_col]
 
         # Group row indices by (*partition_by, bucket_start), first-occurrence order.
         groups: dict[tuple[Any, ...], list[int]] = {}
