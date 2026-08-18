@@ -75,7 +75,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 | aggregation | partial (15/17) | full | full | full | partial (6/17) | full |
 | binning | full | full | full | full | full | full |
 | datetime | full | full | full | full | full | full |
-| frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) | -- |
+| frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) | full |
 | offset | -- | full | full | full | full | -- |
 | percentile | -- | full | full | full | -- | -- |
 | rank | -- | full | full | full | full | -- |
@@ -141,16 +141,16 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 
 | Frame type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
 |---|---|---|---|---|---|---|
-| `rolling` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `time:second` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `time:minute` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `time:hour` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `time:day` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `time:week` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `time:month` | -- | ✗ | ✓ | ✓ | ✗ | -- |
-| `time:year` | -- | ✗ | ✓ | ✓ | ✗ | -- |
-| `cumulative` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `expanding` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `rolling` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `time:second` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `time:minute` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `time:hour` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `time:day` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `time:week` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `time:month` | -- | ✗ | ✓ | ✓ | ✗ | ✓ |
+| `time:year` | -- | ✗ | ✓ | ✓ | ✗ | ✓ |
+| `cumulative` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `expanding` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ### offset
 

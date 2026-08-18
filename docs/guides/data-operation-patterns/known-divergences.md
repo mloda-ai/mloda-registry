@@ -283,20 +283,21 @@ regression_test:
 
 <!-- machine-checked
 operation: frame_aggregate
-framework: pandas, polars_lazy, duckdb, sqlite
+framework: pandas, polars_lazy, duckdb, sqlite, python_dict
 condition: a mask with source_col == order_by in a time frame cannot be simulated natively
 mitigation_location:
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pandas_frame_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/polars_lazy_frame_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/duckdb_frame_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/sqlite_frame_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/python_dict_frame_aggregate.py
 regression_test:
 - mloda/testing/feature_groups/data_operations/row_preserving/frame_aggregate/frame_aggregate.py::FrameAggregateTestBase::test_time_window_source_equals_order_with_mask_rejected
 -->
 
 - **Operations**: `row_preserving/frame_aggregate` (only the `time` frame type, with `source_col == order_by` and a mask present).
 - **Mitigation kind**: Excluded shape.
-- **How**: The PyArrow reference applies the mask to `source_col` before computing the window. When `source_col == order_by`, mask-write clobbers the order column with null, and the reference's `current_order is None` branch returns just `[self]`. None of the native time-window primitives can simulate this: pandas `rolling(on=ts)` cannot; polars `rolling_*_by` uses the unmasked `order_by` for window bounds even when the masked source is a temp column; the DuckDB and SQLite correlated subqueries wrap only the aggregate expression in `CASE WHEN ... THEN source END`, leaving the bounds operating on the unmasked column. Each backend raises a `ValueError` when this combo is detected at runtime instead of silently producing a wrong result. Non-time frames continue to work via a separate temp column for the masked source.
+- **How**: The PyArrow reference applies the mask to `source_col` before computing the window. When `source_col == order_by`, mask-write clobbers the order column with null, and the reference's `current_order is None` branch returns just `[self]`. None of the native time-window primitives can simulate this: pandas `rolling(on=ts)` cannot; polars `rolling_*_by` uses the unmasked `order_by` for window bounds even when the masked source is a temp column; the DuckDB and SQLite correlated subqueries wrap only the aggregate expression in `CASE WHEN ... THEN source END`, leaving the bounds operating on the unmasked column. PythonDict builds `order_by` and the masked source as two independently-built Python lists, so it has the same coupling gap even though it is otherwise unconstrained by engine SQL/pandas limitations. Each backend raises a `ValueError` when this combo is detected at runtime instead of silently producing a wrong result. Non-time frames continue to work via a separate temp column (or list) for the masked source.
 - **Related**: parent #183, implementing #202.
 
 ### Pandas / Polars-lazy native time-rolling rejects null `order_by`
