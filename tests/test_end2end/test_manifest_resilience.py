@@ -2,8 +2,10 @@
 
 ``load_plugin_classes`` builds an entry-point manifest's class list by importing
 each backend module individually. A backend whose optional compute framework
-(pandas, polars, duckdb, pyarrow) is not installed must be skipped so the rest
-still register, while any other import error must stay loud. These tests drive
+(pandas, polars, duckdb, pyarrow, numpy) is not installed must be skipped so the
+rest still register, while any other import error must stay loud. numpy is
+transitive: it is only ever missing because pandas needs it, not because a
+backend module targets a "numpy compute framework" directly. These tests drive
 that behaviour by monkeypatching the helper module's ``importlib.import_module``,
 so they need no optional framework installed and touch no network.
 """
@@ -38,6 +40,27 @@ def test_skips_backend_with_missing_optional_framework(monkeypatch: pytest.Monke
         "pkg",
         [
             ("polars_backend", "PolarsClass"),
+            ("pandas_backend", "KeptClass"),
+        ],
+    )
+
+    assert [c.__name__ for c in classes] == ["_KeptClass"]
+
+
+def test_skips_backend_with_missing_numpy(monkeypatch: pytest.MonkeyPatch) -> None:
+    kept_module = SimpleNamespace(KeptClass=_KeptClass)
+
+    def fake_import(name: str) -> Any:
+        if name.endswith("pandas_binning"):
+            raise ModuleNotFoundError("No module named 'numpy'", name="numpy")
+        return kept_module
+
+    monkeypatch.setattr(_IMPORT_MODULE_TARGET, fake_import)
+
+    classes = load_plugin_classes(
+        "pkg",
+        [
+            ("pandas_binning", "PandasBinningClass"),
             ("pandas_backend", "KeptClass"),
         ],
     )
