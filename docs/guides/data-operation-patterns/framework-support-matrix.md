@@ -76,7 +76,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 | binning | full | full | full | full | full | full |
 | datetime | full | full | full | full | full | full |
 | frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) | full |
-| offset | -- | full | full | full | full | -- |
+| offset | -- | full | full | full | full | full |
 | percentile | -- | full | full | full | -- | -- |
 | rank | -- | full | full | full | full | -- |
 | scalar_aggregate | full | full | full | full | partial (6/13) | -- |
@@ -156,12 +156,12 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 
 | Offset type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
 |---|---|---|---|---|---|---|
-| `lag` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `lead` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `diff` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `pct_change` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `first_value` | -- | ✓ | ✓ | ✓ | ✓ | -- |
-| `last_value` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `lag` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `lead` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `diff` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `pct_change` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `first_value` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `last_value` | -- | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ### percentile
 
