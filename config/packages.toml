@@ -193,7 +193,7 @@ description = "Percentile feature group (PERCENTILE_CONT, partition_by, row-pres
 dependencies = ["mloda-community-data-operations>=0.4.4"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/percentile"
 published = true
-optional_dependencies = { duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["polars", "pandas", "duckdb"] }
+optional_dependencies = { python_dict = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["polars", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-time-bucketization]
@@ -233,5 +233,5 @@ description = "Resample feature group (collapse events onto a regular time grid:
 dependencies = ["mloda-community-data-operations>=0.4.4"]
 path = "mloda/community/feature_groups/data_operations/row_changing/resample"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow"], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+optional_dependencies = { pyarrow = ["pyarrow"], python_dict = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]

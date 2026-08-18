@@ -31,13 +31,35 @@ class PythonDictDateTimeExtraction(DateTimeFeatureGroup):
         data = dict(data)
         col = data[source_col]
 
+        cls._assert_source_column_is_datetime(col, source_col)
+
         data[feature_name] = [cls._extract(value, op) for value in col]
         return data
+
+    @staticmethod
+    def _assert_source_column_is_datetime(col: list[Any], source_col: str) -> None:
+        """Reject any non-null value that is not a real ``datetime.datetime``.
+
+        A bare ``datetime.date`` (no time component) or a wholly unrelated
+        type (e.g. ``str``) cannot be used to compute any datetime op here:
+        ``datetime.datetime`` is a subclass of ``datetime.date``, so this
+        check accepts real datetimes while rejecting bare dates.
+        """
+        for value in col:
+            if value is None:
+                continue
+            if not isinstance(value, datetime):
+                raise ValueError(
+                    f"Column {source_col!r} must contain datetime.datetime values to extract "
+                    f"datetime components; got {type(value).__name__} ({value!r})."
+                )
 
     @staticmethod
     def _extract(value: datetime | date | None, op: str) -> int | None:
         if value is None:
             return None
+
+        assert isinstance(value, datetime)
 
         if op == "year":
             return value.year
@@ -46,11 +68,11 @@ class PythonDictDateTimeExtraction(DateTimeFeatureGroup):
         elif op == "day":
             return value.day
         elif op == "hour":
-            return getattr(value, "hour", 0)
+            return value.hour
         elif op == "minute":
-            return getattr(value, "minute", 0)
+            return value.minute
         elif op == "second":
-            return getattr(value, "second", 0)
+            return value.second
         elif op == "dayofweek":
             return value.weekday()
         elif op == "is_weekend":
