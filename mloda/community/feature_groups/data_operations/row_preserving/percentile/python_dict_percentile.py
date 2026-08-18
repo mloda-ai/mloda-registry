@@ -26,6 +26,11 @@ from mloda.community.feature_groups.data_operations.row_preserving.percentile.ba
     PercentileFeatureGroup,
 )
 
+# Sentinel substituted for any NaN partition-key value so that all NaN-valued rows of a
+# partition column hash/compare equal and land in one shared group, matching PyArrow's
+# Table.group_by() (which merges all NaN keys into a single group, distinct from None).
+_NAN_KEY = object()
+
 
 class PythonDictPercentile(PercentileFeatureGroup):
     @classmethod
@@ -54,7 +59,7 @@ class PythonDictPercentile(PercentileFeatureGroup):
 
         groups: dict[tuple[Any, ...], list[int]] = {}
         for i in range(num_rows):
-            key = tuple(col[i] for col in partition_cols)
+            key = tuple(cls._group_key_value(col[i]) for col in partition_cols)
             groups.setdefault(key, []).append(i)
 
         result_values: list[Any] = [None] * num_rows
@@ -68,6 +73,20 @@ class PythonDictPercentile(PercentileFeatureGroup):
         result = dict(data)
         result[feature_name] = result_values
         return result
+
+    @classmethod
+    def _group_key_value(cls, value: Any) -> Any:
+        """Map a partition-column value to a hashable, NaN-safe group-key component.
+
+        ``float('nan')`` never equals another NaN, so used raw as part of a dict key
+        it would split every NaN-valued row into its own singleton group. Substitute
+        a shared sentinel so all NaN values collapse into one group key component,
+        matching PyArrow's ``Table.group_by()`` (which merges all NaN keys of a
+        column into a single group, distinct from a null/None group).
+        """
+        if isinstance(value, float) and math.isnan(value):
+            return _NAN_KEY
+        return value
 
     @classmethod
     def _percentile_of(cls, values: list[Any], percentile: float) -> float | None:

@@ -10,6 +10,7 @@ time windows use calendar-aware subtraction with day-of-month clamping
 from __future__ import annotations
 
 import calendar
+import math
 import statistics
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -36,6 +37,11 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 # Frame aggregation's order-independent aggregation-type subset (no mode/nunique/
 # first/last, no ddof-variant spellings); mirrors base.py's ``_AGGREGATION_TYPES``.
 _SUPPORTED_AGG_TYPES: frozenset[str] = frozenset({"sum", "avg", "count", "min", "max", "std", "var", "median"})
+
+# Sentinel substituted for any NaN partition-key value so that all NaN-valued rows of a
+# partition column hash/compare equal and land in one shared group, matching PyArrow's
+# Table.group_by() (which merges all NaN keys into a single group, distinct from None).
+_NAN_KEY = object()
 
 
 def _day_delta(n: int) -> timedelta:
@@ -123,7 +129,7 @@ class PythonDictFrameAggregate(FrameAggregateFeatureGroup):
 
         groups: dict[tuple[Any, ...], list[tuple[int, Any, Any]]] = {}
         for i in range(num_rows):
-            key = tuple(col[i] for col in partition_cols)
+            key = tuple(cls._group_key_value(col[i]) for col in partition_cols)
             groups.setdefault(key, []).append((i, order_vals[i], source_values[i]))
 
         for rows in groups.values():
@@ -149,6 +155,20 @@ class PythonDictFrameAggregate(FrameAggregateFeatureGroup):
         result = dict(data)
         result[feature_name] = result_values
         return result
+
+    @classmethod
+    def _group_key_value(cls, value: Any) -> Any:
+        """Map a partition-column value to a hashable, NaN-safe group-key component.
+
+        ``float('nan')`` never equals another NaN, so used raw as part of a dict key
+        it would split every NaN-valued row into its own singleton group. Substitute
+        a shared sentinel so all NaN values collapse into one group key component,
+        matching PyArrow's ``Table.group_by()`` (which merges all NaN keys of a
+        column into a single group, distinct from a null/None group).
+        """
+        if isinstance(value, float) and math.isnan(value):
+            return _NAN_KEY
+        return value
 
     @classmethod
     def _time_window(
@@ -190,9 +210,11 @@ class PythonDictFrameAggregate(FrameAggregateFeatureGroup):
         if agg_type == "count":
             return len(non_null)
         if agg_type == "min":
-            return min(non_null)
+            finite = [v for v in non_null if not cls._is_nan(v)]
+            return min(finite) if finite else None
         if agg_type == "max":
-            return max(non_null)
+            finite = [v for v in non_null if not cls._is_nan(v)]
+            return max(finite) if finite else None
         if agg_type == "median":
             return statistics.median(non_null)
         if agg_type in ("std", "var"):
@@ -205,3 +227,8 @@ class PythonDictFrameAggregate(FrameAggregateFeatureGroup):
         raise unsupported_agg_type_error(
             agg_type, _SUPPORTED_AGG_TYPES, framework="PythonDict", operation="frame aggregate"
         )
+
+    @staticmethod
+    def _is_nan(value: Any) -> bool:
+        """True for a float NaN value; min/max must skip these (PyArrow's pc.min/pc.max do)."""
+        return isinstance(value, float) and math.isnan(value)

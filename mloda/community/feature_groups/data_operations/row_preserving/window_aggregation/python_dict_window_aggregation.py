@@ -9,6 +9,7 @@ the input.
 
 from __future__ import annotations
 
+import math
 import statistics
 from typing import Any
 
@@ -68,6 +69,11 @@ _VARIANCE_DDOF: dict[str, int] = {
 # std_* variants take a square root of the variance; var_* variants return the variance.
 _STD_AGG_TYPES: frozenset[str] = frozenset({"std", "std_pop", "std_samp"})
 
+# Sentinel substituted for any NaN partition-key value so that all NaN-valued rows of a
+# partition column hash/compare equal and land in one shared group, matching PyArrow's
+# Table.group_by() (which merges all NaN keys into a single group, distinct from None).
+_NAN_KEY = object()
+
 
 class PythonDictWindowAggregation(WindowAggregationFeatureGroup):
     @classmethod
@@ -104,7 +110,7 @@ class PythonDictWindowAggregation(WindowAggregationFeatureGroup):
         # every other aggregation type is order-independent.
         groups: dict[tuple[Any, ...], list[tuple[int, Any]]] = {}
         for i in range(num_rows):
-            key = tuple(col[i] for col in partition_cols)
+            key = tuple(cls._group_key_value(col[i]) for col in partition_cols)
             order_val = order_vals[i] if order_vals is not None else None
             groups.setdefault(key, []).append((i, order_val))
 
@@ -122,6 +128,20 @@ class PythonDictWindowAggregation(WindowAggregationFeatureGroup):
         result = dict(data)
         result[feature_name] = result_values
         return result
+
+    @classmethod
+    def _group_key_value(cls, value: Any) -> Any:
+        """Map a partition-column value to a hashable, NaN-safe group-key component.
+
+        ``float('nan')`` never equals another NaN, so used raw as part of a dict key
+        it would split every NaN-valued row into its own singleton group. Substitute
+        a shared sentinel so all NaN values collapse into one group key component,
+        matching PyArrow's ``Table.group_by()`` (which merges all NaN keys of a
+        column into a single group, distinct from a null/None group).
+        """
+        if isinstance(value, float) and math.isnan(value):
+            return _NAN_KEY
+        return value
 
     @classmethod
     def _reduce(cls, agg_type: str, values: list[Any]) -> Any:
@@ -150,11 +170,18 @@ class PythonDictWindowAggregation(WindowAggregationFeatureGroup):
         if agg_type in ("avg", "mean"):
             return sum(non_null) / len(non_null)
         if agg_type == "min":
-            return min(non_null)
+            finite = [v for v in non_null if not cls._is_nan(v)]
+            return min(finite) if finite else None
         if agg_type == "max":
-            return max(non_null)
+            finite = [v for v in non_null if not cls._is_nan(v)]
+            return max(finite) if finite else None
 
         raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="PythonDict")
+
+    @staticmethod
+    def _is_nan(value: Any) -> bool:
+        """True for a float NaN value; min/max must skip these (PyArrow's pc.min/pc.max do)."""
+        return isinstance(value, float) and math.isnan(value)
 
     @classmethod
     def _mode(cls, values: list[Any]) -> Any:

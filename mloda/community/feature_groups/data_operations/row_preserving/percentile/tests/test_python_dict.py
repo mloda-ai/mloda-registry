@@ -19,3 +19,49 @@ class TestPythonDictPercentile(PythonDictTestMixin, PercentileTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return PythonDictPercentile
+
+
+class TestPythonDictNanPartitionKeyGrouping:
+    """A NaN partition-key value must group with itself, not split into singletons.
+
+    ``PythonDictPercentile._compute_percentile`` builds the group key as
+    ``tuple(col[i] for col in partition_cols)`` (python_dict_percentile.py
+    line 57). Two rows that both carry ``float('nan')`` in a partition
+    column compare unequal (``nan != nan``), so the dict splits them into
+    separate one-row groups instead of one shared group, and each row is
+    broadcast only its own percentile (itself) rather than the group's.
+
+    Verified empirically: PyArrow's own ``Table.group_by()`` merges all NaN
+    keys of a column into a single group, so "one shared NaN group" is the
+    correct target. ``ReferencePercentile`` drives its grouping through
+    PyArrow's real ``group_by().aggregate()``, so it is a valid oracle here.
+    """
+
+    def test_nan_partition_keys_grouped_together_matches_pyarrow_oracle(self) -> None:
+        import pyarrow as pa
+
+        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+        from mloda.testing.feature_groups.data_operations.row_preserving.percentile.reference import (
+            ReferencePercentile,
+        )
+
+        arrow_table = pa.table(
+            {
+                "grp": pa.array([float("nan"), float("nan"), 1.0, 2.0], type=pa.float64()),
+                "val": pa.array([10.0, 20.0, 100.0, 200.0], type=pa.float64()),
+            }
+        )
+        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        fs = make_feature_set("val__p50_percentile", ["grp"])
+
+        result = PythonDictPercentile.calculate_feature(data, fs)
+        oracle = ReferencePercentile.calculate_feature(arrow_table, fs)
+
+        result_col = extract_column(result, "val__p50_percentile")
+        oracle_col = extract_column(oracle, "val__p50_percentile")
+
+        assert oracle_col == [15.0, 15.0, 100.0, 200.0], f"sanity check on the oracle itself failed: {oracle_col!r}"
+        assert result_col == oracle_col, (
+            f"expected both NaN-keyed rows to broadcast the shared group's p50 (median of "
+            f"10.0/20.0 = 15.0, matching the PyArrow oracle {oracle_col!r}), got PythonDict={result_col!r}"
+        )

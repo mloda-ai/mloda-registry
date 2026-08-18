@@ -7,6 +7,7 @@ column and broadcast to every row, including masked-out rows.
 
 from __future__ import annotations
 
+import math
 import statistics
 from typing import Any
 
@@ -85,11 +86,18 @@ class PythonDictScalarAggregate(ScalarAggregateFeatureGroup):
         if agg_type in ("avg", "mean"):
             return sum(non_null) / len(non_null)
         if agg_type == "min":
-            return min(non_null)
+            finite = [v for v in non_null if not cls._is_nan(v)]
+            return min(finite) if finite else None
         if agg_type == "max":
-            return max(non_null)
+            finite = [v for v in non_null if not cls._is_nan(v)]
+            return max(finite) if finite else None
 
         raise unsupported_agg_type_error(agg_type, cls._SUPPORTED_AGG_TYPES, framework="PythonDict")
+
+    @staticmethod
+    def _is_nan(value: Any) -> bool:
+        """True for a float NaN value; min/max must skip these (PyArrow's pc.min/pc.max do)."""
+        return isinstance(value, float) and math.isnan(value)
 
     @classmethod
     def _variance(cls, non_null: list[float], *, ddof: int, as_std: bool) -> float | None:
