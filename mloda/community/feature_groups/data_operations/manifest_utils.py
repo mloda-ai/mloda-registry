@@ -2,12 +2,14 @@
 
 A data_operations plugin package ships one concrete plugin class per compute
 framework, and each backend module top-imports its framework (pandas, polars,
-duckdb, pyarrow). mloda's entry-point loader skips a whole entry point if
-importing its manifest raises ModuleNotFoundError, so a manifest that eagerly
-imports every backend becomes undiscoverable unless every optional framework is
-installed. ``load_plugin_classes`` imports each backend individually and drops
-only the backends whose optional framework is absent, while still raising on any
-other import error (so typos and real breakage stay loud). See issue #271.
+duckdb, pyarrow) plus any transitive dependency it imports directly (numpy,
+which pandas_binning.py imports before pandas). mloda's entry-point loader
+skips a whole entry point if importing its manifest raises ModuleNotFoundError,
+so a manifest that eagerly imports every backend becomes undiscoverable unless
+every optional framework is installed. ``load_plugin_classes`` imports each
+backend individually and drops only the backends whose optional framework is
+absent, while still raising on any other import error (so typos and real
+breakage stay loud). See issue #271.
 """
 
 from __future__ import annotations
@@ -16,10 +18,11 @@ import importlib
 from collections.abc import Iterable
 from typing import Any
 
-# Optional compute-framework roots used by data_operations backends. A missing
-# import whose root is one of these means "framework not installed" -> skip that
-# backend only. Any other ModuleNotFoundError is a real error and re-raised.
-_OPTIONAL_BACKENDS = frozenset({"pandas", "polars", "duckdb", "pyarrow"})
+# Optional third-party roots a data_operations backend may top-import (a framework
+# or one of its transitive deps, e.g. numpy via pandas). A missing import whose
+# root is one of these means "not installed" -> skip that backend only. Any
+# other ModuleNotFoundError is a real error and re-raised.
+_OPTIONAL_BACKENDS = frozenset({"pandas", "polars", "duckdb", "pyarrow", "numpy"})
 
 
 def load_plugin_classes(package: str, specs: Iterable[tuple[str, str]]) -> list[type[Any]]:
