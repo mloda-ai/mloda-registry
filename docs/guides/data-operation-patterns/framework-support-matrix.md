@@ -70,25 +70,25 @@ This matrix only covers data-operation feature groups (single-source column tran
 
 Cells reflect the production capability declarations (`compute_framework_rule`, the `supports_compute_framework` hook, and match-time restrictions), queryable via `DataOperationsCatalog`. `full` means the framework's production implementation declares support for every subtype this operation defines. `partial (k/n)` means it declares k of the n subtypes and rejects the rest. `--` means no implementation ships for this framework.
 
-| Operation | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| aggregation | partial (15/17) | full | full | full | partial (6/17) |
-| binning | full | full | full | full | full |
-| datetime | full | full | full | full | full |
-| frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) |
-| offset | -- | full | full | full | full |
-| percentile | -- | full | full | full | -- |
-| rank | -- | full | full | full | full |
-| scalar_aggregate | full | full | full | full | partial (6/13) |
-| scalar_arithmetic | full | full | full | full | full |
-| point_arithmetic | full | full | full | full | full |
-| time_bucketization | full | full | full | full | full |
-| ffill | full | full | full | full | full |
-| ema | -- | full | full | -- | -- |
-| sessionization | full | full | full | full | full |
-| window_aggregation | partial (15/17) | full | full | full | partial (6/17) |
-| string | full | full | full | full | partial (2/5) |
-| resample | full | full | full | full | -- |
+| Operation | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| aggregation | partial (15/17) | full | full | full | partial (6/17) | -- |
+| binning | full | full | full | full | full | -- |
+| datetime | full | full | full | full | full | -- |
+| frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) | -- |
+| offset | -- | full | full | full | full | -- |
+| percentile | -- | full | full | full | -- | -- |
+| rank | -- | full | full | full | full | -- |
+| scalar_aggregate | full | full | full | full | partial (6/13) | -- |
+| scalar_arithmetic | full | full | full | full | full | -- |
+| point_arithmetic | full | full | full | full | full | -- |
+| time_bucketization | full | full | full | full | full | -- |
+| ffill | full | full | full | full | full | -- |
+| ema | -- | full | full | -- | -- | -- |
+| sessionization | full | full | full | full | full | -- |
+| window_aggregation | partial (15/17) | full | full | full | partial (6/17) | -- |
+| string | full | full | full | full | partial (2/5) | -- |
+| resample | full | full | full | full | -- | -- |
 
 ## Per-operation detail
 
@@ -96,190 +96,190 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 
 ### aggregation
 
-| Agg type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| `sum` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `avg` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `mean` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `count` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `min` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `max` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `std` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `var` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `std_pop` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `std_samp` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `var_pop` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `var_samp` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `median` | ✗ | ✓ | ✓ | ✓ | ✗ |
-| `mode` | ✗ | ✓ | ✓ | ✓ | ✗ |
-| `nunique` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `first` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `last` | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Agg type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| `sum` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `avg` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `mean` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `count` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `min` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `max` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `std` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `var` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `std_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `std_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `var_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `var_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `median` | ✗ | ✓ | ✓ | ✓ | ✗ | -- |
+| `mode` | ✗ | ✓ | ✓ | ✓ | ✗ | -- |
+| `nunique` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `first` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `last` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
 
 ### binning
 
-| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| `bin` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `qbin` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| `bin` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `qbin` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
 
 ### datetime
 
-| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| `year` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `month` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `day` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `hour` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `minute` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `second` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `dayofweek` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `is_weekend` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `quarter` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| `year` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `month` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `day` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `hour` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `minute` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `second` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `dayofweek` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `is_weekend` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `quarter` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
 
 ### frame_aggregate
 
-| Frame type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| `rolling` | -- | ✓ | ✓ | ✓ | ✓ |
-| `time:second` | -- | ✓ | ✓ | ✓ | ✓ |
-| `time:minute` | -- | ✓ | ✓ | ✓ | ✓ |
-| `time:hour` | -- | ✓ | ✓ | ✓ | ✓ |
-| `time:day` | -- | ✓ | ✓ | ✓ | ✓ |
-| `time:week` | -- | ✓ | ✓ | ✓ | ✓ |
-| `time:month` | -- | ✗ | ✓ | ✓ | ✗ |
-| `time:year` | -- | ✗ | ✓ | ✓ | ✗ |
-| `cumulative` | -- | ✓ | ✓ | ✓ | ✓ |
-| `expanding` | -- | ✓ | ✓ | ✓ | ✓ |
+| Frame type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| `rolling` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `time:second` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `time:minute` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `time:hour` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `time:day` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `time:week` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `time:month` | -- | ✗ | ✓ | ✓ | ✗ | -- |
+| `time:year` | -- | ✗ | ✓ | ✓ | ✗ | -- |
+| `cumulative` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `expanding` | -- | ✓ | ✓ | ✓ | ✓ | -- |
 
 ### offset
 
-| Offset type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| `lag` | -- | ✓ | ✓ | ✓ | ✓ |
-| `lead` | -- | ✓ | ✓ | ✓ | ✓ |
-| `diff` | -- | ✓ | ✓ | ✓ | ✓ |
-| `pct_change` | -- | ✓ | ✓ | ✓ | ✓ |
-| `first_value` | -- | ✓ | ✓ | ✓ | ✓ |
-| `last_value` | -- | ✓ | ✓ | ✓ | ✓ |
+| Offset type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| `lag` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `lead` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `diff` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `pct_change` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `first_value` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `last_value` | -- | ✓ | ✓ | ✓ | ✓ | -- |
 
 ### percentile
 
-| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| (all) | -- | ✓ | ✓ | ✓ | -- |
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| (all) | -- | ✓ | ✓ | ✓ | -- | -- |
 
 ### rank
 
-| Rank type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| `row_number` | -- | ✓ | ✓ | ✓ | ✓ |
-| `rank` | -- | ✓ | ✓ | ✓ | ✓ |
-| `dense_rank` | -- | ✓ | ✓ | ✓ | ✓ |
-| `percent_rank` | -- | ✓ | ✓ | ✓ | ✓ |
-| `ntile` | -- | ✓ | ✓ | ✓ | ✓ |
-| `top` | -- | ✓ | ✓ | ✓ | ✓ |
-| `bottom` | -- | ✓ | ✓ | ✓ | ✓ |
+| Rank type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| `row_number` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `rank` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `dense_rank` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `percent_rank` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `ntile` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `top` | -- | ✓ | ✓ | ✓ | ✓ | -- |
+| `bottom` | -- | ✓ | ✓ | ✓ | ✓ | -- |
 
 ### scalar_aggregate
 
-| Agg type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| `sum` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `min` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `max` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `avg` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `mean` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `count` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `std` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `var` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `std_pop` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `std_samp` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `var_pop` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `var_samp` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `median` | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Agg type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| `sum` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `min` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `max` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `avg` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `mean` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `count` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `std` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `var` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `std_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `std_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `var_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `var_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `median` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
 
 ### scalar_arithmetic
 
-| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| `add` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `subtract` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `multiply` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `divide` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| `add` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `subtract` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `multiply` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `divide` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
 
 ### point_arithmetic
 
-| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| `add` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `subtract` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `multiply` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `divide` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| `add` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `subtract` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `multiply` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `divide` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
 
 ### time_bucketization
 
-| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| `floor` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `ceil` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `round` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| `floor` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `ceil` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `round` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
 
 ### ffill
 
-| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| (all) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| (all) | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
 
 ### ema
 
-| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| (all) | -- | ✓ | ✓ | -- | -- |
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| (all) | -- | ✓ | ✓ | -- | -- | -- |
 
 ### sessionization
 
-| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| (all) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| (all) | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
 
 ### window_aggregation
 
-| Agg type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| `sum` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `avg` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `mean` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `count` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `min` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `max` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `std` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `var` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `std_pop` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `std_samp` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `var_pop` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `var_samp` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `median` | ✗ | ✓ | ✓ | ✓ | ✗ |
-| `mode` | ✗ | ✓ | ✓ | ✓ | ✗ |
-| `nunique` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `first` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `last` | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Agg type | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| `sum` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `avg` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `mean` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `count` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `min` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `max` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `std` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `var` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `std_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `std_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `var_pop` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `var_samp` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `median` | ✗ | ✓ | ✓ | ✓ | ✗ | -- |
+| `mode` | ✗ | ✓ | ✓ | ✓ | ✗ | -- |
+| `nunique` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `first` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `last` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
 
 ### string
 
-| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| `upper` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `lower` | ✓ | ✓ | ✓ | ✓ | ✗ |
-| `trim` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `length` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `reverse` | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| `upper` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `lower` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
+| `trim` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `length` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `reverse` | ✓ | ✓ | ✓ | ✓ | ✗ | -- |
 
 ### resample
 
-| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite |
-|---|---|---|---|---|---|
-| (all) | ✓ | ✓ | ✓ | ✓ | -- |
+| Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
+|---|---|---|---|---|---|---|
+| (all) | ✓ | ✓ | ✓ | ✓ | -- | -- |
 
 <!-- END GENERATED: framework-support-matrix -->
 

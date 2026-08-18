@@ -30,7 +30,7 @@ from mloda.community.feature_groups.data_operations.errors import (
 _PKG = "mloda.community.feature_groups.data_operations"
 
 #: Backend module filename prefixes, one per potential compute framework.
-_FRAMEWORK_MODULE_PREFIXES: tuple[str, ...] = ("pyarrow", "pandas", "polars_lazy", "duckdb", "sqlite")
+_FRAMEWORK_MODULE_PREFIXES: tuple[str, ...] = ("pyarrow", "pandas", "polars_lazy", "duckdb", "sqlite", "python_dict")
 
 #: Order hints only; membership always comes from the base-class constants.
 _FRAME_TYPE_ORDER: tuple[str, ...] = ("rolling", "time", "cumulative", "expanding")
