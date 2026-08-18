@@ -77,7 +77,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 | datetime | full | full | full | full | full | full |
 | frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) | full |
 | offset | -- | full | full | full | full | full |
-| percentile | -- | full | full | full | -- | -- |
+| percentile | -- | full | full | full | -- | full |
 | rank | -- | full | full | full | full | -- |
 | scalar_aggregate | full | full | full | full | partial (6/13) | -- |
 | scalar_arithmetic | full | full | full | full | full | -- |
@@ -167,7 +167,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 
 | Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
 |---|---|---|---|---|---|---|
-| (all) | -- | ✓ | ✓ | ✓ | -- | -- |
+| (all) | -- | ✓ | ✓ | ✓ | -- | ✓ |
 
 ### rank
 
