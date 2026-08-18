@@ -59,6 +59,7 @@ When multiple method variants exist for a feature group type (e.g., different sc
 | `AggregatedFeatureGroup` | `aggregation_type` | `r".*__([\w]+)_aggr$"` |
 | `ScalingFeatureGroup` | `scaler_type` | `r".*__(standard|minmax|robust|normalizer)_scaled$"` |
 | `EncodingFeatureGroup` | `encoder_type` | `r".*__(onehot|label|ordinal)_encoded(~\d+)?$"` |
+| `RankFeatureGroup` (named capture) | `rank_type` | `r".*__(?P<rank_type>[\w]+)_ranked$"` |
 
 ### Pattern
 
@@ -104,6 +105,35 @@ Feature("my_output", Options(context={"my_method": "algo_b", "in_features": "inp
 ```
 
 **Note:** Subclasses typically only override `compute_framework_rule()` to specify which framework they support (Pandas, Polars, etc.), not matching logic.
+
+### Named-Capture Form
+
+The example above uses a legacy positional capture group: `bind_name_captures` only binds `MY_METHOD`'s value when it is already a member of `MY_METHODS` (`allowed_values`), so an unsupported token in the feature name just fails to bind rather than reaching `element_validator`. Name the capture group after the `PROPERTY_MAPPING` key instead, and the mixin binds it unconditionally, so `element_validator` and `match_guard` run against it like any explicit option and can reject it (see [What a Validator Receives](#what-a-validator-receives)):
+
+```python
+class BaseMyTransform(FeatureChainParserMixin, FeatureGroup):
+    # Named capture: the group name ("my_method") is itself the PROPERTY_MAPPING key, so a
+    # permissive regex still only matches supported values, via allowed_values / element_validator
+    # rather than the regex alternation.
+    PREFIX_PATTERN = r".*__(?P<my_method>[\w]+)_transformed$"
+
+    MY_METHOD = "my_method"
+    MY_METHODS = {
+        "algo_a": "Algorithm A description",
+        "algo_b": "Algorithm B description",
+    }
+
+    PROPERTY_MAPPING = {
+        MY_METHOD: property_spec(
+            "Transform algorithm",
+            strict=True,
+            allowed_values=MY_METHODS,
+        ),
+        DefaultOptionKeys.in_features: property_spec("Source feature"),
+    }
+```
+
+`Feature("input__algo_b_transformed")` matches and binds `my_method="algo_b"` under both forms. They diverge on an unsupported token like `input__algo_c_transformed`: against the positional pattern (loosened to `[\w]+` so the regex itself would accept it), `"algo_c"` never binds to `my_method` at all, since `bind_name_captures` only binds values already in `allowed_values`; against the named-capture pattern, `"algo_c"` binds and is then rejected by `allowed_values`/`element_validator` with a recorded reason. See `RankFeatureGroup.PREFIX_PATTERN` (`mloda/community/feature_groups/data_operations/row_preserving/rank/base.py`) for a production named-capture example with an `element_validator`.
 
 ### Extracting the Discriminator at Compute Time
 
