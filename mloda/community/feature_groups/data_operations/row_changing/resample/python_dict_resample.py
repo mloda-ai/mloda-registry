@@ -30,6 +30,28 @@ _EPOCH_UTC = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _SECONDS_PER_UNIT: dict[str, int] = {"minute": 60, "hour": 3600, "day": 86400}
 
 
+def _attach_tzinfo(naive: datetime, tzinfo: Any) -> datetime:
+    """Attach *tzinfo* to a naive *naive* datetime, resolving its DST offset correctly for *naive*'s own date.
+
+    ``zoneinfo.ZoneInfo`` and fixed-offset ``datetime.timezone`` resolve their UTC offset dynamically
+    whenever queried, so a plain ``.replace(tzinfo=...)`` is already correct for them. ``pytz``'s
+    ``DstTzInfo``, however, pins its offset at construction/``.localize()`` time and does NOT
+    recompute it on ``.replace()`` -- so reattaching it via ``.replace(tzinfo=...)`` would silently
+    carry over whatever offset happened to be baked into the *original* instance, even onto a
+    different calendar date whose real offset differs (e.g. a DST transition boundary). Duck-typing
+    on ``localize`` (pytz's public re-localization API) re-resolves the correct offset for pytz
+    tzinfo while leaving every other tzinfo type's already-correct ``.replace()`` behavior untouched.
+    See ``python_dict_time_bucketization`` for the identical helper this mirrors.
+    """
+    if tzinfo is None:
+        return naive
+    localize = getattr(tzinfo, "localize", None)
+    if callable(localize):
+        localized: datetime = localize(naive)
+        return localized
+    return naive.replace(tzinfo=tzinfo)
+
+
 def _wall_clock_epoch_seconds(dt: datetime) -> int:
     """Whole seconds between 1970-01-01T00:00:00 and *dt*'s wall-clock fields.
 
@@ -50,12 +72,18 @@ def _wall_clock_epoch_seconds(dt: datetime) -> int:
 
 
 def _floor_dt(dt: datetime, n: int, unit: str) -> datetime:
-    """Floor ``dt`` to the start of its ``(n, unit)`` bucket, preserving tzinfo."""
+    """Floor ``dt`` to the start of its ``(n, unit)`` bucket, preserving tzinfo.
+
+    ``dt.tzinfo`` is reattached (via ``_attach_tzinfo``) only once the final floored wall-clock
+    date is known, not carried through as part of the epoch-anchored arithmetic, so a floor that
+    crosses a DST transition (e.g. flooring a spring-forward afternoon down to that day's
+    midnight) gets the correct offset for its *own* date -- see ``_attach_tzinfo``.
+    """
     if unit in _SECONDS_PER_UNIT:
         bucket_seconds = n * _SECONDS_PER_UNIT[unit]
         floored_seconds = (_wall_clock_epoch_seconds(dt) // bucket_seconds) * bucket_seconds
-        floored = _EPOCH_UTC + timedelta(seconds=floored_seconds)
-        return floored.replace(tzinfo=dt.tzinfo)
+        naive = (_EPOCH_UTC + timedelta(seconds=floored_seconds)).replace(tzinfo=None)
+        return _attach_tzinfo(naive, dt.tzinfo)
     raise ValueError(f"Unsupported resample unit for PythonDict: {unit!r}")
 
 

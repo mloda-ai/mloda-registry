@@ -43,6 +43,27 @@ _EPOCH_UTC = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _SECONDS_PER_UNIT: dict[str, int] = {"minute": 60, "hour": 3600, "day": 86400}
 
 
+def _attach_tzinfo(naive: datetime, tzinfo: Any) -> datetime:
+    """Attach *tzinfo* to a naive *naive* datetime, resolving its DST offset correctly for *naive*'s own date.
+
+    ``zoneinfo.ZoneInfo`` and fixed-offset ``datetime.timezone`` resolve their UTC offset dynamically
+    whenever queried, so a plain ``.replace(tzinfo=...)`` is already correct for them. ``pytz``'s
+    ``DstTzInfo``, however, pins its offset at construction/``.localize()`` time and does NOT
+    recompute it on ``.replace()`` -- so reattaching it via ``.replace(tzinfo=...)`` would silently
+    carry over whatever offset happened to be baked into the *original* instance, even onto a
+    different calendar date whose real offset differs (e.g. a DST transition boundary). Duck-typing
+    on ``localize`` (pytz's public re-localization API) re-resolves the correct offset for pytz
+    tzinfo while leaving every other tzinfo type's already-correct ``.replace()`` behavior untouched.
+    """
+    if tzinfo is None:
+        return naive
+    localize = getattr(tzinfo, "localize", None)
+    if callable(localize):
+        localized: datetime = localize(naive)
+        return localized
+    return naive.replace(tzinfo=tzinfo)
+
+
 def _wall_clock_epoch_seconds(dt: datetime) -> int:
     """Whole seconds between 1970-01-01T00:00:00 and *dt*'s wall-clock fields.
 
@@ -85,40 +106,59 @@ def _elapsed_seconds(later: datetime, earlier: datetime) -> float:
 
 
 def _floor_dt(dt: datetime, n: int, unit: str) -> datetime:
-    """Floor ``dt`` to the start of its ``(n, unit)`` bucket, preserving tzinfo."""
+    """Floor ``dt`` to the start of its ``(n, unit)`` bucket, preserving tzinfo.
+
+    All calendar math below is done on *naive* datetimes, with ``dt.tzinfo`` reattached (via
+    ``_attach_tzinfo``) only once the final floored wall-clock date is known -- never carried
+    through intermediate ``.replace()``/arithmetic steps -- so a DST-crossing floor gets the
+    correct offset for its *own* date rather than the offset baked into ``dt``'s original tzinfo
+    instance (see ``_attach_tzinfo``).
+    """
+    tzinfo = dt.tzinfo
     if unit in _SECONDS_PER_UNIT:
         bucket_seconds = n * _SECONDS_PER_UNIT[unit]
         floored_seconds = (_wall_clock_epoch_seconds(dt) // bucket_seconds) * bucket_seconds
-        floored = _EPOCH_UTC + timedelta(seconds=floored_seconds)
-        return floored.replace(tzinfo=dt.tzinfo)
+        naive = (_EPOCH_UTC + timedelta(seconds=floored_seconds)).replace(tzinfo=None)
+        return _attach_tzinfo(naive, tzinfo)
     if unit == "week":
-        day_floor = _floor_dt(dt, 1, "day")
-        return day_floor - timedelta(days=day_floor.weekday())
+        day_floor_naive = _floor_dt(dt, 1, "day").replace(tzinfo=None)
+        naive = day_floor_naive - timedelta(days=day_floor_naive.weekday())
+        return _attach_tzinfo(naive, tzinfo)
     if unit == "month":
-        return dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        naive = dt.replace(tzinfo=None, day=1, hour=0, minute=0, second=0, microsecond=0)
+        return _attach_tzinfo(naive, tzinfo)
     if unit == "year":
-        return dt.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        naive = dt.replace(tzinfo=None, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        return _attach_tzinfo(naive, tzinfo)
     raise ValueError(f"Unsupported time bucketization unit for PythonDict: {unit!r}")
 
 
 def _next_boundary(floored: datetime, n: int, unit: str) -> datetime:
-    """The start of the bucket immediately after ``floored`` (which must already be floored)."""
+    """The start of the bucket immediately after ``floored`` (which must already be floored).
+
+    Like ``_floor_dt``, arithmetic runs on a naive copy of ``floored`` with ``floored.tzinfo``
+    reattached only at the end, so a bucket that straddles a DST transition gets the boundary's
+    own correct offset instead of inheriting whatever offset ``floored``'s tzinfo instance happens
+    to be pinned to.
+    """
+    tzinfo = floored.tzinfo
+    naive = floored.replace(tzinfo=None)
     if unit == "minute":
-        return floored + timedelta(minutes=n)
+        return _attach_tzinfo(naive + timedelta(minutes=n), tzinfo)
     if unit == "hour":
-        return floored + timedelta(hours=n)
+        return _attach_tzinfo(naive + timedelta(hours=n), tzinfo)
     if unit == "day":
-        return floored + timedelta(days=n)
+        return _attach_tzinfo(naive + timedelta(days=n), tzinfo)
     if unit == "week":
-        return floored + timedelta(days=7)
+        return _attach_tzinfo(naive + timedelta(days=7), tzinfo)
     if unit == "month":
         # floored always has day=1, so no day-of-month clamping is needed.
-        year, month = floored.year, floored.month + 1
+        year, month = naive.year, naive.month + 1
         if month > 12:
             year, month = year + 1, 1
-        return floored.replace(year=year, month=month)
+        return _attach_tzinfo(naive.replace(year=year, month=month), tzinfo)
     if unit == "year":
-        return floored.replace(year=floored.year + 1)
+        return _attach_tzinfo(naive.replace(year=naive.year + 1), tzinfo)
     raise ValueError(f"Unsupported time bucketization unit for PythonDict: {unit!r}")
 
 

@@ -390,7 +390,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'pyarrow'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-binning"
@@ -440,7 +440,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'pyarrow'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-compute-frameworks-example"
@@ -592,7 +592,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'pyarrow'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-example"
@@ -736,7 +736,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'pyarrow'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-frame-aggregate"
@@ -780,7 +780,7 @@ requires-dist = [
     { name = "polars", marker = "extra == 'polars'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "sqlite", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-offset"
@@ -824,7 +824,7 @@ requires-dist = [
     { name = "polars", marker = "extra == 'polars'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "sqlite", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-percentile"
@@ -868,7 +868,7 @@ requires-dist = [
     { name = "polars", marker = "extra == 'polars'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-point-arithmetic"
@@ -918,7 +918,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'pyarrow'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-rank"
@@ -962,7 +962,7 @@ requires-dist = [
     { name = "polars", marker = "extra == 'polars'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "sqlite", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-resample"
@@ -1012,7 +1012,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'pyarrow'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "pyarrow", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "pyarrow", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-scalar-aggregate"
@@ -1062,7 +1062,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'pyarrow'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-scalar-arithmetic"
@@ -1112,7 +1112,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'pyarrow'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-sessionization"
@@ -1162,7 +1162,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'pyarrow'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-string"
@@ -1234,7 +1234,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'pyarrow'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-window-aggregation"
@@ -1284,7 +1284,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'pyarrow'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "pyarrow", "sqlite", "duckdb", "polars", "pandas", "all"]
+provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-enterprise"
@@ -1405,6 +1405,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-xdist" },
     { name = "python-dateutil" },
+    { name = "pytz" },
     { name = "ruff" },
     { name = "tomli" },
     { name = "tox" },
@@ -1424,6 +1425,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-xdist", marker = "extra == 'dev'" },
     { name = "python-dateutil", marker = "extra == 'dev'" },
+    { name = "pytz", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "tomli", marker = "extra == 'dev'" },
     { name = "tox", marker = "extra == 'dev'" },

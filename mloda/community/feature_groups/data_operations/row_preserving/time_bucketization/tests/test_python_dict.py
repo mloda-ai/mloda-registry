@@ -106,6 +106,52 @@ class TestPythonDictNonUtcTimezoneSupported:
             f"expected matching UTC offset (DST-correct): {actual.utcoffset()!r} != {expected.utcoffset()!r}"
         )
 
+    def test_dst_zone_month_floor_recomputes_offset_for_pytz_tzinfo(self) -> None:
+        """A ``pytz`` ``DstTzInfo`` is pinned at construction (offset fixed to
+        whatever transition period the original ``localize()`` call resolved)
+        and does NOT recompute the DST offset when ``.replace(...)``-ed onto a
+        different date -- unlike ``zoneinfo.ZoneInfo``, whose ``utcoffset()``
+        resolves dynamically per-datetime. ``test_dst_zone_month_floor_matches_pyarrow_oracle``
+        above builds its input via ``pa.array(...).to_pylist()``, whose choice of
+        tzinfo *type* is pyarrow/pandas-version-dependent: on the CI Python 3.10
+        runner that path happens to attach a pytz ``DstTzInfo``, while 3.11+ in
+        the same CI matrix get ``zoneinfo.ZoneInfo`` -- so that test passes here
+        (this environment's pyarrow attaches ``zoneinfo.ZoneInfo``) but fails on
+        the 3.10 runner. This test instead constructs the pytz ``DstTzInfo``
+        directly, so the bug reproduces deterministically regardless of which
+        tzinfo type the locally installed pyarrow/pandas combination attaches.
+        """
+        from datetime import datetime, timedelta
+
+        import pytz
+
+        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+
+        berlin = pytz.timezone("Europe/Berlin")
+        # DST (CEST, +2:00) is in effect: Europe/Berlin's 2023 DST window runs
+        # March 26 - October 29.
+        dt = berlin.localize(datetime(2023, 3, 31, 12, 0, 0))
+        data = {"timestamp": [dt]}
+        fs = make_feature_set("timestamp__floor_1_month")
+
+        result = PythonDictTimeBucketization.calculate_feature(data, fs)
+
+        actual = result["timestamp__floor_1_month"][0]
+        assert (actual.year, actual.month, actual.day, actual.hour, actual.minute, actual.second) == (
+            2023,
+            3,
+            1,
+            0,
+            0,
+            0,
+        ), f"expected floor to 2023-03-01 00:00; got {actual!r}"
+        assert actual.utcoffset() == timedelta(hours=1), (
+            "March 1 2023 in Europe/Berlin is CET (+1:00); DST (CEST, +2:00) does not start "
+            f"until March 26. Got utcoffset {actual.utcoffset()!r} -- the original March 31 "
+            "CEST offset was carried over onto the floored March 1 date instead of being "
+            "re-resolved for it."
+        )
+
 
 class TestPythonDictRoundDstCrossing:
     """``round``'s distance-to-boundary math must use absolute (not wall-clock) elapsed time.
@@ -154,3 +200,51 @@ class TestPythonDictRoundDstCrossing:
         actual = result["timestamp__round_1_day"][0]
         expected = oracle.column("timestamp__round_1_day").to_pylist()[0]
         assert actual == expected, f"{actual!r} != oracle {expected!r}"
+
+    def test_round_1_day_spring_forward_recomputes_offset_for_pytz_tzinfo(self) -> None:
+        """Companion to ``test_round_1_day_spring_forward_matches_pyarrow_oracle``,
+        constructing the pytz ``DstTzInfo`` directly instead of going through
+        ``pa.array(...).to_pylist()`` (whose resulting tzinfo *type* is
+        pyarrow/pandas-version-dependent -- see the sibling test in
+        ``TestPythonDictNonUtcTimezoneSupported`` above for the same
+        environment-dependence). This reproduces the bug deterministically
+        regardless of which tzinfo type the locally installed pyarrow/pandas
+        combination attaches.
+
+        With a real (dynamic) ``zoneinfo.ZoneInfo`` tzinfo, this rounds DOWN
+        to 2023-03-12 00:00 EST: the spring-forward day is 23 real hours (the
+        02:00 -> 03:00 jump), so wall-clock noon is only 11 real hours past
+        midnight -- short of the 11.5-hour midpoint of a 23-real-hour day.
+        With pytz's ``DstTzInfo`` pinned to EDT (-04:00, the offset baked in
+        by the original noon ``localize()`` call), ``_floor_dt``'s
+        ``.replace(tzinfo=...)`` carries that EDT offset onto the March-12
+        *and* March-13 boundaries alike, making the day look like a plain 24
+        real hours (noon is then exactly at, i.e. past-or-at, the midpoint)
+        -- rounding UP to 2023-03-13 00:00 instead.
+        """
+        from datetime import datetime
+
+        import pytz
+
+        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+
+        eastern = pytz.timezone("America/New_York")
+        # Local noon, already past the 02:00 -> 03:00 spring-forward transition.
+        dt = eastern.localize(datetime(2023, 3, 12, 12, 0, 0))
+        data = {"timestamp": [dt]}
+        fs = make_feature_set("timestamp__round_1_day")
+
+        result = PythonDictTimeBucketization.calculate_feature(data, fs)
+
+        actual = result["timestamp__round_1_day"][0]
+        assert (actual.year, actual.month, actual.day, actual.hour, actual.minute, actual.second) == (
+            2023,
+            3,
+            12,
+            0,
+            0,
+            0,
+        ), (
+            "expected floor to 2023-03-12 00:00 (11 real hours from midnight to noon is short "
+            f"of the 23-real-hour day's 11.5-hour midpoint); got {actual!r}"
+        )
