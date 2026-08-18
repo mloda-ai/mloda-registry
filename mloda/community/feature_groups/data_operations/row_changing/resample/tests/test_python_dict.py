@@ -14,12 +14,7 @@ from mloda.testing.feature_groups.data_operations.row_changing.resample.resample
 
 
 class TestPythonDictResample(PythonDictTestMixin, ResampleTestBase):
-    """All tests inherited from the base class.
-
-    No restrictions: PythonDict aims for the same full v1 support level as
-    pandas, PyArrow, polars-lazy, and DuckDB (all units/aggs in
-    ``RESAMPLE_UNITS`` / ``RESAMPLE_AGGS``). Only SQLite is deferred.
-    """
+    """All tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:

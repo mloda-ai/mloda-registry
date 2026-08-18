@@ -16,12 +16,7 @@ from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank impor
 
 
 class TestPythonDictRank(CapabilityHookTestMixin, PythonDictTestMixin, RankTestBase):
-    """All tests inherited from the base class.
-
-    No overrides: PythonDict aims for the same full support level as pandas,
-    DuckDB, polars-lazy, and SQLite (all rank types, including the parametric
-    ntile_N / top_N / bottom_N families).
-    """
+    """All tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:

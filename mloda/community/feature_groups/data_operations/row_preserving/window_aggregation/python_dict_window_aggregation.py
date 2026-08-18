@@ -1,20 +1,10 @@
 """PythonDict implementation for window aggregation feature groups.
 
-Pure-Python, dependency-free implementation with no engine-level window
-function limitations, so it targets FULL support: all 17 aggregation types
-(sum/avg/mean/count/min/max/std/var/std_pop/std_samp/var_pop/var_samp/median/
-mode/nunique/first/last), matching Pandas, Polars-lazy, and DuckDB. No
-``supported_op_subtypes()`` override is needed since the base class already
-declares the full set.
-
-Structurally, this is the row-preserving twin of
-``aggregation/python_dict_aggregation.py``: it reuses the exact same
-null-handling and tie-breaking rules per aggregation type (all-null group's
-numeric reducers return ``None``; mode ties break by first occurrence), but
-instead of emitting one row per group it broadcasts the reduced value back to
-every row belonging to that group, so the output has the same row count and
-order as the input -- mirroring ``PythonDictRank`` / ``PythonDictFrameAggregate``'s
-build-groups-then-scatter-back shape.
+The row-preserving twin of ``aggregation/python_dict_aggregation.py``: same
+null-handling and tie-breaking rules per aggregation type, but instead of
+emitting one row per group it broadcasts the reduced value back to every row
+belonging to that group, so the output has the same row count and order as
+the input.
 """
 
 from __future__ import annotations
@@ -37,8 +27,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
     WindowAggregationFeatureGroup,
 )
 
-# All aggregation types natively supported by the PythonDict backend (full parity
-# with WindowAggregationFeatureGroup.AGGREGATION_TYPES; no subtype restriction).
+# All aggregation types supported by the PythonDict backend (no subtype restriction).
 _SUPPORTED_AGG_TYPES: frozenset[str] = frozenset(
     {
         "sum",
@@ -62,8 +51,7 @@ _SUPPORTED_AGG_TYPES: frozenset[str] = frozenset(
 )
 
 # Aggregation types whose result depends on row order within the partition; these
-# are the only ones sorted by order_by (nulls last), matching the DuckDB/PyArrow/
-# Pandas backends, which likewise ignore order_by for every other aggregation type.
+# are the only ones sorted by order_by (nulls last).
 _ORDER_DEPENDENT_AGG_TYPES = ("first", "last")
 
 # ddof (delta degrees of freedom) per std/var variant. std/var/std_pop/var_pop are
@@ -112,10 +100,8 @@ class PythonDictWindowAggregation(WindowAggregationFeatureGroup):
         order_vals: list[Any] | None = data[order_by] if order_by is not None else None
         needs_order = order_vals is not None and agg_type in _ORDER_DEPENDENT_AGG_TYPES
 
-        # Build per-partition (row index, order value) pairs in one pass, mirroring
-        # PythonDictRank / PythonDictFrameAggregate. order_val is carried along but
-        # only consulted below for first/last -- every other aggregation type is
-        # order-independent, matching the DuckDB/PyArrow/Pandas backends.
+        # order_val is carried along but only consulted below for first/last;
+        # every other aggregation type is order-independent.
         groups: dict[tuple[Any, ...], list[tuple[int, Any]]] = {}
         for i in range(num_rows):
             key = tuple(col[i] for col in partition_cols)
@@ -126,9 +112,7 @@ class PythonDictWindowAggregation(WindowAggregationFeatureGroup):
 
         for rows in groups.values():
             if needs_order:
-                # Stable-sort ascending, nulls last -- a group's "first"/"last" value
-                # depends on row order within the partition, so this must run before
-                # reducing.
+                # Stable-sort ascending, nulls last, before reducing first/last.
                 rows = sorted(rows, key=lambda r: (r[1] is None, r[1] if r[1] is not None else 0))
             values = [source_values[i] for i, _ in rows]
             reduced = cls._reduce(agg_type, values)
@@ -141,13 +125,7 @@ class PythonDictWindowAggregation(WindowAggregationFeatureGroup):
 
     @classmethod
     def _reduce(cls, agg_type: str, values: list[Any]) -> Any:
-        """Reduce one group's raw (possibly null-containing) values to a single result.
-
-        Duplicated from ``aggregation/python_dict_aggregation.py`` (not imported, to
-        keep this backend self-contained): same all-null-returns-null semantics for
-        numeric reducers, same mode tie-break by first occurrence, same
-        ``statistics.median``, same ddof handling for std/var.
-        """
+        """Reduce one group's raw (possibly null-containing) values to a single result."""
         non_null = [v for v in values if v is not None]
 
         if agg_type == "count":

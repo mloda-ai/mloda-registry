@@ -1,20 +1,10 @@
 """PythonDict implementation for rank feature groups.
 
-Pure-Python, dependency-free implementation with no engine-level windowing
-limitations, so it targets FULL support: all rank types, including the
-parametric ``ntile_N`` / ``top_N`` / ``bottom_N`` families, matching Pandas,
-DuckDB, polars-lazy, and SQLite (the four full-support existing backends).
-No ``RANK_TYPES`` / ``PARAMETRIC_RANK_FAMILIES`` override is needed since the
-base class already declares the full sets.
-
-The algorithm mirrors ``ReferenceRank`` (the PyArrow-over-pure-Python ground
-truth used across every backend's cross-framework tests): build per-partition
-groups of ``(row index, order_by value)``, stable-sort each group ascending
-with nulls last, and compute ranks from position in that sorted order -- this
-sort order IS the nulls-last-rank mechanism, so a null ``order_by`` row
-naturally lands at the highest rank number instead of receiving a null rank.
-Finally, scatter results back to a list indexed by original row position so
-the output row order matches the input.
+Builds per-partition groups of ``(row index, order_by value)``, stable-sorts
+each group ascending with nulls last, and computes ranks from position in
+that sorted order: a null ``order_by`` row naturally lands at the highest
+rank number instead of receiving a null rank. Results are then scattered
+back to original row position.
 """
 
 from __future__ import annotations

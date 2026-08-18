@@ -1,16 +1,9 @@
-"""PythonDict implementation for EMA-by-time.
+"""PythonDict implementation of EMA-by-time.
 
-Pure-Python, dependency-free implementation of the pinned EMA recurrence
-(``adjust=False``, nulls skipped without resetting the recurrence). Mirrors
-``PythonDictFfill`` (the closest structural precedent): build per-partition
-row lists, stable-sorted by ``order_by`` (nulls last), run the recurrence in
-that sorted order, and finally scatter results back to a list indexed by
-original row position so the output row order matches the input.
-
-Unlike pyarrow/duckdb/sqlite (which have no exponentially-weighted primitive
-and ship no backend at all), PythonDict has no engine-level limitation here:
-the recurrence is expressed directly in Python, so PythonDict targets FULL
-support alongside pandas and polars-lazy.
+Implements the pinned EMA recurrence (``adjust=False``, nulls skipped
+without resetting the recurrence): builds per-partition row lists,
+stable-sorted by ``order_by`` (nulls last), runs the recurrence in that
+sorted order, then scatters results back to original row position.
 """
 
 from __future__ import annotations

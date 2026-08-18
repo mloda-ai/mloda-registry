@@ -24,19 +24,13 @@ class TestPythonDictTimeBucketization(PythonDictTestMixin, TimeBucketizationTest
 
 
 class TestPythonDictDateSourceRejected:
-    """DATE-only source columns (Python ``datetime.date``, no time component) are rejected.
+    """DATE-only source columns (Python datetime.date, no time component) are rejected.
 
-    ``PythonDictTestMixin.create_test_data`` mirrors the production conversion
-    path (``pa.Table.to_pylist()``): a ``pa.date32()`` Arrow column round-trips
-    to plain ``datetime.date`` objects, which lack ``hour`` / ``minute`` /
-    ``second`` and cannot be bucketized. This mirrors the DuckDB precedent
-    (``test_duckdb.TestDuckdbDateSourceRejected``): the source-type guard must
-    reject DATE-only columns with a clear ``ValueError`` before any bucket
-    math runs, rather than surfacing a cryptic ``AttributeError`` deep inside
-    ``_compute_bucket``. PyArrow and Pandas reject the same input naturally
-    via their own type systems (``pa.types.is_timestamp`` /
-    ``is_datetime64_any_dtype``), so PythonDict's rejection keeps behaviour
-    consistent across all five other backends.
+    A pa.date32() Arrow column round-trips to plain datetime.date objects,
+    which lack hour/minute/second and cannot be bucketized. Mirrors the
+    DuckDB precedent (test_duckdb.TestDuckdbDateSourceRejected): the
+    source-type guard rejects DATE-only columns with a clear ValueError
+    before any bucket math runs.
     """
 
     def test_date_column_rejected(self) -> None:
@@ -53,24 +47,12 @@ class TestPythonDictDateSourceRejected:
 class TestPythonDictNonUtcTimezoneSupported:
     """Non-UTC tz-aware sources are fully supported, unlike SQLite's TEXT-storage guard.
 
-    ``pa.Table.to_pylist()`` converts tz-aware Arrow timestamps to plain
-    Python ``datetime`` objects carrying the *real* ``zoneinfo.ZoneInfo``
-    tzinfo (verified directly: ``pa.array([...], type=pa.timestamp("us",
-    tz="Europe/Berlin")).to_pylist()`` yields
-    ``datetime(..., tzinfo=zoneinfo.ZoneInfo(key="Europe/Berlin"))``, not a
-    numeric-offset-only tzinfo). Unlike SQLite -- whose TEXT storage keeps
-    only the numeric ``+HH:MM`` offset and loses the IANA zone name -- a
-    zoneinfo-aware Python ``datetime`` recomputes its UTC offset automatically
-    on ``.replace()`` / timedelta arithmetic, so DST-crossing bucket math is
-    correct without any rejection guard
-    (``sqlite_time_bucketization._assert_source_column_is_timestamp``'s
-    non-UTC guard does not apply here).
-
-    This is the direct counterpart to
-    ``test_sqlite_result_type.TestSqliteResultTypeContract.
-    test_dst_zone_month_floor_rejected``: identical DST-crossing input,
-    opposite contract (PythonDict must succeed and match the PyArrow oracle
-    exactly, including the recomputed UTC offset).
+    pa.Table.to_pylist() converts tz-aware Arrow timestamps to Python
+    datetime objects carrying real zoneinfo.ZoneInfo tzinfo, so DST-aware
+    offsets recompute automatically on replace()/timedelta arithmetic and no
+    rejection guard is needed here. Counterpart to
+    test_sqlite_result_type.TestSqliteResultTypeContract.test_dst_zone_month_floor_rejected:
+    identical DST-crossing input, opposite contract.
     """
 
     def test_dst_zone_month_floor_matches_pyarrow_oracle(self) -> None:

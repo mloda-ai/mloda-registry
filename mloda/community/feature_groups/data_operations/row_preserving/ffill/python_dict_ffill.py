@@ -1,14 +1,8 @@
-"""PythonDict implementation for ffill-by-time.
+"""PythonDict implementation of ffill-by-time.
 
-Pure-Python, dependency-free implementation with no engine-level windowing
-limitations, so it targets FULL support: all five existing backends support
-ffill natively, and PythonDict is no exception.
-
-The algorithm mirrors ``PythonDictOffset`` (the closest structural precedent):
-build per-partition-group row lists (stable-sorted by ``order_by``, nulls
-last), carry the last non-null source value forward through each sorted
-group, and finally scatter results back to a list indexed by original row
-position so the output row order matches the input.
+Builds per-partition-group row lists (stable-sorted by ``order_by``, nulls
+last), carries the last non-null source value forward through each sorted
+group, then scatters results back to original row position.
 """
 
 from __future__ import annotations

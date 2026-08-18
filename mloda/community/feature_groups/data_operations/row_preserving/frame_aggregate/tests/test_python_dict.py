@@ -1,15 +1,6 @@
 """Tests for PythonDict frame aggregate implementation.
 
 Uses the unified FrameAggregateTestBase.
-
-PythonDict aims for full support (all frame types, all time units including
-month/year, all aggregation types) matching DuckDB and Polars-lazy, since it
-is a pure-Python implementation with no engine-level rolling/window
-limitations. Month/year calendar arithmetic is implemented with stdlib
-``calendar.monthrange``-based day-clamping (no ``python-dateutil`` dependency),
-matching ``dateutil.relativedelta`` semantics used by the reference
-implementation. See known-divergences.md for why SQLite/Pandas narrow this
-set instead; PythonDict is not subject to those engine constraints.
 """
 
 from __future__ import annotations
@@ -30,13 +21,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 
 
 class TestPythonDictFrameAggregate(CapabilityHookTestMixin, PythonDictTestMixin, FrameAggregateTestBase):
-    """Unified tests inherited from the base class.
-
-    No overrides of ``supported_frame_types()``, ``supported_time_units()``, or
-    ``supports_null_order_in_time_window()``: PythonDict aims for the same full
-    support level as DuckDB and Polars-lazy (all four frame types, all seven
-    time units, tolerates null order_by in time windows).
-    """
+    """Unified tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:

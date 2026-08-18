@@ -1,25 +1,12 @@
 """PythonDict implementation of gap-threshold sessionization.
 
-Pure-Python, dependency-free implementation with no engine-level windowing
-limitations, so it targets FULL support: all five existing backends compute
-sessionization natively, and PythonDict is no exception.
-
-Unlike ffill/EMA (state resets per partition), a sessionization session id is a
-GLOBALLY-UNIQUE 0-based cumulative count over the WHOLE sorted frame: rows are
-sorted by ``[*partition_by, order_by]`` ascending (``partition_by`` groups
-same-partition rows together so "first-in-partition" can be detected), a row
-starts a new session when it is first-in-partition OR the gap to the previous
-row (in the sorted sequence) is strictly greater than the threshold, and the
-running session counter itself is NEVER reset between partitions -- only the
-"is this the first row I've seen in this partition" flag resets. Results are
-then scattered back to a list indexed by original row position so the output
-row order matches the input (row-preserving).
-
-PythonDict sessionizes native ``datetime`` values directly: the gap is a plain
-``timedelta`` subtraction compared against
-``timedelta(seconds=threshold_seconds)``, with no timestamp-resolution casting
-concerns (unlike PyArrow, which must normalize mixed-resolution timestamp
-types to a common unit before taking an int64 view).
+Unlike ffill/EMA (state resets per partition), a sessionization session id is
+a globally-unique, 0-based cumulative count over the whole sorted frame: rows
+are sorted by ``[*partition_by, order_by]`` ascending, a row starts a new
+session when it is first-in-partition or the gap to the previous row exceeds
+the threshold, and the running session counter itself is never reset between
+partitions, only the first-in-partition flag resets. Results are then
+scattered back to original row position.
 """
 
 from __future__ import annotations
@@ -72,11 +59,7 @@ class PythonDictSessionization(SessionizationFeatureGroup):
         def partition_key(i: int) -> tuple[Any, ...]:
             return tuple(col[i] for col in partition_cols)
 
-        # Sort row indices by [*partition_by, order_by] ascending (stable), so
-        # same-partition rows are grouped together and time-ordered within
-        # each group. The session-id cumsum below runs over this single
-        # global sequence in one pass; only the first-in-partition flag
-        # resets per group, the running session counter never does.
+        # Sort row indices by [*partition_by, order_by] ascending (stable).
         sorted_indices = sorted(range(num_rows), key=lambda i: (partition_key(i), order_vals[i]))
 
         threshold = timedelta(seconds=threshold_seconds)

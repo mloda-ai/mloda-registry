@@ -1,51 +1,16 @@
 """PythonDict implementation of time bucketization.
 
-Pure-Python, dependency-free implementation targeting FULL support. All
-bucket math runs on native ``datetime.datetime`` objects (as produced by
-``pa.Table.to_pylist()`` on the production conversion path), no engine
-round-trip required.
+Bucket math runs directly on native ``datetime.datetime`` objects, which
+(unlike SQLite's TEXT-stored offsets) carry genuine ``zoneinfo.ZoneInfo``
+tzinfo, so DST-aware offsets recompute automatically and non-UTC tz-aware
+sources need no special-casing.
 
-Timezone support
------------------
-
-Unlike SQLite (which stores tz-aware timestamps as TEXT and loses the IANA
-zone, forcing a rejection guard for non-UTC offsets), PythonDict's
-conversion path yields real Python ``datetime`` objects carrying genuine
-``zoneinfo.ZoneInfo`` tzinfo. Bucket math here uses ``.replace(...)`` and
-wall-clock ``timedelta`` arithmetic, both of which keep the original tzinfo
-object; a subsequent ``.utcoffset()`` call recomputes the correct DST-aware
-offset automatically. So non-UTC tz-aware sources are fully supported with
-no special-casing.
-
-Source-type guard
-------------------
-
-``pa.date32()`` columns round-trip to plain ``datetime.date`` objects (no
-``.hour`` / ``.minute`` / ``.second``), so they are rejected up-front with a
-clear ``ValueError``, mirroring the DuckDB precedent
-(``duckdb_time_bucketization``'s DATE-affinity exclusion).
-
-Bucket math
------------
-
-- **minute / hour**: bucket floor is computed within the enclosing hour /
-  day (``value // n * n``), matching SQLite's / DuckDB's ``n=1`` behaviour
-  and agreeing with PyArrow's epoch anchor for any ``n`` that divides 60 /
-  24 evenly (the only multiples exercised by the shared test suite).
-- **day**: bucket floor is epoch-anchored (multiples of ``n`` days since
-  1970-01-01), matching PyArrow's ``floor_temporal`` anchor exactly (see
-  ``duckdb_helpers.floor_expr`` for the cross-backend precedent).
-- **week**: ISO-Monday floor (day-floor, then subtract ``weekday()`` days).
-- **month / year**: calendar floor via ``.replace(...)``, which is what
-  makes the DST-crossing month-floor case correct (see module docstring
-  above).
-
-``ceil`` derives from ``floor`` plus one bucket: idempotent on aligned
-input for fixed-freq units (minute / hour / day), always advances for
-calendar units (week / month / year), matching PyArrow's
-``ceil_temporal(ceil_is_strictly_greater=False)`` convention. ``round`` is
-half-up: the midpoint between floor and the next boundary rounds toward
-the next boundary, matching PyArrow's ``round_temporal`` default.
+Floors: minute/hour use ``value // n * n`` within the enclosing hour/day;
+day is epoch-anchored (multiples of ``n`` days since 1970-01-01, matching
+PyArrow's ``floor_temporal``); week is ISO-Monday; month/year use a
+calendar ``.replace(...)`` floor. ``ceil`` derives from floor plus one
+bucket, matching PyArrow's ``ceil_temporal`` convention; ``round`` is
+half-up, matching PyArrow's ``round_temporal`` default.
 """
 
 from __future__ import annotations
@@ -153,6 +118,7 @@ class PythonDictTimeBucketization(TimeBucketizationFeatureGroup):
 
     @classmethod
     def _assert_source_column_is_timestamp(cls, data: dict[str, list[Any]], source_col: str) -> None:
+        """Reject ``datetime.date`` (DATE-only, no time component) sources; mirrors the DuckDB DATE-affinity guard."""
         if source_col not in data:
             raise ValueError(
                 f"Source column {source_col!r} is not present in the PythonDict data; available: {list(data)}."

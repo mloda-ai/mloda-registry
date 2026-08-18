@@ -1,13 +1,4 @@
-"""Tests for PythonDict window aggregation compute implementation.
-
-Uses the unified WindowAggregationTestBase.
-
-PythonDict aims for FULL support (17/17 aggregation types), matching
-Pandas, Polars-lazy, and DuckDB, since it is a pure-Python implementation
-with no engine-level window-function limitations. No
-``supported_agg_types()`` override beyond the ``mean`` alias is needed
-(mirrors the DuckDB/Pandas twins: ``{*ALL_AGG_TYPES, "mean"}``).
-"""
+"""Tests for PythonDict window aggregation compute implementation."""
 
 from __future__ import annotations
 

@@ -16,13 +16,7 @@ from mloda.testing.feature_groups.data_operations.mixins.python_dict import Pyth
 
 
 class TestPythonDictScalarAggregate(CapabilityHookTestMixin, PythonDictTestMixin, ScalarAggregateTestBase):
-    """All tests inherited from the base class.
-
-    PythonDict aims for full support (all 13 aggregation types, including
-    median), matching PyArrow and Pandas, since it is a pure-Python
-    implementation with no engine-level type restrictions. No
-    ``supported_agg_types()`` override is needed.
-    """
+    """All tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:

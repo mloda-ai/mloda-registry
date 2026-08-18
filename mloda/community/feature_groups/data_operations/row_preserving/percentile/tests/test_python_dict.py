@@ -14,12 +14,7 @@ from mloda.testing.feature_groups.data_operations.row_preserving.percentile.perc
 
 
 class TestPythonDictPercentile(PythonDictTestMixin, PercentileTestBase):
-    """All tests inherited from the base class.
-
-    No overrides: PythonDict aims for the same full support level as pandas,
-    DuckDB, and polars-lazy (PERCENTILE_CONT-style linear interpolation over
-    every partition, including multi-key partitions and null skipping).
-    """
+    """All tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:

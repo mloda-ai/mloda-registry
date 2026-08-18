@@ -1,23 +1,10 @@
 """PythonDict implementation for frame aggregate feature groups.
 
-Pure-Python, dependency-free implementation with no engine-level rolling/window
-limitations, so it targets FULL support: all four frame types (rolling, time,
-cumulative, expanding), all seven time units (including month/year), and all
-eight aggregation types (including std/var/median) -- matching DuckDB and
-Polars-lazy, the two fullest-support existing backends. No
-``SUPPORTED_TIME_UNITS`` / ``SUPPORTED_FRAME_TYPES`` / ``supported_op_subtypes()``
-override is needed since the base class already declares the full sets.
-
-The algorithm mirrors ``ReferenceFrameAggregate`` (the PyArrow-over-pure-Python
-ground truth used across every backend's cross-framework tests): build
-per-partition-group row lists (stable-sorted by ``order_by``, nulls last),
-then for each row compute a window of prior/current rows per the frame type,
-then reduce the window's values with the requested aggregation type.
-
-Month/year time windows use calendar-aware subtraction with day-of-month
-clamping (``_subtract_months``, stdlib ``calendar`` only), matching
-``dateutil.relativedelta`` semantics without adding a dependency (the
-``python_dict`` extras group is intentionally empty).
+Builds per-partition-group row lists (stable-sorted by ``order_by``, nulls
+last), then for each row computes a window of prior/current rows per the
+frame type and reduces it with the requested aggregation type. Month/year
+time windows use calendar-aware subtraction with day-of-month clamping
+(``_subtract_months``, stdlib ``calendar`` only, no ``dateutil`` dependency).
 """
 
 from __future__ import annotations
@@ -54,8 +41,8 @@ _SUPPORTED_AGG_TYPES: frozenset[str] = frozenset({"sum", "avg", "count", "min", 
 def _day_delta(n: int) -> timedelta:
     """Fallback factory (also the ``day`` unit itself) for ``_TIMEDELTA_FACTORIES.get``.
 
-    A named, explicitly-typed function rather than an inline lambda default: mypy
-    --strict cannot infer a bare lambda passed as ``dict.get``'s default argument.
+    Named rather than a lambda default: mypy --strict cannot infer a bare
+    lambda passed as ``dict.get``'s default argument.
     """
     return timedelta(days=n)
 
@@ -73,9 +60,7 @@ def _subtract_months(dt: datetime, months: int) -> datetime:
     """Subtract *months* calendar months from *dt*, clamping the day to the target month's length.
 
     Matches ``dateutil.relativedelta(months=months)`` semantics, e.g. Mar 31 minus
-    1 month = Feb 28 (or Feb 29 in a leap year). A year offset is expressed as
-    ``months = years * 12``, which reduces to a plain year decrement with the same
-    day-of-month clamping.
+    1 month = Feb 28 (or Feb 29 in a leap year).
     """
     total = dt.month - 1 - months
     year = dt.year + total // 12
@@ -176,11 +161,7 @@ class PythonDictFrameAggregate(FrameAggregateFeatureGroup):
     ) -> list[Any]:
         """Collect values within a time-based window ending at the current row.
 
-        Ports ``ReferenceFrameAggregate._time_window`` directly: second/minute/
-        hour/day/week use ``timedelta``; month/year use ``_subtract_months`` for
-        calendar-accurate arithmetic (no ``dateutil`` dependency). A null
-        ``current_order`` returns just the row's own value, matching the
-        reference's null-cutoff behavior.
+        A null ``current_order`` returns just the row's own value.
         """
         if current_order is None:
             return [rows[pos][2]]
@@ -196,12 +177,7 @@ class PythonDictFrameAggregate(FrameAggregateFeatureGroup):
 
     @classmethod
     def _reduce_window(cls, values: list[Any], agg_type: str) -> Any:
-        """Reduce one window's raw (possibly null-containing) values to a single result.
-
-        Null-skipping / all-null-returns-null semantics, duplicated locally (not
-        imported from the aggregation operation package or the testing-only
-        ``aggregation_helpers`` module) to keep this backend self-contained.
-        """
+        """Reduce one window's raw (possibly null-containing) values to a single result."""
         non_null = [v for v in values if v is not None]
 
         if not non_null:

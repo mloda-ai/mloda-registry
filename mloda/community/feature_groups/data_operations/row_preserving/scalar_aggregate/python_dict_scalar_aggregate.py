@@ -1,11 +1,5 @@
 """PythonDict implementation for single-column global aggregate broadcast.
 
-Pure-Python, dependency-free implementation with no engine-level type
-restrictions, so it targets full support: all 13 aggregation types
-(including ``median``), matching PyArrow and Pandas. No
-``supported_agg_types()`` override is needed since the base class already
-declares the full set.
-
 Unlike ``aggregation``/``frame_aggregate``, there is no ``partition_by``/
 grouping here: exactly one scalar is computed for the whole (post-mask)
 column and broadcast to every row, including masked-out rows.

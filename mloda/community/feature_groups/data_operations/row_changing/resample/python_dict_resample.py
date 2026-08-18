@@ -1,21 +1,11 @@
 """PythonDict implementation of resample.
 
-Pure-Python, dependency-free implementation targeting FULL support (mean /
-sum / count / min / max over minute / hour / day buckets, matching the
-PyArrow oracle). The bucket floor mirrors
-``python_dict_time_bucketization._floor_dt`` for the ``minute`` / ``hour`` /
-``day`` cases (the only units resample supports in v1); see that module's
-docstring for the epoch-anchored day floor and the intra-hour/day
-minute/hour floor (both agree with PyArrow's epoch-anchored
-``floor_temporal`` for every ``n`` exercised by the shared test suite).
-
-Algorithm: floor each row's ``time_column`` value to its ``(n, unit)``
-bucket, group row indices by ``(*partition_by, bucket_start)`` (a
-``dict[tuple, list[int]]``, mirroring ``python_dict_aggregation``'s
-grouping pattern), then reduce each group's ``source_col`` values with the
-requested aggregation, skipping nulls. A bucket with rows but no non-null
-values still emits (it is non-empty): ``count = 0``,
-``mean / sum / min / max = None`` (PyArrow oracle).
+Floors each row's ``time_column`` to its ``(n, unit)`` bucket (mirrors
+``python_dict_time_bucketization._floor_dt`` for minute/hour/day; see that
+module for the epoch-anchor rationale), groups row indices by
+``(*partition_by, bucket_start)``, then reduces each group's ``source_col``
+values with the requested aggregation, skipping nulls. A non-empty bucket
+with no non-null values still emits: ``count = 0``, other aggs ``None``.
 """
 
 from __future__ import annotations
@@ -38,12 +28,7 @@ _EPOCH_DATE = date(1970, 1, 1)
 
 
 def _floor_dt(dt: datetime, n: int, unit: str) -> datetime:
-    """Floor ``dt`` to the start of its ``(n, unit)`` bucket, preserving tzinfo.
-
-    Mirrors ``python_dict_time_bucketization._floor_dt`` for the three units
-    resample supports in v1 (``minute`` / ``hour`` / ``day``); see that
-    module for the epoch-anchor rationale.
-    """
+    """Floor ``dt`` to the start of its ``(n, unit)`` bucket, preserving tzinfo."""
     if unit == "minute":
         bucket = (dt.minute // n) * n
         return dt.replace(minute=bucket, second=0, microsecond=0)
@@ -83,8 +68,6 @@ def _reduce(agg: str, values: list[Any]) -> Any:
 
 
 class PythonDictResample(ResampleFeatureGroup):
-    """PythonDict backend for resample."""
-
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PythonDictFramework}

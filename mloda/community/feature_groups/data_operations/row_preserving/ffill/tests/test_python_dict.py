@@ -14,12 +14,7 @@ from mloda.testing.feature_groups.data_operations.row_preserving.ffill.ffill imp
 
 
 class TestPythonDictFfill(PythonDictTestMixin, FfillTestBase):
-    """All tests inherited from the base class.
-
-    No overrides expected: PythonDict aims for the same full support level as
-    pandas and PyArrow (all ffill semantics: leading nulls stay null, interior
-    and trailing nulls are carried forward per partition, row order restored).
-    """
+    """All tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:

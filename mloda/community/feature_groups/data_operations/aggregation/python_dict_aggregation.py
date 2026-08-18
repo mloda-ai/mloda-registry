@@ -1,10 +1,8 @@
 """PythonDict implementation for aggregation feature groups.
 
-Groups rows in pure Python (no numpy/pandas/pyarrow): build a
-``dict[tuple, list[int]]`` mapping group-key tuples to row indices (in
-first-occurrence order), then reduce each group's values per aggregation
-type. Supports all 17 aggregation types (no ``supported_op_subtypes()``
-override), matching the DuckDB backend's coverage.
+Groups rows in pure Python: builds a ``dict[tuple, list[int]]`` mapping
+group-key tuples to row indices, then reduces each group's values per
+aggregation type.
 """
 
 from __future__ import annotations
@@ -26,8 +24,7 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
 
-# All aggregation types natively supported by the PythonDict backend (full parity with
-# AggregationFeatureGroupBase.AGGREGATION_TYPES; no subtype restriction).
+# All aggregation types supported by the PythonDict backend (no subtype restriction).
 _SUPPORTED_AGG_TYPES: frozenset[str] = frozenset(
     {
         "sum",

@@ -12,12 +12,7 @@ from mloda.testing.feature_groups.data_operations.row_preserving.offset.offset i
 
 
 class TestPythonDictOffset(PythonDictTestMixin, OffsetTestBase):
-    """All tests inherited from the base class.
-
-    No overrides of ``supported_offset_types()``: PythonDict aims for the same
-    full support level as pandas, DuckDB, polars-lazy, and SQLite (all offset
-    types, including the parametric lag/lead/diff/pct_change families).
-    """
+    """All tests inherited from the base class."""
 
     @classmethod
     def implementation_class(cls) -> Any:

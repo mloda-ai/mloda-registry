@@ -1,17 +1,10 @@
 """PythonDict implementation for percentile feature groups.
 
-Pure-Python, dependency-free implementation with no engine-level percentile
-limitations, so it targets FULL support: PERCENTILE_CONT-style linear
-interpolation over every partition, including multi-key partitions and null
-skipping -- matching pandas, DuckDB, and polars-lazy (neither PyArrow nor
-SQLite has a production backend for this operation at all).
-
-Groups rows in pure Python (no numpy/pandas/pyarrow): build a
-``dict[tuple, list[int]]`` mapping group-key tuples to row indices, collect
-each group's non-null (and, if masked, non-masked) values, sort them, and
-interpolate the requested percentile the same way
-``ReferencePercentile``/``PandasPercentile`` do, then broadcast the one
-scalar result back to every row belonging to that partition.
+Groups rows in pure Python: builds a ``dict[tuple, list[int]]`` mapping
+group-key tuples to row indices, collects each group's non-null values,
+sorts them, interpolates the requested percentile (PERCENTILE_CONT-style
+linear interpolation), then broadcasts the scalar result back to every row
+in that partition.
 """
 
 from __future__ import annotations

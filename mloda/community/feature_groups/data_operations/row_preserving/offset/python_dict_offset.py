@@ -1,18 +1,8 @@
 """PythonDict implementation for offset feature groups.
 
-Pure-Python, dependency-free implementation with no engine-level windowing
-limitations, so it targets FULL support: all offset types, including the
-parametric ``lag_N`` / ``lead_N`` / ``diff_N`` / ``pct_change_N`` families,
-matching Pandas, DuckDB, polars-lazy, and SQLite (the four full-support
-existing backends). No ``OFFSET_TYPES`` / ``PARAMETRIC_OFFSET_FAMILIES``
-override is needed since the base class already declares the full sets.
-
-The algorithm mirrors ``ReferenceOffset`` (the PyArrow-over-pure-Python
-ground truth used across every backend's cross-framework tests): build
-per-partition-group row lists (stable-sorted by ``order_by``, nulls last),
-then for each row compute the requested offset value from that group's
-value list, and finally scatter results back to a list indexed by original
-row position so the output row order matches the input.
+Builds per-partition-group row lists (stable-sorted by ``order_by``, nulls
+last), computes the requested offset value from each group's value list,
+then scatters results back to original row position.
 """
 
 from __future__ import annotations
