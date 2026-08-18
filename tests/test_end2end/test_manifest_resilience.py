@@ -14,10 +14,7 @@ module's top-level third-party import root is covered by ``_OPTIONAL_BACKENDS``,
 so a backend module that top-imports an uncovered root fails this test instead
 of silently breaking a bare floor install. ``third_party_import_roots_by_file``
 is the public scanner backing that guard; a ``tmp_path`` battery below pins its
-behaviour directly, including that an import inside a module-level ``except:``
-handler is walked, and the real-tree test also asserts the walk is non-vacuous
-so a moved or emptied ``data_operations`` tree cannot make the guard pass
-silently. The guard only sees direct top-level third-party imports under
+behaviour directly. The guard only sees direct top-level third-party imports under
 ``data_operations/**``; an optional framework reached only indirectly through
 mloda core's own compute-framework shims (e.g. duckdb, which has no direct
 import anywhere under ``data_operations/**`` and is only ever imported inside
@@ -211,8 +208,7 @@ def test_except_handler_fallback_import_root_is_caught(tmp_path: Path) -> None:
     if the except body itself falls back to importing a *different* optional root, that
     fallback import lives only inside the ``ExceptHandler`` node. A naive walk that only
     recurses into ``ast.stmt`` children would miss it, since ``ast.ExceptHandler`` is not
-    an ``ast.stmt``. This pins the fixed walker's behaviour: it descends into the handler
-    body and catches the fallback root.
+    an ``ast.stmt``.
     """
     body = "try:\n    import polars as pl\nexcept ImportError:\n    import pandas as pl\n"
     _write(tmp_path / "m.py", body)
