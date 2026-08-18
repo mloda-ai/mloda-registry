@@ -90,8 +90,9 @@ path = "mloda/enterprise/extenders/example"
 entry_point_groups = ["mloda.extenders"]
 
 # --- Data Operations ---
-# Floor 0.4.4: first release with mloda 0.11.0 support (deferred_binding, record_match_rejection)
-# and the time_bucketization helper move; policy in docs/packaging.md.
+# Floor 0.4.4: first release with mloda 0.11.0 support (deferred_binding, record_match_rejection),
+# the time_bucketization helpers moved into the base package, and the py.typed marker;
+# policy in docs/packaging.md.
 
 [packages.mloda-community-data-operations]
 description = "Shared base classes for data operation feature groups"
