@@ -74,7 +74,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 |---|---|---|---|---|---|---|
 | aggregation | partial (15/17) | full | full | full | partial (6/17) | full |
 | binning | full | full | full | full | full | full |
-| datetime | full | full | full | full | full | -- |
+| datetime | full | full | full | full | full | full |
 | frame_aggregate | -- | partial (8/10) | full | full | partial (8/10) | -- |
 | offset | -- | full | full | full | full | -- |
 | percentile | -- | full | full | full | -- | -- |
@@ -127,15 +127,15 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 
 | Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
 |---|---|---|---|---|---|---|
-| `year` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `month` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `day` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `hour` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `minute` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `second` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `dayofweek` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `is_weekend` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
-| `quarter` | ✓ | ✓ | ✓ | ✓ | ✓ | -- |
+| `year` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `month` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `day` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `hour` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `minute` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `second` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `dayofweek` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `is_weekend` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `quarter` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ### frame_aggregate
 
