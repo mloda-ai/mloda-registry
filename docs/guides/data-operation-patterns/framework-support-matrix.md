@@ -88,7 +88,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 | sessionization | full | full | full | full | full | full |
 | window_aggregation | partial (15/17) | full | full | full | partial (6/17) | full |
 | string | full | full | full | full | partial (2/5) | full |
-| resample | full | full | full | full | -- | -- |
+| resample | full | full | full | full | -- | full |
 
 ## Per-operation detail
 
@@ -279,7 +279,7 @@ Cells reflect the production capability declarations (`compute_framework_rule`, 
 
 | Op | PyArrow | Pandas | Polars lazy | DuckDB | SQLite | Python dict |
 |---|---|---|---|---|---|---|
-| (all) | ✓ | ✓ | ✓ | ✓ | -- | -- |
+| (all) | ✓ | ✓ | ✓ | ✓ | -- | ✓ |
 
 <!-- END GENERATED: framework-support-matrix -->
 

@@ -18,5 +18,6 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
         ("pandas_resample", "PandasResample"),
         ("polars_lazy_resample", "PolarsLazyResample"),
         ("pyarrow_resample", "PyArrowResample"),
+        ("python_dict_resample", "PythonDictResample"),
     ],
 )
