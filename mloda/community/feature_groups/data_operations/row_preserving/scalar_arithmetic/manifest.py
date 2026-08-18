@@ -18,6 +18,7 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
         ("pandas_scalar_arithmetic", "PandasScalarArithmetic"),
         ("polars_lazy_scalar_arithmetic", "PolarsLazyScalarArithmetic"),
         ("pyarrow_scalar_arithmetic", "PyArrowScalarArithmetic"),
+        ("python_dict_scalar_arithmetic", "PythonDictScalarArithmetic"),
         ("sqlite_scalar_arithmetic", "SqliteScalarArithmetic"),
     ],
 )
