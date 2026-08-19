@@ -65,3 +65,46 @@ class TestPyArrowFfillNanPartitionKeyGrouping:
             f"(10.0, matching PyArrow's own group_by()), got {result_col[1]!r} (PyArrowFfill "
             "split the NaN rows into separate one-row groups)"
         )
+
+
+class TestPyArrowFfillNullPartitionKeyGrouping:
+    """A null partition-key value must merge with itself too, the sibling of the NaN case.
+
+    ``pc.not_equal`` on two null operands is null, and the ``fill_null(..., True)`` guard
+    that catches a genuine null-vs-non-null transition also (without care) catches two null
+    neighbours, marking them "changed" -- unlike ``Table.group_by()``, which places every
+    null-keyed row in one group.
+    """
+
+    def test_null_partition_rows_share_one_group_ffill_carries_forward(self) -> None:
+        import pyarrow as pa
+
+        from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+
+        arrow_table = pa.table(
+            {
+                "grp": pa.array([None, None, 1.0, 2.0], type=pa.float64()),
+                "ord": pa.array([1, 2, 3, 4], type=pa.int64()),
+                "val": pa.array([10.0, None, 100.0, None], type=pa.float64()),
+            }
+        )
+
+        t_with_idx = arrow_table.append_column("__idx__", pa.array(range(arrow_table.num_rows)))
+        grouped = t_with_idx.group_by(["grp"]).aggregate([("__idx__", "list")])
+        idx_lists = grouped.column("__idx___list").to_pylist()
+        keys = grouped.column("grp").to_pylist()
+        null_group_rows = next(rows for key, rows in zip(keys, idx_lists) if key is None)
+        assert null_group_rows == [0, 1], (
+            f"expected PyArrow's live group_by() to place both null-keyed rows (0, 1) in one "
+            f"group, got {null_group_rows!r}"
+        )
+
+        fs = make_feature_set("val__ffill", ["grp"], "ord")
+        result = PyArrowFfill.calculate_feature(arrow_table, fs)
+        result_col = extract_column(result, "val__ffill")
+
+        assert result_col[1] == 10.0, (
+            f"expected row 1's ffill to carry the shared null partition's value forward "
+            f"(10.0, matching PyArrow's own group_by()), got {result_col[1]!r} (PyArrowFfill "
+            "split the null rows into separate one-row groups)"
+        )

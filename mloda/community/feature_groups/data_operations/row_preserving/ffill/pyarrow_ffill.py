@@ -89,10 +89,13 @@ class PyArrowFfill(FfillFeatureGroup):
             prev = col.slice(0, n - 1)
             curr = col.slice(1, n - 1)
             # not equal (NaN-safe, so two NaN neighbours merge like Table.group_by()) OR
-            # exactly one side null -> key changed at this position
+            # exactly one side null -> key changed at this position. Two null neighbours
+            # merge too (Table.group_by() puts every null key in one group, not one per row).
             neq = nan_safe_not_equal(curr, prev)
             null_diff = pc.not_equal(pc.is_null(curr), pc.is_null(prev))
             col_changed = pc.fill_null(pc.or_(neq, null_diff), True)
+            both_null = pc.and_(pc.is_null(curr), pc.is_null(prev))
+            col_changed = pc.and_(col_changed, pc.invert(both_null))
             changed = pc.or_(changed, col_changed)
 
         boundary_mask = pa.concat_arrays([pa.array([True], type=pa.bool_()), changed.combine_chunks()])

@@ -6,14 +6,17 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 
-def nan_safe_not_equal(curr: pa.Array, prev: pa.Array) -> pa.Array:
+def nan_safe_not_equal(
+    curr: pa.Array | pa.ChunkedArray, prev: pa.Array | pa.ChunkedArray
+) -> pa.Array | pa.ChunkedArray:
     """Like ``pc.not_equal``, but two NaN neighbours compare equal (unlike native ``!=``).
 
     ``pc.not_equal(nan, nan)`` is ``True`` (Arrow follows IEEE-754 float comparisons),
     which would split a NaN-keyed partition into one row per NaN -- unlike
     ``Table.group_by()``, which merges all NaN keys of a column into a single group. Null
     handling is untouched (a null operand still yields a null result); only the NaN-vs-NaN
-    case flips from "changed" to "unchanged".
+    case flips from "changed" to "unchanged". ``curr`` and ``prev`` must be same-typed
+    slices of the same column (the float check reads ``curr.type`` only).
     """
     result = pc.not_equal(curr, prev)
     if pa.types.is_floating(curr.type):
