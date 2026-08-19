@@ -44,14 +44,12 @@ _CALENDAR_CEIL_ALWAYS_ADVANCES: frozenset[str] = frozenset({"week", "month", "ye
 
 # Units whose floor/ceil boundaries come from a `.replace()`-based civil-calendar
 # reset (month/year; unlike week, which derives from a day/epoch-anchored floor).
-# PyArrow's `round_temporal` midpoint comparison for exactly these two units has an
-# empirically verified UTC-offset quirk: the comparison behaves as though the
-# timestamp's own UTC offset were added to its elapsed-time-from-floor a second time,
-# so a tz-aware input's round_1_month/round_1_year result can disagree with a naive or
-# UTC one for the same wall-clock date (verified by sweeping round_temporal across
-# fixed and IANA zones with both positive and negative offsets). PyArrow is this
-# codebase's cross-framework reference oracle, so this reproduces its behavior rather
-# than the tz-invariant midpoint a pure elapsed-seconds comparison would give.
+# PyArrow's `round_temporal` midpoint comparison for these two units behaves as though
+# the timestamp's own UTC offset were added to its elapsed-time-from-floor a second
+# time, so a tz-aware round_1_month/round_1_year result can disagree with a naive or
+# UTC one for the same wall-clock date. PyArrow is this codebase's cross-framework
+# reference oracle, so this reproduces its behavior rather than the tz-invariant
+# midpoint a pure elapsed-seconds comparison would give.
 _ROUND_MIDPOINT_UTC_OFFSET_QUIRK_UNITS: frozenset[str] = frozenset({"month", "year"})
 
 

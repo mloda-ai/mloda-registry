@@ -27,10 +27,9 @@ from mloda.community.feature_groups.data_operations.string.base import (
 # per-codepoint drift: PyArrow bundles utf8proc, whose Unicode Character Database
 # version can be newer than the CPython interpreter's own bundled `unicodedata`, so a
 # very recently assigned codepoint can have a case mapping in PyArrow's simple mapping
-# before Python's `.upper()`/`.lower()` know about it at all (verified against this
-# codebase's pinned PyArrow build; see the drift test in
-# string/tests/test_python_dict.py, which scans the full range(0x110000) against a live
-# PyArrow build and would fail here again if either source of drift reappears).
+# before Python's `.upper()`/`.lower()` know about it at all (see the drift test in
+# string/tests/test_python_dict.py, which scans range(0x110000) against a live PyArrow
+# build, so either source of drift fails a test instead of reappearing silently).
 # Processing per character (see ``_upper``/``_lower`` below) and consulting these tables
 # first, falling back to Python's own single-character ``.upper()``/``.lower()``
 # otherwise, reproduces PyArrow's simple mapping for every other codepoint too,
