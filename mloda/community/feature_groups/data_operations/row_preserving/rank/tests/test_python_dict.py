@@ -10,12 +10,13 @@ from mloda.community.feature_groups.data_operations.row_preserving.rank.python_d
 )
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import (
     RankTestBase,
 )
 
 
-class TestPythonDictRank(CapabilityHookTestMixin, PythonDictTestMixin, RankTestBase):
+class TestPythonDictRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, PythonDictTestMixin, RankTestBase):
     """All tests inherited from the base class."""
 
     @classmethod
@@ -25,6 +26,14 @@ class TestPythonDictRank(CapabilityHookTestMixin, PythonDictTestMixin, RankTestB
     @classmethod
     def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
         return (("value__percent_rank_ranked", Options()),)
+
+    @classmethod
+    def reserved_columns_feature_name(cls) -> str:
+        return "value_int__row_number_ranked"
+
+    @classmethod
+    def reserved_columns_order_by(cls) -> str | None:
+        return "value_int"
 
 
 class TestPythonDictRankNanOrderByHangs:
