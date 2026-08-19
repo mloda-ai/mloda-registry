@@ -102,8 +102,33 @@ def test_empty_specs_returns_empty_list() -> None:
     assert load_plugin_classes("pkg", []) == []
 
 
+def _trusted_type_checking_alias(tree: ast.Module) -> str | None:
+    """The module-level name that genuinely aliases ``typing.TYPE_CHECKING``, or ``None``.
+
+    Only a bare ``from typing import TYPE_CHECKING [as alias]`` at module level earns trust, and
+    only if nothing else at module level rebinds that name. Without this, a module could spoof the
+    guard's exemption with ``TYPE_CHECKING = True`` and hide a real, always-executed import from it.
+    """
+    alias_name: str | None = None
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == "typing":
+            for alias in node.names:
+                if alias.name == "TYPE_CHECKING":
+                    alias_name = alias.asname or alias.name
+    if alias_name is None:
+        return None
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == "typing":
+            continue
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name) and child.id == alias_name and isinstance(child.ctx, ast.Store):
+                return None
+    return alias_name
+
+
 def _module_level_import_roots(tree: ast.Module) -> set[str]:
     """Import roots from module-scope import statements only, skipping def/class bodies."""
+    trusted_alias = _trusted_type_checking_alias(tree)
     roots: set[str] = set()
     stack: list[ast.AST] = list(tree.body)
     while stack:
@@ -117,8 +142,12 @@ def _module_level_import_roots(tree: ast.Module) -> set[str]:
             continue
         elif isinstance(node, ast.If):
             is_type_checking = (
-                (isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING") or
-                (isinstance(node.test, ast.Attribute) and getattr(node.test, "attr", "") == "TYPE_CHECKING")
+                isinstance(node.test, ast.Name) and trusted_alias is not None and node.test.id == trusted_alias
+            ) or (
+                isinstance(node.test, ast.Attribute)
+                and node.test.attr == "TYPE_CHECKING"
+                and isinstance(node.test.value, ast.Name)
+                and node.test.value.id == "typing"
             )
             if is_type_checking:
                 stack.extend(node.orelse)
@@ -133,11 +162,31 @@ def third_party_import_roots_by_file(root_dir: Path) -> dict[str, list[Path]]:
     """Map each non-stdlib, non-mloda top-level import root under root_dir to the files that use it."""
     stdlib_roots = set(sys.stdlib_module_names)
     # Bridge stdlib drift across the 3.10-3.14 support window (e.g. PEP 594 removals, tomllib addition).
-    stdlib_roots.update({
-        "aifc", "audioop", "cgi", "cgitb", "chunk", "crypt", "imghdr", "mailcap", "msilib",
-        "nis", "nntplib", "ossaudiodev", "pipes", "smtpd", "sndhdr", "spwd", "sunau",
-        "telnetlib", "tomllib", "uu", "xdrlib"
-    })
+    stdlib_roots.update(
+        {
+            "aifc",
+            "audioop",
+            "cgi",
+            "cgitb",
+            "chunk",
+            "crypt",
+            "imghdr",
+            "mailcap",
+            "msilib",
+            "nis",
+            "nntplib",
+            "ossaudiodev",
+            "pipes",
+            "smtpd",
+            "sndhdr",
+            "spwd",
+            "sunau",
+            "telnetlib",
+            "tomllib",
+            "uu",
+            "xdrlib",
+        }
+    )
     files_by_root: dict[str, list[Path]] = {}
     for py_file in sorted(root_dir.rglob("*.py")):
         rel_path = py_file.relative_to(root_dir)
@@ -162,6 +211,21 @@ def _write(path: Path, body: str) -> None:
         pytest.param("import numpy\n", "numpy", id="plain_import"),
         pytest.param("from pandas import DataFrame\n", "pandas", id="import_from"),
         pytest.param("from polars import *\n", "polars", id="star_import"),
+        pytest.param(
+            "TYPE_CHECKING = True\nif TYPE_CHECKING:\n    import numpy\n",
+            "numpy",
+            id="spoofed_type_checking_name_is_not_exempt",
+        ),
+        pytest.param(
+            "from typing import TYPE_CHECKING\nTYPE_CHECKING = True\nif TYPE_CHECKING:\n    import numpy\n",
+            "numpy",
+            id="reassigned_type_checking_name_is_not_exempt",
+        ),
+        pytest.param(
+            "class C:\n    TYPE_CHECKING = True\n\n\nif C.TYPE_CHECKING:\n    import numpy\n",
+            "numpy",
+            id="spoofed_type_checking_attr_is_not_exempt",
+        ),
     ],
 )
 def test_third_party_import_roots_by_file_catches_module_level_import(
@@ -175,8 +239,18 @@ def test_third_party_import_roots_by_file_catches_module_level_import(
 @pytest.mark.parametrize(
     "body",
     [
-        pytest.param("if TYPE_CHECKING:\n    import numpy\n", id="import_in_type_checking_name"),
-        pytest.param("if typing.TYPE_CHECKING:\n    import numpy\n", id="import_in_type_checking_attr"),
+        pytest.param(
+            "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import numpy\n",
+            id="import_in_type_checking_name",
+        ),
+        pytest.param(
+            "import typing\nif typing.TYPE_CHECKING:\n    import numpy\n",
+            id="import_in_type_checking_attr",
+        ),
+        pytest.param(
+            "from typing import TYPE_CHECKING as TC\nif TC:\n    import numpy\n",
+            id="import_in_type_checking_aliased_name",
+        ),
         pytest.param("def f() -> None:\n    import numpy\n", id="import_in_function_body"),
         pytest.param("class C:\n    import numpy\n", id="import_in_class_body"),
         pytest.param("from . import x\n", id="relative_import_dot"),
