@@ -18,6 +18,7 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
         ("pandas_ffill", "PandasFfill"),
         ("polars_lazy_ffill", "PolarsLazyFfill"),
         ("pyarrow_ffill", "PyArrowFfill"),
+        ("python_dict_ffill", "PythonDictFfill"),
         ("sqlite_ffill", "SqliteFfill"),
     ],
 )

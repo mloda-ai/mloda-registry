@@ -18,6 +18,7 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
         ("pandas_string", "PandasStringOps"),
         ("polars_lazy_string", "PolarsLazyStringOps"),
         ("pyarrow_string", "PyArrowStringOps"),
+        ("python_dict_string", "PythonDictStringOps"),
         ("sqlite_string", "SqliteStringOps"),
     ],
 )

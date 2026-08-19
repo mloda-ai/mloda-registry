@@ -18,6 +18,7 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
         ("pandas_datetime", "PandasDateTimeExtraction"),
         ("polars_lazy_datetime", "PolarsLazyDateTimeExtraction"),
         ("pyarrow_datetime", "PyArrowDateTimeExtraction"),
+        ("python_dict_datetime", "PythonDictDateTimeExtraction"),
         ("sqlite_datetime", "SqliteDateTimeExtraction"),
     ],
 )

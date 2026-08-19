@@ -17,6 +17,7 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
         ("duckdb_frame_aggregate", "DuckdbFrameAggregate"),
         ("pandas_frame_aggregate", "PandasFrameAggregate"),
         ("polars_lazy_frame_aggregate", "PolarsLazyFrameAggregate"),
+        ("python_dict_frame_aggregate", "PythonDictFrameAggregate"),
         ("sqlite_frame_aggregate", "SqliteFrameAggregate"),
     ],
 )

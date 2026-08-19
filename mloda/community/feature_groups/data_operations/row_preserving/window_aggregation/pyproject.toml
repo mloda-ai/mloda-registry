@@ -18,6 +18,7 @@ requires-python = ">=3.10,<3.15"
 dev = ["mloda-testing", "pytest>=9.0.3"]
 pyarrow = ["pyarrow"]
 sqlite = []
+python_dict = []
 duckdb = ["duckdb"]
 polars = ["polars"]
 pandas = ["pandas"]

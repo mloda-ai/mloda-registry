@@ -18,6 +18,7 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
         ("pandas_binning", "PandasBinning"),
         ("polars_lazy_binning", "PolarsLazyBinning"),
         ("pyarrow_binning", "PyArrowBinning"),
+        ("python_dict_binning", "PythonDictBinning"),
         ("sqlite_binning", "SqliteBinning"),
     ],
 )

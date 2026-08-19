@@ -17,6 +17,7 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
         ("duckdb_rank", "DuckdbRank"),
         ("pandas_rank", "PandasRank"),
         ("polars_lazy_rank", "PolarsLazyRank"),
+        ("python_dict_rank", "PythonDictRank"),
         ("sqlite_rank", "SqliteRank"),
     ],
 )

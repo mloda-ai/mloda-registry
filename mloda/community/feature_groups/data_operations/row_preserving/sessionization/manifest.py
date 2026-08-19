@@ -18,6 +18,7 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
         ("pandas_sessionization", "PandasSessionization"),
         ("polars_lazy_sessionization", "PolarsLazySessionization"),
         ("pyarrow_sessionization", "PyArrowSessionization"),
+        ("python_dict_sessionization", "PythonDictSessionization"),
         ("sqlite_sessionization", "SqliteSessionization"),
     ],
 )

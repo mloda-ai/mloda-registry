@@ -226,11 +226,11 @@ class TestEmaCell:
         assert info.subtypes is None
 
     def test_framework_keys_and_values(self) -> None:
-        """ema exists only on Pandas and Polars lazy; values are None (no subtype axis)."""
+        """ema exists on Pandas, Polars lazy, and Python dict; values are None (no subtype axis)."""
         pytest.importorskip("pandas")
         pytest.importorskip("polars")
         info = DataOperationsCatalog.get("ema")
-        assert set(info.frameworks) == {"PandasDataFrame", "PolarsLazyDataFrame"}
+        assert set(info.frameworks) == {"PandasDataFrame", "PolarsLazyDataFrame", "PythonDictFramework"}
         assert all(value is None for value in info.frameworks.values())
 
 

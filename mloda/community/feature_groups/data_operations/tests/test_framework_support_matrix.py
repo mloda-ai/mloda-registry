@@ -37,6 +37,7 @@ FRAMEWORKS: list[tuple[str, str]] = [
     ("polars_lazy", "Polars lazy"),
     ("duckdb", "DuckDB"),
     ("sqlite", "SQLite"),
+    ("python_dict", "Python dict"),
 ]
 
 #: Catalog framework key (``OperationInfo.frameworks``) per framework key.
@@ -46,6 +47,7 @@ FRAMEWORK_CATALOG_KEYS: dict[str, str] = {
     "polars_lazy": "PolarsLazyDataFrame",
     "duckdb": "DuckDBFramework",
     "sqlite": "SqliteFramework",
+    "python_dict": "PythonDictFramework",
 }
 
 #: Doc display order for operations. ``DataOperationsCatalog.list()`` is

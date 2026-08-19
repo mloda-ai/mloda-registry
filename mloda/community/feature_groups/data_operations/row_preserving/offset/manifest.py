@@ -17,6 +17,7 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
         ("duckdb_offset", "DuckdbOffset"),
         ("pandas_offset", "PandasOffset"),
         ("polars_lazy_offset", "PolarsLazyOffset"),
+        ("python_dict_offset", "PythonDictOffset"),
         ("sqlite_offset", "SqliteOffset"),
     ],
 )

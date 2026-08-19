@@ -18,6 +18,7 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
         ("pandas_time_bucketization", "PandasTimeBucketization"),
         ("polars_lazy_time_bucketization", "PolarsLazyTimeBucketization"),
         ("pyarrow_time_bucketization", "PyArrowTimeBucketization"),
+        ("python_dict_time_bucketization", "PythonDictTimeBucketization"),
         ("sqlite_time_bucketization", "SqliteTimeBucketization"),
     ],
 )

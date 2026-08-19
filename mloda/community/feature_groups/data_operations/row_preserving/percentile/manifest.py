@@ -17,5 +17,6 @@ FEATURE_GROUPS: list[type[FeatureGroup]] = load_plugin_classes(
         ("duckdb_percentile", "DuckdbPercentile"),
         ("pandas_percentile", "PandasPercentile"),
         ("polars_lazy_percentile", "PolarsLazyPercentile"),
+        ("python_dict_percentile", "PythonDictPercentile"),
     ],
 )
