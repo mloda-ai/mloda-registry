@@ -367,12 +367,12 @@ regression_test:
 - **How**: Most PythonDict backends build their group key through `group_key_value`, which substitutes a shared sentinel for any NaN component so NaN-keyed rows land in one group; `reduce_agg`'s `min`/`max` branches and `_percentile_of` filter NaN out of the reduced value list before reducing, matching PyArrow's skip-NaN semantics. `python_dict_sessionization.py` is the exception: it never calls `group_key_value`. Instead it sorts raw partition-key values through `partition_sort_key` (which gives NaN and None each their own contiguous sort tier) and compares adjacent sorted rows with `values_equal` (NaN-safe equality), so two NaN-keyed rows still land in one contiguous, un-poisoned session without ever building a normalized key.
 - **Regression signal**: The percentile/rank/resample tests cited above build a live PyArrow `Table.group_by()` (or a PyArrow-oracle comparison) and assert the PythonDict backend groups/reduces identically; removing `group_key_value` or the NaN filter from `reduce_agg`/`_percentile_of` fails those. The cited sessionization test instead exercises `partition_sort_key` and `values_equal`; it does not exercise `group_key_value`, so removing `group_key_value` does not fail it.
 
-### PythonDict `median` does not skip NaN, unlike pandas' skipna default
+### PythonDict `median` propagates NaN, agreeing with DuckDB and Polars; only Pandas skips it
 
 <!-- machine-checked
 operation: aggregation, resample, window_aggregation, frame_aggregate
 framework: python_dict
-condition: reduce_agg median only filters None, not NaN, so a NaN in the window returns NaN instead of skipping it
+condition: reduce_agg median only filters None, not NaN; DuckDB MEDIAN and Polars .median() propagate NaN the same way, only Pandas skips it
 mitigation_location:
 - mloda/community/feature_groups/data_operations/python_dict_helpers.py
 regression_test:
@@ -381,11 +381,12 @@ regression_test:
 
 - **Operations**: `aggregation`, `resample`, `window_aggregation`, `frame_aggregate` (every PythonDict backend whose `median` agg type routes through `reduce_agg`).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/python_dict_helpers.py` (`reduce_agg`'s `median` branch).
-- **Reference behavior**: Pandas' `Series.median()` defaults to `skipna=True`: a NaN value in the window is dropped before the median is computed, e.g. `[1.0, nan]` -> `1.0`.
+- **Reference behavior**: There is no PyArrow `median` kernel. The test suite's own cross-framework reference, `ReferenceAggregation._median` in `mloda/testing/feature_groups/data_operations/aggregation/reference.py`, filters only `None`, not NaN, so `[1.0, nan]` reduces to `nan` there too.
+- **Cross-framework check**: verified directly against each engine: Pandas' `Series.median()` defaults to `skipna=True` and returns `1.0` for `[1.0, nan]`. DuckDB's `MEDIAN(...)` and Polars' `.median()` both propagate NaN and return `nan` for the same input, matching PythonDict and the test reference. Of the four frameworks that implement `median`, three (DuckDB, Polars, PythonDict) already agree with each other and with the reference; Pandas is the outlier.
 - **Native PythonDict behavior**: `reduce_agg`'s `non_null` list filters out `None` only; NaN reaches `statistics.median` unfiltered, e.g. `[1.0, nan]` -> `nan`.
 - **Mitigation kind**: Accepted divergence (no mitigation attempted).
-- **How**: `min`/`max` already skip NaN (see the entry above) because PyArrow's `pc.min`/`pc.max` do too, but there is no PyArrow `median` kernel to use as a cross-framework reference, and `statistics.median`'s NaN-in-the-middle behavior is itself sort-order-dependent, so filtering NaN out of `median` was judged not worth the added branch for an aggregation type without a PyArrow oracle to validate against.
-- **Regression signal**: `test_median_of_value_and_nan_returns_nan` pins `reduce_agg("median", [1.0, float("nan")])` to `nan`; a future change that filters NaN like pandas would flip this assertion to `1.0`.
+- **How**: Making PythonDict skip NaN in `median` would trade its current agreement with DuckDB, Polars, and the test reference for agreement with Pandas alone, a lateral move (not a reduction) in the number of divergent pairs, plus an added branch on a hot path. There is no PyArrow oracle to arbitrate which convention is "correct." If this is ever revisited, Pandas is the implementation to reconsider, not PythonDict.
+- **Regression signal**: `test_median_of_value_and_nan_returns_nan` pins `reduce_agg("median", [1.0, float("nan")])` to `nan`; a future change that filters NaN like Pandas would flip this assertion to `1.0`.
 
 ### PythonDict `group_key_value` merges `0.0` and `-0.0` into one group
 
@@ -401,10 +402,11 @@ regression_test:
 
 - **Operations**: `aggregation`, `resample`, `window_aggregation`, `frame_aggregate`, `rank`, `sessionization`, `percentile` (every PythonDict backend that groups rows by a float-valued partition column).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/python_dict_helpers.py` (`group_key_value`).
-- **Reference behavior**: PyArrow's `Table.group_by()` hashes a float key bitwise, so `0.0` and `-0.0` (distinct bit patterns) land in two separate groups.
+- **Reference behavior**: PyArrow's `Table.group_by()` hashes a float key bitwise, so `0.0` and `-0.0` (distinct bit patterns) land in two separate groups (verified directly: grouping `[0.0, -0.0]` produces 2 groups).
+- **Cross-framework check**: verified directly against each engine: Pandas' `.groupby()`, Polars' `.group_by()`, and DuckDB's `GROUP BY` all merge `0.0` and `-0.0` into a single group too, the same as PythonDict. PyArrow is the only one of the five frameworks that treats them as distinct; PythonDict's raw-dict-key grouping matches the four-out-of-five majority (Pandas, Polars, DuckDB, PythonDict).
 - **Native PythonDict behavior**: `group_key_value` only special-cases NaN; `0.0` and `-0.0` pass through unchanged. Python's `float.__eq__` and `float.__hash__` both treat `0.0 == -0.0` as `True` with equal hashes, so a plain `dict`/`set` keyed by the raw value merges them into one group regardless of what `group_key_value` does.
 - **Mitigation kind**: Accepted divergence (no mitigation attempted).
-- **How**: Distinguishing `0.0` from `-0.0` would require every group-key dict across every PythonDict backend to key on `(value, math.copysign(1.0, value))` instead of the raw value, adding a branch to a hot path for a sign-of-zero edge case that is exceedingly rare in real partition columns; the divergence is documented instead of mitigated.
+- **How**: A `group_key_value`-only fix would not even be internally consistent: `values_equal` (used by the sort-based sessionization grouping path) and `partition_sort_key` both treat `0.0 == -0.0` on purpose (see `test_negative_zero_equals_zero`, `test_negative_zero_and_zero_sort_together`), so PythonDict's own sort-keyed sessionization backend would keep merging them while its dict-keyed backends stopped, a new internal inconsistency. A real fix needs all three functions to become sign-aware (`(value, math.copysign(1.0, value))` instead of the raw value on every hot grouping path), and would only trade PythonDict's current agreement with Pandas/Polars/DuckDB for agreement with PyArrow alone, a lateral move in total cross-framework divergence for a sign-of-zero edge case that is exceedingly rare in real partition columns. The divergence is documented instead of mitigated.
 - **Regression signal**: `test_positive_and_negative_zero_collide_into_one_group` pins that a `group_key_value`-keyed dict merges `0.0` and `-0.0` into a single group; a future change that makes `group_key_value` sign-aware would flip this assertion.
 
 ---
