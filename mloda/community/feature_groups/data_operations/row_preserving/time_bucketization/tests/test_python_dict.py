@@ -67,16 +67,20 @@ class TestPythonDictDateSourceRejected:
 class TestPythonDictNonUtcTimezoneSupported:
     """Non-UTC tz-aware sources are fully supported, unlike SQLite's TEXT-storage guard.
 
-    pa.Table.to_pylist() converts tz-aware Arrow timestamps to Python
-    datetime objects carrying real zoneinfo.ZoneInfo tzinfo, so DST-aware
-    offsets recompute automatically on replace()/timedelta arithmetic and no
-    rejection guard is needed here. Counterpart to
+    ``zoneinfo.ZoneInfo`` resolves DST offsets dynamically, so no rejection guard is
+    needed here. Counterpart to
     test_sqlite_result_type.TestSqliteResultTypeContract.test_dst_zone_month_floor_rejected:
-    identical DST-crossing input, opposite contract.
+    identical DST-crossing input, opposite contract. The input is built with an explicit
+    ``zoneinfo.ZoneInfo`` rather than ``pa.Array.to_pylist()``, whose tzinfo *type* depends
+    on whether ``pytz`` happens to be importable (see
+    test_dst_zone_month_floor_recomputes_offset_for_pytz_tzinfo below for the pytz path),
+    so this test deterministically exercises the zoneinfo path regardless of the ambient
+    dependency set.
     """
 
     def test_dst_zone_month_floor_matches_pyarrow_oracle(self) -> None:
         from datetime import datetime
+        from zoneinfo import ZoneInfo
 
         import pyarrow as pa
 
@@ -93,7 +97,7 @@ class TestPythonDictNonUtcTimezoneSupported:
                 ),
             }
         )
-        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        data = {"timestamp": [datetime(2023, 3, 31, 12, 0, 0, tzinfo=ZoneInfo("Europe/Berlin"))]}
         fs = make_feature_set("timestamp__floor_1_month")
 
         result = PythonDictTimeBucketization.calculate_feature(data, fs)
@@ -171,6 +175,7 @@ class TestPythonDictRoundDstCrossing:
 
     def test_round_1_day_spring_forward_matches_pyarrow_oracle(self) -> None:
         from datetime import datetime
+        from zoneinfo import ZoneInfo
 
         import pyarrow as pa
 
@@ -191,7 +196,10 @@ class TestPythonDictRoundDstCrossing:
                 ),
             }
         )
-        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        # Built with an explicit zoneinfo.ZoneInfo (not to_pylist(), whose tzinfo type
+        # depends on ambient pytz availability -- see the pytz companion test below), so
+        # this deterministically exercises the zoneinfo path.
+        data = {"timestamp": [datetime(2023, 3, 12, 12, 0, 0, tzinfo=ZoneInfo("America/New_York"))]}
         fs = make_feature_set("timestamp__round_1_day")
 
         result = PythonDictTimeBucketization.calculate_feature(data, fs)
@@ -248,3 +256,75 @@ class TestPythonDictRoundDstCrossing:
             "expected floor to 2023-03-12 00:00 (11 real hours from midnight to noon is short "
             f"of the 23-real-hour day's 11.5-hour midpoint); got {actual!r}"
         )
+
+
+class TestPythonDictRoundCalendarUnitVariableLength:
+    """``round_1_month`` / ``round_1_year`` must reproduce PyArrow's midpoint quirk for
+    tz-aware inputs, not just a tz-invariant true-elapsed-seconds comparison.
+
+    A pure elapsed-seconds midpoint (correct for fixed-freq units) diverges from
+    PyArrow's own ``round_temporal`` oracle for the calendar units, whose civil-calendar
+    floor/ceil boundaries are timezone-dependent: PyArrow's midpoint comparison behaves
+    as though the UTC offset were applied twice, so a tz-aware timestamp rounds
+    differently than a UTC/naive one on the identical wall-clock date. Sharpest near a
+    31-day month's midpoint. Compared against the live PyArrow oracle, mirroring
+    TestPythonDictNonUtcTimezoneSupported / TestPythonDictRoundDstCrossing above.
+    """
+
+    def test_round_1_month_variable_length_month_matches_pyarrow_oracle(self) -> None:
+        from datetime import datetime
+
+        import pyarrow as pa
+
+        from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pyarrow_time_bucketization import (  # noqa: E501
+            PyArrowTimeBucketization,
+        )
+        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+
+        # A pure elapsed-seconds midpoint puts 2025-05-16 00:00 Sydney before May's true
+        # midpoint (2025-05-16 12:00 local) and floors it; the live PyArrow oracle ceils it.
+        arrow_table = pa.table(
+            {
+                "timestamp": pa.array(
+                    [datetime(2025, 5, 16, 0, 0, 0)],
+                    type=pa.timestamp("us", tz="Australia/Sydney"),
+                ),
+            }
+        )
+        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        fs = make_feature_set("timestamp__round_1_month")
+
+        result = PythonDictTimeBucketization.calculate_feature(data, fs)
+        oracle = PyArrowTimeBucketization.calculate_feature(arrow_table, fs)
+
+        actual = result["timestamp__round_1_month"][0]
+        expected = oracle.column("timestamp__round_1_month").to_pylist()[0]
+        assert actual == expected, f"{actual!r} != oracle {expected!r}"
+
+    def test_round_1_year_matches_pyarrow_oracle(self) -> None:
+        from datetime import datetime
+
+        import pyarrow as pa
+
+        from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pyarrow_time_bucketization import (  # noqa: E501
+            PyArrowTimeBucketization,
+        )
+        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+
+        arrow_table = pa.table(
+            {
+                "timestamp": pa.array(
+                    [datetime(2025, 7, 2, 12, 0, 0)],
+                    type=pa.timestamp("us", tz="Australia/Sydney"),
+                ),
+            }
+        )
+        data = {name: arrow_table.column(name).to_pylist() for name in arrow_table.column_names}
+        fs = make_feature_set("timestamp__round_1_year")
+
+        result = PythonDictTimeBucketization.calculate_feature(data, fs)
+        oracle = PyArrowTimeBucketization.calculate_feature(arrow_table, fs)
+
+        actual = result["timestamp__round_1_year"][0]
+        expected = oracle.column("timestamp__round_1_year").to_pylist()[0]
+        assert actual == expected, f"{actual!r} != oracle {expected!r}"
