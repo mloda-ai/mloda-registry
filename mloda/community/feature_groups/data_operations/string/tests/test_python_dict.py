@@ -28,13 +28,16 @@ class TestPythonDictStringOps(PythonDictTestMixin, StringTestBase):
 
     # -- Unicode full vs. simple case-mapping divergence --------------------
     #
-    # ``PythonDictStringOps`` currently calls Python's own ``str.upper()`` /
-    # ``str.lower()`` per element. Python's ``str`` methods use "full" Unicode
-    # case mapping, which applies context-sensitive special-casing rules
-    # (e.g. expanding German sharp s, adding a combining dot to Turkish
-    # dotted I). The PyArrow reference (``pc.utf8_upper`` / ``pc.utf8_lower``)
-    # uses "simple", context-free, per-codepoint case mapping instead, and
-    # does not apply these expansions.
+    # Python's own ``str.upper()`` / ``str.lower()`` use "full" Unicode case
+    # mapping, which applies context-sensitive special-casing rules (e.g.
+    # expanding German sharp s, adding a combining dot to Turkish dotted I).
+    # The PyArrow reference (``pc.utf8_upper`` / ``pc.utf8_lower``) uses
+    # "simple", context-free, per-codepoint case mapping instead, and does
+    # not apply these expansions. ``PythonDictStringOps._upper`` / ``_lower``
+    # consult the ``_UPPER_OVERRIDES`` / ``_LOWER_OVERRIDES`` tables first
+    # (the closed set of codepoints where full and simple mapping disagree)
+    # and only fall back to Python's per-character ``.upper()`` / ``.lower()``
+    # for every other codepoint, reproducing PyArrow's simple mapping.
     #
     # Empirically, pandas' current default string dtype (``ArrowStringArray``,
     # backed by PyArrow storage) delegates ``.str.upper()`` / ``.str.lower()``

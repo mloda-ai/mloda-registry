@@ -22,14 +22,10 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_utils import row_count
 
 from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
+from mloda.community.feature_groups.data_operations.python_dict_helpers import group_key_value, is_nan
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (
     PercentileFeatureGroup,
 )
-
-# Sentinel substituted for any NaN partition-key value so that all NaN-valued rows of a
-# partition column hash/compare equal and land in one shared group, matching PyArrow's
-# Table.group_by() (which merges all NaN keys into a single group, distinct from None).
-_NAN_KEY = object()
 
 
 class PythonDictPercentile(PercentileFeatureGroup):
@@ -59,7 +55,7 @@ class PythonDictPercentile(PercentileFeatureGroup):
 
         groups: dict[tuple[Any, ...], list[int]] = {}
         for i in range(num_rows):
-            key = tuple(cls._group_key_value(col[i]) for col in partition_cols)
+            key = tuple(group_key_value(col[i]) for col in partition_cols)
             groups.setdefault(key, []).append(i)
 
         result_values: list[Any] = [None] * num_rows
@@ -75,23 +71,9 @@ class PythonDictPercentile(PercentileFeatureGroup):
         return result
 
     @classmethod
-    def _group_key_value(cls, value: Any) -> Any:
-        """Map a partition-column value to a hashable, NaN-safe group-key component.
-
-        ``float('nan')`` never equals another NaN, so used raw as part of a dict key
-        it would split every NaN-valued row into its own singleton group. Substitute
-        a shared sentinel so all NaN values collapse into one group key component,
-        matching PyArrow's ``Table.group_by()`` (which merges all NaN keys of a
-        column into a single group, distinct from a null/None group).
-        """
-        if isinstance(value, float) and math.isnan(value):
-            return _NAN_KEY
-        return value
-
-    @classmethod
     def _percentile_of(cls, values: list[Any], percentile: float) -> float | None:
-        """PERCENTILE_CONT linear interpolation over the non-null values of one partition."""
-        non_null = sorted(v for v in values if v is not None)
+        """PERCENTILE_CONT linear interpolation over the non-null, non-NaN values of one partition."""
+        non_null = sorted(v for v in values if v is not None and not is_nan(v))
         n = len(non_null)
         if n == 0:
             return None

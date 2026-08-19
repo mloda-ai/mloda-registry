@@ -145,3 +145,38 @@ class TestPythonDictMinMaxSkipsNan:
         assert result_col[-1] == oracle_last, (
             f"PythonDict expanding max at the last row = {result_col[-1]!r}, expected {oracle_last!r}"
         )
+
+
+class TestPythonDictFrameAggregateNanOrderBySortsLast:
+    """DEFECT D: a NaN ``order_by`` value must sort nulls-last within its partition.
+
+    ``_compute_frame``'s inline sort (``rows.sort(key=lambda t: (t[1] is None, t[1] if
+    t[1] is not None else 0))``) still compares a NaN order value against real values with
+    ``<`` inside the ``else`` branch: for a datetime ``order_by`` that raises ``TypeError``
+    outright, and for a numeric ``order_by`` it silently sorts the group wrong (NaN sorts as
+    if it were 0) so the rolling window is computed over the wrong rows. Every sibling
+    PythonDict backend in this operation family already routes through the shared
+    ``nulls_last_sort_key`` instead; this file's extraction left the old inline sort behind.
+    """
+
+    def test_numeric_order_by_with_nan_produces_nulls_last_windows(self) -> None:
+        data: dict[str, list[Any]] = {"grp": [1, 1, 1], "ord": [1.0, float("nan"), 3.0], "v": [10, 20, 30]}
+        result = PythonDictFrameAggregate._compute_frame(data, "f", "v", [], "ord", "sum", "rolling", frame_size=2)
+        assert result["f"] == [10.0, 50.0, 40.0], (
+            f"expected nulls-last order (1.0, 3.0, nan) to give rolling-2 sums [10.0, 50.0, 40.0], got {result['f']!r}"
+        )
+
+    def test_datetime_order_by_with_nan_does_not_raise(self) -> None:
+        from datetime import datetime, timezone
+
+        u = timezone.utc
+        data: dict[str, list[Any]] = {
+            "grp": [1, 1, 1],
+            "ord": [datetime(2023, 1, 1, tzinfo=u), float("nan"), datetime(2023, 1, 3, tzinfo=u)],
+            "v": [10, 20, 30],
+        }
+        result = PythonDictFrameAggregate._compute_frame(data, "f", "v", [], "ord", "sum", "rolling", frame_size=2)
+        assert result["f"] == [10, 50, 40], (
+            f"expected nulls-last order (Jan 1, Jan 3, nan) to give rolling-2 sums [10, 50, "
+            f"40] without raising, got {result['f']!r}"
+        )

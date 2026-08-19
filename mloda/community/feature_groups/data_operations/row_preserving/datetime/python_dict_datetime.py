@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 from mloda.provider import ComputeFramework
@@ -55,11 +55,11 @@ class PythonDictDateTimeExtraction(DateTimeFeatureGroup):
                 )
 
     @staticmethod
-    def _extract(value: datetime | date | None, op: str) -> int | None:
+    def _extract(value: datetime | None, op: str) -> int | None:
+        # The column-wide guard in _assert_source_column_is_datetime already ran, so
+        # every non-None value here is a real datetime.
         if value is None:
             return None
-
-        assert isinstance(value, datetime)
 
         if op == "year":
             return value.year

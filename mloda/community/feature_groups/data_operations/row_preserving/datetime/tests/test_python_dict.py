@@ -26,23 +26,20 @@ class TestPythonDictDateTimeExtraction(PythonDictTestMixin, DateTimeTestBase):
 
     # -- Non-timestamp source column guard -----------------------------------
     #
-    # ``PythonDictDateTimeExtraction._extract`` currently uses
-    # ``getattr(value, "hour", 0)`` (and the same pattern for "minute" /
-    # "second"), so a source column holding ``datetime.date`` objects (no
-    # time component) silently returns 0 instead of being rejected. Ops that
-    # go through a real attribute access (``.year`` / ``.month`` / ``.day`` /
-    # ``.weekday()``) instead raise an unhelpful ``AttributeError`` when the
-    # source column holds a genuinely wrong type (e.g. plain strings). Both
-    # paths should instead raise a clear ``ValueError`` up front, per the
-    # "CFW Backend Rejection over Python Fallback" rule (see
+    # ``PythonDictDateTimeExtraction._compute_datetime`` runs
+    # ``_assert_source_column_is_datetime`` up front, so a source column
+    # holding ``datetime.date`` objects (no time component) or a genuinely
+    # wrong type (e.g. plain strings) is rejected with a clear ``ValueError``
+    # before ``_extract`` ever sees the value, per the "CFW Backend Rejection
+    # over Python Fallback" rule (see
     # ``sqlite_time_bucketization._assert_source_column_is_timestamp`` for
-    # the established rejection-guard precedent). Note: the PyArrow
-    # reference (``pyarrow_datetime.py``) does not currently raise
-    # ``ValueError`` for either input either; it raises
-    # ``pyarrow.lib.ArrowNotImplementedError`` (a ``RuntimeError`` subtype)
-    # from the underlying compute kernel. These tests therefore pin the
-    # desired PythonDict behavior directly rather than diffing against the
-    # PyArrow reference's current (also-imperfect) behavior.
+    # the established rejection-guard precedent). The PyArrow reference
+    # (``pyarrow_datetime.py``) does not currently raise ``ValueError`` for
+    # either input; it raises ``pyarrow.lib.ArrowNotImplementedError`` (a
+    # ``RuntimeError`` subtype) from the underlying compute kernel. These
+    # tests therefore pin the desired PythonDict behavior directly rather
+    # than diffing against the PyArrow reference's current, also-imperfect,
+    # behavior.
 
     def test_date_only_source_hour_raises_value_error(self) -> None:
         """A ``date``-only source column (no time component) must be

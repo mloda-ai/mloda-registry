@@ -7,14 +7,14 @@ sources need no special-casing.
 
 Floors: minute/hour/day are all epoch-anchored (multiples of the bucket
 duration since 1970-01-01), matching PyArrow's ``floor_temporal`` -- see
-``_wall_clock_epoch_seconds`` for why the anchor is computed from *wall-clock*
-fields rather than the true UTC instant. Week is ISO-Monday; month/year use a
-calendar ``.replace(...)`` floor. ``ceil`` derives from floor plus one
-bucket, matching PyArrow's ``ceil_temporal`` convention; ``round`` is
-half-up, matching PyArrow's ``round_temporal`` default, with the
-floor-to-midpoint distance measured in true elapsed seconds (see
-``_elapsed_seconds``) so a DST-shortened/lengthened day is not silently
-treated as exactly 24 hours.
+``python_dict_helpers.wall_clock_epoch_seconds`` for why the anchor is
+computed from *wall-clock* fields rather than the true UTC instant. Week is
+ISO-Monday; month/year use a calendar ``.replace(...)`` floor. ``ceil``
+derives from floor plus one bucket, matching PyArrow's ``ceil_temporal``
+convention; ``round`` is half-up, matching PyArrow's ``round_temporal``
+default, with the floor-to-midpoint distance measured in true elapsed
+seconds (see ``_elapsed_seconds``) so a DST-shortened/lengthened day is not
+silently treated as exactly 24 hours.
 """
 
 from __future__ import annotations
@@ -27,6 +27,11 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
     PythonDictFramework,
 )
 
+from mloda.community.feature_groups.data_operations.python_dict_helpers import (
+    SECONDS_PER_UNIT,
+    attach_tzinfo as _attach_tzinfo,
+    floor_fixed_duration,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
     TIME_BUCKETIZATION_OPS,
     TimeBucketizationFeatureGroup,
@@ -36,49 +41,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
 # input (matches PyArrow's ``ceil_temporal`` quirk for ``week`` / ``month`` /
 # ``year``; fixed-freq units are idempotent on aligned input).
 _CALENDAR_CEIL_ALWAYS_ADVANCES: frozenset[str] = frozenset({"week", "month", "year"})
-
-_EPOCH_UTC = datetime(1970, 1, 1, tzinfo=timezone.utc)
-
-# Fixed-duration units bucketed by an epoch-anchored floor (see _floor_dt).
-_SECONDS_PER_UNIT: dict[str, int] = {"minute": 60, "hour": 3600, "day": 86400}
-
-
-def _attach_tzinfo(naive: datetime, tzinfo: Any) -> datetime:
-    """Attach *tzinfo* to a naive *naive* datetime, resolving its DST offset correctly for *naive*'s own date.
-
-    ``zoneinfo.ZoneInfo`` and fixed-offset ``datetime.timezone`` resolve their UTC offset dynamically
-    whenever queried, so a plain ``.replace(tzinfo=...)`` is already correct for them. ``pytz``'s
-    ``DstTzInfo``, however, pins its offset at construction/``.localize()`` time and does NOT
-    recompute it on ``.replace()`` -- so reattaching it via ``.replace(tzinfo=...)`` would silently
-    carry over whatever offset happened to be baked into the *original* instance, even onto a
-    different calendar date whose real offset differs (e.g. a DST transition boundary). Duck-typing
-    on ``localize`` (pytz's public re-localization API) re-resolves the correct offset for pytz
-    tzinfo while leaving every other tzinfo type's already-correct ``.replace()`` behavior untouched.
-    """
-    if tzinfo is None:
-        return naive
-    localize = getattr(tzinfo, "localize", None)
-    if callable(localize):
-        localized: datetime = localize(naive)
-        return localized
-    return naive.replace(tzinfo=tzinfo)
-
-
-def _wall_clock_epoch_seconds(dt: datetime) -> int:
-    """Whole seconds between 1970-01-01T00:00:00 and *dt*'s wall-clock fields.
-
-    Computed by discarding ``dt``'s real ``tzinfo`` and treating its
-    calendar/clock fields as if they were already UTC. PyArrow's
-    ``floor/ceil/round_temporal`` bucket minute/hour/day by a timestamp's
-    *local* wall-clock representation, not its true UTC instant: e.g. 08:37
-    local in a UTC+05:30 zone floors a 5-hour bucket to 08:00 local, not to
-    the real-instant-equivalent 08:30. Anchoring this wall-clock value to the
-    Unix epoch (rather than resetting within the enclosing hour/day, the
-    previous bug) makes the floor correct for any ``n``, including values
-    that don't evenly divide 60 (minute) or 24 (hour).
-    """
-    delta = dt.replace(tzinfo=timezone.utc) - _EPOCH_UTC
-    return delta.days * 86400 + delta.seconds
 
 
 def _elapsed_seconds(later: datetime, earlier: datetime) -> float:
@@ -115,11 +77,8 @@ def _floor_dt(dt: datetime, n: int, unit: str) -> datetime:
     instance (see ``_attach_tzinfo``).
     """
     tzinfo = dt.tzinfo
-    if unit in _SECONDS_PER_UNIT:
-        bucket_seconds = n * _SECONDS_PER_UNIT[unit]
-        floored_seconds = (_wall_clock_epoch_seconds(dt) // bucket_seconds) * bucket_seconds
-        naive = (_EPOCH_UTC + timedelta(seconds=floored_seconds)).replace(tzinfo=None)
-        return _attach_tzinfo(naive, tzinfo)
+    if unit in SECONDS_PER_UNIT:
+        return floor_fixed_duration(dt, n, unit)
     if unit == "week":
         day_floor_naive = _floor_dt(dt, 1, "day").replace(tzinfo=None)
         naive = day_floor_naive - timedelta(days=day_floor_naive.weekday())

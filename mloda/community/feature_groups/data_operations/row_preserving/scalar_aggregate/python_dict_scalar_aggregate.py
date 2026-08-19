@@ -7,7 +7,6 @@ column and broadcast to every row, including masked-out rows.
 
 from __future__ import annotations
 
-import math
 import statistics
 from typing import Any
 
@@ -22,24 +21,15 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
+from mloda.community.feature_groups.data_operations.python_dict_helpers import (
+    STD_AGG_TYPES,
+    VARIANCE_DDOF,
+    is_nan,
+    variance,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     ScalarAggregateFeatureGroup,
 )
-
-# ddof (delta degrees of freedom) per std/var variant. std/var/std_pop/var_pop are
-# population (ddof=0); std_samp/var_samp are sample (ddof=1). Mirrors
-# python_dict_aggregation.py's mapping.
-_VARIANCE_DDOF: dict[str, int] = {
-    "std": 0,
-    "var": 0,
-    "std_pop": 0,
-    "var_pop": 0,
-    "std_samp": 1,
-    "var_samp": 1,
-}
-
-# std_* variants take a square root of the variance; var_* variants return the variance.
-_STD_AGG_TYPES: frozenset[str] = frozenset({"std", "std_pop", "std_samp"})
 
 
 class PythonDictScalarAggregate(ScalarAggregateFeatureGroup):
@@ -76,8 +66,8 @@ class PythonDictScalarAggregate(ScalarAggregateFeatureGroup):
             return len(non_null)
         if agg_type == "median":
             return statistics.median(non_null) if non_null else None
-        if agg_type in _VARIANCE_DDOF:
-            return cls._variance(non_null, ddof=_VARIANCE_DDOF[agg_type], as_std=agg_type in _STD_AGG_TYPES)
+        if agg_type in VARIANCE_DDOF:
+            return variance(non_null, ddof=VARIANCE_DDOF[agg_type], as_std=agg_type in STD_AGG_TYPES)
 
         if not non_null:
             return None
@@ -86,29 +76,10 @@ class PythonDictScalarAggregate(ScalarAggregateFeatureGroup):
         if agg_type in ("avg", "mean"):
             return sum(non_null) / len(non_null)
         if agg_type == "min":
-            finite = [v for v in non_null if not cls._is_nan(v)]
+            finite = [v for v in non_null if not is_nan(v)]
             return min(finite) if finite else None
         if agg_type == "max":
-            finite = [v for v in non_null if not cls._is_nan(v)]
+            finite = [v for v in non_null if not is_nan(v)]
             return max(finite) if finite else None
 
         raise unsupported_agg_type_error(agg_type, cls._SUPPORTED_AGG_TYPES, framework="PythonDict")
-
-    @staticmethod
-    def _is_nan(value: Any) -> bool:
-        """True for a float NaN value; min/max must skip these (PyArrow's pc.min/pc.max do)."""
-        return isinstance(value, float) and math.isnan(value)
-
-    @classmethod
-    def _variance(cls, non_null: list[float], *, ddof: int, as_std: bool) -> float | None:
-        """Population (ddof=0) or sample (ddof=1) variance/std of *non_null*.
-
-        Returns ``None`` when there are fewer than ``ddof + 1`` values (e.g. an
-        empty column, or a single-value column for the sample variant).
-        """
-        n = len(non_null)
-        if n - ddof <= 0:
-            return None
-        mean = sum(non_null) / n
-        variance = sum((x - mean) ** 2 for x in non_null) / (n - ddof)
-        return variance**0.5 if as_std else variance

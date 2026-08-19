@@ -10,8 +10,6 @@ time windows use calendar-aware subtraction with day-of-month clamping
 from __future__ import annotations
 
 import calendar
-import math
-import statistics
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
@@ -30,6 +28,12 @@ from mloda.community.feature_groups.data_operations.errors import (
     unsupported_frame_type_error,
 )
 from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
+from mloda.community.feature_groups.data_operations.python_dict_helpers import (
+    group_key_value,
+    is_nan,
+    nulls_last_sort_key,
+    reduce_agg,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -37,11 +41,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.frame_aggrega
 # Frame aggregation's order-independent aggregation-type subset (no mode/nunique/
 # first/last, no ddof-variant spellings); mirrors base.py's ``_AGGREGATION_TYPES``.
 _SUPPORTED_AGG_TYPES: frozenset[str] = frozenset({"sum", "avg", "count", "min", "max", "std", "var", "median"})
-
-# Sentinel substituted for any NaN partition-key value so that all NaN-valued rows of a
-# partition column hash/compare equal and land in one shared group, matching PyArrow's
-# Table.group_by() (which merges all NaN keys into a single group, distinct from None).
-_NAN_KEY = object()
 
 
 def _day_delta(n: int) -> timedelta:
@@ -129,11 +128,11 @@ class PythonDictFrameAggregate(FrameAggregateFeatureGroup):
 
         groups: dict[tuple[Any, ...], list[tuple[int, Any, Any]]] = {}
         for i in range(num_rows):
-            key = tuple(cls._group_key_value(col[i]) for col in partition_cols)
+            key = tuple(group_key_value(col[i]) for col in partition_cols)
             groups.setdefault(key, []).append((i, order_vals[i], source_values[i]))
 
         for rows in groups.values():
-            rows.sort(key=lambda t: (t[1] is None, t[1] if t[1] is not None else 0))
+            rows.sort(key=lambda t: nulls_last_sort_key(t[1]))
 
         result_values: list[Any] = [None] * num_rows
 
@@ -157,20 +156,6 @@ class PythonDictFrameAggregate(FrameAggregateFeatureGroup):
         return result
 
     @classmethod
-    def _group_key_value(cls, value: Any) -> Any:
-        """Map a partition-column value to a hashable, NaN-safe group-key component.
-
-        ``float('nan')`` never equals another NaN, so used raw as part of a dict key
-        it would split every NaN-valued row into its own singleton group. Substitute
-        a shared sentinel so all NaN values collapse into one group key component,
-        matching PyArrow's ``Table.group_by()`` (which merges all NaN keys of a
-        column into a single group, distinct from a null/None group).
-        """
-        if isinstance(value, float) and math.isnan(value):
-            return _NAN_KEY
-        return value
-
-    @classmethod
     def _time_window(
         cls,
         rows: list[tuple[int, Any, Any]],
@@ -181,9 +166,9 @@ class PythonDictFrameAggregate(FrameAggregateFeatureGroup):
     ) -> list[Any]:
         """Collect values within a time-based window ending at the current row.
 
-        A null ``current_order`` returns just the row's own value.
+        A null or NaN ``current_order`` returns just the row's own value.
         """
-        if current_order is None:
+        if current_order is None or is_nan(current_order):
             return [rows[pos][2]]
 
         if unit in ("month", "year"):
@@ -197,38 +182,14 @@ class PythonDictFrameAggregate(FrameAggregateFeatureGroup):
 
     @classmethod
     def _reduce_window(cls, values: list[Any], agg_type: str) -> Any:
-        """Reduce one window's raw (possibly null-containing) values to a single result."""
-        non_null = [v for v in values if v is not None]
+        """Reduce one window's raw (possibly null-containing) values to a single result.
 
-        if not non_null:
-            return 0 if agg_type == "count" else None
-
-        if agg_type == "sum":
-            return sum(non_null)
-        if agg_type == "avg":
-            return sum(non_null) / len(non_null)
-        if agg_type == "count":
-            return len(non_null)
-        if agg_type == "min":
-            finite = [v for v in non_null if not cls._is_nan(v)]
-            return min(finite) if finite else None
-        if agg_type == "max":
-            finite = [v for v in non_null if not cls._is_nan(v)]
-            return max(finite) if finite else None
-        if agg_type == "median":
-            return statistics.median(non_null)
-        if agg_type in ("std", "var"):
-            # Population variant (ddof=0), matching DuckDB's STDDEV_POP/VAR_POP
-            # mapping and Polars' rolling_std/var(ddof=0).
-            mean = sum(non_null) / len(non_null)
-            variance = sum((x - mean) ** 2 for x in non_null) / len(non_null)
-            return variance**0.5 if agg_type == "std" else variance
-
-        raise unsupported_agg_type_error(
-            agg_type, _SUPPORTED_AGG_TYPES, framework="PythonDict", operation="frame aggregate"
-        )
-
-    @staticmethod
-    def _is_nan(value: Any) -> bool:
-        """True for a float NaN value; min/max must skip these (PyArrow's pc.min/pc.max do)."""
-        return isinstance(value, float) and math.isnan(value)
+        ``std``/``var`` are always the population variant (ddof=0), matching DuckDB's
+        STDDEV_POP/VAR_POP mapping and Polars' rolling_std/var(ddof=0), and matching the
+        shared ``reduce_agg``'s ``std``/``var`` keys.
+        """
+        if agg_type not in _SUPPORTED_AGG_TYPES:
+            raise unsupported_agg_type_error(
+                agg_type, _SUPPORTED_AGG_TYPES, framework="PythonDict", operation="frame aggregate"
+            )
+        return reduce_agg(agg_type, values)

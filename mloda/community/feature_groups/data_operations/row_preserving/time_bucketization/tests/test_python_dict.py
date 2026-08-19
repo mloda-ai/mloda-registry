@@ -123,9 +123,9 @@ class TestPythonDictNonUtcTimezoneSupported:
         """
         from datetime import datetime, timedelta
 
-        import pytz
-
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+
+        pytz = pytest.importorskip("pytz")
 
         berlin = pytz.timezone("Europe/Berlin")
         # DST (CEST, +2:00) is in effect: Europe/Berlin's 2023 DST window runs
@@ -224,9 +224,9 @@ class TestPythonDictRoundDstCrossing:
         """
         from datetime import datetime
 
-        import pytz
-
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+
+        pytz = pytest.importorskip("pytz")
 
         eastern = pytz.timezone("America/New_York")
         # Local noon, already past the 02:00 -> 03:00 spring-forward transition.

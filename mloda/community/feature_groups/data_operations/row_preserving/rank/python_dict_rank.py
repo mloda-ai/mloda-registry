@@ -17,6 +17,12 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
 )
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_utils import row_count
 
+from mloda.community.feature_groups.data_operations.python_dict_helpers import (
+    group_key_value,
+    is_null_like,
+    nulls_last_sort_key,
+    order_values_equal,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
@@ -44,11 +50,11 @@ class PythonDictRank(RankFeatureGroup):
         # Build group keys, then stable-sort each group by order_by (nulls last).
         groups: dict[tuple[Any, ...], list[tuple[int, Any]]] = {}
         for i in range(num_rows):
-            key = tuple(col[i] for col in partition_cols)
+            key = tuple(group_key_value(col[i]) for col in partition_cols)
             groups.setdefault(key, []).append((i, order_vals[i]))
 
         for rows in groups.values():
-            rows.sort(key=lambda x: (1,) if x[1] is None else (0, x[1]))
+            rows.sort(key=lambda x: nulls_last_sort_key(x[1]))
 
         result_values: list[Any] = [None] * num_rows
 
@@ -77,7 +83,8 @@ class PythonDictRank(RankFeatureGroup):
             pos = 0
             while pos < n:
                 run_start = pos
-                while pos < n and sorted_rows[pos][1] == sorted_rows[run_start][1]:
+                pos += 1
+                while pos < n and order_values_equal(sorted_rows[pos][1], sorted_rows[run_start][1]):
                     pos += 1
                 rank_val = run_start + 1
                 for j in range(run_start, pos):
@@ -88,7 +95,8 @@ class PythonDictRank(RankFeatureGroup):
             pos = 0
             while pos < n:
                 run_start = pos
-                while pos < n and sorted_rows[pos][1] == sorted_rows[run_start][1]:
+                pos += 1
+                while pos < n and order_values_equal(sorted_rows[pos][1], sorted_rows[run_start][1]):
                     pos += 1
                 for j in range(run_start, pos):
                     result_values[sorted_rows[j][0]] = dense
@@ -100,7 +108,8 @@ class PythonDictRank(RankFeatureGroup):
             pos = 0
             while pos < n:
                 run_start = pos
-                while pos < n and sorted_rows[pos][1] == sorted_rows[run_start][1]:
+                pos += 1
+                while pos < n and order_values_equal(sorted_rows[pos][1], sorted_rows[run_start][1]):
                     pos += 1
                 rank_val = run_start + 1
                 for j in range(run_start, pos):
@@ -116,15 +125,15 @@ class PythonDictRank(RankFeatureGroup):
         elif rank_type.startswith("ntile_"):
             ntile_n = int(rank_type[len("ntile_") :])
             for pos, (idx, _) in enumerate(sorted_rows):
-                # Standard ntile: bucket = ceil((pos+1) * ntile_n / n)
+                # SQL-standard NTILE: (pos * ntile_n) // n + 1 puts the larger tiles first.
                 bucket = (pos * ntile_n) // n + 1
                 result_values[idx] = bucket
 
         elif rank_type.startswith("top_"):
             top_n = int(rank_type[len("top_") :])
-            # Reverse the ASC-sorted non-null rows to get DESC; keep nulls last
-            non_null = [(idx, val) for idx, val in sorted_rows if val is not None]
-            nulls = [(idx, val) for idx, val in sorted_rows if val is None]
+            # Reverse the ASC-sorted non-null rows to get DESC; keep null-likes (None/NaN) last
+            non_null = [(idx, val) for idx, val in sorted_rows if not is_null_like(val)]
+            nulls = [(idx, val) for idx, val in sorted_rows if is_null_like(val)]
             desc_rows = non_null[::-1] + nulls
             for pos, (idx, _) in enumerate(desc_rows):
                 result_values[idx] = pos + 1 <= top_n

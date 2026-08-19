@@ -1,7 +1,7 @@
 """PythonDict implementation of resample.
 
-Floors each row's ``time_column`` to its ``(n, unit)`` bucket (mirrors
-``python_dict_time_bucketization._floor_dt`` for minute/hour/day; see that
+Floors each row's ``time_column`` to its ``(n, unit)`` bucket (shares
+``floor_fixed_duration`` with ``python_dict_time_bucketization``; see that
 module for the epoch-anchor rationale), groups row indices by
 ``(*partition_by, bucket_start)``, then reduces each group's ``source_col``
 values with the requested aggregation, skipping nulls. A non-empty bucket
@@ -10,7 +10,6 @@ with no non-null values still emits: ``count = 0``, other aggs ``None``.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from mloda.provider import ComputeFramework
@@ -19,93 +18,30 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
 )
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
+from mloda.community.feature_groups.data_operations.python_dict_helpers import (
+    SECONDS_PER_UNIT,
+    floor_fixed_duration,
+    group_key_value,
+    reduce_agg,
+)
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     RESAMPLE_AGGS,
     ResampleFeatureGroup,
 )
 
-_EPOCH_UTC = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
-# Fixed-duration units bucketed by an epoch-anchored floor (see _floor_dt).
-_SECONDS_PER_UNIT: dict[str, int] = {"minute": 60, "hour": 3600, "day": 86400}
-
-
-def _attach_tzinfo(naive: datetime, tzinfo: Any) -> datetime:
-    """Attach *tzinfo* to a naive *naive* datetime, resolving its DST offset correctly for *naive*'s own date.
-
-    ``zoneinfo.ZoneInfo`` and fixed-offset ``datetime.timezone`` resolve their UTC offset dynamically
-    whenever queried, so a plain ``.replace(tzinfo=...)`` is already correct for them. ``pytz``'s
-    ``DstTzInfo``, however, pins its offset at construction/``.localize()`` time and does NOT
-    recompute it on ``.replace()`` -- so reattaching it via ``.replace(tzinfo=...)`` would silently
-    carry over whatever offset happened to be baked into the *original* instance, even onto a
-    different calendar date whose real offset differs (e.g. a DST transition boundary). Duck-typing
-    on ``localize`` (pytz's public re-localization API) re-resolves the correct offset for pytz
-    tzinfo while leaving every other tzinfo type's already-correct ``.replace()`` behavior untouched.
-    See ``python_dict_time_bucketization`` for the identical helper this mirrors.
-    """
-    if tzinfo is None:
-        return naive
-    localize = getattr(tzinfo, "localize", None)
-    if callable(localize):
-        localized: datetime = localize(naive)
-        return localized
-    return naive.replace(tzinfo=tzinfo)
-
-
-def _wall_clock_epoch_seconds(dt: datetime) -> int:
-    """Whole seconds between 1970-01-01T00:00:00 and *dt*'s wall-clock fields.
-
-    Computed by discarding ``dt``'s real ``tzinfo`` and treating its
-    calendar/clock fields as if they were already UTC. PyArrow's
-    ``floor_temporal`` (the reference oracle for resample bucketing) buckets
-    minute/hour/day by a timestamp's *local* wall-clock representation, not
-    its true UTC instant: e.g. 08:37 local in a UTC+05:30 zone floors a
-    5-hour bucket to 08:00 local, not to the real-instant-equivalent 08:30.
-    Anchoring this wall-clock value to the Unix epoch (rather than resetting
-    within the enclosing hour/day, the previous bug) makes the floor correct
-    for any ``n``, including values that don't evenly divide 60 (minute) or
-    24 (hour). See ``python_dict_time_bucketization`` for the identical
-    helper this mirrors.
-    """
-    delta = dt.replace(tzinfo=timezone.utc) - _EPOCH_UTC
-    return delta.days * 86400 + delta.seconds
-
-
-def _floor_dt(dt: datetime, n: int, unit: str) -> datetime:
-    """Floor ``dt`` to the start of its ``(n, unit)`` bucket, preserving tzinfo.
-
-    ``dt.tzinfo`` is reattached (via ``_attach_tzinfo``) only once the final floored wall-clock
-    date is known, not carried through as part of the epoch-anchored arithmetic, so a floor that
-    crosses a DST transition (e.g. flooring a spring-forward afternoon down to that day's
-    midnight) gets the correct offset for its *own* date -- see ``_attach_tzinfo``.
-    """
-    if unit in _SECONDS_PER_UNIT:
-        bucket_seconds = n * _SECONDS_PER_UNIT[unit]
-        floored_seconds = (_wall_clock_epoch_seconds(dt) // bucket_seconds) * bucket_seconds
-        naive = (_EPOCH_UTC + timedelta(seconds=floored_seconds)).replace(tzinfo=None)
-        return _attach_tzinfo(naive, dt.tzinfo)
+def _floor_dt(dt: Any, n: int, unit: str) -> Any:
+    """Floor ``dt`` to the start of its ``(n, unit)`` bucket, preserving tzinfo."""
+    if unit in SECONDS_PER_UNIT:
+        return floor_fixed_duration(dt, n, unit)
     raise ValueError(f"Unsupported resample unit for PythonDict: {unit!r}")
 
 
 def _reduce(agg: str, values: list[Any]) -> Any:
     """Reduce one bucket's raw (possibly null-containing) values to a single result."""
-    non_null = [v for v in values if v is not None]
-
-    if agg == "count":
-        return len(non_null)
-    if not non_null:
-        # All-null but non-empty bucket: mean/sum/min/max -> None (PyArrow oracle).
-        return None
-    if agg == "sum":
-        return sum(non_null)
-    if agg == "mean":
-        return sum(non_null) / len(non_null)
-    if agg == "min":
-        return min(non_null)
-    if agg == "max":
-        return max(non_null)
-
-    raise unsupported_agg_type_error(agg, RESAMPLE_AGGS, framework="PythonDict")
+    if agg not in RESAMPLE_AGGS:
+        raise unsupported_agg_type_error(agg, RESAMPLE_AGGS, framework="PythonDict")
+    return reduce_agg(agg, values)
 
 
 class PythonDictResample(ResampleFeatureGroup):
@@ -151,7 +87,7 @@ class PythonDictResample(ResampleFeatureGroup):
         # Group row indices by (*partition_by, bucket_start), first-occurrence order.
         groups: dict[tuple[Any, ...], list[int]] = {}
         for i in range(len(time_col)):
-            key = tuple(col[i] for col in partition_cols) + (buckets[i],)
+            key = tuple(group_key_value(col[i]) for col in partition_cols) + (buckets[i],)
             groups.setdefault(key, []).append(i)
 
         result: dict[str, list[Any]] = {col: [] for col in partition_by}
@@ -159,8 +95,9 @@ class PythonDictResample(ResampleFeatureGroup):
         result[feature_name] = []
 
         for key, indices in groups.items():
-            for col_name, key_value in zip(partition_by, key[:-1]):
-                result[col_name].append(key_value)
+            first_idx = indices[0]
+            for col_name, col in zip(partition_by, partition_cols):
+                result[col_name].append(col[first_idx])
             result[time_column].append(key[-1])
             values = [source_values[i] for i in indices]
             result[feature_name].append(_reduce(agg, values))

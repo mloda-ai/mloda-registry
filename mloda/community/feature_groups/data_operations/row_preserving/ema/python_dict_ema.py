@@ -16,6 +16,7 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
 )
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_utils import row_count
 
+from mloda.community.feature_groups.data_operations.python_dict_helpers import group_key_value, nulls_last_sort_key
 from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
 
 
@@ -52,11 +53,11 @@ class PythonDictEma(EmaFeatureGroup):
         # Build group keys, then stable-sort each group by order_by (nulls last).
         groups: dict[tuple[Any, ...], list[tuple[int, Any, Any]]] = {}
         for i in range(num_rows):
-            key = tuple(col[i] for col in partition_cols)
+            key = tuple(group_key_value(col[i]) for col in partition_cols)
             groups.setdefault(key, []).append((i, order_vals[i], source_vals[i]))
 
         for rows in groups.values():
-            rows.sort(key=lambda t: (t[1] is None, t[1] if t[1] is not None else 0))
+            rows.sort(key=lambda t: nulls_last_sort_key(t[1]))
 
         result_values: list[Any] = [None] * num_rows
 

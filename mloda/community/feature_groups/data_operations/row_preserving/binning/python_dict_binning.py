@@ -10,6 +10,7 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
     PythonDictFramework,
 )
 
+from mloda.community.feature_groups.data_operations.python_dict_helpers import is_nan
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BinningFeatureGroup,
 )
@@ -50,7 +51,7 @@ class PythonDictBinning(BinningFeatureGroup):
 
     @staticmethod
     def _is_null(value: Any) -> bool:
-        return value is None or (isinstance(value, float) and math.isnan(value))
+        return value is None or is_nan(value)
 
     @classmethod
     def _equal_width_bin(cls, col: list[Any], non_null: list[tuple[int, Any]], n_bins: int) -> list[Any]:

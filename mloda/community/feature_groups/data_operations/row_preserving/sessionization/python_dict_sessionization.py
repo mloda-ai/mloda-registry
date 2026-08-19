@@ -20,6 +20,12 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
 )
 from mloda_plugins.compute_framework.base_implementations.python_dict.python_dict_utils import row_count
 
+from mloda.community.feature_groups.data_operations.python_dict_helpers import (
+    is_nan,
+    nulls_last_sort_key,
+    partition_sort_key,
+    values_equal,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import (
     SessionizationFeatureGroup,
 )
@@ -59,11 +65,11 @@ class PythonDictSessionization(SessionizationFeatureGroup):
         def partition_key(i: int) -> tuple[Any, ...]:
             return tuple(col[i] for col in partition_cols)
 
-        def _null_safe_key(value: Any) -> tuple[bool, Any]:
-            return (value is None, value if value is not None else 0)
-
         def sort_key(i: int) -> tuple[Any, ...]:
-            return tuple(_null_safe_key(v) for v in partition_key(i)) + (_null_safe_key(order_vals[i]),)
+            # Partition-key components use partition_sort_key so a None-keyed partition and a
+            # NaN-keyed partition stay distinct, contiguous groups (order_by ties would
+            # otherwise interleave them if both used nulls_last_sort_key's shared null tier).
+            return tuple(partition_sort_key(v) for v in partition_key(i)) + (nulls_last_sort_key(order_vals[i]),)
 
         # Sort row indices by [*partition_by, order_by] ascending (stable), nulls last.
         sorted_indices = sorted(range(num_rows), key=sort_key)
@@ -92,13 +98,18 @@ class PythonDictSessionization(SessionizationFeatureGroup):
                 # null reaches ``pc.cumulative_sum`` (default ``skip_nulls=False``), the
                 # session id for that row and every following row in sorted order becomes
                 # (and stays) null, rather than resuming the count once nulls are behind.
+                # A NaN order_by value is ambiguous too (the gap subtraction below is not
+                # well-defined against it), but a NaN partition-key value is NOT: it groups
+                # with itself via ``values_equal`` below, matching PyArrow's group_by().
                 ambiguous = (
                     any(v is None for v in key)
                     or any(v is None for v in prev_key)
                     or order_val is None
                     or prev_order_val is None
+                    or is_nan(order_val)
+                    or is_nan(prev_order_val)
                 )
-                is_new = not ambiguous and (key != prev_key or (order_val - prev_order_val) > threshold)
+                is_new = not ambiguous and (not values_equal(key, prev_key) or (order_val - prev_order_val) > threshold)
 
             if ambiguous:
                 poisoned = True

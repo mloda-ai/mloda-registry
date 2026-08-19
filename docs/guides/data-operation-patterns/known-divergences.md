@@ -338,6 +338,75 @@ regression_test:
 - **How**: SQLite has no native `STD`/`VAR`/`MEDIAN` window functions, so `SqliteFrameAggregate.supported_op_subtypes()` sources the supported set from `_SQLITE_AGG_FUNCS` (`sum`/`avg`/`count`/`min`/`max`), rejecting `std`/`var`/`median` for every frame type. Polars has no cumulative `cum_std`/`cum_var`/`cum_median`, so `PolarsLazyFrameAggregate.supported_op_subtypes()` returns `_CUMULATIVE_AGG_TYPES` for `cumulative`/`expanding` frames (excluding `std`/`var`/`median`) and `_ROLLING_AGG_TYPES` (the full set) for `rolling`/`time`. The base `supports_compute_framework` hook resolves the agg type from the parsed name or `aggregation_type` option and rejects unsupported combinations at match time, rather than failing later inside `_compute_frame`. Pandas and DuckDB inherit the base `None` (unrestricted) and support all eight agg types.
 - **Related**: issue #296.
 
+### PythonDict NaN partition keys merge into one group; min/max/percentile skip NaN
+
+<!-- machine-checked
+operation: percentile, rank, offset, ffill, ema, sessionization, resample, aggregation, window_aggregation
+framework: python_dict
+condition: a raw NaN partition-key value splits into its own singleton group, and NaN in a min/max/percentile input is not skipped, unlike the PyArrow reference
+mitigation_location:
+- mloda/community/feature_groups/data_operations/python_dict_helpers.py
+- mloda/community/feature_groups/data_operations/row_preserving/percentile/python_dict_percentile.py
+- mloda/community/feature_groups/data_operations/row_preserving/rank/python_dict_rank.py
+- mloda/community/feature_groups/data_operations/row_changing/resample/python_dict_resample.py
+- mloda/community/feature_groups/data_operations/row_preserving/sessionization/python_dict_sessionization.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/percentile/tests/test_python_dict.py::TestPythonDictNanPartitionKeyGrouping::test_nan_partition_keys_grouped_together_matches_pyarrow_oracle
+- mloda/community/feature_groups/data_operations/row_preserving/percentile/tests/test_python_dict.py::TestPythonDictPercentileNanValueSkipped::test_percentile_of_skips_nan_directly
+- mloda/community/feature_groups/data_operations/row_preserving/rank/tests/test_python_dict.py::TestPythonDictRankNanPartitionKeyGrouping::test_nan_partition_rows_share_one_group_continues_numbering
+- mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_python_dict.py::TestPythonDictMinMaxSkipsNan::test_min_skips_nan_matches_pyarrow_oracle
+- mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_python_dict.py::TestPythonDictNanPartitionKeyGrouping::test_nan_partition_rows_merge_into_one_bucket_matches_pyarrow_oracle
+- mloda/community/feature_groups/data_operations/row_preserving/sessionization/tests/test_python_dict.py::TestPythonDictNanPartitionKeyGrouping::test_nan_partition_rows_share_one_session_matches_pyarrow_group_by
+-->
+
+- **Operations**: `percentile`, `rank`, `offset`, `ffill`, `ema`, `sessionization`, `resample`, `aggregation`, `window_aggregation` (every PythonDict backend that partitions rows or reduces a value list).
+- **Where it lives**: `mloda/community/feature_groups/data_operations/python_dict_helpers.py` (`group_key_value`, `is_nan`, `nulls_last_sort_key`, `values_equal`, `reduce_agg`), consumed by every PythonDict backend under `row_preserving/` and `row_changing/resample/`.
+- **Reference behavior**: PyArrow's `Table.group_by()` merges all NaN keys of a column into a single group, distinct from the null/None group. `pc.min`/`pc.max`/`pc.quantile` skip NaN like a missing value.
+- **Native PythonDict behavior (unmitigated)**: `float('nan')` never equals another NaN, so a raw `tuple(col[i] for col in partition_cols)` group key splits every NaN-valued row into its own singleton group. Python's builtin `min()`/`max()` and `sorted()`-based percentile interpolation propagate NaN instead of skipping it.
+- **Mitigation kind**: Implementation fix.
+- **How**: Most PythonDict backends build their group key through `group_key_value`, which substitutes a shared sentinel for any NaN component so NaN-keyed rows land in one group; `reduce_agg`'s `min`/`max` branches and `_percentile_of` filter NaN out of the reduced value list before reducing, matching PyArrow's skip-NaN semantics. `python_dict_sessionization.py` is the exception: it never calls `group_key_value`. Instead it sorts raw partition-key values through `partition_sort_key` (which gives NaN and None each their own contiguous sort tier) and compares adjacent sorted rows with `values_equal` (NaN-safe equality), so two NaN-keyed rows still land in one contiguous, un-poisoned session without ever building a normalized key.
+- **Regression signal**: The percentile/rank/resample tests cited above build a live PyArrow `Table.group_by()` (or a PyArrow-oracle comparison) and assert the PythonDict backend groups/reduces identically; removing `group_key_value` or the NaN filter from `reduce_agg`/`_percentile_of` fails those. The cited sessionization test instead exercises `partition_sort_key` and `values_equal`; it does not exercise `group_key_value`, so removing `group_key_value` does not fail it.
+
+### PythonDict `median` does not skip NaN, unlike pandas' skipna default
+
+<!-- machine-checked
+operation: aggregation, resample, window_aggregation, frame_aggregate
+framework: python_dict
+condition: reduce_agg median only filters None, not NaN, so a NaN in the window returns NaN instead of skipping it
+mitigation_location:
+- mloda/community/feature_groups/data_operations/python_dict_helpers.py
+regression_test:
+- mloda/community/feature_groups/data_operations/tests/test_python_dict_helpers.py::TestReduceAggMedianDoesNotSkipNanDocumentedDivergence::test_median_of_value_and_nan_returns_nan
+-->
+
+- **Operations**: `aggregation`, `resample`, `window_aggregation`, `frame_aggregate` (every PythonDict backend whose `median` agg type routes through `reduce_agg`).
+- **Where it lives**: `mloda/community/feature_groups/data_operations/python_dict_helpers.py` (`reduce_agg`'s `median` branch).
+- **Reference behavior**: Pandas' `Series.median()` defaults to `skipna=True`: a NaN value in the window is dropped before the median is computed, e.g. `[1.0, nan]` -> `1.0`.
+- **Native PythonDict behavior**: `reduce_agg`'s `non_null` list filters out `None` only; NaN reaches `statistics.median` unfiltered, e.g. `[1.0, nan]` -> `nan`.
+- **Mitigation kind**: Accepted divergence (no mitigation attempted).
+- **How**: `min`/`max` already skip NaN (see the entry above) because PyArrow's `pc.min`/`pc.max` do too, but there is no PyArrow `median` kernel to use as a cross-framework reference, and `statistics.median`'s NaN-in-the-middle behavior is itself sort-order-dependent, so filtering NaN out of `median` was judged not worth the added branch for an aggregation type without a PyArrow oracle to validate against.
+- **Regression signal**: `test_median_of_value_and_nan_returns_nan` pins `reduce_agg("median", [1.0, float("nan")])` to `nan`; a future change that filters NaN like pandas would flip this assertion to `1.0`.
+
+### PythonDict `group_key_value` merges `0.0` and `-0.0` into one group
+
+<!-- machine-checked
+operation: aggregation, resample, window_aggregation, frame_aggregate, rank, sessionization, percentile
+framework: python_dict
+condition: group_key_value passes 0.0 and -0.0 through unchanged, and Python's float equality/hash merge them as dict keys
+mitigation_location:
+- mloda/community/feature_groups/data_operations/python_dict_helpers.py
+regression_test:
+- mloda/community/feature_groups/data_operations/tests/test_python_dict_helpers.py::TestGroupKeyValueMergesSignedZeroDocumentedDivergence::test_positive_and_negative_zero_collide_into_one_group
+-->
+
+- **Operations**: `aggregation`, `resample`, `window_aggregation`, `frame_aggregate`, `rank`, `sessionization`, `percentile` (every PythonDict backend that groups rows by a float-valued partition column).
+- **Where it lives**: `mloda/community/feature_groups/data_operations/python_dict_helpers.py` (`group_key_value`).
+- **Reference behavior**: PyArrow's `Table.group_by()` hashes a float key bitwise, so `0.0` and `-0.0` (distinct bit patterns) land in two separate groups.
+- **Native PythonDict behavior**: `group_key_value` only special-cases NaN; `0.0` and `-0.0` pass through unchanged. Python's `float.__eq__` and `float.__hash__` both treat `0.0 == -0.0` as `True` with equal hashes, so a plain `dict`/`set` keyed by the raw value merges them into one group regardless of what `group_key_value` does.
+- **Mitigation kind**: Accepted divergence (no mitigation attempted).
+- **How**: Distinguishing `0.0` from `-0.0` would require every group-key dict across every PythonDict backend to key on `(value, math.copysign(1.0, value))` instead of the raw value, adding a branch to a hot path for a sign-of-zero edge case that is exceedingly rare in real partition columns; the divergence is documented instead of mitigated.
+- **Regression signal**: `test_positive_and_negative_zero_collide_into_one_group` pins that a `group_key_value`-keyed dict merges `0.0` and `-0.0` into a single group; a future change that makes `group_key_value` sign-aware would flip this assertion.
+
 ---
 
 ## Audit coverage (2026-05-28)
