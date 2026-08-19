@@ -23,15 +23,16 @@ from mloda.community.feature_groups.data_operations.string.base import (
 # mapping (e.g. Turkish dotted capital I "İ" -> "i" + combining dot
 # above, U+0307).
 #
-# The two tables below are exactly that closed set. Each entry was verified
-# empirically against a live PyArrow build: they are every codepoint in
-# ``range(0x110000)`` where ``chr(cp).upper()``/``.lower()`` (applied to the
-# single character in isolation) produces more than one character, keeping
-# only the entries where PyArrow's ``pc.utf8_upper``/``pc.utf8_lower`` output
-# still disagrees with Python's. Processing per character (see ``_upper``/
-# ``_lower`` below) and consulting these tables first, falling back to
-# Python's own single-character ``.upper()``/``.lower()`` otherwise,
-# reproduces PyArrow's simple mapping for every other codepoint too,
+# The two tables below cover that closed set, plus a second, unrelated source of
+# per-codepoint drift: PyArrow bundles utf8proc, whose Unicode Character Database
+# version can be newer than the CPython interpreter's own bundled `unicodedata`, so a
+# very recently assigned codepoint can have a case mapping in PyArrow's simple mapping
+# before Python's `.upper()`/`.lower()` know about it at all (see the drift test in
+# string/tests/test_python_dict.py, which scans range(0x110000) against a live PyArrow
+# build, so either source of drift fails a test instead of reappearing silently).
+# Processing per character (see ``_upper``/``_lower`` below) and consulting these tables
+# first, falling back to Python's own single-character ``.upper()``/``.lower()``
+# otherwise, reproduces PyArrow's simple mapping for every other codepoint too,
 # including context-dependent full-mapping rules like Greek final sigma
 # (``Σ`` -> ``ς`` only at the end of a word), which never trigger
 # on a single-character Python call and therefore never apply here.
@@ -138,10 +139,207 @@ _UPPER_OVERRIDES: dict[str, str] = {
     "ﬕ": "ﬕ",  # ARMENIAN SMALL LIGATURE MEN INI -> ARMENIAN SMALL LIGATURE MEN INI
     "ﬖ": "ﬖ",  # ARMENIAN SMALL LIGATURE VEW NOW -> ARMENIAN SMALL LIGATURE VEW NOW
     "ﬗ": "ﬗ",  # ARMENIAN SMALL LIGATURE MEN XEH -> ARMENIAN SMALL LIGATURE MEN XEH
+    # Unicode-version-lag entries: recently assigned codepoints where this repo's pinned
+    # PyArrow build (utf8proc) already has a case mapping but some supported CPython
+    # version's own `unicodedata` does not yet (the gap differs by interpreter -- 3.10 is
+    # furthest behind, 3.14 is caught up -- so the union across all five is needed; see the
+    # drift test in string/tests/test_python_dict.py). Written as escapes rather than
+    # literal glyphs since not every font/terminal has them yet.
+    "꟏": "꟎",  # U+A7CF -> U+A7CE
+    "ꟓ": "꟒",  # U+A7D3 -> U+A7D2
+    "ꟕ": "꟔",  # U+A7D5 -> U+A7D4
+    "\U00016ebb": "\U00016ea0",  # U+16EBB -> U+16EA0
+    "\U00016ebc": "\U00016ea1",  # U+16EBC -> U+16EA1
+    "\U00016ebd": "\U00016ea2",  # U+16EBD -> U+16EA2
+    "\U00016ebe": "\U00016ea3",  # U+16EBE -> U+16EA3
+    "\U00016ebf": "\U00016ea4",  # U+16EBF -> U+16EA4
+    "\U00016ec0": "\U00016ea5",  # U+16EC0 -> U+16EA5
+    "\U00016ec1": "\U00016ea6",  # U+16EC1 -> U+16EA6
+    "\U00016ec2": "\U00016ea7",  # U+16EC2 -> U+16EA7
+    "\U00016ec3": "\U00016ea8",  # U+16EC3 -> U+16EA8
+    "\U00016ec4": "\U00016ea9",  # U+16EC4 -> U+16EA9
+    "\U00016ec5": "\U00016eaa",  # U+16EC5 -> U+16EAA
+    "\U00016ec6": "\U00016eab",  # U+16EC6 -> U+16EAB
+    "\U00016ec7": "\U00016eac",  # U+16EC7 -> U+16EAC
+    "\U00016ec8": "\U00016ead",  # U+16EC8 -> U+16EAD
+    "\U00016ec9": "\U00016eae",  # U+16EC9 -> U+16EAE
+    "\U00016eca": "\U00016eaf",  # U+16ECA -> U+16EAF
+    "\U00016ecb": "\U00016eb0",  # U+16ECB -> U+16EB0
+    "\U00016ecc": "\U00016eb1",  # U+16ECC -> U+16EB1
+    "\U00016ecd": "\U00016eb2",  # U+16ECD -> U+16EB2
+    "\U00016ece": "\U00016eb3",  # U+16ECE -> U+16EB3
+    "\U00016ecf": "\U00016eb4",  # U+16ECF -> U+16EB4
+    "\U00016ed0": "\U00016eb5",  # U+16ED0 -> U+16EB5
+    "\U00016ed1": "\U00016eb6",  # U+16ED1 -> U+16EB6
+    "\U00016ed2": "\U00016eb7",  # U+16ED2 -> U+16EB7
+    "\U00016ed3": "\U00016eb8",  # U+16ED3 -> U+16EB8
+    "ƛ": "Ƛ",  # U+019B -> U+A7DC
+    "ɤ": "Ɤ",  # U+0264 -> U+A7CB
+    "ᲊ": "Ᲊ",  # U+1C8A -> U+1C89
+    "ⱟ": "Ⱟ",  # U+2C5F -> U+2C2F
+    "ꟁ": "Ꟁ",  # U+A7C1 -> U+A7C0
+    "ꟍ": "Ꟍ",  # U+A7CD -> U+A7CC
+    "ꟑ": "Ꟑ",  # U+A7D1 -> U+A7D0
+    "ꟗ": "Ꟗ",  # U+A7D7 -> U+A7D6
+    "ꟙ": "Ꟙ",  # U+A7D9 -> U+A7D8
+    "ꟛ": "Ꟛ",  # U+A7DB -> U+A7DA
+    "\U00010597": "\U00010570",  # U+10597 -> U+10570
+    "\U00010598": "\U00010571",  # U+10598 -> U+10571
+    "\U00010599": "\U00010572",  # U+10599 -> U+10572
+    "\U0001059a": "\U00010573",  # U+1059A -> U+10573
+    "\U0001059b": "\U00010574",  # U+1059B -> U+10574
+    "\U0001059c": "\U00010575",  # U+1059C -> U+10575
+    "\U0001059d": "\U00010576",  # U+1059D -> U+10576
+    "\U0001059e": "\U00010577",  # U+1059E -> U+10577
+    "\U0001059f": "\U00010578",  # U+1059F -> U+10578
+    "\U000105a0": "\U00010579",  # U+105A0 -> U+10579
+    "\U000105a1": "\U0001057a",  # U+105A1 -> U+1057A
+    "\U000105a3": "\U0001057c",  # U+105A3 -> U+1057C
+    "\U000105a4": "\U0001057d",  # U+105A4 -> U+1057D
+    "\U000105a5": "\U0001057e",  # U+105A5 -> U+1057E
+    "\U000105a6": "\U0001057f",  # U+105A6 -> U+1057F
+    "\U000105a7": "\U00010580",  # U+105A7 -> U+10580
+    "\U000105a8": "\U00010581",  # U+105A8 -> U+10581
+    "\U000105a9": "\U00010582",  # U+105A9 -> U+10582
+    "\U000105aa": "\U00010583",  # U+105AA -> U+10583
+    "\U000105ab": "\U00010584",  # U+105AB -> U+10584
+    "\U000105ac": "\U00010585",  # U+105AC -> U+10585
+    "\U000105ad": "\U00010586",  # U+105AD -> U+10586
+    "\U000105ae": "\U00010587",  # U+105AE -> U+10587
+    "\U000105af": "\U00010588",  # U+105AF -> U+10588
+    "\U000105b0": "\U00010589",  # U+105B0 -> U+10589
+    "\U000105b1": "\U0001058a",  # U+105B1 -> U+1058A
+    "\U000105b3": "\U0001058c",  # U+105B3 -> U+1058C
+    "\U000105b4": "\U0001058d",  # U+105B4 -> U+1058D
+    "\U000105b5": "\U0001058e",  # U+105B5 -> U+1058E
+    "\U000105b6": "\U0001058f",  # U+105B6 -> U+1058F
+    "\U000105b7": "\U00010590",  # U+105B7 -> U+10590
+    "\U000105b8": "\U00010591",  # U+105B8 -> U+10591
+    "\U000105b9": "\U00010592",  # U+105B9 -> U+10592
+    "\U000105bb": "\U00010594",  # U+105BB -> U+10594
+    "\U000105bc": "\U00010595",  # U+105BC -> U+10595
+    "\U00010d70": "\U00010d50",  # U+10D70 -> U+10D50
+    "\U00010d71": "\U00010d51",  # U+10D71 -> U+10D51
+    "\U00010d72": "\U00010d52",  # U+10D72 -> U+10D52
+    "\U00010d73": "\U00010d53",  # U+10D73 -> U+10D53
+    "\U00010d74": "\U00010d54",  # U+10D74 -> U+10D54
+    "\U00010d75": "\U00010d55",  # U+10D75 -> U+10D55
+    "\U00010d76": "\U00010d56",  # U+10D76 -> U+10D56
+    "\U00010d77": "\U00010d57",  # U+10D77 -> U+10D57
+    "\U00010d78": "\U00010d58",  # U+10D78 -> U+10D58
+    "\U00010d79": "\U00010d59",  # U+10D79 -> U+10D59
+    "\U00010d7a": "\U00010d5a",  # U+10D7A -> U+10D5A
+    "\U00010d7b": "\U00010d5b",  # U+10D7B -> U+10D5B
+    "\U00010d7c": "\U00010d5c",  # U+10D7C -> U+10D5C
+    "\U00010d7d": "\U00010d5d",  # U+10D7D -> U+10D5D
+    "\U00010d7e": "\U00010d5e",  # U+10D7E -> U+10D5E
+    "\U00010d7f": "\U00010d5f",  # U+10D7F -> U+10D5F
+    "\U00010d80": "\U00010d60",  # U+10D80 -> U+10D60
+    "\U00010d81": "\U00010d61",  # U+10D81 -> U+10D61
+    "\U00010d82": "\U00010d62",  # U+10D82 -> U+10D62
+    "\U00010d83": "\U00010d63",  # U+10D83 -> U+10D63
+    "\U00010d84": "\U00010d64",  # U+10D84 -> U+10D64
+    "\U00010d85": "\U00010d65",  # U+10D85 -> U+10D65
 }
 
 _LOWER_OVERRIDES: dict[str, str] = {
     "İ": "i",  # LATIN CAPITAL LETTER I WITH DOT ABOVE -> LATIN SMALL LETTER I
+    # Unicode-version-lag entries; see the matching comment on _UPPER_OVERRIDES above.
+    "꟎": "꟏",  # U+A7CE -> U+A7CF
+    "꟒": "ꟓ",  # U+A7D2 -> U+A7D3
+    "꟔": "ꟕ",  # U+A7D4 -> U+A7D5
+    "\U00016ea0": "\U00016ebb",  # U+16EA0 -> U+16EBB
+    "\U00016ea1": "\U00016ebc",  # U+16EA1 -> U+16EBC
+    "\U00016ea2": "\U00016ebd",  # U+16EA2 -> U+16EBD
+    "\U00016ea3": "\U00016ebe",  # U+16EA3 -> U+16EBE
+    "\U00016ea4": "\U00016ebf",  # U+16EA4 -> U+16EBF
+    "\U00016ea5": "\U00016ec0",  # U+16EA5 -> U+16EC0
+    "\U00016ea6": "\U00016ec1",  # U+16EA6 -> U+16EC1
+    "\U00016ea7": "\U00016ec2",  # U+16EA7 -> U+16EC2
+    "\U00016ea8": "\U00016ec3",  # U+16EA8 -> U+16EC3
+    "\U00016ea9": "\U00016ec4",  # U+16EA9 -> U+16EC4
+    "\U00016eaa": "\U00016ec5",  # U+16EAA -> U+16EC5
+    "\U00016eab": "\U00016ec6",  # U+16EAB -> U+16EC6
+    "\U00016eac": "\U00016ec7",  # U+16EAC -> U+16EC7
+    "\U00016ead": "\U00016ec8",  # U+16EAD -> U+16EC8
+    "\U00016eae": "\U00016ec9",  # U+16EAE -> U+16EC9
+    "\U00016eaf": "\U00016eca",  # U+16EAF -> U+16ECA
+    "\U00016eb0": "\U00016ecb",  # U+16EB0 -> U+16ECB
+    "\U00016eb1": "\U00016ecc",  # U+16EB1 -> U+16ECC
+    "\U00016eb2": "\U00016ecd",  # U+16EB2 -> U+16ECD
+    "\U00016eb3": "\U00016ece",  # U+16EB3 -> U+16ECE
+    "\U00016eb4": "\U00016ecf",  # U+16EB4 -> U+16ECF
+    "\U00016eb5": "\U00016ed0",  # U+16EB5 -> U+16ED0
+    "\U00016eb6": "\U00016ed1",  # U+16EB6 -> U+16ED1
+    "\U00016eb7": "\U00016ed2",  # U+16EB7 -> U+16ED2
+    "\U00016eb8": "\U00016ed3",  # U+16EB8 -> U+16ED3
+    "Ƛ": "ƛ",  # U+A7DC -> U+019B
+    "Ɤ": "ɤ",  # U+A7CB -> U+0264
+    "Ᲊ": "ᲊ",  # U+1C89 -> U+1C8A
+    "Ⱟ": "ⱟ",  # U+2C2F -> U+2C5F
+    "Ꟁ": "ꟁ",  # U+A7C0 -> U+A7C1
+    "Ꟍ": "ꟍ",  # U+A7CC -> U+A7CD
+    "Ꟑ": "ꟑ",  # U+A7D0 -> U+A7D1
+    "Ꟗ": "ꟗ",  # U+A7D6 -> U+A7D7
+    "Ꟙ": "ꟙ",  # U+A7D8 -> U+A7D9
+    "Ꟛ": "ꟛ",  # U+A7DA -> U+A7DB
+    "\U00010570": "\U00010597",  # U+10570 -> U+10597
+    "\U00010571": "\U00010598",  # U+10571 -> U+10598
+    "\U00010572": "\U00010599",  # U+10572 -> U+10599
+    "\U00010573": "\U0001059a",  # U+10573 -> U+1059A
+    "\U00010574": "\U0001059b",  # U+10574 -> U+1059B
+    "\U00010575": "\U0001059c",  # U+10575 -> U+1059C
+    "\U00010576": "\U0001059d",  # U+10576 -> U+1059D
+    "\U00010577": "\U0001059e",  # U+10577 -> U+1059E
+    "\U00010578": "\U0001059f",  # U+10578 -> U+1059F
+    "\U00010579": "\U000105a0",  # U+10579 -> U+105A0
+    "\U0001057a": "\U000105a1",  # U+1057A -> U+105A1
+    "\U0001057c": "\U000105a3",  # U+1057C -> U+105A3
+    "\U0001057d": "\U000105a4",  # U+1057D -> U+105A4
+    "\U0001057e": "\U000105a5",  # U+1057E -> U+105A5
+    "\U0001057f": "\U000105a6",  # U+1057F -> U+105A6
+    "\U00010580": "\U000105a7",  # U+10580 -> U+105A7
+    "\U00010581": "\U000105a8",  # U+10581 -> U+105A8
+    "\U00010582": "\U000105a9",  # U+10582 -> U+105A9
+    "\U00010583": "\U000105aa",  # U+10583 -> U+105AA
+    "\U00010584": "\U000105ab",  # U+10584 -> U+105AB
+    "\U00010585": "\U000105ac",  # U+10585 -> U+105AC
+    "\U00010586": "\U000105ad",  # U+10586 -> U+105AD
+    "\U00010587": "\U000105ae",  # U+10587 -> U+105AE
+    "\U00010588": "\U000105af",  # U+10588 -> U+105AF
+    "\U00010589": "\U000105b0",  # U+10589 -> U+105B0
+    "\U0001058a": "\U000105b1",  # U+1058A -> U+105B1
+    "\U0001058c": "\U000105b3",  # U+1058C -> U+105B3
+    "\U0001058d": "\U000105b4",  # U+1058D -> U+105B4
+    "\U0001058e": "\U000105b5",  # U+1058E -> U+105B5
+    "\U0001058f": "\U000105b6",  # U+1058F -> U+105B6
+    "\U00010590": "\U000105b7",  # U+10590 -> U+105B7
+    "\U00010591": "\U000105b8",  # U+10591 -> U+105B8
+    "\U00010592": "\U000105b9",  # U+10592 -> U+105B9
+    "\U00010594": "\U000105bb",  # U+10594 -> U+105BB
+    "\U00010595": "\U000105bc",  # U+10595 -> U+105BC
+    "\U00010d50": "\U00010d70",  # U+10D50 -> U+10D70
+    "\U00010d51": "\U00010d71",  # U+10D51 -> U+10D71
+    "\U00010d52": "\U00010d72",  # U+10D52 -> U+10D72
+    "\U00010d53": "\U00010d73",  # U+10D53 -> U+10D73
+    "\U00010d54": "\U00010d74",  # U+10D54 -> U+10D74
+    "\U00010d55": "\U00010d75",  # U+10D55 -> U+10D75
+    "\U00010d56": "\U00010d76",  # U+10D56 -> U+10D76
+    "\U00010d57": "\U00010d77",  # U+10D57 -> U+10D77
+    "\U00010d58": "\U00010d78",  # U+10D58 -> U+10D78
+    "\U00010d59": "\U00010d79",  # U+10D59 -> U+10D79
+    "\U00010d5a": "\U00010d7a",  # U+10D5A -> U+10D7A
+    "\U00010d5b": "\U00010d7b",  # U+10D5B -> U+10D7B
+    "\U00010d5c": "\U00010d7c",  # U+10D5C -> U+10D7C
+    "\U00010d5d": "\U00010d7d",  # U+10D5D -> U+10D7D
+    "\U00010d5e": "\U00010d7e",  # U+10D5E -> U+10D7E
+    "\U00010d5f": "\U00010d7f",  # U+10D5F -> U+10D7F
+    "\U00010d60": "\U00010d80",  # U+10D60 -> U+10D80
+    "\U00010d61": "\U00010d81",  # U+10D61 -> U+10D81
+    "\U00010d62": "\U00010d82",  # U+10D62 -> U+10D82
+    "\U00010d63": "\U00010d83",  # U+10D63 -> U+10D83
+    "\U00010d64": "\U00010d84",  # U+10D64 -> U+10D84
+    "\U00010d65": "\U00010d85",  # U+10D65 -> U+10D85
 }
 
 

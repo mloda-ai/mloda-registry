@@ -8,6 +8,7 @@ import pyarrow.compute as pc
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.pyarrow_helpers import nan_safe_not_equal
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 
 
@@ -87,10 +88,14 @@ class PyArrowFfill(FfillFeatureGroup):
         for col in sorted_partition_cols:
             prev = col.slice(0, n - 1)
             curr = col.slice(1, n - 1)
-            # not equal OR exactly one side null -> key changed at this position
-            neq = pc.not_equal(curr, prev)
+            # not equal (NaN-safe, so two NaN neighbours merge like Table.group_by()) OR
+            # exactly one side null -> key changed at this position. Two null neighbours
+            # merge too (Table.group_by() puts every null key in one group, not one per row).
+            neq = nan_safe_not_equal(curr, prev)
             null_diff = pc.not_equal(pc.is_null(curr), pc.is_null(prev))
             col_changed = pc.fill_null(pc.or_(neq, null_diff), True)
+            both_null = pc.and_(pc.is_null(curr), pc.is_null(prev))
+            col_changed = pc.and_(col_changed, pc.invert(both_null))
             changed = pc.or_(changed, col_changed)
 
         boundary_mask = pa.concat_arrays([pa.array([True], type=pa.bool_()), changed.combine_chunks()])

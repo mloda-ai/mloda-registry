@@ -42,6 +42,16 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
 # ``year``; fixed-freq units are idempotent on aligned input).
 _CALENDAR_CEIL_ALWAYS_ADVANCES: frozenset[str] = frozenset({"week", "month", "year"})
 
+# Units whose floor/ceil boundaries come from a `.replace()`-based civil-calendar
+# reset (month/year; unlike week, which derives from a day/epoch-anchored floor).
+# PyArrow's `round_temporal` midpoint comparison for these two units behaves as though
+# the timestamp's own UTC offset were added to its elapsed-time-from-floor a second
+# time, so a tz-aware round_1_month/round_1_year result can disagree with a naive or
+# UTC one for the same wall-clock date. PyArrow is this codebase's cross-framework
+# reference oracle, so this reproduces its behavior rather than the tz-invariant
+# midpoint a pure elapsed-seconds comparison would give.
+_ROUND_MIDPOINT_UTC_OFFSET_QUIRK_UNITS: frozenset[str] = frozenset({"month", "year"})
+
 
 def _elapsed_seconds(later: datetime, earlier: datetime) -> float:
     """True elapsed real-world seconds from *earlier* to *later*.
@@ -134,6 +144,10 @@ def _round_dt(dt: datetime, n: int, unit: str) -> datetime:
     floored = _floor_dt(dt, n, unit)
     next_boundary = _next_boundary(floored, n, unit)
     offset = _elapsed_seconds(dt, floored)
+    if unit in _ROUND_MIDPOINT_UTC_OFFSET_QUIRK_UNITS and dt.tzinfo is not None:
+        utcoffset = dt.utcoffset()
+        if utcoffset is not None:
+            offset += utcoffset.total_seconds()
     length = _elapsed_seconds(next_boundary, floored)
     if offset * 2 >= length:
         return next_boundary
