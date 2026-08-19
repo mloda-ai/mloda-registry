@@ -23,15 +23,17 @@ from mloda.community.feature_groups.data_operations.string.base import (
 # mapping (e.g. Turkish dotted capital I "İ" -> "i" + combining dot
 # above, U+0307).
 #
-# The two tables below are exactly that closed set. Each entry was verified
-# empirically against a live PyArrow build: they are every codepoint in
-# ``range(0x110000)`` where ``chr(cp).upper()``/``.lower()`` (applied to the
-# single character in isolation) produces more than one character, keeping
-# only the entries where PyArrow's ``pc.utf8_upper``/``pc.utf8_lower`` output
-# still disagrees with Python's. Processing per character (see ``_upper``/
-# ``_lower`` below) and consulting these tables first, falling back to
-# Python's own single-character ``.upper()``/``.lower()`` otherwise,
-# reproduces PyArrow's simple mapping for every other codepoint too,
+# The two tables below cover that closed set, plus a second, unrelated source of
+# per-codepoint drift: PyArrow bundles utf8proc, whose Unicode Character Database
+# version can be newer than the CPython interpreter's own bundled `unicodedata`, so a
+# very recently assigned codepoint can have a case mapping in PyArrow's simple mapping
+# before Python's `.upper()`/`.lower()` know about it at all (verified against this
+# codebase's pinned PyArrow build; see the drift test in
+# string/tests/test_python_dict.py, which scans the full range(0x110000) against a live
+# PyArrow build and would fail here again if either source of drift reappears).
+# Processing per character (see ``_upper``/``_lower`` below) and consulting these tables
+# first, falling back to Python's own single-character ``.upper()``/``.lower()``
+# otherwise, reproduces PyArrow's simple mapping for every other codepoint too,
 # including context-dependent full-mapping rules like Greek final sigma
 # (``Σ`` -> ``ς`` only at the end of a word), which never trigger
 # on a single-character Python call and therefore never apply here.
@@ -138,10 +140,69 @@ _UPPER_OVERRIDES: dict[str, str] = {
     "ﬕ": "ﬕ",  # ARMENIAN SMALL LIGATURE MEN INI -> ARMENIAN SMALL LIGATURE MEN INI
     "ﬖ": "ﬖ",  # ARMENIAN SMALL LIGATURE VEW NOW -> ARMENIAN SMALL LIGATURE VEW NOW
     "ﬗ": "ﬗ",  # ARMENIAN SMALL LIGATURE MEN XEH -> ARMENIAN SMALL LIGATURE MEN XEH
+    # Unicode-version-lag entries (unnamed in this interpreter's `unicodedata`; written
+    # as escapes rather than literal glyphs since not every font/terminal has them yet).
+    "꟏": "꟎",  # U+A7CF -> U+A7CE
+    "ꟓ": "꟒",  # U+A7D3 -> U+A7D2
+    "ꟕ": "꟔",  # U+A7D5 -> U+A7D4
+    "\U00016ebb": "\U00016ea0",  # U+16EBB -> U+16EA0
+    "\U00016ebc": "\U00016ea1",  # U+16EBC -> U+16EA1
+    "\U00016ebd": "\U00016ea2",  # U+16EBD -> U+16EA2
+    "\U00016ebe": "\U00016ea3",  # U+16EBE -> U+16EA3
+    "\U00016ebf": "\U00016ea4",  # U+16EBF -> U+16EA4
+    "\U00016ec0": "\U00016ea5",  # U+16EC0 -> U+16EA5
+    "\U00016ec1": "\U00016ea6",  # U+16EC1 -> U+16EA6
+    "\U00016ec2": "\U00016ea7",  # U+16EC2 -> U+16EA7
+    "\U00016ec3": "\U00016ea8",  # U+16EC3 -> U+16EA8
+    "\U00016ec4": "\U00016ea9",  # U+16EC4 -> U+16EA9
+    "\U00016ec5": "\U00016eaa",  # U+16EC5 -> U+16EAA
+    "\U00016ec6": "\U00016eab",  # U+16EC6 -> U+16EAB
+    "\U00016ec7": "\U00016eac",  # U+16EC7 -> U+16EAC
+    "\U00016ec8": "\U00016ead",  # U+16EC8 -> U+16EAD
+    "\U00016ec9": "\U00016eae",  # U+16EC9 -> U+16EAE
+    "\U00016eca": "\U00016eaf",  # U+16ECA -> U+16EAF
+    "\U00016ecb": "\U00016eb0",  # U+16ECB -> U+16EB0
+    "\U00016ecc": "\U00016eb1",  # U+16ECC -> U+16EB1
+    "\U00016ecd": "\U00016eb2",  # U+16ECD -> U+16EB2
+    "\U00016ece": "\U00016eb3",  # U+16ECE -> U+16EB3
+    "\U00016ecf": "\U00016eb4",  # U+16ECF -> U+16EB4
+    "\U00016ed0": "\U00016eb5",  # U+16ED0 -> U+16EB5
+    "\U00016ed1": "\U00016eb6",  # U+16ED1 -> U+16EB6
+    "\U00016ed2": "\U00016eb7",  # U+16ED2 -> U+16EB7
+    "\U00016ed3": "\U00016eb8",  # U+16ED3 -> U+16EB8
 }
 
 _LOWER_OVERRIDES: dict[str, str] = {
     "İ": "i",  # LATIN CAPITAL LETTER I WITH DOT ABOVE -> LATIN SMALL LETTER I
+    # Unicode-version-lag entries; see the matching comment on _UPPER_OVERRIDES above.
+    "꟎": "꟏",  # U+A7CE -> U+A7CF
+    "꟒": "ꟓ",  # U+A7D2 -> U+A7D3
+    "꟔": "ꟕ",  # U+A7D4 -> U+A7D5
+    "\U00016ea0": "\U00016ebb",  # U+16EA0 -> U+16EBB
+    "\U00016ea1": "\U00016ebc",  # U+16EA1 -> U+16EBC
+    "\U00016ea2": "\U00016ebd",  # U+16EA2 -> U+16EBD
+    "\U00016ea3": "\U00016ebe",  # U+16EA3 -> U+16EBE
+    "\U00016ea4": "\U00016ebf",  # U+16EA4 -> U+16EBF
+    "\U00016ea5": "\U00016ec0",  # U+16EA5 -> U+16EC0
+    "\U00016ea6": "\U00016ec1",  # U+16EA6 -> U+16EC1
+    "\U00016ea7": "\U00016ec2",  # U+16EA7 -> U+16EC2
+    "\U00016ea8": "\U00016ec3",  # U+16EA8 -> U+16EC3
+    "\U00016ea9": "\U00016ec4",  # U+16EA9 -> U+16EC4
+    "\U00016eaa": "\U00016ec5",  # U+16EAA -> U+16EC5
+    "\U00016eab": "\U00016ec6",  # U+16EAB -> U+16EC6
+    "\U00016eac": "\U00016ec7",  # U+16EAC -> U+16EC7
+    "\U00016ead": "\U00016ec8",  # U+16EAD -> U+16EC8
+    "\U00016eae": "\U00016ec9",  # U+16EAE -> U+16EC9
+    "\U00016eaf": "\U00016eca",  # U+16EAF -> U+16ECA
+    "\U00016eb0": "\U00016ecb",  # U+16EB0 -> U+16ECB
+    "\U00016eb1": "\U00016ecc",  # U+16EB1 -> U+16ECC
+    "\U00016eb2": "\U00016ecd",  # U+16EB2 -> U+16ECD
+    "\U00016eb3": "\U00016ece",  # U+16EB3 -> U+16ECE
+    "\U00016eb4": "\U00016ecf",  # U+16EB4 -> U+16ECF
+    "\U00016eb5": "\U00016ed0",  # U+16EB5 -> U+16ED0
+    "\U00016eb6": "\U00016ed1",  # U+16EB6 -> U+16ED1
+    "\U00016eb7": "\U00016ed2",  # U+16EB7 -> U+16ED2
+    "\U00016eb8": "\U00016ed3",  # U+16EB8 -> U+16ED3
 }
 
 
