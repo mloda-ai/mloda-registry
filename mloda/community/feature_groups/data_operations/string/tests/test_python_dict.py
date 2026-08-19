@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 import pyarrow as pa
-import pytest
 
 from mloda.community.feature_groups.data_operations.string.pyarrow_string import (
     PyArrowStringOps,
@@ -101,8 +100,6 @@ class TestPythonDictStringCaseMappingDriftCheck:
         return [chr(cp) for cp in range(0x110000) if not 0xD800 <= cp <= 0xDFFF]
 
     def test_upper_matches_pyarrow_for_every_codepoint(self) -> None:
-        pytest.importorskip("pyarrow")
-
         chars = self._all_codepoints()
         table = pa.table({"name": chars})
         fs = make_feature_set("name__upper")
@@ -122,8 +119,6 @@ class TestPythonDictStringCaseMappingDriftCheck:
         )
 
     def test_lower_matches_pyarrow_for_every_codepoint(self) -> None:
-        pytest.importorskip("pyarrow")
-
         chars = self._all_codepoints()
         table = pa.table({"name": chars})
         fs = make_feature_set("name__lower")
