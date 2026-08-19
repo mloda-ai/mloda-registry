@@ -171,6 +171,7 @@ description = "Datetime extraction feature group (element-wise, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.4.4"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/datetime"
 published = true
+optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-string]
@@ -178,6 +179,7 @@ description = "String operation feature group (element-wise, row-preserving)"
 dependencies = ["mloda-community-data-operations>=0.4.4"]
 path = "mloda/community/feature_groups/data_operations/string"
 published = true
+optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-binning]
