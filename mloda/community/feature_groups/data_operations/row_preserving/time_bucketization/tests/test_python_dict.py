@@ -97,7 +97,9 @@ class TestPythonDictNonUtcTimezoneSupported:
                 ),
             }
         )
-        data = {"timestamp": [datetime(2023, 3, 31, 12, 0, 0, tzinfo=ZoneInfo("Europe/Berlin"))]}
+        # arrow_table's naive datetime is interpreted as a UTC instant (14:00 CEST Berlin);
+        # match that same instant here so the two sides compare the identical timestamp.
+        data = {"timestamp": [datetime(2023, 3, 31, 14, 0, 0, tzinfo=ZoneInfo("Europe/Berlin"))]}
         fs = make_feature_set("timestamp__floor_1_month")
 
         result = PythonDictTimeBucketization.calculate_feature(data, fs)
@@ -115,15 +117,11 @@ class TestPythonDictNonUtcTimezoneSupported:
         whatever transition period the original ``localize()`` call resolved)
         and does NOT recompute the DST offset when ``.replace(...)``-ed onto a
         different date -- unlike ``zoneinfo.ZoneInfo``, whose ``utcoffset()``
-        resolves dynamically per-datetime. ``test_dst_zone_month_floor_matches_pyarrow_oracle``
-        above builds its input via ``pa.array(...).to_pylist()``, whose choice of
-        tzinfo *type* is pyarrow/pandas-version-dependent: on the CI Python 3.10
-        runner that path happens to attach a pytz ``DstTzInfo``, while 3.11+ in
-        the same CI matrix get ``zoneinfo.ZoneInfo`` -- so that test passes here
-        (this environment's pyarrow attaches ``zoneinfo.ZoneInfo``) but fails on
-        the 3.10 runner. This test instead constructs the pytz ``DstTzInfo``
-        directly, so the bug reproduces deterministically regardless of which
-        tzinfo type the locally installed pyarrow/pandas combination attaches.
+        resolves dynamically per-datetime. This is the pytz-tzinfo companion to
+        ``test_dst_zone_month_floor_matches_pyarrow_oracle`` above (which covers the
+        zoneinfo.ZoneInfo path): together they deterministically exercise both tzinfo
+        types ``attach_tzinfo`` (python_dict_helpers.py) branches on, regardless of the
+        ambient dependency set.
         """
         from datetime import datetime, timedelta
 
@@ -210,14 +208,9 @@ class TestPythonDictRoundDstCrossing:
         assert actual == expected, f"{actual!r} != oracle {expected!r}"
 
     def test_round_1_day_spring_forward_recomputes_offset_for_pytz_tzinfo(self) -> None:
-        """Companion to ``test_round_1_day_spring_forward_matches_pyarrow_oracle``,
-        constructing the pytz ``DstTzInfo`` directly instead of going through
-        ``pa.array(...).to_pylist()`` (whose resulting tzinfo *type* is
-        pyarrow/pandas-version-dependent -- see the sibling test in
-        ``TestPythonDictNonUtcTimezoneSupported`` above for the same
-        environment-dependence). This reproduces the bug deterministically
-        regardless of which tzinfo type the locally installed pyarrow/pandas
-        combination attaches.
+        """pytz-tzinfo companion to ``test_round_1_day_spring_forward_matches_pyarrow_oracle``
+        above (which covers the zoneinfo.ZoneInfo path), constructing the pytz ``DstTzInfo``
+        directly so this reproduces deterministically regardless of the ambient dependency set.
 
         With a real (dynamic) ``zoneinfo.ZoneInfo`` tzinfo, this rounds DOWN
         to 2023-03-12 00:00 EST: the spring-forward day is 23 real hours (the
@@ -281,8 +274,9 @@ class TestPythonDictRoundCalendarUnitVariableLength:
         )
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
-        # A pure elapsed-seconds midpoint puts 2025-05-16 00:00 Sydney before May's true
-        # midpoint (2025-05-16 12:00 local) and floors it; the live PyArrow oracle ceils it.
+        # naive UTC 2025-05-16 00:00 is local 2025-05-16 10:00 in Sydney (+10:00). A pure
+        # elapsed-seconds midpoint puts that before May's true midpoint (2025-05-16 12:00
+        # local) and floors it; the live PyArrow oracle ceils it.
         arrow_table = pa.table(
             {
                 "timestamp": pa.array(
@@ -311,10 +305,13 @@ class TestPythonDictRoundCalendarUnitVariableLength:
         )
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
+        # naive UTC 2025-07-01 16:00 is local 2025-07-02 02:00 in Sydney (+10:00), just past
+        # the true (tz-invariant) year midpoint of July 2 noon; a pure elapsed-seconds
+        # midpoint floors this to 2025-01-01, but the live PyArrow oracle ceils to 2026-01-01.
         arrow_table = pa.table(
             {
                 "timestamp": pa.array(
-                    [datetime(2025, 7, 2, 12, 0, 0)],
+                    [datetime(2025, 7, 1, 16, 0, 0)],
                     type=pa.timestamp("us", tz="Australia/Sydney"),
                 ),
             }
