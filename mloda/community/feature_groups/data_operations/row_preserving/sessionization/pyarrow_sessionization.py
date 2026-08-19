@@ -17,6 +17,7 @@ import pyarrow.compute as pc
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.pyarrow_helpers import nan_safe_not_equal
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import (
     SessionizationFeatureGroup,
 )
@@ -71,7 +72,8 @@ class PyArrowSessionization(SessionizationFeatureGroup):
             part_changed: pa.Array = pa.array([False] * (n - 1), type=pa.bool_())
             for col in partition_by:
                 sorted_col = sorted_tbl.column(col)
-                changed = pc.not_equal(sorted_col.slice(1), sorted_col.slice(0, n - 1))
+                # NaN-safe: two NaN neighbours merge into one session, like Table.group_by().
+                changed = nan_safe_not_equal(sorted_col.slice(1), sorted_col.slice(0, n - 1))
                 part_changed = pc.or_(part_changed, changed)
 
             tail = pc.or_(gap_new, part_changed)

@@ -85,12 +85,11 @@ class TestPythonDictNanPartitionKeyGrouping:
 
     Comparing raw partition-key tuples with ``key != prev_key`` treats every NaN-keyed row
     after the first as starting a brand new partition (and therefore a brand new session),
-    since ``nan != nan``. ``PyArrowSessionization`` is NOT a valid oracle here: it detects
-    partition boundaries via ``pc.not_equal`` on adjacent sorted rows, and
-    ``pc.not_equal(nan, nan)`` is ``True`` (Arrow follows IEEE-754 float comparisons, unlike
-    its hash-based ``Table.group_by()``), so it reproduces the identical "every NaN row is
-    its own partition" bug via a different mechanism. Instead, this test asks PyArrow's own
-    ``Table.group_by()`` directly which rows it considers one partition.
+    since ``nan != nan``. This test asks PyArrow's own ``Table.group_by()`` directly which
+    rows it considers one partition (see
+    sessionization/tests/test_pyarrow.py::TestPyArrowSessionizationNanPartitionKeyGrouping
+    for the equivalent check against ``PyArrowSessionization`` itself, which merges NaN
+    partition keys too).
     """
 
     def test_nan_partition_rows_share_one_session_matches_pyarrow_group_by(self) -> None:

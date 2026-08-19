@@ -27,13 +27,11 @@ class TestPythonDictFfillNanPartitionKeyGrouping:
     Two rows that both carry ``float('nan')`` in a partition column compare unequal
     (``nan != nan``), so building the group key from the raw partition value would split
     them into separate one-row groups instead of one shared group, and forward-fill within
-    a one-row group can never carry a value into it. ``PyArrowFfill`` is NOT a valid oracle
-    here: it detects partition boundaries via ``pc.not_equal`` on adjacent sorted rows, and
-    ``pc.not_equal(nan, nan)`` is ``True`` (Arrow follows IEEE-754 float comparisons, unlike
-    its hash-based ``Table.group_by()``), so it reproduces the identical "every NaN row is
-    its own partition" bug via a different mechanism. Instead, this test asks PyArrow's own
+    a one-row group can never carry a value into it. This test asks PyArrow's own
     ``Table.group_by()`` directly which rows it considers one partition, and derives the
-    expected forward-filled value from that by hand.
+    expected forward-filled value from that by hand (see
+    ffill/tests/test_pyarrow.py::TestPyArrowFfillNanPartitionKeyGrouping for the equivalent
+    check against ``PyArrowFfill`` itself, which merges NaN partition keys too).
     """
 
     def test_nan_partition_rows_share_one_group_ffill_carries_forward(self) -> None:
