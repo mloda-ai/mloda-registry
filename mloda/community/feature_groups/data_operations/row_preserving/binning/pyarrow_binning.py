@@ -75,7 +75,7 @@ class PyArrowBinning(BinningFeatureGroup):
 
     @classmethod
     def _quantile_bin(cls, col: pa.ChunkedArray, n_bins: int, non_null_count: int) -> pa.Array:
-        indices = pc.sort_indices(col, null_placement="at_end")
+        indices = pc.array_sort_indices(col, order="ascending", null_placement="at_end")
         n = non_null_count
 
         result_values: list[Any] = [None] * len(col)

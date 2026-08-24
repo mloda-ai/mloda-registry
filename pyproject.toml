@@ -59,6 +59,7 @@ addopts = "--import-mode=importlib --ignore-glob=*/build/* --ignore-glob=*/dist/
 filterwarnings = [
     "error:The behavior of DataFrame concatenation with empty or all-NA entries:FutureWarning",
     "error:Mean of empty slice:RuntimeWarning",
+    "error:Specifying null_placement in SortOptions is deprecated:FutureWarning",
 ]
 
 [tool.mypy]
