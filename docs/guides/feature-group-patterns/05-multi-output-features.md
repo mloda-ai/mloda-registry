@@ -53,12 +53,15 @@ class StatsFeature(FeatureGroup):
 import pandas as pd
 from mloda.user import FeatureName
 
+
 def test_stats_feature():
     assert StatsFeature.match_feature_group_criteria("value__stats", None)
 
     df = pd.DataFrame({"value": [1, 2, 3, 4, 5]})
+
     class MockFeatures:
         name_of_one_feature = FeatureName("value__stats")
+
     result = StatsFeature.calculate_feature(df, MockFeatures())
     assert "value__stats~mean" in result
     assert "value__stats~std" in result

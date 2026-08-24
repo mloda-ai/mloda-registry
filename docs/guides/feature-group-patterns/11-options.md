@@ -26,10 +26,7 @@ How to pass configuration to features and feature groups.
 from mloda.user import Feature, Options
 
 # Configuration-based feature creation
-feature = Feature("imputed_income", Options(
-    group={"algorithm": "mean"},
-    context={"in_features": "income"}
-))
+feature = Feature("imputed_income", Options(group={"algorithm": "mean"}, context={"in_features": "income"}))
 ```
 
 ## Context Propagation
@@ -42,13 +39,13 @@ To selectively propagate specific context keys to dependent features, use `propa
 from mloda.user import Feature, Options
 
 # Propagate specific context keys through the dependency chain
-feature = Feature("price__scaled", Options(
-    context={
-        "debug": True,
-        "trace_id": "abc123"
-    },
-    propagate_context_keys=frozenset({"trace_id"})  # Only trace_id flows to input features
-))
+feature = Feature(
+    "price__scaled",
+    Options(
+        context={"debug": True, "trace_id": "abc123"},
+        propagate_context_keys=frozenset({"trace_id"}),  # Only trace_id flows to input features
+    ),
+)
 ```
 
 | Behavior | Description |

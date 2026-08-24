@@ -29,6 +29,7 @@ On FeatureGroups:
 from mloda.user import Domain
 from mloda.provider import FeatureGroup
 
+
 class SalesRevenueGroup(FeatureGroup):
     @classmethod
     def get_domain(cls) -> Domain:
@@ -56,8 +57,8 @@ class SalesRevenueGroup(FeatureGroup):
 
     def input_features(self, options, feature_name):
         return {
-            "base_amount",                              # Inherits "Sales"
-            Feature("exchange_rate", domain="Finance"), # Uses "Finance"
+            "base_amount",  # Inherits "Sales"
+            Feature("exchange_rate", domain="Finance"),  # Uses "Finance"
         }
 ```
 
@@ -66,8 +67,8 @@ class SalesRevenueGroup(FeatureGroup):
 ```python
 def input_features(self, options, feature_name):
     return {
-        "domain_specific_feature",                    # Inherits parent domain
-        Feature("date_parser", domain="Common"),      # Always use Common
+        "domain_specific_feature",  # Inherits parent domain
+        Feature("date_parser", domain="Common"),  # Always use Common
     }
 ```
 

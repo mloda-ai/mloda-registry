@@ -50,8 +50,7 @@ class GovDataReader(ReadFile):
         return None
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> Any:
-        ...  # fetch and parse, return the table
+    def load_data(cls, data_access: Any, features: FeatureSet) -> Any: ...  # fetch and parse, return the table
 
 
 class UbaAirReader(ReadFile):
@@ -64,8 +63,7 @@ class UbaAirReader(ReadFile):
         return None
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> Any:
-        ...  # HTTP GET, normalize JSON, return the table
+    def load_data(cls, data_access: Any, features: FeatureSet) -> Any: ...  # HTTP GET, normalize JSON, return the table
 ```
 
 Both are siblings under the stock `ReadFileFeature` root group; no extra FeatureGroup is needed. The user routes per feature (snippets on this page build on each other):

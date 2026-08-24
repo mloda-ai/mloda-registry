@@ -46,6 +46,7 @@ class PandasGroupMean(FeatureGroup):
 import pandas as pd
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
+
 def test_pandas_group_mean():
     frameworks = PandasGroupMean.compute_framework_rule()
     assert PandasDataFrame in frameworks
@@ -85,11 +86,13 @@ Define shared logic in an abstract base class, then create framework-specific su
 class MyFeatureBase(FeatureGroup, ABC):
     PREFIX_PATTERN = r"^.+__my_op$"
 
+
 # pandas.py - Pandas implementation
 class MyFeaturePandas(MyFeatureBase):
     @classmethod
     def compute_framework_rule(cls):
         return {PandasDataFrame}
+
 
 # polars.py - Polars implementation
 class MyFeaturePolars(MyFeatureBase):
@@ -143,6 +146,7 @@ Assert the contract holds in your own test suite instead of discovering a gap mi
 
 ```python
 from mloda.provider import COLUMN_DISCOVERY_HOOKS, missing_columnwise_hooks
+
 
 def test_my_feature_pandas_implements_its_hooks():
     assert MyFeaturePandas.REQUIRED_COLUMNWISE_HOOKS == COLUMN_DISCOVERY_HOOKS

@@ -29,6 +29,7 @@ For filter engine tests - implement 3 methods, get 11 tests:
 ```python
 from tests.test_plugins.compute_framework.base_implementations.filter_engine_test_mixin import FilterEngineTestMixin
 
+
 class TestMyFilterEngine(FilterEngineTestMixin):
     @pytest.fixture
     def filter_engine(self) -> Any:
@@ -47,7 +48,10 @@ class TestMyFilterEngine(FilterEngineTestMixin):
 For merge engine tests with multi-column indexes:
 
 ```python
-from tests.test_plugins.compute_framework.test_tooling.multi_index.multi_index_test_base import MultiIndexMergeEngineTestBase
+from tests.test_plugins.compute_framework.test_tooling.multi_index.multi_index_test_base import (
+    MultiIndexMergeEngineTestBase,
+)
+
 
 class TestMyMergeEngine(MultiIndexMergeEngineTestBase):
     @classmethod
@@ -68,6 +72,7 @@ For framework-level merge tests:
 
 ```python
 from tests.test_plugins.compute_framework.test_tooling.dataframe_test_base import DataFrameTestBase
+
 
 class TestMyFrameworkMerge(DataFrameTestBase):
     @classmethod
@@ -101,6 +106,7 @@ Framework-agnostic merge scenarios, a `dict[str, MergeScenario]` keyed by scenar
 ```python
 from tests.test_plugins.compute_framework.test_tooling.multi_index.test_scenarios import SCENARIOS
 
+
 # Use in parametrized tests
 @pytest.mark.parametrize("scenario_key", list(SCENARIOS))
 def test_merge_scenario(scenario_key, converter, engine):
@@ -120,6 +126,7 @@ from tests.test_plugins.compute_framework.test_tooling.availability_test_helper 
     assert_unavailable_when_import_blocked,
 )
 
+
 def test_unavailable_when_not_installed():
     assert_unavailable_when_import_blocked(MyFramework, "my_lib")
 ```
@@ -129,9 +136,7 @@ def test_unavailable_when_not_installed():
 For testing transformer chains:
 
 ```python
-from tests.test_plugins.compute_framework.test_tooling.shared_compute_frameworks import (
-    SecondCfw, ThirdCfw, FourthCfw
-)
+from tests.test_plugins.compute_framework.test_tooling.shared_compute_frameworks import SecondCfw, ThirdCfw, FourthCfw
 ```
 
 ## Shared Fixtures
@@ -143,6 +148,7 @@ The compute framework conftest provides:
 @pytest.fixture
 def index_obj() -> Any:
     return Index(("idx",))
+
 
 @pytest.fixture
 def dict_data() -> dict[str, list[int]]:
@@ -158,6 +164,7 @@ def connection():
     conn = duckdb.connect()
     yield conn
     conn.close()
+
 
 # Spark conftest.py
 @pytest.fixture(scope="session")

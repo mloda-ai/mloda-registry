@@ -69,10 +69,12 @@ PluginLoader.all()
 # Sum of value_int where category equals 'X', partitioned by region
 feature = Feature(
     "value_int__sum_agg",
-    Options(context={
-        "partition_by": ["region"],
-        "mask": ("category", "equal", "X"),
-    }),
+    Options(
+        context={
+            "partition_by": ["region"],
+            "mask": ("category", "equal", "X"),
+        }
+    ),
 )
 
 result = mloda.run_all(
@@ -95,13 +97,15 @@ from mloda.user import Feature, Options
 # Sum where category='X' AND value_int >= 10
 feature = Feature(
     "value_int__sum_agg",
-    Options(context={
-        "partition_by": ["region"],
-        "mask": [
-            ("category", "equal", "X"),
-            ("value_int", "greater_equal", 10),
-        ],
-    }),
+    Options(
+        context={
+            "partition_by": ["region"],
+            "mask": [
+                ("category", "equal", "X"),
+                ("value_int", "greater_equal", 10),
+            ],
+        }
+    ),
 )
 ```
 
@@ -156,6 +160,7 @@ Both mixins use overridable class methods for configuration:
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 
+
 class MyAggregationTestBase(MaskTestMixin, DataOpsTestBase):
     @classmethod
     def mask_feature_name(cls) -> str:
@@ -185,6 +190,7 @@ Concrete test classes then compose the test base with a framework mixin:
 
 ```python
 from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
+
 
 class TestPandasMyAggregation(PandasTestMixin, MyAggregationTestBase):
     @classmethod

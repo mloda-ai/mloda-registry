@@ -27,9 +27,9 @@ point-in-time joins. Its signature differs from the others — it takes an extra
 `tolerance`, `allow_exact_matches`):
 
 ```python
-def merge_asof(self, left_data, right_data, left_index: Index, right_index: Index,
-               asof_config: AsOfJoinConfig) -> Any:
-    ...
+def merge_asof(
+    self, left_data, right_data, left_index: Index, right_index: Index, asof_config: AsOfJoinConfig
+) -> Any: ...
 ```
 
 See `pandas_merge_engine.py` (linked below) for a reference implementation.
@@ -83,6 +83,7 @@ class MyMergeEngine(BaseMergeEngine):
 ```python
 from mloda.user import Index
 
+
 def test_merge_engine():
     engine = MyMergeEngine()
     left = pd.DataFrame({"idx": [1, 2], "a": ["x", "y"]})
@@ -102,8 +103,9 @@ timezone-naive key columns. Opt in via a class attribute:
 class MyMergeEngine(BaseMergeEngine):
     provides_column_semantics = True
 
-    def _column_semantics(self, data, column) -> "ColumnSemantics":
-        ...  # is_ordered, is_temporal, is_numeric, unit, is_tz_aware
+    def _column_semantics(
+        self, data, column
+    ) -> "ColumnSemantics": ...  # is_ordered, is_temporal, is_numeric, unit, is_tz_aware
 ```
 
 - Default `False`: guard skipped, hook never required.

@@ -80,13 +80,16 @@ class StandardScaledFeature(FeatureChainParserMixin, FeatureGroup):
 ```python
 import pandas as pd
 
+
 def test_standard_scaled_feature():
     assert StandardScaledFeature.artifact() == ScalerArtifact
 
     df = pd.DataFrame({"price": [10, 20, 30]})
+
     class MockFeatures:
         class name_of_one_feature:
             name = "price__standard_scaled"
+
     result = StandardScaledFeature.calculate_feature(df, MockFeatures())
     assert abs(result.mean()) < 0.01
 ```

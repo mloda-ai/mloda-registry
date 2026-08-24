@@ -174,10 +174,7 @@ Specifies join columns directly. No `index_columns()` needed on the feature grou
 The engine automatically injects the specified join columns into the feature group's feature set.
 
 ```python
-link = Link.inner(
-    left=JoinSpec(FeatureGroupA, "id"),
-    right=JoinSpec(FeatureGroupB, "ref_id")
-)
+link = Link.inner(left=JoinSpec(FeatureGroupA, "id"), right=JoinSpec(FeatureGroupB, "ref_id"))
 ```
 
 ## Using _on Methods (Convenience)
@@ -194,9 +191,9 @@ link = Link.inner_on(UserFG, OrderFG, left_index=0, right_index=1)
 ## Self-Joins with Aliases
 
 ```python
-link = Link.inner_on(UserFeatureGroup, UserFeatureGroup,
-                     self_left_alias={"side": "left"},
-                     self_right_alias={"side": "right"})
+link = Link.inner_on(
+    UserFeatureGroup, UserFeatureGroup, self_left_alias={"side": "left"}, self_right_alias={"side": "right"}
+)
 
 features = {
     Feature("age", options={"side": "left"}),
@@ -213,8 +210,7 @@ Links can also be set directly on Feature objects.
 ```python
 # Pass link when creating a Feature
 link = Link.left(
-    JoinSpec(OrderFeatureGroup, Index(("order_id",))),
-    JoinSpec(CustomerFeatureGroup, Index(("customer_id",)))
+    JoinSpec(OrderFeatureGroup, Index(("order_id",))), JoinSpec(CustomerFeatureGroup, Index(("customer_id",)))
 )
 feature = Feature(name="order_value", link=link, index=Index(("order_id",)))
 ```
@@ -224,8 +220,7 @@ feature = Feature(name="order_value", link=link, index=Index(("order_id",)))
 ```python
 def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
     link = Link.left(
-        JoinSpec(OrderFeatureGroup, Index(("order_id",))),
-        JoinSpec(CustomerFeatureGroup, Index(("customer_id",)))
+        JoinSpec(OrderFeatureGroup, Index(("order_id",))), JoinSpec(CustomerFeatureGroup, Index(("customer_id",)))
     )
     return {
         Feature(name="order_value", link=link, index=Index(("order_id",))),

@@ -50,14 +50,17 @@ class DiffFeature(FeatureGroup):
 ```python
 import pandas as pd
 
+
 def test_diff_feature():
     assert DiffFeature.match_feature_group_criteria("revenue&cost__diff", None)
     assert not DiffFeature.match_feature_group_criteria("revenue__diff", None)
 
     df = pd.DataFrame({"revenue": [100, 200], "cost": [30, 50]})
+
     class MockFeatures:
         class name_of_one_feature:
             name = "revenue&cost__diff"
+
     result = DiffFeature.calculate_feature(df, MockFeatures())
     assert list(result) == [70, 150]
 ```

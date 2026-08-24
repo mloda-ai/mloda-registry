@@ -18,7 +18,7 @@ Create FeatureGroup classes at runtime without explicit class definitions.
 
 ```python
 from mloda_plugins.feature_group.experimental.dynamic_feature_group_factory.dynamic_feature_group_factory import (
-    DynamicFeatureGroupCreator
+    DynamicFeatureGroupCreator,
 )
 
 properties = {
@@ -26,10 +26,7 @@ properties = {
     "match_feature_group_criteria": lambda cls, name, opts, dac: name == "double_value",
 }
 
-DoubleValueFG = DynamicFeatureGroupCreator.create(
-    properties=properties,
-    class_name="DoubleValueFeatureGroup"
-)
+DoubleValueFG = DynamicFeatureGroupCreator.create(properties=properties, class_name="DoubleValueFeatureGroup")
 ```
 
 See [dynamic_feature_group_factory.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/experimental/dynamic_feature_group_factory/dynamic_feature_group_factory.py)
@@ -46,9 +43,10 @@ Mixin that simplifies defining complex input sources via Options.
 ```python
 from mloda_plugins.feature_group.experimental.source_input_feature import SourceInputFeature, SourceTuple
 
-Feature(name="target_feature", options={
-    "in_features": frozenset(["source_1", SourceTuple(feature_name="source_2", source_class=MyFG)])
-})
+Feature(
+    name="target_feature",
+    options={"in_features": frozenset(["source_1", SourceTuple(feature_name="source_2", source_class=MyFG)])},
+)
 ```
 
 See [source_input_feature.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/experimental/source_input_feature.py)

@@ -32,10 +32,7 @@ global_filter = GlobalFilter()
 global_filter.add_filter("age", "range", {"min": 18, "max": 65})
 global_filter.add_filter("region", "categorical_inclusion", {"values": ["EU", "NA"]})
 
-result = mloda.run_all(
-    [Feature.not_typed("my_feature")],
-    global_filter=global_filter
-)
+result = mloda.run_all([Feature.not_typed("my_feature")], global_filter=global_filter)
 ```
 
 You can also use the `FilterType` enum directly:
@@ -60,7 +57,7 @@ global_filter.add_time_and_time_travel_filters(
     event_from=datetime(2024, 1, 1, tzinfo=timezone.utc),
     event_to=datetime(2024, 12, 31, tzinfo=timezone.utc),
     max_exclusive=True,
-    event_time_column="reference_time"
+    event_time_column="reference_time",
 )
 ```
 
@@ -92,6 +89,7 @@ By default, the framework defers to the `FilterEngine` to decide whether row eli
 
 ```python
 from mloda.provider import FeatureGroup
+
 
 class MyDataSource(FeatureGroup):
     @classmethod

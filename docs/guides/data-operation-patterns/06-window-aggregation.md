@@ -81,10 +81,12 @@ Every window-aggregation feature accepts the `mask` option. Masked rows have the
 ```python
 Feature(
     "value_int__sum_window",
-    Options(context={
-        "partition_by": ["region"],
-        "mask": ("category", "equal", "X"),
-    }),
+    Options(
+        context={
+            "partition_by": ["region"],
+            "mask": ("category", "equal", "X"),
+        }
+    ),
 )
 ```
 

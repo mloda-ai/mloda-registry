@@ -15,7 +15,7 @@ Binning maps a numeric column onto integer bucket indices `0..n-1`. Two variants
 ```python
 # mloda/community/feature_groups/data_operations/row_preserving/binning/base.py
 BINNING_OPS = {
-    "bin":  "Equal-width binning (value range divided into n equal intervals)",
+    "bin": "Equal-width binning (value range divided into n equal intervals)",
     "qbin": "Quantile-based binning (rows divided into n roughly equal groups by rank)",
 }
 ```
@@ -69,10 +69,10 @@ The `PARTITION BY CASE WHEN ...` clause is what ensures NULL/NaN rows do not par
 ```python
 # Paraphrased from duckdb_binning.py
 rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-tagged     = data.with_row_number(rn)
+tagged = data.with_row_number(rn)
 # partition key is a CASE expression, so project it into a column first
-tagged     = tagged.project(f"*, {part_case} AS {quote_ident(qbin_part)}")
-with_qbin  = tagged.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
+tagged = tagged.project(f"*, {part_case} AS {quote_ident(qbin_part)}")
+with_qbin = tagged.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
 sorted_rel = with_qbin.order(quote_ident(rn))
 # project out the helper columns in the final projection
 ```
@@ -94,8 +94,8 @@ from mloda.user import Feature, PluginLoader, mloda
 PluginLoader.all()
 
 features = [
-    Feature("value_int__bin_5"),    # equal-width, 5 bins
-    Feature("value_int__qbin_4"),   # quartiles
+    Feature("value_int__bin_5"),  # equal-width, 5 bins
+    Feature("value_int__qbin_4"),  # quartiles
 ]
 
 result = mloda.run_all(features, compute_frameworks={"PandasDataFrame"})

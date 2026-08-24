@@ -33,6 +33,7 @@ my-project/
 # my_features/scoring/customer.py
 from mloda.provider import FeatureGroup
 
+
 class CustomerScoring(FeatureGroup):
     """Customer scoring calculations."""
 

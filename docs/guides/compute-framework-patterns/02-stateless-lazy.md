@@ -26,10 +26,12 @@ def _extract_column_names(self, data: Any) -> set[str]:
     # Get schema WITHOUT executing query
     return set(data.collect_schema().names())
 
+
 def select_data_by_column_names(self, data, selected_feature_names):
     column_names = set(data.collect_schema().names())
     _selected = self.identify_naming_convention(selected_feature_names, column_names)
     return data.select(list(_selected)).collect()  # Materialize HERE
+
 
 def transform(self, data: Any, feature_names: set[str]) -> Any:
     if isinstance(data, dict):

@@ -37,6 +37,7 @@ def test_matching():
 ```python
 import pandas as pd
 
+
 def test_calculate_feature():
     df = pd.DataFrame({"input": [1, 2, 3]})
 
@@ -53,6 +54,7 @@ def test_calculate_feature():
 
 ```python
 from mloda.user import mloda, Feature
+
 
 def test_full_pipeline():
     result = mloda.run_all([Feature.not_typed("my_feature")])
@@ -78,10 +80,7 @@ def test_empty_source_keeps_schema():
 
 ```python
 def test_multiple_features():
-    result = mloda.run_all(
-        [Feature("feature_a"), Feature("feature_b")],
-        column_ordering="request_order"
-    )
+    result = mloda.run_all([Feature("feature_a"), Feature("feature_b")], column_ordering="request_order")
     # Columns guaranteed to be in request order
     assert list(result[0]) == ["feature_a", "feature_b"]
 ```
@@ -96,6 +95,7 @@ Isolate derived features from expensive upstream computations by disabling depen
 
 ```python
 from mloda.user import mloda, Feature, PluginCollector
+
 
 def test_derived_feature_isolated():
     result = mloda.run_all(

@@ -43,11 +43,13 @@ class MyEagerFramework(ComputeFramework):
     @classmethod
     def merge_engine(cls) -> type[BaseMergeEngine]:
         from my_plugin.my_merge_engine import MyMergeEngine
+
         return MyMergeEngine
 
     @classmethod
     def filter_engine(cls) -> type[BaseFilterEngine]:
         from my_plugin.my_filter_engine import MyFilterEngine
+
         return MyFilterEngine
 
     def transform(self, data: Any, feature_names: set[str]) -> Any:

@@ -111,6 +111,7 @@ See [Feature Matching: Key Differences](14-feature-matching.md#key-differences-f
 ```python
 import pandas as pd
 
+
 def test_mean_imputed():
     assert MeanImputedFeature.match_feature_group_criteria("price__mean_imputed", None)
     assert not MeanImputedFeature.match_feature_group_criteria("price", None)

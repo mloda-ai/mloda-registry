@@ -27,15 +27,15 @@ from mloda.community.feature_groups.data_operations import DataOperationsCatalog
 
 # Exact cell: is median aggregation available on SQLite?
 DataOperationsCatalog.is_supported("aggregation", "median", "SqliteFramework")  # False
-DataOperationsCatalog.is_supported("aggregation", "mean", "SqliteFramework")    # True
+DataOperationsCatalog.is_supported("aggregation", "mean", "SqliteFramework")  # True
 
 # Operation-level: does percentile ship on DuckDB at all?
-DataOperationsCatalog.is_supported("percentile", framework="DuckDBFramework")   # True
+DataOperationsCatalog.is_supported("percentile", framework="DuckDBFramework")  # True
 
 # Full record: naming pattern, subtype universe, per-framework support.
 info = DataOperationsCatalog.get("aggregation")
-info.prefix_pattern            # r".*__([\w]+)_agg$"
-info.subtypes                  # ("sum", "avg", "mean", "count", ...)
+info.prefix_pattern  # r".*__([\w]+)_agg$"
+info.subtypes  # ("sum", "avg", "mean", "count", ...)
 info.frameworks["SqliteFramework"]  # frozenset({"sum", "avg", "mean", "count", "min", "max"})
 
 for op in DataOperationsCatalog.list():
@@ -52,7 +52,7 @@ from mloda.steward import resolve_feature
 
 PluginLoader.all()
 resolved = resolve_feature("value__median_scalar")
-resolved.supported_compute_frameworks    # ["DuckDBFramework", "PandasDataFrame", ...]
+resolved.supported_compute_frameworks  # ["DuckDBFramework", "PandasDataFrame", ...]
 resolved.unsupported_compute_frameworks  # ["SqliteFramework"]
 ```
 
