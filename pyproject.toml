@@ -71,7 +71,9 @@ explicit_package_bases = true
 # still exist at runtime. `follow_imports = skip` treats the module as
 # untyped so callers can access `pc.*` without `attr-defined` failures;
 # typing of pyarrow itself (`pa.Table`, etc.) is unaffected. Remove when
-# stubs restore the explicit exports.
+# stubs restore the explicit exports. Note: pyarrow 25 also dropped py.typed
+# entirely, so `--ignore-missing-imports` now covers the whole package, not
+# just this override's scope.
 module = ["pyarrow.compute", "pyarrow.compute.*"]
 follow_imports = "skip"
 
