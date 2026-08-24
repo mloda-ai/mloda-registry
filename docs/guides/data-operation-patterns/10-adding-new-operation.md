@@ -6,7 +6,17 @@ End-to-end recipe for introducing a new data operation: base class, framework im
 **When**: You want a declarative transform that behaves identically on PyArrow, Pandas, Polars, DuckDB, and SQLite.
 **Why**: The existing pattern enforces the row-preserving contract, reference-implementation comparison, and supported-ops skipping for free. Following it gets you coverage without reinventing test harnesses.
 **Where**: Code in `mloda/community/feature_groups/data_operations/{your_category}/`, test bases in `mloda/testing/feature_groups/data_operations/{your_category}/`.
-**How**: Follow the seven steps below in order. Every existing category (binning, window_aggregation, rank, offset, percentile, scalar_aggregate, scalar_arithmetic, point_arithmetic, frame_aggregate, string, aggregation) was built the same way.
+**How**: Follow the seven steps below in order. Every existing category was built the same way, so any of them is usable as prior art. They live under `mloda/community/feature_groups/data_operations/`, split by whether they preserve the row count:
+
+- `row_preserving/`: `binning`, `datetime`, `ema`, `ffill`, `frame_aggregate`, `offset`, `percentile`, `point_arithmetic`, `rank`, `scalar_aggregate`, `scalar_arithmetic`, `sessionization`, `time_bucketization`, `window_aggregation`. Also `arithmetic`, which is a shared base for `point_arithmetic` and `scalar_arithmetic` rather than a category of its own
+- `row_changing/`: `resample`
+- directly under `data_operations/`: `aggregation` and `string`
+
+To regenerate that list rather than trusting this page:
+
+```bash
+git ls-tree -r HEAD --name-only mloda/community/feature_groups/data_operations/ | grep -E '/base\.py$'
+```
 
 ---
 
