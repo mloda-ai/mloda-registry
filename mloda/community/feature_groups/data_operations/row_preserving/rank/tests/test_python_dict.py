@@ -134,56 +134,35 @@ class TestPythonDictRankTopNTreatsNanAsNullNotMaximum:
         )
 
 
-class TestPythonDictRankMixedNoneAndNanTieRunMatchesPyarrowOracle:
+class TestPythonDictRankMixedNoneAndNanTieRun:
     """DEFECT C: a run of mixed None/NaN order_by values must all tie at one rank.
 
     ``nulls_last_sort_key`` maps both ``None`` and NaN to the same sort tier ``(1, 0)``, so a
     NaN row can sort BETWEEN two None rows within that tier. ``_apply_rank``'s run detection
-    then compares adjacent sorted rows with ``values_equal``, which is False for
-    ``values_equal(None, nan)``, so the tie run splits at that boundary instead of treating
-    all null-like values as one tied group. ``pc.rank`` (``null_placement="at_end"``) is the
-    live PyArrow oracle for ``rank``/``dense_rank``; ``percent_rank`` has no PyArrow kernel,
-    so it is derived from that same oracle rank via the standard
-    ``(rank - 1) / (n - 1)`` formula.
+    then compares adjacent sorted rows with ``order_values_equal``, which is what makes
+    ``None`` and NaN tie (plain ``==`` would be False for a None/NaN comparison and would
+    split the tie run at that boundary instead of treating all null-like values as one tied
+    group). pyarrow >= 25.0 ranks NaN as always distinct from null, so ``pc.rank`` can no
+    longer oracle this case; ranks below are asserted directly as mloda's chosen behavior.
     """
 
     DATA: dict[str, list[Any]] = {"grp": [1, 1, 1, 1], "val": [None, float("nan"), None, 1.0]}
 
-    @classmethod
-    def _pyarrow_rank_oracle(cls, tiebreaker: str) -> list[int]:
-        import pyarrow as pa
-        import pyarrow.compute as pc
-
-        arr = pa.array(cls.DATA["val"], type=pa.float64())
-        ranked = pc.rank(arr, sort_keys="ascending", null_placement="at_end", tiebreaker=tiebreaker)
-        return list(ranked.to_pylist())
-
-    def test_rank_matches_pyarrow_oracle(self) -> None:
-        oracle = self._pyarrow_rank_oracle("min")
-        assert oracle == [2, 2, 2, 1], f"sanity check on the oracle itself failed: {oracle!r}"
-
+    def test_rank_ties_none_and_nan(self) -> None:
         result = PythonDictRank._compute_rank(self.DATA, "r", [], "val", "rank")
-        assert result["r"] == oracle, f"{result['r']!r} != PyArrow oracle {oracle!r}"
+        assert result["r"] == [2, 2, 2, 1], f"expected None and NaN to tie at rank 2: {result['r']!r}"
 
-    def test_dense_rank_matches_pyarrow_oracle(self) -> None:
-        oracle = self._pyarrow_rank_oracle("dense")
-        assert oracle == [2, 2, 2, 1], f"sanity check on the oracle itself failed: {oracle!r}"
-
+    def test_dense_rank_ties_none_and_nan(self) -> None:
         result = PythonDictRank._compute_rank(self.DATA, "r", [], "val", "dense_rank")
-        assert result["r"] == oracle, f"{result['r']!r} != PyArrow oracle {oracle!r}"
+        assert result["r"] == [2, 2, 2, 1], f"expected None and NaN to tie at dense rank 2: {result['r']!r}"
 
-    def test_percent_rank_matches_pyarrow_derived_oracle(self) -> None:
+    def test_percent_rank_ties_none_and_nan(self) -> None:
         import pytest
 
-        rank_oracle = self._pyarrow_rank_oracle("min")
-        n = len(rank_oracle)
-        percent_oracle = [(r - 1) / (n - 1) for r in rank_oracle]
-        assert percent_oracle == pytest.approx([1 / 3, 1 / 3, 1 / 3, 0.0]), (
-            f"sanity check on the oracle itself failed: {percent_oracle!r}"
-        )
-
         result = PythonDictRank._compute_rank(self.DATA, "r", [], "val", "percent_rank")
-        assert result["r"] == pytest.approx(percent_oracle), f"{result['r']!r} != oracle {percent_oracle!r}"
+        assert result["r"] == pytest.approx([1 / 3, 1 / 3, 1 / 3, 0.0]), (
+            f"expected None and NaN to tie at percent_rank 1/3: {result['r']!r}"
+        )
 
 
 class TestPythonDictRankNonFloatNanHangs:
