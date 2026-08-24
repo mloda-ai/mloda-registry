@@ -92,8 +92,7 @@ class MyFilterEngine(BaseFilterEngine):
     provides_column_semantics = True
 
     @classmethod
-    def _column_semantics(cls, data, column) -> "ColumnSemantics":
-        ...  # see 06-merge-engine
+    def _column_semantics(cls, data, column) -> "ColumnSemantics": ...  # see 06-merge-engine
 ```
 
 - Default `False`: guard skipped, hook never required.

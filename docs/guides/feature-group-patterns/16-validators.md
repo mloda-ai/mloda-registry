@@ -32,6 +32,7 @@ For reusable validation logic (e.g., with Pandera):
 ```python
 from mloda.provider import BaseValidator
 
+
 class MyValidator(BaseValidator):
     def validate(self, data) -> None:
         if not valid:

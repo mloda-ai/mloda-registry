@@ -26,17 +26,11 @@ Control result column arrangement with the `column_ordering` parameter:
 
 ```python
 # Preserve feature request order
-result = mloda.run_all(
-    [Feature("price"), Feature("quantity"), Feature("total")],
-    column_ordering="request_order"
-)
+result = mloda.run_all([Feature("price"), Feature("quantity"), Feature("total")], column_ordering="request_order")
 # Columns: price, quantity, total (in request order)
 
 # Sort columns alphabetically
-result = mloda.run_all(
-    [Feature("price"), Feature("quantity"), Feature("total")],
-    column_ordering="alphabetical"
-)
+result = mloda.run_all([Feature("price"), Feature("quantity"), Feature("total")], column_ordering="alphabetical")
 # Columns: price, quantity, total (A-Z sorted)
 
 # Default: no guaranteed ordering

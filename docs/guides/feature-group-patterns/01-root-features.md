@@ -25,6 +25,7 @@ from mloda.provider import BaseInputData, FeatureSet
 
 class MyInputData(BaseInputData):
     """Configuration for data source."""
+
     pass
 
 
@@ -60,6 +61,7 @@ Use `DataCreator` to generate data without external sources (test data, syntheti
 
 ```python
 from mloda.provider import DataCreator
+
 
 class OrderSyntheticData(FeatureGroup):
     """Generate synthetic order data."""

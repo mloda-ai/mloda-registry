@@ -16,6 +16,7 @@ from typing import Any
 from mloda.provider import FeatureGroup, MatchData
 from mloda.user import DataAccessCollection, Options
 
+
 class DatabaseFeature(MatchData, FeatureGroup):
     @classmethod
     def match_data_access(
@@ -30,9 +31,7 @@ class DatabaseFeature(MatchData, FeatureGroup):
         # resolve(...) returns the single connection, None if none match, and
         # raises if several match without a disambiguating handle (see
         # "Named Handles" below).
-        return data_access_collection.resolve(
-            "connection", hint=options.get("data_access_handle")
-        )
+        return data_access_collection.resolve("connection", hint=options.get("data_access_handle"))
 ```
 
 ## Matching Priority
@@ -52,7 +51,9 @@ In `match_feature_group_criteria()`, data access matching is checked early:
 class CsvFeature(FeatureGroup):
     @classmethod
     def match_feature_group_criteria(
-        cls, feature_name: str, options: Options,
+        cls,
+        feature_name: str,
+        options: Options,
         data_access_collection: DataAccessCollection | None = None,
     ) -> bool:
         if data_access_collection is None or not data_access_collection.folders:
@@ -67,8 +68,7 @@ class CsvFeature(FeatureGroup):
 
 ```python
 @classmethod
-def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any:
-    ...
+def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any: ...
 ```
 
 The `options` parameter is required. For the full reader-selection contract
@@ -109,9 +109,7 @@ from mloda.user import Options
 options = Options(context={"data_access_handle": "warehouse"})
 
 # Feature group side (inside match_data_access):
-conn = data_access_collection.resolve(
-    "connection", hint=options.get("data_access_handle")
-)  # -> warehouse_conn
+conn = data_access_collection.resolve("connection", hint=options.get("data_access_handle"))  # -> warehouse_conn
 ```
 
 If the handle does not exist, names a resource of the wrong kind, or fails the

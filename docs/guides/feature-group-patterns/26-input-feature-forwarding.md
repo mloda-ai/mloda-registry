@@ -72,8 +72,7 @@ class GraphRagConnector(FeatureGroup):
         }
 
     @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        ...
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any: ...
 ```
 
 Caller side, the consumer is configured once:

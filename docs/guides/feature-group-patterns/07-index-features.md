@@ -55,17 +55,17 @@ class LagFeature(FeatureChainParserMixin, FeatureGroup):
 import pandas as pd
 from mloda.user import Index
 
+
 def test_lag_feature():
     assert LagFeature.index_columns() is not None
     assert Index(("timestamp",)) in LagFeature.index_columns()
 
-    df = pd.DataFrame({
-        "timestamp": pd.date_range("2024-01-01", periods=5),
-        "price": [10, 20, 30, 40, 50]
-    })
+    df = pd.DataFrame({"timestamp": pd.date_range("2024-01-01", periods=5), "price": [10, 20, 30, 40, 50]})
+
     class MockFeatures:
         class name_of_one_feature:
             name = "price__lag_1"
+
     result = LagFeature.calculate_feature(df, MockFeatures())
     assert list(result[1:]) == [10.0, 20.0, 30.0, 40.0]
 ```
@@ -87,8 +87,8 @@ Index(("user_id", "date"))
 @classmethod
 def index_columns(cls) -> list[Index]:
     return [
-        Index(("order_id",)),       # Primary key
-        Index(("customer_id",)),    # Foreign key
+        Index(("order_id",)),  # Primary key
+        Index(("customer_id",)),  # Foreign key
     ]
 ```
 

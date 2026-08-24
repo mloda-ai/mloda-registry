@@ -40,6 +40,7 @@ class DoubledValue(FeatureGroup):
 ```python
 import pandas as pd
 
+
 def test_doubled_value():
     assert DoubledValue.match_feature_group_criteria("DoubledValue", None)
 

@@ -12,7 +12,7 @@ Define feature pipelines using JSON configuration instead of Python code.
 ```python
 from mloda.user import load_features_from_config, mloda
 
-config = '''
+config = """
 [
     "customer_id",
     {
@@ -22,7 +22,7 @@ config = '''
     },
     {"name": "pca_result", "column_index": 0}
 ]
-'''
+"""
 
 features = load_features_from_config(config)
 result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
@@ -47,14 +47,14 @@ Items can be plain strings (`"feature_name"`) or feature objects. `options` and 
 Row-preserving `data_operations` (window aggregation, rank, percentile) cannot be requested by a bare name: the matcher only resolves the FeatureGroup when the request also carries the partition/order options it needs. The feature name encodes the operation (`{source}__{operation}`); the matcher then requires those options to be present. It reads them via `options.get` (group first, then context), so they resolve from either side, but `context_options` is the right home.
 
 ```python
-config = '''
+config = """
 [
     {"name": "steps__sum_window", "context_options": {"partition_by": ["subject_id"]}},
     {"name": "price__last_window", "context_options": {"partition_by": ["region"], "order_by": "timestamp"}},
     {"name": "sales__row_number_ranked", "context_options": {"partition_by": ["region"], "order_by": "sales"}},
     {"name": "sales__p95_percentile", "context_options": {"partition_by": ["region"]}}
 ]
-'''
+"""
 ```
 
 | Operation | Name pattern | Required `context_options` |

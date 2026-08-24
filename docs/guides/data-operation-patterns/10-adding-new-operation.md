@@ -187,6 +187,7 @@ If the new op is an aggregate (or anything that consumes source values that a us
 ```python
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 
+
 class YourOpTestBase(MaskTestMixin, DataOpsTestBase):
     @classmethod
     def mask_feature_name(cls) -> str:

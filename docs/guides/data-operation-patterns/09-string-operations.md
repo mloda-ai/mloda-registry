@@ -15,10 +15,10 @@ Element-wise string transforms: uppercase, lowercase, trim, length, reverse. Row
 ```python
 # mloda/community/feature_groups/data_operations/string/base.py
 STRING_OPS = {
-    "upper":   "Convert string to uppercase",
-    "lower":   "Convert string to lowercase",
-    "trim":    "Strip leading and trailing whitespace",
-    "length":  "Return the length of the string (integer)",
+    "upper": "Convert string to uppercase",
+    "lower": "Convert string to lowercase",
+    "trim": "Strip leading and trailing whitespace",
+    "length": "Return the length of the string (integer)",
     "reverse": "Reverse the string",
 }
 
@@ -70,9 +70,10 @@ SQLite refuses to match `upper`, `lower`, and `reverse` at resolution time. `UPP
 ```python
 # mloda/community/feature_groups/data_operations/string/sqlite_string.py
 _SQLITE_STRING_EXPRS: dict[str, str] = {
-    "trim":   "TRIM({col})",
+    "trim": "TRIM({col})",
     "length": "LENGTH({col})",
 }
+
 
 @classmethod
 def _validate_string_match(cls, feature_name, operation_config, source_feature) -> bool:

@@ -171,9 +171,11 @@ from mloda.provider import property_spec
 
 _ORDER_DEPENDENT = {"first", "last"}
 
+
 def _needs_order_by(options: Options) -> bool:
     """order_by is required when aggregation_type is first or last."""
     return options.get("aggregation_type") in _ORDER_DEPENDENT
+
 
 PROPERTY_MAPPING = {
     "aggregation_type": property_spec(
@@ -245,8 +247,10 @@ After basic matching and `required_when` checks succeed, `match_feature_group_cr
 ```python
 from mloda.provider import property_spec
 
+
 def _is_list_of_strings(value):
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
 
 PROPERTY_MAPPING = {
     "partition_by": property_spec(

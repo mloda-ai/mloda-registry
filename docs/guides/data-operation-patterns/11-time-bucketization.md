@@ -16,7 +16,7 @@ Time bucketization maps a timestamp column onto coarser interval boundaries. Thr
 # mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/base.py
 TIME_BUCKETIZATION_OPS = {
     "floor": "Round timestamp down to the start of the enclosing bucket",
-    "ceil":  "Round timestamp up to the start of the next bucket (idempotent on aligned for fixed-freq)",
+    "ceil": "Round timestamp up to the start of the next bucket (idempotent on aligned for fixed-freq)",
     "round": "Round timestamp to the nearest bucket boundary (half rounds up)",
 }
 ```
@@ -119,10 +119,10 @@ from mloda.user import Feature, PluginLoader, mloda
 PluginLoader.all()
 
 features = [
-    Feature("event_time__floor_1_hour"),     # bucket events per hour
-    Feature("event_time__floor_1_week"),     # ISO week start (Monday)
-    Feature("event_time__ceil_1_day"),       # next-day boundary (idempotent on midnight)
-    Feature("event_time__round_5_minute"),   # nearest 5-minute boundary, half-up
+    Feature("event_time__floor_1_hour"),  # bucket events per hour
+    Feature("event_time__floor_1_week"),  # ISO week start (Monday)
+    Feature("event_time__ceil_1_day"),  # next-day boundary (idempotent on midnight)
+    Feature("event_time__round_5_minute"),  # nearest 5-minute boundary, half-up
 ]
 
 result = mloda.run_all(features, compute_frameworks={"PyArrowTable"})

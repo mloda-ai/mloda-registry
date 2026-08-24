@@ -61,6 +61,7 @@ Declare fixed output type via `return_data_type_rule()`:
 from mloda.provider import FeatureGroup
 from mloda.user import DataType, Feature
 
+
 class UserCount(FeatureGroup):
     @classmethod
     def return_data_type_rule(cls, feature: Feature) -> DataType | None:

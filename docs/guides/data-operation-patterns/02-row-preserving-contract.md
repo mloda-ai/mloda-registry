@@ -17,13 +17,13 @@ Row-preserving operations must return an output whose row count and row order ma
 ```python
 # Paraphrased from DataOpsTestBase
 result = self.implementation_class().calculate_feature(self.test_data, fs)
-ref    = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
+ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
 
 result_col = self.extract_column(result, feature_name)
-ref_col    = _extract_column(ref, feature_name)
+ref_col = _extract_column(ref, feature_name)
 
 assert len(result_col) == len(ref_col), f"row count mismatch"
-assert result_col == ref_col            # exact match (or pytest.approx for floats)
+assert result_col == ref_col  # exact match (or pytest.approx for floats)
 ```
 
 Two assertions, one invariant:
@@ -65,8 +65,8 @@ The SQL plugins use the typed `DuckdbRelation` / `SqliteRelation` API (`with_row
 # reorders rows via ORDER BY; tag positions with a row-number
 # column and restore via .order() to match PyArrow output.
 rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-tagged     = data.with_row_number(rn)
-with_qbin  = tagged.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
+tagged = data.with_row_number(rn)
+with_qbin = tagged.window(f"NTILE({n_bins})", qbin_ntile, partition_by=[qbin_part], order_by=[source_col])
 sorted_rel = with_qbin.order(quote_ident(rn))
 # drop the helper columns from the final projection
 ```

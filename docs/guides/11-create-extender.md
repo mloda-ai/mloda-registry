@@ -40,6 +40,7 @@ Q3: Need state with ParallelizationMode.MULTIPROCESSING?
 from typing import Any
 from mloda.steward import Extender, ExtenderHook
 
+
 class MyExtender(Extender):
     def __init__(self, raise_on_error: bool = True) -> None:
         self.raise_on_error = raise_on_error
@@ -71,10 +72,7 @@ Only needed with `ParallelizationMode.MULTIPROCESSING`. Avoid unpicklable instan
 ```python
 from mloda.user import mloda
 
-results = mloda.run_all(
-    features=["my_feature"],
-    function_extender={MyExtender(), OtherExtender()}
-)
+results = mloda.run_all(features=["my_feature"], function_extender={MyExtender(), OtherExtender()})
 ```
 
 ## Testing
