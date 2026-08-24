@@ -409,6 +409,29 @@ regression_test:
 - **How**: A `group_key_value`-only fix would not even be internally consistent: `values_equal` (used by the sort-based sessionization grouping path) and `partition_sort_key` both treat `0.0 == -0.0` on purpose (see `test_negative_zero_equals_zero`, `test_negative_zero_and_zero_sort_together`), so PythonDict's own sort-keyed sessionization backend would keep merging them while its dict-keyed backends stopped, a new internal inconsistency. A real fix needs all three functions to become sign-aware (`(value, math.copysign(1.0, value))` instead of the raw value on every hot grouping path), and would only trade PythonDict's current agreement with Pandas/Polars/DuckDB for agreement with PyArrow alone, a lateral move in total cross-framework divergence for a sign-of-zero edge case that is exceedingly rare in real partition columns. The divergence is documented instead of mitigated.
 - **Regression signal**: `test_positive_and_negative_zero_collide_into_one_group` pins that a `group_key_value`-keyed dict merges `0.0` and `-0.0` into a single group; a future change that makes `group_key_value` sign-aware would flip this assertion.
 
+### PythonDict rank ties None and NaN in order-value runs; PyArrow >= 25 and DuckDB now rank them apart
+
+<!-- machine-checked
+operation: rank
+framework: python_dict
+condition: order_values_equal ties None and NaN into one tied rank run; PyArrow >= 25.0's pc.rank and DuckDB's RANK()/DENSE_RANK() now rank NaN and NULL as distinct tiers
+mitigation_location:
+- mloda/community/feature_groups/data_operations/python_dict_helpers.py
+- mloda/community/feature_groups/data_operations/row_preserving/rank/python_dict_rank.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/rank/tests/test_python_dict.py::TestPythonDictRankMixedNoneAndNanTieRun::test_rank_ties_none_and_nan
+- mloda/community/feature_groups/data_operations/row_preserving/rank/tests/test_python_dict.py::TestPythonDictRankMixedNoneAndNanTieRun::test_dense_rank_ties_none_and_nan
+- mloda/community/feature_groups/data_operations/row_preserving/rank/tests/test_python_dict.py::TestPythonDictRankMixedNoneAndNanTieRun::test_percent_rank_ties_none_and_nan
+-->
+
+- **Operations**: `rank` (`rank`, `dense_rank`, `percent_rank`; the same tied sort key also reaches `row_number`/`ntile_N`/`top_N`/`bottom_N`, but only these three collapse ties into one shared output value).
+- **Where it lives**: `mloda/community/feature_groups/data_operations/python_dict_helpers.py` (`is_null_like`, `nulls_last_sort_key`, `order_values_equal`), consumed by `PythonDictRank._apply_rank`.
+- **Reference behavior**: PyArrow < 25.0's `pc.rank` tied None and NaN into one rank tier under `null_placement="at_end"`. PyArrow >= 25.0 changed this: NaN is now always ranked as an ordinary, distinct value ahead of null, under any `null_placement` (no parameter restores the old tie; verified directly against pyarrow 25.0.1). DuckDB's `RANK() ... NULLS LAST` independently ranks NaN and NULL apart too, so PyArrow's move brought it in line with DuckDB, not the other way around.
+- **Cross-framework check**: verified directly against each engine on `order_by = [None, nan, None, 1.0]`: PythonDict and Pandas' own `.rank()` both give `[2, 2, 2, 1]` (None and NaN tied); DuckDB's `RANK()`/`DENSE_RANK()` and PyArrow 25.0.1's `pc.rank` both give `[3, 2, 3, 1]` (None and NaN ranked apart, NaN ordered as the larger value). Two of four frameworks tie them, two rank them apart; PythonDict sides with Pandas.
+- **Mitigation kind**: Accepted divergence (no mitigation attempted).
+- **How**: `nulls_last_sort_key` and `order_values_equal` fold NaN and `None` into one null-like tier (`is_null_like`) for order-value comparisons; this was added specifically to fix a tie-run-splitting bug (a NaN row could otherwise sort between two None rows in the same tier and break the tie run), predates and is unrelated to the PyArrow 25 bump. PyArrow 25 and DuckDB now disagree with that choice; Pandas still agrees. Splitting None from NaN would trade agreement with Pandas for agreement with PyArrow 25/DuckDB, a lateral move, and would reopen the tie-run-splitting bug the current behavior exists to fix. The divergence is documented instead of mitigated.
+- **Regression signal**: `TestPythonDictRankMixedNoneAndNanTieRun`'s three tests pin `order_by = [None, nan, None, 1.0]` to `rank`/`dense_rank` = `[2, 2, 2, 1]` and `percent_rank` = `[1/3, 1/3, 1/3, 0.0]`; a future change that splits None from NaN in `order_values_equal` or `nulls_last_sort_key` would flip these assertions. These three tests are currently the only regression coverage for this tie behavior: `ReferenceRank` (the canonical cross-framework reference `RankTestBase` uses) sorts NaN as an ordinary value and compares ties with plain `==`, so a NaN `order_by` value would hang rather than disagree, and `RankTestBase`'s canonical fixture does not include NaN in `order_by`.
+
 ---
 
 ## Audit coverage (2026-05-28)
