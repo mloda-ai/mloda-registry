@@ -257,3 +257,62 @@ class TestComputeModeWinnersCollisions:
         result = result.sort_values("region").reset_index(drop=True)
         assert result["region"].tolist() == ["A", "B"]
         assert result["out"].tolist() == [10, 30]
+
+
+class TestComputeModeWinnersAllNull:
+    """The ``if work.empty`` early return in ``compute_mode_winners``.
+
+    It fires only when *every* row's source value is null across the whole
+    input, or the input has no rows at all. ``test_mode_all_null_partition_
+    yields_none`` does not reach it: partition "B" there still has non-null
+    values, so ``work`` is non-empty after the ``notna()`` filter.
+    """
+
+    def test_every_source_value_null_returns_an_empty_frame(self) -> None:
+        from mloda.community.feature_groups.data_operations.pandas_helpers import (
+            compute_mode_winners,
+        )
+
+        data = pd.DataFrame(
+            {
+                "region": ["A", "A", "B", "B"],
+                "value": [float("nan")] * 4,
+            }
+        )
+
+        result = compute_mode_winners(data, "value", ["region"])
+
+        assert result.empty
+        assert list(result.columns) == ["region", "value"]
+        # The early return slices the *input* frame, so the source column keeps its
+        # dtype. Falling through to groupby on an empty frame yields object instead.
+        assert result["value"].dtype == data["value"].dtype
+
+    def test_empty_input_returns_an_empty_frame(self) -> None:
+        """Zero rows reaches the same branch, without needing any null values."""
+        from mloda.community.feature_groups.data_operations.pandas_helpers import (
+            compute_mode_winners,
+        )
+
+        data = pd.DataFrame({"region": [], "value": []})
+
+        result = compute_mode_winners(data, "value", ["region"])
+
+        assert result.empty
+        assert list(result.columns) == ["region", "value"]
+        assert result["value"].dtype == data["value"].dtype
+
+    def test_all_null_source_yields_none_for_every_partition(self) -> None:
+        """Through the caller: an empty winners frame must still produce one row per partition."""
+        data = pd.DataFrame(
+            {
+                "region": ["A", "A", "B", "B"],
+                "value": [float("nan")] * 4,
+            }
+        )
+
+        result = PandasAggregation._compute_mode(data, "value__mode_agg", "value", ["region"])
+        result = result.sort_values("region").reset_index(drop=True)
+
+        assert result["region"].tolist() == ["A", "B"]
+        assert result["value__mode_agg"].isna().all()
