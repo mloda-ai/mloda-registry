@@ -69,7 +69,7 @@ When a compute framework backend cannot natively support an input or operation, 
 `tox` is the gate. It runs `pytest -n {env:PYTEST_WORKERS:2}` (default 2 workers, no timeout), then `ruff format --check --line-length 120 .`, `ruff check .`, `mypy --strict --ignore-missing-imports .`, and `bandit -c pyproject.toml -r -q` with an explicit `-x` list of anchored globs replacing bandit's built-in default excludes (see `tox.ini`). All of these must pass before a PR is mergeable.
 
 - **Python**: supported range is `>=3.10`; tox envs cover `python310`, `python311`, `python312`, `python313`, `python314`.
-- **Type hints**: use modern forms (`list[str]`, `dict[str, int]`, `X | None`). Ruff enforces this via `UP006` and `UP007` (extend-selected in `pyproject.toml`).
+- **Type hints**: use modern forms (`list[str]`, `dict[str, int]`, `X | None`). Ruff enforces this via `UP006` and `UP007` (selected in `pyproject.toml`, which also pins ruff's pre-0.16 default rule set).
 - **Formatting**: ruff format with line length 120.
 - **Tests**: parallel-safe (pytest-xdist). Per-package envs are available for isolated runs: `tox -e testing`, `tox -e community-example`, `tox -e registry`, `tox -e enterprise-example`.
 - **Supply chain**: `[tool.uv] exclude-newer = "7 days"` in `pyproject.toml` defers new dependency releases by 7 days. The `exclude-newer-package` exemptions for `mloda` and `uv` permit releases within that window because `mloda` is first-party and `uv` is the resolver itself. Do not edit this without a reason.
