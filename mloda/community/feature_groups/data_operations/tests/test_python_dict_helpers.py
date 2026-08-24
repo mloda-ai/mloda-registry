@@ -13,8 +13,10 @@ import pytest
 from mloda.community.feature_groups.data_operations.python_dict_helpers import (
     group_key_value,
     is_nan,
+    is_null_like,
     mode,
     nulls_last_sort_key,
+    order_values_equal,
     reduce_agg,
     values_equal,
     variance,
@@ -121,6 +123,31 @@ class TestNullsLastSortKey:
     def test_negative_zero_and_zero_sort_together(self) -> None:
         ordered = sorted([0.0, -0.0], key=nulls_last_sort_key)
         assert ordered[0] == ordered[1] == 0.0
+
+
+class TestIsNullLike:
+    """None and NaN are one tied null group; nothing else is."""
+
+    def test_true_for_none(self) -> None:
+        assert is_null_like(None) is True
+
+    def test_true_for_float_nan(self) -> None:
+        assert is_null_like(float("nan")) is True
+
+    def test_false_for_zero(self) -> None:
+        """0 is falsy but not null-like; a truthiness test here would be wrong."""
+        assert is_null_like(0) is False
+
+    def test_false_for_empty_string(self) -> None:
+        assert is_null_like("") is False
+
+    def test_false_for_ordinary_values(self) -> None:
+        assert is_null_like("x") is False
+        assert is_null_like(1.5) is False
+
+    def test_false_for_infinity(self) -> None:
+        """Infinity is a well-ordered float, so rank must not treat it as null."""
+        assert is_null_like(float("inf")) is False
 
 
 class TestValuesEqual:
@@ -289,3 +316,39 @@ class TestGroupKeyValueMergesSignedZeroDocumentedDivergence:
             groups.setdefault(group_key_value(v), []).append(i)
         assert len(groups) == 1
         assert groups[group_key_value(0.0)] == [0, 1]
+
+
+class TestOrderValuesEqual:
+    """Rank run detection: any two null-likes tie, which is where it diverges from values_equal."""
+
+    def test_nan_equals_none(self) -> None:
+        """The whole point of this helper: values_equal(nan, None) is False, here it is True."""
+        assert order_values_equal(float("nan"), None) is True
+        assert order_values_equal(None, float("nan")) is True
+        assert values_equal(float("nan"), None) is False
+
+    def test_none_equals_none(self) -> None:
+        assert order_values_equal(None, None) is True
+
+    def test_nan_equals_nan(self) -> None:
+        assert order_values_equal(float("nan"), float("nan")) is True
+
+    def test_equal_for_identical_scalars(self) -> None:
+        assert order_values_equal(1, 1) is True
+        assert order_values_equal("a", "a") is True
+
+    def test_not_equal_for_different_scalars(self) -> None:
+        assert order_values_equal(1, 2) is False
+
+    def test_null_like_does_not_tie_against_a_real_value(self) -> None:
+        """A null must not merge into a run with a non-null neighbour."""
+        assert order_values_equal(None, 0) is False
+        assert order_values_equal(float("nan"), 0) is False
+
+    def test_infinity_does_not_tie_against_null(self) -> None:
+        assert order_values_equal(float("inf"), None) is False
+
+    def test_delegates_to_values_equal_for_non_nulls(self) -> None:
+        """Tuple recursion still works, since non-null pairs fall through to values_equal."""
+        assert order_values_equal((1, "a"), (1, "a")) is True
+        assert order_values_equal((1, 2), (1, 3)) is False
