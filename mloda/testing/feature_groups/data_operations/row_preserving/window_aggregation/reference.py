@@ -121,7 +121,7 @@ class ReferenceWindowAggregation(WindowAggregationFeatureGroup):
         sort_keys = [(col, "ascending") for col in partition_by]
         if order_by:
             sort_keys.append((order_by, "ascending"))
-        indices = pc.sort_indices(t_with_idx, sort_keys=sort_keys, null_placement="at_end")
+        indices = pc.sort_indices(t_with_idx, sort_keys=sort_keys)
         sorted_t = t_with_idx.take(indices)
 
         grouped = sorted_t.group_by(partition_by, use_threads=False).aggregate(
