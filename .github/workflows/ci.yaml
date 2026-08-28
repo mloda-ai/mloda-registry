@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "feat/binary-model" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "feat/binary-model" ]
 
 permissions:
   contents: read
