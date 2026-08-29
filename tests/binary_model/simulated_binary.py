@@ -1,18 +1,10 @@
 """Simulated binary: a pure-Python CLI stand-in for a future Rust-compiled binary model.
 
-This is a private test fixture, never published as a package. It exists so the registry can build
-and test the (future) FeatureGroup mixin against the binary-model interface contract without any
-real binary or Rust toolchain. See the contract document in the epic's
-rust-crate-binary-feature-group folder for the full specification: ``--version``,
-``--capabilities``, ``run --config <path> [--input <path>] [--output <path>]``, the license gate,
-config validation, and the Arrow IPC data path.
-
-Cycle 1 scope (implemented here): invocation surface, license gate, config validation, all of it
-before any Arrow IPC data is touched. Cycle 2 scope (also implemented here): the Arrow IPC data
-pipeline itself -- reading the input stream (all four transport combinations), the exact-column-set
-and column-type-vocabulary checks, the "hash" operation, row preservation, the schema-only round
-trip, the end-of-stream marker on output, rejection of malformed/compressed/wrong-format input, and
-the reserved ``_conformance_internal_error`` operation with real data flowing.
+A private test fixture, never published as a package, so the registry can build and test the
+(future) FeatureGroup mixin against the binary-model interface contract without any real binary or
+Rust toolchain: ``--version``, ``--capabilities``,
+``run --config <path> [--input <path>] [--output <path>]``, the license gate, config validation,
+and the Arrow IPC data path.
 """
 
 from __future__ import annotations
@@ -59,9 +51,9 @@ UNSUPPORTED = 4
 DATA_ERROR = 5
 INTERNAL_ERROR = 6
 
-# Contract "Data handling": "message is at most 1024 bytes". Several error messages interpolate
-# data whose length is not otherwise bounded (an operation string, column names, CLI arguments),
-# so this cap is enforced centrally rather than trusted to be true at each call site.
+# Contract "Data handling": message is at most 1024 bytes. Several error messages interpolate
+# data whose length is not otherwise bounded, so this cap is enforced centrally rather than
+# trusted to be true at each call site.
 _MESSAGE_MAX_BYTES = 1024
 
 
@@ -111,10 +103,10 @@ def _classify_column_type(arrow_type: pa.DataType) -> str | None:
 # Compressed record batch detection.
 #
 # pyarrow's stream reader transparently decompresses lz4/zstd record batch bodies instead of
-# rejecting them (empirically verified against pyarrow 25), so a compressed body cannot be
-# detected by trying to read the data through pyarrow: it just silently succeeds. Instead this
-# walks the Arrow IPC message's raw flatbuffer metadata by hand -- a stable, versioned wire format
-# -- to see the ``RecordBatch.compression`` field, which the pyarrow Python API does not expose.
+# rejecting them (verified against pyarrow 25), so a compressed body cannot be detected by reading
+# the data through pyarrow. Instead this walks the Arrow IPC message's raw flatbuffer metadata by
+# hand -- a stable, versioned wire format -- to see the ``RecordBatch.compression`` field, which
+# the pyarrow Python API does not expose.
 # ---------------------------------------------------------------------------
 
 # org.apache.arrow.flatbuf.MessageHeader union tag for a RecordBatch message (stable wire format).
@@ -171,7 +163,7 @@ def _message_metadata_is_compressed_record_batch(metadata: bytes) -> bool:
     """Whether an Arrow IPC message's raw flatbuffer metadata describes a compressed record batch:
     ``Message.header_type`` (field 1) must be RecordBatch; ``Message.header`` (field 2) then
     points at the RecordBatch table, whose ``compression`` field (field 3), if present, means the
-    batch is compressed (contract: Data: "A compressed record batch body is a data error")."""
+    batch is compressed (contract: Data)."""
     buf = bytes(metadata)
     message_pos = _fb_u32(buf, 0)
     header_type = _fb_scalar_u8_field(buf, message_pos, 1)
@@ -184,12 +176,10 @@ def _message_metadata_is_compressed_record_batch(metadata: bytes) -> bool:
 
 
 def _truncate_message(text: str, max_bytes: int = _MESSAGE_MAX_BYTES) -> str:
-    """Bound ``text`` to at most ``max_bytes`` UTF-8 bytes (contract: Data handling: "message is
-    at most 1024 bytes"), cutting only on a UTF-8 character boundary -- never splitting a
-    multi-byte character in half -- by slicing the encoded bytes and decoding with
+    """Bound ``text`` to at most ``max_bytes`` UTF-8 bytes (contract: Data handling), cutting only
+    on a UTF-8 character boundary by slicing the encoded bytes and decoding with
     ``errors="ignore"`` to drop any partial trailing sequence. Appends a short "...(truncated)"
-    suffix when truncation happens and there is room for it within the cap; otherwise returns
-    ``text`` unchanged."""
+    suffix when there is room for it within the cap."""
     encoded = text.encode("utf-8")
     if len(encoded) <= max_bytes:
         return text
@@ -202,10 +192,8 @@ def _truncate_message(text: str, max_bytes: int = _MESSAGE_MAX_BYTES) -> str:
 
 class _CliError(Exception):
     """Carries the exit code and stderr message for one contract error class. ``message`` is
-    always run through ``_truncate_message`` so every error path -- not just the ones a call site
-    happens to remember -- respects the 1024-byte cap, since several messages interpolate
-    attacker/caller-controlled data (a config's operation string, schema column names, CLI
-    arguments) whose length is not otherwise bounded."""
+    always run through ``_truncate_message`` so every error path respects the 1024-byte cap, since
+    several messages interpolate caller-controlled data whose length is not otherwise bounded."""
 
     def __init__(self, code: int, message: str) -> None:
         message = _truncate_message(message)
@@ -454,7 +442,7 @@ def _compute_hash_output(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Sc
 def _build_ipc_stream_bytes(schema: pa.Schema, arrays: list[pa.Array]) -> bytes:
     """Write ``arrays`` (aligned to ``schema``) to Arrow IPC stream format bytes, ending with the
     end-of-stream marker (``pa.ipc.new_stream``'s context manager writes it on close). Zero rows
-    is a valid, schema-only-shaped batch (contract: Data: "a schema-only input... is valid")."""
+    is a valid, schema-only-shaped batch (contract: Data)."""
     buf = io.BytesIO()
     with pa.ipc.new_stream(buf, schema) as writer:
         writer.write_batch(pa.record_batch(arrays, schema=schema))
@@ -462,8 +450,8 @@ def _build_ipc_stream_bytes(schema: pa.Schema, arrays: list[pa.Array]) -> bytes:
 
 
 def _write_output_bytes(data: bytes, output_path: Path | None) -> None:
-    """Shared write path for both transports (contract: Invocation: "a conforming binary supports
-    all four combinations"), so stdin/stdout and ``--input``/``--output`` behave identically."""
+    """Shared write path for both transports (contract: Invocation), so stdin/stdout and
+    ``--input``/``--output`` behave identically."""
     if output_path is not None:
         output_path.write_bytes(data)
         return
@@ -476,10 +464,9 @@ def _run_data_stage(raw: bytes, config: dict[str, Any], output_path: Path | None
     column type vocabulary, run the configured operation, and write the result as an Arrow IPC
     stream to stdout or ``--output`` (contract: Data).
 
-    Note: reads the whole input into memory before writing any output, and buffers the whole
-    output before writing it out. A real Rust binary should stream batches instead (contract:
-    Invocation: "the binary may write output before it finishes reading input"), but for this
-    small stub that simplicity is acceptable.
+    Note: reads the whole input into memory before writing any output; a real Rust binary should
+    stream batches instead (contract: Invocation), but for this small stub that simplicity is
+    acceptable.
     """
     if len(raw) == 0:
         raise _CliError(DATA_ERROR, "input is zero bytes, not an Arrow IPC stream")

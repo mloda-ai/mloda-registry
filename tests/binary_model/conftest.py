@@ -1,19 +1,11 @@
 """Shared fixtures and helpers for the binary-model conformance kit.
 
-The simulated binary (``simulated_binary.py``) is a pure-Python CLI stand-in for a future
-Rust-compiled binary model; it is never published as a package, only used as a private test
-fixture. Its test suite is the conformance kit for the binary-model interface contract (see the
-contract document in the epic's rust-crate-binary-feature-group folder): the same
-``conformance_kit.py`` test functions are meant to run, unmodified, against a real binary later by
-overriding the ``binary_cmd`` fixture below, so nothing here may hardcode a binary path.
-
-This module covers what cycle 1 of that contract needs (invocation surface, the license gate, and
-config validation, all of it before any Arrow IPC data is touched) plus what cycle 2 adds: the
-Arrow IPC data pipeline itself (transports, schema checks, the "hash" operation's behavior, row
-preservation, the schema-only round trip, malformed-input rejections, and the reserved
-``_conformance_internal_error`` operation with real data flowing). The concrete ``plugin_id`` and
-operation used throughout ("example_binary" / "hash") are the contract's own worked example, not a
-scope limitation of the contract itself.
+``simulated_binary.py`` is a pure-Python CLI stand-in for a future Rust-compiled binary model; a
+private test fixture, never published as a package. ``conformance_kit.py``'s test functions are
+meant to run, unmodified, against a real binary later by overriding the ``binary_cmd`` fixture
+below, so nothing here may hardcode a binary path. The concrete ``plugin_id`` and operation used
+throughout ("example_binary" / "hash") are the contract's own worked example, not a scope
+limitation of the contract itself.
 
 License tokens: the real signed-token format does not exist yet, so the contract has the binary
 accept a fixed placeholder format for now: plain JSON text (not signed) shaped as
@@ -21,19 +13,15 @@ accept a fixed placeholder format for now: plain JSON text (not signed) shaped a
 state the contract's License section distinguishes: missing, valid, expired, wrong-plugin, and
 tampered (unparseable text, or valid JSON missing a required key).
 
-"hash" operation: cycle 1 established its config shape (one input column by default, one output
-named "result", an optional ``parameters.key``) without defining what it actually computes. Cycle
-2 defines that concretely as ``compute_expected_hash`` below, an independent reference
-implementation using Python's ``hashlib`` so a test's expected value is never derived from
-whatever the binary happens to do.
+"hash" operation: ``compute_expected_hash`` below is an independent reference implementation using
+Python's ``hashlib``, so a test's expected value is never derived from whatever the binary happens
+to do.
 
-Cycle 3 adds the contract's "Data handling" section and the remaining stderr/diagnostics rules
-from "Errors": no network, no files outside ``--config``/``--input``/``MLODA_LICENSE_FILE``/
+Also covers the contract's "Data handling" section and the remaining stderr/diagnostics rules from
+"Errors": no network, no files outside ``--config``/``--input``/``MLODA_LICENSE_FILE``/
 ``--output``, the minimal environment, data-free diagnostics, and the stderr/message size caps
-(the latter folded into ``assert_error_response`` itself, applying retroactively to every
-error-path test that already uses it). ``DATA_FREE_MARKER``, ``MESSAGE_MAX_BYTES`` and
-``STDERR_SOFT_CAP_BYTES`` below are this cycle's design parameters; ``run_binary``'s ``cwd``
-parameter is this cycle's one extension to an existing helper, needed for the read-only-cwd check.
+(the latter folded into ``assert_error_response`` itself, so every error-path test that uses it
+gets this check for free).
 """
 
 from __future__ import annotations
@@ -71,15 +59,13 @@ UNSUPPORTED = 4
 DATA_ERROR = 5
 INTERNAL_ERROR = 6
 
-# Cycle 3: a distinctive marker string, chosen so it would never otherwise appear in this suite's
-# input, output or diagnostics, used to test that a marked input cell's value never leaks into
-# stderr (contract: Data handling: "never writes cell values to stderr or into an error message").
+# A distinctive marker string, chosen so it would never otherwise appear in this suite's input,
+# output or diagnostics, used to test that a marked input cell's value never leaks into stderr
+# (contract: Data handling).
 DATA_FREE_MARKER = "SECRET_MARKER_YlZ9qX7"
 
-# Cycle 3: the contract's stderr/message size caps (contract: Data handling: "diagnostics ...
-# stay bounded (64 KiB of stderr in total is the soft cap the kit enforces; message is at most
-# 1024 bytes)"). Enforced inside ``assert_error_response`` below so every existing and future
-# error-path test gets this check for free.
+# The contract's stderr/message size caps (contract: Data handling). Enforced inside
+# ``assert_error_response`` below so every error-path test that uses it gets this check for free.
 MESSAGE_MAX_BYTES = 1024
 STDERR_SOFT_CAP_BYTES = 64 * 1024
 
@@ -141,10 +127,9 @@ def run_binary(
 
     ``env`` replaces the child's environment outright (never merged with the ambient one), so
     tests are hermetic and never accidentally inherit a license from the calling shell. ``stdin``
-    always gets an explicit (possibly empty) byte string so an implementation that reaches the
-    data stage never blocks the test suite waiting on an open pipe. ``cwd``, if given, is the
-    child's working directory (used by the "no files created outside --output" check, contract:
-    Data handling, Conformance); left as the caller's own cwd (subprocess's default) otherwise.
+    always gets an explicit (possibly empty) byte string so the process never blocks the test
+    suite waiting on an open pipe. ``cwd``, if given, is the child's working directory (used by
+    the read-only-cwd check, contract: Data handling); the caller's own cwd otherwise.
     """
     return subprocess.run(  # nosec B603
         [*cmd, *args],
@@ -172,10 +157,8 @@ def assert_error_response(result: subprocess.CompletedProcess[bytes], expected_c
     exactly one parseable JSON object whose ``code`` matches, with a non-empty ``message`` string
     (contract: Errors). Also asserts the contract's Data handling size caps -- ``message`` at most
     ``MESSAGE_MAX_BYTES`` (1024) UTF-8 bytes, total stderr at most ``STDERR_SOFT_CAP_BYTES``
-    (64 KiB) -- so every error-path test that goes through this helper checks the caps for free
-    (contract: Data handling: "diagnostics ... stay bounded (64 KiB of stderr in total is the soft
-    cap the kit enforces; message is at most 1024 bytes)"). Returns the parsed error object for
-    further assertions."""
+    (64 KiB) -- so every error-path test that goes through this helper checks the caps for free.
+    Returns the parsed error object for further assertions."""
     assert result.returncode == expected_code, (
         f"expected exit code {expected_code}, got {result.returncode}; stderr={result.stderr!r}"
     )
@@ -195,9 +178,8 @@ def assert_error_response(result: subprocess.CompletedProcess[bytes], expected_c
 
 def assert_not_rejected_with(result: subprocess.CompletedProcess[bytes], forbidden_codes: set[int]) -> None:
     """Assert the process did not exit with any of ``forbidden_codes``, without asserting what a
-    successful outcome looks like. If it exited non-zero for some other reason, the stderr JSON
-    format rule (contract: Errors) still must hold, so a not-yet-implemented stub still fails
-    this."""
+    successful outcome looks like. A non-zero exit for some other reason must still satisfy the
+    stderr JSON format rule (contract: Errors)."""
     assert result.returncode not in forbidden_codes, (
         f"unexpectedly rejected with code {result.returncode}; stderr={result.stderr!r}"
     )
@@ -252,7 +234,7 @@ def valid_license_env(valid_license_file: Path) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Cycle 2: Arrow IPC data pipeline -- design parameters, the "hash" algorithm, and helpers
+# Arrow IPC data pipeline -- design parameters, the "hash" algorithm, and helpers
 # ---------------------------------------------------------------------------
 
 # The vocabulary's Arrow types (contract: Capabilities). ``utf8`` is pyarrow's 32-bit-offset
@@ -293,19 +275,15 @@ def _hash_value_token(value: Any) -> str:
 
 
 def compute_expected_hash(key: str | None, row_values: list[Any]) -> int:
-    """Independent reference implementation of the "hash" operation's behavior, computed with
-    Python's ``hashlib`` so a test's expected value is never derived from whatever the binary
-    happens to do. This concrete algorithm is this cycle's specification of "hash" (unspecified by
-    cycle 1); the Green agent implements exactly this in the simulated binary:
+    """Independent reference implementation of the "hash" operation, computed with Python's
+    ``hashlib`` so a test's expected value is never derived from whatever the binary happens to
+    do. This is the algorithm's own specification (the contract leaves "hash" operation-defined):
 
     1. For each value of the row, in ``input_columns`` order (the operation's input contract, per
-       contract: Data -- "the order of the input_columns list is part of the operation's input
-       contract"; the order fields happen to appear in the stream is not), produce a token:
-       - null -> ``HASH_NULL_SENTINEL`` (a fixed sentinel containing NUL bytes no real value can
-         contain, so a null is always distinguishable from real data, deterministically);
+       contract: Data -- the order fields happen to appear in the stream is not), produce a token:
+       - null -> ``HASH_NULL_SENTINEL``;
        - boolean -> ``"true"`` / ``"false"``;
-       - int64 -> ``str(value)`` (base-10, no thousands separator, a leading ``-`` only for
-         negatives);
+       - int64 -> ``str(value)``;
        - float64 -> ``repr(value)`` (Python's shortest round-tripping representation);
        - utf8 -> the string value, unmodified.
     2. Join the row's tokens with ``HASH_FIELD_DELIMITER``.
@@ -336,22 +314,16 @@ def compute_expected_hash_column(rows: dict[str, list[Any]], input_columns: list
 
 def hash_multi_column_case(key: str | None = None) -> dict[str, Any]:
     """Build one self-contained "hash" test case: a small multi-column, multi-row dataset (every
-    vocabulary type) with a null in exactly one column, its Arrow schema, a structurally valid
-    config for it (written output name "hash_out", distinct from every input column), and the
-    expected output column computed independently via ``compute_expected_hash_column`` (contract:
-    Configuration "hash" operation shape). ``key`` is forwarded to both the config's
-    ``parameters.key`` and the independent computation, so calling this with a different key
-    exercises the "with parameters.key" variant of the operation with the same rows.
+    vocabulary type) with a null in one column, its Arrow schema, a structurally valid config for
+    it (written output name "hash_out", distinct from every input column), and the expected output
+    column computed independently via ``compute_expected_hash_column`` (contract: Configuration
+    "hash" operation shape). ``key`` is forwarded to both the config's ``parameters.key`` and the
+    independent computation, so calling this with a different key exercises the "with
+    parameters.key" variant of the operation with the same rows.
 
-    Columns, in ``input_columns`` order (the order the reference algorithm reads, not stream field
-    order):
-      - ``id`` (utf8): a distinct value per row, so a row-order bug is caught even though the hash
-        of a row also depends on every other column;
-      - ``count`` (int64);
-      - ``amount`` (float64): null on exactly one row (index 1), to exercise the null-sentinel
-        path;
-      - ``active`` (boolean);
-      - ``name`` (utf8).
+    ``id`` gets a distinct value per row so a row-order bug is caught even though the hash of a
+    row also depends on every other column; ``amount`` is null on one row to exercise the
+    null-sentinel path.
     """
     input_columns = ["id", "count", "amount", "active", "name"]
     rows: dict[str, list[Any]] = {
@@ -389,9 +361,9 @@ def arrow_stream_bytes_from_arrays(
 ) -> bytes:
     """Write a single record batch built from ``arrays`` (aligned to ``schema``'s fields, in
     order) to Arrow IPC *stream* format bytes, or a schema-only stream (zero record batches, then
-    the end-of-stream marker) if ``arrays`` is ``None`` (contract: Data: "A schema-only input...
-    is valid"). Lower-level than ``arrow_stream_bytes`` below: it accepts a schema with duplicate
-    field names, which a column-name-keyed mapping cannot represent."""
+    the end-of-stream marker) if ``arrays`` is ``None`` (contract: Data). Lower-level than
+    ``arrow_stream_bytes`` below: it accepts a schema with duplicate field names, which a
+    column-name-keyed mapping cannot represent."""
     buf = io.BytesIO()
     with pa.ipc.new_stream(buf, schema, options=options) as writer:
         if arrays is not None:
@@ -402,17 +374,15 @@ def arrow_stream_bytes_from_arrays(
 def arrow_stream_bytes(
     schema: pa.Schema, rows: dict[str, list[Any]] | None, *, options: pa.ipc.IpcWriteOptions | None = None
 ) -> bytes:
-    """Write ``rows`` (column name -> one Python value per row, one entry per field of ``schema``)
-    as a single record batch to Arrow IPC stream format bytes, or a schema-only stream if ``rows``
-    is ``None``."""
+    """Write ``rows`` (column name -> one Python value per row) as a single record batch to Arrow
+    IPC stream format bytes, or a schema-only stream if ``rows`` is ``None``."""
     arrays = None if rows is None else [pa.array(rows[field.name], type=field.type) for field in schema]
     return arrow_stream_bytes_from_arrays(schema, arrays, options=options)
 
 
 def arrow_file_format_bytes(schema: pa.Schema, rows: dict[str, list[Any]]) -> bytes:
     """Write ``rows`` to the Arrow IPC *file*/Feather format (``ARROW1`` magic bytes), used to
-    test rejection of that format on the streaming-only input contract (contract: Data: "the IPC
-    file/Feather format (`ARROW1` magic)")."""
+    test rejection of that format on the streaming-only input contract (contract: Data)."""
     arrays = [pa.array(rows[field.name], type=field.type) for field in schema]
     buf = io.BytesIO()
     with pa.ipc.new_file(buf, schema) as writer:
@@ -429,8 +399,7 @@ def read_arrow_stream(data: bytes) -> pa.Table:
 def assert_ends_with_ipc_eos_marker(data: bytes) -> None:
     """Assert the raw bytes end with the IPC end-of-stream marker, checked on the raw trailing
     bytes rather than through pyarrow's own reader, which tolerates a stream missing it (contract:
-    Data: "The end-of-stream marker on output is a binary obligation that the conformance kit
-    checks on the raw trailing bytes, since pyarrow's reader accepts a stream without it")."""
+    Data)."""
     tail = data[-len(IPC_END_OF_STREAM_MARKER) :]
     assert tail == IPC_END_OF_STREAM_MARKER, (
         f"expected output to end with the IPC end-of-stream marker {IPC_END_OF_STREAM_MARKER!r}, "
@@ -449,11 +418,10 @@ def run_binary_with_transport(
     tmp_path: Path,
     timeout: float = 10.0,
 ) -> tuple[subprocess.CompletedProcess[bytes], bytes]:
-    """Run the binary via one of the four transport combinations (contract: Invocation: "a
-    conforming binary supports all four combinations"; Data: "the same stream format written
-    to/read from the `--input`/`--output` file paths"). Returns ``(result, output_bytes)``, where
-    ``output_bytes`` is read from stdout or from the ``--output`` file depending on
-    ``use_output_file``, so callers can assert on the data identically regardless of transport."""
+    """Run the binary via one of the four transport combinations (contract: Invocation, Data).
+    Returns ``(result, output_bytes)``, where ``output_bytes`` is read from stdout or from the
+    ``--output`` file depending on ``use_output_file``, so callers can assert on the data
+    identically regardless of transport."""
     args = ["run", "--config", str(config_path)]
     stdin_bytes = input_bytes
     if use_input_file:

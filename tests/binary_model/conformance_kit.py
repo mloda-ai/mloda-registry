@@ -1,26 +1,16 @@
-"""Conformance kit, cycle 1: invocation surface, license gate, config validation.
+"""Conformance kit: invocation surface, license gate, config validation, the Arrow IPC data
+pipeline, and the contract's "Data handling" / remaining "Errors" diagnostics rules.
 
 These ``test_*`` functions are not collected directly (this file's name does not match pytest's
 ``test_*.py`` / ``*_test.py`` discovery pattern) -- a wiring module imports them by name (or with
 ``import *``) so pytest collects them as part of that module instead, using whatever
 ``binary_cmd`` fixture is in scope there. ``test_simulated_binary.py`` in this same directory
 wires this kit to our own ``simulated_binary.py`` via the ``binary_cmd`` fixture in
-``conftest.py``. A future conformance run against a real binary (the wrapper, or the end-to-end
-run) is meant to reuse these same functions unmodified by supplying its own ``binary_cmd`` fixture
-instead: nothing here may hardcode a binary path.
+``conftest.py``. A future conformance run against a real binary is meant to reuse these same
+functions unmodified by supplying its own ``binary_cmd`` fixture instead: nothing here may
+hardcode a binary path.
 
-Scope: cycle 1 (sections 1-3 below) covers everything before any Arrow IPC data is touched -- the
-three documented invocations, the license gate, and config structural/capability validation. Cycle
-2 (sections 4-10) covers the Arrow IPC data pipeline itself: the "hash" operation's actual
-behavior, transport combinations, the exact-column-set and type-vocabulary rules, output
-verification, the schema-only round trip, the end-of-stream marker, malformed-input rejections,
-and the reserved ``_conformance_internal_error`` operation with real data flowing. Cycle 3
-(section 12) covers the contract's "Data handling" section and the remaining stderr/diagnostics
-rules from "Errors": data-free diagnostics, the stderr/message size caps, no network, no files
-created outside ``--output``, and the minimal environment.
-
-Every check below cites the interface contract section it comes from; see that document (in the
-epic's rust-crate-binary-feature-group folder) for the authoritative text.
+Every check below cites the interface contract section it comes from.
 """
 
 from __future__ import annotations
@@ -198,8 +188,7 @@ def test_license_missing_when_file_path_nonexistent(
 def test_license_missing_message_names_file_source(
     binary_cmd: list[str], valid_config_path: Path, tmp_path: Path
 ) -> None:
-    """The code 2 `message` names the source that was set (contract: License: "the error message
-    names the source and the reason")."""
+    """The code 2 `message` names the source that was set (contract: License)."""
     env = {"MLODA_LICENSE_FILE": str(tmp_path / "no-such-license.txt")}
     result = run_binary(binary_cmd, ["run", "--config", str(valid_config_path)], env)
     error = assert_error_response(result, 2)
@@ -210,8 +199,7 @@ def test_license_accepted_via_license_file(
     binary_cmd: list[str], valid_config_path: Path, valid_license_env: dict[str, str]
 ) -> None:
     """A valid token via `MLODA_LICENSE_FILE` proceeds past the license check; whatever happens
-    next (config/data stages, out of scope for this cycle) is never code 2 or 3 (contract:
-    License)."""
+    next is never code 2 or 3 (contract: License)."""
     result = run_binary(binary_cmd, ["run", "--config", str(valid_config_path)], valid_license_env)
     assert_not_rejected_with(result, {2, 3})
 
@@ -228,8 +216,7 @@ def test_license_file_wins_over_license_key(
     binary_cmd: list[str], valid_config_path: Path, valid_license_file: Path
 ) -> None:
     """When both are set, `MLODA_LICENSE_FILE` wins with no fallback to `MLODA_LICENSE_KEY`: a
-    valid file plus garbage inline key is still accepted (contract: License: "there is no
-    fallback from a set but unusable `MLODA_LICENSE_FILE` to `MLODA_LICENSE_KEY`")."""
+    valid file plus garbage inline key is still accepted (contract: License)."""
     env = {"MLODA_LICENSE_FILE": str(valid_license_file), "MLODA_LICENSE_KEY": "not-json-and-must-not-be-used"}
     result = run_binary(binary_cmd, ["run", "--config", str(valid_config_path)], env)
     assert_not_rejected_with(result, {2, 3})
@@ -275,8 +262,7 @@ def test_license_checked_before_config_valid_license_broken_config(
     binary_cmd: list[str], valid_license_file: Path, tmp_path: Path
 ) -> None:
     """A valid license with a syntactically broken config gets past the license stage and fails
-    on config parsing instead: exit 1, never 2 or 3 (contract: Errors, check order: "license;
-    config parse and structural validation")."""
+    on config parsing instead: exit 1, never 2 or 3 (contract: Errors, check order)."""
     config_path = write_text(tmp_path / "config.json", "{not valid json")
     env = {"MLODA_LICENSE_FILE": str(valid_license_file)}
     result = run_binary(binary_cmd, ["run", "--config", str(config_path)], env)
@@ -389,8 +375,8 @@ def test_reserved_internal_error_operation_not_rejected_as_unknown(
     """The reserved `_conformance_internal_error` operation is not listed in
     `capabilities.operations` but must still be accepted at the operation-capability-check step,
     bypassing that check specifically for this literal string, so the kit can provoke code 6 on
-    demand (contract: Conformance). Actually triggering code 6 from it needs data flow and belongs
-    to cycle 3; here we only assert it is not rejected as an unknown operation (never code 4),
+    demand (contract: Conformance). Actually triggering code 6 from it needs data flow, checked
+    elsewhere; here we only assert it is not rejected as an unknown operation (never code 4),
     whatever the run does afterward."""
     config = make_config(operation=RESERVED_INTERNAL_ERROR_OPERATION)
     config_path = write_json(tmp_path / "config.json", config)
@@ -438,7 +424,7 @@ def test_config_parameters_empty_object_accepted_structurally(
 ) -> None:
     """`parameters: {}` is structurally accepted for an operation whose parameters are all
     optional ("hash"'s `key` is optional): this does not itself cause exit 1 (contract:
-    Configuration). Final success is out of scope for this cycle, so nothing else is asserted."""
+    Configuration). Final success is out of scope here, so nothing else is asserted."""
     config = make_config(parameters={})
     config_path = write_json(tmp_path / "config.json", config)
     result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env)
@@ -450,7 +436,7 @@ def test_config_parameters_empty_object_accepted_structurally(
 # ---------------------------------------------------------------------------
 # 4. The "hash" operation reference algorithm (contract: Configuration "hash" operation shape;
 #    the concrete algorithm itself is defined in conftest.compute_expected_hash, not the contract,
-#    since operations are opaque to mloda -- this cycle is what fixes it for the conformance kit)
+#    since operations are opaque to mloda)
 # ---------------------------------------------------------------------------
 
 
@@ -460,7 +446,7 @@ def test_hash_multi_column_with_null_matches_reference_algorithm(
     """ "hash" with no `parameters.key`, multiple input columns covering every vocabulary type, and
     a null in one column (`amount`) matches the independent reference computation
     (`compute_expected_hash`) byte for byte, row for row (contract: Configuration "hash" shape;
-    Data: "Null values are permitted; how an operation treats them belongs to the operation")."""
+    Data)."""
     case = hash_multi_column_case()
     config_path = write_json(tmp_path / "config.json", case["config"])
     input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
@@ -475,9 +461,8 @@ def test_hash_with_key_parameter_matches_reference_algorithm_and_changes_result(
     binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
 ) -> None:
     """ "hash" with a `parameters.key` produces the reference algorithm's value computed with that
-    key, which differs from the no-key result for the same rows (contract: Configuration:
-    "parameters: operation-specific"; the key is folded into the digest per
-    `compute_expected_hash`)."""
+    key, which differs from the no-key result for the same rows (contract: Configuration; the key
+    is folded into the digest per `compute_expected_hash`)."""
     key = "s3cr3t-key"
     case = hash_multi_column_case(key=key)
     config_path = write_json(tmp_path / "config.json", case["config"])
@@ -497,9 +482,7 @@ def test_hash_row_count_and_row_order_preserved(
 ) -> None:
     """Row count and row order are preserved: distinct `id` values per row make the expected hash
     order-sensitive, so a binary that drops, adds or reorders rows fails this even if it computes
-    correct hashes for the wrong positions (contract: Data: "Every operation is therefore
-    row-preserving by construction"; Conformance: "the conformance kit tests it with a
-    distinct-valued input whose output must line up row for row")."""
+    correct hashes for the wrong positions (contract: Data, Conformance)."""
     case = hash_multi_column_case()
     config_path = write_json(tmp_path / "config.json", case["config"])
     input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
@@ -518,8 +501,7 @@ def test_hash_output_schema_exact_type_int64_no_input_columns_echoed(
     binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
 ) -> None:
     """Output schema is exactly the `output_columns` written names ("hash_out"), typed int64; no
-    input column ("id", "count", "amount", "active", "name") is echoed (contract: Data: "exactly
-    the operation's output columns under their written names... no input column is echoed")."""
+    input column is echoed (contract: Data)."""
     case = hash_multi_column_case()
     config_path = write_json(tmp_path / "config.json", case["config"])
     input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
@@ -554,9 +536,7 @@ def test_all_transport_combinations_produce_identical_output(
     use_output_file: bool,
 ) -> None:
     """All four transport combinations (`--input`/stdin crossed with `--output`/stdout) must work
-    identically for the same input data and config (contract: Invocation: "a conforming binary
-    supports all four combinations"; Data: "the same stream format written to/read from the
-    `--input`/`--output` file paths for large data")."""
+    identically for the same input data and config (contract: Invocation, Data)."""
     case = hash_multi_column_case()
     config_path = write_json(tmp_path / "config.json", case["config"])
     input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
@@ -583,7 +563,7 @@ def test_input_schema_missing_column_is_data_error(
     binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
 ) -> None:
     """The input stream's schema must contain exactly `input_columns`; a missing name is a data
-    error (contract: Data: "a missing name, an extra name or a duplicate is a data error")."""
+    error (contract: Data)."""
     config = make_config(input_columns=["col_a", "col_b"], output_columns={"result": "hash_out"})
     config_path = write_json(tmp_path / "config.json", config)
     schema = pa.schema([pa.field("col_a", pa.int64())])  # col_b missing entirely
@@ -608,8 +588,7 @@ def test_input_schema_duplicate_field_name_is_data_error(
     binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
 ) -> None:
     """Two distinct Arrow fields sharing the same name is a "duplicate", a data error, even though
-    the set of distinct names equals `input_columns` (contract: Data: "the schema must contain
-    exactly the input_columns names, in any order, without duplicates")."""
+    the set of distinct names equals `input_columns` (contract: Data)."""
     config = make_config(input_columns=["col_a", "col_b"], output_columns={"result": "hash_out"})
     config_path = write_json(tmp_path / "config.json", config)
     schema = pa.schema([pa.field("col_a", pa.int64()), pa.field("col_a", pa.int64()), pa.field("col_b", pa.int64())])
@@ -633,8 +612,7 @@ def test_input_column_type_outside_vocabulary_is_unsupported(
     sample_values: list[Any],
 ) -> None:
     """A column typed outside `column_types` (int32, a timestamp type, ...) is code 4 (contract:
-    Capabilities: "Other widths and parameterized or nested types... are not in the vocabulary and
-    are rejected up front by the mixin, or with code 4 by the binary")."""
+    Capabilities)."""
     config = make_config(input_columns=["col_a"], output_columns={"result": "hash_out"})
     config_path = write_json(tmp_path / "config.json", config)
     schema = pa.schema([pa.field("col_a", bad_type)])
@@ -648,8 +626,7 @@ def test_input_schema_presence_error_precedes_type_error(
 ) -> None:
     """A presence violation (missing `col_b`) combined with a type violation (`col_a` sent as
     int32 instead of int64) is a data error, not code 4: presence is checked first (contract:
-    Data: "Each column is then checked for a type from `column_types` (code 4); presence errors
-    precede type errors")."""
+    Data)."""
     config = make_config(input_columns=["col_a", "col_b"], output_columns={"result": "hash_out"})
     config_path = write_json(tmp_path / "config.json", config)
     schema = pa.schema([pa.field("col_a", pa.int32())])  # col_b missing; col_a also wrong type
@@ -667,10 +644,7 @@ def test_schema_only_input_valid_license_produces_schema_only_output(
     binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
 ) -> None:
     """Zero record batches then the end-of-stream marker is valid input; the output is
-    schema-only too, but already carries the output columns and types (contract: Data: "A
-    schema-only input (zero record batches, then the end-of-stream marker) is valid and yields a
-    schema-only output that already carries the output columns, so a caller can learn output
-    types without sending data")."""
+    schema-only too, but already carries the output columns and types (contract: Data)."""
     config = make_config(input_columns=["col_a"], output_columns={"result": "hash_out"})
     config_path = write_json(tmp_path / "config.json", config)
     schema = pa.schema([pa.field("col_a", pa.string())])
@@ -687,8 +661,7 @@ def test_schema_only_input_bad_license_still_rejected(
     binary_cmd: list[str], valid_config_path: Path, tmp_path: Path
 ) -> None:
     """A schema-only input with a bad license still exits 2 or 3, not 0: the license check applies
-    before any data is read, schema-only input included (contract: Data: "the license check still
-    applies"; License)."""
+    before any data is read, schema-only input included (contract: Data, License)."""
     schema = pa.schema([pa.field("col_a", pa.string())])
     input_bytes = arrow_stream_bytes(schema, None)
     license_path = write_text(tmp_path / "license.txt", EXPIRED_LICENSE_TEXT)
@@ -709,9 +682,7 @@ def test_output_stream_raw_bytes_end_with_ipc_eos_marker(
 ) -> None:
     """The raw output bytes end with the IPC end-of-stream marker, checked on the bytes
     themselves rather than through pyarrow's own reader, which tolerates a stream missing it
-    (contract: Data: "The end-of-stream marker on output is a binary obligation that the
-    conformance kit checks on the raw trailing bytes, since pyarrow's reader accepts a stream
-    without it")."""
+    (contract: Data)."""
     case = hash_multi_column_case()
     config_path = write_json(tmp_path / "config.json", case["config"])
     input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
@@ -728,10 +699,7 @@ def test_output_stream_raw_bytes_end_with_ipc_eos_marker(
 def test_zero_byte_input_is_data_error(
     binary_cmd: list[str], valid_config_path: Path, valid_license_env: dict[str, str]
 ) -> None:
-    """Zero bytes is not an Arrow IPC stream at all: a data error (contract: Data: "zero bytes, a
-    zero-length `--input` file... [is a data error]"). Already partially covered by the cycle-1
-    stub's own zero-byte special case; re-asserted here now that the full data stage is in
-    place."""
+    """Zero bytes is not an Arrow IPC stream at all: a data error (contract: Data)."""
     result = run_binary(binary_cmd, ["run", "--config", str(valid_config_path)], valid_license_env, b"")
     assert_error_response(result, DATA_ERROR)
 
@@ -740,8 +708,7 @@ def test_truncated_stream_missing_end_of_stream_marker_is_data_error(
     binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
 ) -> None:
     """ "truncated" means end of file without the end-of-stream marker, not "no more batches": a
-    stream cut off right before that marker is a data error (contract: Data: "'truncated' means
-    end of file without that marker, not 'no more batches', and is a data error (code 5)")."""
+    stream cut off right before that marker is a data error (contract: Data)."""
     config = make_config(input_columns=["col_a"], output_columns={"result": "hash_out"})
     config_path = write_json(tmp_path / "config.json", config)
     schema = pa.schema([pa.field("col_a", pa.int64())])
@@ -756,7 +723,7 @@ def test_ipc_file_format_instead_of_stream_is_data_error(
     binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
 ) -> None:
     """The IPC file/Feather format (`ARROW1` magic bytes) is not the streaming format the contract
-    requires: a data error (contract: Data: "the IPC file/Feather format (`ARROW1` magic)")."""
+    requires: a data error (contract: Data)."""
     config = make_config(input_columns=["col_a"], output_columns={"result": "hash_out"})
     config_path = write_json(tmp_path / "config.json", config)
     schema = pa.schema([pa.field("col_a", pa.int64())])
@@ -769,8 +736,7 @@ def test_ipc_file_format_instead_of_stream_is_data_error(
 def test_compressed_record_batch_body_is_data_error(
     binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
 ) -> None:
-    """A compressed record batch body is a data error (contract: Data: "A compressed record batch
-    body is a data error (code 5)")."""
+    """A compressed record batch body is a data error (contract: Data)."""
     config = make_config(input_columns=["col_a"], output_columns={"result": "hash_out"})
     config_path = write_json(tmp_path / "config.json", config)
     schema = pa.schema([pa.field("col_a", pa.int64())])
@@ -784,9 +750,7 @@ def test_dictionary_encoded_column_is_unsupported_type(
     binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
 ) -> None:
     """A dictionary-encoded column is an unsupported column type (code 4), decided by the same
-    type check as any other type outside the vocabulary (contract: Data: "a dictionary-encoded
-    column is an unsupported column type (code 4), decided by the type check like any other type
-    outside the vocabulary")."""
+    type check as any other type outside the vocabulary (contract: Data)."""
     config = make_config(input_columns=["col_a"], output_columns={"result": "hash_out"})
     config_path = write_json(tmp_path / "config.json", config)
     dict_array = pa.array(["x", "y", "x"]).dictionary_encode()
@@ -807,8 +771,7 @@ def test_reserved_internal_error_operation_with_data_triggers_code_6(
     """The reserved `_conformance_internal_error` operation, given a structurally valid config and
     valid input data, reaches the data stage and deliberately produces code 6, with stderr's last
     non-empty line still a valid `{"code": 6, "message": ...}` object, not a bare traceback
-    (contract: Conformance: "A binary may honour the reserved operation
-    `_conformance_internal_error` to let the kit provoke code 6")."""
+    (contract: Conformance)."""
     config = make_config(operation=RESERVED_INTERNAL_ERROR_OPERATION)
     config_path = write_json(tmp_path / "config.json", config)
     schema = pa.schema([pa.field("col_a", pa.int64())])
@@ -821,10 +784,9 @@ def test_reserved_internal_error_operation_with_data_triggers_code_6(
 # 11. `--capabilities` classification nice-to-have (contract: Capabilities) -- skipped.
 # ---------------------------------------------------------------------------
 # Not included: per contract, casting large_string/string_view to utf8 is a mixin-side
-# responsibility that happens before data ever reaches the binary ("The latter two [is_large_string
-# / is_string_view]... are cast to utf8 before sending"). A binary-level test sending large_string
-# or string_view directly would really be exercising mixin behavior, which is out of scope for this
-# binary-focused conformance kit, so this nice-to-have is skipped rather than over-scoped.
+# responsibility that happens before data ever reaches the binary. A binary-level test sending
+# large_string or string_view directly would really be exercising mixin behavior, out of scope for
+# this binary-focused conformance kit, so this nice-to-have is skipped rather than over-scoped.
 
 
 # ---------------------------------------------------------------------------
@@ -835,14 +797,14 @@ def test_reserved_internal_error_operation_with_data_triggers_code_6(
 # "no state between invocations" and "removes its own temp directory" (contract: Invocation, Data
 # handling) describe the mixin's private-per-invocation-directory behavior, not the binary's: the
 # binary itself carries no invocation-tracking state, so that obligation is covered here only as
-# "no files created outside --output" (the binary writes nothing of its own to track between
-# calls). The mixin side of both bullets is a different piece of work, out of scope for this kit.
+# "no files created outside --output". The mixin side of both bullets is a different piece of
+# work, out of scope for this kit.
 #
-# The "any exit code not in this table ... is treated as code 6" rule (contract: Errors) is a
+# The "any exit code not in this table is treated as code 6" rule (contract: Errors) is a
 # caller-side interpretation rule for a mixin receiving a response from *some* binary; it is not
 # something this binary's own conformance kit can meaningfully test against itself (the binary
 # always reports one of its own table's codes, or the top-level exception handler folds any
-# uncaught error into a well-formed code 6 already covered below).
+# uncaught error into a well-formed code 6, already covered below).
 
 
 def test_diagnostics_never_leak_marked_cell_value_on_success(
@@ -851,8 +813,7 @@ def test_diagnostics_never_leak_marked_cell_value_on_success(
     """A distinctive marker cell value that would never otherwise appear in this suite's own
     input, output or diagnostics, sent through a normal successful "hash" run: stderr never
     contains it. stdout on a successful run legitimately carries the caller's own data by design,
-    so this scopes the assertion to stderr only, not stdout (contract: Data handling: "never
-    writes cell values to stderr or into an error message")."""
+    so this scopes the assertion to stderr only, not stdout (contract: Data handling)."""
     config = make_config(input_columns=["col_a"], output_columns={"result": "hash_out"})
     config_path = write_json(tmp_path / "config.json", config)
     schema = pa.schema([pa.field("col_a", pa.string())])
@@ -885,8 +846,7 @@ def test_diagnostics_never_leak_marked_cell_value_on_failure(
     stage with the marked input present: a data error from a wrong schema (`col_b` declared in
     `input_columns` but absent from the stream), and the reserved
     `_conformance_internal_error` operation. Neither case's stderr contains the marker (contract:
-    Data handling: "never writes cell values to stderr or into an error message"; Conformance:
-    "data-free diagnostics (no cell value of a marked input appears on stderr)")."""
+    Data handling, Conformance)."""
     config = make_config(input_columns=input_columns, operation=operation, output_columns=output_columns)
     config_path = write_json(tmp_path / "config.json", config)
     schema = pa.schema([pa.field("col_a", pa.string())])
@@ -904,8 +864,7 @@ def test_error_message_stays_under_size_cap_for_long_garbage_operation(
     """A very long garbage `operation` string provokes the unsupported-operation error message to
     echo it back (`unsupported operation: {operation!r}`); `assert_error_response`'s shared
     size-cap assertion enforces that the resulting `message` still stays within the contract's
-    1024-byte cap (contract: Data handling: "message is at most 1024 bytes"; Conformance: "the
-    last-non-empty-line stderr rule and the size caps")."""
+    1024-byte cap (contract: Data handling, Conformance)."""
     long_garbage_operation = "not_a_real_operation_" + "x" * 2000
     config = make_config(operation=long_garbage_operation)
     config_path = write_json(tmp_path / "config.json", config)
@@ -918,11 +877,10 @@ def test_no_network_dependency_under_unshare_net(
 ) -> None:
     """A normal, successful "hash" run wrapped in `unshare --net` (a network-denied Linux
     namespace) must still succeed and produce the correct output, proving the binary makes no
-    network calls it depends on (contract: Data handling: "makes no network connections"; every
-    check ... runs offline"; Conformance: "no network (a run under a network-denied sandbox such
-    as `unshare -n` on Linux)"). Skipped if `unshare` is not on `PATH`, or if `unshare --net`
-    itself cannot be used in this sandbox (some CI/containers block user/network namespaces), so
-    the test never false-fails on an environment limitation unrelated to the binary."""
+    network calls it depends on (contract: Data handling, Conformance). Skipped if `unshare` is
+    not on `PATH`, or if `unshare --net` itself cannot be used in this sandbox (some CI/containers
+    block user/network namespaces), so the test never false-fails on an environment limitation
+    unrelated to the binary."""
     if shutil.which("unshare") is None:
         pytest.skip("unshare is not available on this host")
     probe = subprocess.run(  # nosec B603 B607
@@ -948,12 +906,10 @@ def test_no_files_created_outside_output_in_read_only_cwd(
     """A normal, successful "hash" run over stdin/stdout (no `--input`/`--output`, so nothing
     should touch the filesystem at all) run with its working directory set to a fresh read-only
     directory must still succeed and create no files there, proving the binary writes nothing of
-    its own outside `--output` (contract: Data handling: "reads no files other than --config,
-    --input and MLODA_LICENSE_FILE, writes none other than --output, and keeps no state between
-    invocations"; Conformance: "no files created outside --output (a run in a read-only working
-    directory)"). `--config` and the license file live in a separate, writable directory so only
-    the cwd itself is read-only. Skipped on a platform with no POSIX directory-permission concept,
-    or when running as root, which ignores directory write permissions."""
+    its own outside `--output` (contract: Data handling, Conformance). `--config` and the license
+    file live in a separate, writable directory so only the cwd itself is read-only. Skipped on a
+    platform with no POSIX directory-permission concept, or when running as root, which ignores
+    directory write permissions."""
     if not hasattr(os, "geteuid"):
         pytest.skip("no POSIX directory-permission concept on this platform")
     if os.geteuid() == 0:
@@ -989,11 +945,7 @@ def test_minimal_environment_allowlist_only(binary_cmd: list[str], tmp_path: Pat
     `SYSTEMROOT`, but the license variable and `PATH` alone are enough to prove the binary needs
     nothing ambient) -- no `HOME`, no `LANG`, nothing else -- must still succeed and produce the
     correct output, proving the binary reads no environment variable outside the license
-    variables and what its runtime needs to start (contract: Data handling: "reads no environment
-    variables beyond the two license variables and what its runtime needs to start"; the mixin
-    "passes a minimal environment: the two license variables, PATH, a fixed UTF-8 locale ..."; and
-    the mixin's allowlist is exactly what this exercises: Conformance: "the minimal environment (a
-    run with the allowlist only)")."""
+    variables and what its runtime needs to start (contract: Data handling, Conformance)."""
     case = hash_multi_column_case()
     config_path = write_json(tmp_path / "config.json", case["config"])
     input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
@@ -1012,9 +964,7 @@ def test_uncaught_exception_still_produces_well_formed_code_6(
     OSError` around that read: a genuinely uncaught internal error, not the reserved
     `_conformance_internal_error` operation. stderr's last non-empty line must still be exactly
     one well-formed `{"code": 6, "message": ...}` object rather than a raw traceback (contract:
-    Errors: "A binary built with panic = \"abort\" installs a panic hook that writes the code 6
-    object and exits 6, so an internal failure never reaches the caller as a bare signal";
-    "message is a single human-readable line, no stack traces or multi-line payloads")."""
+    Errors)."""
     config_path = tmp_path / "config.json"
     config_path.write_bytes(b"\xff\xfe\x00invalid-utf8-config")
     result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env)

@@ -5,13 +5,8 @@ private test fixture, never published as a package. Every test collected here co
 ``tests.binary_model.conformance_kit``; the ``binary_cmd`` fixture in this directory's
 ``conftest.py`` points it at ``simulated_binary.py`` via
 ``[sys.executable, str(simulated_binary_path)]``. A future conformance run against a real binary
-(the wrapper, or the end-to-end run) is meant to reuse the same ``conformance_kit`` functions
-unmodified, by supplying its own ``binary_cmd`` fixture instead.
-
-See the interface contract in the epic's rust-crate-binary-feature-group folder for the full
-specification this kit checks against. This module only pulls in cycle 1 of that contract:
-invocation surface, license gate, and config validation, all of it before any Arrow IPC data is
-touched.
+is meant to reuse the same ``conformance_kit`` functions unmodified, by supplying its own
+``binary_cmd`` fixture instead.
 """
 
 from __future__ import annotations
