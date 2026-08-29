@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Options
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.python_dict import PythonDictTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (

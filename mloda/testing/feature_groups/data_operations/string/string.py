@@ -305,9 +305,8 @@ class StringTestBase(DataOpsTestBase):
     def test_option_based_upper(self) -> None:
         """Option-based configuration (not string pattern) produces the same result."""
         self._skip_if_unsupported("upper")
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.core.abstract_plugins.components.options import Options
-        from mloda.user import Feature
+        from mloda.provider import FeatureSet
+        from mloda.user import Feature, Options
 
         feature = Feature(
             "my_upper",

@@ -23,11 +23,8 @@ import pytest
 
 pd = pytest.importorskip("pandas")
 
-from mloda.core.abstract_plugins.components.input_data.base_input_data import BaseInputData
-from mloda.core.abstract_plugins.components.input_data.creator.data_creator import DataCreator
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import ComputeFramework, FeatureGroup, FeatureSet
-from mloda.user import Feature, PluginCollector, mloda
+from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
+from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pandas_sessionization import (

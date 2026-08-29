@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import pytest
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Options
 
 
 class CapabilityHookTestMixin:

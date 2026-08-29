@@ -6,13 +6,9 @@ import logging
 import os
 from typing import Any
 
-from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
-from mloda.core.abstract_plugins.components.feature_name import FeatureName
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.core.abstract_plugins.components.utils import escalate_match_abort
-from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
+from mloda.user import Feature, FeatureName, Options
+from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureGroup, FeatureSet, property_spec
+from mloda.core.abstract_plugins.components.utils import escalate_match_abort  # no public equivalent yet
 
 from mloda.community.feature_groups.data_operations.base import (
     RejectionReasonMixin,

@@ -20,8 +20,8 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.provider import FeatureSet
+from mloda.user import Feature, Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     extract_column as _extract_column,
@@ -29,7 +29,6 @@ from mloda.testing.feature_groups.data_operations.helpers import (
 )
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
-from mloda.user import Feature
 
 
 # ---------------------------------------------------------------------------

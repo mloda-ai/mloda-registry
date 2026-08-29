@@ -6,9 +6,8 @@ from typing import Any
 
 import pytest
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import DataType, Feature, Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
-from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.string.base import (
     STRING_OPS,

@@ -11,7 +11,7 @@ import pytest
 
 pytest.importorskip("pandas")
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Options
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (

@@ -26,9 +26,8 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.user import Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (

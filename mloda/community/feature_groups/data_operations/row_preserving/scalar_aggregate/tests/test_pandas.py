@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("pandas")
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Options
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pandas_scalar_aggregate import (
     PandasScalarAggregate,
 )

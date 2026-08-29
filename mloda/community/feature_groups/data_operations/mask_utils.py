@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.core.abstract_plugins.components.mask.base_mask_engine import BaseMaskEngine
+from mloda.provider import BaseMaskEngine
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
 MASK_KEY = "mask"

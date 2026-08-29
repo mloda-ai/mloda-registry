@@ -8,7 +8,7 @@ import pytest
 
 duckdb = pytest.importorskip("duckdb")
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Options
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.duckdb_window_aggregation import (
     DuckdbWindowAggregation,
 )

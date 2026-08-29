@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import pytest
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Options
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +52,7 @@ class TestResolveFeatureIntegration:
         class from another test module can't fail the whole environment build.
         """
         pytest.importorskip("pandas")
-        from mloda.core.abstract_plugins.components.plugin_option.plugin_collector import PluginCollector
+        from mloda.user import PluginCollector
         from mloda.steward import resolve_feature
 
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pandas_scalar_aggregate import (

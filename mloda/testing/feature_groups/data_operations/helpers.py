@@ -12,9 +12,8 @@ from typing import Any
 
 import pyarrow as pa
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.user import Feature
+from mloda.provider import FeatureSet
+from mloda.user import Feature, Options
 
 
 def extract_column(result: Any, column_name: str) -> list[Any]:

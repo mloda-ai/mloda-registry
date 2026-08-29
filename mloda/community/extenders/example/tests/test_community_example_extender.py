@@ -7,9 +7,7 @@ from typing import Any
 
 import pytest
 
-from mloda.core.abstract_plugins.components.input_data.base_input_data import BaseInputData
-from mloda.core.abstract_plugins.components.input_data.creator.data_creator import DataCreator
-from mloda.provider import ComputeFramework, FeatureGroup, FeatureSet
+from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
 from mloda.steward import Extender, ExtenderHook
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.user import PluginCollector, mloda

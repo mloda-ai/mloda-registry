@@ -12,9 +12,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any
 
-from mloda.core.abstract_plugins.components.input_data.base_input_data import BaseInputData
-from mloda.core.abstract_plugins.components.input_data.creator.data_creator import DataCreator
-from mloda.provider import ComputeFramework, FeatureGroup, FeatureSet
+from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 
