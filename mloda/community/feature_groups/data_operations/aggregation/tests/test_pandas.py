@@ -263,9 +263,10 @@ class TestComputeModeWinnersAllNull:
     """The ``if work.empty`` early return in ``compute_mode_winners``.
 
     It fires only when *every* row's source value is null across the whole
-    input, or the input has no rows at all. ``test_mode_all_null_partition_
-    yields_none`` does not reach it: partition "B" there still has non-null
-    values, so ``work`` is non-empty after the ``notna()`` filter.
+    input, or the input has no rows at all. The parametrized
+    ``test_all_null_column_per_group[mode]`` already exercises this branch but
+    only asserts ``all(v is None ...)``, which holds on either code path; these
+    tests pin the dtype and row-count contract that actually discriminates them.
     """
 
     def test_every_source_value_null_returns_an_empty_frame(self) -> None:
