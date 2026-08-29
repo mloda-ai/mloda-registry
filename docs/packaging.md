@@ -35,8 +35,12 @@ into any `{core_dependency}` placeholder in `packages.toml`, so the mloda floor
 is declared once. The `[build-system]` setuptools floor tracks the PEP 639 SPDX
 `license` string the generator emits (accepted only from setuptools 77.0.1 on),
 so it cannot be lowered without changing that form. The root `pyproject.toml`
-keeps its own, higher, independent floor: it is the dev-only workspace package,
-is never published, declares no `license`, and its floor is Dependabot-managed.
+is the dev-only workspace package and is never published, but its `mloda`
+dependency is not hand-edited either: `generate_pyproject.py` rewrites it from
+the same `core_dependency`, and `check-generated` rejects any other value. For
+that reason `.github/dependabot.yml` excludes `mloda` from uv updates, a
+Dependabot-authored bump would just fail `check-generated` and have to be
+redone through `config/shared.toml`.
 
 ```toml
 # Illustrative values; see config/shared.toml for the current ones.
