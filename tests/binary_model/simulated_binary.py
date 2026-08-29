@@ -8,20 +8,26 @@ rust-crate-binary-feature-group folder for the full specification: ``--version``
 config validation, and the Arrow IPC data path.
 
 Cycle 1 scope (implemented here): invocation surface, license gate, config validation, all of it
-before any Arrow IPC data is touched. Cycle 2 placeholder: the data stage only distinguishes a
-zero-byte input (code 5, per contract) from anything else, which fails as code 6 ("Arrow IPC data
-path not implemented yet") rather than actually parsing Arrow IPC -- that parsing is a future TDD
-cycle.
+before any Arrow IPC data is touched. Cycle 2 scope (also implemented here): the Arrow IPC data
+pipeline itself -- reading the input stream (all four transport combinations), the exact-column-set
+and column-type-vocabulary checks, the "hash" operation, row preservation, the schema-only round
+trip, the end-of-stream marker on output, rejection of malformed/compressed/wrong-format input, and
+the reserved ``_conformance_internal_error`` operation with real data flowing.
 """
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
+import struct
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import pyarrow as pa
 
 PLUGIN_ID = "example_binary"
 VERSION = "1.0.0"
@@ -35,6 +41,16 @@ _OPERATION_OUTPUTS: dict[str, tuple[str, ...]] = {"hash": ("result",)}
 
 _REQUIRED_CONFIG_KEYS = frozenset({"input_columns", "operation", "parameters", "output_columns"})
 
+# Continuation marker (0xFFFFFFFF) followed by a zero-length (0x00000000) message: the Arrow IPC
+# end-of-stream marker (contract: Data). pyarrow's own stream reader tolerates a stream missing
+# this, so it is checked on the raw trailing bytes instead (contract: Data, Conformance).
+IPC_END_OF_STREAM_MARKER = b"\xff\xff\xff\xff\x00\x00\x00\x00"
+
+# Fixed sentinel/delimiter for the "hash" operation, matching the conformance kit's independent
+# reference implementation (``compute_expected_hash`` in ``conftest.py``) byte for byte.
+_HASH_NULL_SENTINEL = "\x00__NULL__\x00"
+_HASH_FIELD_DELIMITER = "\x1f"
+
 # Contract "Errors" table.
 USAGE_ERROR = 1
 LICENSE_MISSING = 2
@@ -42,6 +58,124 @@ LICENSE_INVALID = 3
 UNSUPPORTED = 4
 DATA_ERROR = 5
 INTERNAL_ERROR = 6
+
+
+def _hash_value_token(value: Any) -> str:
+    """One row value's token in the "hash" operation. Order matters: ``bool`` is checked before
+    ``int`` since ``bool`` is an ``int`` subclass in Python."""
+    if value is None:
+        return _HASH_NULL_SENTINEL
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    if isinstance(value, str):
+        return value
+    raise TypeError(f"unsupported value type for the hash operation: {type(value)!r}")
+
+
+def _compute_hash(key: str | None, row_values: list[Any]) -> int:
+    """The "hash" operation's reference algorithm: join the row's tokens (in ``input_columns``
+    order) with a fixed delimiter, prepend the key, BLAKE2b-digest the UTF-8 bytes with
+    ``digest_size=8``, and interpret the 8 digest bytes as a big-endian signed 64-bit integer."""
+    row_text = _HASH_FIELD_DELIMITER.join(_hash_value_token(value) for value in row_values)
+    message = f"{key or ''}{_HASH_FIELD_DELIMITER}{row_text}".encode("utf-8")
+    digest = hashlib.blake2b(message, digest_size=8).digest()
+    result: int = struct.unpack(">q", digest)[0]
+    return result
+
+
+def _classify_column_type(arrow_type: pa.DataType) -> str | None:
+    """Map an Arrow type to this contract's type vocabulary, or ``None`` if it is outside it
+    (contract: Capabilities: classification is done with pyarrow's type predicates, never by
+    string spelling)."""
+    if pa.types.is_int64(arrow_type):
+        return "int64"
+    if pa.types.is_float64(arrow_type):
+        return "float64"
+    if pa.types.is_boolean(arrow_type):
+        return "boolean"
+    if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type) or pa.types.is_string_view(arrow_type):
+        return "utf8"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Compressed record batch detection.
+#
+# pyarrow's stream reader transparently decompresses lz4/zstd record batch bodies instead of
+# rejecting them (empirically verified against pyarrow 25), so a compressed body cannot be
+# detected by trying to read the data through pyarrow: it just silently succeeds. Instead this
+# walks the Arrow IPC message's raw flatbuffer metadata by hand -- a stable, versioned wire format
+# -- to see the ``RecordBatch.compression`` field, which the pyarrow Python API does not expose.
+# ---------------------------------------------------------------------------
+
+# org.apache.arrow.flatbuf.MessageHeader union tag for a RecordBatch message (stable wire format).
+_MESSAGE_HEADER_RECORD_BATCH = 3
+
+
+def _fb_u32(buf: bytes, pos: int) -> int:
+    value: int = struct.unpack_from("<I", buf, pos)[0]
+    return value
+
+
+def _fb_i32(buf: bytes, pos: int) -> int:
+    value: int = struct.unpack_from("<i", buf, pos)[0]
+    return value
+
+
+def _fb_u16(buf: bytes, pos: int) -> int:
+    value: int = struct.unpack_from("<H", buf, pos)[0]
+    return value
+
+
+def _fb_field_slot(buf: bytes, table_pos: int, field_index: int) -> int:
+    """The vtable-declared byte offset (within the table at ``table_pos``) of ``field_index``, or
+    0 if that field is absent. Flatbuffers wire format: a table's first 4 bytes are a signed
+    offset back to its vtable; the vtable starts with its own size and the table's size (2 bytes
+    each), followed by one 2-byte offset per declared field, in declaration order."""
+    soffset = _fb_i32(buf, table_pos)
+    vtable_pos = table_pos - soffset
+    vtable_size = _fb_u16(buf, vtable_pos)
+    slot = 4 + field_index * 2
+    if slot >= vtable_size:
+        return 0
+    return _fb_u16(buf, vtable_pos + slot)
+
+
+def _fb_offset_field(buf: bytes, table_pos: int, field_index: int) -> int | None:
+    """Follow a table/vector/string offset field to its absolute position, or ``None`` if the
+    field is absent."""
+    slot = _fb_field_slot(buf, table_pos, field_index)
+    if slot == 0:
+        return None
+    field_pos = table_pos + slot
+    return field_pos + _fb_u32(buf, field_pos)
+
+
+def _fb_scalar_u8_field(buf: bytes, table_pos: int, field_index: int) -> int:
+    slot = _fb_field_slot(buf, table_pos, field_index)
+    if slot == 0:
+        return 0
+    return buf[table_pos + slot]
+
+
+def _message_metadata_is_compressed_record_batch(metadata: bytes) -> bool:
+    """Whether an Arrow IPC message's raw flatbuffer metadata describes a compressed record batch:
+    ``Message.header_type`` (field 1) must be RecordBatch; ``Message.header`` (field 2) then
+    points at the RecordBatch table, whose ``compression`` field (field 3), if present, means the
+    batch is compressed (contract: Data: "A compressed record batch body is a data error")."""
+    buf = bytes(metadata)
+    message_pos = _fb_u32(buf, 0)
+    header_type = _fb_scalar_u8_field(buf, message_pos, 1)
+    if header_type != _MESSAGE_HEADER_RECORD_BATCH:
+        return False
+    record_batch_pos = _fb_offset_field(buf, message_pos, 2)
+    if record_batch_pos is None:
+        return False
+    return _fb_offset_field(buf, record_batch_pos, 3) is not None
 
 
 class _CliError(Exception):
@@ -228,13 +362,115 @@ def _read_input_bytes(input_path: Path | None) -> bytes:
     return sys.stdin.buffer.read()
 
 
-def _run_data_stage(raw: bytes) -> None:
-    """Cycle 2 placeholder: only the zero-byte case (contract: Data, code 5) is distinguished.
-    Real Arrow IPC parsing is a future TDD cycle, so any non-empty input fails loudly as an
-    internal error instead of being silently accepted or crashing with a bare traceback."""
+def _open_ipc_stream_reader(raw: bytes) -> pa.RecordBatchReader:
+    """Parse ``raw`` as an Arrow IPC *stream* (not file/Feather format). Anything that is not a
+    well-formed IPC stream (zero bytes handled by the caller; garbage bytes; the IPC file/Feather
+    format's ``ARROW1`` magic) fails pyarrow's own parsing, which is reported as a data error
+    (contract: Data)."""
+    try:
+        return pa.ipc.open_stream(raw)
+    except pa.ArrowException as exc:
+        raise _CliError(DATA_ERROR, f"input is not a valid Arrow IPC stream: {exc}") from exc
+
+
+def _assert_ends_with_eos_marker(raw: bytes) -> None:
+    """ "truncated" means end of file without the end-of-stream marker, not "no more batches"
+    (contract: Data); checked on the raw trailing bytes since pyarrow's own reader accepts a
+    stream without it."""
+    if raw[-len(IPC_END_OF_STREAM_MARKER) :] != IPC_END_OF_STREAM_MARKER:
+        raise _CliError(DATA_ERROR, "input stream is truncated: missing the end-of-stream marker")
+
+
+def _assert_no_compressed_record_batch(raw: bytes) -> None:
+    message_reader = pa.ipc.MessageReader.open_stream(pa.py_buffer(raw))
+    while True:
+        try:
+            message = message_reader.read_next_message()
+        except StopIteration:
+            return
+        if message.type == "record batch" and _message_metadata_is_compressed_record_batch(message.metadata):
+            raise _CliError(DATA_ERROR, "input contains a compressed record batch body, which is not supported")
+
+
+def _validate_input_schema(schema: pa.Schema, input_columns: list[str]) -> None:
+    """The stream's schema must contain exactly ``input_columns``, in any order, without
+    duplicates (data error); each field's type must then be from the vocabulary (unsupported
+    error); presence errors precede type errors (contract: Data)."""
+    names = list(schema.names)
+    if len(set(names)) != len(names):
+        raise _CliError(DATA_ERROR, f"input schema has duplicate field names: {names}")
+    if set(names) != set(input_columns):
+        raise _CliError(
+            DATA_ERROR,
+            f"input schema must contain exactly input_columns {sorted(input_columns)}, got {sorted(names)}",
+        )
+    for field in schema:
+        if _classify_column_type(field.type) is None:
+            raise _CliError(UNSUPPORTED, f"column {field.name!r} has an unsupported type: {field.type!r}")
+
+
+def _compute_hash_output(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Schema, list[pa.Array]]:
+    """Run the "hash" operation row by row, reading each row's values in ``input_columns`` order
+    (the operation's input contract, not stream field order), and produce the single "result"
+    output column under its configured written name, typed int64 (contract: Data, Configuration)."""
+    input_columns = config["input_columns"]
+    key: str | None = config["parameters"].get("key")
+    written_name = config["output_columns"]["result"]
+    columns = {name: table.column(name).to_pylist() for name in input_columns}
+    values = [
+        _compute_hash(key, [columns[name][row_index] for name in input_columns]) for row_index in range(table.num_rows)
+    ]
+    output_schema = pa.schema([pa.field(written_name, pa.int64())])
+    return output_schema, [pa.array(values, type=pa.int64())]
+
+
+def _build_ipc_stream_bytes(schema: pa.Schema, arrays: list[pa.Array]) -> bytes:
+    """Write ``arrays`` (aligned to ``schema``) to Arrow IPC stream format bytes, ending with the
+    end-of-stream marker (``pa.ipc.new_stream``'s context manager writes it on close). Zero rows
+    is a valid, schema-only-shaped batch (contract: Data: "a schema-only input... is valid")."""
+    buf = io.BytesIO()
+    with pa.ipc.new_stream(buf, schema) as writer:
+        writer.write_batch(pa.record_batch(arrays, schema=schema))
+    return buf.getvalue()
+
+
+def _write_output_bytes(data: bytes, output_path: Path | None) -> None:
+    """Shared write path for both transports (contract: Invocation: "a conforming binary supports
+    all four combinations"), so stdin/stdout and ``--input``/``--output`` behave identically."""
+    if output_path is not None:
+        output_path.write_bytes(data)
+        return
+    sys.stdout.buffer.write(data)
+    sys.stdout.buffer.flush()
+
+
+def _run_data_stage(raw: bytes, config: dict[str, Any], output_path: Path | None) -> None:
+    """Parse the input as an Arrow IPC stream, validate it against ``input_columns`` and the
+    column type vocabulary, run the configured operation, and write the result as an Arrow IPC
+    stream to stdout or ``--output`` (contract: Data).
+
+    Note: reads the whole input into memory before writing any output, and buffers the whole
+    output before writing it out. A real Rust binary should stream batches instead (contract:
+    Invocation: "the binary may write output before it finishes reading input"), but for this
+    small stub that simplicity is acceptable.
+    """
     if len(raw) == 0:
         raise _CliError(DATA_ERROR, "input is zero bytes, not an Arrow IPC stream")
-    raise _CliError(INTERNAL_ERROR, "Arrow IPC data path not implemented yet")
+
+    operation = config["operation"]
+    if operation == RESERVED_INTERNAL_ERROR_OPERATION:
+        # Reserved conformance-only operation: reaches the data stage and deliberately fails,
+        # letting the kit provoke code 6 on demand (contract: Conformance).
+        raise _CliError(INTERNAL_ERROR, "reserved conformance operation: deliberate internal error")
+
+    reader = _open_ipc_stream_reader(raw)
+    _assert_ends_with_eos_marker(raw)
+    _validate_input_schema(reader.schema, config["input_columns"])
+    _assert_no_compressed_record_batch(raw)
+    table = reader.read_all()
+
+    output_schema, output_arrays = _compute_hash_output(table, config)
+    _write_output_bytes(_build_ipc_stream_bytes(output_schema, output_arrays), output_path)
 
 
 def _run_command(args: list[str]) -> int:
@@ -247,7 +483,7 @@ def _run_command(args: list[str]) -> int:
     _check_output_columns_completeness(operation, config["output_columns"])
     _open_input_output(run_args.input_path, run_args.output_path)
     raw = _read_input_bytes(run_args.input_path)
-    _run_data_stage(raw)
+    _run_data_stage(raw, config, run_args.output_path)
     return 0
 
 

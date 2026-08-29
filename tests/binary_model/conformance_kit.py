@@ -9,10 +9,14 @@ wires this kit to our own ``simulated_binary.py`` via the ``binary_cmd`` fixture
 run) is meant to reuse these same functions unmodified by supplying its own ``binary_cmd`` fixture
 instead: nothing here may hardcode a binary path.
 
-Scope: this cycle covers everything before any Arrow IPC data is touched -- the three documented
-invocations, the license gate, and config structural/capability validation. Data flow, operation
-output correctness, transport combinations, and process-hygiene/sandbox checks belong to later
-cycles and are not covered here.
+Scope: cycle 1 (sections 1-3 below) covers everything before any Arrow IPC data is touched -- the
+three documented invocations, the license gate, and config structural/capability validation. Cycle
+2 (sections 4 onward) covers the Arrow IPC data pipeline itself: the "hash" operation's actual
+behavior, transport combinations, the exact-column-set and type-vocabulary rules, output
+verification, the schema-only round trip, the end-of-stream marker, malformed-input rejections,
+and the reserved ``_conformance_internal_error`` operation with real data flowing.
+Process-hygiene/sandbox checks and the stderr size-cap / data-free-diagnostics rules belong to a
+later cycle and are not covered here.
 
 Every check below cites the interface contract section it comes from; see that document (in the
 epic's rust-crate-binary-feature-group folder) for the authoritative text.
@@ -23,25 +27,38 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
+import pyarrow as pa
 import pytest
 
 from tests.binary_model.conftest import (
     CAPABILITY_OPERATIONS,
     COLUMN_TYPES,
     CONTRACT_VERSION,
+    DATA_ERROR,
     EXPIRED_LICENSE_TEXT,
+    INTERNAL_ERROR,
+    IPC_END_OF_STREAM_MARKER,
     PLUGIN_ID,
     RESERVED_INTERNAL_ERROR_OPERATION,
     TAMPERED_MISSING_PLUGINS_TEXT,
     TAMPERED_MISSING_STATUS_TEXT,
     TAMPERED_UNPARSEABLE_TEXT,
+    UNSUPPORTED,
     VALID_LICENSE_TEXT,
     WRONG_PLUGIN_LICENSE_TEXT,
+    arrow_file_format_bytes,
+    arrow_stream_bytes,
+    arrow_stream_bytes_from_arrays,
+    assert_ends_with_ipc_eos_marker,
     assert_error_response,
     assert_not_rejected_with,
+    hash_multi_column_case,
     make_config,
+    read_arrow_stream,
     run_binary,
+    run_binary_with_transport,
     stderr_error_object,
     write_json,
     write_text,
@@ -423,3 +440,383 @@ def test_config_parameters_empty_object_accepted_structurally(
     assert result.returncode != 1, (
         f"empty parameters object unexpectedly caused a usage error; stderr={result.stderr!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 4. The "hash" operation reference algorithm (contract: Configuration "hash" operation shape;
+#    the concrete algorithm itself is defined in conftest.compute_expected_hash, not the contract,
+#    since operations are opaque to mloda -- this cycle is what fixes it for the conformance kit)
+# ---------------------------------------------------------------------------
+
+
+def test_hash_multi_column_with_null_matches_reference_algorithm(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """ "hash" with no `parameters.key`, multiple input columns covering every vocabulary type, and
+    a null in one column (`amount`) matches the independent reference computation
+    (`compute_expected_hash`) byte for byte, row for row (contract: Configuration "hash" shape;
+    Data: "Null values are permitted; how an operation treats them belongs to the operation")."""
+    case = hash_multi_column_case()
+    config_path = write_json(tmp_path / "config.json", case["config"])
+    input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert result.returncode == 0, f"stderr={result.stderr!r}"
+    table = read_arrow_stream(result.stdout)
+    assert table.num_rows == len(case["expected"]), f"row count mismatch: {table.num_rows}"
+    assert table.column("hash_out").to_pylist() == case["expected"]
+
+
+def test_hash_with_key_parameter_matches_reference_algorithm_and_changes_result(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """ "hash" with a `parameters.key` produces the reference algorithm's value computed with that
+    key, which differs from the no-key result for the same rows (contract: Configuration:
+    "parameters: operation-specific"; the key is folded into the digest per
+    `compute_expected_hash`)."""
+    key = "s3cr3t-key"
+    case = hash_multi_column_case(key=key)
+    config_path = write_json(tmp_path / "config.json", case["config"])
+    input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert result.returncode == 0, f"stderr={result.stderr!r}"
+    table = read_arrow_stream(result.stdout)
+    actual = table.column("hash_out").to_pylist()
+    assert actual == case["expected"]
+
+    no_key_case = hash_multi_column_case(key=None)
+    assert actual != no_key_case["expected"], "the parameters.key must change the hash result"
+
+
+def test_hash_row_count_and_row_order_preserved(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """Row count and row order are preserved: distinct `id` values per row make the expected hash
+    order-sensitive, so a binary that drops, adds or reorders rows fails this even if it computes
+    correct hashes for the wrong positions (contract: Data: "Every operation is therefore
+    row-preserving by construction"; Conformance: "the conformance kit tests it with a
+    distinct-valued input whose output must line up row for row")."""
+    case = hash_multi_column_case()
+    config_path = write_json(tmp_path / "config.json", case["config"])
+    input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert result.returncode == 0, f"stderr={result.stderr!r}"
+    table = read_arrow_stream(result.stdout)
+    assert table.num_rows == len(case["rows"]["id"])
+    actual = table.column("hash_out").to_pylist()
+    for row_index, (expected_value, row_id) in enumerate(zip(case["expected"], case["rows"]["id"])):
+        assert actual[row_index] == expected_value, (
+            f"row {row_index} ({row_id!r}) hash mismatch: expected {expected_value}, got {actual[row_index]}"
+        )
+
+
+def test_hash_output_schema_exact_type_int64_no_input_columns_echoed(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """Output schema is exactly the `output_columns` written names ("hash_out"), typed int64; no
+    input column ("id", "count", "amount", "active", "name") is echoed (contract: Data: "exactly
+    the operation's output columns under their written names... no input column is echoed")."""
+    case = hash_multi_column_case()
+    config_path = write_json(tmp_path / "config.json", case["config"])
+    input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert result.returncode == 0, f"stderr={result.stderr!r}"
+    table = read_arrow_stream(result.stdout)
+    assert table.schema.names == ["hash_out"], f"unexpected output schema field names: {table.schema.names!r}"
+    assert pa.types.is_int64(table.schema.field("hash_out").type), (
+        f"expected int64 output type, got {table.schema.field('hash_out').type!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5. Transport combinations (contract: Invocation, Data)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "use_input_file, use_output_file",
+    [
+        pytest.param(False, False, id="stdin_stdout"),
+        pytest.param(False, True, id="stdin_output_file"),
+        pytest.param(True, False, id="input_file_stdout"),
+        pytest.param(True, True, id="input_file_output_file"),
+    ],
+)
+def test_all_transport_combinations_produce_identical_output(
+    binary_cmd: list[str],
+    valid_license_env: dict[str, str],
+    tmp_path: Path,
+    use_input_file: bool,
+    use_output_file: bool,
+) -> None:
+    """All four transport combinations (`--input`/stdin crossed with `--output`/stdout) must work
+    identically for the same input data and config (contract: Invocation: "a conforming binary
+    supports all four combinations"; Data: "the same stream format written to/read from the
+    `--input`/`--output` file paths for large data")."""
+    case = hash_multi_column_case()
+    config_path = write_json(tmp_path / "config.json", case["config"])
+    input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
+    result, output_bytes = run_binary_with_transport(
+        binary_cmd,
+        valid_license_env,
+        config_path,
+        input_bytes,
+        use_input_file=use_input_file,
+        use_output_file=use_output_file,
+        tmp_path=tmp_path,
+    )
+    assert result.returncode == 0, f"stderr={result.stderr!r}"
+    table = read_arrow_stream(output_bytes)
+    assert table.column("hash_out").to_pylist() == case["expected"]
+
+
+# ---------------------------------------------------------------------------
+# 6. Exact-column-set rule and column type vocabulary (contract: Data)
+# ---------------------------------------------------------------------------
+
+
+def test_input_schema_missing_column_is_data_error(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """The input stream's schema must contain exactly `input_columns`; a missing name is a data
+    error (contract: Data: "a missing name, an extra name or a duplicate is a data error")."""
+    config = make_config(input_columns=["col_a", "col_b"], output_columns={"result": "hash_out"})
+    config_path = write_json(tmp_path / "config.json", config)
+    schema = pa.schema([pa.field("col_a", pa.int64())])  # col_b missing entirely
+    input_bytes = arrow_stream_bytes(schema, {"col_a": [1, 2]})
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert_error_response(result, DATA_ERROR)
+
+
+def test_input_schema_extra_column_is_data_error(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """An extra column beyond `input_columns` is a data error (contract: Data)."""
+    config = make_config(input_columns=["col_a", "col_b"], output_columns={"result": "hash_out"})
+    config_path = write_json(tmp_path / "config.json", config)
+    schema = pa.schema([pa.field("col_a", pa.int64()), pa.field("col_b", pa.int64()), pa.field("col_c", pa.int64())])
+    input_bytes = arrow_stream_bytes(schema, {"col_a": [1], "col_b": [2], "col_c": [3]})
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert_error_response(result, DATA_ERROR)
+
+
+def test_input_schema_duplicate_field_name_is_data_error(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """Two distinct Arrow fields sharing the same name is a "duplicate", a data error, even though
+    the set of distinct names equals `input_columns` (contract: Data: "the schema must contain
+    exactly the input_columns names, in any order, without duplicates")."""
+    config = make_config(input_columns=["col_a", "col_b"], output_columns={"result": "hash_out"})
+    config_path = write_json(tmp_path / "config.json", config)
+    schema = pa.schema([pa.field("col_a", pa.int64()), pa.field("col_a", pa.int64()), pa.field("col_b", pa.int64())])
+    input_bytes = arrow_stream_bytes_from_arrays(schema, [pa.array([1, 2]), pa.array([3, 4]), pa.array([5, 6])])
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert_error_response(result, DATA_ERROR)
+
+
+@pytest.mark.parametrize(
+    "bad_type, sample_values",
+    [
+        pytest.param(pa.int32(), [1, 2], id="int32_not_in_vocabulary"),
+        pytest.param(pa.timestamp("us"), [0, 1], id="timestamp_not_in_vocabulary"),
+    ],
+)
+def test_input_column_type_outside_vocabulary_is_unsupported(
+    binary_cmd: list[str],
+    valid_license_env: dict[str, str],
+    tmp_path: Path,
+    bad_type: pa.DataType,
+    sample_values: list[Any],
+) -> None:
+    """A column typed outside `column_types` (int32, a timestamp type, ...) is code 4 (contract:
+    Capabilities: "Other widths and parameterized or nested types... are not in the vocabulary and
+    are rejected up front by the mixin, or with code 4 by the binary")."""
+    config = make_config(input_columns=["col_a"], output_columns={"result": "hash_out"})
+    config_path = write_json(tmp_path / "config.json", config)
+    schema = pa.schema([pa.field("col_a", bad_type)])
+    input_bytes = arrow_stream_bytes(schema, {"col_a": sample_values})
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert_error_response(result, UNSUPPORTED)
+
+
+def test_input_schema_presence_error_precedes_type_error(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """A presence violation (missing `col_b`) combined with a type violation (`col_a` sent as
+    int32 instead of int64) is a data error, not code 4: presence is checked first (contract:
+    Data: "Each column is then checked for a type from `column_types` (code 4); presence errors
+    precede type errors")."""
+    config = make_config(input_columns=["col_a", "col_b"], output_columns={"result": "hash_out"})
+    config_path = write_json(tmp_path / "config.json", config)
+    schema = pa.schema([pa.field("col_a", pa.int32())])  # col_b missing; col_a also wrong type
+    input_bytes = arrow_stream_bytes(schema, {"col_a": [1, 2]})
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert_error_response(result, DATA_ERROR)
+
+
+# ---------------------------------------------------------------------------
+# 7. Schema-only round trip (contract: Data)
+# ---------------------------------------------------------------------------
+
+
+def test_schema_only_input_valid_license_produces_schema_only_output(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """Zero record batches then the end-of-stream marker is valid input; the output is
+    schema-only too, but already carries the output columns and types (contract: Data: "A
+    schema-only input (zero record batches, then the end-of-stream marker) is valid and yields a
+    schema-only output that already carries the output columns, so a caller can learn output
+    types without sending data")."""
+    config = make_config(input_columns=["col_a"], output_columns={"result": "hash_out"})
+    config_path = write_json(tmp_path / "config.json", config)
+    schema = pa.schema([pa.field("col_a", pa.string())])
+    input_bytes = arrow_stream_bytes(schema, None)
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert result.returncode == 0, f"stderr={result.stderr!r}"
+    table = read_arrow_stream(result.stdout)
+    assert table.num_rows == 0
+    assert table.schema.names == ["hash_out"]
+    assert pa.types.is_int64(table.schema.field("hash_out").type)
+
+
+def test_schema_only_input_bad_license_still_rejected(
+    binary_cmd: list[str], valid_config_path: Path, tmp_path: Path
+) -> None:
+    """A schema-only input with a bad license still exits 2 or 3, not 0: the license check applies
+    before any data is read, schema-only input included (contract: Data: "the license check still
+    applies"; License)."""
+    schema = pa.schema([pa.field("col_a", pa.string())])
+    input_bytes = arrow_stream_bytes(schema, None)
+    license_path = write_text(tmp_path / "license.txt", EXPIRED_LICENSE_TEXT)
+    env = {"MLODA_LICENSE_FILE": str(license_path)}
+    result = run_binary(binary_cmd, ["run", "--config", str(valid_config_path)], env, input_bytes)
+    assert result.returncode in (2, 3), f"expected 2 or 3, got {result.returncode}; stderr={result.stderr!r}"
+    error = stderr_error_object(result.stderr)
+    assert error.get("code") == result.returncode, f"error object code mismatch: {error!r}"
+
+
+# ---------------------------------------------------------------------------
+# 8. End-of-stream marker on the raw output bytes (contract: Data, Conformance)
+# ---------------------------------------------------------------------------
+
+
+def test_output_stream_raw_bytes_end_with_ipc_eos_marker(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """The raw output bytes end with the IPC end-of-stream marker, checked on the bytes
+    themselves rather than through pyarrow's own reader, which tolerates a stream missing it
+    (contract: Data: "The end-of-stream marker on output is a binary obligation that the
+    conformance kit checks on the raw trailing bytes, since pyarrow's reader accepts a stream
+    without it")."""
+    case = hash_multi_column_case()
+    config_path = write_json(tmp_path / "config.json", case["config"])
+    input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert result.returncode == 0, f"stderr={result.stderr!r}"
+    assert_ends_with_ipc_eos_marker(result.stdout)
+
+
+# ---------------------------------------------------------------------------
+# 9. Malformed input rejections (contract: Data)
+# ---------------------------------------------------------------------------
+
+
+def test_zero_byte_input_is_data_error(
+    binary_cmd: list[str], valid_config_path: Path, valid_license_env: dict[str, str]
+) -> None:
+    """Zero bytes is not an Arrow IPC stream at all: a data error (contract: Data: "zero bytes, a
+    zero-length `--input` file... [is a data error]"). Already partially covered by the cycle-1
+    stub's own zero-byte special case; re-asserted here now that the full data stage is in
+    place."""
+    result = run_binary(binary_cmd, ["run", "--config", str(valid_config_path)], valid_license_env, b"")
+    assert_error_response(result, DATA_ERROR)
+
+
+def test_truncated_stream_missing_end_of_stream_marker_is_data_error(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """ "truncated" means end of file without the end-of-stream marker, not "no more batches": a
+    stream cut off right before that marker is a data error (contract: Data: "'truncated' means
+    end of file without that marker, not 'no more batches', and is a data error (code 5)")."""
+    config = make_config(input_columns=["col_a"], output_columns={"result": "hash_out"})
+    config_path = write_json(tmp_path / "config.json", config)
+    schema = pa.schema([pa.field("col_a", pa.int64())])
+    full_bytes = arrow_stream_bytes(schema, {"col_a": [1, 2, 3]})
+    assert full_bytes.endswith(IPC_END_OF_STREAM_MARKER), "test setup: expected the writer to emit the EOS marker"
+    truncated = full_bytes[: -len(IPC_END_OF_STREAM_MARKER)]
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, truncated)
+    assert_error_response(result, DATA_ERROR)
+
+
+def test_ipc_file_format_instead_of_stream_is_data_error(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """The IPC file/Feather format (`ARROW1` magic bytes) is not the streaming format the contract
+    requires: a data error (contract: Data: "the IPC file/Feather format (`ARROW1` magic)")."""
+    config = make_config(input_columns=["col_a"], output_columns={"result": "hash_out"})
+    config_path = write_json(tmp_path / "config.json", config)
+    schema = pa.schema([pa.field("col_a", pa.int64())])
+    input_bytes = arrow_file_format_bytes(schema, {"col_a": [1, 2, 3]})
+    assert input_bytes[:6] == b"ARROW1", "test setup: expected the IPC file magic at the start"
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert_error_response(result, DATA_ERROR)
+
+
+def test_compressed_record_batch_body_is_data_error(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """A compressed record batch body is a data error (contract: Data: "A compressed record batch
+    body is a data error (code 5)")."""
+    config = make_config(input_columns=["col_a"], output_columns={"result": "hash_out"})
+    config_path = write_json(tmp_path / "config.json", config)
+    schema = pa.schema([pa.field("col_a", pa.int64())])
+    options = pa.ipc.IpcWriteOptions(compression="lz4")
+    input_bytes = arrow_stream_bytes(schema, {"col_a": [1, 2, 3]}, options=options)
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert_error_response(result, DATA_ERROR)
+
+
+def test_dictionary_encoded_column_is_unsupported_type(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """A dictionary-encoded column is an unsupported column type (code 4), decided by the same
+    type check as any other type outside the vocabulary (contract: Data: "a dictionary-encoded
+    column is an unsupported column type (code 4), decided by the type check like any other type
+    outside the vocabulary")."""
+    config = make_config(input_columns=["col_a"], output_columns={"result": "hash_out"})
+    config_path = write_json(tmp_path / "config.json", config)
+    dict_array = pa.array(["x", "y", "x"]).dictionary_encode()
+    schema = pa.schema([pa.field("col_a", dict_array.type)])
+    input_bytes = arrow_stream_bytes_from_arrays(schema, [dict_array])
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert_error_response(result, UNSUPPORTED)
+
+
+# ---------------------------------------------------------------------------
+# 10. The reserved `_conformance_internal_error` operation with real data (contract: Conformance)
+# ---------------------------------------------------------------------------
+
+
+def test_reserved_internal_error_operation_with_data_triggers_code_6(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """The reserved `_conformance_internal_error` operation, given a structurally valid config and
+    valid input data, reaches the data stage and deliberately produces code 6, with stderr's last
+    non-empty line still a valid `{"code": 6, "message": ...}` object, not a bare traceback
+    (contract: Conformance: "A binary may honour the reserved operation
+    `_conformance_internal_error` to let the kit provoke code 6")."""
+    config = make_config(operation=RESERVED_INTERNAL_ERROR_OPERATION)
+    config_path = write_json(tmp_path / "config.json", config)
+    schema = pa.schema([pa.field("col_a", pa.int64())])
+    input_bytes = arrow_stream_bytes(schema, {"col_a": [1, 2, 3]})
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert_error_response(result, INTERNAL_ERROR)
+
+
+# ---------------------------------------------------------------------------
+# 11. `--capabilities` classification nice-to-have (contract: Capabilities) -- skipped.
+# ---------------------------------------------------------------------------
+# Not included: per contract, casting large_string/string_view to utf8 is a mixin-side
+# responsibility that happens before data ever reaches the binary ("The latter two [is_large_string
+# / is_string_view]... are cast to utf8 before sending"). A binary-level test sending large_string
+# or string_view directly would really be exercising mixin behavior, which is out of scope for this
+# binary-focused conformance kit, so this nice-to-have is skipped rather than over-scoped.

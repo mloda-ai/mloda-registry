@@ -7,26 +7,39 @@ contract document in the epic's rust-crate-binary-feature-group folder): the sam
 ``conformance_kit.py`` test functions are meant to run, unmodified, against a real binary later by
 overriding the ``binary_cmd`` fixture below, so nothing here may hardcode a binary path.
 
-This module covers only what cycle 1 of that contract needs: invocation surface, the license
-gate, and config validation, all of it before any Arrow IPC data is touched. The concrete
-``plugin_id`` and operation used throughout ("example_binary" / "hash") are the contract's own
-worked example, not a scope limitation of the contract itself.
+This module covers what cycle 1 of that contract needs (invocation surface, the license gate, and
+config validation, all of it before any Arrow IPC data is touched) plus what cycle 2 adds: the
+Arrow IPC data pipeline itself (transports, schema checks, the "hash" operation's behavior, row
+preservation, the schema-only round trip, malformed-input rejections, and the reserved
+``_conformance_internal_error`` operation with real data flowing). The concrete ``plugin_id`` and
+operation used throughout ("example_binary" / "hash") are the contract's own worked example, not a
+scope limitation of the contract itself.
 
 License tokens: the real signed-token format does not exist yet, so the contract has the binary
 accept a fixed placeholder format for now: plain JSON text (not signed) shaped as
 ``{"status": "valid" | "expired", "plugins": [<plugin_id>, ...]}``. The helpers below build every
 state the contract's License section distinguishes: missing, valid, expired, wrong-plugin, and
 tampered (unparseable text, or valid JSON missing a required key).
+
+"hash" operation: cycle 1 established its config shape (one input column by default, one output
+named "result", an optional ``parameters.key``) without defining what it actually computes. Cycle
+2 defines that concretely as ``compute_expected_hash`` below, an independent reference
+implementation using Python's ``hashlib`` so a test's expected value is never derived from
+whatever the binary happens to do.
 """
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
+import struct
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
+import pyarrow as pa
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -200,3 +213,226 @@ def valid_license_env(valid_license_file: Path) -> dict[str, str]:
     """``MLODA_LICENSE_FILE`` pointed at a valid token; used by config-validation tests to
     isolate config behaviour from the license gate."""
     return {"MLODA_LICENSE_FILE": str(valid_license_file)}
+
+
+# ---------------------------------------------------------------------------
+# Cycle 2: Arrow IPC data pipeline -- design parameters, the "hash" algorithm, and helpers
+# ---------------------------------------------------------------------------
+
+# The vocabulary's Arrow types (contract: Capabilities). ``utf8`` is pyarrow's 32-bit-offset
+# string type, ``pa.string()`` -- not ``pa.large_string()`` or ``pa.string_view()``.
+COLUMN_TYPE_TO_ARROW: dict[str, pa.DataType] = {
+    "int64": pa.int64(),
+    "float64": pa.float64(),
+    "utf8": pa.string(),
+    "boolean": pa.bool_(),
+}
+
+# Continuation marker (0xFFFFFFFF) followed by a zero-length (0x00000000) message: the Arrow IPC
+# end-of-stream marker (contract: Data).
+IPC_END_OF_STREAM_MARKER = b"\xff\xff\xff\xff\x00\x00\x00\x00"
+
+# Fixed sentinel/delimiter for the "hash" reference algorithm below. The sentinel embeds NUL bytes
+# so it can never collide with a real utf8 value a caller could plausibly send; the delimiter is
+# the ASCII unit separator (0x1F), likewise not expected in ordinary text input.
+HASH_NULL_SENTINEL = "\x00__NULL__\x00"
+HASH_FIELD_DELIMITER = "\x1f"
+
+
+def _hash_value_token(value: Any) -> str:
+    """One row value's token in the "hash" reference algorithm (see ``compute_expected_hash``).
+    Order matters: ``bool`` is checked before ``int`` since ``bool`` is an ``int`` subclass in
+    Python."""
+    if value is None:
+        return HASH_NULL_SENTINEL
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    if isinstance(value, str):
+        return value
+    raise TypeError(f"unsupported value type for the hash reference algorithm: {type(value)!r}")
+
+
+def compute_expected_hash(key: str | None, row_values: list[Any]) -> int:
+    """Independent reference implementation of the "hash" operation's behavior, computed with
+    Python's ``hashlib`` so a test's expected value is never derived from whatever the binary
+    happens to do. This concrete algorithm is this cycle's specification of "hash" (unspecified by
+    cycle 1); the Green agent implements exactly this in the simulated binary:
+
+    1. For each value of the row, in ``input_columns`` order (the operation's input contract, per
+       contract: Data -- "the order of the input_columns list is part of the operation's input
+       contract"; the order fields happen to appear in the stream is not), produce a token:
+       - null -> ``HASH_NULL_SENTINEL`` (a fixed sentinel containing NUL bytes no real value can
+         contain, so a null is always distinguishable from real data, deterministically);
+       - boolean -> ``"true"`` / ``"false"``;
+       - int64 -> ``str(value)`` (base-10, no thousands separator, a leading ``-`` only for
+         negatives);
+       - float64 -> ``repr(value)`` (Python's shortest round-tripping representation);
+       - utf8 -> the string value, unmodified.
+    2. Join the row's tokens with ``HASH_FIELD_DELIMITER``.
+    3. Prepend ``key`` (``parameters.key``, or the empty string if the operation was invoked
+       without one) followed by one more ``HASH_FIELD_DELIMITER``.
+    4. UTF-8 encode the resulting string and hash it with BLAKE2b, ``digest_size=8`` (a 64-bit /
+       8-byte digest).
+    5. Interpret the 8 raw digest bytes as a big-endian *signed* 64-bit integer
+       (``struct.unpack(">q", digest)[0]``); this is the row's single "result" output value, of
+       column type int64.
+    """
+    row_text = HASH_FIELD_DELIMITER.join(_hash_value_token(value) for value in row_values)
+    message = f"{key or ''}{HASH_FIELD_DELIMITER}{row_text}".encode("utf-8")
+    digest = hashlib.blake2b(message, digest_size=8).digest()
+    result: int = struct.unpack(">q", digest)[0]
+    return result
+
+
+def compute_expected_hash_column(rows: dict[str, list[Any]], input_columns: list[str], key: str | None) -> list[int]:
+    """Apply ``compute_expected_hash`` row by row, reading each row's values in ``input_columns``
+    order from ``rows`` (column name -> one Python value per row)."""
+    num_rows = len(next(iter(rows.values())))
+    return [
+        compute_expected_hash(key, [rows[column][row_index] for column in input_columns])
+        for row_index in range(num_rows)
+    ]
+
+
+def hash_multi_column_case(key: str | None = None) -> dict[str, Any]:
+    """Build one self-contained "hash" test case: a small multi-column, multi-row dataset (every
+    vocabulary type) with a null in exactly one column, its Arrow schema, a structurally valid
+    config for it (written output name "hash_out", distinct from every input column), and the
+    expected output column computed independently via ``compute_expected_hash_column`` (contract:
+    Configuration "hash" operation shape). ``key`` is forwarded to both the config's
+    ``parameters.key`` and the independent computation, so calling this with a different key
+    exercises the "with parameters.key" variant of the operation with the same rows.
+
+    Columns, in ``input_columns`` order (the order the reference algorithm reads, not stream field
+    order):
+      - ``id`` (utf8): a distinct value per row, so a row-order bug is caught even though the hash
+        of a row also depends on every other column;
+      - ``count`` (int64);
+      - ``amount`` (float64): null on exactly one row (index 1), to exercise the null-sentinel
+        path;
+      - ``active`` (boolean);
+      - ``name`` (utf8).
+    """
+    input_columns = ["id", "count", "amount", "active", "name"]
+    rows: dict[str, list[Any]] = {
+        "id": ["row-0", "row-1", "row-2", "row-3"],
+        "count": [10, -5, 0, 42],
+        "amount": [1.5, None, -3.25, 0.0],
+        "active": [True, False, True, False],
+        "name": ["alpha", "beta", "gamma", "delta"],
+    }
+    schema = pa.schema(
+        [
+            pa.field("id", pa.string()),
+            pa.field("count", pa.int64()),
+            pa.field("amount", pa.float64()),
+            pa.field("active", pa.bool_()),
+            pa.field("name", pa.string()),
+        ]
+    )
+    output_columns = {"result": "hash_out"}
+    parameters: dict[str, Any] = {} if key is None else {"key": key}
+    config = make_config(input_columns=input_columns, parameters=parameters, output_columns=output_columns)
+    expected = compute_expected_hash_column(rows, input_columns, key)
+    return {
+        "input_columns": input_columns,
+        "rows": rows,
+        "schema": schema,
+        "output_columns": output_columns,
+        "config": config,
+        "expected": expected,
+    }
+
+
+def arrow_stream_bytes_from_arrays(
+    schema: pa.Schema, arrays: list[pa.Array] | None, *, options: pa.ipc.IpcWriteOptions | None = None
+) -> bytes:
+    """Write a single record batch built from ``arrays`` (aligned to ``schema``'s fields, in
+    order) to Arrow IPC *stream* format bytes, or a schema-only stream (zero record batches, then
+    the end-of-stream marker) if ``arrays`` is ``None`` (contract: Data: "A schema-only input...
+    is valid"). Lower-level than ``arrow_stream_bytes`` below: it accepts a schema with duplicate
+    field names, which a column-name-keyed mapping cannot represent."""
+    buf = io.BytesIO()
+    with pa.ipc.new_stream(buf, schema, options=options) as writer:
+        if arrays is not None:
+            writer.write_batch(pa.record_batch(arrays, schema=schema))
+    return buf.getvalue()
+
+
+def arrow_stream_bytes(
+    schema: pa.Schema, rows: dict[str, list[Any]] | None, *, options: pa.ipc.IpcWriteOptions | None = None
+) -> bytes:
+    """Write ``rows`` (column name -> one Python value per row, one entry per field of ``schema``)
+    as a single record batch to Arrow IPC stream format bytes, or a schema-only stream if ``rows``
+    is ``None``."""
+    arrays = None if rows is None else [pa.array(rows[field.name], type=field.type) for field in schema]
+    return arrow_stream_bytes_from_arrays(schema, arrays, options=options)
+
+
+def arrow_file_format_bytes(schema: pa.Schema, rows: dict[str, list[Any]]) -> bytes:
+    """Write ``rows`` to the Arrow IPC *file*/Feather format (``ARROW1`` magic bytes), used to
+    test rejection of that format on the streaming-only input contract (contract: Data: "the IPC
+    file/Feather format (`ARROW1` magic)")."""
+    arrays = [pa.array(rows[field.name], type=field.type) for field in schema]
+    buf = io.BytesIO()
+    with pa.ipc.new_file(buf, schema) as writer:
+        writer.write_batch(pa.record_batch(arrays, schema=schema))
+    return buf.getvalue()
+
+
+def read_arrow_stream(data: bytes) -> pa.Table:
+    """Parse Arrow IPC stream bytes back into a table, for asserting on a binary's output
+    (contract: Data)."""
+    return pa.ipc.open_stream(data).read_all()
+
+
+def assert_ends_with_ipc_eos_marker(data: bytes) -> None:
+    """Assert the raw bytes end with the IPC end-of-stream marker, checked on the raw trailing
+    bytes rather than through pyarrow's own reader, which tolerates a stream missing it (contract:
+    Data: "The end-of-stream marker on output is a binary obligation that the conformance kit
+    checks on the raw trailing bytes, since pyarrow's reader accepts a stream without it")."""
+    tail = data[-len(IPC_END_OF_STREAM_MARKER) :]
+    assert tail == IPC_END_OF_STREAM_MARKER, (
+        f"expected output to end with the IPC end-of-stream marker {IPC_END_OF_STREAM_MARKER!r}, "
+        f"got trailing bytes {tail!r} (total length {len(data)})"
+    )
+
+
+def run_binary_with_transport(
+    cmd: list[str],
+    env: dict[str, str],
+    config_path: Path,
+    input_bytes: bytes,
+    *,
+    use_input_file: bool,
+    use_output_file: bool,
+    tmp_path: Path,
+    timeout: float = 10.0,
+) -> tuple[subprocess.CompletedProcess[bytes], bytes]:
+    """Run the binary via one of the four transport combinations (contract: Invocation: "a
+    conforming binary supports all four combinations"; Data: "the same stream format written
+    to/read from the `--input`/`--output` file paths"). Returns ``(result, output_bytes)``, where
+    ``output_bytes`` is read from stdout or from the ``--output`` file depending on
+    ``use_output_file``, so callers can assert on the data identically regardless of transport."""
+    args = ["run", "--config", str(config_path)]
+    stdin_bytes = input_bytes
+    if use_input_file:
+        input_path = tmp_path / "input.arrows"
+        input_path.write_bytes(input_bytes)
+        args = [*args, "--input", str(input_path)]
+        stdin_bytes = b""
+    output_path: Path | None = None
+    if use_output_file:
+        output_path = tmp_path / "output.arrows"
+        args = [*args, "--output", str(output_path)]
+    result = run_binary(cmd, args, env, stdin_bytes, timeout=timeout)
+    if use_output_file:
+        assert output_path is not None
+        output_bytes = output_path.read_bytes() if output_path.exists() else b""
+    else:
+        output_bytes = result.stdout
+    return result, output_bytes
