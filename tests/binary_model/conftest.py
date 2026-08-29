@@ -143,8 +143,11 @@ def run_binary(
 
 def stderr_error_object(stderr: bytes) -> dict[str, Any]:
     """Parse the last non-empty line of stderr as the contract's ``{"code": ..., "message": ...}``
-    object; earlier lines, if any, are free-form diagnostics (contract: Errors)."""
-    text = stderr.decode("utf-8")
+    object; earlier lines, if any, are free-form diagnostics (contract: Errors). Decodes with
+    ``errors="replace"`` rather than the strict default: a binary emitting non-UTF-8 stderr must
+    fail an assertion here (the JSON parse below, or a caller's own assertion on the object),
+    never crash the test suite itself with an unhandled ``UnicodeDecodeError``."""
+    text = stderr.decode("utf-8", errors="replace")
     lines = [line for line in text.splitlines() if line.strip()]
     assert lines, f"expected at least one non-empty stderr line, got {stderr!r}"
     obj = json.loads(lines[-1])
@@ -260,7 +263,25 @@ HASH_FIELD_DELIMITER = "\x1f"
 def _hash_value_token(value: Any) -> str:
     """One row value's token in the "hash" reference algorithm (see ``compute_expected_hash``).
     Order matters: ``bool`` is checked before ``int`` since ``bool`` is an ``int`` subclass in
-    Python."""
+    Python.
+
+    The float64 branch encodes the value's raw IEEE-754 binary64 bytes, big-endian, as lowercase
+    hex (``struct.pack(">d", value).hex()``), never a decimal string. A decimal ``repr()`` is
+    CPython-specific and not reproducible by a Rust (or any other language) implementation of the
+    same operation: ``0.0`` reprs as ``"0.0"`` in Python but formats as ``"0"`` under Rust's
+    default ``Display``, and ``1e16`` reprs as ``"1e+16"`` vs Rust's ``"10000000000000000"``. Since
+    this conformance kit exists precisely so the three implementations (stub, wrapper, real
+    binary) cannot drift apart, the token must be an unambiguous encoding of the exact bit
+    pattern instead. Two consequences of hashing the raw bits rather than the decimal value,
+    both deliberate and not bugs:
+    - ``-0.0`` and ``0.0`` have distinct IEEE-754 bit patterns (the sign bit is the only
+      difference) and therefore hash to different tokens; a caller that wants them to hash
+      identically must normalize before calling.
+    - Any NaN bit pattern is used exactly as given, unmodified: this reference implementation
+      does not canonicalize NaN, so two NaN values with different bit patterns (a signalling vs
+      quiet NaN, or a different payload) hash to different tokens. This is a deliberate,
+      documented choice, not an oversight.
+    """
     if value is None:
         return HASH_NULL_SENTINEL
     if isinstance(value, bool):
@@ -268,7 +289,7 @@ def _hash_value_token(value: Any) -> str:
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
-        return repr(value)
+        return struct.pack(">d", value).hex()
     if isinstance(value, str):
         return value
     raise TypeError(f"unsupported value type for the hash reference algorithm: {type(value)!r}")
@@ -284,11 +305,15 @@ def compute_expected_hash(key: str | None, row_values: list[Any]) -> int:
        - null -> ``HASH_NULL_SENTINEL``;
        - boolean -> ``"true"`` / ``"false"``;
        - int64 -> ``str(value)``;
-       - float64 -> ``repr(value)`` (Python's shortest round-tripping representation);
+       - float64 -> the value's raw IEEE-754 binary64 bytes, big-endian, hex-encoded (see
+         ``_hash_value_token`` for the exact rules, including ``-0.0``/NaN treatment) -- not a
+         decimal string representation, which is not portable across implementations;
        - utf8 -> the string value, unmodified.
     2. Join the row's tokens with ``HASH_FIELD_DELIMITER``.
     3. Prepend ``key`` (``parameters.key``, or the empty string if the operation was invoked
-       without one) followed by one more ``HASH_FIELD_DELIMITER``.
+       without one -- ``key`` entirely absent and ``key: ""`` both mean "no key" and must produce
+       the same digest; only ``None`` (absent) is treated as empty, no other falsy value) followed
+       by one more ``HASH_FIELD_DELIMITER``.
     4. UTF-8 encode the resulting string and hash it with BLAKE2b, ``digest_size=8`` (a 64-bit /
        8-byte digest).
     5. Interpret the 8 raw digest bytes as a big-endian *signed* 64-bit integer
@@ -296,7 +321,7 @@ def compute_expected_hash(key: str | None, row_values: list[Any]) -> int:
        column type int64.
     """
     row_text = HASH_FIELD_DELIMITER.join(_hash_value_token(value) for value in row_values)
-    message = f"{key or ''}{HASH_FIELD_DELIMITER}{row_text}".encode("utf-8")
+    message = f"{key if key is not None else ''}{HASH_FIELD_DELIMITER}{row_text}".encode("utf-8")
     digest = hashlib.blake2b(message, digest_size=8).digest()
     result: int = struct.unpack(">q", digest)[0]
     return result
@@ -390,6 +415,19 @@ def arrow_file_format_bytes(schema: pa.Schema, rows: dict[str, list[Any]]) -> by
     return buf.getvalue()
 
 
+def arrow_stream_bytes_multi_batch(schema: pa.Schema, batches_rows: list[dict[str, list[Any]]]) -> bytes:
+    """Write ``batches_rows`` (one column-name-keyed rows dict per record batch, in order) as
+    multiple record batches within a single Arrow IPC stream, for testing that a binary combines
+    every batch rather than only the first (contract: Data -- "batch boundaries may differ" is a
+    normal, valid shape on both sides of the wire)."""
+    buf = io.BytesIO()
+    with pa.ipc.new_stream(buf, schema) as writer:
+        for rows in batches_rows:
+            arrays = [pa.array(rows[field.name], type=field.type) for field in schema]
+            writer.write_batch(pa.record_batch(arrays, schema=schema))
+    return buf.getvalue()
+
+
 def read_arrow_stream(data: bytes) -> pa.Table:
     """Parse Arrow IPC stream bytes back into a table, for asserting on a binary's output
     (contract: Data)."""
@@ -405,6 +443,43 @@ def assert_ends_with_ipc_eos_marker(data: bytes) -> None:
         f"expected output to end with the IPC end-of-stream marker {IPC_END_OF_STREAM_MARKER!r}, "
         f"got trailing bytes {tail!r} (total length {len(data)})"
     )
+
+
+def enumerate_ipc_message_types(data: bytes) -> list[str]:
+    """Enumerate an Arrow IPC stream's raw messages by type, in order (e.g. ``["schema"]`` for a
+    schema-only stream with no record-batch message at all, vs ``["schema", "record batch"]``).
+    Used to assert on the exact wire *shape* of a stream, which
+    ``pa.ipc.open_stream(...).read_all()`` cannot distinguish: both shapes above parse to the same
+    zero-row table (contract: Data)."""
+    message_reader = pa.ipc.MessageReader.open_stream(pa.py_buffer(data))
+    types: list[str] = []
+    while True:
+        try:
+            message = message_reader.read_next_message()
+        except StopIteration:
+            return types
+        types.append(message.type)
+
+
+def corrupt_record_batch_message_after_schema(data: bytes) -> bytes:
+    """Corrupt the second Arrow IPC message (the record batch immediately following the schema
+    message) of a single-batch stream so that the schema-parsing step
+    (``pa.ipc.open_stream(...)``) still succeeds, but reading the record batch body
+    (``RecordBatchReader.read_all()``) fails -- distinct from "malformed bytes from the very
+    start", which fails at ``open_stream()`` itself. Overwrites the record batch message's
+    metadata-length prefix (the 4 little-endian bytes right after that message's continuation
+    marker, ``0xFFFFFFFF``) with an implausibly large value, so pyarrow reports a metadata-length
+    mismatch once it tries to read the batch (contract: Data). Requires ``data`` to be a
+    single-batch stream (a schema message followed by exactly one record batch message)."""
+    assert data[0:4] == b"\xff\xff\xff\xff", "expected data to start with the IPC continuation marker"
+    schema_metadata_len = struct.unpack_from("<I", data, 4)[0]
+    record_batch_message_start = 8 + schema_metadata_len
+    assert data[record_batch_message_start : record_batch_message_start + 4] == b"\xff\xff\xff\xff", (
+        "expected a second IPC message (record batch) immediately after the schema message"
+    )
+    corrupted = bytearray(data)
+    struct.pack_into("<I", corrupted, record_batch_message_start + 4, 0x7FFFFFFF)
+    return bytes(corrupted)
 
 
 def run_binary_with_transport(

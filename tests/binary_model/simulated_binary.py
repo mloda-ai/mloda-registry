@@ -67,7 +67,10 @@ def _hash_value_token(value: Any) -> str:
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
-        return repr(value)
+        # Raw IEEE-754 binary64 bytes, big-endian, lowercase hex -- not a decimal ``repr()``, which
+        # is CPython-specific and not reproducible by a Rust (or any other language) implementation
+        # of the same operation (matches the independent reference algorithm in conftest.py).
+        return struct.pack(">d", value).hex()
     if isinstance(value, str):
         return value
     raise TypeError(f"unsupported value type for the hash operation: {type(value)!r}")
@@ -78,7 +81,9 @@ def _compute_hash(key: str | None, row_values: list[Any]) -> int:
     order) with a fixed delimiter, prepend the key, BLAKE2b-digest the UTF-8 bytes with
     ``digest_size=8``, and interpret the 8 digest bytes as a big-endian signed 64-bit integer."""
     row_text = _HASH_FIELD_DELIMITER.join(_hash_value_token(value) for value in row_values)
-    message = f"{key or ''}{_HASH_FIELD_DELIMITER}{row_text}".encode("utf-8")
+    # Only ``key`` being entirely absent (``None``) means "no key"; any other falsy value (already
+    # rejected earlier by config validation, but kept correct here too) must not collapse to "".
+    message = f"{key if key is not None else ''}{_HASH_FIELD_DELIMITER}{row_text}".encode("utf-8")
     digest = hashlib.blake2b(message, digest_size=8).digest()
     result: int = struct.unpack(">q", digest)[0]
     return result
@@ -113,17 +118,32 @@ def _classify_column_type(arrow_type: pa.DataType) -> str | None:
 _MESSAGE_HEADER_RECORD_BATCH = 3
 
 
+def _fb_bounds_check(buf: bytes, pos: int, width: int) -> None:
+    """Guard against a negative or out-of-range computed flatbuffer offset. ``struct.unpack_from``
+    accepts a negative offset (reading from the end of the buffer instead of raising), which is a
+    latent correctness hazard even though pyarrow's own message verifier currently runs first and
+    makes this unreachable in practice; raising here turns any future gap into a clean data error
+    (code 5) instead of an uncaught ``struct.error`` (code 6)."""
+    if not (0 <= pos <= len(buf) - width):
+        raise _CliError(
+            DATA_ERROR, "malformed input: flatbuffer offset out of range while scanning for compressed record batches"
+        )
+
+
 def _fb_u32(buf: bytes, pos: int) -> int:
+    _fb_bounds_check(buf, pos, 4)
     value: int = struct.unpack_from("<I", buf, pos)[0]
     return value
 
 
 def _fb_i32(buf: bytes, pos: int) -> int:
+    _fb_bounds_check(buf, pos, 4)
     value: int = struct.unpack_from("<i", buf, pos)[0]
     return value
 
 
 def _fb_u16(buf: bytes, pos: int) -> int:
+    _fb_bounds_check(buf, pos, 2)
     value: int = struct.unpack_from("<H", buf, pos)[0]
     return value
 
@@ -156,7 +176,9 @@ def _fb_scalar_u8_field(buf: bytes, table_pos: int, field_index: int) -> int:
     slot = _fb_field_slot(buf, table_pos, field_index)
     if slot == 0:
         return 0
-    return buf[table_pos + slot]
+    field_pos = table_pos + slot
+    _fb_bounds_check(buf, field_pos, 1)
+    return buf[field_pos]
 
 
 def _message_metadata_is_compressed_record_batch(metadata: bytes) -> bool:
@@ -260,7 +282,10 @@ def _license_source() -> tuple[str, str]:
             raise _CliError(LICENSE_MISSING, f"MLODA_LICENSE_FILE {file_value}: not found")
         try:
             return "MLODA_LICENSE_FILE", path.read_text(encoding="utf-8")
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError) as exc:
+            # UnicodeDecodeError is a ValueError subclass, not an OSError, but a file whose content
+            # cannot be decoded as UTF-8 is exactly "set but unusable" (contract: License), the same
+            # class as any other unreadable-content failure -- code 3, not a bare uncaught crash.
             raise _CliError(LICENSE_INVALID, f"MLODA_LICENSE_FILE {file_value}: not readable ({exc})") from exc
 
     key_value = os.environ.get("MLODA_LICENSE_KEY", "")
@@ -293,7 +318,10 @@ def _check_license() -> None:
 def _load_config(path: Path) -> dict[str, Any]:
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
+        # UnicodeDecodeError is a ValueError subclass, not an OSError, but decoding failure is a
+        # config parse failure just like malformed JSON: a usage error, not an uncaught crash
+        # (contract: Errors -- "config parse and structural validation ...; code 1").
         raise _CliError(USAGE_ERROR, f"--config not readable: {exc}") from exc
     try:
         data = json.loads(text)
@@ -347,6 +375,20 @@ def _check_operation_capability(operation: str) -> None:
         raise _CliError(UNSUPPORTED, f"unsupported operation: {operation!r}")
 
 
+def _validate_hash_parameters(operation: str, parameters: dict[str, Any]) -> None:
+    """ "hash"-specific `parameters.key` validation: a present `key` must be a string -- however
+    falsy (`0`, `false`, an object) -- since "parameters" are operation-specific and only the
+    operation itself knows their shape (contract: Configuration -- "parameters: operation-specific
+    ... checked with the document"; Errors -- config structural validation is code 1). The reserved
+    conformance-only operation has no defined parameter shape and bypasses this, same as the
+    operation-output checks."""
+    if operation != "hash":
+        return
+    key = parameters.get("key")
+    if key is not None and not isinstance(key, str):
+        raise _CliError(USAGE_ERROR, "parameters.key must be a string")
+
+
 def _check_output_columns_completeness(operation: str, output_columns: dict[str, str]) -> None:
     """The reserved conformance operation bypasses this too: it has no defined output list, and
     its purpose is to reach the data stage regardless of what output_columns the kit supplies."""
@@ -362,11 +404,24 @@ def _check_output_columns_completeness(operation: str, output_columns: dict[str,
 
 
 def _open_input_output(input_path: Path | None, output_path: Path | None) -> None:
-    if input_path is not None and not input_path.is_file():
-        raise _CliError(USAGE_ERROR, f"--input path does not exist: {input_path}")
+    """Eagerly opens ``--input`` for reading and ``--output`` for writing, so a permissions problem
+    or an ``--output`` naming an existing directory fails here, as a usage error (contract: Errors
+    -- "opening --input and creating --output (code 1 if either fails)"), rather than surfacing
+    later as an uncaught exception at read/write time. Opening ``--output`` for writing also
+    truncates an existing file immediately, which is the contract's "an existing --output file is
+    overwritten by the binary" (Data handling)."""
+    if input_path is not None:
+        if not input_path.is_file():
+            raise _CliError(USAGE_ERROR, f"--input path does not exist: {input_path}")
+        try:
+            with input_path.open("rb"):
+                pass
+        except OSError as exc:
+            raise _CliError(USAGE_ERROR, f"--input path is not readable: {exc}") from exc
     if output_path is not None:
         try:
-            output_path.touch()
+            with output_path.open("wb"):
+                pass
         except OSError as exc:
             raise _CliError(USAGE_ERROR, f"--output path is not creatable: {exc}") from exc
 
@@ -377,15 +432,40 @@ def _read_input_bytes(input_path: Path | None) -> bytes:
     return sys.stdin.buffer.read()
 
 
-def _open_ipc_stream_reader(raw: bytes) -> pa.RecordBatchReader:
-    """Parse ``raw`` as an Arrow IPC *stream* (not file/Feather format). Anything that is not a
-    well-formed IPC stream (zero bytes handled by the caller; garbage bytes; the IPC file/Feather
-    format's ``ARROW1`` magic) fails pyarrow's own parsing, which is reported as a data error
-    (contract: Data)."""
+def _open_ipc_stream_reader(source: pa.BufferReader) -> pa.RecordBatchReader:
+    """Parse ``source`` (a position-tracking ``pa.BufferReader`` over the raw input bytes) as an
+    Arrow IPC *stream* (not file/Feather format). Anything that is not a well-formed IPC stream
+    (zero bytes handled by the caller; garbage bytes; the IPC file/Feather format's ``ARROW1``
+    magic) fails pyarrow's own parsing, which is reported as a data error (contract: Data). A
+    ``pa.BufferReader`` is used (rather than passing ``raw`` bytes directly) so its ``.tell()``
+    afterward reports how many bytes the one logical stream actually consumed, which
+    ``_assert_no_trailing_data`` below needs to reject a second stream or garbage concatenated
+    after a complete one."""
     try:
-        return pa.ipc.open_stream(raw)
+        return pa.ipc.open_stream(source)
     except pa.ArrowException as exc:
         raise _CliError(DATA_ERROR, f"input is not a valid Arrow IPC stream: {exc}") from exc
+
+
+def _read_all_batches(reader: pa.RecordBatchReader) -> pa.Table:
+    """Read every record batch of an already-opened stream. Malformed record-batch data appearing
+    after a valid schema message (the schema parses, but the batch body does not) fails here rather
+    than at ``open_stream()``, and must be reported the same way: a data error (contract: Data)."""
+    try:
+        return reader.read_all()
+    except pa.ArrowException as exc:
+        raise _CliError(DATA_ERROR, f"malformed record batch data: {exc}") from exc
+
+
+def _assert_no_trailing_data(buffer_reader: pa.BufferReader, raw: bytes) -> None:
+    """The one logical IPC stream must consume the whole input buffer; anything left over (a
+    second, concatenated stream, or trailing garbage after a complete stream's own end-of-stream
+    marker) is a data error (contract: Data). This is distinct from, and does not replace,
+    ``_assert_ends_with_eos_marker``'s truncation check: a truncated buffer's reader position also
+    ends up at ``len(raw)`` (via physical end of file rather than a formal end-of-stream token), so
+    that failure mode is caught by the marker check instead, before this one ever runs."""
+    if buffer_reader.tell() != len(raw):
+        raise _CliError(DATA_ERROR, "trailing data after the end of the Arrow IPC stream")
 
 
 def _assert_ends_with_eos_marker(raw: bytes) -> None:
@@ -397,14 +477,20 @@ def _assert_ends_with_eos_marker(raw: bytes) -> None:
 
 
 def _assert_no_compressed_record_batch(raw: bytes) -> None:
-    message_reader = pa.ipc.MessageReader.open_stream(pa.py_buffer(raw))
-    while True:
-        try:
-            message = message_reader.read_next_message()
-        except StopIteration:
-            return
-        if message.type == "record batch" and _message_metadata_is_compressed_record_batch(message.metadata):
-            raise _CliError(DATA_ERROR, "input contains a compressed record batch body, which is not supported")
+    """Malformed message metadata encountered while sweeping the raw bytes for a compressed
+    record-batch body must be reported the same way as any other malformed record-batch data: a
+    data error (contract: Data), not an uncaught ``pa.ArrowException``."""
+    try:
+        message_reader = pa.ipc.MessageReader.open_stream(pa.py_buffer(raw))
+        while True:
+            try:
+                message = message_reader.read_next_message()
+            except StopIteration:
+                return
+            if message.type == "record batch" and _message_metadata_is_compressed_record_batch(message.metadata):
+                raise _CliError(DATA_ERROR, "input contains a compressed record batch body, which is not supported")
+    except pa.ArrowException as exc:
+        raise _CliError(DATA_ERROR, f"malformed input while scanning for compressed record batches: {exc}") from exc
 
 
 def _validate_input_schema(schema: pa.Schema, input_columns: list[str]) -> None:
@@ -442,10 +528,14 @@ def _compute_hash_output(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Sc
 def _build_ipc_stream_bytes(schema: pa.Schema, arrays: list[pa.Array]) -> bytes:
     """Write ``arrays`` (aligned to ``schema``) to Arrow IPC stream format bytes, ending with the
     end-of-stream marker (``pa.ipc.new_stream``'s context manager writes it on close). Zero rows
-    is a valid, schema-only-shaped batch (contract: Data)."""
+    produces a schema-only stream (schema message + end-of-stream marker, no record-batch message
+    at all): a caller's zero-row output must not carry a record-batch message with zero rows
+    (contract: Data -- "a schema-only input ... yields a schema-only output")."""
+    num_rows = len(arrays[0]) if arrays else 0
     buf = io.BytesIO()
     with pa.ipc.new_stream(buf, schema) as writer:
-        writer.write_batch(pa.record_batch(arrays, schema=schema))
+        if num_rows > 0:
+            writer.write_batch(pa.record_batch(arrays, schema=schema))
     return buf.getvalue()
 
 
@@ -477,11 +567,13 @@ def _run_data_stage(raw: bytes, config: dict[str, Any], output_path: Path | None
         # letting the kit provoke code 6 on demand (contract: Conformance).
         raise _CliError(INTERNAL_ERROR, "reserved conformance operation: deliberate internal error")
 
-    reader = _open_ipc_stream_reader(raw)
+    buffer_reader = pa.BufferReader(pa.py_buffer(raw))
+    reader = _open_ipc_stream_reader(buffer_reader)
     _assert_ends_with_eos_marker(raw)
     _validate_input_schema(reader.schema, config["input_columns"])
     _assert_no_compressed_record_batch(raw)
-    table = reader.read_all()
+    table = _read_all_batches(reader)
+    _assert_no_trailing_data(buffer_reader, raw)
 
     output_schema, output_arrays = _compute_hash_output(table, config)
     _write_output_bytes(_build_ipc_stream_bytes(output_schema, output_arrays), output_path)
@@ -494,6 +586,7 @@ def _run_command(args: list[str]) -> int:
     _validate_config_structure(config)
     operation = config["operation"]
     _check_operation_capability(operation)
+    _validate_hash_parameters(operation, config["parameters"])
     _check_output_columns_completeness(operation, config["output_columns"])
     _open_input_output(run_args.input_path, run_args.output_path)
     raw = _read_input_bytes(run_args.input_path)
@@ -519,7 +612,25 @@ def _emit_error(code: int, message: str) -> None:
     print(json.dumps({"code": code, "message": message}), file=sys.stderr)
 
 
+def _reconfigure_streams_utf8_lf() -> None:
+    """Everything textual the binary writes (stderr; stdout for --version/--capabilities) is
+    UTF-8 with `\\n` line endings, regardless of platform locale; the binary configures its own
+    streams for that and never depends on the locale it inherits (contract: Invocation). Guarded
+    with a broad ``except`` since ``sys.stdout``/``sys.stderr`` may have been replaced by something
+    that is not a real ``TextIOWrapper`` (e.g. under a test runner's own capture) and therefore has
+    no ``reconfigure`` method at all."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", newline="\n")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main() -> int:
+    _reconfigure_streams_utf8_lf()
     try:
         return _dispatch(sys.argv[1:])
     except _CliError as exc:
