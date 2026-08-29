@@ -14,8 +14,6 @@ py_typed = true
 
 [packages.mloda-testing]
 description = "Test utilities for mloda plugin development"
-# pyarrow is a hard dependency: the data-operations test base and the reference
-# implementations import it unconditionally at module level.
 dependencies = ["{core_dependency}", "pytest>=9.0.3", "pyarrow"]
 path = "mloda/testing"
 published = true
