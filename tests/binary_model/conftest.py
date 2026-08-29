@@ -26,6 +26,14 @@ named "result", an optional ``parameters.key``) without defining what it actuall
 2 defines that concretely as ``compute_expected_hash`` below, an independent reference
 implementation using Python's ``hashlib`` so a test's expected value is never derived from
 whatever the binary happens to do.
+
+Cycle 3 adds the contract's "Data handling" section and the remaining stderr/diagnostics rules
+from "Errors": no network, no files outside ``--config``/``--input``/``MLODA_LICENSE_FILE``/
+``--output``, the minimal environment, data-free diagnostics, and the stderr/message size caps
+(the latter folded into ``assert_error_response`` itself, applying retroactively to every
+error-path test that already uses it). ``DATA_FREE_MARKER``, ``MESSAGE_MAX_BYTES`` and
+``STDERR_SOFT_CAP_BYTES`` below are this cycle's design parameters; ``run_binary``'s ``cwd``
+parameter is this cycle's one extension to an existing helper, needed for the read-only-cwd check.
 """
 
 from __future__ import annotations
@@ -34,7 +42,7 @@ import hashlib
 import io
 import json
 import struct
-import subprocess
+import subprocess  # nosec
 import sys
 from pathlib import Path
 from typing import Any
@@ -62,6 +70,18 @@ LICENSE_INVALID = 3
 UNSUPPORTED = 4
 DATA_ERROR = 5
 INTERNAL_ERROR = 6
+
+# Cycle 3: a distinctive marker string, chosen so it would never otherwise appear in this suite's
+# input, output or diagnostics, used to test that a marked input cell's value never leaks into
+# stderr (contract: Data handling: "never writes cell values to stderr or into an error message").
+DATA_FREE_MARKER = "SECRET_MARKER_YlZ9qX7"
+
+# Cycle 3: the contract's stderr/message size caps (contract: Data handling: "diagnostics ...
+# stay bounded (64 KiB of stderr in total is the soft cap the kit enforces; message is at most
+# 1024 bytes)"). Enforced inside ``assert_error_response`` below so every existing and future
+# error-path test gets this check for free.
+MESSAGE_MAX_BYTES = 1024
+STDERR_SOFT_CAP_BYTES = 64 * 1024
 
 
 def _license_token_text(status: str, plugins: list[str]) -> str:
@@ -115,20 +135,24 @@ def run_binary(
     env: dict[str, str],
     input_bytes: bytes = b"",
     timeout: float = 10.0,
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
     """Invoke the binary with a fully-controlled argv and environment.
 
     ``env`` replaces the child's environment outright (never merged with the ambient one), so
     tests are hermetic and never accidentally inherit a license from the calling shell. ``stdin``
     always gets an explicit (possibly empty) byte string so an implementation that reaches the
-    data stage never blocks the test suite waiting on an open pipe.
+    data stage never blocks the test suite waiting on an open pipe. ``cwd``, if given, is the
+    child's working directory (used by the "no files created outside --output" check, contract:
+    Data handling, Conformance); left as the caller's own cwd (subprocess's default) otherwise.
     """
-    return subprocess.run(
+    return subprocess.run(  # nosec B603
         [*cmd, *args],
         env=dict(env),
         input=input_bytes,
         capture_output=True,
         timeout=timeout,
+        cwd=cwd,
     )
 
 
@@ -146,7 +170,12 @@ def stderr_error_object(stderr: bytes) -> dict[str, Any]:
 def assert_error_response(result: subprocess.CompletedProcess[bytes], expected_code: int) -> dict[str, Any]:
     """Assert the process exited with ``expected_code`` and that stderr's last non-empty line is
     exactly one parseable JSON object whose ``code`` matches, with a non-empty ``message`` string
-    (contract: Errors). Returns the parsed error object for further assertions."""
+    (contract: Errors). Also asserts the contract's Data handling size caps -- ``message`` at most
+    ``MESSAGE_MAX_BYTES`` (1024) UTF-8 bytes, total stderr at most ``STDERR_SOFT_CAP_BYTES``
+    (64 KiB) -- so every error-path test that goes through this helper checks the caps for free
+    (contract: Data handling: "diagnostics ... stay bounded (64 KiB of stderr in total is the soft
+    cap the kit enforces; message is at most 1024 bytes)"). Returns the parsed error object for
+    further assertions."""
     assert result.returncode == expected_code, (
         f"expected exit code {expected_code}, got {result.returncode}; stderr={result.stderr!r}"
     )
@@ -154,6 +183,13 @@ def assert_error_response(result: subprocess.CompletedProcess[bytes], expected_c
     assert error.get("code") == expected_code, f"error object code mismatch: {error!r}"
     message = error.get("message")
     assert isinstance(message, str) and message, f"error object missing a non-empty message: {error!r}"
+    message_bytes = len(message.encode("utf-8"))
+    assert message_bytes <= MESSAGE_MAX_BYTES, (
+        f"error message exceeds the {MESSAGE_MAX_BYTES}-byte cap: {message_bytes} bytes ({message[:200]!r}...)"
+    )
+    assert len(result.stderr) <= STDERR_SOFT_CAP_BYTES, (
+        f"stderr exceeds the {STDERR_SOFT_CAP_BYTES}-byte soft cap: {len(result.stderr)} bytes"
+    )
     return error
 
 

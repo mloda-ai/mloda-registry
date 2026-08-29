@@ -11,12 +11,13 @@ instead: nothing here may hardcode a binary path.
 
 Scope: cycle 1 (sections 1-3 below) covers everything before any Arrow IPC data is touched -- the
 three documented invocations, the license gate, and config structural/capability validation. Cycle
-2 (sections 4 onward) covers the Arrow IPC data pipeline itself: the "hash" operation's actual
+2 (sections 4-10) covers the Arrow IPC data pipeline itself: the "hash" operation's actual
 behavior, transport combinations, the exact-column-set and type-vocabulary rules, output
 verification, the schema-only round trip, the end-of-stream marker, malformed-input rejections,
-and the reserved ``_conformance_internal_error`` operation with real data flowing.
-Process-hygiene/sandbox checks and the stderr size-cap / data-free-diagnostics rules belong to a
-later cycle and are not covered here.
+and the reserved ``_conformance_internal_error`` operation with real data flowing. Cycle 3
+(section 12) covers the contract's "Data handling" section and the remaining stderr/diagnostics
+rules from "Errors": data-free diagnostics, the stderr/message size caps, no network, no files
+created outside ``--output``, and the minimal environment.
 
 Every check below cites the interface contract section it comes from; see that document (in the
 epic's rust-crate-binary-feature-group folder) for the authoritative text.
@@ -25,7 +26,10 @@ epic's rust-crate-binary-feature-group folder) for the authoritative text.
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess  # nosec
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +41,7 @@ from tests.binary_model.conftest import (
     COLUMN_TYPES,
     CONTRACT_VERSION,
     DATA_ERROR,
+    DATA_FREE_MARKER,
     EXPIRED_LICENSE_TEXT,
     INTERNAL_ERROR,
     IPC_END_OF_STREAM_MARKER,
@@ -820,3 +825,197 @@ def test_reserved_internal_error_operation_with_data_triggers_code_6(
 # / is_string_view]... are cast to utf8 before sending"). A binary-level test sending large_string
 # or string_view directly would really be exercising mixin behavior, which is out of scope for this
 # binary-focused conformance kit, so this nice-to-have is skipped rather than over-scoped.
+
+
+# ---------------------------------------------------------------------------
+# 12. Data handling: data-free diagnostics, size caps, no network, no incidental files, the
+#     minimal environment (contract: Data handling, Errors, Conformance)
+# ---------------------------------------------------------------------------
+#
+# "no state between invocations" and "removes its own temp directory" (contract: Invocation, Data
+# handling) describe the mixin's private-per-invocation-directory behavior, not the binary's: the
+# binary itself carries no invocation-tracking state, so that obligation is covered here only as
+# "no files created outside --output" (the binary writes nothing of its own to track between
+# calls). The mixin side of both bullets is a different piece of work, out of scope for this kit.
+#
+# The "any exit code not in this table ... is treated as code 6" rule (contract: Errors) is a
+# caller-side interpretation rule for a mixin receiving a response from *some* binary; it is not
+# something this binary's own conformance kit can meaningfully test against itself (the binary
+# always reports one of its own table's codes, or the top-level exception handler folds any
+# uncaught error into a well-formed code 6 already covered below).
+
+
+def test_diagnostics_never_leak_marked_cell_value_on_success(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """A distinctive marker cell value that would never otherwise appear in this suite's own
+    input, output or diagnostics, sent through a normal successful "hash" run: stderr never
+    contains it. stdout on a successful run legitimately carries the caller's own data by design,
+    so this scopes the assertion to stderr only, not stdout (contract: Data handling: "never
+    writes cell values to stderr or into an error message")."""
+    config = make_config(input_columns=["col_a"], output_columns={"result": "hash_out"})
+    config_path = write_json(tmp_path / "config.json", config)
+    schema = pa.schema([pa.field("col_a", pa.string())])
+    input_bytes = arrow_stream_bytes(schema, {"col_a": [DATA_FREE_MARKER]})
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert result.returncode == 0, f"stderr={result.stderr!r}"
+    assert DATA_FREE_MARKER.encode("utf-8") not in result.stderr, (
+        f"marker cell value leaked into stderr on a successful run: {result.stderr!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "input_columns, operation, output_columns",
+    [
+        pytest.param(
+            ["col_a", "col_b"], CAPABILITY_OPERATIONS[0], {"result": "hash_out"}, id="missing_column_data_error"
+        ),
+        pytest.param(["col_a"], RESERVED_INTERNAL_ERROR_OPERATION, {}, id="reserved_internal_error_operation"),
+    ],
+)
+def test_diagnostics_never_leak_marked_cell_value_on_failure(
+    binary_cmd: list[str],
+    valid_license_env: dict[str, str],
+    tmp_path: Path,
+    input_columns: list[str],
+    operation: str,
+    output_columns: dict[str, str],
+) -> None:
+    """The same marker cell value, sent through two failing cases that still reach the data
+    stage with the marked input present: a data error from a wrong schema (`col_b` declared in
+    `input_columns` but absent from the stream), and the reserved
+    `_conformance_internal_error` operation. Neither case's stderr contains the marker (contract:
+    Data handling: "never writes cell values to stderr or into an error message"; Conformance:
+    "data-free diagnostics (no cell value of a marked input appears on stderr)")."""
+    config = make_config(input_columns=input_columns, operation=operation, output_columns=output_columns)
+    config_path = write_json(tmp_path / "config.json", config)
+    schema = pa.schema([pa.field("col_a", pa.string())])
+    input_bytes = arrow_stream_bytes(schema, {"col_a": [DATA_FREE_MARKER]})
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes)
+    assert result.returncode != 0, f"expected this case to fail, got exit 0; stdout={result.stdout!r}"
+    assert DATA_FREE_MARKER.encode("utf-8") not in result.stderr, (
+        f"marker cell value leaked into stderr: {result.stderr!r}"
+    )
+
+
+def test_error_message_stays_under_size_cap_for_long_garbage_operation(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """A very long garbage `operation` string provokes the unsupported-operation error message to
+    echo it back (`unsupported operation: {operation!r}`); `assert_error_response`'s shared
+    size-cap assertion enforces that the resulting `message` still stays within the contract's
+    1024-byte cap (contract: Data handling: "message is at most 1024 bytes"; Conformance: "the
+    last-non-empty-line stderr rule and the size caps")."""
+    long_garbage_operation = "not_a_real_operation_" + "x" * 2000
+    config = make_config(operation=long_garbage_operation)
+    config_path = write_json(tmp_path / "config.json", config)
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env)
+    assert_error_response(result, UNSUPPORTED)
+
+
+def test_no_network_dependency_under_unshare_net(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """A normal, successful "hash" run wrapped in `unshare --net` (a network-denied Linux
+    namespace) must still succeed and produce the correct output, proving the binary makes no
+    network calls it depends on (contract: Data handling: "makes no network connections"; every
+    check ... runs offline"; Conformance: "no network (a run under a network-denied sandbox such
+    as `unshare -n` on Linux)"). Skipped if `unshare` is not on `PATH`, or if `unshare --net`
+    itself cannot be used in this sandbox (some CI/containers block user/network namespaces), so
+    the test never false-fails on an environment limitation unrelated to the binary."""
+    if shutil.which("unshare") is None:
+        pytest.skip("unshare is not available on this host")
+    probe = subprocess.run(  # nosec B603 B607
+        ["unshare", "--net", "--", "/bin/true"], capture_output=True, timeout=10.0
+    )
+    if probe.returncode != 0:
+        pytest.skip(f"unshare --net is not usable in this sandbox: {probe.stderr!r}")
+
+    case = hash_multi_column_case()
+    config_path = write_json(tmp_path / "config.json", case["config"])
+    input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
+    result = run_binary(
+        ["unshare", "--net", "--", *binary_cmd], ["run", "--config", str(config_path)], valid_license_env, input_bytes
+    )
+    assert result.returncode == 0, f"stderr={result.stderr!r}"
+    table = read_arrow_stream(result.stdout)
+    assert table.column("hash_out").to_pylist() == case["expected"]
+
+
+def test_no_files_created_outside_output_in_read_only_cwd(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """A normal, successful "hash" run over stdin/stdout (no `--input`/`--output`, so nothing
+    should touch the filesystem at all) run with its working directory set to a fresh read-only
+    directory must still succeed and create no files there, proving the binary writes nothing of
+    its own outside `--output` (contract: Data handling: "reads no files other than --config,
+    --input and MLODA_LICENSE_FILE, writes none other than --output, and keeps no state between
+    invocations"; Conformance: "no files created outside --output (a run in a read-only working
+    directory)"). `--config` and the license file live in a separate, writable directory so only
+    the cwd itself is read-only. Skipped on a platform with no POSIX directory-permission concept,
+    or when running as root, which ignores directory write permissions."""
+    if not hasattr(os, "geteuid"):
+        pytest.skip("no POSIX directory-permission concept on this platform")
+    if os.geteuid() == 0:
+        pytest.skip("running as root ignores directory write permissions")
+
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    case = hash_multi_column_case()
+    config_path = write_json(work_dir / "config.json", case["config"])
+    input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
+
+    readonly_cwd = tmp_path / "readonly_cwd"
+    readonly_cwd.mkdir()
+    original_mode = readonly_cwd.stat().st_mode
+    readonly_cwd.chmod(0o500)  # read + execute only: no write, so nothing can be created here
+    try:
+        result = run_binary(
+            binary_cmd, ["run", "--config", str(config_path)], valid_license_env, input_bytes, cwd=readonly_cwd
+        )
+    finally:
+        readonly_cwd.chmod(original_mode)
+
+    assert result.returncode == 0, f"stderr={result.stderr!r}"
+    table = read_arrow_stream(result.stdout)
+    assert table.column("hash_out").to_pylist() == case["expected"]
+    leftover = list(readonly_cwd.iterdir())
+    assert leftover == [], f"expected no files created in the read-only cwd, found {leftover!r}"
+
+
+def test_minimal_environment_allowlist_only(binary_cmd: list[str], tmp_path: Path) -> None:
+    """A normal, successful "hash" run with an environment containing only the license variable
+    and `PATH` (the mixin's own allowlist also carries a fixed locale and, on Windows,
+    `SYSTEMROOT`, but the license variable and `PATH` alone are enough to prove the binary needs
+    nothing ambient) -- no `HOME`, no `LANG`, nothing else -- must still succeed and produce the
+    correct output, proving the binary reads no environment variable outside the license
+    variables and what its runtime needs to start (contract: Data handling: "reads no environment
+    variables beyond the two license variables and what its runtime needs to start"; the mixin
+    "passes a minimal environment: the two license variables, PATH, a fixed UTF-8 locale ..."; and
+    the mixin's allowlist is exactly what this exercises: Conformance: "the minimal environment (a
+    run with the allowlist only)")."""
+    case = hash_multi_column_case()
+    config_path = write_json(tmp_path / "config.json", case["config"])
+    input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
+    env = {"MLODA_LICENSE_KEY": VALID_LICENSE_TEXT, "PATH": os.environ.get("PATH", "")}
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], env, input_bytes)
+    assert result.returncode == 0, f"stderr={result.stderr!r}"
+    table = read_arrow_stream(result.stdout)
+    assert table.column("hash_out").to_pylist() == case["expected"]
+
+
+def test_uncaught_exception_still_produces_well_formed_code_6(
+    binary_cmd: list[str], valid_license_env: dict[str, str], tmp_path: Path
+) -> None:
+    """A `--config` file containing bytes that are not valid UTF-8 makes `Path.read_text` raise
+    `UnicodeDecodeError`, an exception distinct from (and not caught by) the narrower `except
+    OSError` around that read: a genuinely uncaught internal error, not the reserved
+    `_conformance_internal_error` operation. stderr's last non-empty line must still be exactly
+    one well-formed `{"code": 6, "message": ...}` object rather than a raw traceback (contract:
+    Errors: "A binary built with panic = \"abort\" installs a panic hook that writes the code 6
+    object and exits 6, so an internal failure never reaches the caller as a bare signal";
+    "message is a single human-readable line, no stack traces or multi-line payloads")."""
+    config_path = tmp_path / "config.json"
+    config_path.write_bytes(b"\xff\xfe\x00invalid-utf8-config")
+    result = run_binary(binary_cmd, ["run", "--config", str(config_path)], valid_license_env)
+    assert_error_response(result, INTERNAL_ERROR)

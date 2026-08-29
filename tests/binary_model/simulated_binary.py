@@ -59,6 +59,11 @@ UNSUPPORTED = 4
 DATA_ERROR = 5
 INTERNAL_ERROR = 6
 
+# Contract "Data handling": "message is at most 1024 bytes". Several error messages interpolate
+# data whose length is not otherwise bounded (an operation string, column names, CLI arguments),
+# so this cap is enforced centrally rather than trusted to be true at each call site.
+_MESSAGE_MAX_BYTES = 1024
+
 
 def _hash_value_token(value: Any) -> str:
     """One row value's token in the "hash" operation. Order matters: ``bool`` is checked before
@@ -178,10 +183,32 @@ def _message_metadata_is_compressed_record_batch(metadata: bytes) -> bool:
     return _fb_offset_field(buf, record_batch_pos, 3) is not None
 
 
+def _truncate_message(text: str, max_bytes: int = _MESSAGE_MAX_BYTES) -> str:
+    """Bound ``text`` to at most ``max_bytes`` UTF-8 bytes (contract: Data handling: "message is
+    at most 1024 bytes"), cutting only on a UTF-8 character boundary -- never splitting a
+    multi-byte character in half -- by slicing the encoded bytes and decoding with
+    ``errors="ignore"`` to drop any partial trailing sequence. Appends a short "...(truncated)"
+    suffix when truncation happens and there is room for it within the cap; otherwise returns
+    ``text`` unchanged."""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    suffix = "...(truncated)"
+    budget = max_bytes - len(suffix.encode("utf-8"))
+    if budget <= 0:
+        return encoded[:max_bytes].decode("utf-8", errors="ignore")
+    return encoded[:budget].decode("utf-8", errors="ignore") + suffix
+
+
 class _CliError(Exception):
-    """Carries the exit code and stderr message for one contract error class."""
+    """Carries the exit code and stderr message for one contract error class. ``message`` is
+    always run through ``_truncate_message`` so every error path -- not just the ones a call site
+    happens to remember -- respects the 1024-byte cap, since several messages interpolate
+    attacker/caller-controlled data (a config's operation string, schema column names, CLI
+    arguments) whose length is not otherwise bounded."""
 
     def __init__(self, code: int, message: str) -> None:
+        message = _truncate_message(message)
         super().__init__(message)
         self.code = code
         self.message = message
@@ -512,7 +539,9 @@ def main() -> int:
         _emit_error(exc.code, exc.message)
         return exc.code
     except Exception as exc:
-        _emit_error(INTERNAL_ERROR, f"internal error: {exc}")
+        # str(exc) is not bounded by design for an arbitrary, unexpected exception, so it goes
+        # through the same 1024-byte cap as every _CliError message (contract: Data handling).
+        _emit_error(INTERNAL_ERROR, _truncate_message(f"internal error: {exc}"))
         return INTERNAL_ERROR
 
 
