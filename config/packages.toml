@@ -77,6 +77,15 @@ dependencies = ["{core_dependency}"]
 path = "mloda/community/extenders/example"
 entry_point_groups = ["mloda.extenders"]
 
+[packages.mloda-community-otel]
+description = "OpenTelemetry spans, metadata-only by default, for mloda pipelines"
+dependencies = ["{core_dependency}", "opentelemetry-api>=1.30,<2"]
+path = "mloda/community/extenders/otel"
+published = true
+optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3", "opentelemetry-sdk>=1.30,<2"] }
+entry_point_groups = ["mloda.extenders"]
+py_typed = true
+
 [packages.mloda-enterprise-compute-frameworks-example]
 description = "Example enterprise ComputeFramework plugin for mloda"
 dependencies = ["{core_dependency}"]
