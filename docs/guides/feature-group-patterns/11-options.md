@@ -123,6 +123,24 @@ class ArithmeticFeature(FeatureGroup):
 
 A bare `ClassVar` is enough: `mypy --strict` infers `dict[str, PropertySpec]` from the initializer, so no `PropertySpec` import is needed just for the annotation. Apply the same to any other mutable class-level default on a plugin class, such as a backend registry dict or a set of supported methods.
 
+### Captureless patterns: `RECOGNITION_ONLY_PATTERN`
+
+Migrating an older `FeatureGroup` off the deprecated dict-form `PROPERTY_MAPPING` can surface a new `WARNING` log at class-definition time, if the class also declares a **captureless** `PREFIX_PATTERN`/`SUFFIX_PATTERN` (a pattern with no capture group). Captureless prefix/suffix patterns paired with option-driven (rather than name-captured) values are a common shape for these classes, so the warning tends to surface right after a migration, looking like an unrelated regression.
+
+A captureless pattern binds no key from the feature name. If a mapping key must come from the name, add a named capture group (`(?P<key>...)`); if the pattern is only a recognition predicate and every value is meant to come from `Options`, set `RECOGNITION_ONLY_PATTERN = True` to declare that intent and silence the warning:
+
+```python
+class FfillFeatureGroup(FeatureGroup):
+    PREFIX_PATTERN = r".*__ffill$"
+    RECOGNITION_ONLY_PATTERN = True  # no capture group; every value comes from Options
+
+    PROPERTY_MAPPING: ClassVar = {
+        "order_by": property_spec("Column to order by (ascending) within each partition"),
+    }
+```
+
+See [`ffill/base.py`](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/feature_groups/data_operations/row_preserving/ffill/base.py) for the full production example.
+
 ## Validation and Conditional Requirements
 
 When using `PROPERTY_MAPPING` with `FeatureChainParserMixin`, you can declare validation rules and conditional requirements directly on option entries:
