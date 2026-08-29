@@ -260,13 +260,10 @@ class TestComputeModeWinnersCollisions:
 
 
 class TestComputeModeWinnersAllNull:
-    """The ``if work.empty`` early return in ``compute_mode_winners``.
+    """``compute_mode_winners``' all-null/empty-input early return.
 
-    It fires only when *every* row's source value is null across the whole
-    input, or the input has no rows at all. The parametrized
-    ``test_all_null_column_per_group[mode]`` already exercises this branch but
-    only asserts ``all(v is None ...)``, which holds on either code path; these
-    tests pin the dtype and row-count contract that actually discriminates them.
+    ``test_all_null_column_per_group[mode]`` reaches it but only checks for None, true either way;
+    these tests pin the dtype/row-count contract that actually distinguishes the two code paths.
     """
 
     def test_every_source_value_null_returns_an_empty_frame(self) -> None:

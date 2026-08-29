@@ -39,17 +39,17 @@ result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
 | `context_options` | object | No | Context parameters (metadata, doesn't affect resolution) |
 | `column_index` | integer | No | Index for multi-output features (adds `~N` suffix) |
 | `propagate_context_keys` | array | No | Context keys to propagate to dependent features |
-| `feature_group` | string | No | Class name of the FeatureGroup to resolve this feature against, narrowing the match to that class and its subclasses |
+| `feature_group` | string | No | Class name to scope resolution to (matches that class and its subclasses) |
 
 Items can be plain strings (`"feature_name"`) or feature objects. `options` and `group_options`/`context_options` are mutually exclusive.
 
-`feature_group` takes the class **name**, as a string:
+`feature_group` is the class **name** as a string, also valid inside a nested `in_features` dict:
 
 ```json
 { "name": "sales__sum_agg", "feature_group": "PandasAggregation", "context_options": {"partition_by": ["region"]} }
 ```
 
-Passing the class object itself is Python-only and rejected here, as is an empty string and the root `FeatureGroup` base name, which would not narrow at all. Like `name`, `options` and `in_features`, it is also accepted inside a nested `in_features` dict, so a chained source feature can be scoped independently of its consumer.
+Rejects non-strings, empty strings, and the root `FeatureGroup` base name.
 
 ## Window / Rank / Percentile Requests
 
