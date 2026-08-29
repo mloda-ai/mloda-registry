@@ -6,11 +6,10 @@ from typing import Any
 
 import pytest
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import DataType, Feature, Options
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
-from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
@@ -225,7 +224,7 @@ class TestConfigBasedFeatures:
         """Config-based feature should compute correctly via calculate_feature."""
         import pyarrow as pa
 
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.provider import FeatureSet
         from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
             PyArrowWindowAggregation,
         )

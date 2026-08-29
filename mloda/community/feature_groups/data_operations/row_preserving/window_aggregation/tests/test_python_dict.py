@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Options
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.python_dict_window_aggregation import (
     PythonDictWindowAggregation,
 )

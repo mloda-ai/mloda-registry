@@ -17,10 +17,8 @@ from typing import Any
 
 import pytest
 
-from mloda.core.abstract_plugins.components.feature_name import FeatureName
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Feature, FeatureName, Options
 from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
-from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import (
     SESSIONIZATION_UNITS,

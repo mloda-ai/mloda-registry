@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.core.abstract_plugins.components.data_types import DataType
-from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
+from mloda.user import DataType, Feature
+from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureGroup, FeatureSet, property_spec
 from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, is_op_token, op_token_value
 
 STRING_OPS = {

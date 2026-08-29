@@ -51,10 +51,8 @@ from typing import Any
 
 import pytest
 
-from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.core.abstract_plugins.feature_group import FeatureGroup
-from mloda.user import DataType
+from mloda.user import DataType, Feature, Options
+from mloda.provider import FeatureGroup
 
 # Reuse the sibling module's family registry (DRY): the same FAMILIES tuple, valid-name
 # generators, class loader, and name-driven Options that drive the routing-collision lint.

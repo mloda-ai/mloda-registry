@@ -6,10 +6,8 @@ from typing import Any
 
 import pytest
 
-from mloda.core.abstract_plugins.components.feature_name import FeatureName
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Feature, FeatureName, Options
 from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
-from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     ARITHMETIC_OPERATIONS,

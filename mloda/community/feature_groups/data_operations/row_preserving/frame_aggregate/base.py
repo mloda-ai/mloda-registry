@@ -8,13 +8,9 @@ import os
 import re
 from typing import Any
 
-from mloda.core.abstract_plugins.components.data_types import DataType
-from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_name import FeatureName
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.core.abstract_plugins.components.utils import escalate_match_abort
-from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec, record_match_rejection
+from mloda.user import DataType, Feature, FeatureName, Options
+from mloda.provider import DefaultOptionKeys, FeatureGroup, FeatureSet, property_spec, record_match_rejection
+from mloda.core.abstract_plugins.components.utils import escalate_match_abort  # no public equivalent yet
 
 from mloda.community.feature_groups.data_operations.base import (
     FRAME_SIZE as _FRAME_SIZE_KEY,

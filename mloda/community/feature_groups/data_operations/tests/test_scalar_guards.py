@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.base import (
     column_ref_value,

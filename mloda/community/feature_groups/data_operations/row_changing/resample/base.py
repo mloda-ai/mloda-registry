@@ -38,13 +38,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.core.abstract_plugins.components.data_types import DataType
-from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
-from mloda.core.abstract_plugins.components.feature_name import FeatureName
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import DefaultOptionKeys, FeatureGroup, property_spec
+from mloda.user import DataType, Feature, FeatureName, Options
+from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureGroup, FeatureSet, property_spec
 
 from mloda.community.feature_groups.data_operations.base import (
     RejectionReasonMixin,

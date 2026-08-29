@@ -24,7 +24,7 @@ import pytest
 
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_framework import SqliteFramework
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook

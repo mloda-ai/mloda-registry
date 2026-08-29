@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.provider import DefaultOptionKeys, property_spec
+from mloda.provider import DefaultOptionKeys, FeatureSet, property_spec
 
 from mloda.community.feature_groups.data_operations.aggregation_base import (
     AGGREGATION_TYPES,

@@ -31,9 +31,7 @@ except ImportError:  # pragma: no cover - exercised only without pyarrow install
     pa = None
     PyArrowTable = None  # type: ignore[assignment,misc]
 
-from mloda.core.abstract_plugins.components.input_data.base_input_data import BaseInputData
-from mloda.core.abstract_plugins.components.input_data.creator.data_creator import DataCreator
-from mloda.provider import ComputeFramework, FeatureGroup, FeatureSet
+from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
 from mloda.user import Feature, FeatureName, Index, Link, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 

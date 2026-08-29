@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Options
 from mloda.community.feature_groups.data_operations.row_preserving.rank.python_dict_rank import (
     PythonDictRank,
 )

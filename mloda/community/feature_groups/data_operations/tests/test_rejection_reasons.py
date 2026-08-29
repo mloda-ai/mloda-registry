@@ -8,7 +8,7 @@ and that non-candidates stay silent while reporting itself never raises.
 
 from __future__ import annotations
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow_ffill import PyArrowFfill
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.pandas_frame_aggregate import (

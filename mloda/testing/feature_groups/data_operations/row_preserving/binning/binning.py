@@ -386,9 +386,8 @@ class BinningTestBase(DataOpsTestBase):
 
     def test_option_based_bin_3(self) -> None:
         """Option-based configuration (not string pattern) produces the same result."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.core.abstract_plugins.components.options import Options
-        from mloda.user import Feature
+        from mloda.provider import FeatureSet
+        from mloda.user import Feature, Options
 
         feature = Feature(
             "my_bin_result",
@@ -409,9 +408,8 @@ class BinningTestBase(DataOpsTestBase):
 
     def test_unsupported_binning_type_raises(self) -> None:
         """Calling calculate_feature with an unknown binning type should raise."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.core.abstract_plugins.components.options import Options
-        from mloda.user import Feature
+        from mloda.provider import FeatureSet
+        from mloda.user import Feature, Options
 
         feature = Feature(
             "value_int__evil_3",

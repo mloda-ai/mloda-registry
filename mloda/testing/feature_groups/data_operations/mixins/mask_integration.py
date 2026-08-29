@@ -15,8 +15,7 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.user import Feature, mloda
+from mloda.user import Feature, Options, mloda
 
 
 def _is_null(value: Any) -> bool:

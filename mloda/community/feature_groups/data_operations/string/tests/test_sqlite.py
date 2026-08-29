@@ -48,14 +48,14 @@ class TestSqliteUnsupportedOps:
 
     @pytest.mark.parametrize("operation", ["upper", "lower", "reverse"])
     def test_unsupported_op_does_not_match(self, operation: str) -> None:
-        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Options
 
         options = Options()
         result = SqliteStringOps.match_feature_group_criteria(f"name__{operation}", options, None)
         assert result is False
 
     def test_supported_ops_still_match(self) -> None:
-        from mloda.core.abstract_plugins.components.options import Options
+        from mloda.user import Options
 
         options = Options()
         for op in ("trim", "length"):
