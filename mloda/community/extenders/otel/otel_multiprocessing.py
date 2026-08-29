@@ -20,11 +20,14 @@ def extract_carrier(carrier: dict[str, str]) -> Context:
 
 
 def force_flush(provider: Any) -> bool:
-    """Call provider.force_flush() if present and callable, without raising."""
+    """Call provider.force_flush() if present and callable, returning its own boolean result.
+
+    Only the missing-attribute case is guaranteed not to raise (it duck-types to False); a genuine
+    exception raised by the provider's own force_flush() propagates unmodified.
+    """
     flush = getattr(provider, "force_flush", None)
     if callable(flush):
-        flush()
-        return True
+        return bool(flush())
     return False
 
 

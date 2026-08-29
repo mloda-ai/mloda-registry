@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 import os
+import reprlib
 from collections.abc import Callable
 from typing import Any
 
 from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.trace import Span, Status, StatusCode
+from opentelemetry.trace import Span, Status, StatusCode, TracerProvider
 
 from mloda.core.abstract_plugins.hook_context import HookContext
 from mloda.steward import Extender, ExtenderHook
@@ -19,6 +19,18 @@ logger = logging.getLogger(__name__)
 _TRACER_NAME = "mloda_community_otel"
 _CONTENT_PREVIEW_MAX_LEN = 200
 _TRUTHY_ENV_VALUES = {"true", "1"}
+
+# Bounded repr for content previews: only recurses into the first N elements of a container,
+# so it never materializes a full repr/str of a huge result before truncation (see _content_preview).
+_BOUNDED_REPR = reprlib.Repr()
+_BOUNDED_REPR.maxlevel = 3
+_BOUNDED_REPR.maxlist = 10
+_BOUNDED_REPR.maxdict = 10
+_BOUNDED_REPR.maxset = 10
+_BOUNDED_REPR.maxfrozenset = 10
+_BOUNDED_REPR.maxtuple = 10
+_BOUNDED_REPR.maxstring = 30
+_BOUNDED_REPR.maxother = 30
 
 _SPAN_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: "mloda.calculate",
@@ -60,7 +72,7 @@ class OtelExtender(Extender):
         span_name = _SPAN_NAMES.get(context.hook, "mloda.unknown") if context is not None else "mloda.unknown"
 
         tracer = trace.get_tracer(_TRACER_NAME, tracer_provider=self._tracer_provider)
-        with tracer.start_as_current_span(span_name) as span:
+        with tracer.start_as_current_span(span_name, record_exception=False) as span:
             if context is not None:
                 _set_context_attributes(span, context)
 
@@ -69,14 +81,17 @@ class OtelExtender(Extender):
             except Exception as exc:
                 span.set_status(Status(StatusCode.ERROR))
                 span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
-                logger.warning("OtelExtender %s", exc)
+                logger.warning("OtelExtender %s failed: %s: %s", span_name, type(exc).__name__, exc)
                 raise
 
-            if context is not None and context.hook == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
-                if context.rows_out is not None:
-                    span.set_attribute("mloda.rows.out", context.rows_out)
-                if self._content_capture_enabled():
-                    span.set_attribute("mloda.content.preview", self._content_preview(result))
+            try:
+                if context is not None and context.hook == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
+                    if context.rows_out is not None:
+                        span.set_attribute("mloda.rows.out", context.rows_out)
+                    if self._content_capture_enabled():
+                        span.set_attribute("mloda.content.preview", self._content_preview(result))
+            except Exception as exc:
+                logger.warning("OtelExtender post-call instrumentation failed: %s: %s", type(exc).__name__, exc)
 
             return result
 
@@ -87,7 +102,7 @@ class OtelExtender(Extender):
 
     def _content_preview(self, result: Any) -> str:
         value = self.mask(result) if self.mask is not None else result
-        return str(value)[:_CONTENT_PREVIEW_MAX_LEN]
+        return _BOUNDED_REPR.repr(value)[:_CONTENT_PREVIEW_MAX_LEN]
 
 
 def _set_context_attributes(span: Span, context: HookContext) -> None:

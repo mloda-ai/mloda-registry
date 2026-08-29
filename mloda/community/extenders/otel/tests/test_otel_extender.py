@@ -9,8 +9,11 @@ pytest-xdist alongside other test files in this same process group.
 
 from __future__ import annotations
 
+import ast
+import contextlib
 import logging
 from collections.abc import Iterator, Mapping
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -154,6 +157,33 @@ class TestOtelExtenderInheritance:
 
     def test_instance_is_extender(self) -> None:
         assert isinstance(OtelExtender(), Extender)
+
+
+class TestOtelExtenderModuleImports:
+    """opentelemetry-sdk is a dev-only extra of this package (only opentelemetry-api is a real runtime
+    dependency), so the module must not import anything under opentelemetry.sdk at the top level."""
+
+    def test_no_top_level_opentelemetry_sdk_import(self) -> None:
+        from mloda.community.extenders.otel import otel_extender
+
+        source = Path(otel_extender.__file__).read_text()
+        tree = ast.parse(source)
+
+        sdk_imports: list[str] = []
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                sdk_imports.extend(alias.name for alias in node.names if alias.name.startswith("opentelemetry.sdk"))
+            elif isinstance(node, ast.ImportFrom) and node.module is not None:
+                if node.module.startswith("opentelemetry.sdk"):
+                    sdk_imports.append(node.module)
+
+        assert sdk_imports == [], (
+            f"otel_extender.py has a top-level import of {sdk_imports} from opentelemetry.sdk, a dev-only "
+            "extra (opentelemetry-sdk is declared only under this package's 'dev' extra, never as a "
+            "runtime dependency); the module already has `from __future__ import annotations`, so any "
+            "type reference needed purely for annotations must come from opentelemetry.trace (the "
+            "API-only module) instead."
+        )
 
 
 class TestOtelExtenderErrorContract:
@@ -509,6 +539,61 @@ class TestOtelExtenderFailureHandling:
         warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
         assert any("OtelExtender" in message and "inner boom" in message for message in warnings), warnings
 
+    def test_call_logs_exception_type_and_span_name_for_a_message_less_exception(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """`raise ValueError()` carries no message, so `logger.warning("OtelExtender %s", exc)` logs the
+        literal string "OtelExtender " (str(exc) == ""): no exception type, no span/hook name, nothing
+        actionable. The log must name both, independent of whether exc happens to carry a message."""
+        provider, _ = otel_capture
+        context = _make_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+        otel = OtelExtender(tracer_provider=provider)
+
+        def func() -> None:
+            raise ValueError()
+
+        with caplog.at_level(logging.WARNING):
+            with context.activate():
+                with pytest.raises(ValueError):
+                    otel(func)
+
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("ValueError" in message and "mloda.calculate" in message for message in warnings), warnings
+
+    def test_func_exception_message_does_not_leak_into_span_events_by_default(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        """OTel's start_as_current_span defaults to record_exception=True: an exception propagating out of
+        the with-block gets an auto-attached 'exception' span EVENT carrying its message and full stack
+        trace (exception.message, exception.stacktrace), independent of capture_content /
+        MLODA_OTEL_TRACE_CONTENT. When the func's exception message embeds raw data (a common real-world
+        validation-error pattern), that value must not leak onto the span while capture_content stays at
+        its metadata-only default."""
+        provider, exporter = otel_capture
+        context = _make_context()
+        otel = OtelExtender(tracer_provider=provider)  # capture_content left at its metadata-only default
+        marker = "SENSITIVE_ROW_VALUE_xyz123"
+
+        def func() -> None:
+            raise ValueError(f"invalid value found: {marker}")
+
+        with context.activate():
+            with pytest.raises(ValueError):
+                otel(func)
+
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1, spans
+        span = spans[0]
+
+        for event in span.events:
+            event_attrs = event.attributes or {}
+            for value in event_attrs.values():
+                assert marker not in str(value), (
+                    f"span event {event.name!r} attribute leaked the func exception's message ({marker!r}) "
+                    "even though capture_content is False; OTel's default record_exception=True must be "
+                    "disabled (or the message scrubbed) so metadata-only stays metadata-only"
+                )
+
 
 class TestOtelExtenderCompositeChaining:
     """OtelExtender chains via _CompositeExtender; faults are injected by patching `trace.get_tracer`
@@ -699,6 +784,81 @@ class TestOtelExtenderContentCapture:
         for value in attrs.values():
             assert secret not in str(value), attrs
         assert masked in str(attrs[_CONTENT_ATTRIBUTE])
+
+
+class TestOtelExtenderPostCallInstrumentationFailure:
+    """A bug in the extender's OWN post-call code (reading context.rows_out, then mask/str on a result
+    that func already returned successfully) runs outside any try/except, inside the
+    `start_as_current_span` block. If it raises, OTel's context manager marks the span ERROR and records
+    an exception event, exactly as it would for a genuine func failure - even though func itself
+    succeeded and the computed result is fine. That makes a successful run indistinguishable, from the
+    trace backend's point of view, from a real pipeline failure."""
+
+    def test_mask_failure_after_func_success_does_not_mark_span_error(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        context = _make_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+
+        def broken_mask(_value: Any) -> Any:
+            raise RuntimeError("mask boom")
+
+        otel = OtelExtender(capture_content=True, mask=broken_mask, tracer_provider=provider)
+
+        def func() -> list[int]:
+            return [1, 2, 3]
+
+        # Called directly (not through _CompositeExtender): raise_on_error has no bearing on this path,
+        # since it only governs how core's _invoke_extender reacts to a raise from ANYWHERE inside
+        # __call__, not whether the extender's own post-call code corrupts the span it already built.
+        # func already succeeded by the time broken_mask runs, so whatever escapes here is the
+        # extender's own bug, not func's; let it propagate and inspect the span it leaves behind.
+        with context.activate():
+            with contextlib.suppress(Exception):
+                otel(instrument(context, func))
+
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1, spans
+        span = spans[0]
+        assert span.status.status_code != StatusCode.ERROR, (
+            "func succeeded, yet the span's own post-call attribute-setting code (mask/str on the "
+            "result) raising made the span look identical to a genuine func failure; a broken mask must "
+            "not be indistinguishable, from the trace backend's point of view, from func itself failing"
+        )
+
+
+class TestOtelExtenderContentPreviewCost:
+    """_content_preview must bound the cost of previewing a large result, not materialize str(result) in
+    full before slicing to 200 chars."""
+
+    def test_content_preview_does_not_repr_every_element_of_a_large_result(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        class _CountingItem:
+            calls = 0
+
+            def __repr__(self) -> str:
+                _CountingItem.calls += 1
+                return "item"
+
+        provider, exporter = otel_capture
+        context = _make_context()
+        otel = OtelExtender(capture_content=True, tracer_provider=provider)
+
+        result = [_CountingItem() for _ in range(5000)]
+        _CountingItem.calls = 0
+
+        def func() -> list[_CountingItem]:
+            return result
+
+        with context.activate():
+            otel(instrument(context, func))
+
+        assert _CountingItem.calls < 50, (
+            f"_content_preview repr'd {_CountingItem.calls} of 5000 elements while computing a 200-char "
+            "preview; it must bound the cost of previewing a large result instead of materializing "
+            "str(result) in full before truncating"
+        )
 
 
 class TestOtelExtenderRunAll:

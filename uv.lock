@@ -338,10 +338,14 @@ version = "0.4.5"
 source = { editable = "mloda/community" }
 dependencies = [
     { name = "mloda" },
+    { name = "opentelemetry-api" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mloda", specifier = ">=0.11.2,<0.12.0" }]
+requires-dist = [
+    { name = "mloda", specifier = ">=0.11.2,<0.12.0" },
+    { name = "opentelemetry-api", specifier = ">=1.30,<2" },
+]
 
 [[package]]
 name = "mloda-community-aggregation"
