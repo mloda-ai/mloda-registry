@@ -24,7 +24,9 @@ scripts/generate_pyproject.py
 
 `--check` fails if any generated file has drifted, including the root
 `pyproject.toml`'s `mloda` entry, which the generator rewrites from
-`core_dependency`.
+`core_dependency`. `.github/dependabot.yml` excludes `mloda` from
+uv-ecosystem updates for the same reason: its floor moves through
+`config/shared.toml`, not a version-bump PR.
 
 ## Config files
 
@@ -35,11 +37,9 @@ into any `{core_dependency}` placeholder in `packages.toml`, so the mloda floor
 is declared once. The `[build-system]` setuptools floor tracks the PEP 639 SPDX
 `license` string the generator emits (accepted only from setuptools 77.0.1 on),
 so it cannot be lowered without changing that form. The root `pyproject.toml`
-is the dev-only workspace package and is never published, but its `mloda`
-dependency isn't hand-edited either: `generate_pyproject.py` rewrites it from
-`core_dependency`, and `check-generated` rejects drift. `.github/dependabot.yml`
-therefore excludes `mloda` from uv updates: a Dependabot bump would fail
-`check-generated` and have to go through `config/shared.toml` instead.
+keeps its own, higher, independent setuptools floor: it is the dev-only
+workspace package, is never published, declares no `license`, and that floor
+is Dependabot-managed.
 
 ```toml
 # Illustrative values; see config/shared.toml for the current ones.
