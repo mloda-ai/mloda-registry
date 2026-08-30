@@ -5,14 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from mloda.user import DataType, Feature, FeatureName, Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
     AGGREGATION_TYPES,
     ScalarAggregateFeatureGroup,
 )
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 
 class TestClassAttributes:

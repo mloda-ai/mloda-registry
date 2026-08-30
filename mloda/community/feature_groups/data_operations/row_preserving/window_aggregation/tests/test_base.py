@@ -5,15 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from mloda.user import DataType, Feature, Options
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 
 
 class TestClassAttributes:
@@ -223,13 +222,13 @@ class TestConfigBasedFeatures:
     def test_config_based_calculate_feature(self) -> None:
         """Config-based feature should compute correctly via calculate_feature."""
         import pyarrow as pa
-
         from mloda.provider import FeatureSet
+        from mloda.user import Feature
+
         from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
             PyArrowWindowAggregation,
         )
         from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-        from mloda.user import Feature
 
         table = PyArrowDataOpsTestDataCreator.create()
 

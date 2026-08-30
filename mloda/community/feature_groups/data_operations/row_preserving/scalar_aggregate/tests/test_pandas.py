@@ -9,14 +9,15 @@ import pytest
 pytest.importorskip("pandas")
 
 from mloda.user import Options
+
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pandas_scalar_aggregate import (
     PandasScalarAggregate,
 )
+from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.scalar_aggregate import (
     ScalarAggregateTestBase,
 )
-from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.pandas import PandasTestMixin
 
 
 class TestPandasScalarAggregate(CapabilityHookTestMixin, PandasTestMixin, ScalarAggregateTestBase):

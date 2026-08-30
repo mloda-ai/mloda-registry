@@ -5,14 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from mloda.user import DataType, Feature, Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import (
     BINNING_OPS,
     BinningFeatureGroup,
 )
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 
 
 class TestClassAttributes:

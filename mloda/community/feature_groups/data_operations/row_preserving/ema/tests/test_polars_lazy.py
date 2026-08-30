@@ -16,11 +16,11 @@ import pytest
 pytest.importorskip("polars")
 pytest.importorskip("pandas")
 
-from mloda.community.feature_groups.data_operations.row_preserving.ema.polars_lazy_ema import (
-    PolarsLazyEma,
-)
 from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_ema import (
     PandasEma,
+)
+from mloda.community.feature_groups.data_operations.row_preserving.ema.polars_lazy_ema import (
+    PolarsLazyEma,
 )
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin

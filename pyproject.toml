@@ -40,9 +40,15 @@ dev = [
 line-length = 120
 
 [tool.ruff.lint]
-# Pin ruff's pre-0.16 default rule set; ruff 0.16 substantially broadened the defaults,
-# and adopting that larger set is a separate, deliberate decision.
-select = ["E4", "E7", "E9", "F", "UP006", "UP007"]
+# Ruff's pre-0.16 default rule set, plus UP006/UP007 (modern type hints) and I (import sort).
+# Ruff 0.16 substantially broadened the defaults; adopting that larger set is a separate,
+# deliberate decision.
+select = ["E4", "E7", "E9", "F", "I", "UP006", "UP007"]
+
+[tool.ruff.lint.isort]
+# mloda is a namespace package split across two distributions; pin the classification so it can't flip and re-churn every import if the on-disk layout ever changes.
+known-first-party = ["mloda.community", "mloda.enterprise", "mloda.registry", "mloda.testing"]
+known-third-party = ["mloda.user", "mloda.provider", "mloda.steward", "mloda_plugins"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["E402"]

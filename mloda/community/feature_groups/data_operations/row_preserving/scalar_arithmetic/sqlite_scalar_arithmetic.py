@@ -6,12 +6,12 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
-from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
-    ScalarArithmeticFeatureGroup,
-)
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.sqlite_mixin import (
     SQLITE_ARITHMETIC_OPS,
     SqliteArithmeticMixin,
+)
+from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
+    ScalarArithmeticFeatureGroup,
 )
 
 

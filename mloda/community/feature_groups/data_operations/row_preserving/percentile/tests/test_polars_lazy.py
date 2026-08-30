@@ -11,11 +11,11 @@ pytest.importorskip("polars")
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.polars_lazy_percentile import (
     PolarsLazyPercentile,
 )
+from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.percentile.percentile import (
     PercentileTestBase,
 )
-from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 
 
 class TestPolarsLazyPercentile(ReservedColumnsTestMixin, PolarsLazyTestMixin, PercentileTestBase):

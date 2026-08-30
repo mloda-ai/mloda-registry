@@ -6,6 +6,7 @@ import warnings
 from typing import Any
 
 from mloda.user import Options
+
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.pyarrow_window_aggregation import (
     PyArrowWindowAggregation,
 )

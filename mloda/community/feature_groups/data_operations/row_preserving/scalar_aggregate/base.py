@@ -14,12 +14,12 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from mloda.user import Feature, FeatureName, Options
 from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureSet, property_spec
+from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.aggregation_base import AggregationFeatureGroupBase
-from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 from mloda.community.feature_groups.data_operations.base import is_op_token
+from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 AGGREGATION_TYPES = {
     "sum": "Sum of values",

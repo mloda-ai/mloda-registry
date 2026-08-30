@@ -12,7 +12,6 @@ from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
-
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 

@@ -20,7 +20,6 @@ import pytest
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
-
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
 # ---------------------------------------------------------------------------

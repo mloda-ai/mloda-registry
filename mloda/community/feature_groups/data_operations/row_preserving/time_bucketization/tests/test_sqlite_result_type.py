@@ -16,12 +16,12 @@ import pytest
 pytest.importorskip("pyarrow")
 
 import pyarrow as pa
+from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.sqlite_time_bucketization import (
     SqliteTimeBucketization,
 )
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
-from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
 
 
 class TestSqliteResultTypeContract:

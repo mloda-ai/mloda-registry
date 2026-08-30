@@ -9,11 +9,10 @@ runtime, including plugin discovery, feature resolution, and PluginCollector.
 from __future__ import annotations
 
 import pyarrow as pa
-
 from mloda.user import Feature, Options, PluginCollector, mloda
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.row_preserving.offset.reference import ReferenceOffset
 
 

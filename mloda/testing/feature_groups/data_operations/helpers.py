@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import Any
 
 import pyarrow as pa
-
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 

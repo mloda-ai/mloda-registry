@@ -10,8 +10,8 @@ from mloda.community.feature_groups.data_operations.aggregation_base import (
     AGGREGATION_TYPES,
     AggregationFeatureGroupBase,
 )
-from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 from mloda.community.feature_groups.data_operations.base import is_op_token
+from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 
 class AggregationFeatureGroup(AggregationFeatureGroupBase):

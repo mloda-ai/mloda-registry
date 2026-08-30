@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CLAUDE_GUIDANCE = _REPO_ROOT / "CLAUDE.md"
 _AGENT_GUIDANCE = _REPO_ROOT / "AGENTS.md"

@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-
 import pyarrow as pa
-
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import OrderBy

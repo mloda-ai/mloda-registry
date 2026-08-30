@@ -25,16 +25,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.user import Feature, FeatureName, Options
 from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureSet, property_spec
+from mloda.user import Feature, FeatureName, Options
 
-from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
 from mloda.community.feature_groups.data_operations.base import (
     is_number_element,
     is_op_token,
     is_scalar_number,
     scalar_number_value,
 )
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
 
 ARITHMETIC_OPERATIONS: dict[str, str] = {
     "add": "Element-wise addition of a constant",

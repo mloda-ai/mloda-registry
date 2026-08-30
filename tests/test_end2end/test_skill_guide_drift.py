@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GUIDES_ROOT = _REPO_ROOT / "docs" / "guides"
 _PLUGINS_SKILL = _REPO_ROOT / ".claude" / "skills" / "mloda-plugins" / "SKILL.md"

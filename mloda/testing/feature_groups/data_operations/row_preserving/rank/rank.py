@@ -19,14 +19,12 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
 import pyarrow as pa
-
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+import pytest
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
-
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)

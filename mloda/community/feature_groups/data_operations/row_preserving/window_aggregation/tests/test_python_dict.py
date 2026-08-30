@@ -6,6 +6,7 @@ import math
 from typing import Any
 
 from mloda.user import Options
+
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.python_dict_window_aggregation import (
     PythonDictWindowAggregation,
 )

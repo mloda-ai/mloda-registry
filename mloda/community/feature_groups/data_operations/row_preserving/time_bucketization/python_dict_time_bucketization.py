@@ -29,8 +29,10 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
 
 from mloda.community.feature_groups.data_operations.python_dict_helpers import (
     SECONDS_PER_UNIT,
-    attach_tzinfo as _attach_tzinfo,
     floor_fixed_duration,
+)
+from mloda.community.feature_groups.data_operations.python_dict_helpers import (
+    attach_tzinfo as _attach_tzinfo,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
     TIME_BUCKETIZATION_OPS,

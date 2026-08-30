@@ -10,10 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
@@ -21,6 +19,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pyarrow_scalar_arithmetic import (
     PyArrowScalarArithmetic,
 )
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
 
 def _make_fs(name: str, *, constant: int | float | None = None, op: str | None = None) -> FeatureSet:

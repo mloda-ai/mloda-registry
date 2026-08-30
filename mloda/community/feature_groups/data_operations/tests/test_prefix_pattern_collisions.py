@@ -40,16 +40,15 @@ from __future__ import annotations
 
 import importlib
 import re
-from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 import pytest
-
 from mloda.user import Options
-from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import is_artifact_path
 
+from mloda.community.feature_groups.data_operations.tests.test_framework_support_matrix import is_artifact_path
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 DATA_OPERATIONS_ROOT = REPO_ROOT / "mloda" / "community" / "feature_groups" / "data_operations"

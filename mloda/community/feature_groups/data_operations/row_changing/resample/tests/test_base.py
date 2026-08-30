@@ -7,13 +7,12 @@ from dataclasses import replace
 from typing import Any
 
 import pytest
-
 from mloda.user import DataType, Feature, FeatureName, Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     ResampleFeatureGroup,
 )
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 
 
 class TestReturnDataTypeRule:

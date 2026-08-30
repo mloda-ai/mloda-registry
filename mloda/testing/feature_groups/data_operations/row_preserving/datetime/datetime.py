@@ -39,7 +39,6 @@ import pytest
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 
-
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants, canonical 12-row dataset)
 # ---------------------------------------------------------------------------

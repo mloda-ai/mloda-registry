@@ -5,14 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from mloda.user import Feature, FeatureName, Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
     PointArithmeticFeatureGroup,
 )
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 
 class TestClassAttributes:

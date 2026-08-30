@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.user import DataType, Feature
 from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureGroup, FeatureSet, property_spec
+from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.base import (
     RejectionReasonMixin,
@@ -17,7 +17,6 @@ from mloda.community.feature_groups.data_operations.base import (
     op_token_value,
     option_value,
 )
-
 
 _OFFSET_TYPES = {
     "first_value": "First value in partition",

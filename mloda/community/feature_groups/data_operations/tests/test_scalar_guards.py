@@ -14,7 +14,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.base import (

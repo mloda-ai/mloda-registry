@@ -7,10 +7,10 @@ from typing import Any
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.sqlite_point_arithmetic import (
     SqlitePointArithmetic,
 )
+from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.point_arithmetic.point_arithmetic import (
     PointArithmeticTestBase,
 )
-from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
 
 
 class TestSqlitePointArithmetic(SqliteTestMixin, PointArithmeticTestBase):

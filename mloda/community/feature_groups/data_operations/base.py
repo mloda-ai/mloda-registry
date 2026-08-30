@@ -9,8 +9,6 @@ from collections.abc import Callable
 from enum import Enum
 from typing import Any, TypeVar
 
-from mloda.user import FeatureName, Options
-from mloda.provider import FeatureChainParser, FeatureChainParserMixin, PropertySpec
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import (
     option_key_is_present,
 )  # no public equivalent yet
@@ -18,6 +16,8 @@ from mloda.core.abstract_plugins.components.utils import (
     contained_raise_log_level,
     contained_raise_reason,
 )  # no public equivalent yet
+from mloda.provider import FeatureChainParser, FeatureChainParserMixin, PropertySpec
+from mloda.user import FeatureName, Options
 
 logger = logging.getLogger(__name__)
 

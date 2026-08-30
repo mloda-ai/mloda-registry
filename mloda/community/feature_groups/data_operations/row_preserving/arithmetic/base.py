@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.user import Feature
 from mloda.provider import FeatureChainParser, FeatureGroup
+from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, op_token_value
 

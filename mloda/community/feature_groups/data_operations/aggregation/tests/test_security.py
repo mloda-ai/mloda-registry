@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import pytest
 
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.aggregation.pyarrow_aggregation import (
     PyArrowAggregation,
 )
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
 
 class TestAggregationComputeRejection:
@@ -40,10 +39,11 @@ class TestAggregationComputeRejection:
 
     def test_duckdb_rejects_unknown_type_at_compute(self) -> None:
         duckdb = pytest.importorskip("duckdb")
+        from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
+
         from mloda.community.feature_groups.data_operations.aggregation.duckdb_aggregation import (
             DuckdbAggregation,
         )
-        from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 
         conn = duckdb.connect()
         arrow_table = PyArrowDataOpsTestDataCreator.create()
@@ -57,6 +57,7 @@ class TestAggregationComputeRejection:
         import sqlite3
 
         from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
+
         from mloda.community.feature_groups.data_operations.aggregation.sqlite_aggregation import (
             SqliteAggregation,
         )

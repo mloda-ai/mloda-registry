@@ -11,10 +11,10 @@ pytest.importorskip("duckdb")
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.duckdb_percentile import (
     DuckdbPercentile,
 )
+from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.percentile.percentile import (
     PercentileTestBase,
 )
-from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
 
 
 class TestDuckdbPercentile(DuckdbTestMixin, PercentileTestBase):

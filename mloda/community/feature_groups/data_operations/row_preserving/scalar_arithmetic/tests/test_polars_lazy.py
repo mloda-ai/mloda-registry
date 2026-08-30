@@ -13,11 +13,11 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
     PolarsLazyScalarArithmetic,
 )
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_arithmetic.scalar_arithmetic import (
     ScalarArithmeticTestBase,
 )
-from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 
 
 class TestPolarsLazyScalarArithmetic(ReservedColumnsTestMixin, PolarsLazyTestMixin, ScalarArithmeticTestBase):
