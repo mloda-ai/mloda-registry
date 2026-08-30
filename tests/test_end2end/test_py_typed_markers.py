@@ -34,8 +34,6 @@ _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterpr
 _TYPED_PACKAGES = [*_BUNDLES, "mloda-community-data-operations", "mloda-community-example", "mloda-community-otel"]
 
 # Confirmed by inspecting the published wheels directly: py.typed first appears in each base's 0.4.1 wheel.
-# mloda-community-otel ships py.typed from its first version (0.4.6); no package depends on it yet, so
-# this floor has no active enforcement until one does.
 _MARKER_FLOORS = {
     "mloda-community-data-operations": "0.4.1",
     "mloda-community-example": "0.4.1",
