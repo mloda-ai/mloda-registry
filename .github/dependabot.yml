@@ -13,3 +13,7 @@ updates:
       all-dependencies:
         patterns:
           - "*"
+    ignore:
+      # mloda's floor is generated from config/shared.toml, not hand-edited in
+      # pyproject.toml; see "shared.toml" in docs/packaging.md.
+      - dependency-name: "mloda"
