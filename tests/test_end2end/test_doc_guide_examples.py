@@ -25,12 +25,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-import mloda.community.feature_groups.data_operations as data_operations
 from mloda.core.abstract_plugins.components.feature import Feature
 from mloda.core.abstract_plugins.components.utils import get_all_subclasses
 from mloda.core.abstract_plugins.feature_group import FeatureGroup
 from mloda.user import load_features_from_config
 
+import mloda.community.feature_groups.data_operations as data_operations
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FEATURE_CONFIG_GUIDE = REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "22-feature-config.md"
