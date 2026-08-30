@@ -5,16 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
-
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
+    PandasMaskEngine,
+)
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
-from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
-    WindowAggregationFeatureGroup,
-)
 from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
     apply_null_safe_agg,
@@ -22,8 +21,8 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
     compute_mode_winners,
     null_safe_groupby,
 )
-from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
-    PandasMaskEngine,
+from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
+    WindowAggregationFeatureGroup,
 )
 
 _SUPPORTED_AGG_TYPES = {*PANDAS_AGG_FUNCS.keys(), "mode"}

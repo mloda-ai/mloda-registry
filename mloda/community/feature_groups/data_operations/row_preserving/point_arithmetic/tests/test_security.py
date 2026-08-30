@@ -12,10 +12,8 @@ import math
 from typing import Any
 
 import pytest
-
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
@@ -23,6 +21,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.pyarrow_point_arithmetic import (
     PyArrowPointArithmetic,
 )
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
 
 def _make_fs(

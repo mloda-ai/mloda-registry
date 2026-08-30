@@ -8,9 +8,10 @@ from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureSet, pr
 
 from mloda.community.feature_groups.data_operations.aggregation_base import (
     AGGREGATION_TYPES as _BASE_AGGREGATION_TYPES,
+)
+from mloda.community.feature_groups.data_operations.aggregation_base import (
     AggregationFeatureGroupBase,
 )
-from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 from mloda.community.feature_groups.data_operations.base import (
     column_ref_value,
     is_column_ref,
@@ -18,6 +19,7 @@ from mloda.community.feature_groups.data_operations.base import (
     op_token_value,
     option_value,
 )
+from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 # Aggregation types that require an order_by column to be deterministic.
 _ORDER_DEPENDENT_AGG_TYPES = {"first", "last"}

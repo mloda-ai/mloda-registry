@@ -9,6 +9,7 @@ import pytest
 duckdb = pytest.importorskip("duckdb")
 
 from mloda.user import Options
+
 from mloda.community.feature_groups.data_operations.row_preserving.rank.duckdb_rank import (
     DuckdbRank,
 )

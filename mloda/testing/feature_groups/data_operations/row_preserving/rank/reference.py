@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 import pyarrow as pa
-
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 

@@ -16,16 +16,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pyarrow as pa
-
 from mloda.user import Feature, Options, PluginCollector, mloda
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pyarrow_time_bucketization import (
     PyArrowTimeBucketization,
 )
-
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 
 # Expected values on the canonical dataset (timestamp column). Midnight days
 # floor to themselves; the null row stays null.

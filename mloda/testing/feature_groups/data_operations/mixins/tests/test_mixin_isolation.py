@@ -24,7 +24,6 @@ from typing import Iterator
 import mloda.community.feature_groups.data_operations as data_operations_pkg
 import mloda.testing.feature_groups.data_operations.mixins as mixins_pkg
 
-
 # Dunders that every class carries purely from being a class; they are not
 # "methods the author added" and must be excluded from collision detection.
 _CLASS_BOILERPLATE_NAMES: frozenset[str] = frozenset(

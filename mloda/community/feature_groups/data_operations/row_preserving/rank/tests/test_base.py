@@ -5,17 +5,16 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
-from mloda.user import DataType, Feature, Options
 from mloda.provider import DefaultOptionKeys
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
-from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import ReferenceRank
+from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
+from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import ReferenceRank
 
 
 class TestClassAttributes:
@@ -240,11 +239,11 @@ class TestConfigBasedFeatures:
 
     def test_config_based_calculate_feature(self) -> None:
         import pyarrow as pa
-
         from mloda.provider import FeatureSet
-        from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import ReferenceRank
-        from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
         from mloda.user import Feature
+
+        from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+        from mloda.testing.feature_groups.data_operations.row_preserving.rank.reference import ReferenceRank
 
         table = PyArrowDataOpsTestDataCreator.create()
 

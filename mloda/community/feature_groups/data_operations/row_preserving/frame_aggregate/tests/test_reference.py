@@ -9,7 +9,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pyarrow as pa
-
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 

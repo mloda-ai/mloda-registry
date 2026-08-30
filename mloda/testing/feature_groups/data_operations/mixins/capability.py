@@ -28,7 +28,6 @@ Requires the host class to provide:
 from __future__ import annotations
 
 import pytest
-
 from mloda.user import Options
 
 

@@ -7,11 +7,11 @@ from typing import Any
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
+from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.duckdb_mixin import (
     DUCKDB_ARITHMETIC_OPS,
     DuckdbArithmeticMixin,
 )
-from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ScalarArithmeticFeatureGroup,
 )

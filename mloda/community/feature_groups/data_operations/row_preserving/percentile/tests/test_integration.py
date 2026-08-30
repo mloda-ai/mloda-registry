@@ -12,13 +12,12 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-
 from mloda.user import Feature, Options, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.mixins.mask_integration import MaskIntegrationTestMixin
-from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
-
 from mloda.testing.feature_groups.data_operations.row_preserving.percentile.reference import (
     ReferencePercentile,
 )

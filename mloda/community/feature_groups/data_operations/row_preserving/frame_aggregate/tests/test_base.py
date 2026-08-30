@@ -6,15 +6,14 @@ import dataclasses
 from typing import Any
 
 import pytest
-
 from mloda.user import DataType, Feature, Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 
 from mloda.community.feature_groups.data_operations.base import always_required
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
-    FrameAggregateFeatureGroup,
     _AGGREGATION_TYPES,
+    FrameAggregateFeatureGroup,
 )
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 
 
 class TestPatternParsing:

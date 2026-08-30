@@ -6,6 +6,7 @@ import math
 from typing import Any
 
 from mloda.user import Options
+
 from mloda.community.feature_groups.data_operations.aggregation.python_dict_aggregation import (
     PythonDictAggregation,
 )

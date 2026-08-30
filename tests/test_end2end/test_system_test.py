@@ -18,7 +18,7 @@ def test_mloda_is_namespace_package() -> None:
 
 def test_mloda_user_imports() -> None:
     """Verify mloda.user module imports work."""
-    from mloda.user import mloda, mlodaAPI, Feature, Options
+    from mloda.user import Feature, Options, mloda, mlodaAPI
 
     assert mloda is mlodaAPI  # mloda is alias for mlodaAPI
     assert hasattr(mloda, "run_all")
@@ -28,7 +28,7 @@ def test_mloda_user_imports() -> None:
 
 def test_mloda_provider_imports() -> None:
     """Verify mloda.provider module imports work."""
-    from mloda.provider import FeatureGroup, ComputeFramework
+    from mloda.provider import ComputeFramework, FeatureGroup
 
     assert FeatureGroup is not None
     assert ComputeFramework is not None
@@ -36,7 +36,7 @@ def test_mloda_provider_imports() -> None:
 
 def test_mloda_steward_imports() -> None:
     """Verify mloda.steward module imports work."""
-    from mloda.steward import FeatureGroupInfo, Extender
+    from mloda.steward import Extender, FeatureGroupInfo
 
     assert FeatureGroupInfo is not None
     assert Extender is not None
@@ -45,9 +45,9 @@ def test_mloda_steward_imports() -> None:
 def test_community_namespace_imports() -> None:
     """Verify community namespace imports work."""
     import mloda.community
-    import mloda.community.feature_groups
     import mloda.community.compute_frameworks
     import mloda.community.extenders
+    import mloda.community.feature_groups
 
     assert mloda.community is not None
     assert mloda.community.feature_groups is not None
@@ -58,9 +58,9 @@ def test_community_namespace_imports() -> None:
 def test_enterprise_namespace_imports() -> None:
     """Verify enterprise namespace imports work."""
     import mloda.enterprise
-    import mloda.enterprise.feature_groups
     import mloda.enterprise.compute_frameworks
     import mloda.enterprise.extenders
+    import mloda.enterprise.feature_groups
 
     assert mloda.enterprise is not None
     assert mloda.enterprise.feature_groups is not None
@@ -85,19 +85,18 @@ def test_testing_namespace_imports() -> None:
 def test_namespace_merging() -> None:
     """Verify core mloda and registry packages coexist in merged namespace."""
     # Core mloda subpackages
-    import mloda.user
+    import mloda.core
     import mloda.provider
     import mloda.steward
-    import mloda.core
+    import mloda.user
+
+    import mloda
 
     # Registry subpackages
     import mloda.community
     import mloda.enterprise
     import mloda.registry
     import mloda.testing
-
-    # All should coexist under the same mloda namespace
-    import mloda
 
     assert hasattr(mloda, "__path__")
     # The namespace should have multiple paths (core + registry)

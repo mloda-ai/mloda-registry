@@ -31,7 +31,6 @@ else:
     import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 import pytest
-
 from mloda.provider import ComputeFramework, FeatureGroup
 from mloda.steward import Extender
 

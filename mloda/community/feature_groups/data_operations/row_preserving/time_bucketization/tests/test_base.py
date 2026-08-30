@@ -6,9 +6,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-
 from mloda.user import Feature, FeatureName, Options
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.base import (
     TIME_BUCKETIZATION_OPS,
@@ -16,6 +14,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.time_bucketiz
     TimeBucketizationFeatureGroup,
     _parse_bucket_op,
 )
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase
 
 
 # Helper builders for parametrized tests.

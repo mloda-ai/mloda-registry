@@ -15,12 +15,11 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
+
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
-
 
 # ---------------------------------------------------------------------------
 # Source column and expected values (module-level constants)

@@ -16,9 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from mloda.user import Feature, FeatureName, Options
-from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
 
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.base import (
     SESSIONIZATION_UNITS,
@@ -29,7 +27,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.sessionizatio
 from mloda.community.feature_groups.data_operations.row_preserving.sessionization.pandas_sessionization import (
     PandasSessionization,
 )
-
+from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
 
 SESSIONIZE_FEATURE_NAME = "ts__sessionize_30_minute"
 

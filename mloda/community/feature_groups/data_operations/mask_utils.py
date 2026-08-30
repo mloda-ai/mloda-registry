@@ -179,7 +179,6 @@ def apply_pyarrow_mask(
     """
     import pyarrow as pa
     import pyarrow.compute as pc
-
     from mloda_plugins.compute_framework.base_implementations.pyarrow.pyarrow_mask_engine import (
         PyArrowMaskEngine,
     )

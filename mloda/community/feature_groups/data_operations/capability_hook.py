@@ -10,8 +10,8 @@ is the authority for higher-dimensional (frame_type x agg_type) capability.
 
 from __future__ import annotations
 
-from mloda.user import FeatureName, Options
 from mloda.provider import ComputeFramework
+from mloda.user import FeatureName, Options
 
 
 class SubtypeCapabilityHook:

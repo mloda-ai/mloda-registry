@@ -11,11 +11,11 @@ pytest.importorskip("polars")
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.polars_lazy_scalar_aggregate import (
     PolarsLazyScalarAggregate,
 )
+from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_aggregate.scalar_aggregate import (
     ScalarAggregateTestBase,
 )
-from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 
 
 class TestPolarsLazyScalarAggregate(ReservedColumnsTestMixin, PolarsLazyTestMixin, ScalarAggregateTestBase):

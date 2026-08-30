@@ -5,9 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
-
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
+from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
+    PandasMaskEngine,
+)
 
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
@@ -20,9 +22,6 @@ from mloda.community.feature_groups.data_operations.pandas_helpers import (
     coerce_count_dtype,
     compute_mode_winners,
     null_safe_groupby,
-)
-from mloda_plugins.compute_framework.base_implementations.pandas.pandas_mask_engine import (
-    PandasMaskEngine,
 )
 
 _SUPPORTED_AGG_TYPES = {*PANDAS_AGG_FUNCS.keys(), "mode"}

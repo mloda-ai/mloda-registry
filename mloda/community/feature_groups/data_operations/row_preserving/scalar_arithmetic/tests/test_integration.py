@@ -10,20 +10,19 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-
 from mloda.user import Feature, Options, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+
+from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pyarrow_scalar_arithmetic import (
+    PyArrowScalarArithmetic,
+)
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.scalar_arithmetic.scalar_arithmetic import (
     EXPECTED_ADD_5,
     EXPECTED_DIVIDE_2,
     EXPECTED_MULTIPLY_2,
     EXPECTED_SUBTRACT_10,
-)
-from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
-from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
-
-from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pyarrow_scalar_arithmetic import (
-    PyArrowScalarArithmetic,
 )
 
 

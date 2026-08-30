@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-
 import polars as pl
-
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 

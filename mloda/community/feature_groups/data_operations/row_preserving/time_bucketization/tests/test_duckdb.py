@@ -39,10 +39,12 @@ class TestDuckdbDateSourceRejected:
     """
 
     def test_date_column_rejected(self) -> None:
+        from datetime import date
+
         import duckdb
         import pyarrow as pa
-        from datetime import date
         from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
+
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
         con = duckdb.connect(":memory:")
@@ -68,14 +70,16 @@ class TestDuckdbTimeBucketizationCalendarRound:
         ],
     )
     def test_calendar_round_matches_pyarrow_oracle(self, feature_name: str) -> None:
-        import duckdb
         from datetime import datetime
+
+        import duckdb
         from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
-        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
-        from mloda.testing.feature_groups.data_operations.mixins.duckdb import pin_connection_utc_via_core
+
         from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pyarrow_time_bucketization import (  # noqa: E501
             PyArrowTimeBucketization,
         )
+        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+        from mloda.testing.feature_groups.data_operations.mixins.duckdb import pin_connection_utc_via_core
 
         arrow_table = _create_bucket_arrow_table()
 
@@ -109,9 +113,11 @@ class TestDuckdbTimeBucketizationNonUtcSession:
     """
 
     def test_floor_1_day_utc_anchored_on_non_utc_session(self) -> None:
-        import duckdb
         from datetime import datetime
+
+        import duckdb
         from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
+
         from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
         from mloda.testing.feature_groups.data_operations.mixins.duckdb import pin_connection_utc_via_core
 

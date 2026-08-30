@@ -14,7 +14,6 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-
 from mloda.user import Feature, Options, mloda
 
 

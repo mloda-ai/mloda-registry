@@ -18,7 +18,6 @@ import sqlite3
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
@@ -66,11 +65,12 @@ class TestAggregationErrors:
     def test_duckdb_aggregation_error(self) -> None:
         duckdb = pytest.importorskip("duckdb")
         pa = pytest.importorskip("pyarrow")
-        from mloda.community.feature_groups.data_operations.aggregation.duckdb_aggregation import (
-            DuckdbAggregation,
-        )
         from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import (
             DuckdbRelation,
+        )
+
+        from mloda.community.feature_groups.data_operations.aggregation.duckdb_aggregation import (
+            DuckdbAggregation,
         )
 
         arrow = pa.table({"region": ["a", "b"], "val": [1, 2]})
@@ -86,11 +86,12 @@ class TestAggregationErrors:
 
     def test_sqlite_aggregation_error(self) -> None:
         pa = pytest.importorskip("pyarrow")
-        from mloda.community.feature_groups.data_operations.aggregation.sqlite_aggregation import (
-            SqliteAggregation,
-        )
         from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import (
             SqliteRelation,
+        )
+
+        from mloda.community.feature_groups.data_operations.aggregation.sqlite_aggregation import (
+            SqliteAggregation,
         )
 
         conn = sqlite3.connect(":memory:")
@@ -149,11 +150,12 @@ class TestScalarAggregateErrors:
 
     def test_sqlite_scalar_aggregate_error(self) -> None:
         pa = pytest.importorskip("pyarrow")
-        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.sqlite_scalar_aggregate import (
-            SqliteScalarAggregate,
-        )
         from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import (
             SqliteRelation,
+        )
+
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.sqlite_scalar_aggregate import (
+            SqliteScalarAggregate,
         )
 
         conn = sqlite3.connect(":memory:")
@@ -170,11 +172,12 @@ class TestScalarAggregateErrors:
     def test_duckdb_scalar_aggregate_error(self) -> None:
         duckdb = pytest.importorskip("duckdb")
         pa = pytest.importorskip("pyarrow")
-        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.duckdb_scalar_aggregate import (
-            DuckdbScalarAggregate,
-        )
         from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import (
             DuckdbRelation,
+        )
+
+        from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.duckdb_scalar_aggregate import (
+            DuckdbScalarAggregate,
         )
 
         arrow = pa.table({"val": [1, 2, 3]})
@@ -234,11 +237,12 @@ class TestWindowAggregationErrors:
     def test_duckdb_window_error(self) -> None:
         duckdb = pytest.importorskip("duckdb")
         pa = pytest.importorskip("pyarrow")
-        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.duckdb_window_aggregation import (
-            DuckdbWindowAggregation,
-        )
         from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import (
             DuckdbRelation,
+        )
+
+        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.duckdb_window_aggregation import (
+            DuckdbWindowAggregation,
         )
 
         arrow = pa.table({"region": ["a", "b"], "val": [1, 2]})
@@ -254,11 +258,12 @@ class TestWindowAggregationErrors:
 
     def test_sqlite_window_error(self) -> None:
         pa = pytest.importorskip("pyarrow")
-        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.sqlite_window_aggregation import (
-            SqliteWindowAggregation,
-        )
         from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import (
             SqliteRelation,
+        )
+
+        from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.sqlite_window_aggregation import (
+            SqliteWindowAggregation,
         )
 
         conn = sqlite3.connect(":memory:")
@@ -319,11 +324,12 @@ class TestFrameAggregateErrors:
 
     def test_sqlite_frame_agg_type_error(self) -> None:
         pa = pytest.importorskip("pyarrow")
-        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
-            SqliteFrameAggregate,
-        )
         from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import (
             SqliteRelation,
+        )
+
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
+            SqliteFrameAggregate,
         )
 
         conn = sqlite3.connect(":memory:")
@@ -342,11 +348,12 @@ class TestFrameAggregateErrors:
     def test_duckdb_frame_agg_type_error(self) -> None:
         duckdb = pytest.importorskip("duckdb")
         pa = pytest.importorskip("pyarrow")
-        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.duckdb_frame_aggregate import (
-            DuckdbFrameAggregate,
-        )
         from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import (
             DuckdbRelation,
+        )
+
+        from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.duckdb_frame_aggregate import (
+            DuckdbFrameAggregate,
         )
 
         arrow = pa.table({"region": ["a", "b"], "val": [1, 2], "ts": [1, 2]})

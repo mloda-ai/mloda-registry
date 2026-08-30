@@ -1,7 +1,7 @@
 """Tests for ExampleAFeatureGroup."""
 
-from mloda.community.feature_groups.example.example_a import ExampleAFeatureGroup
 from mloda.community.feature_groups.example.community_example_feature_group import CommunityExampleFeatureGroup
+from mloda.community.feature_groups.example.example_a import ExampleAFeatureGroup
 
 
 def test_example_a_extends_base() -> None:

@@ -9,8 +9,8 @@ import pytest
 pytest.importorskip("pandas")
 
 import pandas as pd
-
 from mloda.user import Options
+
 from mloda.community.feature_groups.data_operations.aggregation.pandas_aggregation import (
     PandasAggregation,
 )

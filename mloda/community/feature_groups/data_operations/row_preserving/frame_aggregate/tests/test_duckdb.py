@@ -12,15 +12,15 @@ import pytest
 duckdb = pytest.importorskip("duckdb")
 
 from mloda.user import Options
+
+from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.duckdb_frame_aggregate import (
+    DuckdbFrameAggregate,
+)
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.duckdb import DuckdbTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
     FrameAggregateTestBase,
     time_frame_options,
-)
-
-from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.duckdb_frame_aggregate import (
-    DuckdbFrameAggregate,
 )
 
 

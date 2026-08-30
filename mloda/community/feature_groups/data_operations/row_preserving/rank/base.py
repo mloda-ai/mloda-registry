@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.user import DataType, Feature, Options
 from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureGroup, FeatureSet, property_spec
+from mloda.user import DataType, Feature, Options
 
-from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 from mloda.community.feature_groups.data_operations.base import (
     RejectionReasonMixin,
     column_ref_value,
@@ -18,7 +17,7 @@ from mloda.community.feature_groups.data_operations.base import (
     op_token_value,
     option_value,
 )
-
+from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 
 _RANK_TYPES = {
     "row_number": "Sequential position, no ties",

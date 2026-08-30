@@ -34,9 +34,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
-
-from mloda.user import Options
 from mloda.provider import PropertySpec
+from mloda.user import Options
 
 
 def _is_container(value: Any) -> bool:

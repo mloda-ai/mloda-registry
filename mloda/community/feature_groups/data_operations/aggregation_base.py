@@ -17,8 +17,8 @@ modules.
 
 from __future__ import annotations
 
-from mloda.user import DataType, Feature, Options
 from mloda.provider import FeatureChainParser, FeatureGroup
+from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, op_token_value
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
