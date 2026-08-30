@@ -46,9 +46,7 @@ line-length = 120
 select = ["E4", "E7", "E9", "F", "I", "UP006", "UP007"]
 
 [tool.ruff.lint.isort]
-# mloda is a namespace package split across two distributions (core lib vs. this registry
-# repo); pin the classification so it doesn't flip (and churn every import) if the on-disk
-# layout ever changes.
+# mloda is a namespace package split across two distributions; pin the classification so it can't flip and re-churn every import if the on-disk layout ever changes.
 known-first-party = ["mloda.community", "mloda.enterprise", "mloda.registry", "mloda.testing"]
 known-third-party = ["mloda.user", "mloda.provider", "mloda.steward", "mloda_plugins"]
 
