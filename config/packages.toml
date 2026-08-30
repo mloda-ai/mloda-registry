@@ -22,8 +22,6 @@ py_typed = true
 
 [packages.mloda-community]
 description = "All community plugins for mloda"
-# opentelemetry-api: runtime dep of the bundled mloda-community-otel; entry_point_bundle ships
-# its code without inheriting its own pyproject.toml, so the bundle must declare it directly.
 dependencies = ["{core_dependency}", "opentelemetry-api>=1.30,<2"]
 path = "mloda/community"
 published = true
