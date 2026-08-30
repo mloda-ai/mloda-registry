@@ -63,7 +63,7 @@ All code must pass the automated checks enforced by tox. The toolchain includes:
 - Avoid `try/except` blocks unless absolutely necessary.
 - Keep documentation to the necessary minimum.
 - Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages (`fix:`, `feat:`, `chore:`, `docs:`, etc.). This project deviates from the standard: only `minor:` commits bump the minor version; `feat:` is treated as a patch bump along with everything else (see `.releaserc.yaml`).
-- **Never edit `pyproject.toml` files directly.** They are auto-generated from `config/shared.toml` and `config/packages.toml` via `python scripts/generate_pyproject.py`. Edit the config files and regenerate. See [`docs/packaging.md`](docs/packaging.md) for details.
+- **Never edit generated package `pyproject.toml` files directly.** They are auto-generated from `config/shared.toml` and `config/packages.toml` via `python scripts/generate_pyproject.py`. The root `pyproject.toml` is maintained separately; the generator only updates its workspace members and `mloda` core dependency. See [`docs/packaging.md`](docs/packaging.md) for details.
 
 ### Running Checks Locally
 
