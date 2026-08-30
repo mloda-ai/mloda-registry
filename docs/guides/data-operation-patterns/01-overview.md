@@ -14,7 +14,7 @@ Data operations are feature groups that transform existing columns using declara
 
 | Category | Location | Row behavior | Examples |
 |---|---|---|---|
-| Row-preserving | `row_preserving/` | Output row count and order match input | binning, window aggregation, rank, offset, percentile, scalar aggregate, scalar arithmetic, point arithmetic, frame aggregate, datetime, time bucketization, ffill, ema |
+| Row-preserving | `row_preserving/` | Output row count and order match input | binning, window aggregation, rank, offset, percentile, scalar aggregate, scalar arithmetic, point arithmetic, frame aggregate, datetime, time bucketization, ffill, ema, sessionization |
 | Aggregation | `aggregation/` | Reduces to one row per group | sum, avg, count, min, max, std, var, median, mode, nunique, first, last |
 | Row-changing | `row_changing/` | Output row count differs from input | resample (collapse events onto a regular time grid) |
 | String | `string/` | Row-preserving, element-wise on strings | upper, lower, trim, length, reverse |
