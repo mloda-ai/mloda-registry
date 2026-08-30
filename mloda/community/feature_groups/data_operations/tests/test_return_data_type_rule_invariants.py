@@ -71,11 +71,6 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 
 # StringFeatureGroup lives under data_operations.string (not row_preserving).
 from mloda.community.feature_groups.data_operations.string.base import StringFeatureGroup
-
-# Reuse the sibling module's family registry (DRY): the same FAMILIES tuple, valid-name
-# generators, class loader, and name-driven Options that drive the routing-collision lint.
-# Importing the module-private ``_load_class`` from within the same test package is fine;
-# the underscore only marks it module-private, not import-forbidden.
 from mloda.community.feature_groups.data_operations.tests.test_prefix_pattern_collisions import (
     FAMILIES,
     PERMISSIVE_OPTIONS,
