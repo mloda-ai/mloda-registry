@@ -27,9 +27,7 @@ text when the query is scoped to that class via ``feature_group=``, or by callin
 from __future__ import annotations
 
 import pytest
-
-from mloda.core.abstract_plugins.components.options import Options
-
+from mloda.user import Options
 
 # ---------------------------------------------------------------------------
 # Integration: resolve_feature surfaces the capability split
@@ -52,8 +50,8 @@ class TestResolveFeatureIntegration:
         class from another test module can't fail the whole environment build.
         """
         pytest.importorskip("pandas")
-        from mloda.core.abstract_plugins.components.plugin_option.plugin_collector import PluginCollector
         from mloda.steward import resolve_feature
+        from mloda.user import PluginCollector
 
         from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.pandas_scalar_aggregate import (
             PandasScalarAggregate,

@@ -20,7 +20,7 @@ from functools import lru_cache
 from types import MappingProxyType, ModuleType
 from typing import Any
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.errors import (
     unsupported_op_error,

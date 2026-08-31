@@ -11,16 +11,16 @@ import pytest
 
 pytest.importorskip("polars")
 
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Options
+
+from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.polars_lazy_frame_aggregate import (
+    PolarsLazyFrameAggregate,
+)
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
     FrameAggregateTestBase,
     config_frame_options,
-)
-
-from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.polars_lazy_frame_aggregate import (
-    PolarsLazyFrameAggregate,
 )
 
 

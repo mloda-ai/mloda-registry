@@ -39,8 +39,17 @@ result = mloda.run_all(features, compute_frameworks=["PandasDataFrame"])
 | `context_options` | object | No | Context parameters (metadata, doesn't affect resolution) |
 | `column_index` | integer | No | Index for multi-output features (adds `~N` suffix) |
 | `propagate_context_keys` | array | No | Context keys to propagate to dependent features |
+| `feature_group` | string | No | Class name to scope resolution to (matches that class and its subclasses) |
 
 Items can be plain strings (`"feature_name"`) or feature objects. `options` and `group_options`/`context_options` are mutually exclusive.
+
+`feature_group` is the class **name** as a string, also valid inside a nested `in_features` dict:
+
+```json
+{ "name": "sales__sum_agg", "feature_group": "PandasAggregation", "context_options": {"partition_by": ["region"]} }
+```
+
+Rejects non-strings, empty strings, and the root `FeatureGroup` base name.
 
 ## Window / Rank / Percentile Requests
 

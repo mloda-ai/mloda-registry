@@ -18,13 +18,11 @@ import math
 from typing import Any
 
 import pytest
+from mloda.provider import FeatureSet
+from mloda.user import Feature, Options
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
-from mloda.user import Feature
-
 
 # ---------------------------------------------------------------------------
 # Source columns and expected values (module-level constants)

@@ -15,14 +15,13 @@ import pytest
 
 pd = pytest.importorskip("pandas")
 
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.data_creator.base import DataOperationsTestDataCreator
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
-from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
-from mloda.user import Feature
+from mloda.user import Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_ema import PandasEma
+from mloda.testing.data_creator.base import DataOperationsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
 
 FEATURE_NAME = "value_float__ema_2"
 

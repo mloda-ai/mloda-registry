@@ -10,14 +10,14 @@ from enum import Enum
 from typing import Any, TypeVar
 
 from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import (
-    FeatureChainParser,
     option_key_is_present,
-)
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser_mixin import FeatureChainParserMixin
-from mloda.core.abstract_plugins.components.feature_name import FeatureName
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.core.abstract_plugins.components.utils import contained_raise_log_level, contained_raise_reason
-from mloda.provider import PropertySpec
+)  # no public equivalent yet
+from mloda.core.abstract_plugins.components.utils import (
+    contained_raise_log_level,
+    contained_raise_reason,
+)  # no public equivalent yet
+from mloda.provider import FeatureChainParser, FeatureChainParserMixin, PropertySpec
+from mloda.user import FeatureName, Options
 
 logger = logging.getLogger(__name__)
 

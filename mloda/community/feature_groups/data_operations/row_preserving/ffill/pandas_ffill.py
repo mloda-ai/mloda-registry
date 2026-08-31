@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pandas as pd
-
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 

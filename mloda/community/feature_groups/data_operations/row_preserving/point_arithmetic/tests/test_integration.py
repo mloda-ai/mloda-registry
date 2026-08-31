@@ -10,20 +10,18 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.row_preserving.point_arithmetic.point_arithmetic import (
-    EXPECTED_ADD,
-    EXPECTED_MULTIPLY,
-    EXPECTED_SUBTRACT,
-)
-from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
-from mloda.user import Feature, PluginCollector, mloda
+from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.pyarrow_point_arithmetic import (
     PyArrowPointArithmetic,
+)
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
+from mloda.testing.feature_groups.data_operations.row_preserving.point_arithmetic.point_arithmetic import (
+    EXPECTED_ADD,
+    EXPECTED_MULTIPLY,
+    EXPECTED_SUBTRACT,
 )
 
 

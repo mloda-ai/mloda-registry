@@ -16,13 +16,12 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
+from mloda.user import Options
 
-from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
-
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants, also usable standalone)
@@ -776,7 +775,7 @@ class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOps
 
     def test_option_based_sum_window(self) -> None:
         """Option-based configuration (not string pattern) produces the same result."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.provider import FeatureSet
         from mloda.user import Feature
 
         feature = Feature(
@@ -798,7 +797,7 @@ class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOps
 
     def test_unsupported_aggregation_type_raises(self) -> None:
         """Calling calculate_feature with an unknown aggregation type should raise."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.provider import FeatureSet
         from mloda.user import Feature
 
         feature = Feature(
@@ -826,7 +825,7 @@ class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOps
 
     def test_partition_by_empty_raises(self) -> None:
         """Calling calculate_feature directly with partition_by=[] should raise a clear ValueError naming it."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.provider import FeatureSet
         from mloda.user import Feature
 
         feature = Feature(

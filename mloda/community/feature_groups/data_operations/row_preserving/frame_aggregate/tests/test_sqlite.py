@@ -9,20 +9,18 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pyarrow as pa
+from mloda.provider import FeatureSet
+from mloda.user import Feature, Options
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
+    SqliteFrameAggregate,
+)
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.sqlite import SqliteTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate.frame_aggregate import (
     FrameAggregateTestBase,
     config_frame_options,
-)
-from mloda.user import Feature
-
-from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.sqlite_frame_aggregate import (
-    SqliteFrameAggregate,
 )
 
 

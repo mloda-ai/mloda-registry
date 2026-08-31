@@ -17,11 +17,8 @@ modules.
 
 from __future__ import annotations
 
-from mloda.core.abstract_plugins.components.data_types import DataType
-from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.provider import FeatureGroup
+from mloda.provider import FeatureChainParser, FeatureGroup
+from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, op_token_value
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook

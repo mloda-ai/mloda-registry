@@ -11,14 +11,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
-from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
-from mloda.user import Feature
+from mloda.user import Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow_ffill import PyArrowFfill
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.match_validation import ScalarArityTestBase, TokenCase
 
 FEATURE_NAME = "amount__ffill"
 

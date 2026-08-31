@@ -11,11 +11,11 @@ pytest.importorskip("polars")
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.polars_lazy_point_arithmetic import (
     PolarsLazyPointArithmetic,
 )
+from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.point_arithmetic.point_arithmetic import (
     PointArithmeticTestBase,
 )
-from mloda.testing.feature_groups.data_operations.mixins.polars_lazy import PolarsLazyTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 
 
 class TestPolarsLazyPointArithmetic(ReservedColumnsTestMixin, PolarsLazyTestMixin, PointArithmeticTestBase):

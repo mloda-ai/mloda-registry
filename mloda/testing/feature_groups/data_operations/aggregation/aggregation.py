@@ -23,7 +23,6 @@ from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 
-
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
 # ---------------------------------------------------------------------------
@@ -705,9 +704,8 @@ class AggregationTestBase(MaskTestMixin, DataOpsTestBase):
 
     def test_unsupported_aggregation_type_raises(self) -> None:
         """Calling calculate_feature with an unknown aggregation type should raise."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.core.abstract_plugins.components.options import Options
-        from mloda.user import Feature
+        from mloda.provider import FeatureSet
+        from mloda.user import Feature, Options
 
         feature = Feature(
             "value_int__evil_type_agg",

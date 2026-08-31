@@ -11,8 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
-from mloda.core.abstract_plugins.components.options import Options
+from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 from mloda.community.feature_groups.data_operations.base import is_op_token

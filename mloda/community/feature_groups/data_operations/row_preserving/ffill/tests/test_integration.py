@@ -20,16 +20,14 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
-from mloda.user import Feature, PluginCollector, mloda
+from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow_ffill import (
     PyArrowFfill,
 )
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.integration import DataOpsIntegrationTestBase
 
 # Forward-fill of ``value_float`` within each ``region`` partition, in timestamp
 # order. Region A: [1.5, 2.5, None->2.5, 0.0]; B: [-3.14, 5.5, 6.5, 7.5];

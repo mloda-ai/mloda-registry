@@ -39,7 +39,6 @@ import pytest
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 
-
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants, canonical 12-row dataset)
 # ---------------------------------------------------------------------------
@@ -343,9 +342,8 @@ class DateTimeTestBase(DataOpsTestBase):
 
     def test_option_based_year(self) -> None:
         """Option-based configuration (not string pattern) produces the same result."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.core.abstract_plugins.components.options import Options
-        from mloda.user import Feature
+        from mloda.provider import FeatureSet
+        from mloda.user import Feature, Options
 
         feature = Feature(
             "my_year",

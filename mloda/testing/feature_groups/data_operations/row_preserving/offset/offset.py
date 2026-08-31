@@ -16,8 +16,8 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
+from mloda.user import Options
 
-from mloda.core.abstract_plugins.components.options import Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
@@ -275,7 +275,7 @@ class OffsetTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
 
     def test_option_based_lag(self) -> None:
         """Option-based configuration (not string pattern) produces the same result as pattern."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.provider import FeatureSet
         from mloda.user import Feature
 
         feature = Feature(
@@ -298,7 +298,7 @@ class OffsetTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
 
     def test_unsupported_offset_type_raises(self) -> None:
         """Calling calculate_feature with an unknown offset type should raise ValueError."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.provider import FeatureSet
         from mloda.user import Feature
 
         feature = Feature(
@@ -317,7 +317,7 @@ class OffsetTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
 
     def test_partition_by_empty_raises(self) -> None:
         """Calling calculate_feature directly with partition_by=[] should raise a clear ValueError."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
+        from mloda.provider import FeatureSet
         from mloda.user import Feature
 
         feature = Feature(

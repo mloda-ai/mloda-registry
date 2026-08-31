@@ -33,7 +33,6 @@ import importlib
 from typing import Any
 
 import pytest
-
 from mloda.provider import FeatureGroup
 
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic import (

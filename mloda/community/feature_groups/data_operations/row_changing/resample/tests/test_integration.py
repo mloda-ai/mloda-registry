@@ -25,10 +25,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.user import Feature, PluginCollector, mloda
+from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
@@ -37,6 +34,7 @@ from mloda.community.feature_groups.data_operations.row_changing.resample.base i
 from mloda.community.feature_groups.data_operations.row_changing.resample.pyarrow_resample import (
     PyArrowResample,
 )
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
 # Daily resample of ``value_float`` grouped by ``(region, bucket_start)`` on the
 # canonical dataset (dropna=False, so the null-timestamp row and the null-region

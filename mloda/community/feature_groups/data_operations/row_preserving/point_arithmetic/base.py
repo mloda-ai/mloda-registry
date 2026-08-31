@@ -22,13 +22,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import FeatureChainParser
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.provider import DefaultOptionKeys, property_spec
+from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureSet, property_spec
+from mloda.user import Feature
 
-from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
 from mloda.community.feature_groups.data_operations.base import is_op_token
+from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
 
 ARITHMETIC_OPERATIONS: dict[str, str] = {
     "add": "Element-wise addition of two columns",

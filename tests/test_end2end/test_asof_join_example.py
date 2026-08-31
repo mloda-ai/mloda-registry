@@ -23,7 +23,6 @@ pd = pytest.importorskip("pandas")
 # runs when pyarrow is absent (only the pyarrow param is skipped, see below).
 try:
     import pyarrow as pa
-
     from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 except ImportError:  # pragma: no cover - exercised only without pyarrow installed
     # mloda_plugins ships py.typed, so rebinding PyArrowTable to None needs the ignore.
@@ -31,9 +30,7 @@ except ImportError:  # pragma: no cover - exercised only without pyarrow install
     pa = None
     PyArrowTable = None  # type: ignore[assignment,misc]
 
-from mloda.core.abstract_plugins.components.input_data.base_input_data import BaseInputData
-from mloda.core.abstract_plugins.components.input_data.creator.data_creator import DataCreator
-from mloda.provider import ComputeFramework, FeatureGroup, FeatureSet
+from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
 from mloda.user import Feature, FeatureName, Index, Link, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 

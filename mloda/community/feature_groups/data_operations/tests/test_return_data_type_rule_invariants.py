@@ -50,22 +50,8 @@ import re
 from typing import Any
 
 import pytest
-
-from mloda.core.abstract_plugins.components.feature import Feature
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.core.abstract_plugins.feature_group import FeatureGroup
-from mloda.user import DataType
-
-# Reuse the sibling module's family registry (DRY): the same FAMILIES tuple, valid-name
-# generators, class loader, and name-driven Options that drive the routing-collision lint.
-# Importing the module-private ``_load_class`` from within the same test package is fine;
-# the underscore only marks it module-private, not import-forbidden.
-from mloda.community.feature_groups.data_operations.tests.test_prefix_pattern_collisions import (
-    FAMILIES,
-    PERMISSIVE_OPTIONS,
-    _load_class,
-    generate_valid_names,
-)
+from mloda.provider import FeatureGroup
+from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.aggregation.base import AggregationFeatureGroup
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import ResampleFeatureGroup
@@ -85,7 +71,12 @@ from mloda.community.feature_groups.data_operations.row_preserving.window_aggreg
 
 # StringFeatureGroup lives under data_operations.string (not row_preserving).
 from mloda.community.feature_groups.data_operations.string.base import StringFeatureGroup
-
+from mloda.community.feature_groups.data_operations.tests.test_prefix_pattern_collisions import (
+    FAMILIES,
+    PERMISSIVE_OPTIONS,
+    _load_class,
+    generate_valid_names,
+)
 
 # The ten base classes that declare a deterministic output type. Kept as a named
 # tuple so both tests can assert they cover all ten.

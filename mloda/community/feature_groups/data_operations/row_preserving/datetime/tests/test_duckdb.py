@@ -10,9 +10,8 @@ import pytest
 
 duckdb = pytest.importorskip("duckdb")
 
-from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.user import Feature
+from mloda.provider import FeatureSet
+from mloda.user import Feature, Options
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 
 from mloda.community.feature_groups.data_operations.row_preserving.datetime.duckdb_datetime import (

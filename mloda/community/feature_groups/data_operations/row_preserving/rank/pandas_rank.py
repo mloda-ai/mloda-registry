@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import pandas as pd
-
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
 
+from mloda.community.feature_groups.data_operations.pandas_helpers import null_safe_groupby
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
-from mloda.community.feature_groups.data_operations.pandas_helpers import null_safe_groupby
 
 _PANDAS_RANK_METHODS: dict[str, str] = {
     "row_number": "first",

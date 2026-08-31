@@ -6,13 +6,12 @@ import logging
 from typing import Any
 
 import pytest
-
 from mloda.steward import Extender, ExtenderHook
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.user import PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.enterprise.extenders.example import EnterpriseExampleExtender
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
 # Canonical value_int column of the shared 12-row test dataset.
 _VALUE_INT = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]

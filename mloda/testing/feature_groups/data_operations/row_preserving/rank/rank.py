@@ -19,14 +19,12 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
 import pyarrow as pa
-
-from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+import pytest
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
-
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -356,9 +354,8 @@ class RankTestBase(DataOpsTestBase):
 
     def test_option_based_row_number(self) -> None:
         """Option-based configuration (not string pattern) produces the same result."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.core.abstract_plugins.components.options import Options
-        from mloda.user import Feature
+        from mloda.provider import FeatureSet
+        from mloda.user import Feature, Options
 
         feature = Feature(
             "my_row_number",
@@ -380,9 +377,8 @@ class RankTestBase(DataOpsTestBase):
 
     def test_option_based_top_n(self) -> None:
         """Option-based top_N produces the same result as string pattern."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.core.abstract_plugins.components.options import Options
-        from mloda.user import Feature
+        from mloda.provider import FeatureSet
+        from mloda.user import Feature, Options
 
         feature = Feature(
             "my_top_3",
@@ -404,9 +400,8 @@ class RankTestBase(DataOpsTestBase):
 
     def test_unsupported_rank_type_raises(self) -> None:
         """Calling calculate_feature with an unknown rank type should raise."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.core.abstract_plugins.components.options import Options
-        from mloda.user import Feature
+        from mloda.provider import FeatureSet
+        from mloda.user import Feature, Options
 
         feature = Feature(
             "value_int__evil_type_ranked",
@@ -424,9 +419,8 @@ class RankTestBase(DataOpsTestBase):
 
     def test_partition_by_empty_raises(self) -> None:
         """Calling calculate_feature directly with partition_by=[] should raise a clear ValueError."""
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-        from mloda.core.abstract_plugins.components.options import Options
-        from mloda.user import Feature
+        from mloda.provider import FeatureSet
+        from mloda.user import Feature, Options
 
         feature = Feature(
             "value_int__row_number_ranked",

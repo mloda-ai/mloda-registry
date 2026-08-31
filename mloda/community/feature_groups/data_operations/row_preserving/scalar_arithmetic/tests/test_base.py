@@ -5,13 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
-from mloda.core.abstract_plugins.components.feature_name import FeatureName
-from mloda.core.abstract_plugins.components.options import Options
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
-from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
-from mloda.user import Feature
+from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
@@ -20,6 +14,9 @@ from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithm
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pyarrow_scalar_arithmetic import (
     PyArrowScalarArithmetic,
 )
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.feature_groups.data_operations.helpers import extract_column, feature_set_for
+from mloda.testing.feature_groups.data_operations.match_validation import MatchValidationTestBase, TokenCase
 
 
 class TestClassAttributes:

@@ -18,7 +18,6 @@ import pytest
 
 from mloda.community.feature_groups.data_operations import DataOperationsCatalog, OperationInfo
 
-
 EXPECTED_OPERATION_NAMES: list[str] = [
     "aggregation",
     "binning",
