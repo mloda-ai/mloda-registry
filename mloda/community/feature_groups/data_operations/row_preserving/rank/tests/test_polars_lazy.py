@@ -43,14 +43,16 @@ class TestPolarsLazyRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, Pola
 
 
 class TestPolarsLazyRankNoneAndNanOrderBy:
-    """Pins Polars' existing (divergent) tie behavior: None and NaN rank apart.
+    """Pins the resulting (divergent) tie behavior: None and NaN rank apart.
 
-    Unlike SQLite/pandas, Polars' ``rank()`` treats a null and a NaN value as
-    distinct sort keys, so a None/NaN mix does not tie into one run. Not covered by
-    the shared ``RankTestBase`` fixture (backends genuinely disagree on this case;
-    see ``ReferenceRank``'s divergent behavior in ``test_reference.py``), so this
-    direct ``_compute_rank`` regression test guards against a future change to this
-    behavior.
+    Not because Polars' rank() treats them as distinct sort keys directly: NaN is not
+    null to Polars, so native .rank() ranks it as an ordinary value; explicit nulls are
+    excluded from that ranking and get a manually assigned last rank via
+    PolarsLazyRank's own null-handling (see the separate "Polars rank() returns null for
+    null inputs" divergence entry). The two mechanisms combined rank NaN and None apart.
+    Not covered by the shared RankTestBase fixture (backends genuinely disagree on this
+    case; see ReferenceRank's divergent behavior in test_reference.py), so this direct
+    _compute_rank regression test guards against a future change to this behavior.
     """
 
     DATA: dict[str, list[Any]] = {"grp": [1, 1, 1, 1], "val": [None, float("nan"), None, 1.0]}

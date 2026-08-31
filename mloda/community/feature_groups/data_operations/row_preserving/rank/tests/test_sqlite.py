@@ -42,12 +42,14 @@ class TestSqliteRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, SqliteTe
 
 
 class TestSqliteRankNoneAndNanOrderBy:
-    """Pins SQLite's existing tie behavior: a None/NaN order_by run ties at one rank.
+    """Pins SQLite's resulting tie: a None/NaN order_by run ties at one rank.
 
-    SQLite's ``RANK()``/``DENSE_RANK()``/``PERCENT_RANK()`` treat SQL ``NULL`` and NaN
-    the same as one tied group. Not covered by the shared ``RankTestBase`` fixture
-    (backends genuinely disagree on this case; see ``ReferenceRank``'s divergent
-    behavior in ``test_reference.py``), so this direct ``_compute_rank`` regression
+    Not because SQLite's RANK()/DENSE_RANK()/PERCENT_RANK() treat NaN and NULL specially:
+    the sqlite3 driver stores any NaN REAL as SQL NULL on ingest (see
+    test_nan_is_stored_as_null below), so RANK() never actually sees a NaN to rank apart
+    from NULL in the first place; the tie is trivial. Not covered by the shared
+    RankTestBase fixture (backends genuinely disagree on this case; see ReferenceRank's
+    divergent behavior in test_reference.py), so this direct _compute_rank regression
     test guards against a future tie-run-splitting bug.
     """
 
@@ -63,6 +65,9 @@ class TestSqliteRankNoneAndNanOrderBy:
 
     def teardown_method(self) -> None:
         self.conn.close()
+
+    def test_nan_is_stored_as_null(self) -> None:
+        assert self.rel.to_arrow_table().column("val").to_pylist() == [None, None, None, 1.0]
 
     def test_rank_ties_none_and_nan(self) -> None:
         result = SqliteRank._compute_rank(self.rel, "r", ["grp"], "val", "rank")
