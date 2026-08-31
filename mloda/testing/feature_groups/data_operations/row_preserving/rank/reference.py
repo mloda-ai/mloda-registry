@@ -12,6 +12,11 @@ import pyarrow as pa
 from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.data_operations.python_dict_helpers import (
+    is_null_like,
+    nulls_last_sort_key,
+    order_values_equal,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
@@ -56,7 +61,7 @@ class ReferenceRank(RankFeatureGroup):
 
         # Sort each group by order_by value (nulls last)
         for key in groups:
-            groups[key].sort(key=lambda x: (1,) if x[1] is None else (0, x[1]))
+            groups[key].sort(key=lambda x: nulls_last_sort_key(x[1]))
 
         # Compute rank values
         result_values: list[Any] = [0] * num_rows
@@ -73,7 +78,8 @@ class ReferenceRank(RankFeatureGroup):
                 while pos < n:
                     # Find run of equal values
                     run_start = pos
-                    while pos < n and sorted_rows[pos][1] == sorted_rows[run_start][1]:
+                    pos += 1
+                    while pos < n and order_values_equal(sorted_rows[pos][1], sorted_rows[run_start][1]):
                         pos += 1
                     rank_val = run_start + 1
                     for j in range(run_start, pos):
@@ -84,7 +90,8 @@ class ReferenceRank(RankFeatureGroup):
                 pos = 0
                 while pos < n:
                     run_start = pos
-                    while pos < n and sorted_rows[pos][1] == sorted_rows[run_start][1]:
+                    pos += 1
+                    while pos < n and order_values_equal(sorted_rows[pos][1], sorted_rows[run_start][1]):
                         pos += 1
                     for j in range(run_start, pos):
                         result_values[sorted_rows[j][0]] = dense
@@ -96,7 +103,8 @@ class ReferenceRank(RankFeatureGroup):
                 pos = 0
                 while pos < n:
                     run_start = pos
-                    while pos < n and sorted_rows[pos][1] == sorted_rows[run_start][1]:
+                    pos += 1
+                    while pos < n and order_values_equal(sorted_rows[pos][1], sorted_rows[run_start][1]):
                         pos += 1
                     rank_val = run_start + 1
                     for j in range(run_start, pos):
@@ -119,8 +127,8 @@ class ReferenceRank(RankFeatureGroup):
             elif rank_type.startswith("top_"):
                 top_n = int(rank_type[len("top_") :])
                 # Reverse the ASC-sorted non-null rows to get DESC; keep nulls last
-                non_null = [(idx, val) for idx, val in sorted_rows if val is not None]
-                nulls = [(idx, val) for idx, val in sorted_rows if val is None]
+                non_null = [(idx, val) for idx, val in sorted_rows if not is_null_like(val)]
+                nulls = [(idx, val) for idx, val in sorted_rows if is_null_like(val)]
                 desc_rows = non_null[::-1] + nulls
                 for pos, (idx, _) in enumerate(desc_rows):
                     result_values[idx] = pos + 1 <= top_n
