@@ -23,6 +23,8 @@ _ALLOWED_INTERNAL_IMPORTS = {
     ("mloda.core.abstract_plugins.components.utils", "contained_raise_reason"),
     ("mloda.core.abstract_plugins.components.utils", "escalate_match_abort"),
     ("mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser", "option_key_is_present"),
+    ("mloda.core.abstract_plugins.function_extender", "_CompositeExtender"),
+    ("mloda.core.abstract_plugins.hook_context", "instrument"),
 }
 
 

@@ -18,22 +18,19 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from mloda.core.abstract_plugins.function_extender import _CompositeExtender  # no public equivalent yet
+from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
+from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
+from mloda.steward import Extender, ExtenderHook, HookContext
+from mloda.user import PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
 
-from mloda.core.abstract_plugins.components.input_data.base_input_data import BaseInputData
-from mloda.core.abstract_plugins.components.input_data.creator.data_creator import DataCreator
-from mloda.core.abstract_plugins.function_extender import _CompositeExtender
-from mloda.core.abstract_plugins.hook_context import instrument
-from mloda.provider import ComputeFramework, FeatureGroup, FeatureSet
-from mloda.steward import Extender, ExtenderHook, HookContext
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.user import PluginCollector, mloda
-from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
-
 from mloda.community.extenders.otel import OtelExtender
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
 # Canonical value_int column of the shared test dataset (mirrors the example extender's tests).
 _VALUE_INT = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]

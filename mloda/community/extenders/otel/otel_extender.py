@@ -8,11 +8,9 @@ import reprlib
 from collections.abc import Callable
 from typing import Any
 
+from mloda.steward import Extender, ExtenderHook, HookContext
 from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode, TracerProvider
-
-from mloda.core.abstract_plugins.hook_context import HookContext
-from mloda.steward import Extender, ExtenderHook
 
 logger = logging.getLogger(__name__)
 
