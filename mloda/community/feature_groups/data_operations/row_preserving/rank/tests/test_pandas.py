@@ -49,19 +49,16 @@ class TestPandasRankNoneAndNanOrderBy:
     DATA: dict[str, list[Any]] = {"grp": [1, 1, 1, 1], "val": [None, float("nan"), None, 1.0]}
 
     def test_rank_ties_none_and_nan(self) -> None:
-        """rank: None and NaN tie at rank 2, the real value ranks 1."""
         df = pd.DataFrame(self.DATA)
         result = PandasRank._compute_rank(df, "r", ["grp"], "val", "rank")
         assert list(result["r"]) == [2, 2, 2, 1]
 
     def test_dense_rank_ties_none_and_nan(self) -> None:
-        """dense_rank: None and NaN tie at dense rank 2."""
         df = pd.DataFrame(self.DATA)
         result = PandasRank._compute_rank(df, "r", ["grp"], "val", "dense_rank")
         assert list(result["r"]) == [2, 2, 2, 1]
 
     def test_percent_rank_ties_none_and_nan(self) -> None:
-        """percent_rank: None and NaN tie at 1/3."""
         df = pd.DataFrame(self.DATA)
         result = PandasRank._compute_rank(df, "r", ["grp"], "val", "percent_rank")
         assert list(result["r"]) == pytest.approx([1 / 3, 1 / 3, 1 / 3, 0.0])

@@ -50,8 +50,8 @@ class TestDuckdbRankNoneAndNanOrderBy:
     treat SQL ``NULL`` and NaN as distinct sort keys, so a None/NaN mix does not tie
     into one run. Not covered by the shared ``RankTestBase`` fixture (backends
     genuinely disagree on this case; see ``ReferenceRank``'s divergent behavior in
-    ``mloda/testing/.../rank/tests/test_reference.py``), so this direct
-    ``_compute_rank`` regression test guards against a future change to this behavior.
+    ``test_reference.py``), so this direct ``_compute_rank`` regression test guards
+    against a future change to this behavior.
     """
 
     def setup_method(self) -> None:
@@ -68,16 +68,13 @@ class TestDuckdbRankNoneAndNanOrderBy:
         self.conn.close()
 
     def test_rank_ranks_none_and_nan_apart(self) -> None:
-        """rank: None and NaN do NOT tie; NaN ranks 2, None rows rank 3."""
         result = DuckdbRank._compute_rank(self.rel, "r", ["grp"], "val", "rank")
         assert result.to_arrow_table().column("r").to_pylist() == [3, 2, 3, 1]
 
     def test_dense_rank_ranks_none_and_nan_apart(self) -> None:
-        """dense_rank: None and NaN do NOT tie; NaN dense-ranks 2, None rows rank 3."""
         result = DuckdbRank._compute_rank(self.rel, "r", ["grp"], "val", "dense_rank")
         assert result.to_arrow_table().column("r").to_pylist() == [3, 2, 3, 1]
 
     def test_percent_rank_ranks_none_and_nan_apart(self) -> None:
-        """percent_rank: None and NaN do NOT tie."""
         result = DuckdbRank._compute_rank(self.rel, "r", ["grp"], "val", "percent_rank")
         assert result.to_arrow_table().column("r").to_pylist() == pytest.approx([2 / 3, 1 / 3, 2 / 3, 0.0])

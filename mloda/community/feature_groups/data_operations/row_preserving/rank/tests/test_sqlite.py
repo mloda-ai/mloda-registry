@@ -47,8 +47,8 @@ class TestSqliteRankNoneAndNanOrderBy:
     SQLite's ``RANK()``/``DENSE_RANK()``/``PERCENT_RANK()`` treat SQL ``NULL`` and NaN
     the same as one tied group. Not covered by the shared ``RankTestBase`` fixture
     (backends genuinely disagree on this case; see ``ReferenceRank``'s divergent
-    behavior in ``mloda/testing/.../rank/tests/test_reference.py``), so this direct
-    ``_compute_rank`` regression test guards against a future tie-run-splitting bug.
+    behavior in ``test_reference.py``), so this direct ``_compute_rank`` regression
+    test guards against a future tie-run-splitting bug.
     """
 
     def setup_method(self) -> None:
@@ -65,16 +65,13 @@ class TestSqliteRankNoneAndNanOrderBy:
         self.conn.close()
 
     def test_rank_ties_none_and_nan(self) -> None:
-        """rank: None and NaN tie at rank 2, the real value ranks 1."""
         result = SqliteRank._compute_rank(self.rel, "r", ["grp"], "val", "rank")
         assert result.to_arrow_table().column("r").to_pylist() == [2, 2, 2, 1]
 
     def test_dense_rank_ties_none_and_nan(self) -> None:
-        """dense_rank: None and NaN tie at dense rank 2."""
         result = SqliteRank._compute_rank(self.rel, "r", ["grp"], "val", "dense_rank")
         assert result.to_arrow_table().column("r").to_pylist() == [2, 2, 2, 1]
 
     def test_percent_rank_ties_none_and_nan(self) -> None:
-        """percent_rank: None and NaN tie at 1/3."""
         result = SqliteRank._compute_rank(self.rel, "r", ["grp"], "val", "percent_rank")
         assert result.to_arrow_table().column("r").to_pylist() == pytest.approx([1 / 3, 1 / 3, 1 / 3, 0.0])
