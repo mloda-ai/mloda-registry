@@ -109,7 +109,7 @@ class InvocationDirectory:
         other than the current process's own (contract: Data handling): a directory shared with
         the process's own group, the common user-private-group scheme, is not a foreign-write
         risk, but world-writable or a foreign group is."""
-        stat_result = self.parent.stat()
+        stat_result = os.stat(self.parent)
         if stat_result.st_uid != os.getuid():
             raise BinaryUnavailableError(f"refusing to use {self.parent}: not owned by the current user")
         if stat_result.st_mode & 0o002:
