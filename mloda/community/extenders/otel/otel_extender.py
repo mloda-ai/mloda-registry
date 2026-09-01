@@ -10,13 +10,29 @@ from typing import Any
 
 from mloda.steward import Extender, ExtenderHook, HookContext
 from opentelemetry import trace
-from opentelemetry.trace import Span, Status, StatusCode, TracerProvider
+from opentelemetry.context import Context
+from opentelemetry.trace import (
+    NonRecordingSpan,
+    Span,
+    SpanContext,
+    Status,
+    StatusCode,
+    TraceFlags,
+    TracerProvider,
+    set_span_in_context,
+)
+
+from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
 
 logger = logging.getLogger(__name__)
 
 _TRACER_NAME = "mloda_community_otel"
 _CONTENT_PREVIEW_MAX_LEN = 200
 _TRUTHY_ENV_VALUES = {"true", "1"}
+
+# Fixed, nonzero placeholder span id used as the parent span id when synthesizing a NonRecordingSpan
+# from a run_id (no real parent span was ever created; only the deterministic trace_id matters here).
+_RUN_ID_PARENT_SPAN_ID = 0x0000000000000001
 
 # Bounded repr for content previews: only recurses into the first N elements of a container,
 # so it never materializes a full repr/str of a huge result before truncation (see _content_preview).
@@ -70,7 +86,8 @@ class OtelExtender(Extender):
         span_name = _SPAN_NAMES.get(context.hook, "mloda.unknown") if context is not None else "mloda.unknown"
 
         tracer = trace.get_tracer(_TRACER_NAME, tracer_provider=self._tracer_provider)
-        with tracer.start_as_current_span(span_name, record_exception=False) as span:
+        parent_context = _parent_context(context)
+        with tracer.start_as_current_span(span_name, record_exception=False, context=parent_context) as span:
             if context is not None:
                 _set_context_attributes(span, context)
 
@@ -103,6 +120,34 @@ class OtelExtender(Extender):
         return _BOUNDED_REPR.repr(value)[:_CONTENT_PREVIEW_MAX_LEN]
 
 
+def _parent_context(context: HookContext | None) -> Context | None:
+    """Pick the parent context for the span to be started, by priority (highest first):
+
+    1. context.carrier, if truthy: extracted into a real parent Context (propagated from another
+       process via a W3C traceparent carrier).
+    2. else context.run_id, if not None: a synthetic, non-recording parent Context whose trace_id is
+       deterministically derived from run_id, so spans sharing a run_id correlate even when no carrier
+       was ever exchanged.
+    3. else None: today's existing default behavior (the ambient current context is used).
+    """
+    if context is None:
+        return None
+
+    if context.carrier:
+        return extract_carrier(context.carrier)
+
+    if context.run_id is not None:
+        span_context = SpanContext(
+            trace_id=trace_id_from_run_id(context.run_id),
+            span_id=_RUN_ID_PARENT_SPAN_ID,
+            is_remote=True,
+            trace_flags=TraceFlags(TraceFlags.SAMPLED),
+        )
+        return set_span_in_context(NonRecordingSpan(span_context))
+
+    return None
+
+
 def _set_context_attributes(span: Span, context: HookContext) -> None:
     span.set_attribute("mloda.operation.name", _OPERATION_NAMES.get(context.hook, "unknown"))
     span.set_attribute("mloda.feature_group.name", context.feature_group_class)
@@ -117,3 +162,5 @@ def _set_context_attributes(span: Span, context: HookContext) -> None:
         span.set_attribute("mloda.plugin.version", context.plugin_version)
     if context.run_id is not None:
         span.set_attribute("mloda.run.id", context.run_id)
+    if context.worker_index is not None:
+        span.set_attribute("mloda.subprocess.worker_index", context.worker_index)
