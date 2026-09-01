@@ -26,6 +26,7 @@ from mloda.testing.binary_model import (
     CONTRACT_VERSION,
     DATA_ERROR,
     INTERNAL_ERROR,
+    IPC_END_OF_STREAM_MARKER,
     LICENSE_INVALID,
     LICENSE_MISSING,
     MESSAGE_MAX_BYTES,
@@ -43,11 +44,6 @@ RESERVED_INTERNAL_ERROR_OPERATION = "_conformance_internal_error"
 _OPERATION_OUTPUTS: dict[str, tuple[str, ...]] = {"hash": ("result",)}
 
 _REQUIRED_CONFIG_KEYS = frozenset({"input_columns", "operation", "parameters", "output_columns"})
-
-# Continuation marker (0xFFFFFFFF) followed by a zero-length (0x00000000) message: the Arrow IPC
-# end-of-stream marker (contract: Data). pyarrow's own stream reader tolerates a stream missing
-# this, so it is checked on the raw trailing bytes instead (contract: Data, Conformance).
-IPC_END_OF_STREAM_MARKER = b"\xff\xff\xff\xff\x00\x00\x00\x00"
 
 
 def _classify_column_type(arrow_type: pa.DataType) -> str | None:

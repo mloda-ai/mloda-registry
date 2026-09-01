@@ -18,10 +18,7 @@ from typing import Any
 
 import pyarrow as pa
 
-# Continuation marker (0xFFFFFFFF) followed by a zero-length (0x00000000) message: the Arrow IPC
-# end-of-stream marker (contract: Data). pyarrow's own stream reader tolerates a stream missing
-# this, so it is checked on the raw trailing bytes instead (contract: Data, Conformance).
-IPC_END_OF_STREAM_MARKER = b"\xff\xff\xff\xff\x00\x00\x00\x00"
+from mloda.testing.binary_model import IPC_END_OF_STREAM_MARKER
 
 
 def arrow_stream_bytes_from_arrays(
