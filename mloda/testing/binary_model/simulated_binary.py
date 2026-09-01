@@ -15,6 +15,7 @@ import os
 import struct
 import sys
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,9 @@ from mloda.testing.binary_model.hash_reference import compute_expected_hash
 
 PLUGIN_ID = "example_binary"
 VERSION = "1.0.0"
+RELEASE_DATE = date(2026, 9, 1)
+"""The stub's own release date, the build-time constant compared against the license's
+``max_release_date`` claim (spec: Verification step 8)."""
 CAPABILITY_OPERATIONS = ["hash"]
 RESERVED_INTERNAL_ERROR_OPERATION = "_conformance_internal_error"
 
@@ -248,23 +252,27 @@ def _license_source() -> tuple[str, str]:
 
 
 def _check_license() -> None:
+    """Verify the signed license token from the resolved source (contract: License; spec:
+    Verification). The stub embeds only the published test key map, never a production key (spec:
+    Keys, kid, rotation). A token past ``exp`` but inside ``grace_days`` is accepted with one
+    free-form diagnostic line on stderr, never stdout, and the exit stays 0 (contract: Errors;
+    spec: Verification step 6)."""
+    # Imported inside the call so license-free invocations (--version, --capabilities) skip the cryptography import.
+    from mloda.testing.binary_model import license_token, license_vectors
+
     source_name, text = _license_source()
     text = text.strip()
     try:
-        token = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise _CliError(LICENSE_INVALID, f"{source_name}: license token is not valid JSON") from exc
-    if not isinstance(token, dict):
-        raise _CliError(LICENSE_INVALID, f"{source_name}: license token is not a JSON object")
-
-    status = token.get("status")
-    plugins = token.get("plugins")
-    if status is None or plugins is None:
-        raise _CliError(LICENSE_INVALID, f"{source_name}: license token missing 'status' or 'plugins'")
-    if status != "valid":
-        raise _CliError(LICENSE_INVALID, f"{source_name}: license {status}")
-    if not isinstance(plugins, list) or PLUGIN_ID not in plugins:
-        raise _CliError(LICENSE_INVALID, f"{source_name}: plugin_id {PLUGIN_ID!r} not entitled")
+        verified = license_token.verify_license_token(
+            text,
+            keys=license_vectors.TEST_PUBLIC_KEYS,
+            plugin_id=PLUGIN_ID,
+            release_date=RELEASE_DATE,
+        )
+    except license_token.LicenseVerificationError as exc:
+        raise _CliError(LICENSE_INVALID, f"{source_name}: {exc.reason}") from exc
+    if verified.in_grace:
+        print(f"{source_name}: license accepted inside its grace window", file=sys.stderr)
 
 
 def _load_config(path: Path) -> dict[str, Any]:

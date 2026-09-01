@@ -18,7 +18,7 @@ requires-python = ">=3.10,<3.15"
 dev = ["pytest>=9.0.3"]
 otel = ["opentelemetry-sdk>=1.30,<2"]
 openlineage = ["openlineage-python>=1.20,<2"]
-binary-model = ["pyarrow>=25"]
+binary-model = ["pyarrow>=25", "cryptography>=44"]
 
 [project.urls]
 Homepage = "https://mloda.ai"

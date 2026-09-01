@@ -32,7 +32,7 @@ from mloda.community.feature_groups.binary_model.errors import (
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
 from mloda.community.feature_groups.binary_model.transport import TEMP_PARENT_NAME, pid_is_alive
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column, hash_multi_column_case
-from mloda.testing.binary_model.license_vectors import license_token_text
+from mloda.testing.binary_model.license_vectors import expired_license_token, valid_license_token
 
 STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
 FAULTY_CMD = [sys.executable, "-m", "mloda.community.feature_groups.binary_model.tests.faulty_binary"]
@@ -69,7 +69,7 @@ def _clear_capability_cache_before_each_test() -> None:
 class StubModel(BinaryModelMixin):
     BINARY_PLUGIN_ID = PLUGIN_ID
     BINARY_COMMAND_OVERRIDE = STUB_CMD
-    LICENSE_KEY_OVERRIDE = license_token_text("valid", [PLUGIN_ID])
+    LICENSE_KEY_OVERRIDE = valid_license_token([PLUGIN_ID])
 
 
 class _NoLicenseStubModel(BinaryModelMixin):
@@ -484,7 +484,7 @@ class TestBinaryReportedErrors:
             _NoLicenseStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
 
     def test_expired_license_raises_license_invalid_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MLODA_LICENSE_KEY", license_token_text("expired", [PLUGIN_ID]))
+        monkeypatch.setenv("MLODA_LICENSE_KEY", expired_license_token([PLUGIN_ID]))
         table = pa.table({"col_a": ["alpha"]})
         with pytest.raises(LicenseInvalidError):
             _NoLicenseStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
@@ -607,7 +607,7 @@ class TestLicenseOverrides:
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
         license_path = tmp_path / "license.txt"
-        license_path.write_text(license_token_text("valid", [PLUGIN_ID]), encoding="utf-8")
+        license_path.write_text(valid_license_token([PLUGIN_ID]), encoding="utf-8")
 
         class _FileOverrideModel(BinaryModelMixin):
             BINARY_PLUGIN_ID = PLUGIN_ID
@@ -625,19 +625,19 @@ class TestLicenseOverrides:
         class _KeyOverrideModel(BinaryModelMixin):
             BINARY_PLUGIN_ID = PLUGIN_ID
             BINARY_COMMAND_OVERRIDE = STUB_CMD
-            LICENSE_KEY_OVERRIDE = license_token_text("valid", [PLUGIN_ID])
+            LICENSE_KEY_OVERRIDE = valid_license_token([PLUGIN_ID])
 
         table = pa.table({"col_a": ["alpha"]})
         result = _KeyOverrideModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
         assert result.num_rows == 1
 
     def test_license_override_beats_a_conflicting_expired_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MLODA_LICENSE_KEY", license_token_text("expired", [PLUGIN_ID]))
+        monkeypatch.setenv("MLODA_LICENSE_KEY", expired_license_token([PLUGIN_ID]))
 
         class _OverrideBeatsEnvModel(BinaryModelMixin):
             BINARY_PLUGIN_ID = PLUGIN_ID
             BINARY_COMMAND_OVERRIDE = STUB_CMD
-            LICENSE_KEY_OVERRIDE = license_token_text("valid", [PLUGIN_ID])
+            LICENSE_KEY_OVERRIDE = valid_license_token([PLUGIN_ID])
 
         table = pa.table({"col_a": ["alpha"]})
         result = _OverrideBeatsEnvModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
@@ -807,9 +807,7 @@ class TestProbingNeverReceivesTheLicense:
         used to probe (contract: License, Invocation)."""
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
-        model = _faulty_model(
-            "reject_license_at_probe", LICENSE_KEY_OVERRIDE=license_token_text("valid", [FAULTY_PLUGIN_ID])
-        )
+        model = _faulty_model("reject_license_at_probe", LICENSE_KEY_OVERRIDE=valid_license_token([FAULTY_PLUGIN_ID]))
         table = pa.table({"col_a": ["alpha"]})
         result = model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
         assert result.num_rows == 1
@@ -831,7 +829,7 @@ class TestRelativeLicenseFileIsAbsolutized:
     ) -> None:
         monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
         monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
-        (tmp_path / "license.txt").write_text(license_token_text("valid", [PLUGIN_ID]), encoding="utf-8")
+        (tmp_path / "license.txt").write_text(valid_license_token([PLUGIN_ID]), encoding="utf-8")
         monkeypatch.chdir(tmp_path)
 
         class _RelativeLicenseFileModel(BinaryModelMixin):
@@ -847,7 +845,7 @@ class TestRelativeLicenseFileIsAbsolutized:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
-        (tmp_path / "license.txt").write_text(license_token_text("valid", [PLUGIN_ID]), encoding="utf-8")
+        (tmp_path / "license.txt").write_text(valid_license_token([PLUGIN_ID]), encoding="utf-8")
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("MLODA_LICENSE_FILE", "license.txt")
 

@@ -121,17 +121,17 @@ All are `ValueError` subclasses carrying `code` and `message`. The binary's `--v
 
 ## Test
 
-Point the class at the simulated binary from `mloda-testing[binary-model]` and give it a placeholder license:
+Point the class at the simulated binary from `mloda-testing[binary-model]` and give it a signed test license (the vectors are signed with the published test key):
 
 ```python
 import sys
 
-from mloda.testing.binary_model.license_vectors import license_token_text
+from mloda.testing.binary_model.license_vectors import valid_license_token
 
 
 class StubExample(BinaryExampleFeatureGroup):
     BINARY_COMMAND_OVERRIDE = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
-    LICENSE_KEY_OVERRIDE = license_token_text("valid", ["example_binary"])
+    LICENSE_KEY_OVERRIDE = valid_license_token(["example_binary"])
 ```
 
 Expected values come from `mloda.testing.binary_model.hash_reference.compute_expected_hash_column`. Cover the three levels of the [testing guide](10-testing-guide.md); at level 3 pass `compute_frameworks={PyArrowTable}` and `PluginCollector.enabled_feature_groups({StubExample, ApiInputDataFeature})` (the `api_data` reader must stay enabled alongside your class). The production class without an override must raise `BinaryUnavailableError`, and a run without a license `LicenseMissingError`.
