@@ -31,6 +31,9 @@ dev = [
     "pandas",
     "polars",
     "pyarrow",
+    # Ed25519 for the binary-model license token vectors and the stub's verifier
+    # (mloda-testing's binary-model extra declares the same dependency).
+    "cryptography",
     # Deliberate: exercises the pytz-style tzinfo path in cross-framework DST tests
     # explicitly, rather than leaving it to whatever pyarrow's ambient dependency set produces.
     "pytz",

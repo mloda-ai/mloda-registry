@@ -24,14 +24,14 @@ from mloda.enterprise.feature_groups.binary_example import manifest as binary_ex
 from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
 from mloda.testing.base import FeatureGroupTestBase
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
-from mloda.testing.binary_model.license_vectors import license_token_text
+from mloda.testing.binary_model.license_vectors import valid_license_token
 from mloda.testing.tests._second_fake_binary import OPERATION as SECOND_BINARY_OPERATION
 from mloda.testing.tests._second_fake_binary import OUTPUT_KEY as SECOND_BINARY_OUTPUT_KEY
 from mloda.testing.tests._second_fake_binary import PLUGIN_ID as SECOND_BINARY_PLUGIN_ID
 
 STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
 SECOND_BINARY_CMD = [sys.executable, "-m", "mloda.testing.tests._second_fake_binary"]
-VALID_LICENSE_KEY = license_token_text("valid", ["example_binary"])
+VALID_LICENSE_KEY = valid_license_token(["example_binary"])
 
 
 class StubExample(BinaryExampleFeatureGroup):
@@ -258,7 +258,7 @@ class TestCalculateFeatureReadsOperationFromOptions:
         class FrobnicateExample(BinaryExampleFeatureGroup):
             BINARY_PLUGIN_ID = SECOND_BINARY_PLUGIN_ID
             BINARY_COMMAND_OVERRIDE = SECOND_BINARY_CMD
-            LICENSE_KEY_OVERRIDE = license_token_text("valid", [SECOND_BINARY_PLUGIN_ID])
+            LICENSE_KEY_OVERRIDE = valid_license_token([SECOND_BINARY_PLUGIN_ID])
             OUTPUT_KEY = SECOND_BINARY_OUTPUT_KEY
             PROPERTY_MAPPING = {
                 **BinaryExampleFeatureGroup.PROPERTY_MAPPING,
