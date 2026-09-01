@@ -2,10 +2,6 @@
 binary wheel installed, and every plugin using ``BinaryModelMixin`` must reject up front without a
 license, never falling back to a Python computation (see
 ``docs/guides/feature-group-patterns/28-binary-backed-features.md``).
-
-Packages are discovered from ``config/packages.toml`` (entries whose ``path`` starts with
-``mloda/enterprise/`` and declare ``entry_point_groups``), the same way
-``tests/test_end2end/test_entry_points.py`` discovers plugin packages.
 """
 
 from __future__ import annotations

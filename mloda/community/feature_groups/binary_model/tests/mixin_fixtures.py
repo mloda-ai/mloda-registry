@@ -1,18 +1,8 @@
-"""Test-only binary stand-ins for two ``BinaryModelMixin`` behaviours neither the well-behaved
-simulated binary (``mloda.testing.binary_model``) nor ``faulty_binary.py`` can exercise:
+"""Test-only binary stand-ins for two ``BinaryModelMixin`` behaviours the well-behaved simulated
+binary and ``faulty_binary.py`` cannot exercise: a per-binary ``column_types`` narrower than the
+contract's full vocabulary, and a utf8-typed output column (contract: Capabilities).
 
-- ``restricted_columns``: a per-binary ``column_types`` narrower than the contract's own full
-  vocabulary (omits ``"boolean"``), so a test can distinguish "Arrow type outside the contract's
-  vocabulary entirely" from "Arrow type in the vocabulary but not in this binary's own advertised
-  ``column_types``" (contract: Capabilities).
-- ``echo_utf8``: one operation, ``"echo"``, whose single output column is typed ``utf8`` -- unlike
-  ``"hash"``, whose output is always ``int64`` -- needed to exercise the mixin's
-  utf8-output-to-``large_string`` cast (contract: Capabilities).
-
-Run as ``python -m mloda.community.feature_groups.binary_model.tests.mixin_fixtures --variant
-<restricted_columns|echo_utf8> (--version | --capabilities | run --config <path> [--input <path>]
-[--output <path>])``. Best-effort test tooling, not a conformance-kit binary: no license gate, no
-config validation.
+Best-effort test tooling, not a conformance-kit binary: no license gate, no config validation.
 """
 
 from __future__ import annotations

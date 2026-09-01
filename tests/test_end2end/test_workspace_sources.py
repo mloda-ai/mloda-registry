@@ -1,18 +1,6 @@
-"""``[tool.uv.sources]`` generation for top-level packages.
-
-``scripts/generate_pyproject.py`` only ever emitted ``mloda-testing = { workspace = true }``
-for top-level packages (path depth <= 2) that receive the default dev extras. ``mloda-enterprise``
-is a top-level bundle that does not receive default dev deps, and its ``mloda-community`` dependency
-is a workspace member, so ``uv lock`` fails with "mloda-community is included as a workspace member,
-but is missing an entry in tool.uv.sources".
-
-Required behaviour: for a package whose path depth is <= 2 and which has no ``workspace_deps``, the
-generator emits one ``[tool.uv.sources]`` table with one ``{ workspace = true }`` line per configured
-package the package depends on (by PEP 503 normalized name, extras/markers/version specifiers
-stripped), plus ``mloda-testing`` when the package receives the default dev deps, sorted by name and
-deduplicated. External names and the ``{core_dependency}`` placeholder never get an entry. Nested
-packages (path depth > 2) never get a ``[tool.uv.sources]`` table (see docs/packaging.md, "UV
-workspace sources"). Packages with ``workspace_deps`` keep their existing block unchanged.
+"""``[tool.uv.sources]`` generation for top-level packages: a package depending on another
+configured package (as ``mloda-enterprise`` depends on ``mloda-community``) needs a workspace
+source entry for it, or ``uv lock`` fails.
 
 The generator lives at ``scripts/generate_pyproject.py`` (a script, not an installed package), so it
 is loaded here by file path through ``tests.script_loader``.

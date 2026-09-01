@@ -1,12 +1,5 @@
-"""Test-only faulty binary: a deliberately misbehaving CLI stand-in used by ``test_transport.py``
-and ``test_binary.py`` to exercise every rejection and error path of ``transport.py`` and
-``binary.py`` that the well-behaved simulated binary (``mloda.testing.binary_model``) never
-triggers on its own.
-
-Run as ``python -m mloda.community.feature_groups.binary_model.tests.faulty_binary --mode <mode>
-(--version | --capabilities | run --config <path> [--input <path>] [--output <path>])``. Every
-mode answers ``--version``/``--capabilities`` correctly unless the mode itself targets that
-invocation; unrecognized modes behave like ``ok`` on ``run`` (contract: Invocation, Capabilities).
+"""Test-only faulty binary: a deliberately misbehaving CLI stand-in exercising rejection and error
+paths of ``transport.py`` and ``binary.py`` that the well-behaved simulated binary never triggers.
 
 Best-effort test tooling, not a conformance-kit binary: no license gate, no config validation.
 """

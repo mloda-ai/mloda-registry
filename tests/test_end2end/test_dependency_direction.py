@@ -96,7 +96,6 @@ def test_no_community_or_enterprise_package_depends_on_mloda_testing_or_a_binary
 
 
 def test_new_binary_packages_are_registered_with_dev_extra() -> None:
-    """Fails now: config/packages.toml does not yet declare these two new packages."""
     packages: dict[str, dict[str, Any]] = _load_toml(_PACKAGES_CONFIG).get("packages", {})
     expected_paths = {
         "mloda-community-binary-model": "mloda/community/feature_groups/binary_model",

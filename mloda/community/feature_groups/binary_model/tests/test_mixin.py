@@ -1,10 +1,6 @@
 """Tests for ``mixin.py``: ``BinaryModelMixin``, the entry point a FeatureGroup mixes in to run an
-external binary as a model over Arrow IPC. Exercises every up-front rejection (each one before any
-subprocess ``run``), the projection/casting/batching of the outgoing data, the per-invocation
-directory lifecycle, output-contract verification, the mapping of binary-reported errors, the
-returned table's shape, several happy-path shapes against the well-behaved simulated binary
-(``mloda.testing.binary_model``), license overrides, and logging (contract: Capabilities, Data,
-Configuration, License, Data handling, Errors).
+external binary as a model over Arrow IPC (contract: Capabilities, Data, Configuration, License,
+Data handling, Errors).
 """
 
 from __future__ import annotations
@@ -194,8 +190,6 @@ class TestOutputColumnsValidation:
             StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a"})
 
     def test_written_name_colliding_with_non_input_table_column_raises_usage_error(self) -> None:
-        """Written names must be distinct from every column of the table, not just the columns
-        named in ``input_columns`` (contract: Configuration)."""
         table = pa.table({"col_a": ["alpha"], "col_b": [1]})
         with pytest.raises(BinaryUsageError):
             StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_b"})
@@ -280,10 +274,9 @@ class TestOversizedStringCell:
 
 class TestProjectionAndMetadata:
     def test_extra_table_column_is_not_sent_to_the_binary(self) -> None:
-        """A binary rejects an extra, unrequested column with a data error (contract: Data); a
-        successful run therefore proves the mixin projected the table to ``input_columns`` before
-        sending (contract: Data -- "the mixin projects its frame to those columns before
-        sending")."""
+        """A binary rejects an extra, unrequested column with a data error, so a successful run here
+        proves the mixin projected the table to ``input_columns`` before sending (contract:
+        Data)."""
         rows = {"col_a": ["alpha", "beta"]}
         table = pa.table({"col_a": rows["col_a"], "col_b": [1, 2]})
         result = StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})

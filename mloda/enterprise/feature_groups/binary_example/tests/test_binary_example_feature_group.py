@@ -1,8 +1,6 @@
 """Tests for ``BinaryExampleFeatureGroup``: the enterprise example FeatureGroup that mixes in
 ``BinaryModelMixin`` to run the "hash" operation via an external binary (pattern 28, Binary-Backed
-Features; see ``docs/guides/feature-group-patterns/28-binary-backed-features.md``). Covers option
-declaration and matching (level 1), ``calculate_feature`` against the simulated binary and its
-up-front rejections with no Python fallback (level 2), and ``mloda.run_all`` end-to-end (level 3).
+Features; see ``docs/guides/feature-group-patterns/28-binary-backed-features.md``).
 """
 
 from __future__ import annotations
