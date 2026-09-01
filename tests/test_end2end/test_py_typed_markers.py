@@ -31,10 +31,14 @@ _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterpr
 
 # The distributions whose wheels must carry a PEP 561 marker. mypy returns at the first py.typed on the
 # module path, so the two ancestor markers also type the leaf distributions shipped from below them.
-_TYPED_PACKAGES = [*_BUNDLES, "mloda-community-data-operations", "mloda-community-example"]
+_TYPED_PACKAGES = [*_BUNDLES, "mloda-community-data-operations", "mloda-community-example", "mloda-community-otel"]
 
 # Confirmed by inspecting the published wheels directly: py.typed first appears in each base's 0.4.1 wheel.
-_MARKER_FLOORS = {"mloda-community-data-operations": "0.4.1", "mloda-community-example": "0.4.1"}
+_MARKER_FLOORS = {
+    "mloda-community-data-operations": "0.4.1",
+    "mloda-community-example": "0.4.1",
+    "mloda-community-otel": "0.4.6",
+}
 
 
 gen = load_script("generate_pyproject", _GEN_PATH)

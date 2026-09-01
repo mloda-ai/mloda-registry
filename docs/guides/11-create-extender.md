@@ -90,5 +90,5 @@ def test_my_extender():
 
 | File | Description |
 |------|-------------|
-| [otel_extender.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/function_extender/base_implementations/otel/otel_extender.py) | OpenTelemetry |
+| [otel_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/otel/otel_extender.py) | OpenTelemetry spans, metadata-only by default (`mloda-community-otel`) |
 | [test_composite_extender.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/extender/test_composite_extender.py) | Chaining tests |

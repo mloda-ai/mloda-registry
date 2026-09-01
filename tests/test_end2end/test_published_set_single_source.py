@@ -28,7 +28,7 @@ else:
 
 import pytest
 
-from tests.script_loader import load_script
+from tests.script_loader import load_script, version_tuple
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SHARED_CONFIG = _REPO_ROOT / "config" / "shared.toml"
@@ -44,12 +44,13 @@ _TOX_INI = _REPO_ROOT / "tox.ini"
 # The bundle distributions, always part of the released set.
 _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterprise"]
 
-# The released set, in config order: 4 bundles, 2 examples kept for PyPI resolution coverage,
-# and the data-operations base plus its 17 plugin packages.
+# The released set, in config order: bundles, examples kept for PyPI resolution coverage,
+# the otel extender, and the data-operations base plus its plugin packages.
 _EXPECTED_PUBLISHED = [
     *_BUNDLES,
     "mloda-community-example",
     "mloda-community-example-a",
+    "mloda-community-otel",
     "mloda-community-data-operations",
     "mloda-community-aggregation",
     "mloda-community-rank",
@@ -320,6 +321,41 @@ def _leaked_child_packages(listed: list[str]) -> list[str]:
     """Entries of a ``[tool.setuptools] packages`` list that belong to a published child package."""
     children = [_dotted_path(name) for name in _published_children()]
     return sorted({entry for child in children for entry in _entries_under(listed, child)})
+
+
+# The name a simple, extras/marker-free PEP 508 dependency string starts with. "{core_dependency}" starts
+# with none of these characters, so it never matches and is treated as unparseable (skipped).
+_DEP_NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
+
+# Only the lower bound matters here: ">=1.30,<2" and " >= 1.30, <2" both floor at 1.30.
+_DEP_FLOOR_RE = re.compile(r">=\s*([^\s,;]+)")
+
+
+def _normalize_dep_name(name: str) -> str:
+    """PEP 503 normal form: lowercase, runs of '-', '_', '.' collapsed to '-'."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _parse_dependency(dep: str) -> tuple[str, str | None] | None:
+    """(normalized_name, floor_or_None) for a simple 'name>=X,<Y' dependency string, or None if it is not
+    a bare name (e.g. the "{core_dependency}" placeholder, which starts with '{')."""
+    match = _DEP_NAME_RE.match(dep.strip())
+    if match is None:
+        return None
+    name = _normalize_dep_name(match.group(1))
+    floor_match = _DEP_FLOOR_RE.search(dep)
+    return name, (floor_match.group(1) if floor_match else None)
+
+
+def _entry_point_bundles(packages: dict[str, dict[str, Any]]) -> list[str]:
+    """Configured packages flagged 'entry_point_bundle = true', in config order."""
+    return [name for name, cfg in packages.items() if cfg.get("entry_point_bundle") is True]
+
+
+def _nested_under(bundle_name: str, packages: dict[str, dict[str, Any]]) -> list[str]:
+    """Configured packages, other than the bundle itself, whose path sits under the bundle's own path."""
+    prefix = packages[bundle_name]["path"] + "/"
+    return [name for name in packages if name != bundle_name and packages[name]["path"].startswith(prefix)]
 
 
 def test_config_declares_a_published_set() -> None:
@@ -768,6 +804,53 @@ def test_bundle_wheel_still_ships_every_nested_package(bundle: str) -> None:
         f"the generated {bundle} wheel no longer ships nested packages {missing}; a package flagged "
         "'entry_point_bundle = true' must keep including every nested module."
     )
+
+
+def test_bundle_declares_every_nested_leaf_external_runtime_dependency() -> None:
+    """An entry_point_bundle wheel ships a nested package's code without inheriting its pyproject.toml's
+    ``dependencies``: nothing else installs a nested leaf's real (non-mloda, non-internal-registry)
+    runtime dependency for it. So every such external dependency a nested package declares must also
+    appear, at an equal-or-higher floor, in its bundle's OWN ``dependencies`` list. This guards the
+    invariant for the FUTURE: nothing else stops a new bundled leaf with an external runtime dependency
+    from being added without propagating it to the bundle again (as mloda-community-otel's
+    opentelemetry-api once was)."""
+    packages = _packages()
+    core_placeholder = "{core_dependency}"
+
+    for bundle_name in _entry_point_bundles(packages):
+        bundle_floors: dict[str, str | None] = {}
+        for dep in packages[bundle_name].get("dependencies", []):
+            if dep.strip() == core_placeholder:
+                continue
+            parsed = _parse_dependency(dep)
+            if parsed is not None:
+                bundle_floors[parsed[0]] = parsed[1]
+
+        for nested_name in _nested_under(bundle_name, packages):
+            for dep in packages[nested_name].get("dependencies", []):
+                if dep.strip() == core_placeholder:
+                    continue
+                parsed = _parse_dependency(dep)
+                if parsed is None:
+                    continue
+                name, floor = parsed
+                if name in packages or name == "mloda":
+                    continue  # internal-registry dependency, or the core dependency's own expansion
+
+                assert name in bundle_floors, (
+                    f"{nested_name} declares external dependency {dep!r}, but its bundle {bundle_name} "
+                    f"does not declare {name!r} in its own 'dependencies'; {bundle_name} ships "
+                    f"{nested_name}'s code without inheriting its pyproject.toml, so nothing else "
+                    f"installs {name!r} for it."
+                )
+
+                bundle_floor = bundle_floors[name]
+                if floor is not None:
+                    assert bundle_floor is not None and version_tuple(bundle_floor) >= version_tuple(floor), (
+                        f"{nested_name} declares {dep!r} (floor {floor!r}), but {bundle_name} declares "
+                        f"{name!r} at floor {bundle_floor!r}, which is lower; bump {bundle_name}'s "
+                        f"dependency floor to at least {floor!r}."
+                    )
 
 
 def test_committed_data_operations_extra_lists_the_published_children() -> None:
