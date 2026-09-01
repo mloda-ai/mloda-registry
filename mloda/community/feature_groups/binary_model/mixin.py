@@ -110,15 +110,11 @@ def _check_input_column_types(table: pa.Table, input_columns: Sequence[str], res
 
 
 def _build_outgoing_table(table: pa.Table, input_columns: Sequence[str]) -> pa.Table:
-    """Project ``table`` to ``input_columns`` (in that order), cast ``large_string``/``string_view``
-    columns to ``utf8``, and strip all schema- and field-level metadata (contract: Data)."""
+    """Project ``table`` to ``input_columns`` (in that order) and strip all schema- and
+    field-level metadata (contract: Data). ``large_string``/``string_view`` columns keep their own
+    type here; the ``utf8`` cast happens later, per batch, in ``_write_ipc_stream``."""
     projected = table.select(list(input_columns))
-    fields: list[pa.Field] = []
-    for field in projected.schema:
-        field_type = (
-            pa.string() if pa.types.is_large_string(field.type) or pa.types.is_string_view(field.type) else field.type
-        )
-        fields.append(pa.field(field.name, field_type, nullable=field.nullable))
+    fields = [pa.field(field.name, field.type, nullable=field.nullable) for field in projected.schema]
     return projected.cast(pa.schema(fields))
 
 
@@ -142,15 +138,40 @@ def _split_oversized_batch(batch: pa.RecordBatch, max_batch_bytes: int) -> list[
     return _split_oversized_batch(left, max_batch_bytes) + _split_oversized_batch(right, max_batch_bytes)
 
 
+def _wire_field(field: pa.Field) -> pa.Field:
+    """Map a ``large_string``/``string_view`` field to plain ``utf8`` for the wire schema, keeping
+    its name and nullability and dropping any metadata (contract: Data); every other field passes
+    through unchanged."""
+    field_type = (
+        pa.string() if pa.types.is_large_string(field.type) or pa.types.is_string_view(field.type) else field.type
+    )
+    return pa.field(field.name, field_type, nullable=field.nullable)
+
+
+def _cast_batch_to_wire_schema(batch: pa.RecordBatch, wire_schema: pa.Schema) -> pa.RecordBatch:
+    """Cast ``batch`` to ``wire_schema``, falling back to rebuilding it column by column if the
+    installed pyarrow has no ``RecordBatch.cast``."""
+    cast_method = getattr(batch, "cast", None)
+    if cast_method is not None:
+        result: pa.RecordBatch = cast_method(wire_schema)
+        return result
+    arrays = [batch.column(index).cast(field.type) for index, field in enumerate(wire_schema)]
+    return pa.RecordBatch.from_arrays(arrays, schema=wire_schema)
+
+
 def _write_ipc_stream(table: pa.Table, max_batch_bytes: int) -> bytes:
     """Write ``table`` to Arrow IPC stream bytes, batched small enough that no single array exceeds
-    ``max_batch_bytes`` (contract: Capabilities); a zero-row table writes no batch."""
+    ``max_batch_bytes`` (contract: Capabilities); a zero-row table writes a schema-only stream. The
+    ``large_string``/``string_view`` -> ``utf8`` cast happens here, per batch, after splitting on
+    ``table``'s own, still-large-typed batches, since casting the whole table up front could
+    overflow ``utf8``'s 32-bit offsets even though no individual cell is oversized."""
+    wire_schema = pa.schema([_wire_field(field) for field in table.schema])
     rows_per_batch = _rows_per_batch(table, max_batch_bytes)
     buffer = io.BytesIO()
-    with pa.ipc.new_stream(buffer, table.schema) as writer:
+    with pa.ipc.new_stream(buffer, wire_schema) as writer:
         for batch in table.to_batches(max_chunksize=rows_per_batch):
             for piece in _split_oversized_batch(batch, max_batch_bytes):
-                writer.write_batch(piece)
+                writer.write_batch(_cast_batch_to_wire_schema(piece, wire_schema))
     return buffer.getvalue()
 
 

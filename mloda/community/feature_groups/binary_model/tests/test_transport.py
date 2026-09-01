@@ -142,6 +142,14 @@ class TestMinimalEnvironment:
         result = minimal_environment()
         assert result["PATH"] == "/from/os/environ"
 
+    def test_relative_license_file_is_absolutized(self) -> None:
+        """The binary runs with its own private invocation directory as its cwd, so a relative
+        ``MLODA_LICENSE_FILE`` must be made absolute here, against the caller's own cwd, before it
+        is ever handed to the subprocess (contract: License, Data handling)."""
+        result = minimal_environment(license_file="license.txt", source_env={"PATH": "/usr/bin"})
+        assert os.path.isabs(result["MLODA_LICENSE_FILE"])
+        assert result["MLODA_LICENSE_FILE"] == str(Path("license.txt").resolve())
+
 
 class TestPidIsAlive:
     def test_current_pid_is_alive(self) -> None:

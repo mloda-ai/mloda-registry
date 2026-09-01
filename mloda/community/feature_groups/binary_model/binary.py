@@ -9,6 +9,7 @@ import importlib
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess  # nosec
 from collections.abc import Mapping, Sequence
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 CONTRACT_VERSION = 1
 COLUMN_TYPE_VOCABULARY = frozenset({"int64", "float64", "utf8", "boolean"})
+_SEMVER_PATTERN = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+\-]+)?$")
 
 _CacheKey = tuple[str, tuple[str, ...], int, int]
 
@@ -49,16 +51,17 @@ def clear_capability_cache() -> None:
     _capability_cache.clear()
 
 
-def _resolve_executable_path(candidate: str) -> Path:
+def _resolve_executable_path(candidate: str, path: str) -> Path:
     """Resolve ``argv[0]`` to an absolute, executable, regular file path (contract: Platform
     naming), or raise ``BinaryUnavailableError``. Made absolute with ``os.path.abspath``, not a
     symlink-following resolve: a symlinked interpreter (a venv's own launcher, used as a test
     stand-in binary) must stay invocable as the symlink, since dereferencing it would drop the
-    venv context that makes it resolvable at all."""
+    venv context that makes it resolvable at all. A bare name (no path separator) is looked up
+    only via ``path``, the resolved environment's own ``PATH``, never the parent process's."""
     if os.sep in candidate or (os.altsep is not None and os.altsep in candidate):
         resolved = Path(os.path.abspath(candidate))
     else:
-        found = shutil.which(candidate)
+        found = shutil.which(candidate, path=path)
         if found is None:
             raise BinaryUnavailableError(f"binary not found on PATH: {candidate!r}")
         resolved = Path(found)
@@ -107,7 +110,7 @@ def _parse_version(argv: list[str], plugin_id: str, stdout: bytes) -> str:
     if len(lines) != 1:
         raise BinaryUnavailableError(f"binary {argv[0]!r} --version must print exactly one line, got {len(lines)}")
     parts = lines[0].split(" ")
-    if len(parts) != 2 or parts[0] != plugin_id:
+    if len(parts) != 2 or parts[0] != plugin_id or _SEMVER_PATTERN.match(parts[1]) is None:
         raise BinaryUnavailableError(
             f"binary {argv[0]!r} --version must print '{plugin_id} <semver>', got {lines[0]!r}"
         )
@@ -180,7 +183,7 @@ def resolve_binary(
     ``--capabilities`` unless already cached, and return a ``ResolvedBinary`` (contract:
     Invocation, Capabilities, Platform naming)."""
     argv = _build_argv(plugin_id, override)
-    resolved_path = _resolve_executable_path(argv[0])
+    resolved_path = _resolve_executable_path(argv[0], env.get("PATH", os.defpath))
     argv = [str(resolved_path), *argv[1:]]
 
     stat_result = resolved_path.stat()

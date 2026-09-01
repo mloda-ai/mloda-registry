@@ -30,7 +30,7 @@ from mloda.community.feature_groups.binary_model.errors import (
     UnsupportedError,
 )
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
-from mloda.community.feature_groups.binary_model.transport import TEMP_PARENT_NAME
+from mloda.community.feature_groups.binary_model.transport import TEMP_PARENT_NAME, pid_is_alive
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column, hash_multi_column_case
 from mloda.testing.binary_model.license_vectors import license_token_text
 
@@ -319,6 +319,20 @@ class TestProjectionAndMetadata:
         assert outgoing.schema.metadata is None
         for outgoing_field in outgoing.schema:
             assert outgoing_field.metadata is None
+
+    def test_build_outgoing_table_keeps_large_string_field_type(self) -> None:
+        """Casting to utf8 on the whole table here, before batching, could overflow pyarrow's
+        32-bit utf8 offsets once the aggregate payload exceeds 2 GiB even though every individual
+        cell is small; the large_string -> utf8 cast must happen later, per record batch (contract:
+        Data)."""
+        table = pa.table({"col_a": pa.array(["alpha", "beta"], type=pa.large_string())})
+        outgoing = mixin._build_outgoing_table(table, ["col_a"])
+        assert outgoing.schema.field("col_a").type == pa.large_string()
+
+    def test_build_outgoing_table_keeps_string_view_field_type(self) -> None:
+        table = pa.table({"col_a": pa.array(["alpha", "beta"], type=pa.string_view())})
+        outgoing = mixin._build_outgoing_table(table, ["col_a"])
+        assert outgoing.schema.field("col_a").type == pa.string_view()
 
 
 # -------------------------------------------------------------------------------------------
@@ -750,6 +764,33 @@ class TestWriteIpcStreamBatching:
         assert all(batch.num_rows == 1 for batch in batches)
         assert sum(batch.num_rows for batch in batches) == table.num_rows
 
+    def test_large_string_column_is_written_as_utf8_per_batch(self) -> None:
+        """The large_string -> utf8 cast must happen after splitting into batches, not on the
+        whole table beforehand (contract: Data): every batch's own field type is utf8, and every
+        row is preserved."""
+        rows = ["alpha", "beta", "gamma"]
+        table = pa.table({"col_a": pa.array(rows, type=pa.large_string())})
+        data = mixin._write_ipc_stream(table, 1_000_000)
+        reader = pa.ipc.open_stream(data)
+        assert pa.types.is_string(reader.schema.field("col_a").type)
+        total_rows = 0
+        for batch in reader:
+            assert pa.types.is_string(batch.schema.field("col_a").type)
+            total_rows += batch.num_rows
+        assert total_rows == table.num_rows
+
+    def test_string_view_column_is_written_as_utf8_per_batch(self) -> None:
+        rows = ["alpha", "beta", "gamma"]
+        table = pa.table({"col_a": pa.array(rows, type=pa.string_view())})
+        data = mixin._write_ipc_stream(table, 1_000_000)
+        reader = pa.ipc.open_stream(data)
+        assert pa.types.is_string(reader.schema.field("col_a").type)
+        total_rows = 0
+        for batch in reader:
+            assert pa.types.is_string(batch.schema.field("col_a").type)
+            total_rows += batch.num_rows
+        assert total_rows == table.num_rows
+
 
 # -------------------------------------------------------------------------------------------
 # 19. Probing must never receive the license
@@ -772,3 +813,68 @@ class TestProbingNeverReceivesTheLicense:
         table = pa.table({"col_a": ["alpha"]})
         result = model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
         assert result.num_rows == 1
+
+
+# -------------------------------------------------------------------------------------------
+# 20. A relative MLODA_LICENSE_FILE is absolutized before the binary runs
+# -------------------------------------------------------------------------------------------
+
+
+class TestRelativeLicenseFileIsAbsolutized:
+    """The binary always runs with its own private invocation directory as its cwd (contract: Data
+    handling), so a relative ``MLODA_LICENSE_FILE`` must be absolutized against the caller's own
+    cwd before the binary ever sees it; left relative, it would resolve against the invocation
+    directory instead and never be found there."""
+
+    def test_class_override_with_a_relative_path_succeeds_from_its_own_directory(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
+        monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
+        (tmp_path / "license.txt").write_text(license_token_text("valid", [PLUGIN_ID]), encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+
+        class _RelativeLicenseFileModel(BinaryModelMixin):
+            BINARY_PLUGIN_ID = PLUGIN_ID
+            BINARY_COMMAND_OVERRIDE = STUB_CMD
+            LICENSE_FILE_OVERRIDE = "license.txt"
+
+        table = pa.table({"col_a": ["alpha"]})
+        result = _RelativeLicenseFileModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert result.num_rows == 1
+
+    def test_inherited_relative_license_file_from_the_environment_succeeds_from_its_own_directory(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
+        (tmp_path / "license.txt").write_text(license_token_text("valid", [PLUGIN_ID]), encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("MLODA_LICENSE_FILE", "license.txt")
+
+        table = pa.table({"col_a": ["alpha"]})
+        result = _NoLicenseStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert result.num_rows == 1
+
+
+# -------------------------------------------------------------------------------------------
+# 21. On POSIX, a timeout terminates the binary's descendants too
+# -------------------------------------------------------------------------------------------
+
+
+class TestTimeoutTerminatesPosixDescendants:
+    """A hung binary that has spawned a child of its own must not leave that child running after
+    ``BinaryTerminatedError`` is raised (contract: Errors, Data handling): today, only the binary
+    itself is terminated, not its process group, so a descendant it started keeps running."""
+
+    @pytest.mark.skipif(os.name != "posix", reason="process-group termination is POSIX-only")
+    def test_hanging_binary_with_a_child_process_leaves_no_live_descendant(self, tmp_path: Path) -> None:
+        pid_file = tmp_path / "child.pid"
+        model = _faulty_model("hang_with_child", BINARY_TIMEOUT_SECONDS=0.5)
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(BinaryTerminatedError):
+            model.run_binary_model(table, ["col_a"], "hash", {"pid_file": str(pid_file)}, {"result": "col_a_hash"})
+        child_pid = int(pid_file.read_text(encoding="utf-8"))
+        deadline = time.monotonic() + 2.0
+        while pid_is_alive(child_pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert not pid_is_alive(child_pid)

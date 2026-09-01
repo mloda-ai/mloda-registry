@@ -190,3 +190,57 @@ class TestBareOverrideLookupOnlyViaWhich:
         wrapper.chmod(0o700)
         with pytest.raises(BinaryUnavailableError):
             binary.resolve_binary(PLUGIN_ID, PLUGIN_ID, env={"PATH": os.defpath}, timeout=10.0)
+
+
+class TestBareOverrideResolvedAgainstGivenEnvPath:
+    """A bare override name must be looked up through the ``env["PATH"]`` argument itself, not the
+    parent process's own ``PATH`` (contract: Platform naming, Data handling): probing and running a
+    binary must be reproducible from the given environment alone."""
+
+    @staticmethod
+    def _write_stub_wrapper(tmp_path: Path) -> Path:
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        wrapper = bin_dir / "stub-binary"
+        wrapper.write_text(f'#!/bin/sh\nexec {sys.executable} -m mloda.testing.binary_model.simulated_binary "$@"\n')
+        wrapper.chmod(0o700)
+        return bin_dir
+
+    def test_bare_override_resolves_against_the_given_env_path(self, tmp_path: Path) -> None:
+        bin_dir = self._write_stub_wrapper(tmp_path)
+        resolved = binary.resolve_binary(PLUGIN_ID, "stub-binary", env={"PATH": str(bin_dir)}, timeout=10.0)
+        assert resolved.capabilities.plugin_id == PLUGIN_ID
+
+    def test_bare_override_ignores_the_parent_processs_own_path(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The parent process's own ``PATH`` is monkeypatched to contain the wrapper, while the
+        ``env`` argument passed to ``resolve_binary`` does not: resolution must still fail,
+        proving the parent process's PATH is never consulted."""
+        bin_dir = self._write_stub_wrapper(tmp_path)
+        monkeypatch.setenv("PATH", str(bin_dir))
+        with pytest.raises(BinaryUnavailableError):
+            binary.resolve_binary(PLUGIN_ID, "stub-binary", env={"PATH": os.defpath}, timeout=10.0)
+
+
+class TestVersionMustBeSemVer:
+    """The ``--version`` line's second token must be SemVer, the same pattern the conformance kit
+    itself requires of every binary (contract: Invocation)."""
+
+    @pytest.mark.parametrize(
+        "mode",
+        ["version_not_semver", "version_empty", "version_no_second_token"],
+        ids=["not_semver", "empty", "no_second_token"],
+    )
+    def test_non_semver_version_is_unavailable(self, mode: str) -> None:
+        with pytest.raises(BinaryUnavailableError) as excinfo:
+            binary.resolve_binary(
+                "faulty_binary", [*FAULTY_CMD, "--mode", mode], env={"PATH": os.defpath}, timeout=10.0
+            )
+        assert "--version" in str(excinfo.value)
+
+    def test_prerelease_semver_version_is_accepted(self) -> None:
+        resolved = binary.resolve_binary(
+            "faulty_binary", [*FAULTY_CMD, "--mode", "version_prerelease"], env={"PATH": os.defpath}, timeout=10.0
+        )
+        assert resolved.capabilities.version == "0.0.1-rc.1+build.5"

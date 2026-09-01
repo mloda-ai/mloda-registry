@@ -11,6 +11,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import subprocess  # nosec
 import tempfile
 from collections.abc import Mapping, Sequence
@@ -42,7 +43,8 @@ def minimal_environment(
     """Build the minimal environment passed to the binary (contract: Data handling): ``PATH``, a
     fixed UTF-8 locale on POSIX, ``SYSTEMROOT`` on Windows when present, and the license
     variables (an explicit argument wins over ``source_env``, which itself defaults to
-    ``os.environ``)."""
+    ``os.environ``). ``MLODA_LICENSE_FILE`` is absolutized against the caller's own cwd, since the
+    binary itself runs with its private invocation directory as its cwd."""
     source = os.environ if source_env is None else source_env
     env: dict[str, str] = {"PATH": source.get("PATH") or os.defpath}
 
@@ -56,7 +58,7 @@ def minimal_environment(
 
     resolved_file = license_file if license_file is not None else source.get("MLODA_LICENSE_FILE")
     if resolved_file:
-        env["MLODA_LICENSE_FILE"] = resolved_file
+        env["MLODA_LICENSE_FILE"] = os.path.abspath(resolved_file)
 
     resolved_key = license_key if license_key is not None else source.get("MLODA_LICENSE_KEY")
     if resolved_key:
@@ -159,6 +161,33 @@ def _find_offending_parameter_key(config: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _terminate_timed_out_process(proc: subprocess.Popen[bytes]) -> None:
+    """Terminate a hung binary after ``communicate`` times out (contract: Errors, Data handling):
+    on POSIX, the whole process group started with the child, via ``start_new_session=True``, so a
+    descendant it spawned does not outlive it; on Windows, the child process alone."""
+    if os.name == "nt":
+        proc.terminate()
+        try:
+            proc.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        return
+
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        proc.wait(timeout=1.0)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
+
+
 def run_binary(
     argv: Sequence[str],
     env: Mapping[str, str],
@@ -203,6 +232,7 @@ def run_binary(
             stderr=subprocess.PIPE,
             env=dict(env),
             cwd=str(invocation_dir),
+            start_new_session=os.name != "nt",
         )
     except (PermissionError, FileNotFoundError) as exc:
         raise BinaryUnavailableError(f"cannot spawn binary {argv[0]!r}: {exc}") from exc
@@ -210,12 +240,7 @@ def run_binary(
     try:
         stdout, stderr = proc.communicate(stdin_bytes, timeout=timeout)
     except subprocess.TimeoutExpired:
-        proc.terminate()
-        try:
-            proc.wait(timeout=1.0)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+        _terminate_timed_out_process(proc)
         raise BinaryTerminatedError(f"binary timed out after {timeout}s and was terminated")
 
     logger.debug("binary exited with code %s", proc.returncode)
