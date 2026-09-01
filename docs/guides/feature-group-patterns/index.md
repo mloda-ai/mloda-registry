@@ -33,6 +33,7 @@ See also: [Create a feature group](../09-create-feature-group.md)
 25. [Masking](25-masking.md) - Feature masking and sensitive data handling
 26. [Input-feature forwarding](26-input-feature-forwarding.md) - Consuming another group's root feature and controlling which options forward upstream
 27. [Input-data readers](27-input-data-readers.md) - Selecting among sibling readers and building non-file / HTTP readers
+28. [Binary-backed features](28-binary-backed-features.md) - Running a compiled, license-gated binary as a black-box model over Arrow IPC
 
 ## Related Guides
 
