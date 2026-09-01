@@ -374,24 +374,23 @@ vocabulary and license fixture texts are overridable class attributes, so a bina
 implementation subclasses them, points those attributes at itself, and inherits every
 applicable check unmodified -- this is how the simulated binary, a wrapper build, and an
 end-to-end run against a real binary all prove they behave identically without drifting
-apart. Its parameters: the binary path, its `plugin_id`, one operation with its input columns
-and output names, and the license fixture set (valid, expired, wrong plugin, tampered; a
-fixed placeholder token format until a signed-token specification exists). A binary may
-honour the reserved operation `_conformance_internal_error` to let the kit provoke code 6;
-the kit skips that case otherwise.
+apart. A binary may honour the reserved operation `_conformance_internal_error` to let the
+kit provoke code 6; the kit skips that case otherwise.
 
-The kit checks: `--version` format and `contract` refusal; all four transport combinations;
-every exit code and the check order; the exact-column-set rule, including that a column
-typed outside the vocabulary (`large_string`/`string_view` included -- only bare `utf8`
-counts) is rejected; row count and row order preservation; the output column set and types;
-the schema-only round trip; the end-of-stream marker on the raw output bytes; rejection of
+The kit checks: `--version` format and that `--capabilities`' `contract` value matches
+`CONTRACT_VERSION`; all four transport combinations; every exit code and the check order; the
+exact-column-set rule, including that a column typed outside the vocabulary
+(`large_string`/`string_view` included -- only bare `utf8` counts) is rejected; the
+schema-only round trip; the end-of-stream marker on the raw output bytes; rejection of
 compression, dictionary columns, the file format, zero-byte input and trailing data after a
-complete stream; the last-non-empty-line stderr rule and the size caps; abort mapped to code
-6; that schema-level and field-level Arrow metadata on input is accepted and never echoed
-back on output; data-free diagnostics (no cell value of a marked input appears on stderr); no
-network (a run under a network-denied sandbox such as `unshare -n` on Linux); no files created
-outside `--output` (a run in a read-only working directory); the minimal environment (a run
-with the allowlist only).
+complete stream; the last-non-empty-line stderr rule and the size caps; that schema-level and
+field-level Arrow metadata on input is accepted and never echoed back on output; data-free
+diagnostics (no cell value of a marked input appears on stderr); no network (a run under a
+network-denied sandbox such as `unshare -n` on Linux); no files created outside `--output`
+(a run in a read-only working directory); the minimal environment (a run with the allowlist
+only). Row count and row order preservation and the output column set and types are
+operation-specific checks, not contract-generic ones -- `HashOperationConformanceMixin` is
+the current example, for the `hash` operation.
 
 ## Out of scope
 
