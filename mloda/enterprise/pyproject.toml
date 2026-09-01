@@ -11,7 +11,7 @@ version = "0.4.5"
 description = "All enterprise plugins for mloda (License required: https://mloda.ai/enterprise)"
 license = "LicenseRef-Proprietary"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda>=0.11.1,<0.12.0"]
+dependencies = ["mloda>=0.11.1,<0.12.0", "mloda-community>=0.4.5"]
 requires-python = ">=3.10,<3.15"
 
 [project.urls]
@@ -19,6 +19,7 @@ Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
 [project.entry-points."mloda.feature_groups"]
+mloda-enterprise-binary-example = "mloda.enterprise.feature_groups.binary_example.manifest:FEATURE_GROUPS"
 mloda-enterprise-example = "mloda.enterprise.feature_groups.example.manifest:FEATURE_GROUPS"
 
 [project.entry-points."mloda.compute_frameworks"]
@@ -29,7 +30,10 @@ mloda-enterprise-extenders-example = "mloda.enterprise.extenders.example.manifes
 
 [tool.setuptools]
 package-dir = {"" = "../.."}
-packages = ["mloda.enterprise", "mloda.enterprise.compute_frameworks.example", "mloda.enterprise.extenders.example", "mloda.enterprise.feature_groups.example"]
+packages = ["mloda.enterprise", "mloda.enterprise.compute_frameworks.example", "mloda.enterprise.extenders.example", "mloda.enterprise.feature_groups.binary_example", "mloda.enterprise.feature_groups.example"]
 
 [tool.setuptools.package-data]
 "mloda.enterprise" = ["py.typed"]
+
+[tool.uv.sources]
+mloda-community = { workspace = true }
