@@ -1,6 +1,7 @@
-"""Test-only binary stand-ins for two ``BinaryModelMixin`` behaviours the well-behaved simulated
+"""Test-only binary stand-ins for ``BinaryModelMixin`` behaviours the well-behaved simulated
 binary and ``faulty_binary.py`` cannot exercise: a per-binary ``column_types`` narrower than the
-contract's full vocabulary, and a utf8-typed output column (contract: Capabilities).
+contract's full vocabulary, a utf8-typed output column, and a boolean output column outside this
+binary's own advertised ``column_types`` (contract: Capabilities).
 
 Best-effort test tooling, not a conformance-kit binary: no license gate, no config validation.
 """
@@ -19,13 +20,24 @@ from mloda.testing.binary_model.arrow import arrow_stream_bytes_from_arrays, rea
 
 VERSION = "1.0.0"
 
-_PLUGIN_ID: dict[str, str] = {"restricted_columns": "restricted_binary", "echo_utf8": "echo_utf8_binary"}
-_OPERATIONS: dict[str, list[str]] = {"restricted_columns": ["hash"], "echo_utf8": ["echo"]}
+_PLUGIN_ID: dict[str, str] = {
+    "restricted_columns": "restricted_binary",
+    "echo_utf8": "echo_utf8_binary",
+    "boolean_output_not_advertised": "boolean_output_binary",
+}
+_OPERATIONS: dict[str, list[str]] = {
+    "restricted_columns": ["hash"],
+    "echo_utf8": ["echo"],
+    "boolean_output_not_advertised": ["flag"],
+}
 # "restricted_columns" deliberately omits "boolean" from the contract's full vocabulary
-# (contract: Capabilities).
+# (contract: Capabilities). "boolean_output_not_advertised" deliberately omits "boolean" too, then
+# writes a boolean output column anyway, so its own advertised column_types (not just the contract
+# vocabulary) must be checked against the output.
 _COLUMN_TYPES: dict[str, list[str]] = {
     "restricted_columns": ["int64", "float64", "utf8"],
     "echo_utf8": ["int64", "float64", "utf8", "boolean"],
+    "boolean_output_not_advertised": ["int64", "utf8"],
 }
 
 
@@ -98,7 +110,27 @@ def _run_restricted_columns(args: list[str]) -> int:
     return 1
 
 
-_RUN_HANDLERS = {"restricted_columns": _run_restricted_columns, "echo_utf8": _run_echo_utf8}
+def _run_boolean_output_not_advertised(args: list[str]) -> int:
+    """``"flag"``: writes a ``boolean`` output column under the one configured output name, even
+    though this binary's own ``column_types`` omits ``"boolean"`` (used to exercise the mixin's
+    check of the output against the binary's OWN advertised ``column_types``, not only the
+    contract vocabulary, contract: Capabilities)."""
+    config_path, input_path, output_path = _parse_run_args(args)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    written_name = next(iter(config["output_columns"].values()))
+    table = read_arrow_stream(_read_input_bytes(input_path))
+    num_rows = table.num_rows
+    schema = pa.schema([pa.field(written_name, pa.bool_())])
+    data = arrow_stream_bytes_from_arrays(schema, [pa.array([True] * num_rows, type=pa.bool_())])
+    _write_output(data, output_path)
+    return 0
+
+
+_RUN_HANDLERS = {
+    "restricted_columns": _run_restricted_columns,
+    "echo_utf8": _run_echo_utf8,
+    "boolean_output_not_advertised": _run_boolean_output_not_advertised,
+}
 
 
 def main() -> int:

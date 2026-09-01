@@ -88,6 +88,14 @@ ERROR_CLASS_BY_CODE: dict[int, type[BinaryModelError]] = {
 
 _GENERIC_MESSAGE_FALLBACK = "binary reported code {code} without a usable message"
 
+MAX_MESSAGE_BYTES = 1024
+
+
+def _truncate_message(message: str) -> str:
+    """Cap ``message`` at ``MAX_MESSAGE_BYTES`` UTF-8 bytes, cutting only on a character boundary
+    (contract: Data handling)."""
+    return message.encode("utf-8")[:MAX_MESSAGE_BYTES].decode("utf-8", errors="ignore")
+
 
 def _last_non_empty_line(stderr: bytes) -> str | None:
     text = stderr.decode("utf-8", errors="replace")
@@ -117,7 +125,7 @@ def error_from_exit(returncode: int, stderr: bytes) -> BinaryModelError:
                 message = payload.get("message")
                 if not isinstance(message, str) or not message:
                     message = _GENERIC_MESSAGE_FALLBACK.format(code=code)
-                return ERROR_CLASS_BY_CODE[code](message)
+                return ERROR_CLASS_BY_CODE[code](_truncate_message(message))
 
     kind = "signal" if returncode < 0 else "exit code"
     return BinaryInternalError(f"binary failed with unrecognized {kind} {returncode} and no parseable error object")

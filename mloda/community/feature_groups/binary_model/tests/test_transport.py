@@ -26,6 +26,7 @@ from mloda.community.feature_groups.binary_model.errors import (
     BinaryUnavailableError,
     LicenseInvalidError,
     LicenseMissingError,
+    OutputContractError,
     UnsupportedError,
 )
 from mloda.community.feature_groups.binary_model.transport import (
@@ -173,6 +174,63 @@ class TestInvocationDirectory:
         with InvocationDirectory(parent=parent):
             assert parent.is_dir()
 
+    def test_parent_created_by_the_class_has_owner_only_mode(self, tmp_path: Path) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+        assert not parent.exists()
+        with InvocationDirectory(parent=parent):
+            assert stat.S_IMODE(parent.stat().st_mode) == 0o700
+
+    @pytest.mark.skipif(os.name != "posix", reason="asserts POSIX permission bits")
+    def test_group_or_world_writable_parent_is_refused(self, tmp_path: Path) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+        parent.mkdir(mode=0o777)
+        parent.chmod(0o777)
+        with pytest.raises(BinaryUnavailableError):
+            with InvocationDirectory(parent=parent):
+                pass
+
+    @pytest.mark.skipif(os.name != "posix", reason="asserts POSIX permission bits")
+    def test_owner_only_parent_is_accepted(self, tmp_path: Path) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+        parent.mkdir(mode=0o700)
+        parent.chmod(0o700)
+        with InvocationDirectory(parent=parent) as inv:
+            assert inv.path.is_dir()
+
+    @pytest.mark.skipif(os.name != "posix", reason="asserts POSIX ownership")
+    def test_parent_not_owned_by_the_current_user_is_refused_when_checkable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ownership can't be forged without root, so this simulates a foreign owner by wrapping
+        ``os.stat`` and reporting a different ``st_uid`` for the parent path only -- every other
+        call (including pytest's and pathlib's own bookkeeping) goes through unmodified."""
+        parent = tmp_path / TEMP_PARENT_NAME
+        parent.mkdir(mode=0o700)
+        real_stat = os.stat
+
+        def fake_stat(path: Any, *, dir_fd: Any = None, follow_symlinks: bool = True) -> os.stat_result:
+            result = real_stat(path, dir_fd=dir_fd, follow_symlinks=follow_symlinks)
+            if Path(os.fspath(path)) != parent:
+                return result
+            fields = list(result)
+            fields[stat.ST_UID] = result.st_uid + 1
+            return os.stat_result(fields)
+
+        monkeypatch.setattr(os, "stat", fake_stat)
+        with pytest.raises(BinaryUnavailableError):
+            with InvocationDirectory(parent=parent):
+                pass
+
+    def test_dead_pid_file_sibling_is_reaped_on_enter(self, tmp_path: Path) -> None:
+        """A sibling matching the ``<pid>-`` naming that is a regular FILE (not a directory) with a
+        dead pid must also be removed: ``shutil.rmtree`` alone cannot delete a plain file."""
+        parent = tmp_path / TEMP_PARENT_NAME
+        parent.mkdir(parents=True)
+        dead_sibling_file = parent / f"{_dead_child_pid()}-deadfile"
+        dead_sibling_file.write_text("stray file")
+        with InvocationDirectory(parent=parent):
+            assert not dead_sibling_file.exists()
+
     def test_removed_after_normal_exit(self, tmp_path: Path) -> None:
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             path = inv.path
@@ -252,7 +310,27 @@ class TestRunBinary:
         assert table.column("col_a_hash").to_pylist() == expected
         assert table.num_rows == 3
 
-    def test_file_transport_used_below_threshold(self, tmp_path: Path) -> None:
+    @pytest.mark.skipif(os.name != "posix", reason="asserts POSIX permission bits")
+    def test_config_json_has_owner_only_mode_after_run(self, tmp_path: Path) -> None:
+        schema = pa.schema([pa.field("col_a", pa.string())])
+        input_bytes = arrow_stream_bytes(schema, {"col_a": ["alpha"]})
+        env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": license_token_text("valid", [PLUGIN_ID])}
+        with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
+            run_binary(
+                STUB_CMD,
+                env,
+                _hash_config(),
+                input_bytes,
+                timeout=10.0,
+                file_transport_threshold=10_000_000,
+                invocation_dir=inv.path,
+            )
+            assert stat.S_IMODE((inv.path / "config.json").stat().st_mode) == 0o600
+
+    def test_file_transport_used_above_threshold(self, tmp_path: Path) -> None:
+        """Named for the actual condition: a threshold of 0 with non-empty input means
+        ``len(input_bytes) > file_transport_threshold``, the ABOVE-threshold path (file transport),
+        not below it."""
         schema = pa.schema([pa.field("col_a", pa.string())])
         rows = {"col_a": ["alpha", "beta"]}
         input_bytes = arrow_stream_bytes(schema, rows)
@@ -270,6 +348,29 @@ class TestRunBinary:
             assert (inv.path / "input.arrows").is_file()
             assert (inv.path / "output.arrows").is_file()
             assert (inv.path / "output.arrows").read_bytes() == output_bytes
+        table = read_arrow_stream(output_bytes)
+        expected = compute_expected_hash_column(rows, ["col_a"], None)
+        assert table.column("col_a_hash").to_pylist() == expected
+
+    def test_stdin_stdout_used_below_threshold_leaves_no_transport_files(self, tmp_path: Path) -> None:
+        """The counterpart of ``test_file_transport_used_above_threshold``: a threshold larger
+        than the input uses stdin/stdout and leaves no ``input.arrows``/``output.arrows`` behind."""
+        schema = pa.schema([pa.field("col_a", pa.string())])
+        rows = {"col_a": ["alpha", "beta"]}
+        input_bytes = arrow_stream_bytes(schema, rows)
+        env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": license_token_text("valid", [PLUGIN_ID])}
+        with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
+            output_bytes = run_binary(
+                STUB_CMD,
+                env,
+                _hash_config(),
+                input_bytes,
+                timeout=10.0,
+                file_transport_threshold=len(input_bytes) + 1,
+                invocation_dir=inv.path,
+            )
+            assert not (inv.path / "input.arrows").exists()
+            assert not (inv.path / "output.arrows").exists()
         table = read_arrow_stream(output_bytes)
         expected = compute_expected_hash_column(rows, ["col_a"], None)
         assert table.column("col_a_hash").to_pylist() == expected
@@ -431,3 +532,21 @@ class TestRunBinary:
                     file_transport_threshold=10_000_000,
                     invocation_dir=inv.path,
                 )
+
+    def test_exit_zero_without_writing_the_output_file_raises_output_contract_error(self, tmp_path: Path) -> None:
+        """A binary that exits 0 but writes no ``--output`` file must be reported as an output
+        contract violation, not an uncaught filesystem error, and the message must not leak the
+        (private, per-invocation) directory path (contract: Data, Data handling)."""
+        input_bytes = arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["alpha"]})
+        with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
+            with pytest.raises(OutputContractError) as excinfo:
+                run_binary(
+                    [*FAULTY_CMD, "--mode", "no_output_file"],
+                    {"PATH": os.defpath},
+                    _hash_config(),
+                    input_bytes,
+                    timeout=10.0,
+                    file_transport_threshold=0,
+                    invocation_dir=inv.path,
+                )
+        assert str(inv.path) not in excinfo.value.message

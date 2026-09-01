@@ -5,6 +5,7 @@ Data handling, Errors).
 
 from __future__ import annotations
 
+import datetime
 import logging
 import os
 import sys
@@ -49,6 +50,13 @@ ECHO_UTF8_CMD = [
     "--variant",
     "echo_utf8",
 ]
+BOOLEAN_OUTPUT_NOT_ADVERTISED_CMD = [
+    sys.executable,
+    "-m",
+    "mloda.community.feature_groups.binary_model.tests.mixin_fixtures",
+    "--variant",
+    "boolean_output_not_advertised",
+]
 PLUGIN_ID = "example_binary"
 FAULTY_PLUGIN_ID = "faulty_binary"
 
@@ -80,6 +88,11 @@ class RestrictedColumnsModel(BinaryModelMixin):
 class EchoUtf8Model(BinaryModelMixin):
     BINARY_PLUGIN_ID = "echo_utf8_binary"
     BINARY_COMMAND_OVERRIDE = ECHO_UTF8_CMD
+
+
+class BooleanOutputNotAdvertisedModel(BinaryModelMixin):
+    BINARY_PLUGIN_ID = "boolean_output_binary"
+    BINARY_COMMAND_OVERRIDE = BOOLEAN_OUTPUT_NOT_ADVERTISED_CMD
 
 
 def _faulty_model(mode: str, **class_attrs: Any) -> type[BinaryModelMixin]:
@@ -294,6 +307,19 @@ class TestProjectionAndMetadata:
         assert not (result.schema.metadata or {})
         assert not (result.schema.field("col_a_hash").metadata or {})
 
+    def test_build_outgoing_table_itself_strips_schema_and_field_metadata(self) -> None:
+        """Proven directly on the outgoing table the mixin builds to send, not only on the round-
+        tripped result: the stub always produces a fresh, metadata-free output schema regardless of
+        what was sent, so asserting on the result alone cannot prove the outgoing table itself was
+        stripped (contract: Data)."""
+        field = pa.field("col_a", pa.string(), metadata={b"field_meta": b"x"})
+        schema = pa.schema([field], metadata={b"pandas": b"x"})
+        table = pa.table({"col_a": ["alpha", "beta", "gamma"]}, schema=schema)
+        outgoing = mixin._build_outgoing_table(table, ["col_a"])
+        assert outgoing.schema.metadata is None
+        for outgoing_field in outgoing.schema:
+            assert outgoing_field.metadata is None
+
 
 # -------------------------------------------------------------------------------------------
 # 8. large_string / string_view input columns cast to utf8 before sending
@@ -355,6 +381,13 @@ class TestInvocationDirectoryCleanup:
             model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
         assert _mloda_binary_children_for_current_pid() == []
 
+    def test_directory_is_gone_after_a_timeout(self) -> None:
+        model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(BinaryTerminatedError):
+            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert _mloda_binary_children_for_current_pid() == []
+
 
 # -------------------------------------------------------------------------------------------
 # 11. Output verification on exit 0
@@ -388,17 +421,39 @@ class TestOutputVerification:
         with pytest.raises(OutputContractError):
             model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "result_out"})
 
-    def test_missing_end_of_stream_marker_is_tolerated_or_reported_as_output_contract_error(self) -> None:
-        """pyarrow's own reader may still parse a stream missing the end-of-stream marker: this
-        asserts the mixin either succeeds with correct rows or raises ``OutputContractError``, per
-        the brief -- documented rather than a strict single expectation."""
+    def test_missing_end_of_stream_marker_is_tolerated_and_succeeds_with_correct_rows(self) -> None:
+        """pyarrow's own reader tolerates a stream missing the end-of-stream marker, so this is
+        deterministic, not an either-or: the run succeeds with the correct rows."""
         model = _faulty_model("missing_eos")
         table = pa.table({"col_a": ["alpha"]})
-        try:
-            result = model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "result_out"})
-        except OutputContractError:
-            return
+        result = model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "result_out"})
         assert result.column("result_out").to_pylist() == [0]
+
+    def test_duplicate_output_field_names_raises_output_contract_error(self) -> None:
+        """A valid stream whose schema carries the written output name twice must be rejected: the
+        column-name-SET check alone (``{name, name} == {name}``) cannot see the duplicate
+        (contract: Data)."""
+        model = _faulty_model("duplicate_output_names")
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(OutputContractError):
+            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "result_out"})
+
+    def test_exit_zero_without_writing_the_output_file_raises_output_contract_error(self) -> None:
+        """A binary that exits 0 but writes no ``--output`` file must be reported as an output
+        contract violation, not an uncaught filesystem error (contract: Data, Data handling)."""
+        model = _faulty_model("no_output_file", FILE_TRANSPORT_THRESHOLD_BYTES=0)
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(OutputContractError):
+            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "result_out"})
+
+    def test_output_type_absent_from_this_binarys_own_column_types_raises_output_contract_error(self) -> None:
+        """``BooleanOutputNotAdvertisedModel``'s own ``capabilities.column_types`` omits
+        ``"boolean"`` even though it is in the contract's full vocabulary: the output must be
+        checked against the binary's OWN advertised ``column_types``, not only the contract-wide
+        vocabulary (contract: Capabilities)."""
+        table = pa.table({"col_a": [1, 2, 3]})
+        with pytest.raises(OutputContractError):
+            BooleanOutputNotAdvertisedModel.run_binary_model(table, ["col_a"], "flag", {}, {"result": "flag_out"})
 
 
 # -------------------------------------------------------------------------------------------
@@ -598,3 +653,122 @@ class TestLogging:
         assert not any(distinctive_parameter_value in message for message in messages), (
             f"secret leaked into logs: {messages!r}"
         )
+
+
+# -------------------------------------------------------------------------------------------
+# 17. Up-front input validation, all before any process spawn
+# -------------------------------------------------------------------------------------------
+
+
+class TestUpFrontValidationBeforeAnySpawn:
+    """Every rejection below must be raised before the binary is ever spawned: run against a
+    ``hang``-mode ``FaultyModel`` with a short timeout, so an accidental spawn surfaces as
+    ``BinaryTerminatedError`` (or, when the crash happens even earlier, some other non-
+    ``BinaryUsageError`` exception) instead of the expected up-front ``BinaryUsageError``
+    (contract: Errors, check order)."""
+
+    def test_parameters_that_is_not_a_mapping_raises_usage_error(self) -> None:
+        model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
+        table = pa.table({"col_a": ["alpha"]})
+        not_a_mapping = cast(Any, [("key", "v")])
+        with pytest.raises(BinaryUsageError):
+            model.run_binary_model(table, ["col_a"], "hash", not_a_mapping, {"result": "col_a_hash"})
+
+    def test_non_json_serializable_parameter_value_names_the_key_never_the_value(self) -> None:
+        model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
+        table = pa.table({"col_a": ["alpha"]})
+        value = datetime.datetime(2024, 1, 1, 12, 30, 45)
+        with pytest.raises(BinaryUsageError) as excinfo:
+            model.run_binary_model(table, ["col_a"], "hash", {"key": value}, {"result": "col_a_hash"})
+        assert "key" in excinfo.value.message
+        assert repr(value) not in excinfo.value.message
+        assert str(value) not in excinfo.value.message
+
+    def test_empty_output_columns_raises_usage_error(self) -> None:
+        model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(BinaryUsageError):
+            model.run_binary_model(table, ["col_a"], "hash", {}, {})
+
+    def test_non_str_output_columns_key_raises_usage_error(self) -> None:
+        model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
+        table = pa.table({"col_a": ["alpha"]})
+        bad_output_columns = cast(Any, {1: "col_a_hash"})
+        with pytest.raises(BinaryUsageError):
+            model.run_binary_model(table, ["col_a"], "hash", {}, bad_output_columns)
+
+    def test_non_str_output_columns_value_raises_usage_error(self) -> None:
+        model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
+        table = pa.table({"col_a": ["alpha"]})
+        bad_output_columns = cast(Any, {"result": 2})
+        with pytest.raises(BinaryUsageError):
+            model.run_binary_model(table, ["col_a"], "hash", {}, bad_output_columns)
+
+    def test_duplicate_column_names_in_the_caller_table_raises_usage_error(self) -> None:
+        model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
+        table = pa.Table.from_arrays([pa.array([1, 2]), pa.array([3, 4])], names=["dup", "dup"])
+        with pytest.raises(BinaryUsageError):
+            model.run_binary_model(table, ["dup"], "hash", {}, {"result": "dup_hash"})
+
+
+# -------------------------------------------------------------------------------------------
+# 18. _write_ipc_stream batching: no batch exceeds max_batch_bytes unless it holds a single row
+# -------------------------------------------------------------------------------------------
+
+
+class TestWriteIpcStreamBatching:
+    def test_skewed_table_never_writes_a_multi_row_batch_over_the_limit(self) -> None:
+        """1000 one-character strings plus two 1000-byte strings: the mean-bytes-per-row estimate
+        badly underestimates the cost of a batch that happens to include an outlier row, so a
+        purely mean-based split can produce a multi-row batch far over ``max_batch_bytes``."""
+        values = ["a"] * 1000 + ["b" * 1000, "c" * 1000]
+        table = pa.table({"col_a": values})
+        max_batch_bytes = 1000
+        data = mixin._write_ipc_stream(table, max_batch_bytes)
+        reader = pa.ipc.open_stream(data)
+        total_rows = 0
+        for batch in reader:
+            total_rows += batch.num_rows
+            if batch.num_rows > 1:
+                assert batch.nbytes <= max_batch_bytes, (
+                    f"batch of {batch.num_rows} rows is {batch.nbytes} bytes, over the {max_batch_bytes} limit"
+                )
+        assert total_rows == table.num_rows
+
+    def test_zero_row_table_writes_no_batch(self) -> None:
+        table = pa.table({"col_a": pa.array([], type=pa.string())})
+        data = mixin._write_ipc_stream(table, 1000)
+        batches = list(pa.ipc.open_stream(data))
+        assert batches == []
+
+    def test_every_row_over_the_limit_gets_its_own_batch(self) -> None:
+        values = ["x" * 2000] * 5
+        table = pa.table({"col_a": values})
+        data = mixin._write_ipc_stream(table, 1000)
+        batches = list(pa.ipc.open_stream(data))
+        assert len(batches) == 5
+        assert all(batch.num_rows == 1 for batch in batches)
+        assert sum(batch.num_rows for batch in batches) == table.num_rows
+
+
+# -------------------------------------------------------------------------------------------
+# 19. Probing must never receive the license
+# -------------------------------------------------------------------------------------------
+
+
+class TestProbingNeverReceivesTheLicense:
+    def test_probe_rejecting_a_present_license_still_resolves_and_completes_a_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``faulty_binary``'s ``reject_license_at_probe`` mode fails ``--version``/
+        ``--capabilities`` whenever a license environment variable is present, and behaves like
+        ``ok`` on ``run``. A license override set on the class must not leak into the environment
+        used to probe (contract: License, Invocation)."""
+        monkeypatch.delenv("MLODA_LICENSE_FILE", raising=False)
+        monkeypatch.delenv("MLODA_LICENSE_KEY", raising=False)
+        model = _faulty_model(
+            "reject_license_at_probe", LICENSE_KEY_OVERRIDE=license_token_text("valid", [FAULTY_PLUGIN_ID])
+        )
+        table = pa.table({"col_a": ["alpha"]})
+        result = model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+        assert result.num_rows == 1

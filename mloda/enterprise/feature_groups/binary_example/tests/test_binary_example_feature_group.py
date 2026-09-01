@@ -14,19 +14,23 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
-from mloda.provider import ApiInputDataFeature, FeatureSet, PropertySpec
+from mloda.provider import ApiInputDataFeature, FeatureSet, PropertySpec, property_spec
 from mloda.user import Feature, FeatureName, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.binary_model.binary import clear_capability_cache
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError, LicenseMissingError
-from mloda.enterprise.feature_groups.binary_example import BinaryExampleFeatureGroup
 from mloda.enterprise.feature_groups.binary_example import manifest as binary_example_manifest
+from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
 from mloda.testing.base import FeatureGroupTestBase
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
 from mloda.testing.binary_model.license_vectors import license_token_text
+from mloda.testing.tests._second_fake_binary import OPERATION as SECOND_BINARY_OPERATION
+from mloda.testing.tests._second_fake_binary import OUTPUT_KEY as SECOND_BINARY_OUTPUT_KEY
+from mloda.testing.tests._second_fake_binary import PLUGIN_ID as SECOND_BINARY_PLUGIN_ID
 
 STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
+SECOND_BINARY_CMD = [sys.executable, "-m", "mloda.testing.tests._second_fake_binary"]
 VALID_LICENSE_KEY = license_token_text("valid", ["example_binary"])
 
 
@@ -162,6 +166,14 @@ class TestMatchFeatureGroupCriteria:
         )
         assert not BinaryExampleFeatureGroup.match_feature_group_criteria("hashed", options)
 
+    def test_rejects_when_the_feature_name_is_one_of_its_own_input_columns(self) -> None:
+        """mloda forwards GROUP options to a feature group's own ``input_features`` (contract:
+        Options), so the group must never claim a feature named after one of its own configured
+        ``binary_input_columns`` -- otherwise ``col_a`` itself would ambiguously match both the
+        input-providing feature group and this one."""
+        options = Options(context={"binary_operation": "hash", "binary_input_columns": ["col_a", "col_b"]})
+        assert not BinaryExampleFeatureGroup.match_feature_group_criteria("col_a", options)
+
 
 class TestInputFeatures:
     def test_returns_features_named_after_the_configured_columns(self) -> None:
@@ -235,6 +247,35 @@ class TestCalculateFeature:
 
         assert result.column("hash_a").to_pylist() == compute_expected_hash_column(rows, ["col_a"], None)
         assert result.column("hash_b").to_pylist() == compute_expected_hash_column(rows, ["col_b"], None)
+
+
+class TestCalculateFeatureReadsOperationFromOptions:
+    """``calculate_feature`` must read the operation to run from the ``binary_operation`` option
+    instead of hardcoding ``"hash"`` (contract: Configuration), so a subclass targeting a
+    differently-shaped binary can run its own operation."""
+
+    def test_requesting_a_non_hash_operation_runs_it_and_matches_the_reference_algorithm(self) -> None:
+        class FrobnicateExample(BinaryExampleFeatureGroup):
+            BINARY_PLUGIN_ID = SECOND_BINARY_PLUGIN_ID
+            BINARY_COMMAND_OVERRIDE = SECOND_BINARY_CMD
+            LICENSE_KEY_OVERRIDE = license_token_text("valid", [SECOND_BINARY_PLUGIN_ID])
+            OUTPUT_KEY = SECOND_BINARY_OUTPUT_KEY
+            PROPERTY_MAPPING = {
+                **BinaryExampleFeatureGroup.PROPERTY_MAPPING,
+                BinaryExampleFeatureGroup.OPERATION: property_spec(
+                    "Operation the binary runs",
+                    strict=True,
+                    allowed_values={"hash": "Keyed hash", SECOND_BINARY_OPERATION: "Frobnicate"},
+                ),
+            }
+
+        rows: dict[str, list[Any]] = {"col_a": ["alpha", "beta"]}
+        table = pa.table(rows)
+        context = {"binary_operation": SECOND_BINARY_OPERATION, "binary_input_columns": ["col_a"]}
+        feature = Feature("frobnicated", Options(context=context))
+        result = FrobnicateExample.calculate_feature(table, _feature_set(feature))
+        expected = compute_expected_hash_column(rows, ["col_a"], None)
+        assert result.column("frobnicated").to_pylist() == expected
 
 
 class TestCalculateFeatureRejections:
@@ -316,3 +357,27 @@ class TestIntegration:
                     {ApiInputDataFeature, BinaryExampleFeatureGroup}
                 ),
             )
+
+    def test_single_hashed_feature_end_to_end_with_group_options(self) -> None:
+        """Same request as ``test_single_hashed_feature_end_to_end``, but the options are passed as
+        GROUP options instead of context options: mloda forwards group options to the input
+        features it resolves (here, ``col_a``/``col_b``), so unless the group refuses to claim its
+        own inputs (contract: Options), this ambiguously resolves both ``ApiInputDataFeature`` and
+        ``StubExample`` for ``col_a``/``col_b`` and fails with a multiple-feature-groups error."""
+        rows: dict[str, list[Any]] = {"col_a": ["alpha", "beta", "gamma"], "col_b": ["x", "y", "z"]}
+        feature = Feature(
+            "hashed", Options(group={"binary_operation": "hash", "binary_input_columns": ["col_a", "col_b"]})
+        )
+        results = mloda.run_all(
+            [feature],
+            compute_frameworks={PyArrowTable},
+            api_data={"BinaryExampleData": rows},
+            plugin_collector=PluginCollector.enabled_feature_groups({ApiInputDataFeature, StubExample}),
+        )
+        expected = compute_expected_hash_column(rows, ["col_a", "col_b"], None)
+        found = False
+        for table in results:
+            if isinstance(table, pa.Table) and "hashed" in table.column_names:
+                assert table.column("hashed").to_pylist() == expected
+                found = True
+        assert found, "hashed column not found in any result table"

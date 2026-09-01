@@ -8,8 +8,14 @@ from __future__ import annotations
 
 from mloda.provider import FeatureGroup
 
-from .binary_example_feature_group import BinaryExampleFeatureGroup
+FEATURE_GROUPS: list[type[FeatureGroup]]
 
-FEATURE_GROUPS: list[type[FeatureGroup]] = [
-    BinaryExampleFeatureGroup,
-]
+try:
+    from .binary_example_feature_group import BinaryExampleFeatureGroup
+except ModuleNotFoundError as exc:
+    if (exc.name or "").split(".")[0] == "pyarrow":
+        FEATURE_GROUPS = []
+    else:
+        raise
+else:
+    FEATURE_GROUPS = [BinaryExampleFeatureGroup]

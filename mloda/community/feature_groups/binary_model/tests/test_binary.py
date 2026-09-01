@@ -157,3 +157,36 @@ class TestCapabilityCache:
         with pytest.raises(BinaryUnavailableError):
             binary.resolve_binary(PLUGIN_ID, [*STUB_CMD, "--mode", "unused"], env={"PATH": os.defpath}, timeout=10.0)
         assert counter.count > warm_calls
+
+    def test_different_plugin_id_with_the_same_argv_is_a_different_cache_key(self) -> None:
+        """Warming the cache under one ``plugin_id`` must not let a second, unrelated
+        ``plugin_id`` resolve the very same argv from that cache entry without being re-probed and
+        checked against its own reported ``plugin_id`` (contract: Capabilities, Identifier)."""
+        binary.resolve_binary(PLUGIN_ID, STUB_CMD, env={"PATH": os.defpath}, timeout=10.0)
+        with pytest.raises(BinaryUnavailableError):
+            binary.resolve_binary("other_binary", STUB_CMD, env={"PATH": os.defpath}, timeout=10.0)
+
+
+class TestBareOverrideLookupOnlyViaWhich:
+    """A bare override name (no path separator) must be looked up only through ``shutil.which``,
+    never treated as a path relative to the current directory (contract: Platform naming)."""
+
+    def test_non_executable_file_in_the_current_directory_is_not_used(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        not_executable = tmp_path / PLUGIN_ID
+        not_executable.write_text("not a script")
+        not_executable.chmod(0o600)
+        with pytest.raises(BinaryUnavailableError):
+            binary.resolve_binary(PLUGIN_ID, PLUGIN_ID, env={"PATH": os.defpath}, timeout=10.0)
+
+    def test_executable_wrapper_script_in_the_current_directory_is_not_used(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        wrapper = tmp_path / PLUGIN_ID
+        wrapper.write_text(f'#!/bin/sh\nexec {sys.executable} -m mloda.testing.binary_model.simulated_binary "$@"\n')
+        wrapper.chmod(0o700)
+        with pytest.raises(BinaryUnavailableError):
+            binary.resolve_binary(PLUGIN_ID, PLUGIN_ID, env={"PATH": os.defpath}, timeout=10.0)

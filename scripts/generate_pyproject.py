@@ -254,7 +254,7 @@ def generate_pyproject(
 
     # Optional dependencies - merge defaults with package-specific
     # Skip defaults for specific packages
-    skip_defaults = pkg_name in ("mloda-testing", "mloda-community", "mloda-enterprise")
+    skip_defaults = pkg_name in NO_DEFAULT_DEV_DEPS
     default_opt_deps = {} if skip_defaults else defaults.get("optional_dependencies", {})
     pkg_opt_deps = expand_published_children(pkg_config, all_packages)
     merged_opt_deps = {**default_opt_deps, **pkg_opt_deps}

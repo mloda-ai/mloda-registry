@@ -132,3 +132,20 @@ def test_error_from_exit_never_raises_on_non_utf8_stderr() -> None:
     exc = error_from_exit(5, b"\xff\xfe not valid utf-8 \x00")
     assert isinstance(exc, BinaryInternalError)
     assert exc.code == 6
+
+
+def test_error_from_exit_truncates_a_long_message_on_a_utf8_character_boundary() -> None:
+    """A ``message`` longer than 1024 UTF-8 bytes is truncated to at most 1024 bytes, cutting only
+    on a character boundary (contract: Data handling). The snowman character is 3 bytes in UTF-8,
+    so a naive ``bytes[:1024]`` slice lands mid-character and fails to decode -- proving the cut
+    respected UTF-8 boundaries, not raw byte count."""
+    long_message = "☃" * 500  # 1500 bytes in UTF-8
+    with pytest.raises(UnicodeDecodeError):
+        long_message.encode("utf-8")[:1024].decode("utf-8")
+
+    exc = error_from_exit(5, _stderr_line(5, long_message))
+
+    encoded = exc.message.encode("utf-8")
+    assert len(encoded) <= 1024
+    assert len(exc.message) > 0
+    assert exc.message != long_message

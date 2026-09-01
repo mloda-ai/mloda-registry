@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 CONTRACT_VERSION = 1
 COLUMN_TYPE_VOCABULARY = frozenset({"int64", "float64", "utf8", "boolean"})
 
-_CacheKey = tuple[tuple[str, ...], int, int]
+_CacheKey = tuple[str, tuple[str, ...], int, int]
 
 
 @dataclass(frozen=True)
@@ -55,7 +55,7 @@ def _resolve_executable_path(candidate: str) -> Path:
     symlink-following resolve: a symlinked interpreter (a venv's own launcher, used as a test
     stand-in binary) must stay invocable as the symlink, since dereferencing it would drop the
     venv context that makes it resolvable at all."""
-    if os.sep in candidate or (os.altsep is not None and os.altsep in candidate) or Path(candidate).exists():
+    if os.sep in candidate or (os.altsep is not None and os.altsep in candidate):
         resolved = Path(os.path.abspath(candidate))
     else:
         found = shutil.which(candidate)
@@ -184,15 +184,17 @@ def resolve_binary(
     argv = [str(resolved_path), *argv[1:]]
 
     stat_result = resolved_path.stat()
-    cache_key: _CacheKey = (tuple(argv), stat_result.st_size, stat_result.st_mtime_ns)
+    cache_key: _CacheKey = (plugin_id, tuple(argv), stat_result.st_size, stat_result.st_mtime_ns)
     cached = _capability_cache.get(cache_key)
     if cached is not None:
         return ResolvedBinary(argv=tuple(argv), capabilities=cached)
 
-    version_stdout = _run_probe(argv, "--version", env, timeout)
+    probe_env = {key: value for key, value in env.items() if key not in ("MLODA_LICENSE_FILE", "MLODA_LICENSE_KEY")}
+
+    version_stdout = _run_probe(argv, "--version", probe_env, timeout)
     version = _parse_version(argv, plugin_id, version_stdout)
 
-    capabilities_stdout = _run_probe(argv, "--capabilities", env, timeout)
+    capabilities_stdout = _run_probe(argv, "--capabilities", probe_env, timeout)
     capabilities = _parse_capabilities(argv, plugin_id, capabilities_stdout)
     capabilities = BinaryCapabilities(
         contract=capabilities.contract,

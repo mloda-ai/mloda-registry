@@ -21,6 +21,8 @@ from typing import Any
 from mloda.community.feature_groups.binary_model.errors import (
     BinaryTerminatedError,
     BinaryUnavailableError,
+    BinaryUsageError,
+    OutputContractError,
     error_from_exit,
 )
 
@@ -66,10 +68,8 @@ def minimal_environment(
 def pid_is_alive(pid: int) -> bool:
     """Whether ``pid`` names a live process (contract: Data handling, orphan detection)."""
     if os.name == "nt":
-        try:
-            os.kill(pid, 0)
-        except OSError:
-            return False
+        # os.kill on Windows terminates the target process rather than merely signalling it, so a
+        # liveness check must never call it there; report conservatively alive to never reap.
         return True
     try:
         os.kill(pid, 0)
@@ -89,10 +89,9 @@ class InvocationDirectory:
         self.path: Path
 
     def __enter__(self) -> InvocationDirectory:
-        created_parent = not self.parent.exists()
-        self.parent.mkdir(parents=True, exist_ok=True)
-        if created_parent:
-            self.parent.chmod(0o700)
+        self.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if os.name != "nt":
+            self._validate_parent()
 
         self._reap_dead_siblings()
 
@@ -102,6 +101,19 @@ class InvocationDirectory:
         path.chmod(0o700)
         self.path = path
         return self
+
+    def _validate_parent(self) -> None:
+        """Refuse a parent not owned by the current user, world-writable, or writable by a group
+        other than the current process's own (contract: Data handling): a directory shared with
+        the process's own group, the common user-private-group scheme, is not a foreign-write
+        risk, but world-writable or a foreign group is."""
+        stat_result = self.parent.stat()
+        if stat_result.st_uid != os.getuid():
+            raise BinaryUnavailableError(f"refusing to use {self.parent}: not owned by the current user")
+        if stat_result.st_mode & 0o002:
+            raise BinaryUnavailableError(f"refusing to use {self.parent}: world writable")
+        if stat_result.st_mode & 0o020 and stat_result.st_gid != os.getgid():
+            raise BinaryUnavailableError(f"refusing to use {self.parent}: writable by a group other than our own")
 
     def __exit__(
         self,
@@ -123,10 +135,28 @@ class InvocationDirectory:
             pid = int(match.group(1))
             if pid_is_alive(pid):
                 continue
-            try:
+            if entry.is_dir():
                 shutil.rmtree(entry, ignore_errors=True)
-            except OSError:
-                continue
+            else:
+                try:
+                    os.unlink(entry)
+                except OSError:
+                    continue
+
+
+def _find_offending_parameter_key(config: Mapping[str, Any]) -> str | None:
+    """The key of the first ``parameters`` entry that is not JSON-serializable, found by
+    serializing each entry one by one so the offending value itself is never included in a message
+    (contract: Data handling)."""
+    parameters = config.get("parameters")
+    if not isinstance(parameters, Mapping):
+        return None
+    for key, value in parameters.items():
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError):
+            return str(key)
+    return None
 
 
 def run_binary(
@@ -142,7 +172,17 @@ def run_binary(
     """Run one ``run --config <path>`` invocation, choosing stdin/stdout or file transport based
     on ``input_bytes`` size, and returning the output bytes (contract: Invocation, Data)."""
     config_path = invocation_dir / "config.json"
-    config_path.write_text(json.dumps(dict(config)), encoding="utf-8")
+    try:
+        payload = json.dumps(dict(config))
+    except (TypeError, ValueError) as exc:
+        offending_key = _find_offending_parameter_key(config)
+        if offending_key is not None:
+            raise BinaryUsageError(f"parameter {offending_key!r} is not JSON-serializable") from exc
+        raise BinaryUsageError(f"config contains a value that is not JSON-serializable: {exc}") from exc
+
+    fd = os.open(str(config_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(payload)
 
     args = ["run", "--config", str(config_path)]
     output_path: Path | None = None
@@ -184,5 +224,8 @@ def run_binary(
         raise error_from_exit(proc.returncode, stderr)
 
     if output_path is not None:
-        return output_path.read_bytes()
+        try:
+            return output_path.read_bytes()
+        except OSError as exc:
+            raise OutputContractError("binary exited 0 but wrote no --output file") from exc
     return stdout

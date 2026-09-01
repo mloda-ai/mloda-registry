@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import json
 import re
+import subprocess  # nosec
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -162,3 +164,82 @@ class TestBinaryPluginIdInvariants:
         assert licensed, "expected at least one licensed plugin class"
         for cls in licensed:
             assert _PLUGIN_ID_PATTERN.match(cls.BINARY_PLUGIN_ID), cls.BINARY_PLUGIN_ID
+
+
+# -------------------------------------------------------------------------------------------
+# Every enterprise manifest must import with pyarrow unavailable, and a pyarrow-backed package's
+# FEATURE_GROUPS must degrade to an empty list rather than fail the import outright.
+# -------------------------------------------------------------------------------------------
+
+_PROBE_SCRIPT_TEMPLATE = """
+import importlib
+import json
+import sys
+
+# Makes `import pyarrow` raise ModuleNotFoundError(name="pyarrow"), simulating an environment
+# where the optional pyarrow dependency is not installed.
+sys.modules["pyarrow"] = None
+
+dotted_paths = {dotted_paths_json}
+results = {{}}
+for dotted in dotted_paths:
+    entry = {{"root_import_ok": False, "manifest_import_ok": False, "feature_groups_len": None, "error": None}}
+    try:
+        importlib.import_module(dotted)
+        entry["root_import_ok"] = True
+    except Exception as exc:
+        entry["error"] = "root: " + type(exc).__name__ + ": " + str(exc)
+        results[dotted] = entry
+        continue
+    try:
+        manifest = importlib.import_module(dotted + ".manifest")
+        entry["manifest_import_ok"] = True
+        entry["feature_groups_len"] = len(getattr(manifest, "FEATURE_GROUPS", []))
+    except Exception as exc:
+        entry["error"] = "manifest: " + type(exc).__name__ + ": " + str(exc)
+    results[dotted] = entry
+
+print(json.dumps(results))
+"""
+
+
+def _run_pyarrow_unavailable_probe(dotted_paths: list[str]) -> dict[str, Any]:
+    script = _PROBE_SCRIPT_TEMPLATE.format(dotted_paths_json=json.dumps(dotted_paths))
+    completed = subprocess.run(  # nosec B603
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=60
+    )
+    assert completed.returncode == 0, f"probe subprocess failed: {completed.stderr}"
+    result: dict[str, Any] = json.loads(completed.stdout)
+    return result
+
+
+class TestEveryEnterpriseManifestImportsWithoutPyarrow:
+    def test_every_manifest_imports_with_pyarrow_unavailable(self) -> None:
+        packages = _enterprise_plugin_packages()
+        assert packages, "expected at least one enterprise plugin package"
+        dotted_paths = [cfg["path"].replace("/", ".") for _name, cfg in packages]
+        summary = _run_pyarrow_unavailable_probe(dotted_paths)
+        for dotted in dotted_paths:
+            entry = summary[dotted]
+            assert entry["root_import_ok"], f"{dotted}: {entry['error']}"
+            assert entry["manifest_import_ok"], f"{dotted}: {entry['error']}"
+
+    def test_pyarrow_backed_feature_groups_is_empty_without_pyarrow(self) -> None:
+        """``binary_example`` declares pyarrow as an optional dependency (contract:
+        Configuration): its ``FEATURE_GROUPS`` must degrade to an empty list rather than fail the
+        manifest import outright when pyarrow is unavailable."""
+        dotted = "mloda.enterprise.feature_groups.binary_example"
+        summary = _run_pyarrow_unavailable_probe([dotted])
+        assert summary[dotted]["feature_groups_len"] == 0
+
+    def test_pyarrow_backed_feature_groups_is_non_empty_in_the_normal_environment(self) -> None:
+        manifest = importlib.import_module("mloda.enterprise.feature_groups.binary_example.manifest")
+        assert len(manifest.FEATURE_GROUPS) > 0
+
+    def test_package_root_does_not_re_export_the_feature_group_class(self) -> None:
+        """The package root must not import the pyarrow-backed class eagerly (contract:
+        Configuration): otherwise merely importing the package -- which
+        ``importlib.import_module(dotted + ".manifest")`` does implicitly -- would import pyarrow
+        even when the manifest itself degrades gracefully."""
+        root = importlib.import_module("mloda.enterprise.feature_groups.binary_example")
+        assert not hasattr(root, "BinaryExampleFeatureGroup")

@@ -54,6 +54,24 @@ def _classify_column_type(arrow_type: pa.DataType) -> str | None:
     return name if name in COLUMN_TYPE_VOCABULARY else None
 
 
+def _assert_parameters_mapping(parameters: Any) -> None:
+    if not isinstance(parameters, Mapping) or not all(isinstance(key, str) for key in parameters):
+        raise BinaryUsageError("parameters must be a mapping with str keys")
+
+
+def _assert_output_columns_shape(output_columns: Any) -> None:
+    if not isinstance(output_columns, Mapping) or not output_columns:
+        raise BinaryUsageError("output_columns must be a non-empty mapping of str to str")
+    for key, value in output_columns.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise BinaryUsageError("output_columns must be a non-empty mapping of str to str")
+
+
+def _assert_no_duplicate_table_columns(table: pa.Table) -> None:
+    if len(set(table.column_names)) != len(table.column_names):
+        raise BinaryUsageError(f"table must not contain duplicate column names: {table.column_names}")
+
+
 def _assert_input_columns(input_columns: Sequence[str], table: pa.Table) -> None:
     if not input_columns:
         raise BinaryUsageError("input_columns must name at least one column")
@@ -111,6 +129,19 @@ def _rows_per_batch(table: pa.Table, max_batch_bytes: int) -> int:
     return max(1, max_batch_bytes // bytes_per_row)
 
 
+def _split_oversized_batch(batch: pa.RecordBatch, max_batch_bytes: int) -> list[pa.RecordBatch]:
+    """Halve ``batch`` by rows, recursively, until every piece fits in ``max_batch_bytes`` or holds
+    a single row (contract: Capabilities): the mean-based estimate in ``_rows_per_batch`` can badly
+    underestimate a batch containing an outlier row, so this is the backstop that actually
+    guarantees the limit."""
+    if batch.num_rows <= 1 or batch.nbytes <= max_batch_bytes:
+        return [batch]
+    midpoint = batch.num_rows // 2
+    left = batch.slice(0, midpoint)
+    right = batch.slice(midpoint)
+    return _split_oversized_batch(left, max_batch_bytes) + _split_oversized_batch(right, max_batch_bytes)
+
+
 def _write_ipc_stream(table: pa.Table, max_batch_bytes: int) -> bytes:
     """Write ``table`` to Arrow IPC stream bytes, batched small enough that no single array exceeds
     ``max_batch_bytes`` (contract: Capabilities); a zero-row table writes no batch."""
@@ -118,7 +149,8 @@ def _write_ipc_stream(table: pa.Table, max_batch_bytes: int) -> bytes:
     buffer = io.BytesIO()
     with pa.ipc.new_stream(buffer, table.schema) as writer:
         for batch in table.to_batches(max_chunksize=rows_per_batch):
-            writer.write_batch(batch)
+            for piece in _split_oversized_batch(batch, max_batch_bytes):
+                writer.write_batch(piece)
     return buffer.getvalue()
 
 
@@ -129,9 +161,14 @@ def _parse_output_stream(data: bytes) -> pa.Table:
         raise OutputContractError(f"binary output is not a valid Arrow IPC stream: {exc}") from exc
 
 
-def _verify_output_contract(result: pa.Table, output_columns: Mapping[str, str], expected_rows: int) -> None:
-    """Verify the binary's output against the contract (contract: Data): the column-name set, every
-    type in the vocabulary, and the row count, each reported by name only, never by value."""
+def _verify_output_contract(
+    result: pa.Table, output_columns: Mapping[str, str], expected_rows: int, column_types: frozenset[str]
+) -> None:
+    """Verify the binary's output against the contract (contract: Data): no duplicate field names,
+    the column-name set, every type in this binary's own advertised ``column_types``, and the row
+    count, each reported by name only, never by value."""
+    if len(result.column_names) != len(set(result.column_names)):
+        raise OutputContractError(f"binary output contains duplicate column names: {result.column_names}")
     expected_names = set(output_columns.values())
     actual_names = set(result.column_names)
     if actual_names != expected_names:
@@ -139,7 +176,8 @@ def _verify_output_contract(result: pa.Table, output_columns: Mapping[str, str],
             f"binary output column names {sorted(actual_names)} do not match expected {sorted(expected_names)}"
         )
     for field in result.schema:
-        if _classify_column_type(field.type) is None:
+        vocabulary_name = _classify_column_type(field.type)
+        if vocabulary_name is None or vocabulary_name not in column_types:
             raise OutputContractError(f"binary output column {field.name!r} has an unsupported type: {field.type!r}")
     if result.num_rows != expected_rows:
         raise OutputContractError(
@@ -208,6 +246,9 @@ class BinaryModelMixin:
         """Run ``operation`` on ``table`` through the resolved binary, returning a table of only the
         output columns, row-aligned to ``table`` (contract: Data, Configuration, Errors)."""
         resolved = cls.resolved_binary()
+        _assert_parameters_mapping(parameters)
+        _assert_output_columns_shape(output_columns)
+        _assert_no_duplicate_table_columns(table)
         _assert_input_columns(input_columns, table)
         _assert_output_columns(output_columns, table)
         if operation not in resolved.capabilities.operations:
@@ -250,5 +291,5 @@ class BinaryModelMixin:
         )
 
         result = _parse_output_stream(output_bytes)
-        _verify_output_contract(result, output_columns, table.num_rows)
+        _verify_output_contract(result, output_columns, table.num_rows, resolved.capabilities.column_types)
         return _finalize_output(result, table)

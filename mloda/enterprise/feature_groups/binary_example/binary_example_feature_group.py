@@ -64,10 +64,13 @@ class BinaryExampleFeatureGroup(BinaryModelMixin, FeatureGroup):
             return False
         if options.get(cls.OPERATION) != "hash":
             return False
-        if not _is_column_list(options.get(cls.INPUT_COLUMNS)):
+        input_columns = options.get(cls.INPUT_COLUMNS)
+        if not _is_column_list(input_columns):
             return False
         parameters = options.get(cls.PARAMETERS)
         if parameters is not None and not _is_parameters_mapping(parameters):
+            return False
+        if str(feature_name) in input_columns:
             return False
         return True
 
@@ -76,6 +79,7 @@ class BinaryExampleFeatureGroup(BinaryModelMixin, FeatureGroup):
         for feature in features.features:
             columns: Sequence[str] = feature.options.get(cls.INPUT_COLUMNS)
             parameters: Mapping[str, Any] = feature.options.get(cls.PARAMETERS) or {}
-            result = cls.run_binary_model(data, columns, "hash", parameters, {cls.OUTPUT_KEY: feature.name})
+            operation = feature.options.get(cls.OPERATION)
+            result = cls.run_binary_model(data, columns, operation, parameters, {cls.OUTPUT_KEY: feature.name})
             data = data.append_column(feature.name, result.column(feature.name))
         return data

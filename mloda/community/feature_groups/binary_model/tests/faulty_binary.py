@@ -28,7 +28,15 @@ def _emit_error(code: int, message: str) -> int:
     return code
 
 
+def _license_env_present() -> bool:
+    """Whether either license environment variable is set (contract: License), used by
+    ``reject_license_at_probe`` to prove probing never receives the license."""
+    return bool(os.environ.get("MLODA_LICENSE_FILE") or os.environ.get("MLODA_LICENSE_KEY"))
+
+
 def _version(mode: str) -> int:
+    if mode == "reject_license_at_probe" and _license_env_present():
+        return _emit_error(1, "probing must not receive a license (simulated by faulty_binary reject_license_at_probe)")
     print(f"{PLUGIN_ID} {VERSION}")
     if mode == "version_two_lines":
         print("unexpected second line")
@@ -36,6 +44,8 @@ def _version(mode: str) -> int:
 
 
 def _capabilities(mode: str) -> int:
+    if mode == "reject_license_at_probe" and _license_env_present():
+        return _emit_error(1, "probing must not receive a license (simulated by faulty_binary reject_license_at_probe)")
     if mode == "contract_2":
         print(
             json.dumps(
@@ -115,6 +125,9 @@ def _run(mode: str, args: list[str]) -> int:
     if mode == "echo_env":
         _write_output(json.dumps(sorted(os.environ)).encode("utf-8"), output_path)
         return 0
+    if mode == "no_output_file" and output_path is not None:
+        # Exits 0 without writing the file --output names at all (contract: Invocation, Data).
+        return 0
 
     config = _load_config(config_path)
     output_columns = config.get("output_columns") or {"result": "result"}
@@ -130,6 +143,16 @@ def _run(mode: str, args: list[str]) -> int:
         field_name = "unexpected_name"
     elif mode == "wrong_type":
         column_type = pa.int32()
+
+    if mode == "duplicate_output_names":
+        # A valid stream whose schema carries the written name twice (contract: Data); built via
+        # arrow_stream_bytes_from_arrays, which accepts duplicate field names.
+        dup_schema = pa.schema([pa.field(field_name, column_type), pa.field(field_name, column_type)])
+        dup_data = arrow_stream_bytes_from_arrays(
+            dup_schema, [pa.array([0] * num_rows, type=column_type), pa.array([0] * num_rows, type=column_type)]
+        )
+        _write_output(dup_data, output_path)
+        return 0
 
     schema = pa.schema([pa.field(field_name, column_type)])
     data = arrow_stream_bytes_from_arrays(schema, [pa.array([0] * num_rows, type=column_type)])
