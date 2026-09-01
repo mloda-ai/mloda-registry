@@ -1,21 +1,15 @@
-"""Standalone entry point standing up a second, minimal conforming binary
-(``second_fake_binary``/``frobnicate``) for ``test_second_binary_conformance.py``'s red-phase proof
-that ``BinaryModelConformanceBase``'s contract-generic checks are not actually
-operation/output-name agnostic (see that module's docstring for the full rationale).
+"""Standalone entry point for a second, minimal conforming binary (``second_fake_binary`` /
+``frobnicate``), used by ``test_second_binary_conformance.py`` to prove
+``BinaryModelConformanceBase``'s checks are truly operation/output-name agnostic.
 
-Reuses every mechanic of ``simulated_binary.py`` (CLI parsing, license gate, config validation,
-Arrow IPC plumbing) unchanged, by monkeypatching only the handful of module-level names that carry
-"hash"'s own operation identity: ``PLUGIN_ID``, ``CAPABILITY_OPERATIONS``, ``_OPERATION_OUTPUTS``,
-and the function that reads the operation's single output column under the literal key
-``"result"``. Every ``simulated_binary.py`` function that reads these looks them up as a module
-global at call time (ordinary Python name resolution, not something bound at def time), so
-patching the module's attributes from outside -- rather than editing its source, which is off
-limits for this task -- is sufficient; no other CLI/license/Arrow-IPC logic is duplicated.
+Reuses ``simulated_binary.py``'s CLI/license/Arrow-IPC mechanics unchanged by monkeypatching only
+the module globals that carry "hash"'s own identity (``PLUGIN_ID``, ``CAPABILITY_OPERATIONS``,
+``_OPERATION_OUTPUTS``, and the output-computing function): every ``simulated_binary.py`` function
+looks these up as a module global at call time, so patching them from outside is sufficient.
 
-Not itself a test module: run only via ``python -m mloda.testing.tests._second_fake_binary``,
-mirroring how ``binary_cmd`` invokes ``simulated_binary.py`` itself. Each invocation is its own
-fresh subprocess, so this monkeypatching never leaks into the plain ``simulated_binary.py``
-subprocess invocations other tests in this repository make.
+Not a test module: run only via ``python -m mloda.testing.tests._second_fake_binary``, one fresh
+subprocess per invocation, so the monkeypatching never leaks into other tests' own
+``simulated_binary.py`` subprocess runs.
 """
 
 from __future__ import annotations
@@ -28,20 +22,17 @@ import pyarrow as pa
 from mloda.testing.binary_model import simulated_binary
 from mloda.testing.binary_model.hash_reference import compute_expected_hash
 
-# This binary's identity: deliberately not "example_binary" / "hash" / "result" (contract:
-# Identifier, Capabilities, Configuration), so a conformance suite pointed at it proves whether
-# BinaryModelConformanceBase's checks are truly contract-generic, as the contract's Conformance
-# section promises ("inherits every applicable check unmodified").
+# Deliberately not "example_binary" / "hash" / "result" (contract: Identifier, Capabilities,
+# Configuration), so this proves BinaryModelConformanceBase's checks are truly contract-generic.
 PLUGIN_ID = "second_fake_binary"
 OPERATION = "frobnicate"
 OUTPUT_KEY = "value"
 
 
 def _compute_frobnicate_output(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Schema, list[pa.Array]]:
-    """Drop-in replacement for ``simulated_binary._compute_hash_output``: identical except it
-    reads the operation's single output under ``OUTPUT_KEY`` ("value") instead of the hash-specific
-    literal ``"result"``. Reuses the same reference algorithm; the computed values themselves are
-    not the point under test here, only the operation/output identifiers are."""
+    """Drop-in replacement for ``simulated_binary._compute_hash_output``: reads the output under
+    ``OUTPUT_KEY`` ("value") instead of the hash-specific literal ``"result"``. Reuses the same
+    reference algorithm; only the operation/output identifiers are under test here."""
     input_columns = config["input_columns"]
     key: str | None = config["parameters"].get("key")
     written_name = config["output_columns"][OUTPUT_KEY]

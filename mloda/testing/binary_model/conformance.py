@@ -1,33 +1,20 @@
 """Reusable, pip-installable binary-model conformance kit (``mloda-testing[binary-model]``):
-subprocess/Arrow-IPC plumbing, the contract's fixed error codes, and the two class-based
-conformance-check suites, meant to be imported both by this repository's own tests and by external
-consumers (a private wrapper repo, binary vendors, consumer FeatureGroup repos) that subclass
-``BinaryModelConformanceBase``/``HashOperationConformanceMixin`` to run the same checks against
-their own binary.
+subprocess/Arrow-IPC plumbing and two class-based conformance suites, for this repository's own
+tests and external consumers (wrapper repos, binary vendors, consumer FeatureGroup repos) that
+subclass them to run the same checks against their own binary.
 
-- ``BinaryModelConformanceBase``: every CONTRACT-GENERIC check (invocation surface, capabilities,
-  license gate, config structural validation, transport combinations, column-type vocabulary /
-  exact-column-set rule, schema-only round trip, EOS marker, malformed-input rejection, the
-  reserved internal-error operation, data-handling/diagnostics, error classification, trailing-data
-  rejection, and Arrow metadata handling). A plain class (NOT a ``unittest.TestCase``), so pytest
-  collects it directly once subclassed; it is not itself named ``Test*`` so pytest's default
-  collection does not try to run it standalone.
-- ``HashOperationConformanceMixin``: every HASH-OPERATION-SPECIFIC check (the reference algorithm,
-  output schema/type, row-order preservation, ``parameters.key`` validation and null/empty-string
-  equivalence, field-order independence, multi-batch input, and unknown-parameters rejection).
-  Mixed in alongside ``BinaryModelConformanceBase`` to assemble a full conformance suite for a
-  binary whose worked example is the "hash" operation.
+- ``BinaryModelConformanceBase``: every contract-generic check. A plain class, not a
+  ``unittest.TestCase``, so pytest collects it once subclassed under a ``Test*`` name.
+- ``HashOperationConformanceMixin``: every "hash"-operation-specific check, mixed in alongside the
+  base class for a binary whose worked example is "hash".
 
-Every overridable input (which binary to invoke, its plugin_id, its operations, its column-type
-vocabulary, its license fixture texts, and the shape of a generically-valid config) is a class
-attribute or an overridable method reached through ``self``, never a module-level constant and
-never a pytest fixture, so a future conformance run against a real binary (or a different
-operation) reuses these classes unmodified, just by subclassing with different class attributes.
+Every overridable input (binary command, plugin_id, operations, column-type vocabulary, license
+fixtures, config shape) is a class attribute or method on ``self``, never a module constant or
+pytest fixture, so subclassing with different attributes retargets the whole kit.
 
-The lower-level, non-test-specific mechanics these classes build on live in this package's other
-modules and are re-exported here so a single import statement covers everything a subclass or a
-wiring test module needs: Arrow IPC stream mechanics (``arrow.py``), the "hash" reference algorithm
-(``hash_reference.py``), and the placeholder license-token text builders (``license_vectors.py``).
+Re-exports the lower-level mechanics these classes build on: Arrow IPC stream mechanics
+(``arrow.py``), the "hash" reference algorithm (``hash_reference.py``), and license-token text
+builders (``license_vectors.py``).
 """
 
 from __future__ import annotations
@@ -133,14 +120,10 @@ def run_binary(
     timeout: float = 10.0,
     cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
-    """Invoke the binary with a fully-controlled argv and environment.
-
-    ``env`` replaces the child's environment outright (never merged with the ambient one), so
-    tests are hermetic and never accidentally inherit a license from the calling shell. ``stdin``
-    always gets an explicit (possibly empty) byte string so the process never blocks the test
-    suite waiting on an open pipe. ``cwd``, if given, is the child's working directory (used by
-    the read-only-cwd check, contract: Data handling); the caller's own cwd otherwise.
-    """
+    """Invoke the binary with a fully-controlled argv and environment. ``env`` replaces (never
+    merges with) the ambient environment, for hermetic tests; ``stdin`` always gets an explicit
+    byte string so the process never blocks waiting on an open pipe; ``cwd`` defaults to the
+    caller's own (contract: Data handling)."""
     return subprocess.run(  # nosec B603
         [*cmd, *args],
         env=dict(env),
@@ -152,11 +135,10 @@ def run_binary(
 
 
 def stderr_error_object(stderr: bytes) -> dict[str, Any]:
-    """Parse the last non-empty line of stderr as the contract's ``{"code": ..., "message": ...}``
-    object; earlier lines, if any, are free-form diagnostics (contract: Errors). Decodes with
-    ``errors="replace"`` rather than the strict default: a binary emitting non-UTF-8 stderr must
-    fail an assertion here (the JSON parse below, or a caller's own assertion on the object),
-    never crash the test suite itself with an unhandled ``UnicodeDecodeError``."""
+    """Parse the last non-empty stderr line as the contract's ``{"code": ..., "message": ...}``
+    object; earlier lines are free-form diagnostics (contract: Errors). Decodes with
+    ``errors="replace"`` so non-UTF-8 stderr fails an assertion here, not with an unhandled
+    ``UnicodeDecodeError``."""
     text = stderr.decode("utf-8", errors="replace")
     lines = [line for line in text.splitlines() if line.strip()]
     assert lines, f"expected at least one non-empty stderr line, got {stderr!r}"
@@ -166,12 +148,10 @@ def stderr_error_object(stderr: bytes) -> dict[str, Any]:
 
 
 def assert_error_response(result: subprocess.CompletedProcess[bytes], expected_code: int) -> dict[str, Any]:
-    """Assert the process exited with ``expected_code`` and that stderr's last non-empty line is
-    exactly one parseable JSON object whose ``code`` matches, with a non-empty ``message`` string
-    (contract: Errors). Also asserts the contract's Data handling size caps -- ``message`` at most
-    ``MESSAGE_MAX_BYTES`` (1024) UTF-8 bytes, total stderr at most ``STDERR_SOFT_CAP_BYTES``
-    (64 KiB) -- so every error-path test that goes through this helper checks the caps for free.
-    Returns the parsed error object for further assertions."""
+    """Assert the process exited with ``expected_code`` and stderr's last line is a parseable error
+    object with a matching, non-empty ``message`` within the contract's size caps (``message`` <=
+    ``MESSAGE_MAX_BYTES`` (1024) UTF-8 bytes, stderr <= ``STDERR_SOFT_CAP_BYTES`` (64 KiB))
+    (contract: Errors, Data handling). Returns the parsed error object."""
     assert result.returncode == expected_code, (
         f"expected exit code {expected_code}, got {result.returncode}; stderr={result.stderr!r}"
     )
@@ -244,13 +224,11 @@ def run_binary_with_transport(
 
 
 class BinaryModelConformanceBase:
-    """Every contract-generic conformance check, plus the class attributes / overridable methods
-    a subclass needs to point the whole kit at a different binary, plugin_id, operation set,
-    column-type vocabulary, or license fixture shape.
+    """Every contract-generic conformance check, plus the class attributes / overridable methods a
+    subclass needs to point the whole kit at a different binary/contract.
 
-    Deliberately not a ``unittest.TestCase``: a plain class so pytest collects ``test_*`` methods
-    on any subclass whose own name matches pytest's ``Test*`` collection pattern (this class itself
-    does not, so it is never collected standalone).
+    Deliberately not a ``unittest.TestCase``: pytest collects ``test_*`` methods on any subclass
+    named ``Test*``; this class itself isn't, so it's never collected standalone.
     """
 
     # -- Class attributes a subclass overrides to point this kit at a different binary/contract --
@@ -379,10 +357,8 @@ class BinaryModelConformanceBase:
         assert version_pattern.fullmatch(lines[0]), f"line does not match '<plugin_id> <semver>': {lines[0]!r}"
 
     def test_capabilities_prints_single_json_object_no_license_required(self, hermetic_env: dict[str, str]) -> None:
-        """`--capabilities` prints exactly one JSON object followed by at most one trailing newline,
-        nothing else, and exits 0, with no license variables set. The required keys (`contract`,
-        `plugin_id`, `operations`, `column_types`) are present and correct; unknown extra keys are
-        tolerated (contract: Invocation, Capabilities)."""
+        """Unknown extra keys in the capabilities object are tolerated (contract: Invocation,
+        Capabilities)."""
         result = run_binary(self.binary_cmd, ["--capabilities"], hermetic_env, timeout=self.binary_timeout_seconds)
         assert result.returncode == 0, f"stderr={result.stderr!r}"
 
@@ -404,8 +380,8 @@ class BinaryModelConformanceBase:
         assert set(column_types) == set(self.column_types), f"column_types mismatch: {column_types!r}"
 
     def test_no_arguments_is_usage_error(self, hermetic_env: dict[str, str]) -> None:
-        """No arguments at all is a usage error: exit 1, no stdout, and no license required since a
-        flag-parsing error happens before any license check (contract: Invocation)."""
+        """No license required: a flag-parsing error happens before any license check (contract:
+        Invocation)."""
         result = run_binary(self.binary_cmd, [], hermetic_env, timeout=self.binary_timeout_seconds)
         assert_error_response(result, USAGE_ERROR)
         assert result.stdout == b"", f"expected no stdout data, got {result.stdout!r}"
@@ -460,8 +436,7 @@ class BinaryModelConformanceBase:
         ],
     )
     def test_license_missing_when_no_source_set(self, valid_config_path: Path, env: dict[str, str]) -> None:
-        """Neither license variable set to a non-empty value: exit 2, license missing (contract:
-        License)."""
+        """Neither license variable set to a non-empty value (contract: License)."""
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -543,10 +518,9 @@ class BinaryModelConformanceBase:
         ],
     )
     def test_license_tampered_is_invalid(self, valid_config_path: Path, tmp_path: Path, attr_name: str) -> None:
-        """A tampered token (unparseable text, or valid JSON missing a required key): exit 3
-        (contract: License). Parametrized by attribute name (looked up via ``getattr`` at test-run
-        time) rather than by value, since the tampered-text fixtures are instance/class attributes,
-        not module constants available at decoration time."""
+        """A tampered token (unparseable text, or missing a required key): exit 3 (contract:
+        License). Parametrized by attribute name, looked up via ``getattr`` at test-run time, since
+        the tampered-text fixtures are instance attributes, not module constants."""
         tampered_text = getattr(self, attr_name)
         license_path = write_text(tmp_path / "license.txt", tampered_text)
         env = {"MLODA_LICENSE_FILE": str(license_path)}
@@ -586,9 +560,8 @@ class BinaryModelConformanceBase:
     def test_license_file_broken_key_valid_no_fallback_missing_file(
         self, valid_config_path: Path, tmp_path: Path
     ) -> None:
-        """`MLODA_LICENSE_FILE` naming a missing file, with `MLODA_LICENSE_KEY` simultaneously set to
-        a genuinely valid token: the missing file wins with no fallback to the key, so this is still
-        code 2, never a fallback-to-key success (contract: License)."""
+        """`MLODA_LICENSE_FILE` naming a missing file wins over a simultaneously valid
+        `MLODA_LICENSE_KEY`: still code 2, no fallback (contract: License)."""
         env = {
             "MLODA_LICENSE_FILE": str(tmp_path / "no-such-license.txt"),
             "MLODA_LICENSE_KEY": self.valid_license_text,
@@ -601,9 +574,8 @@ class BinaryModelConformanceBase:
     def test_license_file_broken_key_valid_no_fallback_tampered_file(
         self, valid_config_path: Path, tmp_path: Path
     ) -> None:
-        """`MLODA_LICENSE_FILE` naming a file with tampered, unparseable content, with
-        `MLODA_LICENSE_KEY` simultaneously set to a genuinely valid token: still code 3, never a
-        fallback-to-key success (contract: License)."""
+        """`MLODA_LICENSE_FILE` naming a file with tampered content wins over a simultaneously valid
+        `MLODA_LICENSE_KEY`: still code 3, no fallback (contract: License)."""
         license_path = write_text(tmp_path / "license.txt", self.tampered_unparseable_text)
         env = {"MLODA_LICENSE_FILE": str(license_path), "MLODA_LICENSE_KEY": self.valid_license_text}
         result = run_binary(
@@ -798,8 +770,7 @@ class BinaryModelConformanceBase:
         self, valid_license_env: dict[str, str], tmp_path: Path
     ) -> None:
         """`parameters: {}` is structurally accepted for an operation whose parameters are all
-        optional: this does not itself cause exit 1 (contract: Configuration). Final success is out
-        of scope here, so nothing else is asserted."""
+        optional: this alone does not cause exit 1 (contract: Configuration)."""
         config = self.make_config(parameters={})
         config_path = write_json(tmp_path / "config.json", config)
         result = run_binary(
@@ -832,16 +803,10 @@ class BinaryModelConformanceBase:
         use_input_file: bool,
         use_output_file: bool,
     ) -> None:
-        """All four transport combinations (`--input`/stdin crossed with `--output`/stdout) must
-        produce equivalent output data for the same input data and config, regardless of which
-        operation is under test (contract: Invocation, Data). The contract only promises the same
-        schema, row count and row order across transports -- "batch boundaries may differ" (contract:
-        Data) -- so this parses each transport's output with the existing Arrow-reading helper and
-        compares the resulting tables (schema, then column-by-column values) against a stdin/stdout
-        baseline run, rather than requiring byte-identical raw output: two batchings of the same
-        logical data are both conforming even though their raw bytes differ. Does not assert any
-        operation-specific value, so this stays contract-generic; hash-specific correctness is
-        covered separately by
+        """All four transport combinations must produce equivalent output (same schema, row count,
+        row order) for the same input and config (contract: Invocation, Data). Compares parsed
+        tables rather than raw bytes since "batch boundaries may differ" (contract: Data) is still
+        conforming. Contract-generic; hash-specific values are covered by
         ``HashOperationConformanceMixin.test_hash_transport_combinations_match_reference_algorithm``."""
         config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
@@ -902,11 +867,9 @@ class BinaryModelConformanceBase:
         assert table.num_rows == len(next(iter(self.default_input_rows().values())))
 
     def test_input_file_given_ignores_stdin(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
-        """When `--input <path>` is used, stdin is never read (contract: Invocation): deliberately
-        garbage bytes fed on stdin alongside a valid `--input` file must not prevent success -- a
-        binary that read stdin instead of the file would fail here, since the garbage is not a valid
-        Arrow IPC stream, so success alone proves stdin was ignored (no operation-specific output
-        value needs to be checked)."""
+        """`--input <path>` means stdin is never read (contract: Invocation): garbage fed on stdin
+        alongside a valid `--input` file must not prevent success, since a binary that read stdin
+        instead would fail on the garbage -- success alone proves stdin was ignored."""
         config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
         input_bytes = arrow_stream_bytes(self.default_input_schema(), self.default_input_rows())
@@ -1150,10 +1113,9 @@ class BinaryModelConformanceBase:
     def test_schema_only_output_has_no_record_batch_message(
         self, valid_license_env: dict[str, str], tmp_path: Path
     ) -> None:
-        """A schema-only output (for a schema-only input) must be schema + end-of-stream marker only:
-        no record-batch message at all, not a record-batch message with zero rows (contract: Data).
-        `pa.ipc.open_stream(...).read_all()` cannot distinguish the two wire shapes, so this
-        enumerates the raw output's message sequence instead."""
+        """A schema-only output must carry no record-batch message at all, not one with zero rows
+        (contract: Data). ``read_all()`` can't distinguish the two wire shapes, so this enumerates
+        the raw output's message sequence instead."""
         config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
         input_bytes = arrow_stream_bytes(self.default_input_schema(), None)
@@ -1271,10 +1233,9 @@ class BinaryModelConformanceBase:
     def test_malformed_record_batch_after_valid_schema_is_data_error(
         self, valid_license_env: dict[str, str], tmp_path: Path
     ) -> None:
-        """Malformed/corrupted record-batch data appearing *after* a valid schema message is a data
-        error, exit 5 (contract: Data): distinct from "malformed bytes from the very start"; the
-        schema-parsing step succeeds here, but reading the record batch fails on the corrupted second
-        message."""
+        """Corrupted record-batch data *after* a valid schema message is a data error (contract:
+        Data): distinct from malformed bytes from the very start, since the schema parses but
+        reading the batch fails on the corrupted message."""
         column = self.default_input_columns[0]
         config = self.make_config(input_columns=[column])
         config_path = write_json(tmp_path / "config.json", config)
@@ -1337,10 +1298,9 @@ class BinaryModelConformanceBase:
     def test_reserved_internal_error_operation_with_data_triggers_code_6(
         self, valid_license_env: dict[str, str], tmp_path: Path
     ) -> None:
-        """The reserved internal-error operation, given a structurally valid config and valid input
-        data, reaches the data stage and deliberately produces code 6, with stderr's last non-empty
-        line still a valid `{"code": 6, "message": ...}` object, not a bare traceback (contract:
-        Conformance)."""
+        """The reserved internal-error operation, given valid config/input, reaches the data stage
+        and deliberately produces code 6, with stderr still a valid error object, not a bare
+        traceback (contract: Conformance)."""
         column = self.default_input_columns[0]
         config = self.make_config(operation=self.reserved_internal_error_operation)
         config_path = write_json(tmp_path / "config.json", config)
@@ -1358,19 +1318,11 @@ class BinaryModelConformanceBase:
     def test_internal_error_message_reports_only_exception_class_name(
         self, valid_license_env: dict[str, str], tmp_path: Path
     ) -> None:
-        """Any code-6 message names only the underlying exception's class, never its full string
-        representation, which could otherwise leak caller data (contract: Data handling, Errors).
-        The contract does not mandate a specific literal wrapper such as `"internal error: "`; a
-        binary is free to choose its own short label around the class name, so this only checks
-        the contract's actual requirement -- the message's final token is a bare identifier shape
-        (the same shape any exception class's `__name__` has), never an exception's arbitrary,
-        unbounded `str()` (extra punctuation, quoted values, multiple words of caller-influenced
-        text). Mechanism: reuses the reserved internal-error operation with valid data (the only
-        reliable way to provoke code 6 from this binary's public CLI surface). Uses
-        `output_columns={}` rather than this suite's default output mapping: the reserved
-        operation is documented to produce no normal output at all (contract: Conformance), so a
-        config claiming an output shape for it would be inappropriate, even though the binary
-        bypasses the output_columns completeness check for this operation either way."""
+        """A code-6 message names only the exception's class, never its unbounded `str()` (contract:
+        Data handling, Errors). The contract doesn't mandate a specific wrapper text, so this only
+        checks the message's final token is a bare identifier shape, not the exact wording. Uses
+        `output_columns={}`: the reserved operation produces no normal output (contract:
+        Conformance)."""
         column = self.default_input_columns[0]
         config = self.make_config(operation=self.reserved_internal_error_operation, output_columns={})
         config_path = write_json(tmp_path / "config.json", config)
@@ -1476,10 +1428,9 @@ class BinaryModelConformanceBase:
     def test_diagnostics_never_leak_marked_cell_value_on_failure(
         self, valid_license_env: dict[str, str], tmp_path: Path, case: str
     ) -> None:
-        """The same marker cell value, sent through two failing cases that still reach the data
-        stage with the marked input present: a data error from a wrong schema, and the reserved
-        internal-error operation. Neither case's stderr contains the marker (contract: Data handling,
-        Conformance)."""
+        """The marker cell value through two failing cases that still reach the data stage: a data
+        error from a wrong schema, and the reserved internal-error operation. Neither leaks the
+        marker into stderr (contract: Data handling, Conformance)."""
         column = self.default_input_columns[0]
         if case == "missing_column_data_error":
             input_columns = [column, "col_b_missing"]
@@ -1508,10 +1459,9 @@ class BinaryModelConformanceBase:
     def test_error_message_stays_under_size_cap_for_long_garbage_operation(
         self, valid_license_env: dict[str, str], tmp_path: Path
     ) -> None:
-        """A very long garbage `operation` string provokes the unsupported-operation error message to
-        echo it back; `assert_error_response`'s shared size-cap assertion enforces that the resulting
-        `message` still stays within the contract's 1024-byte cap (contract: Data handling,
-        Conformance)."""
+        """A very long garbage `operation` string, echoed back into the error message, still stays
+        within the contract's 1024-byte cap via `assert_error_response`'s shared size-cap assertion
+        (contract: Data handling, Conformance)."""
         long_garbage_operation = "not_a_real_operation_" + "x" * 2000
         config = self.make_config(operation=long_garbage_operation)
         config_path = write_json(tmp_path / "config.json", config)
@@ -1524,11 +1474,9 @@ class BinaryModelConformanceBase:
         assert_error_response(result, UNSUPPORTED)
 
     def test_no_network_dependency_under_unshare_net(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
-        """A normal, successful run wrapped in `unshare --net` (a network-denied Linux namespace)
-        must still succeed and produce a structurally valid output, proving the binary makes no
-        network calls it depends on (contract: Data handling, Conformance). Exact per-operation
-        output correctness is covered elsewhere; this test stays scoped to the sandboxing question.
-        Skipped if `unshare`/`unshare --net` is not usable in this sandbox."""
+        """A normal run wrapped in `unshare --net` must still succeed, proving the binary makes no
+        network calls it depends on (contract: Data handling, Conformance). Skipped if
+        `unshare --net` is not usable in this sandbox."""
         if shutil.which("unshare") is None:
             pytest.skip("unshare is not available on this host")
         probe = subprocess.run(  # nosec B603 B607
@@ -1556,10 +1504,9 @@ class BinaryModelConformanceBase:
     def test_no_files_created_outside_output_in_read_only_cwd(
         self, valid_license_env: dict[str, str], tmp_path: Path
     ) -> None:
-        """A normal, successful run over stdin/stdout run with its working directory set to a fresh
-        read-only directory must still succeed and create no files there, proving the binary writes
-        nothing of its own outside `--output` (contract: Data handling, Conformance). Skipped on a
-        platform with no POSIX directory-permission concept, or when running as root."""
+        """A normal run with its cwd set to a fresh read-only directory must still succeed and
+        create no files there, proving the binary writes nothing outside `--output` (contract: Data
+        handling, Conformance). Skipped without POSIX directory permissions, or as root."""
         if not hasattr(os, "geteuid"):
             pytest.skip("no POSIX directory-permission concept on this platform")
         if os.geteuid() == 0:
@@ -1595,10 +1542,9 @@ class BinaryModelConformanceBase:
         assert leftover == [], f"expected no files created in the read-only cwd, found {leftover!r}"
 
     def test_minimal_environment_allowlist_only(self, tmp_path: Path) -> None:
-        """A normal, successful run with an environment containing only the license variable and
-        `PATH` -- no `HOME`, no `LANG`, nothing else -- must still succeed, proving the binary reads
-        no environment variable outside the license variables and what its runtime needs to start
-        (contract: Data handling, Conformance)."""
+        """A normal run with an environment containing only the license variable and `PATH` -- no
+        `HOME`, no `LANG`, nothing else -- must still succeed, proving the binary reads no other
+        environment variable (contract: Data handling, Conformance)."""
         config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
         rows = self.default_input_rows()
@@ -1651,11 +1597,9 @@ class BinaryModelConformanceBase:
     def test_input_arrow_metadata_schema_and_field_level_accepted_and_stripped_from_output(
         self, valid_license_env: dict[str, str], tmp_path: Path
     ) -> None:
-        """Schema-level and field-level Arrow metadata attached to the INPUT stream is accepted
-        without failing the run, and the OUTPUT stream carries none of it: metadata is
-        stripped/ignored, never echoed back onto either the output schema or any output field
-        (contract: Data). Asserts the input actually carries non-empty metadata first, ruling out a
-        trivial always-empty-output-metadata pass."""
+        """Arrow metadata (schema- and field-level) on the INPUT stream is accepted, and stripped
+        entirely from the OUTPUT stream (contract: Data). Asserts the input actually carries
+        non-empty metadata first, ruling out a trivial always-empty-output pass."""
         column = self.default_input_columns[0]
         field = pa.field(column, pa.string(), metadata={b"field_meta_key": b"field_meta_value"})
         schema = pa.schema([field]).with_metadata({b"schema_meta_key": b"schema_meta_value"})
@@ -1686,14 +1630,11 @@ class BinaryModelConformanceBase:
 
 
 class HashOperationConformanceMixin(BinaryModelConformanceBase):
-    """Every check specific to the "hash" operation's own shape: the reference algorithm, output
-    schema/type, row-order preservation, `parameters.key` validation and null/empty-string
-    equivalence, field-order independence, and multi-batch input. Mixed in alongside
-    ``BinaryModelConformanceBase`` (which carries every contract-generic check) to assemble a full
-    conformance suite for a binary whose worked example is the "hash" operation.
+    """Every check specific to the "hash" operation's shape. Mixed in alongside
+    ``BinaryModelConformanceBase`` to assemble a full conformance suite for a binary whose worked
+    example is "hash".
 
-    The reference algorithm itself (``compute_expected_hash``/``compute_expected_hash_column``) and
-    the multi-column test-case builder (``hash_multi_column_case``) delegate to
+    Delegates the reference algorithm and test-case builder to
     ``mloda.testing.binary_model.hash_reference``, the single implementation also imported by
     ``simulated_binary.py``, so the two can never silently drift apart."""
 
@@ -1706,12 +1647,9 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
     compute_expected_hash_column = staticmethod(hash_reference.compute_expected_hash_column)
 
     def hash_multi_column_case(self, key: str | None = None) -> dict[str, Any]:
-        """Build one self-contained "hash" test case: a small multi-column, multi-row dataset (every
-        vocabulary type) with a null in one column, its Arrow schema, a structurally valid config for
-        it, and the expected output column computed independently via `compute_expected_hash_column`
-        (contract: Configuration "hash" operation shape). Delegates the dataset/expected-value
-        construction to ``hash_reference.hash_multi_column_case``, passing ``self.make_config`` and
-        ``self.default_output_column_name`` through so a subclass's overrides are honoured."""
+        """Delegates to ``hash_reference.hash_multi_column_case`` (see there for the dataset shape),
+        passing ``self.make_config``/``self.default_output_column_name`` through so a subclass's
+        overrides are honoured."""
         return hash_reference.hash_multi_column_case(
             key=key, output_column_name=self.default_output_column_name, make_config=self.make_config
         )
@@ -1829,10 +1767,9 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         use_output_file: bool,
     ) -> None:
         """All four transport combinations must produce the exact reference-algorithm hash values
-        for the same input data and config (contract: Invocation, Data). Complements
+        (contract: Invocation, Data). Complements
         ``BinaryModelConformanceBase.test_all_transport_combinations_produce_identical_output``,
-        which checks byte-identical output across transports without asserting on operation
-        semantics."""
+        which checks output equivalence without asserting operation semantics."""
         case = self.hash_multi_column_case()
         config_path = write_json(tmp_path / "config.json", case["config"])
         input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
@@ -1853,10 +1790,9 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
     def test_hash_field_order_independent_of_stream_schema_order(
         self, valid_license_env: dict[str, str], tmp_path: Path
     ) -> None:
-        """The stream schema's field order need not match `input_columns`' order: the operation must
-        read each row's values by column *name*, in `input_columns` order, not by stream position
-        (contract: Data). Config declares `input_columns: ["b", "a"]`, the reverse of the stream
-        schema's field order `[a, b]`."""
+        """The stream schema's field order need not match `input_columns`: values are read by
+        column name in `input_columns` order, not stream position (contract: Data). Config declares
+        `input_columns: ["b", "a"]`, reversed from the schema's `[a, b]`."""
         input_columns = ["b", "a"]
         config = self.make_config(
             input_columns=input_columns, output_columns={"result": self.default_output_column_name}

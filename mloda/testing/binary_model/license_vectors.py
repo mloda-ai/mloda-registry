@@ -1,12 +1,8 @@
-"""Placeholder license-token text builders (contract: License).
-
-The real signed-token format does not exist yet, so the contract has the binary accept a fixed
-placeholder format for now: plain JSON text (not signed) shaped as
-``{"status": "valid" | "expired", "plugins": [<plugin_id>, ...]}``. The builders below are the
-reusable building blocks ``conformance.BinaryModelConformanceBase``'s license-fixture class
-attributes are built from, covering every state the contract's License section distinguishes:
-valid, expired, wrong-plugin, and tampered (unparseable text, or valid JSON missing a required
-key).
+"""Placeholder license-token text builders (contract: License): the real signed-token format
+doesn't exist yet, so the contract accepts plain JSON shaped as
+``{"status": "valid" | "expired", "plugins": [<plugin_id>, ...]}``. These are the building blocks
+``conformance.BinaryModelConformanceBase``'s license fixtures are built from, covering every state
+the contract distinguishes: valid, expired, wrong-plugin, tampered.
 """
 
 from __future__ import annotations

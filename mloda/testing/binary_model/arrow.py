@@ -1,13 +1,10 @@
-"""Arrow IPC stream mechanics for the binary-model conformance kit.
+"""Arrow IPC stream mechanics for the binary-model conformance kit: building input streams (single
+batch, multi-batch, schema-only, IPC file/Feather format), reading output back into a table, and
+raw-bytes/raw-message helpers for conditions pyarrow's own reader can't distinguish (schema-only vs
+zero-row batch) or works around (compressed bodies, corrupted messages after a valid schema).
 
-Building input streams (single batch, multi-batch, schema-only, or the IPC file/Feather format
-used to test its rejection), reading a binary's Arrow IPC stream output back into a table, and the
-lower-level raw-bytes / raw-message-metadata helpers needed to test conditions pyarrow's own reader
-either cannot distinguish (a schema-only stream vs. a zero-row record-batch message) or actively
-works around (a compressed record-batch body, or a schema message immediately followed by a
-corrupted record-batch message). Genuinely Arrow-IPC-specific mechanics; the pytest-facing surface
-(fixtures, assertions, the conformance-check classes) lives in ``conformance.py``, which imports
-and re-exports the helpers below.
+The pytest-facing surface (fixtures, assertions, conformance-check classes) lives in
+``conformance.py``, which imports and re-exports these helpers.
 """
 
 from __future__ import annotations
@@ -24,10 +21,9 @@ from mloda.testing.binary_model import IPC_END_OF_STREAM_MARKER
 def arrow_stream_bytes_from_arrays(
     schema: pa.Schema, arrays: list[pa.Array] | None, *, options: pa.ipc.IpcWriteOptions | None = None
 ) -> bytes:
-    """Write a single record batch built from ``arrays`` (aligned to ``schema``'s fields, in
-    order) to Arrow IPC *stream* format bytes, or a schema-only stream (zero record batches, then
-    the end-of-stream marker) if ``arrays`` is ``None`` (contract: Data). Lower-level than
-    ``arrow_stream_bytes`` below: it accepts a schema with duplicate field names, which a
+    """Write a single record batch built from ``arrays`` (aligned to ``schema``'s fields in order)
+    to Arrow IPC stream bytes, or a schema-only stream if ``arrays`` is ``None`` (contract: Data).
+    Lower-level than ``arrow_stream_bytes``: accepts duplicate field names, which a
     column-name-keyed mapping cannot represent."""
     buf = io.BytesIO()
     with pa.ipc.new_stream(buf, schema, options=options) as writer:
@@ -56,10 +52,9 @@ def arrow_file_format_bytes(schema: pa.Schema, rows: dict[str, list[Any]]) -> by
 
 
 def arrow_stream_bytes_multi_batch(schema: pa.Schema, batches_rows: list[dict[str, list[Any]]]) -> bytes:
-    """Write ``batches_rows`` (one column-name-keyed rows dict per record batch, in order) as
-    multiple record batches within a single Arrow IPC stream, for testing that a binary combines
-    every batch rather than only the first (contract: Data -- "batch boundaries may differ" is a
-    normal, valid shape on both sides of the wire)."""
+    """Write ``batches_rows`` (one column-name-keyed rows dict per batch, in order) as multiple
+    record batches in a single Arrow IPC stream, so a binary must combine every batch, not just the
+    first (contract: Data -- "batch boundaries may differ")."""
     buf = io.BytesIO()
     with pa.ipc.new_stream(buf, schema) as writer:
         for rows in batches_rows:
@@ -75,9 +70,8 @@ def read_arrow_stream(data: bytes) -> pa.Table:
 
 
 def assert_ends_with_ipc_eos_marker(data: bytes) -> None:
-    """Assert the raw bytes end with the IPC end-of-stream marker, checked on the raw trailing
-    bytes rather than through pyarrow's own reader, which tolerates a stream missing it (contract:
-    Data)."""
+    """Assert the raw bytes end with the IPC end-of-stream marker: checked directly since pyarrow's
+    own reader tolerates a stream missing it (contract: Data)."""
     tail = data[-len(IPC_END_OF_STREAM_MARKER) :]
     assert tail == IPC_END_OF_STREAM_MARKER, (
         f"expected output to end with the IPC end-of-stream marker {IPC_END_OF_STREAM_MARKER!r}, "
@@ -86,11 +80,10 @@ def assert_ends_with_ipc_eos_marker(data: bytes) -> None:
 
 
 def enumerate_ipc_message_types(data: bytes) -> list[str]:
-    """Enumerate an Arrow IPC stream's raw messages by type, in order (e.g. ``["schema"]`` for a
-    schema-only stream with no record-batch message at all, vs ``["schema", "record batch"]``).
-    Used to assert on the exact wire *shape* of a stream, which
-    ``pa.ipc.open_stream(...).read_all()`` cannot distinguish: both shapes above parse to the same
-    zero-row table (contract: Data)."""
+    """Enumerate an Arrow IPC stream's raw messages by type, in order (e.g. ``["schema"]`` vs
+    ``["schema", "record batch"]``): distinguishes wire shapes that
+    ``pa.ipc.open_stream(...).read_all()`` cannot, since both parse to the same zero-row table
+    (contract: Data)."""
     message_reader = pa.ipc.MessageReader.open_stream(pa.py_buffer(data))
     types: list[str] = []
     while True:
@@ -102,15 +95,11 @@ def enumerate_ipc_message_types(data: bytes) -> list[str]:
 
 
 def corrupt_record_batch_message_after_schema(data: bytes) -> bytes:
-    """Corrupt the second Arrow IPC message (the record batch immediately following the schema
-    message) of a single-batch stream so that the schema-parsing step
-    (``pa.ipc.open_stream(...)``) still succeeds, but reading the record batch body
-    (``RecordBatchReader.read_all()``) fails -- distinct from "malformed bytes from the very
-    start", which fails at ``open_stream()`` itself. Overwrites the record batch message's
-    metadata-length prefix (the 4 little-endian bytes right after that message's continuation
-    marker, ``0xFFFFFFFF``) with an implausibly large value, so pyarrow reports a metadata-length
-    mismatch once it tries to read the batch (contract: Data). Requires ``data`` to be a
-    single-batch stream (a schema message followed by exactly one record batch message)."""
+    """Corrupt the record-batch message following the schema in a single-batch stream so
+    ``open_stream()`` still parses the schema but ``RecordBatchReader.read_all()`` fails: overwrites
+    that message's metadata-length prefix (4 little-endian bytes after its ``0xFFFFFFFF``
+    continuation marker) with an implausibly large value (contract: Data). Requires ``data`` to be
+    exactly one schema message followed by one record batch message."""
     assert data[0:4] == b"\xff\xff\xff\xff", "expected data to start with the IPC continuation marker"
     schema_metadata_len = struct.unpack_from("<I", data, 4)[0]
     record_batch_message_start = 8 + schema_metadata_len
