@@ -67,9 +67,9 @@ optional_dependencies = { pyarrow = ["pyarrow>=25"], dev = ["mloda-testing[binar
 
 [packages.mloda-enterprise-binary-example]
 description = "Example enterprise FeatureGroup backed by a licensed binary model"
-dependencies = ["mloda-community-binary-model"]
+dependencies = ["mloda-community-binary-model>=0.4.5"]
 path = "mloda/enterprise/feature_groups/binary_example"
-optional_dependencies = { dev = ["mloda-testing[binary-model]", "pytest>=9.0.3"] }
+optional_dependencies = { pyarrow = ["pyarrow>=25"], dev = ["mloda-testing[binary-model]", "pytest>=9.0.3"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-example-a]

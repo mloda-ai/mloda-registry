@@ -1398,14 +1398,18 @@ dev = [
     { name = "mloda-testing", extra = ["binary-model"] },
     { name = "pytest" },
 ]
+pyarrow = [
+    { name = "pyarrow" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda-community-binary-model" },
+    { name = "mloda-community-binary-model", specifier = ">=0.4.5" },
     { name = "mloda-testing", extras = ["binary-model"], marker = "extra == 'dev'" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=25" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "pyarrow"]
 
 [[package]]
 name = "mloda-enterprise-compute-frameworks-example"

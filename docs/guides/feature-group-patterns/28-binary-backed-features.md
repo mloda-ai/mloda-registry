@@ -17,7 +17,7 @@ Run a compiled binary (a model shipped as a wheel, usually license-gated) as the
 | `LICENSE_FILE_OVERRIDE`, `LICENSE_KEY_OVERRIDE` | Values for `MLODA_LICENSE_FILE` / `MLODA_LICENSE_KEY` in the binary's environment; unset, the caller's own values are forwarded |
 | `BINARY_TIMEOUT_SECONDS` | Wall-clock limit per call; the process is terminated and `BinaryTerminatedError` raised |
 | `FILE_TRANSPORT_THRESHOLD_BYTES` | Inputs above it travel through `--input` / `--output` files instead of stdin / stdout |
-| `MAX_BATCH_BYTES` | Record batch size sent to the binary, so no `utf8` array reaches the 2 GiB offset limit |
+| `MAX_BATCH_BYTES` | Upper bound per record batch sent to the binary; oversized batches are split until they fit, keeping `utf8` arrays clear of the 2 GiB offset limit |
 
 The wheel is imported inside the call, never at module level of the FeatureGroup or its `manifest.py`: mloda's plugin loader aborts discovery on a `ModuleNotFoundError` it does not know as optional, and a missing wheel must only fail the call.
 
@@ -134,7 +134,7 @@ class StubExample(BinaryExampleFeatureGroup):
     LICENSE_KEY_OVERRIDE = license_token_text("valid", ["example_binary"])
 ```
 
-Expected values come from `mloda.testing.binary_model.hash_reference.compute_expected_hash_column`. Cover the three levels of the [testing guide](10-testing-guide.md); at level 3 pass `compute_frameworks={PyArrowTable}` and `PluginCollector.enabled_feature_groups({StubExample})`. The production class without an override must raise `BinaryUnavailableError`, and a run without a license `LicenseMissingError`.
+Expected values come from `mloda.testing.binary_model.hash_reference.compute_expected_hash_column`. Cover the three levels of the [testing guide](10-testing-guide.md); at level 3 pass `compute_frameworks={PyArrowTable}` and `PluginCollector.enabled_feature_groups({StubExample, ApiInputDataFeature})` (the `api_data` reader must stay enabled alongside your class). The production class without an override must raise `BinaryUnavailableError`, and a run without a license `LicenseMissingError`.
 
 ## Packaging Rules
 
