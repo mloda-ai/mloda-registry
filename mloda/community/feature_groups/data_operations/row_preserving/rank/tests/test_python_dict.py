@@ -36,6 +36,11 @@ class TestPythonDictRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, Pyth
     def reserved_columns_order_by(cls) -> str | None:
         return "value_int"
 
+    @classmethod
+    def ranks_none_and_nan_apart(cls) -> bool:
+        """``order_values_equal`` ties NaN and None on purpose (tie-run-splitting fix; see known-divergences.md)."""
+        return False
+
 
 class TestPythonDictRankNanOrderByHangs:
     """A NaN ``order_by`` value must not hang ``rank`` / ``dense_rank`` / ``percent_rank``.
@@ -132,37 +137,6 @@ class TestPythonDictRankTopNTreatsNanAsNullNotMaximum:
         result = PythonDictRank._compute_rank(self.DATA, "r", [], "val", "top_1")
         assert result["r"] == [False, True], (
             f"expected the real value (index 1) to be top_1, not the NaN (index 0): {result['r']!r}"
-        )
-
-
-class TestPythonDictRankMixedNoneAndNanTieRun:
-    """DEFECT C: a run of mixed None/NaN order_by values must all tie at one rank.
-
-    ``nulls_last_sort_key`` maps both ``None`` and NaN to the same sort tier ``(1, 0)``, so a
-    NaN row can sort BETWEEN two None rows within that tier. ``_apply_rank``'s run detection
-    then compares adjacent sorted rows with ``order_values_equal``, which is what makes
-    ``None`` and NaN tie (plain ``==`` would be False for a None/NaN comparison and would
-    split the tie run at that boundary instead of treating all null-like values as one tied
-    group). pyarrow >= 25.0 ranks NaN as always distinct from null, so ``pc.rank`` can no
-    longer oracle this case; ranks below are asserted directly as mloda's chosen behavior.
-    """
-
-    DATA: dict[str, list[Any]] = {"grp": [1, 1, 1, 1], "val": [None, float("nan"), None, 1.0]}
-
-    def test_rank_ties_none_and_nan(self) -> None:
-        result = PythonDictRank._compute_rank(self.DATA, "r", [], "val", "rank")
-        assert result["r"] == [2, 2, 2, 1], f"expected None and NaN to tie at rank 2: {result['r']!r}"
-
-    def test_dense_rank_ties_none_and_nan(self) -> None:
-        result = PythonDictRank._compute_rank(self.DATA, "r", [], "val", "dense_rank")
-        assert result["r"] == [2, 2, 2, 1], f"expected None and NaN to tie at dense rank 2: {result['r']!r}"
-
-    def test_percent_rank_ties_none_and_nan(self) -> None:
-        import pytest
-
-        result = PythonDictRank._compute_rank(self.DATA, "r", [], "val", "percent_rank")
-        assert result["r"] == pytest.approx([1 / 3, 1 / 3, 1 / 3, 0.0]), (
-            f"expected None and NaN to tie at percent_rank 1/3: {result['r']!r}"
         )
 
 
