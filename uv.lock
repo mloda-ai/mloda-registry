@@ -2105,6 +2105,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+binary-model = [
+    { name = "pyarrow" },
+]
 dev = [
     { name = "pytest" },
 ]
@@ -2121,10 +2124,11 @@ requires-dist = [
     { name = "openlineage-python", marker = "extra == 'openlineage'", specifier = ">=1.20,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30,<2" },
     { name = "pyarrow" },
+    { name = "pyarrow", marker = "extra == 'binary-model'", specifier = ">=25" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "otel", "openlineage"]
+provides-extras = ["dev", "otel", "openlineage", "binary-model"]
 
 [[package]]
 name = "mypy"
