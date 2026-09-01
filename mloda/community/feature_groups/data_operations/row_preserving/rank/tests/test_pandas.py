@@ -33,3 +33,8 @@ class TestPandasRank(CapabilityHookTestMixin, PandasTestMixin, RankTestBase):
             ("value__percent_rank_ranked", Options()),
             ("value__dense_rank_ranked", Options()),
         )
+
+    @classmethod
+    def ranks_none_and_nan_apart(cls) -> bool:
+        """A float64 column has no separate NaN/null representation, so pandas' ``.rank()`` ties them trivially."""
+        return False

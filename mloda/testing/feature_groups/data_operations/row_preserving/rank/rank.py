@@ -24,6 +24,7 @@ import pytest
 
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 
 # ---------------------------------------------------------------------------
@@ -64,6 +65,15 @@ EXPECTED_TOP_3 = [True, False, True, True, False, True, True, True, True, True, 
 #   None: -10 => qualifies (N >= group_size)
 EXPECTED_BOTTOM_2 = [False, True, True, False, False, True, True, False, True, True, False, True]
 
+# None/NaN mixed in order_by (grp: [1, 1, 1, 1], val: [None, NaN, None, 1.0]).
+# Not in the canonical fixture because backends genuinely disagree: "apart" ranks
+# NaN and None as two nulls-last tiers (NaN before None), "tied" ranks them as one run.
+# dense_rank matches rank here (three distinct tiers: 1.0, NaN, None).
+EXPECTED_NONE_NAN_RANK_APART = [3, 2, 3, 1]
+EXPECTED_NONE_NAN_RANK_TIED = [2, 2, 2, 1]
+EXPECTED_NONE_NAN_PERCENT_RANK_APART = [2 / 3, 1 / 3, 2 / 3, 0.0]
+EXPECTED_NONE_NAN_PERCENT_RANK_TIED = [1 / 3, 1 / 3, 1 / 3, 0.0]
+
 
 # ---------------------------------------------------------------------------
 # Reusable test base class
@@ -83,6 +93,17 @@ class RankTestBase(DataOpsTestBase):
     def supported_rank_types(cls) -> set[str]:
         """Rank types this framework supports. Override to restrict."""
         return cls.ALL_RANK_TYPES
+
+    @classmethod
+    def ranks_none_and_nan_apart(cls) -> bool:
+        """Whether a None/NaN mix in order_by ranks as two tiers or one tie.
+
+        PyArrow >= 25 (the reference), DuckDB and Polars rank NaN and None
+        as two separate nulls-last tiers (NaN before None). PythonDict,
+        pandas and SQLite tie them into one run and override this to
+        ``False``.
+        """
+        return True
 
     # -- Reference implementation override --------------------------------------------
 
@@ -350,6 +371,41 @@ class RankTestBase(DataOpsTestBase):
         # All nulls are tied, so all get rank 1
         assert all(v == 1 for v in result_col)
 
+    # -- None/NaN order_by per-backend semantics -----------------------------
+    # Not in the canonical cross-framework fixture because backends genuinely
+    # disagree. The reference assertion pins the oracle ("apart"); the
+    # ``ranks_none_and_nan_apart`` hook pins each backend's own choice.
+
+    def test_none_and_nan_order_by_rank(self) -> None:
+        """Rank on a None/NaN order_by mix: apart or tied per backend."""
+        ref_col, result_col = self._none_and_nan_order_by("rank")
+        assert ref_col == EXPECTED_NONE_NAN_RANK_APART, f"reference: expected apart, got {ref_col!r}"
+
+        expected = EXPECTED_NONE_NAN_RANK_APART if self.ranks_none_and_nan_apart() else EXPECTED_NONE_NAN_RANK_TIED
+        assert result_col == expected, f"backend: expected {expected!r}, got {result_col!r}"
+
+    def test_none_and_nan_order_by_dense_rank(self) -> None:
+        """Dense rank on a None/NaN order_by mix: apart or tied per backend."""
+        ref_col, result_col = self._none_and_nan_order_by("dense_rank")
+        assert ref_col == EXPECTED_NONE_NAN_RANK_APART, f"reference: expected apart, got {ref_col!r}"
+
+        expected = EXPECTED_NONE_NAN_RANK_APART if self.ranks_none_and_nan_apart() else EXPECTED_NONE_NAN_RANK_TIED
+        assert result_col == expected, f"backend: expected {expected!r}, got {result_col!r}"
+
+    def test_none_and_nan_order_by_percent_rank(self) -> None:
+        """Percent rank on a None/NaN order_by mix: apart or tied per backend."""
+        ref_col, result_col = self._none_and_nan_order_by("percent_rank")
+        assert ref_col == pytest.approx(EXPECTED_NONE_NAN_PERCENT_RANK_APART), (
+            f"reference: expected apart, got {ref_col!r}"
+        )
+
+        expected = (
+            EXPECTED_NONE_NAN_PERCENT_RANK_APART
+            if self.ranks_none_and_nan_apart()
+            else EXPECTED_NONE_NAN_PERCENT_RANK_TIED
+        )
+        assert result_col == pytest.approx(expected), f"backend: expected {expected!r}, got {result_col!r}"
+
     # -- Option-based config tests -------------------------------------------
 
     def test_option_based_row_number(self) -> None:
@@ -546,3 +602,22 @@ class RankTestBase(DataOpsTestBase):
     def _skip_if_unsupported(self, rank_type: str) -> None:
         if rank_type not in self.supported_rank_types():
             pytest.skip(f"{rank_type} not supported by this framework")
+
+    def _none_and_nan_order_by(self, rank_type: str) -> tuple[list[Any], list[Any]]:
+        """Run ``val__<rank_type>_ranked`` on a None/NaN order_by mix.
+
+        Returns ``(reference_col, backend_col)`` for the same feature set.
+        """
+        self._skip_if_unsupported(rank_type)
+        table = pa.table(
+            {
+                "grp": [1, 1, 1, 1],
+                "val": pa.array([None, float("nan"), None, 1.0], type=pa.float64()),
+            }
+        )
+        feature_name = f"val__{rank_type}_ranked"
+        fs = make_feature_set(feature_name, ["grp"], "val")
+
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
+        return _extract_column(ref, feature_name), self.extract_column(result, feature_name)

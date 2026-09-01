@@ -17,6 +17,39 @@ from mloda.community.feature_groups.data_operations.row_preserving.rank.base imp
 )
 
 
+def _is_nan(value: Any) -> bool:
+    """True for a NaN float value.
+
+    Deliberately local (not imported from python_dict_helpers): ReferenceRank is the
+    cross-framework oracle PythonDict's tests compare against, so it must not reuse
+    PythonDict's own NaN/tie-choice logic or it stops being an independent check.
+    """
+    return isinstance(value, float) and value != value
+
+
+def _order_value_tier(value: Any) -> tuple[int, Any]:
+    """Nulls-last order key: real values first, then NaN, then None as separate tiers.
+
+    Matches PyArrow >= 25's own pc.rank semantics (this reference runs on PyArrowTable),
+    unlike PythonDict/pandas/SQLite, which tie None and NaN into one tier.
+    """
+    if value is None:
+        return (2, 0)
+    if _is_nan(value):
+        return (1, 0)
+    return (0, value)
+
+
+def _order_values_equal(a: Any, b: Any) -> bool:
+    """NaN-safe, tier-consistent equality for tie-run detection."""
+    if a is None or b is None:
+        return a is None and b is None
+    a_nan, b_nan = _is_nan(a), _is_nan(b)
+    if a_nan or b_nan:
+        return a_nan and b_nan
+    return bool(a == b)
+
+
 class ReferenceRank(RankFeatureGroup):
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
@@ -56,7 +89,7 @@ class ReferenceRank(RankFeatureGroup):
 
         # Sort each group by order_by value (nulls last)
         for key in groups:
-            groups[key].sort(key=lambda x: (1,) if x[1] is None else (0, x[1]))
+            groups[key].sort(key=lambda x: _order_value_tier(x[1]))
 
         # Compute rank values
         result_values: list[Any] = [0] * num_rows
@@ -73,7 +106,8 @@ class ReferenceRank(RankFeatureGroup):
                 while pos < n:
                     # Find run of equal values
                     run_start = pos
-                    while pos < n and sorted_rows[pos][1] == sorted_rows[run_start][1]:
+                    pos += 1
+                    while pos < n and _order_values_equal(sorted_rows[pos][1], sorted_rows[run_start][1]):
                         pos += 1
                     rank_val = run_start + 1
                     for j in range(run_start, pos):
@@ -84,7 +118,8 @@ class ReferenceRank(RankFeatureGroup):
                 pos = 0
                 while pos < n:
                     run_start = pos
-                    while pos < n and sorted_rows[pos][1] == sorted_rows[run_start][1]:
+                    pos += 1
+                    while pos < n and _order_values_equal(sorted_rows[pos][1], sorted_rows[run_start][1]):
                         pos += 1
                     for j in range(run_start, pos):
                         result_values[sorted_rows[j][0]] = dense
@@ -96,7 +131,8 @@ class ReferenceRank(RankFeatureGroup):
                 pos = 0
                 while pos < n:
                     run_start = pos
-                    while pos < n and sorted_rows[pos][1] == sorted_rows[run_start][1]:
+                    pos += 1
+                    while pos < n and _order_values_equal(sorted_rows[pos][1], sorted_rows[run_start][1]):
                         pos += 1
                     rank_val = run_start + 1
                     for j in range(run_start, pos):
@@ -119,8 +155,8 @@ class ReferenceRank(RankFeatureGroup):
             elif rank_type.startswith("top_"):
                 top_n = int(rank_type[len("top_") :])
                 # Reverse the ASC-sorted non-null rows to get DESC; keep nulls last
-                non_null = [(idx, val) for idx, val in sorted_rows if val is not None]
-                nulls = [(idx, val) for idx, val in sorted_rows if val is None]
+                non_null = [(idx, val) for idx, val in sorted_rows if not (val is None or _is_nan(val))]
+                nulls = [(idx, val) for idx, val in sorted_rows if val is None or _is_nan(val)]
                 desc_rows = non_null[::-1] + nulls
                 for pos, (idx, _) in enumerate(desc_rows):
                     result_values[idx] = pos + 1 <= top_n

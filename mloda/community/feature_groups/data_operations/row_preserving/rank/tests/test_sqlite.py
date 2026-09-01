@@ -35,3 +35,8 @@ class TestSqliteRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, SqliteTe
     @classmethod
     def reserved_columns_order_by(cls) -> str | None:
         return "value_int"
+
+    @classmethod
+    def ranks_none_and_nan_apart(cls) -> bool:
+        """The sqlite3 driver stores NaN as NULL on ingest, so ``RANK()`` never sees a NaN to rank apart from NULL."""
+        return False
