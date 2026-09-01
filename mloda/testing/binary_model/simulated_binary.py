@@ -52,8 +52,7 @@ IPC_END_OF_STREAM_MARKER = b"\xff\xff\xff\xff\x00\x00\x00\x00"
 
 def _classify_column_type(arrow_type: pa.DataType) -> str | None:
     """Map an Arrow type to this contract's type vocabulary, or ``None`` if it is outside it
-    (contract: Capabilities: classification is done with pyarrow's type predicates, never by
-    string spelling). Only bare ``pa.string()`` counts as this contract's ``utf8``:
+    (contract: Capabilities). Only bare ``pa.string()`` counts as this contract's ``utf8``:
     ``pa.large_string()`` and ``pa.string_view()`` are distinct Arrow types outside the
     vocabulary, not accepted as an alias for it."""
     if pa.types.is_int64(arrow_type):
@@ -161,10 +160,8 @@ def _message_metadata_is_compressed_record_batch(metadata: bytes) -> bool:
 
 
 def _truncate_message(text: str, max_bytes: int = MESSAGE_MAX_BYTES) -> str:
-    """Bound ``text`` to at most ``max_bytes`` UTF-8 bytes (contract: Data handling), cutting only
-    on a UTF-8 character boundary by slicing the encoded bytes and decoding with
-    ``errors="ignore"`` to drop any partial trailing sequence. Appends a short "...(truncated)"
-    suffix when there is room for it within the cap."""
+    """Bound ``text`` to at most ``max_bytes`` UTF-8 bytes, cutting only on a UTF-8 character
+    boundary (contract: Data handling)."""
     encoded = text.encode("utf-8")
     if len(encoded) <= max_bytes:
         return text
@@ -347,14 +344,10 @@ def _check_operation_capability(operation: str) -> None:
 
 
 def _validate_hash_parameters(operation: str, parameters: dict[str, Any]) -> None:
-    """ "hash"-specific ``parameters`` validation: only the ``key`` key is recognized, and a
-    present ``key`` must be a string -- however falsy (`0`, `false`, an object) -- since
-    "parameters" are operation-specific and only the operation itself knows their shape (contract:
-    Configuration -- "parameters: operation-specific ... checked with the document"; Errors --
-    config structural validation is code 1). An operation must validate its own parameter shape
-    exhaustively, not just the keys it recognizes, so any other key present is rejected too. The
-    reserved conformance-only operation has no defined parameter shape and bypasses this, same as
-    the operation-output checks."""
+    """ "hash"-specific ``parameters`` validation (contract: Configuration, Errors): an operation
+    validates its own parameter shape exhaustively, not just the keys it recognizes, so any other
+    key present is rejected too. The reserved conformance-only operation has no defined parameter
+    shape and bypasses this, same as the operation-output checks."""
     if operation != "hash":
         return
     unknown = set(parameters) - {"key"}
@@ -424,9 +417,9 @@ def _open_ipc_stream_reader(source: pa.BufferReader) -> pa.RecordBatchReader:
 
 
 def _read_all_batches(reader: pa.RecordBatchReader) -> pa.Table:
-    """Read every record batch of an already-opened stream. Malformed record-batch data appearing
-    after a valid schema message (the schema parses, but the batch body does not) fails here rather
-    than at ``open_stream()``, and must be reported the same way: a data error (contract: Data)."""
+    """Malformed record-batch data appearing after a valid schema message (the schema parses, but
+    the batch body does not) fails here rather than at ``open_stream()``, and must be reported the
+    same way: a data error (contract: Data)."""
     try:
         return reader.read_all()
     except pa.ArrowException as exc:
@@ -472,9 +465,7 @@ def _assert_no_compressed_record_batch(raw: bytes) -> None:
 def _validate_input_schema(schema: pa.Schema, input_columns: list[str]) -> None:
     """The stream's schema must contain exactly ``input_columns``, in any order, without
     duplicates (data error); each field's type must then be from the vocabulary (unsupported
-    error); presence errors precede type errors (contract: Data). Python raises out of this loop
-    as soon as the first violation is found, so this already exits on the very first schema error
-    without accumulating multiple errors."""
+    error); presence errors precede type errors (contract: Data)."""
     names = list(schema.names)
     if len(set(names)) != len(names):
         raise _CliError(DATA_ERROR, f"input schema has duplicate field names: {names}")
@@ -534,9 +525,8 @@ def _write_output_bytes(data: bytes, output_path: Path | None) -> None:
 
 
 def _run_data_stage(raw: bytes, config: dict[str, Any], output_path: Path | None) -> None:
-    """Parse the input as an Arrow IPC stream, validate it against ``input_columns`` and the
-    column type vocabulary, run the configured operation, and write the result as an Arrow IPC
-    stream to stdout or ``--output`` (contract: Data).
+    """Parse the input as an Arrow IPC stream and run the configured operation, writing the
+    result to stdout or ``--output`` (contract: Data).
 
     Note: reads the whole input into memory before writing any output; a real Rust binary should
     stream batches instead (contract: Invocation), but for this small stub that simplicity is
