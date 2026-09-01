@@ -13,8 +13,8 @@ fixtures, config shape) is a class attribute or method on ``self``, never a modu
 pytest fixture, so subclassing with different attributes retargets the whole kit.
 
 Re-exports the lower-level mechanics these classes build on: Arrow IPC stream mechanics
-(``arrow.py``), the "hash" reference algorithm (``hash_reference.py``), and license-token text
-builders (``license_vectors.py``).
+(``arrow.py``), the "hash" reference algorithm (``hash_reference.py``), and the signed
+license-token vectors and builders (``license_vectors.py``).
 """
 
 from __future__ import annotations
@@ -229,6 +229,10 @@ class BinaryModelConformanceBase:
 
     Deliberately not a ``unittest.TestCase``: pytest collects ``test_*`` methods on any subclass
     named ``Test*``; this class itself isn't, so it's never collected standalone.
+
+    The default license fixtures are signed with the published test key
+    (``license_vectors.TEST_KID``); a binary built with only production keys must override these
+    fixture attributes/properties with real licenses (spec: Keys, kid, rotation).
     """
 
     # -- Class attributes a subclass overrides to point this kit at a different binary/contract --
@@ -258,23 +262,23 @@ class BinaryModelConformanceBase:
     # overriding ``plugin_id`` alone gets consistent fixtures automatically.
     @property
     def valid_license_text(self) -> str:
-        return license_vectors.license_token_text("valid", [self.plugin_id])
+        return license_vectors.valid_license_token([self.plugin_id])
 
     @property
     def expired_license_text(self) -> str:
-        return license_vectors.license_token_text("expired", [self.plugin_id])
+        return license_vectors.expired_license_token([self.plugin_id])
 
     @property
     def wrong_plugin_license_text(self) -> str:
-        return license_vectors.license_token_text("valid", [self.wrong_plugin_id])
+        return license_vectors.valid_license_token([self.wrong_plugin_id])
 
     tampered_unparseable_text: ClassVar[str] = license_vectors.TAMPERED_UNPARSEABLE_TEXT
 
     @property
-    def tampered_missing_status_text(self) -> str:
-        return license_vectors.tampered_missing_status_text([self.plugin_id])
+    def tampered_signature_text(self) -> str:
+        return license_vectors.tampered_signature_token([self.plugin_id])
 
-    tampered_missing_plugins_text: ClassVar[str] = license_vectors.tampered_missing_plugins_text()
+    missing_plugins_claim_text: ClassVar[str] = license_vectors.missing_plugins_claim_token()
 
     # -- Overridable helpers for building a generically-valid config/data case --
 
@@ -512,18 +516,48 @@ class BinaryModelConformanceBase:
     @pytest.mark.parametrize(
         "attr_name",
         [
-            pytest.param("tampered_unparseable_text", id="unparseable_json"),
-            pytest.param("tampered_missing_status_text", id="missing_status_key"),
-            pytest.param("tampered_missing_plugins_text", id="missing_plugins_key"),
+            pytest.param("tampered_unparseable_text", id="unparseable_text"),
+            pytest.param("tampered_signature_text", id="tampered_signature"),
+            pytest.param("missing_plugins_claim_text", id="missing_plugins_claim"),
         ],
     )
     def test_license_tampered_is_invalid(self, valid_config_path: Path, tmp_path: Path, attr_name: str) -> None:
-        """A tampered token (unparseable text, or missing a required key): exit 3 (contract:
-        License). Parametrized by attribute name, looked up via ``getattr`` at test-run time, since
-        the tampered-text fixtures are instance attributes, not module constants."""
+        """A rejected token body (text that is not a token at all, a broken signature, or a
+        well-signed payload missing the required ``plugins`` claim): exit 3 (spec: Verification
+        steps 2, 4, 5; contract: License). Parametrized by attribute name, looked up via
+        ``getattr`` at test-run time, since the fixtures are instance attributes, not module
+        constants."""
         tampered_text = getattr(self, attr_name)
         license_path = write_text(tmp_path / "license.txt", tampered_text)
         env = {"MLODA_LICENSE_FILE": str(license_path)}
+        result = run_binary(
+            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
+        )
+        assert_error_response(result, LICENSE_INVALID)
+
+    def test_license_in_grace_is_accepted(self, valid_config_path: Path) -> None:
+        """A token past ``exp`` but still inside its ``grace_days`` window proceeds past the
+        license check; whatever happens next is never code 2 or 3 (spec: Verification step 6;
+        contract: License)."""
+        env = {"MLODA_LICENSE_KEY": license_vectors.in_grace_license_token([self.plugin_id])}
+        result = run_binary(
+            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
+        )
+        assert_not_rejected_with(result, {LICENSE_MISSING, LICENSE_INVALID})
+
+    def test_license_not_yet_valid_is_invalid(self, valid_config_path: Path) -> None:
+        """A token whose ``nbf`` lies in the future: exit 3, not yet valid (spec: Verification
+        step 6; contract: License)."""
+        env = {"MLODA_LICENSE_KEY": license_vectors.not_yet_valid_license_token([self.plugin_id])}
+        result = run_binary(
+            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
+        )
+        assert_error_response(result, LICENSE_INVALID)
+
+    def test_license_unknown_kid_is_invalid(self, valid_config_path: Path) -> None:
+        """A well-signed token under a ``kid`` the verifier's key map does not contain: exit 3
+        (spec: Verification step 3; contract: License)."""
+        env = {"MLODA_LICENSE_KEY": license_vectors.unknown_kid_license_token([self.plugin_id])}
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )

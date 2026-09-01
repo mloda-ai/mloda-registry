@@ -2,15 +2,10 @@
 public test keypair (``test-2026-01``), per-state builders on ``license_token.sign_license_token``,
 and literal tokens for every time-stable state the conformance kit distinguishes. Ed25519 signing
 is deterministic, so the literals are re-derived from the builders by the tests and cannot drift.
-
-The legacy placeholder API (plain-JSON ``{"status": ..., "plugins": [...]}`` texts) at the bottom
-predates the signed format and is still consumed by the stub and the conformance suite; a follow-up
-replaces those consumers and removes it.
 """
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -163,26 +158,5 @@ MISSING_PLUGINS_TOKEN = (  # nosec B105
     "zghqH9ET4xl92NGrgOvRaNko9LCA.eyJraWQiOiJ0ZXN0LTIwMjYtMDEifQ"
 )
 
-# =============================================================================
-# Legacy placeholder API (predates the signed format; removal is a follow-up)
-# =============================================================================
-
-
-def license_token_text(status: str, plugins: list[str]) -> str:
-    """A placeholder (unsigned) license token: plain JSON shaped as
-    ``{"status": ..., "plugins": [...]}`` (contract: License)."""
-    return json.dumps({"status": status, "plugins": plugins})
-
-
-# A tampered token that is not even valid JSON (contract: License).
+# Text that is not a token at all, not even the PASETO v4.public container (spec: Test vectors).
 TAMPERED_UNPARSEABLE_TEXT = "{this is not json"
-
-
-def tampered_missing_status_text(plugins: list[str]) -> str:
-    """Valid JSON missing the required ``status`` key (contract: License)."""
-    return json.dumps({"plugins": plugins})
-
-
-def tampered_missing_plugins_text() -> str:
-    """Valid JSON missing the required ``plugins`` key (contract: License)."""
-    return json.dumps({"status": "valid"})
