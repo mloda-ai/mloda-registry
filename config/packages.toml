@@ -17,7 +17,7 @@ description = "Test utilities for mloda plugin development"
 dependencies = ["{core_dependency}", "pytest>=9.0.3"]
 path = "mloda/testing"
 published = true
-optional_dependencies = { dev = ["pytest>=9.0.3"], binary-model = ["pyarrow"] }
+optional_dependencies = { dev = ["pytest>=9.0.3"], binary-model = ["pyarrow>=25"] }
 py_typed = true
 
 [packages.mloda-community]

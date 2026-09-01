@@ -16,7 +16,7 @@ requires-python = ">=3.10,<3.15"
 
 [project.optional-dependencies]
 dev = ["pytest>=9.0.3"]
-binary-model = ["pyarrow"]
+binary-model = ["pyarrow>=25"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
