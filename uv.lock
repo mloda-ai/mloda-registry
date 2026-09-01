@@ -326,10 +326,10 @@ wheels = [
 
 [[package]]
 name = "mloda"
-version = "0.11.2"
+version = "0.11.3"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d0/e6/7109487cdccc51603d11f9396b2e8879ae0946bfa2bdee968ce0c6ebc4d9/mloda-0.11.2-py3-none-any.whl", hash = "sha256:40ba8af07d502c93a38f69c10e2f2ecd08a5ccb8944f8cd31b7ba855a662de48", size = 548638, upload-time = "2026-08-29T15:29:28.573Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/ec/59b491d6e609db702d667561d7fa6dae526e0ee0ad3628921a43c672c545/mloda-0.11.3-py3-none-any.whl", hash = "sha256:03fb920d65c3761e35935f7fc9a09db62882221e63ab7215b98804dffbe449dd", size = 550886, upload-time = "2026-09-01T15:38:30.201Z" },
 ]
 
 [[package]]
@@ -343,7 +343,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.11.2,<0.12.0" },
+    { name = "mloda", specifier = ">=0.11.3,<0.12.0" },
     { name = "opentelemetry-api", specifier = ">=1.30,<2" },
 ]
 
@@ -463,7 +463,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.11.2,<0.12.0" },
+    { name = "mloda", specifier = ">=0.11.3,<0.12.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -504,7 +504,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.11.2,<0.12.0" },
+    { name = "mloda", specifier = ">=0.11.3,<0.12.0" },
     { name = "mloda-community-aggregation", marker = "extra == 'all'" },
     { name = "mloda-community-binning", marker = "extra == 'all'" },
     { name = "mloda-community-datetime", marker = "extra == 'all'" },
@@ -647,7 +647,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.11.2,<0.12.0" },
+    { name = "mloda", specifier = ">=0.11.3,<0.12.0" },
     { name = "mloda-community-example-a", marker = "extra == 'all'" },
     { name = "mloda-community-example-b", marker = "extra == 'all'" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
@@ -715,7 +715,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.11.2,<0.12.0" },
+    { name = "mloda", specifier = ">=0.11.3,<0.12.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -877,7 +877,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.11.2,<0.12.0" },
+    { name = "mloda", specifier = ">=0.11.3,<0.12.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "opentelemetry-api", specifier = ">=1.30,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'dev'", specifier = ">=1.30,<2" },
@@ -1382,7 +1382,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mloda", specifier = ">=0.11.2,<0.12.0" }]
+requires-dist = [{ name = "mloda", specifier = ">=0.11.3,<0.12.0" }]
 
 [[package]]
 name = "mloda-enterprise-compute-frameworks-example"
@@ -1400,7 +1400,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.11.2,<0.12.0" },
+    { name = "mloda", specifier = ">=0.11.3,<0.12.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1422,7 +1422,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.11.2,<0.12.0" },
+    { name = "mloda", specifier = ">=0.11.3,<0.12.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1444,7 +1444,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.11.2,<0.12.0" },
+    { name = "mloda", specifier = ">=0.11.3,<0.12.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1466,7 +1466,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.11.2,<0.12.0" },
+    { name = "mloda", specifier = ">=0.11.3,<0.12.0" },
     { name = "mloda-testing", marker = "extra == 'dev'", editable = "mloda/testing" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1505,7 +1505,7 @@ dev = [
 requires-dist = [
     { name = "bandit", marker = "extra == 'dev'" },
     { name = "duckdb", marker = "extra == 'dev'" },
-    { name = "mloda", specifier = ">=0.11.2,<0.12.0" },
+    { name = "mloda", specifier = ">=0.11.3,<0.12.0" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "opentelemetry-sdk", marker = "extra == 'dev'", specifier = ">=1.30,<2" },
     { name = "pandas", marker = "extra == 'dev'" },
@@ -1540,7 +1540,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.11.2,<0.12.0" },
+    { name = "mloda", specifier = ">=0.11.3,<0.12.0" },
     { name = "pyarrow" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },

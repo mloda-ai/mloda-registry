@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import contextlib
 import logging
+import uuid
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,8 @@ def _make_context(
     rows_in: int | None = None,
     rows_out: int | None = None,
     run_id: str | None = None,
+    carrier: dict[str, str] | None = None,
+    worker_index: int | None = None,
 ) -> HookContext:
     """Build a HookContext with sane defaults; every field is overridable per test."""
     return HookContext(
@@ -74,6 +77,8 @@ def _make_context(
         rows_in=rows_in,
         rows_out=rows_out,
         run_id=run_id,
+        carrier=carrier,
+        worker_index=worker_index,
     )
 
 
@@ -84,6 +89,29 @@ def _single_span_attributes(exporter: InMemorySpanExporter) -> Mapping[str, Any]
     attributes = spans[0].attributes
     assert attributes is not None
     return attributes
+
+
+def _inject_carrier_from_new_span() -> tuple[dict[str, str], int, int]:
+    """Start a span in its own isolated (TracerProvider, InMemorySpanExporter) pair - simulating the
+    parent process in a multiprocessing setup - inject its context into a W3C traceparent carrier
+    dict, and return (carrier, parent_trace_id, parent_span_id) for assertions.
+
+    Imports otel_multiprocessing.inject_carrier locally (not at module scope) so that, until Green
+    implements that module, only the tests that call this helper fail (with ModuleNotFoundError)
+    instead of breaking collection for this entire test file.
+    """
+    from mloda.community.extenders.otel.otel_multiprocessing import inject_carrier
+
+    parent_exporter = InMemorySpanExporter()
+    parent_provider = TracerProvider()
+    parent_provider.add_span_processor(SimpleSpanProcessor(parent_exporter))
+    parent_tracer = parent_provider.get_tracer("test-otel-extender-carrier-parent")
+
+    with parent_tracer.start_as_current_span("parent-span") as parent_span:
+        parent_span_context = parent_span.get_span_context()
+        carrier = inject_carrier()
+
+    return carrier, parent_span_context.trace_id, parent_span_context.span_id
 
 
 class FailingOtelCalculateFeatureGroup(FeatureGroup):
@@ -436,7 +464,9 @@ class TestOtelExtenderSpanAttributes:
         assert "mloda.plugin.version" not in _single_span_attributes(exporter)
 
     def test_run_id_attribute_absent_when_none(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
-        """run_id is always None today (a future core release feature); guard against silent breakage."""
+        """Covers the explicit run_id=None case: core (mloda 0.11.3+) always mints a real run_id now, but
+        a hand-built HookContext (as used throughout this file) can still pass None explicitly, and the
+        attribute must stay absent rather than being set to a null/empty value."""
         provider, exporter = otel_capture
         context = _make_context(run_id=None)
         otel = OtelExtender(tracer_provider=provider)
@@ -445,6 +475,164 @@ class TestOtelExtenderSpanAttributes:
             otel(lambda: None)
 
         assert "mloda.run.id" not in _single_span_attributes(exporter)
+
+
+class TestOtelExtenderWorkerIndexAttribute:
+    """mloda.subprocess.worker_index: identifies which spawned worker process emitted a span, present
+    only when the context actually carries one (mloda 0.11.3+ threads worker_index through HookContext
+    when a compute framework executes across multiple processes)."""
+
+    def test_worker_index_attribute_present_when_set(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        context = _make_context(worker_index=2)
+        otel = OtelExtender(tracer_provider=provider)
+
+        with context.activate():
+            otel(lambda: None)
+
+        assert _single_span_attributes(exporter)["mloda.subprocess.worker_index"] == 2
+
+    def test_worker_index_attribute_absent_when_none(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        context = _make_context(worker_index=None)
+        otel = OtelExtender(tracer_provider=provider)
+
+        with context.activate():
+            otel(lambda: None)
+
+        assert "mloda.subprocess.worker_index" not in _single_span_attributes(exporter)
+
+
+class TestOtelExtenderCarrierPropagation:
+    """context.carrier: when present, the span OtelExtender creates must parent from it instead of
+    always starting a fresh root trace, so spans emitted by a spawned worker process correlate with
+    the parent process's trace. Mirrors the assertions in
+    TestExtractCarrier.test_round_trip_child_span_shares_trace_id_with_new_span_id in
+    test_otel_multiprocessing.py, but exercised through OtelExtender itself rather than the raw
+    extract_carrier() primitive."""
+
+    def test_span_shares_trace_id_and_parents_from_injected_carrier(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        carrier, parent_trace_id, parent_span_id = _inject_carrier_from_new_span()
+
+        provider, exporter = otel_capture
+        context = _make_context(carrier=carrier)
+        otel = OtelExtender(tracer_provider=provider)
+
+        with context.activate():
+            otel(lambda: None)
+
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1, spans
+        span = spans[0]
+
+        assert span.context.trace_id == parent_trace_id
+        assert span.parent is not None
+        assert span.parent.span_id == parent_span_id
+
+    def test_empty_dict_carrier_does_not_crash_and_falls_through_like_none(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        """An empty carrier (no traceparent key) carries no parent to extract; it must be handled the
+        same as carrier=None rather than raising or spuriously parenting the span to anything."""
+        provider, exporter = otel_capture
+        context = _make_context(carrier={})
+        otel = OtelExtender(tracer_provider=provider)
+
+        with context.activate():
+            otel(lambda: None)
+
+        assert len(exporter.get_finished_spans()) == 1
+
+
+_DETERMINISTIC_RUN_ID = "018f1e4a-7c3b-7c3b-8c3b-1234567890ab"
+
+
+class TestOtelExtenderDeterministicTraceId:
+    """When no carrier is present but a run_id is, spans must still correlate across process
+    boundaries: the trace_id is deterministically derived from run_id via the same uuid.UUID(run_id).int
+    mapping as otel_multiprocessing.trace_id_from_run_id (the "Flyte-style" deterministic-trace-id
+    trick), instead of each process minting an unrelated random trace_id for the same logical run."""
+
+    def test_trace_id_derived_from_run_id_when_no_carrier(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        context = _make_context(run_id=_DETERMINISTIC_RUN_ID, carrier=None)
+        otel = OtelExtender(tracer_provider=provider)
+
+        with context.activate():
+            otel(lambda: None)
+
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1, spans
+        assert spans[0].context.trace_id == uuid.UUID(_DETERMINISTIC_RUN_ID).int
+
+    def test_two_calls_with_same_run_id_and_no_carrier_share_trace_id(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        """Proves same-run correlation across two separate hook invocations (e.g. one calculate, one
+        validate) that never explicitly exchange a carrier - exactly the case of two spans emitted by
+        different processes of the same run_all() call."""
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+
+        calculate_context = _make_context(
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, run_id=_DETERMINISTIC_RUN_ID, carrier=None
+        )
+        with calculate_context.activate():
+            otel(lambda: None)
+
+        validate_context = _make_context(
+            hook=ExtenderHook.VALIDATE_INPUT_FEATURE, run_id=_DETERMINISTIC_RUN_ID, carrier=None
+        )
+        with validate_context.activate():
+            otel(lambda: None)
+
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 2, spans
+        trace_ids = {span.context.trace_id for span in spans}
+        assert len(trace_ids) == 1, trace_ids
+
+    def test_carrier_wins_over_run_id_when_both_present(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        carrier, parent_trace_id, _parent_span_id = _inject_carrier_from_new_span()
+        # Sanity check: the carrier's trace id and the run_id-derived trace id must actually differ, or
+        # this test would pass by coincidence instead of proving the carrier takes priority.
+        assert parent_trace_id != uuid.UUID(_DETERMINISTIC_RUN_ID).int
+
+        provider, exporter = otel_capture
+        context = _make_context(run_id=_DETERMINISTIC_RUN_ID, carrier=carrier)
+        otel = OtelExtender(tracer_provider=provider)
+
+        with context.activate():
+            otel(lambda: None)
+
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1, spans
+        assert spans[0].context.trace_id == parent_trace_id
+        assert spans[0].context.trace_id != uuid.UUID(_DETERMINISTIC_RUN_ID).int
+
+    def test_neither_carrier_nor_run_id_still_produces_exactly_one_span(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        """Regression guard: this is the pre-existing default path used throughout the rest of this file
+        (which never passes carrier/run_id) and must keep working unchanged; the resulting trace_id is
+        random here, so it is deliberately not asserted."""
+        provider, exporter = otel_capture
+        context = _make_context(run_id=None, carrier=None)
+        otel = OtelExtender(tracer_provider=provider)
+
+        with context.activate():
+            otel(lambda: None)
+
+        assert len(exporter.get_finished_spans()) == 1
 
 
 class TestOtelExtenderReturnValue:
@@ -890,3 +1078,8 @@ class TestOtelExtenderRunAll:
             assert span.attributes is not None
             assert span.attributes.get("mloda.feature.name") == "value_int"
             assert span.attributes.get("mloda.compute_framework.name") == "PyArrowTable"
+
+        # Core (mloda 0.11.3+) always mints a real run_id and threads it through every HookContext for
+        # this run_all() call, so all spans from this one run must correlate via a shared trace_id.
+        trace_ids = {span.context.trace_id for span in spans}
+        assert len(trace_ids) == 1, trace_ids
