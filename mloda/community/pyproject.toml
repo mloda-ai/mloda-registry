@@ -34,7 +34,7 @@ mloda-community-extenders-example = "mloda.community.extenders.example.manifest:
 
 [tool.setuptools]
 package-dir = {"" = "../.."}
-packages = ["mloda.community", "mloda.community.compute_frameworks.example", "mloda.community.extenders.example", "mloda.community.feature_groups.example.example_b"]
+packages = ["mloda.community", "mloda.community.compute_frameworks.example", "mloda.community.extenders.example", "mloda.community.feature_groups.binary_model", "mloda.community.feature_groups.example.example_b"]
 
 [tool.setuptools.package-data]
 "mloda.community" = ["py.typed"]
