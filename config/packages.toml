@@ -30,7 +30,10 @@ py_typed = true
 
 [packages.mloda-enterprise]
 description = "All enterprise plugins for mloda (License required: https://mloda.ai/enterprise)"
-dependencies = ["{core_dependency}"]
+# mloda-community floor: the binary example subclasses the community binary-model mixin, and a manifest
+# import that fails on a missing mloda.community module aborts plugin discovery. Bump the floor to the
+# first release shipping mloda/community/feature_groups/binary_model once it is published.
+dependencies = ["{core_dependency}", "mloda-community>=0.4.5"]
 path = "mloda/enterprise"
 published = true
 entry_point_bundle = true
@@ -49,6 +52,24 @@ py_typed = true
 description = "Example enterprise FeatureGroup plugin for mloda"
 dependencies = ["{core_dependency}"]
 path = "mloda/enterprise/feature_groups/example"
+entry_point_groups = ["mloda.feature_groups"]
+
+# --- Binary model ---
+# The mixin ships in the community bundle, the example in the enterprise bundle; neither is published
+# standalone yet. mloda-testing[binary-model] (the simulated binary and the conformance kit) is a dev
+# dependency only: nothing under mloda/community or mloda/enterprise imports mloda.testing at runtime.
+
+[packages.mloda-community-binary-model]
+description = "Mixin running an external binary as a model over Arrow IPC, the base for binary-backed FeatureGroups"
+dependencies = ["{core_dependency}"]
+path = "mloda/community/feature_groups/binary_model"
+optional_dependencies = { pyarrow = ["pyarrow>=25"], dev = ["mloda-testing[binary-model]", "pytest>=9.0.3"] }
+
+[packages.mloda-enterprise-binary-example]
+description = "Example enterprise FeatureGroup backed by a licensed binary model"
+dependencies = ["mloda-community-binary-model"]
+path = "mloda/enterprise/feature_groups/binary_example"
+optional_dependencies = { dev = ["mloda-testing[binary-model]", "pytest>=9.0.3"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-example-a]
