@@ -5,8 +5,6 @@ Manual release workflow: semantic-release computes the version, PyPI gets the wh
 ## Trigger
 
 Manual only, via GitHub Actions -> Release -> Run workflow. Nothing releases on push or merge.
-A `concurrency: group: release` guard serializes overlapping `workflow_dispatch` runs;
-a second run queues instead of racing the first.
 
 ## Flow
 
