@@ -5,6 +5,8 @@ Manual release workflow: semantic-release computes the version, PyPI gets the wh
 ## Trigger
 
 Manual only, via GitHub Actions -> Release -> Run workflow. Nothing releases on push or merge.
+A `concurrency: group: release` guard serializes overlapping `workflow_dispatch` runs;
+a second run queues instead of racing the first.
 
 ## Flow
 
@@ -13,11 +15,14 @@ workflow_dispatch → semantic-release → PyPI publish
 ```
 
 1. **Version bump**: semantic-release analyzes commits and updates `config/shared.toml`.
-2. **Regenerate**: `scripts/generate_pyproject.py` updates all `pyproject.toml` files.
-3. **Commit**: version changes committed to `main`.
-4. **GitHub release**: tag created (e.g. `0.4.0`).
-5. **PyPI publish**: wheels built and uploaded with `twine --skip-existing`, so a rerun
-   after a partial upload does not fail on the files that already made it.
+2. **Regenerate**: `scripts/generate_pyproject.py` updates all `pyproject.toml` files,
+   then `uv lock` re-locks `uv.lock` against the bumped versions.
+3. **Commit**: version changes, including `uv.lock`, committed to `main`.
+4. **GitHub release**: tag created (e.g. `0.4.0`); its commit SHA is captured as a job
+   output.
+5. **PyPI publish**: the `publish` job checks out that exact SHA (not whatever `main`
+   is when the job runs), then builds and uploads wheels with `twine --skip-existing`,
+   so a rerun after a partial upload does not fail on the files that already made it.
 
 The `prepareCmd` in `.releaserc.yaml` also seds a `MLODA_REGISTRY_VERSION:<version>}`
 default into `tox.ini`. No such default remains there, so that half of the command is
