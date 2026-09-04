@@ -3,9 +3,6 @@ name: Release
 on:
   workflow_dispatch:
 
-# GitHub Actions queues one pending run per group, so a third dispatch cancels the
-# queued one (not the active one); intended here, since a cancelled queued run has
-# published nothing yet.
 concurrency:
   group: release
   cancel-in-progress: false
