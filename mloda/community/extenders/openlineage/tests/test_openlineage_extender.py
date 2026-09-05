@@ -375,6 +375,66 @@ class TestOpenLineageExtenderCompleteEvent:
             assert f.name == "x"
             assert f.type == "int64"
 
+    def test_schema_facet_types_come_from_schema_fields_for_spark_shaped_result(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        """A pyspark-shaped result (columns, (name, type) dtypes tuples, schema.fields with dataType) must
+        report str(field.dataType) per column, never the stringified dtypes tuple."""
+
+        class _DataType:
+            def __init__(self, rendered: str) -> None:
+                self._rendered = rendered
+
+            def __str__(self) -> str:
+                return self._rendered
+
+        class _StructField:
+            def __init__(self, name: str, data_type: _DataType) -> None:
+                self.name = name
+                self.dataType = data_type
+
+        class _StructType:
+            def __init__(self, fields: list[_StructField]) -> None:
+                self.fields = fields
+                self.names = [f.name for f in fields]
+
+        class _SparkFrame:
+            def __init__(self, columns: list[str], dtypes: list[tuple[str, str]], schema: _StructType) -> None:
+                self.columns = columns
+                self.dtypes = dtypes
+                self.schema = schema
+
+        client, transport = ol_capture
+        context = _make_context(feature_names=("value_int", "value_str"))
+        extender = OpenLineageExtender(client=client)
+        frame = _SparkFrame(
+            columns=["value_int", "value_str"],
+            dtypes=[("value_int", "bigint"), ("value_str", "string")],
+            schema=_StructType(
+                [
+                    _StructField("value_int", _DataType("LongType()")),
+                    _StructField("value_str", _DataType("StringType()")),
+                ]
+            ),
+        )
+
+        with context.activate():
+            extender(lambda: frame)
+
+        complete_event = transport.events[1]
+        assert complete_event.outputs is not None
+        datasets_by_name = {ds.name: ds for ds in complete_event.outputs}
+
+        expected_types = {"value_int": "LongType()", "value_str": "StringType()"}
+        for expected_name, expected_type in expected_types.items():
+            dataset = datasets_by_name[expected_name]
+            assert dataset.facets is not None
+            schema_facet = dataset.facets.get("schema")
+            assert isinstance(schema_facet, schema_dataset.SchemaDatasetFacet)
+            assert schema_facet.fields is not None
+            assert [f.name for f in schema_facet.fields] == [expected_name]
+            assert [f.type for f in schema_facet.fields] == [expected_type]
+
     def test_schema_facet_absent_when_result_has_no_introspectable_schema(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:

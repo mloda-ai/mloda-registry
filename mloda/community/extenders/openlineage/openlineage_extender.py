@@ -189,6 +189,10 @@ def _infer_schema_fields_unsafe(result: Any) -> list[schema_dataset.SchemaDatase
             for n, t in zip(schema.names, schema.types)
         ]
 
+    # Spark StructType: schema.fields carries StructField entries with name and dataType.
+    if schema is not None and hasattr(schema, "fields"):
+        return [schema_dataset.SchemaDatasetFacetFields(name=str(f.name), type=str(f.dataType)) for f in schema.fields]
+
     columns = getattr(result, "columns", None)
     dtypes = getattr(result, "dtypes", None)
     if columns is not None and dtypes is not None:
