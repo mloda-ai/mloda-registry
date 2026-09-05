@@ -207,11 +207,11 @@ def _import_modules(packages: dict[str, dict[str, Any]]) -> list[str]:
     return modules
 
 
-def _top_level_distributions(packages: dict[str, dict[str, Any]]) -> list[str]:
+def _independent_distributions(packages: dict[str, dict[str, Any]]) -> list[str]:
     """The independently installed distributions verify_independent_installs derives from a config."""
     names: list[str] = _script_fn(
         _INDEPENDENT_SCRIPT,
-        "top_level_distributions",
+        "independent_distributions",
         "derive the independently installed distributions from config/packages.toml",
     )(packages)
     return names
@@ -548,69 +548,31 @@ def test_tox_verify_env_runs_its_config_derived_script(env_name: str, script: st
     )
 
 
-def test_top_level_distributions_are_the_bundles() -> None:
-    """On the real config only the bundle distributions sit at the top of the package layout."""
-    names = _top_level_distributions(_packages())
-    assert names == _BUNDLES, (
-        f"top_level_distributions() returned {names!r}, expected the bundle distributions in config order {_BUNDLES!r}"
-    )
+def test_independent_distributions_matches_the_published_set() -> None:
+    """On the real config, independent_distributions() matches published_packages() exactly."""
+    packages = _packages()
+    names = _independent_distributions(packages)
+    expected = _published_packages_fn()(packages)
+    assert names == expected, f"independent_distributions() returned {names!r}, expected {expected!r}"
 
 
-def test_top_level_distributions_follows_the_config() -> None:
-    """A new top-level package joins the independent installs without any hand-edited list."""
-    packages = deepcopy(_packages())
-    packages["mloda-extras"] = {"description": "sandbox", "path": "mloda/extras", "published": True}
-
-    names = _top_level_distributions(packages)
-
-    assert names == [*_BUNDLES, "mloda-extras"], (
-        f"top_level_distributions() returned {names!r}; a configured package whose path sits under no "
-        "other configured package's path must be installed independently."
-    )
+def test_independent_distributions_includes_a_nested_published_leaf() -> None:
+    """A nested published leaf must still be probed independently: it can be released without its base changing."""
+    names = _independent_distributions(_packages())
+    assert "mloda-community-aggregation" in names, f"expected mloda-community-aggregation in {names!r}"
 
 
-def test_top_level_distributions_never_includes_a_nested_package() -> None:
-    """A nested package is covered through its parent's install, never as an independent top-level one."""
-    packages: dict[str, dict[str, Any]] = {
-        "mloda-registry": {"description": "sandbox", "path": "mloda/registry", "published": True},
-        "mloda-registry-child": {"description": "sandbox", "path": "mloda/registry/child", "published": True},
-    }
-
-    names = _top_level_distributions(packages)
-
-    assert names == ["mloda-registry"], (
-        f"top_level_distributions() returned {names!r}; a package whose path sits under another "
-        "configured package's path is never an independent top-level install."
-    )
-
-
-def test_top_level_distributions_excludes_an_unpublished_top_level_package() -> None:
-    """Only the released set installs from PyPI, so an unpublished top-level package has no wheel to probe."""
+def test_independent_distributions_excludes_an_unpublished_package() -> None:
+    """A package without 'published = true' (flag missing or explicitly false) ships no independent wheel."""
     packages: dict[str, dict[str, Any]] = {
         "mloda-registry": {"description": "sandbox", "path": "mloda/registry", "published": True},
         "mloda-sandbox": {"description": "sandbox", "path": "mloda/sandbox"},
+        "mloda-other": {"description": "sandbox", "path": "mloda/other", "published": False},
     }
 
-    names = _top_level_distributions(packages)
+    names = _independent_distributions(packages)
 
-    assert names == ["mloda-registry"], (
-        f"top_level_distributions() returned {names!r}; a top-level package without 'published = true' "
-        "ships no wheel, so it can never be installed independently."
-    )
-
-
-def test_top_level_distributions_keeps_a_trailing_slash_path() -> None:
-    """A trailing-slash path equals its own prefix string, so it must not exclude itself."""
-    packages: dict[str, dict[str, Any]] = {
-        "mloda-registry": {"description": "sandbox", "path": "mloda/registry/", "published": True},
-    }
-
-    names = _top_level_distributions(packages)
-
-    assert names == ["mloda-registry"], (
-        f"top_level_distributions() returned {names!r}; a package path with a trailing slash starts "
-        "with its own prefix, so the comparison must normalize the path before checking."
-    )
+    assert names == ["mloda-registry"], f"independent_distributions() returned {names!r}, expected ['mloda-registry']"
 
 
 def test_every_unpublished_package_is_nested_under_an_entry_point_bundle() -> None:
