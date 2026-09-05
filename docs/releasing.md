@@ -33,20 +33,21 @@ Verification is not part of the release. It runs in a separate workflow,
 Monday cron plus manual dispatch, so a fresh release stays unverified until the next
 run. To check a release immediately, dispatch that workflow.
 
-It sets `MLODA_REGISTRY_VERSION` and runs five tox envs:
+It sets `MLODA_REGISTRY_VERSION` and runs these tox envs:
 
 | Env | Checks |
 |-----|--------|
 | `verify-published` | The released set installs together and imports |
-| `verify-published-independent` | Each package installs and imports on its own |
+| `verify-published-independent` | Every published distribution installs and imports on its own |
 | `verify-extras` | The `[all]` extras resolve and pull in their variants |
-| `verify-floor-installs` | Each package's import surface loads with its internal dependency pinned to the declared floor |
 | `verify-typed-install` | A standalone leaf install is typed under mypy --strict |
 
-Both follow the fails-until-release pattern `verify-published` has: `verify-floor-installs`
-goes red for a package not yet shipped or a floor lagging what a leaf imports (see
-[packaging.md](packaging.md#cross-package-dependency-floors)); `verify-typed-install`
-goes red until the base's `py.typed` marker ships.
+`verify-typed-install` follows the fails-until-release pattern `verify-published` has: it
+goes red until the base's `py.typed` marker ships. Sibling dependency floors need no
+dedicated verification env: `verify-published-independent` already covers each leaf
+installing alone at its generator-derived floor, and `verify-extras` covers each base
+resolving together with its children (see
+[packaging.md](packaging.md#sibling-dependency-floors)).
 
 ## Published packages
 
@@ -54,11 +55,12 @@ The released set is the `published = true` flag in `config/packages.toml`.
 `scripts/published_packages.py` prints it, plain or pinned; the build array in
 `.github/workflows/release.yaml` and the install lists of the `verify-published` and
 `security` tox envs are all filled from that one command, so they cannot drift apart.
-`verify-published-independent` and `verify-extras` still name packages by hand, but only
-the four bundles and `mloda-community-example`, not the set as a whole.
+`verify-published-independent` derives its installed set from that same `published` flag,
+and `verify-extras` derives its internal extras from `config/packages.toml`'s
+`optional_dependencies`, so neither script names a package by hand.
 
 Flagging a package does not publish it: it ships with the next release run, and
-`tox -e verify-published` and `tox -e verify-floor-installs` fail for it until then.
+`tox -e verify-published` fails for it until then.
 
 A release that introduces packages new to PyPI can be rejected with
 `429 Too many new projects created`. PyPI throttles the creation of *new* project names,
@@ -67,6 +69,8 @@ low (around four) and the lockout lasts many hours. It is not something the rele
 workflow can pace or retry around. See
 [pypi/support#10572](https://github.com/pypi/support/issues/10572) and
 [this monorepo release thread](https://discuss.python.org/t/request-temporary-new-project-rate-limit-lift-on-pypi-for-a-coordinated-monorepo-release-user-pace/108030).
+Because every leaf requires its base at the same version, a rejected, partial upload also
+leaves the already-uploaded leaves uninstallable until the rerun completes.
 
 Not every package ships standalone. Most demo and example packages reach users inside the
 `mloda-community` / `mloda-enterprise` bundle wheels instead; `mloda-community-example`

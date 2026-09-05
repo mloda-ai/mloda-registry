@@ -61,7 +61,7 @@ optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 | `description` | Yes | PyPI description |
 | `path` | Yes | Package directory |
 | `published` | No | `true` ships the distribution standalone on PyPI. Single source of the released set, read through `scripts/published_packages.py`. Must be a boolean, and governs the released set only, never wheel contents |
-| `dependencies` | By convention | Runtime deps; use `"{core_dependency}"` for the mloda floor. The generator defaults it to empty rather than failing, but every package declares it |
+| `dependencies` | By convention | Runtime deps; use `"{core_dependency}"` for the mloda floor, `"<sibling>>={version}"` for a sibling package (see [Sibling dependency floors](#sibling-dependency-floors)). The generator defaults it to empty rather than failing, but every package declares it |
 | `optional_dependencies` | No | Merged with defaults. The entry `"{published_children}"` expands to every published package nested under this package's path, in config order. A test-only third-party dependency goes in `dev` here; see [Add a test-only dependency](#add-a-test-only-dependency) |
 | `has_readme` | No | `true` points the package at its own `README.md` |
 | `workspace_deps` | No | Marks a meta-package whose deps are workspace siblings. Mutually exclusive with `py_typed`; unused today |
@@ -69,21 +69,20 @@ optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 | `entry_point_bundle` | No | `true` on bundle packages (`mloda-community`, `mloda-enterprise`); aggregates the entry points of every nested plugin package under its path. Mutually exclusive with `entry_point_groups` |
 | `py_typed` | No | `true` adds the dotted path to `packages` (what ships the marker) and emits `[tool.setuptools.package-data]` for it. Requires a committed `<path>/py.typed`. Mutually exclusive with `workspace_deps` |
 
-A marker declares its whole subtree typed, including third-party distributions installed into it: on a namespace portion (`mloda/community`, `mloda/enterprise`) that is the entire namespace, on a shared base package (`mloda/community/feature_groups/data_operations`, `mloda/community/feature_groups/example`) it is everything published from below that base. mypy returns at the first `py.typed` on the module path, so those leaf packages need no flag of their own. The leaf's typing then depends on the marker-shipping base being installed, so its dependency floor has to be at or above the release that first shipped the marker. Raise that floor only in a follow-up change, after the marker-bearing release is published: a workspace member cannot require a sibling version above the workspace's own version in `config/shared.toml`, so bumping it in the same change makes `uv sync --all-extras` unsatisfiable.
+A marker declares its whole subtree typed, including third-party distributions installed into it: on a namespace portion (`mloda/community`, `mloda/enterprise`) that is the entire namespace, on a shared base package (`mloda/community/feature_groups/data_operations`, `mloda/community/feature_groups/example`) it is everything published from below that base. mypy returns at the first `py.typed` on the module path, so those leaf packages need no flag of their own. The sibling dependency floor below already keeps the leaf at or above the release that first shipped the marker.
 
-### Cross-package dependency floors
+### Sibling dependency floors
 
-The floor of an internal dependency is the oldest published release containing every
-symbol the depending package imports from it. A floor can never exceed
-`[project].version` in `config/shared.toml`, because a workspace member cannot require
-a sibling above the workspace version; a package that starts importing a
-not-yet-released symbol therefore keeps the current cap, and the floor moves in a
-follow-up after that release ships.
+A dependency on another package of the same `packages` table (a sibling, in-repo
+dependency) is written `"<sibling>>={version}"`. The generator expands `{version}` to
+`[project].version` in `shared.toml` and rejects a sibling dependency written without
+the placeholder. Every release regenerates `pyproject.toml`, so a leaf always requires
+the base built from the same commit. The mloda core floor (`core_dependency`) is
+unaffected: it stays a real, hand-set minimum in `shared.toml`.
 
-`tox -e verify-floor-installs` (weekly workflow) installs each pair at
-`dependency==floor` plus `package==released version`, imports the package's import
-surface (the package root plus its base module), and goes red until the follow-up
-lands; it also rejects floors naming versions that never reached PyPI.
+The same rule covers `optional_dependencies`: a sibling entry there may also be listed
+bare, as `"{published_children}"` expands to. The generator refuses any dependency string
+left carrying an unexpanded placeholder after expansion.
 
 **Generator infers:**
 
