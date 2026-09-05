@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import pickle  # nosec
 from contextlib import AbstractContextManager
 from typing import Any
 
@@ -26,8 +27,8 @@ class ExtenderContractTestMixin:
     def extender_class(cls) -> type[Extender]:
         raise NotImplementedError
 
-    def make_extender(self, *, raise_on_error: bool = False) -> Extender:
-        """Return an instance wired to an in-memory backend (no network)."""
+    def make_extender(self, *, raise_on_error: bool | None = None) -> Extender:
+        """Return an instance wired to an in-memory backend (no network); None means the extender's own default."""
         raise NotImplementedError
 
     def own_failure(self) -> AbstractContextManager[Any]:
@@ -36,22 +37,35 @@ class ExtenderContractTestMixin:
 
     @classmethod
     def raise_on_error_default(cls) -> bool:
-        """Observability extenders default to warning-only."""
-        return False
+        """Core's Extender default; observability extenders override this to False."""
+        return True
 
-    def test_contract_is_extender_subclass(self) -> None:
-        assert issubclass(self.extender_class(), Extender)
+    def _context_hook(self) -> ExtenderHook:
+        """FEATURE_GROUP_CALCULATE_FEATURE when wrapped, else the wrapped hook with the smallest value."""
+        wraps = self.make_extender().wraps()
+        if ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE in wraps:
+            return ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE
+        return min(wraps, key=lambda hook: hook.value)
+
+    def test_contract_extender_pickles(self) -> None:
+        extender = self.make_extender()
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+        assert isinstance(copy, self.extender_class())
+        assert copy.wraps() == extender.wraps()
+        assert copy.raise_on_error == extender.raise_on_error
 
     def test_contract_wraps_only_known_hooks(self) -> None:
-        wraps = self.extender_class()().wraps()
+        extender = self.make_extender()
+        wraps = extender.wraps()
         assert wraps
         assert wraps <= set(ExtenderHook)
+        assert extender.wraps() == wraps
 
     def test_contract_raise_on_error_default(self) -> None:
-        assert self.extender_class()().raise_on_error is self.raise_on_error_default()
+        assert self.make_extender().raise_on_error is self.raise_on_error_default()
 
     def test_contract_call_returns_wrapped_result_unchanged(self) -> None:
-        with make_hook_context().activate():
+        with make_hook_context(hook=self._context_hook()).activate():
             assert self.make_extender()(lambda a, b: a + b, 3, 4) == 7
 
     def test_contract_wrapped_failure_propagates_and_runs_once(self) -> None:
@@ -62,14 +76,17 @@ class ExtenderContractTestMixin:
             calls += 1
             raise RuntimeError("inner boom")
 
-        with make_hook_context().activate():
+        with make_hook_context(hook=self._context_hook()).activate():
             with pytest.raises(RuntimeError, match="inner boom"):
                 self.make_extender()(func, 3, 4)
         assert calls == 1
 
     def test_contract_own_failure_falls_back_when_raise_on_error_false(self, caplog: pytest.LogCaptureFixture) -> None:
-        composite = _CompositeExtender([self.make_extender(raise_on_error=False)])
-        with make_hook_context().activate():
+        extender = self.make_extender(raise_on_error=False)
+        if extender.raise_on_error is not False:
+            pytest.skip("extender is breaking-only")
+        composite = _CompositeExtender([extender])
+        with make_hook_context(hook=self._context_hook()).activate():
             with self.own_failure():
                 with caplog.at_level(logging.WARNING):
                     result = composite(lambda a, b: a + b, 3, 4)
@@ -78,7 +95,7 @@ class ExtenderContractTestMixin:
 
     def test_contract_own_failure_propagates_when_raise_on_error_true(self) -> None:
         composite = _CompositeExtender([self.make_extender(raise_on_error=True)])
-        with make_hook_context().activate():
+        with make_hook_context(hook=self._context_hook()).activate():
             with self.own_failure():
                 with pytest.raises(RuntimeError):
                     composite(lambda a, b: a + b, 3, 4)

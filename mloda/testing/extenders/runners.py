@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 import pyarrow as pa
@@ -35,9 +36,9 @@ def run_value_int(*extenders: Extender) -> list[Any]:
 
 
 class FailingFeatureGroup(FeatureGroup):
-    """Primary-source feature group that always raises; the empty feature_name never matches a run."""
+    """Primary-source feature group that always raises; the sentinel feature_name never matches a real request."""
 
-    feature_name: str = ""
+    feature_name: str = "mloda_testing_never_requested"
     calls: int = 0
 
     @classmethod
@@ -62,8 +63,9 @@ def failing_feature_group(feature_name: str) -> type[FailingFeatureGroup]:
 
     _Failing.feature_name = feature_name
     _Failing.calls = 0
-    _Failing.__name__ = f"FailingFeatureGroup_{feature_name}"
-    _Failing.__qualname__ = f"FailingFeatureGroup_{feature_name}"
+    suffix = uuid.uuid4().hex[:8]
+    _Failing.__name__ = f"FailingFeatureGroup_{feature_name}_{suffix}"
+    _Failing.__qualname__ = f"FailingFeatureGroup_{feature_name}_{suffix}"
     return _Failing
 
 
