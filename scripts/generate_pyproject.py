@@ -388,26 +388,34 @@ DEV_DEPS_MARKER_LINES = (
     "    # Do not edit manually - run: python scripts/generate_pyproject.py",
 )
 
-_DEV_ARRAY_RE = re.compile(r"^dev = \[\n(?P<body>.*?)\n\](?P<trailing>\n?)", re.DOTALL | re.MULTILINE)
+_OPTIONAL_DEPS_TABLE_RE = re.compile(r"^\[project\.optional-dependencies\]\n", re.MULTILINE)
+_DEV_ARRAY_RE = re.compile(r"^dev = \[(?P<body>.*?)\](?P<trailing>\n?)", re.DOTALL | re.MULTILINE)
 _DEV_ENTRY_RE = re.compile(r'^\s*"(?P<value>[^"]+)",?\s*$')
 
 
 def _bare_dist_name(requirement: str) -> str:
     """Normalized bare distribution name of a requirement: lowercase, ``_``/``.`` as ``-``."""
-    match = _DIST_NAME_RE.match(requirement)
-    name = match.group(0) if match else requirement
+    stripped = requirement.strip()
+    match = _DIST_NAME_RE.match(stripped)
+    name = match.group(0) if match else stripped
     return name.lower().replace("_", "-").replace(".", "-")
+
+
+def _normalized_requirement(requirement: str) -> str:
+    """Whitespace- and case-insensitive form of a requirement, for conflict comparison only."""
+    return re.sub(r"\s+", "", requirement).lower()
 
 
 def collect_third_party_dev_deps(packages: dict[str, dict[str, Any]]) -> list[tuple[str, str]]:
     """Collect third-party ``dev`` extra requirements across packages, deduped by bare name.
 
     Skips entries whose bare name matches a configured package name (an internal workspace
-    member, not something root needs from PyPI). Returns ``(requirement, owning_package_name)``
+    member, not something root needs from PyPI) or the bare core dependency name ``mloda``
+    (owned by ``update_root_core_dependency``). Returns ``(requirement, owning_package_name)``
     pairs, keeping the first occurrence on a dedup. Raises ``ValueError`` on conflicting
-    requirement strings for the same bare name.
+    requirement strings for the same bare name (compared ignoring whitespace/case).
     """
-    internal_names = {_bare_dist_name(name) for name in packages}
+    internal_names = {_bare_dist_name(name) for name in packages} | {"mloda"}
     seen: dict[str, str] = {}
     result: list[tuple[str, str]] = []
 
@@ -417,7 +425,7 @@ def collect_third_party_dev_deps(packages: dict[str, dict[str, Any]]) -> list[tu
             if bare_name in internal_names:
                 continue
             if bare_name in seen:
-                if seen[bare_name] != requirement:
+                if _normalized_requirement(seen[bare_name]) != _normalized_requirement(requirement):
                     raise ValueError(
                         f"conflicting dev dependency specs for {bare_name!r}: {seen[bare_name]!r} vs {requirement!r}"
                     )
@@ -434,20 +442,38 @@ def update_root_dev_dependencies(packages: dict[str, dict[str, Any]], check: boo
     tox's shared dev environment installs from root ``pyproject.toml`` rather than each
     workspace member's own generated extras, so a package-local third-party ``dev``
     requirement (e.g. ``opentelemetry-sdk`` for ``mloda-community-otel``) also needs a
-    root entry. Lines above ``DEV_DEPS_MARKER_LINES`` are hand-authored and untouched;
-    lines at/after it are fully owned and recomputed from ``collect_third_party_dev_deps``,
-    skipping any bare name already covered by a hand-authored line. Idempotent. Returns
-    (success, message) tuple.
+    root entry. The ``dev`` array is scoped to the ``[project.optional-dependencies]``
+    table specifically, never a same-named array in an unrelated table. Lines above
+    ``DEV_DEPS_MARKER_LINES`` are hand-authored and untouched; lines at/after it are
+    fully owned and recomputed from ``collect_third_party_dev_deps`` (emitted sorted by
+    bare name), skipping any bare name already covered by a hand-authored line (trailing
+    inline comments included). Idempotent. Returns (success, message) tuple.
     """
     if not ROOT_PYPROJECT.exists():
         return False, f"{ROOT_PYPROJECT}: missing"
 
     content = ROOT_PYPROJECT.read_text()
-    match = _DEV_ARRAY_RE.search(content)
+
+    table_header_match = _OPTIONAL_DEPS_TABLE_RE.search(content)
+    if not table_header_match:
+        return False, f"{ROOT_PYPROJECT}: [project.optional-dependencies] table not found"
+
+    table_start = table_header_match.end()
+    next_table_match = re.search(r"^\[", content[table_start:], re.MULTILINE)
+    table_end = table_start + next_table_match.start() if next_table_match else len(content)
+
+    match = _DEV_ARRAY_RE.search(content, table_start, table_end)
     if not match:
         return False, f"{ROOT_PYPROJECT}: [project.optional-dependencies] dev array not found"
 
-    body_lines = match.group("body").split("\n") if match.group("body") else []
+    # The array body includes its surrounding newlines (if any); strip one of each so an
+    # empty "dev = []" and a multi-line array both split into the same shape of body_lines.
+    raw_body = match.group("body")
+    if raw_body.startswith("\n"):
+        raw_body = raw_body[1:]
+    if raw_body.endswith("\n"):
+        raw_body = raw_body[:-1]
+    body_lines = raw_body.split("\n") if raw_body else []
 
     marker_index = next(
         (i for i, line in enumerate(body_lines) if line == DEV_DEPS_MARKER_LINES[0]),
@@ -457,23 +483,36 @@ def update_root_dev_dependencies(packages: dict[str, dict[str, Any]], check: boo
 
     hand_authored_names: set[str] = set()
     for line in hand_authored:
-        entry = _DEV_ENTRY_RE.match(line)
+        entry = _DEV_ENTRY_RE.match(re.sub(r"#.*$", "", line))
         if entry:
             hand_authored_names.add(_bare_dist_name(entry.group("value")))
 
+    try:
+        third_party_deps = collect_third_party_dev_deps(packages)
+    except ValueError as exc:
+        return False, str(exc)
+
     additions = [
         requirement
-        for requirement, _owner in collect_third_party_dev_deps(packages)
+        for requirement, _owner in third_party_deps
         if _bare_dist_name(requirement) not in hand_authored_names
     ]
+    for requirement in additions:
+        if '"' in requirement:
+            raise ValueError(f"dev requirement contains an unescapable double quote: {requirement!r}")
+    additions.sort(key=_bare_dist_name)
 
     new_body_lines = list(hand_authored)
     if additions:
         new_body_lines.extend(DEV_DEPS_MARKER_LINES)
         new_body_lines.extend(f'    "{req}",' for req in additions)
 
-    new_body = "\n".join(new_body_lines)
-    new_array = f"dev = [\n{new_body}\n]{match.group('trailing')}"
+    if new_body_lines:
+        new_body = "\n".join(new_body_lines)
+        new_array = f"dev = [\n{new_body}\n]{match.group('trailing')}"
+    else:
+        new_array = f"dev = []{match.group('trailing')}"
+
     new_content = content[: match.start()] + new_array + content[match.end() :]
 
     if new_content == content:
