@@ -12,8 +12,8 @@ Exit code: 1 if any member imports without its extra or fails to import with it,
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import os
+import runpy
 import subprocess  # nosec
 import sys
 import tempfile
@@ -27,18 +27,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # The dev extra is tooling, never shipped code.
 DEV_EXTRA = "dev"
 
-
-def _load_sibling(name: str) -> ModuleType:
-    """Load a sibling scripts/ module by file path, so an arbitrary cwd cannot break the import."""
-    path = Path(__file__).resolve().parent / f"{name}.py"
-    if not path.exists():
-        raise ImportError(f"{path} is missing; {Path(__file__).name} derives its checks from it")
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"could not load spec for {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+# Not a plain import: this script is also loaded by file path in tests, where scripts/ is not on sys.path.
+_load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(REPO_ROOT / "scripts" / "script_loader.py"))[
+    "load_sibling"
+]
 
 
 def internal_extra_members(packages: dict[str, dict[str, Any]]) -> list[tuple[str, str, list[str]]]:
