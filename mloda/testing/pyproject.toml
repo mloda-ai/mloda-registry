@@ -16,6 +16,8 @@ requires-python = ">=3.10,<3.15"
 
 [project.optional-dependencies]
 dev = ["pytest>=9.0.3"]
+otel = ["opentelemetry-sdk>=1.30,<2"]
+openlineage = ["openlineage-python>=1.20,<2"]
 
 [project.urls]
 Homepage = "https://mloda.ai"

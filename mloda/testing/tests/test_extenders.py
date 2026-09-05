@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pickle  # nosec
 from contextlib import AbstractContextManager
 from typing import Any
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
+    CountingExtender,
     FailingFeatureGroup,
     expected_value_int,
     failing_feature_group,
@@ -268,8 +270,30 @@ class TestValidateOnlyProbeContract(ExtenderContractTestMixin):
         assert extender.sink[-1] == ExtenderHook.VALIDATE_OUTPUT_FEATURE
 
 
+class TestCountingExtender:
+    """CountingExtender: breaking pass-through probe that counts its own invocations."""
+
+    def test_fresh_instance_defaults(self) -> None:
+        extender = CountingExtender()
+        assert extender.calls == 0
+        assert extender.raise_on_error is True
+
+    def test_wraps_calculate_feature_hook(self) -> None:
+        assert CountingExtender().wraps() == {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+    def test_call_passes_through_and_counts(self) -> None:
+        extender = CountingExtender()
+        assert extender(lambda a, b: a + b, 3, 4) == 7
+        assert extender.calls == 1
+
+    def test_survives_pickle_roundtrip(self) -> None:
+        copy = pickle.loads(pickle.dumps(CountingExtender()))  # nosec
+        assert copy.calls == 0
+        assert copy.wraps() == {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+
 class TestExtenderContractTestMixinShape:
-    """B3: the mixin's own raise_on_error default, and the pickle-vs-subclass test swap."""
+    """The mixin's own raise_on_error default, and the pickle-vs-subclass test swap."""
 
     def test_raise_on_error_default_is_true(self) -> None:
         assert ExtenderContractTestMixin.raise_on_error_default() is True
@@ -277,3 +301,48 @@ class TestExtenderContractTestMixinShape:
     def test_pickle_contract_test_replaces_subclass_check(self) -> None:
         assert not hasattr(ExtenderContractTestMixin, "test_contract_is_extender_subclass")
         assert hasattr(ExtenderContractTestMixin, "test_contract_extender_pickles")
+
+    def test_expected_hooks_defaults_to_none(self) -> None:
+        assert ExtenderContractTestMixin.expected_hooks() is None
+
+    def test_pickled_copy_environment_is_a_context_manager(self) -> None:
+        with ExtenderContractTestMixin().pickled_copy_environment():
+            pass
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "test_contract_wraps_expected_hooks",
+            "test_contract_raise_on_error_is_configurable",
+            "test_contract_call_without_hook_context_passes_through",
+            "test_contract_pickled_copy_still_wraps",
+            "test_contract_own_failure_does_not_stop_chained_extender",
+            "test_contract_run_all_own_failure_falls_back_when_raise_on_error_false",
+        ],
+    )
+    def test_new_contract_tests_exist(self, name: str) -> None:
+        assert hasattr(ExtenderContractTestMixin, name)
+
+
+class TestProbeExtenderDeclaredHooks(ExtenderContractTestMixin):
+    """Mirrors TestProbeExtenderContract but declares expected_hooks so that test also runs."""
+
+    @classmethod
+    def extender_class(cls) -> type[Extender]:
+        return _ProbeExtender
+
+    @classmethod
+    def raise_on_error_default(cls) -> bool:
+        return False
+
+    @classmethod
+    def expected_hooks(cls) -> set[ExtenderHook] | None:
+        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+    def make_extender(self, *, raise_on_error: bool | None = None) -> _ProbeExtender:
+        if raise_on_error is None:
+            return _ProbeExtender(sink=[])
+        return _ProbeExtender(raise_on_error=raise_on_error, sink=[])
+
+    def own_failure(self) -> AbstractContextManager[Any]:
+        return patch.object(_ProbeExtender, "explode", True, create=True)

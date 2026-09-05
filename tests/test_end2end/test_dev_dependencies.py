@@ -15,6 +15,8 @@ import pytest
 # tests?  Add its import name to this list so CI catches missing deps early.
 REQUIRED_TEST_DEPENDENCIES = [
     "duckdb",
+    "openlineage.client",
+    "opentelemetry.sdk",
     "pandas",
     "polars",
     "pyarrow",
@@ -42,6 +44,8 @@ def test_required_test_dependency_is_installed(module_name: str) -> None:
 # importing the module raises ``pytest.skip.Exception``.
 _FRAMEWORK_TEST_MODULES = {
     "duckdb": "mloda.community.feature_groups.data_operations.aggregation.tests.test_duckdb",
+    "openlineage.client": "mloda.testing.tests.test_extenders_openlineage",
+    "opentelemetry.sdk": "mloda.testing.tests.test_extenders_otel",
     "pandas": "mloda.community.feature_groups.data_operations.aggregation.tests.test_pandas",
     "polars": "mloda.community.feature_groups.data_operations.aggregation.tests.test_polars_lazy",
 }
