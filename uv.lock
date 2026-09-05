@@ -1808,15 +1808,23 @@ dependencies = [
 dev = [
     { name = "pytest" },
 ]
+openlineage = [
+    { name = "openlineage-python" },
+]
+otel = [
+    { name = "opentelemetry-sdk" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "mloda", specifier = ">=0.12.0,<0.13.0" },
+    { name = "openlineage-python", marker = "extra == 'openlineage'", specifier = ">=1.20,<2" },
+    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30,<2" },
     { name = "pyarrow" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "otel", "openlineage"]
 
 [[package]]
 name = "mypy"

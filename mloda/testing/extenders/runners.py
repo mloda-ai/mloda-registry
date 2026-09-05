@@ -7,7 +7,7 @@ from typing import Any
 
 import pyarrow as pa
 from mloda.provider import ComputeFramework, DataCreator, FeatureGroup, FeatureSet
-from mloda.steward import Extender
+from mloda.steward import Extender, ExtenderHook
 from mloda.user import PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -33,6 +33,21 @@ def run_value_int(*extenders: Extender) -> list[Any]:
             column: list[Any] = table.to_pydict()["value_int"]
             return column
     raise AssertionError("No result table with value_int found")
+
+
+class CountingExtender(Extender):
+    """Breaking pass-through probe that counts its own invocations."""
+
+    def __init__(self) -> None:
+        self.raise_on_error = True
+        self.calls = 0
+
+    def wraps(self) -> set[ExtenderHook]:
+        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        self.calls += 1
+        return func(*args, **kwargs)
 
 
 class FailingFeatureGroup(FeatureGroup):

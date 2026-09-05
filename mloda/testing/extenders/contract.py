@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import logging
 import pickle  # nosec
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
 import pytest
 from mloda.core.abstract_plugins.function_extender import _CompositeExtender
-from mloda.steward import Extender, ExtenderHook
+from mloda.steward import Extender, ExtenderHook, HookContext
 
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
+    CountingExtender,
     expected_value_int,
     failing_feature_group,
     run_failing_feature,
@@ -39,6 +40,15 @@ class ExtenderContractTestMixin:
     def raise_on_error_default(cls) -> bool:
         """Core's Extender default; observability extenders override this to False."""
         return True
+
+    @classmethod
+    def expected_hooks(cls) -> set[ExtenderHook] | None:
+        """None skips the exact-set check; override to pin the exact hooks wraps() returns."""
+        return None
+
+    def pickled_copy_environment(self) -> AbstractContextManager[Any]:
+        """Context active around a call made through a pickled copy; default is a no-op."""
+        return nullcontext()
 
     def _context_hook(self) -> ExtenderHook:
         """FEATURE_GROUP_CALCULATE_FEATURE when wrapped, else the wrapped hook with the smallest value."""
@@ -108,3 +118,56 @@ class ExtenderContractTestMixin:
         with pytest.raises(Exception, match="inner boom"):
             run_failing_feature(fg, self.make_extender(raise_on_error=False))
         assert fg.calls == 1
+
+    def test_contract_wraps_expected_hooks(self) -> None:
+        expected = self.expected_hooks()
+        if expected is None:
+            pytest.skip("no expected_hooks declared")
+        assert self.make_extender().wraps() == expected
+
+    def test_contract_raise_on_error_is_configurable(self) -> None:
+        assert self.make_extender(raise_on_error=True).raise_on_error is True
+        extender = self.make_extender(raise_on_error=False)
+        if extender.raise_on_error is not False:
+            pytest.skip("extender is breaking-only")
+        assert extender.raise_on_error is False
+
+    def test_contract_call_without_hook_context_passes_through(self) -> None:
+        assert HookContext.current() is None
+        calls = 0
+
+        def func(a: int, b: int) -> int:
+            nonlocal calls
+            calls += 1
+            return a + b
+
+        assert self.make_extender()(func, 3, 4) == 7
+        assert calls == 1
+
+    def test_contract_pickled_copy_still_wraps(self) -> None:
+        copy = pickle.loads(pickle.dumps(self.make_extender()))  # nosec
+        with self.pickled_copy_environment():
+            with make_hook_context(hook=self._context_hook()).activate():
+                assert copy(lambda a, b: a + b, 3, 4) == 7
+
+    def test_contract_own_failure_does_not_stop_chained_extender(self) -> None:
+        extender = self.make_extender(raise_on_error=False)
+        if extender.raise_on_error is not False:
+            pytest.skip("extender is breaking-only")
+        counting = CountingExtender()
+        composite = _CompositeExtender([extender, counting])
+        with make_hook_context(hook=self._context_hook()).activate():
+            with self.own_failure():
+                assert composite(lambda a, b: a + b, 3, 4) == 7
+        assert counting.calls == 1
+
+    def test_contract_run_all_own_failure_falls_back_when_raise_on_error_false(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        extender = self.make_extender(raise_on_error=False)
+        if extender.raise_on_error is not False:
+            pytest.skip("extender is breaking-only")
+        with self.own_failure():
+            with caplog.at_level(logging.WARNING):
+                assert run_value_int(extender) == expected_value_int()
+        assert any(self.extender_class().__name__ in message for message in caplog.messages)
