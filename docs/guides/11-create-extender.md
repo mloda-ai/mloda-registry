@@ -89,9 +89,11 @@ results = mloda.run_all(features=["my_feature"], function_extender={MyExtender()
 - `OtelExtenderTestMixin` (`mloda.testing.extenders.otel`, install `mloda-testing[otel]`), for extenders that emit OTel spans
 - `OpenLineageExtenderTestMixin` (`mloda.testing.extenders.openlineage`, install `mloda-testing[openlineage]`), for extenders that emit OpenLineage RunEvents
 
+The OTel and OpenLineage mixins both enforce the same observability mandate: a wrapped failure is logged at WARNING with the extender name and message, but the message itself never reaches a span or an event.
+
 ### ExtenderContractTestMixin
 
-Required host hooks: `extender_class`, `make_extender`, `own_failure`. Optional: `raise_on_error_default`, `expected_hooks`, `pickled_copy_environment`.
+Required host hooks: `extender_class`, `make_extender`, `own_failure`. Optional: `raise_on_error_default`, `expected_hooks`, `pickled_copy_environment`, `supports_warning_only` (return `False` for a host with no `raise_on_error=False` mode).
 
 ```python
 from contextlib import AbstractContextManager
@@ -126,13 +128,15 @@ The mixin pins:
 - a call returns the wrapped result unchanged, with or without an ambient `HookContext`
 - a wrapped failure propagates and runs the wrapped function exactly once
 - the extender's own failure falls back with a warning when `raise_on_error` is `False`, and propagates when `True`
-- own failure is contained: a chained extender still runs, and `run_all` still completes
+- own failure is contained: a chained extender still runs, and a `run_all` round trip still completes with the warning-only fallback
 - the extender survives a pickle round trip, and a pickled copy still wraps a call
-- two `run_all` round trips (one success, one wrapped failure)
+- `run_all` round trips (one success, one wrapped failure)
 
 ### OtelExtenderTestMixin
 
-Install `mloda-testing[otel]`. Host provides `extender_class` and `make_otel_extender(tracer_provider, *, raise_on_error=None)`, and optionally `expected_span_names`. It supplies `make_extender` and `own_failure`.
+Install `mloda-testing[otel]`. Host provides `extender_class` and `make_otel_extender(tracer_provider, *, raise_on_error=None)`, and optionally `expected_span_names` and `trace_id_from_run_id` (the run_id-to-trace-id mapping; return `None` to skip the derivation test). It supplies `make_extender` and `own_failure`.
+
+`own_failure` and `pickled_copy_environment` are overridable on both backend mixins. The OTel default faults `TracerProvider.get_tracer`; an extender that caches its tracer at construction must override `own_failure`. The OpenLineage default faults `OpenLineageClient.emit`. A host whose pickled copy would resolve a real sink overrides `pickled_copy_environment`.
 
 ```python
 from opentelemetry.sdk.trace import TracerProvider
@@ -198,7 +202,7 @@ The mixin pins:
 - a nested `INPUT_DATA_LOAD` call becomes an input, on both COMPLETE and FAIL, when the extender wraps that hook
 - `run_all` events share one parent run id
 
-`RecordingTransport` and `make_recording_client` live in `mloda.testing.extenders.openlineage` (moved from `mloda.community.extenders.openlineage.testing`).
+`RecordingTransport` and `make_recording_client` live in `mloda.testing.extenders.openlineage`.
 
 `make_hook_context` builds a `HookContext` for direct `__call__` tests.
 

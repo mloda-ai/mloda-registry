@@ -1119,15 +1119,20 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["openlineage"] },
+    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pyarrow" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "mloda", specifier = ">=0.12.0,<0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["openlineage"], marker = "extra == 'dev'" },
     { name = "openlineage-python", specifier = ">=1.20,<2" },
+    { name = "pandas", marker = "extra == 'dev'" },
+    { name = "pyarrow", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev"]
@@ -1143,17 +1148,15 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "mloda-testing" },
-    { name = "opentelemetry-sdk" },
+    { name = "mloda-testing", extra = ["otel"] },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "mloda", specifier = ">=0.12.0,<0.13.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["otel"], marker = "extra == 'dev'" },
     { name = "opentelemetry-api", specifier = ">=1.30,<2" },
-    { name = "opentelemetry-sdk", marker = "extra == 'dev'", specifier = ">=1.30,<2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev"]

@@ -82,7 +82,7 @@ description = "OpenTelemetry spans, metadata-only by default, for mloda pipeline
 dependencies = ["{core_dependency}", "opentelemetry-api>=1.30,<2"]
 path = "mloda/community/extenders/otel"
 published = true
-optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3", "opentelemetry-sdk>=1.30,<2"] }
+optional_dependencies = { dev = ["mloda-testing[otel]", "pytest>=9.0.3"] }
 entry_point_groups = ["mloda.extenders"]
 py_typed = true
 
@@ -91,7 +91,7 @@ description = "OpenLineage RunEvents with schema, data-source and parent-run fac
 dependencies = ["{core_dependency}", "openlineage-python>=1.20,<2"]
 path = "mloda/community/extenders/openlineage"
 published = true
-optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
+optional_dependencies = { dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "pandas", "pyarrow"] }
 entry_point_groups = ["mloda.extenders"]
 py_typed = true
 

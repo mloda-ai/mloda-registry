@@ -25,7 +25,7 @@ from mloda.testing.extenders.runners import expected_value_int, run_value_int
 def make_span_capture() -> tuple[TracerProvider, InMemorySpanExporter]:
     """SDK TracerProvider wired to an in-memory span exporter via a SimpleSpanProcessor."""
     exporter = InMemorySpanExporter()
-    provider = TracerProvider()
+    provider = TracerProvider(shutdown_on_exit=False)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     return provider, exporter
 
@@ -69,6 +69,11 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         return None
 
     @classmethod
+    def trace_id_from_run_id(cls, run_id: str) -> int | None:
+        """The cross-process correlation mapping; return None to skip the derivation test."""
+        return uuid.UUID(run_id).int
+
+    @classmethod
     def raise_on_error_default(cls) -> bool:
         return False
 
@@ -83,7 +88,7 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         provider, exporter = make_span_capture()
         extender = self.make_otel_extender(provider)
 
-        with make_hook_context(hook=self._context_hook()).activate():
+        with make_hook_context(hook=self.context_hook()).activate():
             extender(lambda: None)
 
         single_span(exporter)
@@ -93,10 +98,9 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         if expected is None:
             pytest.skip("no expected_span_names declared")
         wraps = self.make_extender().wraps()
+        assert set(expected) <= wraps
 
         for hook, name in expected.items():
-            if hook not in wraps:
-                continue
             provider, exporter = make_span_capture()
             extender = self.make_otel_extender(provider)
             with make_hook_context(hook=hook).activate():
@@ -110,7 +114,7 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         def func() -> None:
             raise RuntimeError("inner boom")
 
-        with make_hook_context(hook=self._context_hook()).activate():
+        with make_hook_context(hook=self.context_hook()).activate():
             with pytest.raises(RuntimeError, match="inner boom"):
                 extender(func)
 
@@ -126,13 +130,14 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         def func() -> None:
             raise RuntimeError("inner boom")
 
-        with make_hook_context(hook=self._context_hook()).activate():
+        with make_hook_context(hook=self.context_hook()).activate():
             with caplog.at_level(logging.WARNING):
                 with pytest.raises(RuntimeError, match="inner boom"):
                     extender(func)
 
         extender_name = self.extender_class().__name__
-        assert any(extender_name in message and "inner boom" in message for message in caplog.messages)
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any(extender_name in message and "inner boom" in message for message in warnings)
 
     def test_otel_exception_message_never_leaks_into_span(self) -> None:
         provider, exporter = make_span_capture()
@@ -142,7 +147,7 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         def func() -> None:
             raise ValueError(f"invalid value found: {marker}")
 
-        with make_hook_context(hook=self._context_hook()).activate():
+        with make_hook_context(hook=self.context_hook()).activate():
             with pytest.raises(ValueError):
                 extender(func)
 
@@ -161,7 +166,7 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         provider, exporter = make_span_capture()
         extender = self.make_otel_extender(provider)
 
-        with make_hook_context(hook=self._context_hook(), carrier=carrier).activate():
+        with make_hook_context(hook=self.context_hook(), carrier=carrier).activate():
             extender(lambda: None)
 
         span = single_span(exporter)
@@ -174,32 +179,37 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         provider, exporter = make_span_capture()
         extender = self.make_otel_extender(provider)
 
-        with make_hook_context(hook=self._context_hook(), carrier={}).activate():
+        with make_hook_context(hook=self.context_hook(), carrier={}).activate():
             extender(lambda: None)
 
         single_span(exporter)
 
     def test_otel_run_id_derives_trace_id_without_carrier(self) -> None:
         run_id = "018f1e4a-7c3b-7c3b-8c3b-1234567890ab"
+        expected_trace_id = self.trace_id_from_run_id(run_id)
+        if expected_trace_id is None:
+            pytest.skip("no run_id trace id mapping declared")
         provider, exporter = make_span_capture()
         extender = self.make_otel_extender(provider)
 
-        with make_hook_context(hook=self._context_hook(), run_id=run_id, carrier=None).activate():
+        with make_hook_context(hook=self.context_hook(), run_id=run_id, carrier=None).activate():
             extender(lambda: None)
 
         span = single_span(exporter)
         assert span.context is not None
-        assert span.context.trace_id == uuid.UUID(run_id).int
+        assert span.context.trace_id == expected_trace_id
 
     def test_otel_carrier_wins_over_run_id(self) -> None:
         run_id = "018f1e4a-7c3b-7c3b-8c3b-1234567890ab"
+        expected_trace_id = self.trace_id_from_run_id(run_id)
         carrier, carrier_trace_id, _ = inject_parent_carrier()
-        assert carrier_trace_id != uuid.UUID(run_id).int
+        if expected_trace_id is not None:
+            assert carrier_trace_id != expected_trace_id
 
         provider, exporter = make_span_capture()
         extender = self.make_otel_extender(provider)
 
-        with make_hook_context(hook=self._context_hook(), run_id=run_id, carrier=carrier).activate():
+        with make_hook_context(hook=self.context_hook(), run_id=run_id, carrier=carrier).activate():
             extender(lambda: None)
 
         span = single_span(exporter)
