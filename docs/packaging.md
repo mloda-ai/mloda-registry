@@ -19,7 +19,7 @@ config/
 scripts/generate_pyproject.py
          │
          ├──► mloda/*/pyproject.toml
-         └──► pyproject.toml (workspace members + mloda core dependency)
+         └──► pyproject.toml (workspace members + mloda core dependency + dev extras)
 ```
 
 `--check` fails if any generated file has drifted, including the root
@@ -27,6 +27,20 @@ scripts/generate_pyproject.py
 `core_dependency`. `.github/dependabot.yml` excludes `mloda` from
 uv-ecosystem updates for the same reason: its floor moves through
 `config/shared.toml`, not a version-bump PR.
+
+`tox`'s shared dev environment installs from the root `pyproject.toml`'s
+`[project.optional-dependencies].dev`, not from each workspace member's own
+generated extras. So a package that needs a third-party dependency for its
+own `dev` extra (e.g. `mloda-community-otel`'s `opentelemetry-sdk`) also
+needs a root entry, or `tox` fails with `ModuleNotFoundError` even though
+`uv sync --all-extras` succeeds locally. The generator auto-derives that root
+entry from `config/packages.toml` and appends it below a
+`# AUTO-GENERATED from config/packages.toml` marker in the root `dev` list;
+hand-authored lines above the marker (shared tooling like `pytest`, `ruff`)
+are left untouched, and a name already covered by a hand-authored line is
+never duplicated. `--check` fails if a package's third-party `dev` dependency
+is missing from root, so nothing to do beyond declaring it once in
+`config/packages.toml`.
 
 ## Config files
 
@@ -62,7 +76,7 @@ optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 | `path` | Yes | Package directory |
 | `published` | No | `true` ships the distribution standalone on PyPI. Single source of the released set, read through `scripts/published_packages.py`. Must be a boolean, and governs the released set only, never wheel contents |
 | `dependencies` | By convention | Runtime deps; use `"{core_dependency}"` for the mloda floor. The generator defaults it to empty rather than failing, but every package declares it |
-| `optional_dependencies` | No | Merged with defaults. The entry `"{published_children}"` expands to every published package nested under this package's path, in config order |
+| `optional_dependencies` | No | Merged with defaults. The entry `"{published_children}"` expands to every published package nested under this package's path, in config order. A third-party name in the `dev` group not already covered by root's hand-authored `dev` list is auto-synced into root `pyproject.toml` too, see [Architecture](#architecture) |
 | `has_readme` | No | `true` points the package at its own `README.md` |
 | `workspace_deps` | No | Marks a meta-package whose deps are workspace siblings. Mutually exclusive with `py_typed`; unused today |
 | `entry_point_groups` | No | List of mloda entry-point groups the package's `manifest.py` populates (`mloda.feature_groups`, `mloda.compute_frameworks`, `mloda.extenders`) |
@@ -186,7 +200,11 @@ python scripts/generate_pyproject.py    # Regenerate
 ### Add a new package
 
 1. Add to `config/packages.toml` (description, dependencies, path; for a plugin
-   package also `entry_point_groups = ["mloda.feature_groups" | ...]`).
+   package also `entry_point_groups = ["mloda.feature_groups" | ...]`). A
+   third-party dependency needed only for the package's own tests goes in
+   `optional_dependencies = { dev = [...] }`; the generator auto-syncs it into
+   root `pyproject.toml` too (see [Architecture](#architecture)), no separate
+   edit needed.
 2. For a plugin package, create `<path>/manifest.py` listing the concrete classes.
 3. If it should ship standalone on PyPI, set `published = true`. Two edits follow it,
    the way `py_typed` also needs its committed marker: the gate test
