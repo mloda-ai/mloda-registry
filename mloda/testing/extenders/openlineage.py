@@ -43,7 +43,7 @@ def make_recording_client() -> tuple[OpenLineageClient, RecordingTransport]:
 
 
 class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
-    """Contract for extenders that emit OpenLineage RunEvents. Host provides extender_class and make_openlineage_extender."""
+    """Contract for OpenLineage-emitting extenders. Host provides extender_class and make_openlineage_extender."""
 
     def make_openlineage_extender(self, client: OpenLineageClient, *, raise_on_error: bool | None = None) -> Extender:
         raise NotImplementedError
@@ -186,7 +186,8 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
                     extender(func)
 
         extender_name = self.extender_class().__name__
-        assert any(extender_name in message and "inner boom" in message for message in caplog.messages)
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any(extender_name in message and "inner boom" in message for message in warnings)
 
     def test_openlineage_exception_message_never_leaks_into_events(self) -> None:
         client, transport = make_recording_client()
@@ -200,6 +201,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             with pytest.raises(ValueError):
                 extender(func)
 
+        assert transport.events
         for event in transport.events:
             assert marker not in Serde.to_json(event)
 
@@ -315,6 +317,6 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         for event in transport.events:
             run_facets = event.run.facets or {}
             parent = run_facets.get("parent")
-            if isinstance(parent, parent_run.ParentRunFacet):
-                parent_run_ids.add(parent.run.runId)
+            assert isinstance(parent, parent_run.ParentRunFacet)
+            parent_run_ids.add(parent.run.runId)
         assert len(parent_run_ids) == 1

@@ -115,6 +115,9 @@ class TestOtelExtenderConstructorOptions:
 
         assert result == 42
 
+    def test_wraps_is_independent_of_raise_on_error_and_capture_content(self) -> None:
+        assert OtelExtender(raise_on_error=True, capture_content=True).wraps() == OtelExtender().wraps()
+
 
 class TestOtelExtenderSpanAttributes:
     """Span attributes under the mloda.* namespace, populated from the ambient HookContext."""

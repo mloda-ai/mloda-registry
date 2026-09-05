@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+import inspect
 import pickle  # nosec
 from contextlib import AbstractContextManager
 from typing import Any
@@ -100,6 +102,16 @@ class TestMakeHookContextDefaults:
         assert context.feature_names == ("value_int",)
         assert context.compute_framework_name == "PyArrowTable"
         assert context.run_id is None
+
+    def test_keywords_mirror_hook_context_fields(self) -> None:
+        """Guards that a HookContext field added upstream stays reachable through the helper."""
+        helper_keywords = set(inspect.signature(make_hook_context).parameters)
+        # HookContext is a kw_only dataclass with no init=False fields, so every field is constructor-settable.
+        hook_context_fields = {field.name for field in dataclasses.fields(HookContext) if field.init}
+
+        assert helper_keywords == hook_context_fields, (
+            f"make_hook_context keywords {helper_keywords} vs HookContext fields {hook_context_fields}"
+        )
 
 
 class TestMakeHookContextOverrides:
@@ -245,7 +257,7 @@ class TestBreakingProbeExtenderContract(ExtenderContractTestMixin):
 
 
 class TestValidateOnlyProbeContract(ExtenderContractTestMixin):
-    """Self-test: a probe wrapping only VALIDATE_OUTPUT_FEATURE, pinning _context_hook()."""
+    """Self-test: a probe wrapping only VALIDATE_OUTPUT_FEATURE, pinning context_hook()."""
 
     @classmethod
     def extender_class(cls) -> type[Extender]:
@@ -265,7 +277,7 @@ class TestValidateOnlyProbeContract(ExtenderContractTestMixin):
 
     def test_contract_context_uses_wrapped_hook(self) -> None:
         extender = self.make_extender()
-        with make_hook_context(hook=self._context_hook()).activate():
+        with make_hook_context(hook=self.context_hook()).activate():
             extender(lambda: None)
         assert extender.sink[-1] == ExtenderHook.VALIDATE_OUTPUT_FEATURE
 

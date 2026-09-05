@@ -42,6 +42,11 @@ class ExtenderContractTestMixin:
         return True
 
     @classmethod
+    def supports_warning_only(cls) -> bool:
+        """Hosts of extenders that have no raise_on_error=False mode return False."""
+        return True
+
+    @classmethod
     def expected_hooks(cls) -> set[ExtenderHook] | None:
         """None skips the exact-set check; override to pin the exact hooks wraps() returns."""
         return None
@@ -50,7 +55,7 @@ class ExtenderContractTestMixin:
         """Context active around a call made through a pickled copy; default is a no-op."""
         return nullcontext()
 
-    def _context_hook(self) -> ExtenderHook:
+    def context_hook(self) -> ExtenderHook:
         """FEATURE_GROUP_CALCULATE_FEATURE when wrapped, else the wrapped hook with the smallest value."""
         wraps = self.make_extender().wraps()
         if ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE in wraps:
@@ -75,8 +80,16 @@ class ExtenderContractTestMixin:
         assert self.make_extender().raise_on_error is self.raise_on_error_default()
 
     def test_contract_call_returns_wrapped_result_unchanged(self) -> None:
-        with make_hook_context(hook=self._context_hook()).activate():
-            assert self.make_extender()(lambda a, b: a + b, 3, 4) == 7
+        calls = 0
+
+        def func(a: int, b: int) -> int:
+            nonlocal calls
+            calls += 1
+            return a + b
+
+        with make_hook_context(hook=self.context_hook()).activate():
+            assert self.make_extender()(func, 3, 4) == 7
+        assert calls == 1
 
     def test_contract_wrapped_failure_propagates_and_runs_once(self) -> None:
         calls = 0
@@ -86,26 +99,28 @@ class ExtenderContractTestMixin:
             calls += 1
             raise RuntimeError("inner boom")
 
-        with make_hook_context(hook=self._context_hook()).activate():
+        with make_hook_context(hook=self.context_hook()).activate():
             with pytest.raises(RuntimeError, match="inner boom"):
                 self.make_extender()(func, 3, 4)
         assert calls == 1
 
     def test_contract_own_failure_falls_back_when_raise_on_error_false(self, caplog: pytest.LogCaptureFixture) -> None:
-        extender = self.make_extender(raise_on_error=False)
-        if extender.raise_on_error is not False:
+        if not self.supports_warning_only():
             pytest.skip("extender is breaking-only")
+        extender = self.make_extender(raise_on_error=False)
+        assert extender.raise_on_error is False
         composite = _CompositeExtender([extender])
-        with make_hook_context(hook=self._context_hook()).activate():
+        with make_hook_context(hook=self.context_hook()).activate():
             with self.own_failure():
                 with caplog.at_level(logging.WARNING):
                     result = composite(lambda a, b: a + b, 3, 4)
         assert result == 7
-        assert any(self.extender_class().__name__ in message for message in caplog.messages)
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any(self.extender_class().__name__ in message for message in warnings)
 
     def test_contract_own_failure_propagates_when_raise_on_error_true(self) -> None:
         composite = _CompositeExtender([self.make_extender(raise_on_error=True)])
-        with make_hook_context(hook=self._context_hook()).activate():
+        with make_hook_context(hook=self.context_hook()).activate():
             with self.own_failure():
                 with pytest.raises(RuntimeError):
                     composite(lambda a, b: a + b, 3, 4)
@@ -127,9 +142,9 @@ class ExtenderContractTestMixin:
 
     def test_contract_raise_on_error_is_configurable(self) -> None:
         assert self.make_extender(raise_on_error=True).raise_on_error is True
-        extender = self.make_extender(raise_on_error=False)
-        if extender.raise_on_error is not False:
+        if not self.supports_warning_only():
             pytest.skip("extender is breaking-only")
+        extender = self.make_extender(raise_on_error=False)
         assert extender.raise_on_error is False
 
     def test_contract_call_without_hook_context_passes_through(self) -> None:
@@ -147,16 +162,17 @@ class ExtenderContractTestMixin:
     def test_contract_pickled_copy_still_wraps(self) -> None:
         copy = pickle.loads(pickle.dumps(self.make_extender()))  # nosec
         with self.pickled_copy_environment():
-            with make_hook_context(hook=self._context_hook()).activate():
+            with make_hook_context(hook=self.context_hook()).activate():
                 assert copy(lambda a, b: a + b, 3, 4) == 7
 
     def test_contract_own_failure_does_not_stop_chained_extender(self) -> None:
-        extender = self.make_extender(raise_on_error=False)
-        if extender.raise_on_error is not False:
+        if not self.supports_warning_only():
             pytest.skip("extender is breaking-only")
+        extender = self.make_extender(raise_on_error=False)
+        assert extender.raise_on_error is False
         counting = CountingExtender()
         composite = _CompositeExtender([extender, counting])
-        with make_hook_context(hook=self._context_hook()).activate():
+        with make_hook_context(hook=self.context_hook()).activate():
             with self.own_failure():
                 assert composite(lambda a, b: a + b, 3, 4) == 7
         assert counting.calls == 1
@@ -164,10 +180,14 @@ class ExtenderContractTestMixin:
     def test_contract_run_all_own_failure_falls_back_when_raise_on_error_false(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        extender = self.make_extender(raise_on_error=False)
-        if extender.raise_on_error is not False:
+        if not self.supports_warning_only():
             pytest.skip("extender is breaking-only")
+        extender = self.make_extender(raise_on_error=False)
+        assert extender.raise_on_error is False
+        counting = CountingExtender()
         with self.own_failure():
             with caplog.at_level(logging.WARNING):
-                assert run_value_int(extender) == expected_value_int()
-        assert any(self.extender_class().__name__ in message for message in caplog.messages)
+                assert run_value_int(extender, counting) == expected_value_int()
+        assert counting.calls >= 1
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any(self.extender_class().__name__ in message for message in warnings)

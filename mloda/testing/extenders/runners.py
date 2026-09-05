@@ -41,6 +41,9 @@ class CountingExtender(Extender):
     def __init__(self) -> None:
         self.raise_on_error = True
         self.calls = 0
+        # Above the default priority (100) so this probe always sorts downstream of a
+        # default-priority host extender, regardless of set iteration order.
+        self.priority = 200
 
     def wraps(self) -> set[ExtenderHook]:
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}

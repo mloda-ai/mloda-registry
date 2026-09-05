@@ -121,6 +121,22 @@ class TestOpenLineageExtenderPickling:
 class TestOpenLineageExtenderStartEvent:
     """One RunEvent(START), emitted before func runs, with empty inputs/outputs."""
 
+    def test_job_namespace_and_name_use_defaults(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        context = make_hook_context()
+        extender = OpenLineageExtender(client=client)
+
+        with context.activate():
+            extender(lambda: None)
+
+        start_event = transport.events[0]
+        assert start_event.job.namespace == "mloda"
+        assert start_event.job.name == context.feature_group_class
+        assert start_event.inputs == []
+        assert start_event.outputs == []
+
     def test_job_namespace_uses_constructor_override(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
