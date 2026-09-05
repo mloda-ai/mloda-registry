@@ -11,7 +11,7 @@ version = "0.4.5"
 description = "Test utilities for mloda plugin development"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda>=0.11.3,<0.12.0", "pytest>=9.0.3", "pyarrow"]
+dependencies = ["mloda>=0.12.0,<0.13.0", "pytest>=9.0.3", "pyarrow"]
 requires-python = ">=3.10,<3.15"
 
 [project.optional-dependencies]
