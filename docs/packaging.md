@@ -62,7 +62,7 @@ optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 | `path` | Yes | Package directory |
 | `published` | No | `true` ships the distribution standalone on PyPI. Single source of the released set, read through `scripts/published_packages.py`. Must be a boolean, and governs the released set only, never wheel contents |
 | `dependencies` | By convention | Runtime deps; use `"{core_dependency}"` for the mloda floor. The generator defaults it to empty rather than failing, but every package declares it |
-| `optional_dependencies` | No | Merged with defaults. The entry `"{published_children}"` expands to every published package nested under this package's path, in config order |
+| `optional_dependencies` | No | Merged with defaults. The entry `"{published_children}"` expands to every published package nested under this package's path, in config order. A test-only third-party dependency goes in `dev` here; see [Add a test-only dependency](#add-a-test-only-dependency) |
 | `has_readme` | No | `true` points the package at its own `README.md` |
 | `workspace_deps` | No | Marks a meta-package whose deps are workspace siblings. Mutually exclusive with `py_typed`; unused today |
 | `entry_point_groups` | No | List of mloda entry-point groups the package's `manifest.py` populates (`mloda.feature_groups`, `mloda.compute_frameworks`, `mloda.extenders`) |
@@ -198,8 +198,16 @@ python scripts/generate_pyproject.py    # Regenerate
 
 ```bash
 python scripts/generate_pyproject.py
-uv sync --all-extras
+uv sync --all-extras --all-packages
 ```
+
+### Add a test-only dependency
+
+Declare it in the package's `optional_dependencies.dev` in `config/packages.toml`,
+regenerate, then run `uv lock` and commit `uv.lock`. tox syncs every workspace
+member's `dev` extra (`--all-packages`), so root `pyproject.toml` never repeats
+the entry; but it installs the lock with `--frozen`, so a dependency missing
+from `uv.lock` is not installed.
 
 ### Add a variant to an existing plugin
 

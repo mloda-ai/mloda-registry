@@ -32,7 +32,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```bash
 uv venv
 source .venv/bin/activate
-uv sync --all-extras
+uv sync --all-extras --all-packages
 ```
 
 4. Verify your setup by running the full check suite:
@@ -41,12 +41,12 @@ uv sync --all-extras
 uv run tox
 ```
 
-`uv sync --all-extras` does not register plugin entry points, so
-`PluginLoader.all()` discovers none of this repository's plugins in this venv
-(tests use `PluginCollector.enabled_feature_groups(...)` instead, which needs
-none). To exercise `PluginLoader.all()` locally, editable-install the plugin
-package needed, e.g. `uv pip install -e mloda/community`. A later `uv sync` or
-`uv run` removes that install again, so repeat it whenever you need it.
+`--all-packages` installs every workspace member editable, so their plugin entry
+points are registered and `PluginLoader.all()` discovers this repository's
+plugins in this venv. It also installs each member's own `dev` extra, which is
+how a test-only dependency declared in `config/packages.toml` reaches the venv
+(tests select plugins with `PluginCollector.enabled_feature_groups(...)`, which
+needs no entry points).
 
 ## Code Style
 

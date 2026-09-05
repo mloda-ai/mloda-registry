@@ -68,9 +68,9 @@ def extract_config_blocks(markdown: str) -> list[list[dict[str, Any]]]:
 def build_feature_group_registry() -> dict[str, type[FeatureGroup]]:
     """Every concrete ``FeatureGroup`` subclass under ``data_operations``, keyed by class name.
 
-    ``PluginLoader.all()`` does not discover these classes in a dev venv (entry points are not
-    wired up locally, see registry issue #444), so every submodule is imported directly via
-    ``pkgutil.walk_packages`` (skipping ``.tests`` subpackages) before collecting subclasses.
+    Every submodule is imported directly via ``pkgutil.walk_packages`` (skipping ``.tests``
+    subpackages) before collecting subclasses, so the registry does not depend on which
+    workspace members' entry points happen to be installed in the venv.
     """
     prefix = data_operations.__name__ + "."
     for module_info in pkgutil.walk_packages(data_operations.__path__, prefix=prefix):
