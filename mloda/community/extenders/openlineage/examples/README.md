@@ -24,6 +24,3 @@ mloda.run_all(
 
 Open the Marquez UI at [http://localhost:3000](http://localhost:3000) to browse the emitted runs
 and datasets.
-
-This compose file has not been run against a live Marquez instance in this environment; it
-follows the standard three-service Marquez layout (postgres, marquez API, marquez-web).
