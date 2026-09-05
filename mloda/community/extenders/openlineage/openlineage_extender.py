@@ -13,7 +13,7 @@ from mloda.steward import Extender, ExtenderHook, HookContext
 
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
-from openlineage.client.facet_v2 import parent_run, schema_dataset
+from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +71,17 @@ class OpenLineageExtender(Extender):
     def _call_input_data_load(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
         result = func(*args, **kwargs)
         invocation = _current_calculate_invocation.get()
-        if invocation is not None and context.data_access_identity is not None:
-            invocation.inputs.append(InputDataset(namespace=self.dataset_namespace, name=context.data_access_identity))
+        if invocation is None:
+            logger.debug("OpenLineageExtender: INPUT_DATA_LOAD has no enclosing open calculate invocation to attach to")
+            return result
+        if context.data_access_identity is not None:
+            invocation.inputs.append(
+                InputDataset(
+                    namespace=self.dataset_namespace,
+                    name=context.data_access_identity,
+                    facets={"dataSource": datasource_dataset.DatasourceDatasetFacet(name=context.data_access_identity)},
+                )
+            )
         return result
 
     def _call_calculate_feature(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
@@ -103,7 +112,7 @@ class OpenLineageExtender(Extender):
         token = _current_calculate_invocation.set(invocation)
         try:
             result = func(*args, **kwargs)
-        except Exception as exc:
+        except BaseException as exc:
             # Guarded: a broken transport on the FAIL path must never mask func's real exception.
             try:
                 self._client.emit(
@@ -128,7 +137,8 @@ class OpenLineageExtender(Extender):
 
         # Guarded: a bug in this post-success block must never corrupt func's already-computed result.
         try:
-            outputs = [_build_output_dataset(self.dataset_namespace, name, result) for name in context.feature_names]
+            fields = _infer_schema_fields(result)
+            outputs = [_build_output_dataset(self.dataset_namespace, name, fields) for name in context.feature_names]
             self._client.emit(
                 RunEvent(
                     eventType=RunState.COMPLETE,
@@ -150,40 +160,42 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _build_output_dataset(namespace: str, name: str, result: Any) -> OutputDataset:
-    schema_facet = _infer_schema_facet(result)
-    facets: dict[str, Any] = {"schema": schema_facet} if schema_facet is not None else {}
+def _build_output_dataset(
+    namespace: str, name: str, fields: list[schema_dataset.SchemaDatasetFacetFields] | None
+) -> OutputDataset:
+    facets: dict[str, Any] = {}
+    if fields is not None:
+        matching_fields = [f for f in fields if f.name == name]
+        if matching_fields:
+            facets["schema"] = schema_dataset.SchemaDatasetFacet(fields=matching_fields)
     return OutputDataset(namespace=namespace, name=name, facets=facets)
 
 
-def _infer_schema_facet(result: Any) -> schema_dataset.SchemaDatasetFacet | None:
+def _infer_schema_fields(result: Any) -> list[schema_dataset.SchemaDatasetFacetFields] | None:
     try:
-        return _infer_schema_facet_unsafe(result)
+        return _infer_schema_fields_unsafe(result)
     except Exception:
         return None
 
 
-def _infer_schema_facet_unsafe(result: Any) -> schema_dataset.SchemaDatasetFacet | None:
+def _infer_schema_fields_unsafe(result: Any) -> list[schema_dataset.SchemaDatasetFacetFields] | None:
     schema = getattr(result, "schema", None)
     if schema and hasattr(schema, "items"):
-        fields = [schema_dataset.SchemaDatasetFacetFields(name=n, type=str(t)) for n, t in schema.items()]
-        return schema_dataset.SchemaDatasetFacet(fields=fields)
+        return [schema_dataset.SchemaDatasetFacetFields(name=str(n), type=str(t)) for n, t in schema.items()]
 
     if schema is not None and hasattr(schema, "names") and hasattr(schema, "types"):
-        fields = [
-            schema_dataset.SchemaDatasetFacetFields(name=n, type=str(t)) for n, t in zip(schema.names, schema.types)
+        return [
+            schema_dataset.SchemaDatasetFacetFields(name=str(n), type=str(t))
+            for n, t in zip(schema.names, schema.types)
         ]
-        return schema_dataset.SchemaDatasetFacet(fields=fields)
 
     columns = getattr(result, "columns", None)
     dtypes = getattr(result, "dtypes", None)
     if columns is not None and dtypes is not None:
-        fields = [schema_dataset.SchemaDatasetFacetFields(name=c, type=str(dtypes[c])) for c in columns]
-        return schema_dataset.SchemaDatasetFacet(fields=fields)
+        return [schema_dataset.SchemaDatasetFacetFields(name=str(c), type=str(t)) for c, t in zip(columns, dtypes)]
 
     column_names = getattr(result, "column_names", None)
     if column_names is not None:
-        fields = [schema_dataset.SchemaDatasetFacetFields(name=n) for n in column_names]
-        return schema_dataset.SchemaDatasetFacet(fields=fields)
+        return [schema_dataset.SchemaDatasetFacetFields(name=str(n)) for n in column_names]
 
     return None
