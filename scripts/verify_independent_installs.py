@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Install each top-level distribution into its own venv and probe its full import surface.
+"""Install each published distribution into its own venv and probe its full import surface.
 
-A nested package is covered through its parent's install, so only the published top of the
-configured layout installs independently. The bundle wheels ship all nested code, so each probe
-covers every configured package nested under the distribution's path: a payload-less wheel fails.
+Every distribution flagged 'published = true' installs and imports independently. A bundle's
+probe also covers every package nested under its path, so a payload-less bundle wheel fails.
 
 Run: python scripts/verify_independent_installs.py <version>
 Exit code: 1 if any distribution fails to install or import on its own, 0 otherwise.
@@ -38,17 +37,11 @@ def _load_sibling(name: str) -> ModuleType:
     return module
 
 
-def top_level_distributions(packages: dict[str, dict[str, Any]]) -> list[str]:
-    """Published packages whose path sits under no other configured package's path, in config order."""
-    # The trailing slash keeps the prefix check segment-aware: mloda/test never covers mloda/testing.
-    prefixes = [str(pkg_config["path"]).rstrip("/") + "/" for pkg_config in packages.values()]
-    return [
-        name
-        for name, pkg_config in packages.items()
-        if pkg_config.get("published") is True
-        # The package's own path is normalized too, so a trailing-slash path cannot self-exclude.
-        and not any(str(pkg_config["path"]).rstrip("/").startswith(prefix) for prefix in prefixes)
-    ]
+def independent_distributions(packages: dict[str, dict[str, Any]]) -> list[str]:
+    """Every distribution flagged 'published = true' in config order; each installs and imports on its own."""
+    published: Callable[[dict[str, dict[str, Any]]], list[str]] = _load_sibling("published_packages").published_packages
+    names: list[str] = published(packages)
+    return names
 
 
 def probe_modules(name: str, packages: dict[str, dict[str, Any]]) -> list[str]:
@@ -67,7 +60,7 @@ def probe_modules(name: str, packages: dict[str, dict[str, Any]]) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Install each top-level distribution into its own venv")
+    parser = argparse.ArgumentParser(description="Install each published distribution into its own venv")
     parser.add_argument("version", nargs="?", default="", help="Released version to install every distribution at")
     args = parser.parse_args()
 
@@ -81,11 +74,11 @@ def main() -> int:
     from verify_build_floor import venv_python
 
     packages = load_packages_config()
-    names = top_level_distributions(packages)
+    names = independent_distributions(packages)
 
     # An empty set would silently verify nothing.
     if not names:
-        print("❌ config/packages.toml declares no published top-level packages")
+        print("❌ config/packages.toml declares no published packages")
         return 1
 
     errors: list[str] = []
@@ -116,7 +109,7 @@ def main() -> int:
             print(f"  - {error}")
         return 1
 
-    print(f"\n✅ every top-level distribution installs and its import surface loads independently at {args.version}")
+    print(f"\n✅ every published distribution installs and its import surface loads independently at {args.version}")
     return 0
 
 

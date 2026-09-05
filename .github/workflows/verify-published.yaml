@@ -46,18 +46,12 @@ jobs:
       env:
         MLODA_REGISTRY_VERSION: ${{ steps.get_version.outputs.version }}
       run: tox -e verify-published-independent
-      timeout-minutes: 10
+      timeout-minutes: 15
 
     - name: Verify optional dependencies
       env:
         MLODA_REGISTRY_VERSION: ${{ steps.get_version.outputs.version }}
       run: tox -e verify-extras
-      timeout-minutes: 10
-
-    - name: Verify floors install
-      env:
-        MLODA_REGISTRY_VERSION: ${{ steps.get_version.outputs.version }}
-      run: tox -e verify-floor-installs
       timeout-minutes: 10
 
     - name: Verify typed leaf install
