@@ -60,7 +60,9 @@ _OPERATION_NAMES: dict[ExtenderHook, str] = {
 
 
 class OtelExtender(Extender):
-    """Emits one OpenTelemetry span per wrapped hook invocation, populated from the ambient HookContext."""
+    """Emits one OpenTelemetry span per wrapped hook invocation, populated from the ambient HookContext.
+    An injected tracer_provider is process-local: pickled copies (worker processes under
+    ParallelizationMode.MULTIPROCESSING) drop it and fall back to the global tracer provider."""
 
     def __init__(
         self,
@@ -73,6 +75,11 @@ class OtelExtender(Extender):
         self.capture_content = capture_content
         self.mask = mask
         self._tracer_provider = tracer_provider
+
+    def __getstate__(self) -> dict[str, Any]:
+        state = dict(self.__dict__)
+        state["_tracer_provider"] = None
+        return state
 
     def wraps(self) -> set[ExtenderHook]:
         return {

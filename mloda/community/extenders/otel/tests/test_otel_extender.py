@@ -14,27 +14,23 @@ import contextlib
 import logging
 import uuid
 from collections.abc import Iterator, Mapping
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
-from mloda.core.abstract_plugins.function_extender import _CompositeExtender  # no public equivalent yet
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
-from mloda.steward import Extender, ExtenderHook, HookContext
-from mloda.user import PluginCollector, mloda
-from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+from mloda.steward import ExtenderHook
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
 
 from mloda.community.extenders.otel import OtelExtender
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-
-# Canonical value_int column of the shared test dataset (mirrors the example extender's tests).
-_VALUE_INT = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
+from mloda.testing.extenders.contract import ExtenderContractTestMixin
+from mloda.testing.extenders.hook_context import make_hook_context
+from mloda.testing.extenders.runners import expected_value_int, run_value_int
 
 # The one attribute key that MUST carry content preview.
 _CONTENT_ATTRIBUTE = "mloda.content.preview"
@@ -48,38 +44,6 @@ def otel_capture() -> Iterator[tuple[TracerProvider, InMemorySpanExporter]]:
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     yield provider, exporter
     provider.shutdown()
-
-
-def _make_context(
-    *,
-    hook: ExtenderHook = ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
-    feature_group_class: str = "tests.otel.DummyFeatureGroup",
-    feature_group_version: str = "1",
-    plugin_version: str | None = None,
-    feature_names: tuple[str, ...] = ("value_int",),
-    input_features: frozenset[str] | None = None,
-    compute_framework_name: str = "PyArrowTable",
-    rows_in: int | None = None,
-    rows_out: int | None = None,
-    run_id: str | None = None,
-    carrier: dict[str, str] | None = None,
-    worker_index: int | None = None,
-) -> HookContext:
-    """Build a HookContext with sane defaults; every field is overridable per test."""
-    return HookContext(
-        hook=hook,
-        feature_group_class=feature_group_class,
-        feature_group_version=feature_group_version,
-        plugin_version=plugin_version,
-        feature_names=feature_names,
-        input_features=input_features,
-        compute_framework_name=compute_framework_name,
-        rows_in=rows_in,
-        rows_out=rows_out,
-        run_id=run_id,
-        carrier=carrier,
-        worker_index=worker_index,
-    )
 
 
 def _single_span_attributes(exporter: InMemorySpanExporter) -> Mapping[str, Any]:
@@ -114,56 +78,6 @@ def _inject_carrier_from_new_span() -> tuple[dict[str, str], int, int]:
     return carrier, parent_span_context.trace_id, parent_span_context.span_id
 
 
-class FailingOtelCalculateFeatureGroup(FeatureGroup):
-    """Root feature group whose calculate_feature always raises, counting its invocations."""
-
-    calls = 0
-
-    @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator({"otel_boom_feature"})
-
-    @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PyArrowTable}
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        cls.calls += 1
-        raise RuntimeError("inner boom")
-
-
-def _run_value_int(*extenders: Extender, tracer_provider: TracerProvider | None = None) -> list[Any]:
-    """Run the minimal ``value_int`` feature through run_all with the given extenders."""
-    plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator})
-
-    results = mloda.run_all(
-        ["value_int"],
-        compute_frameworks={PyArrowTable},
-        plugin_collector=plugin_collector,
-        function_extender=set(extenders),
-    )
-
-    for table in results:
-        if "value_int" in table.column_names:
-            values: list[Any] = table.to_pydict()["value_int"]
-            return values
-
-    raise AssertionError("No result table with value_int found")
-
-
-def _run_otel_boom_feature(*extenders: Extender) -> Any:
-    """Run the always-failing ``otel_boom_feature`` through run_all with the given extenders."""
-    plugin_collector = PluginCollector.enabled_feature_groups({FailingOtelCalculateFeatureGroup})
-
-    return mloda.run_all(
-        ["otel_boom_feature"],
-        compute_frameworks={PyArrowTable},
-        plugin_collector=plugin_collector,
-        function_extender=set(extenders),
-    )
-
-
 class TestOtelExtenderImport:
     def test_import_from_package(self) -> None:
         from mloda.community.extenders.otel import OtelExtender
@@ -176,12 +90,29 @@ class TestOtelExtenderImport:
         assert isinstance(OtelExtender, type)
 
 
-class TestOtelExtenderInheritance:
-    def test_inherits_from_extender(self) -> None:
-        assert issubclass(OtelExtender, Extender)
+class TestOtelExtenderContract(ExtenderContractTestMixin):
+    """OtelExtender must satisfy the shared Extender contract."""
 
-    def test_instance_is_extender(self) -> None:
-        assert isinstance(OtelExtender(), Extender)
+    @classmethod
+    def extender_class(cls) -> type[OtelExtender]:
+        return OtelExtender
+
+    @classmethod
+    def raise_on_error_default(cls) -> bool:
+        return False
+
+    def make_extender(self, *, raise_on_error: bool | None = None) -> OtelExtender:
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(InMemorySpanExporter()))
+        if raise_on_error is None:
+            return OtelExtender(tracer_provider=provider)
+        return OtelExtender(raise_on_error=raise_on_error, tracer_provider=provider)
+
+    def own_failure(self) -> AbstractContextManager[Any]:
+        return patch(
+            "mloda.community.extenders.otel.otel_extender.trace.get_tracer",
+            side_effect=RuntimeError("otel instrumentation boom"),
+        )
 
 
 class TestOtelExtenderModuleImports:
@@ -213,10 +144,6 @@ class TestOtelExtenderModuleImports:
 
 class TestOtelExtenderErrorContract:
     """raise_on_error and wraps(): OtelExtender is observability-only, so it must default to warning-only."""
-
-    def test_raise_on_error_defaults_to_false(self) -> None:
-        """Observability must not break calculations by default."""
-        assert OtelExtender().raise_on_error is False
 
     def test_raise_on_error_can_be_enabled(self) -> None:
         assert OtelExtender(raise_on_error=True).raise_on_error is True
@@ -254,7 +181,7 @@ class TestOtelExtenderConstructorOptions:
 
     def test_default_tracer_provider_is_none_and_call_still_works(self) -> None:
         otel = OtelExtender()
-        context = _make_context()
+        context = make_hook_context()
 
         with context.activate():
             result = otel(lambda: 42)
@@ -267,7 +194,7 @@ class TestOtelExtenderSpanNaming:
 
     def test_calculate_hook_span_name(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
         provider, exporter = otel_capture
-        context = _make_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -279,7 +206,7 @@ class TestOtelExtenderSpanNaming:
 
     def test_validate_input_hook_span_name(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
         provider, exporter = otel_capture
-        context = _make_context(hook=ExtenderHook.VALIDATE_INPUT_FEATURE)
+        context = make_hook_context(hook=ExtenderHook.VALIDATE_INPUT_FEATURE)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -291,7 +218,7 @@ class TestOtelExtenderSpanNaming:
 
     def test_validate_output_hook_span_name(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
         provider, exporter = otel_capture
-        context = _make_context(hook=ExtenderHook.VALIDATE_OUTPUT_FEATURE)
+        context = make_hook_context(hook=ExtenderHook.VALIDATE_OUTPUT_FEATURE)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -307,7 +234,7 @@ class TestOtelExtenderSpanAttributes:
 
     def test_operation_name_for_calculate_hook(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
         provider, exporter = otel_capture
-        context = _make_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -319,7 +246,7 @@ class TestOtelExtenderSpanAttributes:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context(hook=ExtenderHook.VALIDATE_INPUT_FEATURE)
+        context = make_hook_context(hook=ExtenderHook.VALIDATE_INPUT_FEATURE)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -331,7 +258,7 @@ class TestOtelExtenderSpanAttributes:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context(hook=ExtenderHook.VALIDATE_OUTPUT_FEATURE)
+        context = make_hook_context(hook=ExtenderHook.VALIDATE_OUTPUT_FEATURE)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -343,7 +270,7 @@ class TestOtelExtenderSpanAttributes:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context(feature_group_class="pkg.mod.MyFeatureGroup", feature_group_version="7")
+        context = make_hook_context(feature_group_class="pkg.mod.MyFeatureGroup", feature_group_version="7")
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -355,7 +282,7 @@ class TestOtelExtenderSpanAttributes:
 
     def test_compute_framework_name_attribute(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
         provider, exporter = otel_capture
-        context = _make_context(compute_framework_name="PyArrowTable")
+        context = make_hook_context(compute_framework_name="PyArrowTable")
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -365,7 +292,7 @@ class TestOtelExtenderSpanAttributes:
 
     def test_rows_in_attribute(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
         provider, exporter = otel_capture
-        context = _make_context(rows_in=42)
+        context = make_hook_context(rows_in=42)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -378,7 +305,7 @@ class TestOtelExtenderSpanAttributes:
     ) -> None:
         """rows_out is set by instrument() DURING the func call; the extender must read it AFTER, not before."""
         provider, exporter = otel_capture
-        context = _make_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
         otel = OtelExtender(tracer_provider=provider)
 
         def func() -> list[int]:
@@ -395,7 +322,7 @@ class TestOtelExtenderSpanAttributes:
     ) -> None:
         """Gate on hook == calculate explicitly, not merely on rows_out being non-None."""
         provider, exporter = otel_capture
-        context = _make_context(hook=ExtenderHook.VALIDATE_INPUT_FEATURE, rows_out=99)
+        context = make_hook_context(hook=ExtenderHook.VALIDATE_INPUT_FEATURE, rows_out=99)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -407,7 +334,7 @@ class TestOtelExtenderSpanAttributes:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context(feature_names=("value_int",))
+        context = make_hook_context(feature_names=("value_int",))
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -419,7 +346,7 @@ class TestOtelExtenderSpanAttributes:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context(feature_names=())
+        context = make_hook_context(feature_names=())
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -431,7 +358,7 @@ class TestOtelExtenderSpanAttributes:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context(feature_names=("a", "b"))
+        context = make_hook_context(feature_names=("a", "b"))
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -443,7 +370,7 @@ class TestOtelExtenderSpanAttributes:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context(plugin_version="1.2.3")
+        context = make_hook_context(plugin_version="1.2.3")
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -455,7 +382,7 @@ class TestOtelExtenderSpanAttributes:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context(plugin_version=None)
+        context = make_hook_context(plugin_version=None)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -468,7 +395,7 @@ class TestOtelExtenderSpanAttributes:
         a hand-built HookContext (as used throughout this file) can still pass None explicitly, and the
         attribute must stay absent rather than being set to a null/empty value."""
         provider, exporter = otel_capture
-        context = _make_context(run_id=None)
+        context = make_hook_context(run_id=None)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -486,7 +413,7 @@ class TestOtelExtenderWorkerIndexAttribute:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context(worker_index=2)
+        context = make_hook_context(worker_index=2)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -498,7 +425,7 @@ class TestOtelExtenderWorkerIndexAttribute:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context(worker_index=None)
+        context = make_hook_context(worker_index=None)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -521,7 +448,7 @@ class TestOtelExtenderCarrierPropagation:
         carrier, parent_trace_id, parent_span_id = _inject_carrier_from_new_span()
 
         provider, exporter = otel_capture
-        context = _make_context(carrier=carrier)
+        context = make_hook_context(carrier=carrier)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -541,7 +468,7 @@ class TestOtelExtenderCarrierPropagation:
         """An empty carrier (no traceparent key) carries no parent to extract; it must be handled the
         same as carrier=None rather than raising or spuriously parenting the span to anything."""
         provider, exporter = otel_capture
-        context = _make_context(carrier={})
+        context = make_hook_context(carrier={})
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -563,7 +490,7 @@ class TestOtelExtenderDeterministicTraceId:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context(run_id=_DETERMINISTIC_RUN_ID, carrier=None)
+        context = make_hook_context(run_id=_DETERMINISTIC_RUN_ID, carrier=None)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -582,13 +509,13 @@ class TestOtelExtenderDeterministicTraceId:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider)
 
-        calculate_context = _make_context(
+        calculate_context = make_hook_context(
             hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, run_id=_DETERMINISTIC_RUN_ID, carrier=None
         )
         with calculate_context.activate():
             otel(lambda: None)
 
-        validate_context = _make_context(
+        validate_context = make_hook_context(
             hook=ExtenderHook.VALIDATE_INPUT_FEATURE, run_id=_DETERMINISTIC_RUN_ID, carrier=None
         )
         with validate_context.activate():
@@ -608,7 +535,7 @@ class TestOtelExtenderDeterministicTraceId:
         assert parent_trace_id != uuid.UUID(_DETERMINISTIC_RUN_ID).int
 
         provider, exporter = otel_capture
-        context = _make_context(run_id=_DETERMINISTIC_RUN_ID, carrier=carrier)
+        context = make_hook_context(run_id=_DETERMINISTIC_RUN_ID, carrier=carrier)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -626,7 +553,7 @@ class TestOtelExtenderDeterministicTraceId:
         (which never passes carrier/run_id) and must keep working unchanged; the resulting trace_id is
         random here, so it is deliberately not asserted."""
         provider, exporter = otel_capture
-        context = _make_context(run_id=None, carrier=None)
+        context = make_hook_context(run_id=None, carrier=None)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
@@ -635,48 +562,14 @@ class TestOtelExtenderDeterministicTraceId:
         assert len(exporter.get_finished_spans()) == 1
 
 
-class TestOtelExtenderReturnValue:
-    """__call__ must be a transparent wrapper around func's return value."""
-
-    def test_call_returns_wrapped_function_result_unchanged(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
-    ) -> None:
-        provider, _ = otel_capture
-        context = _make_context()
-        otel = OtelExtender(tracer_provider=provider)
-
-        with context.activate():
-            result = otel(lambda a, b: a + b, 3, 4)
-
-        assert result == 7
-
-
 class TestOtelExtenderFailureHandling:
     """When the WRAPPED FUNCTION raises: never swallow, always propagate, but observe first."""
-
-    def test_call_propagates_func_failure_and_invokes_func_exactly_once(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
-    ) -> None:
-        provider, _ = otel_capture
-        context = _make_context()
-        otel = OtelExtender(tracer_provider=provider)
-        calls = {"n": 0}
-
-        def func() -> None:
-            calls["n"] += 1
-            raise RuntimeError("inner boom")
-
-        with context.activate():
-            with pytest.raises(RuntimeError, match="inner boom"):
-                otel(func)
-
-        assert calls["n"] == 1
 
     def test_call_sets_error_span_status_and_error_type_on_func_failure(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context()
+        context = make_hook_context()
         otel = OtelExtender(tracer_provider=provider)
 
         def func() -> None:
@@ -697,7 +590,7 @@ class TestOtelExtenderFailureHandling:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
     ) -> None:
         provider, _ = otel_capture
-        context = _make_context()
+        context = make_hook_context()
         otel = OtelExtender(tracer_provider=provider)
 
         def func() -> None:
@@ -711,19 +604,6 @@ class TestOtelExtenderFailureHandling:
         warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert any("OtelExtender" in r.message and "inner boom" in r.message for r in warnings), warnings
 
-    def test_run_all_wrapped_function_failure_propagates_and_runs_once(self, caplog: pytest.LogCaptureFixture) -> None:
-        """A failure of the wrapped function propagates regardless of raise_on_error, without a re-run."""
-        FailingOtelCalculateFeatureGroup.calls = 0
-
-        with caplog.at_level(logging.WARNING):
-            with pytest.raises(Exception, match="inner boom"):
-                _run_otel_boom_feature(OtelExtender(raise_on_error=False))
-
-        assert FailingOtelCalculateFeatureGroup.calls == 1
-
-        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-        assert any("OtelExtender" in message and "inner boom" in message for message in warnings), warnings
-
     def test_call_logs_exception_type_and_span_name_for_a_message_less_exception(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -731,7 +611,7 @@ class TestOtelExtenderFailureHandling:
         literal string "OtelExtender " (str(exc) == ""): no exception type, no span/hook name, nothing
         actionable. The log must name both, independent of whether exc happens to carry a message."""
         provider, _ = otel_capture
-        context = _make_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
         otel = OtelExtender(tracer_provider=provider)
 
         def func() -> None:
@@ -755,7 +635,7 @@ class TestOtelExtenderFailureHandling:
         validation-error pattern), that value must not leak onto the span while capture_content stays at
         its metadata-only default."""
         provider, exporter = otel_capture
-        context = _make_context()
+        context = make_hook_context()
         otel = OtelExtender(tracer_provider=provider)  # capture_content left at its metadata-only default
         marker = "SENSITIVE_ROW_VALUE_xyz123"
 
@@ -780,52 +660,6 @@ class TestOtelExtenderFailureHandling:
                 )
 
 
-class TestOtelExtenderCompositeChaining:
-    """OtelExtender chains via _CompositeExtender; faults are injected by patching `trace.get_tracer`
-    to force a failure in the extender's own code, independent of any wrapped-function failure."""
-
-    def test_own_failure_falls_back_when_raise_on_error_false(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
-    ) -> None:
-        provider, _ = otel_capture
-        context = _make_context()
-        otel = OtelExtender(raise_on_error=False, tracer_provider=provider)
-        composite = _CompositeExtender([otel])
-
-        def func(x: int, y: int) -> int:
-            return x + y
-
-        with patch(
-            "mloda.community.extenders.otel.otel_extender.trace.get_tracer",
-            side_effect=RuntimeError("otel instrumentation boom"),
-        ):
-            with caplog.at_level(logging.WARNING):
-                with context.activate():
-                    result = composite(func, 3, 4)
-
-        assert result == 7, "Failing OtelExtender must fall back to the wrapped function result"
-        assert any(r.levelno == logging.WARNING and "OtelExtender" in r.message for r in caplog.records), caplog.records
-
-    def test_own_failure_propagates_when_raise_on_error_true(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
-    ) -> None:
-        provider, _ = otel_capture
-        context = _make_context()
-        otel = OtelExtender(raise_on_error=True, tracer_provider=provider)
-        composite = _CompositeExtender([otel])
-
-        def func(x: int, y: int) -> int:
-            return x + y
-
-        with patch(
-            "mloda.community.extenders.otel.otel_extender.trace.get_tracer",
-            side_effect=RuntimeError("otel instrumentation boom"),
-        ):
-            with context.activate():
-                with pytest.raises(RuntimeError, match="otel instrumentation boom"):
-                    composite(func, 3, 4)
-
-
 class TestOtelExtenderContentCapture:
     """Metadata-only by default; capture_content=True or MLODA_OTEL_TRACE_CONTENT opts in, mask redacts."""
 
@@ -834,7 +668,7 @@ class TestOtelExtenderContentCapture:
     ) -> None:
         monkeypatch.delenv("MLODA_OTEL_TRACE_CONTENT", raising=False)
         provider, exporter = otel_capture
-        context = _make_context()
+        context = make_hook_context()
         otel = OtelExtender(tracer_provider=provider)
 
         def func() -> list[int]:
@@ -851,7 +685,7 @@ class TestOtelExtenderContentCapture:
     ) -> None:
         monkeypatch.delenv("MLODA_OTEL_TRACE_CONTENT", raising=False)
         provider, exporter = otel_capture
-        context = _make_context()
+        context = make_hook_context()
         otel = OtelExtender(capture_content=True, tracer_provider=provider)
 
         def func() -> list[int]:
@@ -871,7 +705,7 @@ class TestOtelExtenderContentCapture:
     ) -> None:
         monkeypatch.setenv("MLODA_OTEL_TRACE_CONTENT", value)
         provider, exporter = otel_capture
-        context = _make_context()
+        context = make_hook_context()
         otel = OtelExtender(tracer_provider=provider)  # capture_content constructor arg left at default False
 
         def func() -> list[int]:
@@ -887,7 +721,7 @@ class TestOtelExtenderContentCapture:
     ) -> None:
         monkeypatch.setenv("MLODA_OTEL_TRACE_CONTENT", "false")
         provider, exporter = otel_capture
-        context = _make_context()
+        context = make_hook_context()
         otel = OtelExtender(tracer_provider=provider)
 
         def func() -> list[int]:
@@ -902,7 +736,7 @@ class TestOtelExtenderContentCapture:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context(hook=ExtenderHook.VALIDATE_INPUT_FEATURE)
+        context = make_hook_context(hook=ExtenderHook.VALIDATE_INPUT_FEATURE)
         otel = OtelExtender(capture_content=True, tracer_provider=provider)
 
         def func() -> list[int]:
@@ -917,7 +751,7 @@ class TestOtelExtenderContentCapture:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context()
+        context = make_hook_context()
         otel = OtelExtender(capture_content=True, tracer_provider=provider)
 
         def func() -> None:
@@ -933,7 +767,7 @@ class TestOtelExtenderContentCapture:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context()
+        context = make_hook_context()
         otel = OtelExtender(capture_content=True, tracer_provider=provider)
         raw = "x" * 10_000
 
@@ -950,7 +784,7 @@ class TestOtelExtenderContentCapture:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context()
+        context = make_hook_context()
         secret = "SECRET_VALUE_12345"  # nosec
         masked = "***MASKED***"
 
@@ -983,7 +817,7 @@ class TestOtelExtenderPostCallInstrumentationFailure:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        context = _make_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
 
         def broken_mask(_value: Any) -> Any:
             raise RuntimeError("mask boom")
@@ -1027,7 +861,7 @@ class TestOtelExtenderContentPreviewCost:
                 return "item"
 
         provider, exporter = otel_capture
-        context = _make_context()
+        context = make_hook_context()
         otel = OtelExtender(capture_content=True, tracer_provider=provider)
 
         result = [_CountingItem() for _ in range(5000)]
@@ -1053,20 +887,9 @@ class TestOtelExtenderRunAll:
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator})
 
-        results = mloda.run_all(
-            ["value_int"],
-            compute_frameworks={PyArrowTable},
-            plugin_collector=plugin_collector,
-            function_extender={OtelExtender(tracer_provider=provider)},
-        )
-
-        values = None
-        for table in results:
-            if "value_int" in table.column_names:
-                values = table.to_pydict()["value_int"]
-        assert values == _VALUE_INT
+        values = run_value_int(OtelExtender(tracer_provider=provider))
+        assert values == expected_value_int()
 
         spans = exporter.get_finished_spans()
         span_names = {span.name for span in spans}
