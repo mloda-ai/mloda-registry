@@ -39,8 +39,10 @@ entry from `config/packages.toml` and appends it below a
 hand-authored lines above the marker (shared tooling like `pytest`, `ruff`)
 are left untouched, and a name already covered by a hand-authored line is
 never duplicated. `--check` fails if a package's third-party `dev` dependency
-is missing from root, so nothing to do beyond declaring it once in
-`config/packages.toml`.
+is missing from root, so nothing to do beyond declaring it once in a
+package's own `optional_dependencies.dev`. This does not cover `shared.toml`'s
+`[defaults].optional_dependencies.dev`: a third-party name added there still
+needs a manual root entry.
 
 ## Config files
 
