@@ -1,18 +1,15 @@
 """Tests pinning down the root dev-extras auto-sync feature for scripts/generate_pyproject.py.
 
-Today a package that needs a third-party dependency only for its own dev/test
-extra (e.g. ``mloda-community-otel``'s ``opentelemetry-sdk``) also requires a
-hand-added, undocumented line in root ``pyproject.toml``'s own
-``[project.optional-dependencies].dev`` list, because tox's shared dev
-environment installs from the root file rather than each workspace member's
-generated extras. This file defines the contract for the new automation that
-derives those missing root entries from ``config/packages.toml`` directly,
-the same way ``update_workspace_members`` and ``update_root_core_dependency``
-already auto-derive workspace members and the core pin (see
-``test_generate_pyproject_guards.py`` for those existing guards).
+A package needing a third-party dependency only for its own dev/test extra (e.g.
+``mloda-community-otel``'s ``opentelemetry-sdk``) also needs a matching entry in root
+``pyproject.toml``'s ``[project.optional-dependencies].dev``, since tox's shared dev
+environment installs from the root file rather than each workspace member's own extras.
+This file pins the contract for deriving those root entries from ``config/packages.toml``
+automatically, the same way ``update_workspace_members`` and ``update_root_core_dependency``
+already auto-derive workspace members and the core pin (see ``test_generate_pyproject_guards.py``).
 
-The generator lives at ``scripts/generate_pyproject.py`` (a script, not an
-installed package), so it is loaded here by file path.
+The generator lives at ``scripts/generate_pyproject.py`` (a script, not an installed
+package), so it is loaded here by file path.
 """
 
 from __future__ import annotations
@@ -251,11 +248,11 @@ def test_main_check_mode_fails_when_root_dev_extras_are_stale(
 ) -> None:
     """gen.main() --check must fail when a package's third-party dev dep is missing from root.
 
-    Neither sandbox here has real per-package pyproject.toml files or source trees (those are
-    out of scope for this test), so every package reports "missing" as unrelated baseline noise
-    in both runs. Two sandboxes differ ONLY in whether the root dev list already contains
-    opentelemetry-sdk; comparing their error counts isolates the effect of the new dev-deps sync
-    from that shared baseline noise, rather than requiring an implausible full-repo mirror.
+    Neither sandbox has real per-package pyproject.toml files or source trees, so every package
+    reports "missing" as baseline noise in both runs. The two sandboxes differ only in whether
+    the root dev list already contains opentelemetry-sdk; comparing error counts isolates the
+    effect of the dev-deps sync from that shared noise, rather than requiring an implausible
+    full-repo mirror.
     """
     real_root_before = _ROOT_PYPROJECT.read_text()
 

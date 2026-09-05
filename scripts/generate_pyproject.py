@@ -402,11 +402,10 @@ def _bare_dist_name(requirement: str) -> str:
 def collect_third_party_dev_deps(packages: dict[str, dict[str, Any]]) -> list[tuple[str, str]]:
     """Collect third-party ``dev`` extra requirements across packages, deduped by bare name.
 
-    An entry whose bare name matches a configured package name is internal (a workspace
-    member, not something root needs from PyPI) and is skipped. Returns ``(requirement,
-    owning_package_name)`` pairs, first occurrence in ``packages`` iteration order wins on a
-    dedup. Raises ``ValueError`` if two packages pin different requirement strings for the
-    same bare name.
+    Skips entries whose bare name matches a configured package name (an internal workspace
+    member, not something root needs from PyPI). Returns ``(requirement, owning_package_name)``
+    pairs, keeping the first occurrence on a dedup. Raises ``ValueError`` on conflicting
+    requirement strings for the same bare name.
     """
     internal_names = {_bare_dist_name(name) for name in packages}
     seen: dict[str, str] = {}
@@ -434,11 +433,11 @@ def update_root_dev_dependencies(packages: dict[str, dict[str, Any]], check: boo
 
     tox's shared dev environment installs from root ``pyproject.toml`` rather than each
     workspace member's own generated extras, so a package-local third-party ``dev``
-    requirement (e.g. ``opentelemetry-sdk`` for ``mloda-community-otel``) also needs a root
-    entry. Lines above ``DEV_DEPS_MARKER_LINES`` in the root ``dev`` array are hand-authored
-    and are never touched, reordered, or deduplicated; lines at/after the marker are fully
-    owned and recomputed here from ``collect_third_party_dev_deps``, excluding any bare name
-    already covered by a hand-authored line. Idempotent. Returns (success, message) tuple.
+    requirement (e.g. ``opentelemetry-sdk`` for ``mloda-community-otel``) also needs a
+    root entry. Lines above ``DEV_DEPS_MARKER_LINES`` are hand-authored and untouched;
+    lines at/after it are fully owned and recomputed from ``collect_third_party_dev_deps``,
+    skipping any bare name already covered by a hand-authored line. Idempotent. Returns
+    (success, message) tuple.
     """
     if not ROOT_PYPROJECT.exists():
         return False, f"{ROOT_PYPROJECT}: missing"
@@ -563,7 +562,7 @@ def main() -> int:
     # Handle root pyproject.toml mloda-core dependency (single source of truth)
     core_ok, core_msg = update_root_core_dependency(shared, check=args.check)
 
-    # Handle root pyproject.toml dev extras (third-party deps from package dev extras)
+    # Handle root pyproject.toml dev extras
     dev_deps_ok, dev_deps_msg = update_root_dev_dependencies(packages, check=args.check)
 
     if args.check:
