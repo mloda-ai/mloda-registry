@@ -7,6 +7,8 @@ core's INPUT_DATA_LOAD nesting inside the enclosing CALCULATE_FEATURE HookContex
 from __future__ import annotations
 
 import logging
+import pickle  # nosec
+import threading
 import uuid
 from collections.abc import Iterator
 from contextlib import AbstractContextManager
@@ -15,6 +17,7 @@ from unittest.mock import patch
 
 import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.function_extender import _CompositeExtender
 from mloda.steward import Extender, ExtenderHook, HookContext
 
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
@@ -26,6 +29,20 @@ from mloda.testing.extenders.runners import expected_value_int, run_value_int
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, OutputDataset, RunState
 from openlineage.client.facet_v2 import parent_run, schema_dataset
+from openlineage.client.transport.transport import Config, Transport
+
+
+class _LockHoldingTransport(Transport):
+    """A Transport whose lock attribute cannot survive plain pickling."""
+
+    kind = "lock-holding"
+    config_class = Config
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+
+    def emit(self, event: Any) -> None:
+        pass
 
 
 @pytest.fixture
@@ -55,7 +72,13 @@ class TestOpenLineageExtenderContract(ExtenderContractTestMixin):
     def extender_class(cls) -> type[Extender]:
         return OpenLineageExtender
 
-    def make_extender(self, *, raise_on_error: bool = False) -> Extender:
+    @classmethod
+    def raise_on_error_default(cls) -> bool:
+        return False
+
+    def make_extender(self, *, raise_on_error: bool | None = None) -> Extender:
+        if raise_on_error is None:
+            return OpenLineageExtender(client=OpenLineageClient(transport=RecordingTransport()))
         return OpenLineageExtender(
             raise_on_error=raise_on_error, client=OpenLineageClient(transport=RecordingTransport())
         )
@@ -107,6 +130,31 @@ class TestOpenLineageExtenderConstructorOptions:
         with context.activate():
             result = extender(lambda: 42)
 
+        assert result == 42
+
+
+class TestOpenLineageExtenderPickling:
+    """A1: `_client` must never make the extender itself unpicklable."""
+
+    def test_pickle_round_trip_keeps_config_and_still_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        extender = OpenLineageExtender(
+            client=OpenLineageClient(transport=_LockHoldingTransport()),
+            raise_on_error=True,
+            job_namespace="custom-ns",
+            dataset_namespace="custom-ds",
+            root_job_name="custom.root",
+        )
+
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        assert copy.raise_on_error is True
+        assert copy.job_namespace == "custom-ns"
+        assert copy.dataset_namespace == "custom-ds"
+        assert copy.root_job_name == "custom.root"
+
+        monkeypatch.setenv("OPENLINEAGE_DISABLED", "true")
+        with make_hook_context().activate():
+            result = copy(lambda: 42)
         assert result == 42
 
 
@@ -333,7 +381,7 @@ class TestOpenLineageExtenderCompleteEvent:
         schema_facet = output.facets.get("schema")
         assert isinstance(schema_facet, schema_dataset.SchemaDatasetFacet)
         assert schema_facet.fields is not None
-        assert len(schema_facet.fields) >= 1
+        assert len(schema_facet.fields) == 1
         for f in schema_facet.fields:
             assert f.name == "x"
             assert f.type == "int64"
@@ -341,8 +389,7 @@ class TestOpenLineageExtenderCompleteEvent:
     def test_schema_facet_types_come_from_schema_fields_for_spark_shaped_result(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
-        """A pyspark-shaped result (columns, (name, type) dtypes tuples, schema.fields with dataType) must
-        report str(field.dataType) per column, never the stringified dtypes tuple."""
+        """schema.fields must win over schema.names/schema.types when a fake result exposes both shapes."""
 
         class _DataType:
             def __init__(self, rendered: str) -> None:
@@ -357,9 +404,10 @@ class TestOpenLineageExtenderCompleteEvent:
                 self.dataType = data_type
 
         class _StructType:
-            def __init__(self, fields: list[_StructField]) -> None:
+            def __init__(self, fields: list[_StructField], types: list[tuple[str, str]]) -> None:
                 self.fields = fields
                 self.names = [f.name for f in fields]
+                self.types = types
 
         class _SparkFrame:
             def __init__(self, columns: list[str], dtypes: list[tuple[str, str]], schema: _StructType) -> None:
@@ -374,10 +422,11 @@ class TestOpenLineageExtenderCompleteEvent:
             columns=["value_int", "value_str"],
             dtypes=[("value_int", "bigint"), ("value_str", "string")],
             schema=_StructType(
-                [
+                fields=[
                     _StructField("value_int", _DataType("LongType()")),
                     _StructField("value_str", _DataType("StringType()")),
-                ]
+                ],
+                types=[("value_int", "bigint"), ("value_str", "string")],
             ),
         )
 
@@ -413,6 +462,60 @@ class TestOpenLineageExtenderCompleteEvent:
         output = complete_event.outputs[0]
         assert output.facets is not None
         assert "schema" not in output.facets
+
+    def test_collect_schema_used_without_resolving_schema_property(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        """A lazy frame's `schema` property must never be resolved when `collect_schema()` is available."""
+
+        class _LazyFrame:
+            def collect_schema(self) -> dict[str, str]:
+                return {"value_int": "Int64"}
+
+            @property
+            def schema(self) -> Any:
+                raise AssertionError("schema must not be resolved")
+
+        client, transport = ol_capture
+        context = make_hook_context(feature_names=("value_int",))
+        extender = OpenLineageExtender(client=client)
+
+        with context.activate():
+            extender(lambda: _LazyFrame())
+
+        complete_event = transport.events[1]
+        assert complete_event.outputs is not None
+        output = complete_event.outputs[0]
+        assert output.facets is not None
+        schema_facet = output.facets.get("schema")
+        assert isinstance(schema_facet, schema_dataset.SchemaDatasetFacet)
+        assert schema_facet.fields is not None
+        assert [f.type for f in schema_facet.fields] == ["Int64"]
+
+    def test_schema_facet_present_for_pandas_frame_with_column_named_schema(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        """A pandas column literally named "schema" must not hijack schema inference for other columns."""
+        import pandas as pd
+
+        client, transport = ol_capture
+        context = make_hook_context(feature_names=("value_int",))
+        extender = OpenLineageExtender(client=client)
+        frame = pd.DataFrame({"schema": [1], "value_int": [2]})
+
+        with context.activate():
+            extender(lambda: frame)
+
+        complete_event = transport.events[1]
+        assert complete_event.outputs is not None
+        output = complete_event.outputs[0]
+        assert output.name == "value_int"
+        assert output.facets is not None
+        schema_facet = output.facets.get("schema")
+        assert isinstance(schema_facet, schema_dataset.SchemaDatasetFacet)
+        assert schema_facet.fields is not None
+        assert [f.name for f in schema_facet.fields] == ["value_int"]
+        assert [f.type for f in schema_facet.fields] == ["int64"]
 
 
 class TestOpenLineageExtenderParentRunFacet:
@@ -655,6 +758,71 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
             and ("enclosing" in r.message.lower() or "open" in r.message.lower())
             for r in debug_records
         ), debug_records
+
+
+class TestOpenLineageExtenderPerInstanceAttribution:
+    """A2: nested INPUT_DATA_LOAD must attribute to its own enclosing instance, not any open one."""
+
+    def test_composite_of_two_extenders_each_see_their_own_single_input(self) -> None:
+        transport_a = RecordingTransport()
+        transport_b = RecordingTransport()
+        extender_a = OpenLineageExtender(client=OpenLineageClient(transport=transport_a))
+        extender_b = OpenLineageExtender(client=OpenLineageClient(transport=transport_b))
+        composite = _CompositeExtender([extender_a, extender_b])
+
+        inner_context = make_hook_context(
+            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="s3://bucket/key.parquet"
+        )
+
+        def inner_loader() -> str:
+            return "loaded-data"
+
+        def calculate_body() -> str:
+            with inner_context.activate():
+                composite(inner_loader)
+            return "calculated"
+
+        with make_hook_context().activate():
+            composite(calculate_body)
+
+        for transport in (transport_a, transport_b):
+            complete_events = [e for e in transport.events if e.eventType == RunState.COMPLETE]
+            assert len(complete_events) == 1
+            inputs = complete_events[0].inputs
+            assert inputs is not None
+            assert len(inputs) == 1
+            assert inputs[0].name == "s3://bucket/key.parquet"
+
+
+class TestOpenLineageExtenderInputDedupe:
+    """A3: loading the same data_access_identity twice must not duplicate the OpenLineage input."""
+
+    def test_repeated_input_data_load_produces_single_input(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        inner_context = make_hook_context(
+            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="s3://bucket/key.parquet"
+        )
+
+        def inner_loader() -> str:
+            return "loaded-data"
+
+        def calculate_body() -> str:
+            with inner_context.activate():
+                extender(inner_loader)
+            with inner_context.activate():
+                extender(inner_loader)
+            return "calculated"
+
+        with make_hook_context().activate():
+            extender(calculate_body)
+
+        complete_event = transport.events[-1]
+        assert complete_event.eventType == RunState.COMPLETE
+        assert complete_event.inputs is not None
+        assert len(complete_event.inputs) == 1
 
 
 class TestOpenLineageExtenderPostCallInstrumentationFailure:

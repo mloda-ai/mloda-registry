@@ -9,6 +9,9 @@ Q1: What do you want to wrap?
     Feature calculation → FEATURE_GROUP_CALCULATE_FEATURE
     Input validation   → VALIDATE_INPUT_FEATURE
     Output validation  → VALIDATE_OUTPUT_FEATURE
+    Feature matched    → FEATURE_GROUP_MATCHED
+    Input data loads   → INPUT_DATA_LOAD
+    Data joins         → JOIN
 
 Q2: Need execution order control?
     YES → Set custom priority (lower runs first, default 100)
@@ -33,6 +36,9 @@ Q3: Need state with ParallelizationMode.MULTIPROCESSING?
 | `FEATURE_GROUP_CALCULATE_FEATURE` | Wraps `calculate_feature()` |
 | `VALIDATE_INPUT_FEATURE` | Before calculation |
 | `VALIDATE_OUTPUT_FEATURE` | After calculation |
+| `FEATURE_GROUP_MATCHED` | Wraps feature group resolution |
+| `INPUT_DATA_LOAD` | Wraps input data loading |
+| `JOIN` | Wraps merging joined data |
 
 ## Example
 
@@ -80,6 +86,8 @@ results = mloda.run_all(features=["my_feature"], function_extender={MyExtender()
 `mloda-testing` ships an extender contract mixin plus helpers (`make_hook_context`, `run_value_int`, `failing_feature_group`) so every extender's test suite exercises the same shared behavior.
 
 ```python
+from contextlib import AbstractContextManager
+from typing import Any
 from unittest.mock import patch
 
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
@@ -90,24 +98,28 @@ class TestMyExtenderContract(ExtenderContractTestMixin):
     def extender_class(cls) -> type[MyExtender]:
         return MyExtender
 
-    def make_extender(self, *, raise_on_error: bool = False) -> MyExtender:
-        return MyExtender(raise_on_error=raise_on_error, sink=[])
+    def make_extender(self, *, raise_on_error: bool | None = None) -> MyExtender:
+        if raise_on_error is None:
+            return MyExtender()
+        return MyExtender(raise_on_error=raise_on_error)
 
-    def own_failure(self):
-        return patch.object(MyExtender, "record", side_effect=RuntimeError("boom"))
+    def own_failure(self) -> AbstractContextManager[Any]:
+        return patch.object(MyExtender, "__call__", side_effect=RuntimeError("boom"))
 ```
+
+Observability extenders that default to warning-only override `raise_on_error_default()` to return False.
 
 `extender_class` names the class under test. `make_extender` returns an instance wired to an in-memory backend, never a real network sink. `own_failure` makes the extender's own code fail (not the wrapped function) so the fallback path is exercised.
 
 The mixin pins:
 
-- `MyExtender` subclasses `Extender`
 - `wraps()` returns only known hooks
 - the `raise_on_error` default
 - a call returns the wrapped result unchanged
 - a wrapped failure propagates and runs the wrapped function exactly once
 - the extender's own failure falls back with a warning when `raise_on_error` is `False`, and propagates when `True`
 - two `run_all` round trips (one success, one wrapped failure)
+- the extender survives a pickle round trip
 
 `make_hook_context` builds a `HookContext` for direct `__call__` tests, and package-specific capture doubles ship next to each extender (for example `mloda.community.extenders.openlineage.testing.RecordingTransport`).
 

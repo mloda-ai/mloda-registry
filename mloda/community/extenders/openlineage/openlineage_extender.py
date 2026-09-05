@@ -30,14 +30,15 @@ class _OpenCalculateInvocation:
     inputs: list[InputDataset] = field(default_factory=list)
 
 
-_current_calculate_invocation: contextvars.ContextVar[_OpenCalculateInvocation | None] = contextvars.ContextVar(
-    "openlineage_current_calculate_invocation", default=None
+_open_invocations: contextvars.ContextVar[tuple[tuple[int, "_OpenCalculateInvocation"], ...]] = contextvars.ContextVar(
+    "openlineage_open_invocations", default=()
 )
 
 
 class OpenLineageExtender(Extender):
     """Emits one OpenLineage START/COMPLETE|FAIL RunEvent per calculate invocation, correlating
-    nested INPUT_DATA_LOAD calls as inputs of the enclosing run."""
+    nested INPUT_DATA_LOAD calls as inputs of the enclosing run. Without an injected client, the
+    resolved OpenLineageClient() follows the ambient OpenLineage config; worker processes resolve their own."""
 
     def __init__(
         self,
@@ -48,10 +49,20 @@ class OpenLineageExtender(Extender):
         root_job_name: str = "mloda.run_all",
     ) -> None:
         self.raise_on_error = raise_on_error
-        self._client = client if client is not None else OpenLineageClient()
+        self._client = client
         self.job_namespace = job_namespace
         self.dataset_namespace = dataset_namespace
         self.root_job_name = root_job_name
+
+    def _get_client(self) -> OpenLineageClient:
+        if self._client is None:
+            self._client = OpenLineageClient()
+        return self._client
+
+    def __getstate__(self) -> dict[str, Any]:
+        state = dict(self.__dict__)
+        state["_client"] = None
+        return state
 
     def wraps(self) -> set[ExtenderHook]:
         return {
@@ -70,19 +81,34 @@ class OpenLineageExtender(Extender):
 
     def _call_input_data_load(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
         result = func(*args, **kwargs)
-        invocation = _current_calculate_invocation.get()
+        invocation = self._find_open_invocation()
         if invocation is None:
             logger.debug("OpenLineageExtender: INPUT_DATA_LOAD has no enclosing open calculate invocation to attach to")
             return result
         if context.data_access_identity is not None:
-            invocation.inputs.append(
-                InputDataset(
-                    namespace=self.dataset_namespace,
-                    name=context.data_access_identity,
-                    facets={"dataSource": datasource_dataset.DatasourceDatasetFacet(name=context.data_access_identity)},
-                )
+            already_present = any(
+                i.namespace == self.dataset_namespace and i.name == context.data_access_identity
+                for i in invocation.inputs
             )
+            if not already_present:
+                invocation.inputs.append(
+                    InputDataset(
+                        namespace=self.dataset_namespace,
+                        name=context.data_access_identity,
+                        facets={
+                            "dataSource": datasource_dataset.DatasourceDatasetFacet(name=context.data_access_identity)
+                        },
+                    )
+                )
         return result
+
+    def _find_open_invocation(self) -> _OpenCalculateInvocation | None:
+        """Return this instance's own last-opened invocation from the shared stack, else None."""
+        my_id = id(self)
+        for key, invocation in reversed(_open_invocations.get()):
+            if key == my_id:
+                return invocation
+        return None
 
     def _call_calculate_feature(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
         run_facets: dict[str, Any] = {}
@@ -97,7 +123,7 @@ class OpenLineageExtender(Extender):
 
         # Unguarded on purpose: this call must propagate naturally so _CompositeExtender's
         # raise_on_error fallback machinery sees the real failure and never double-invokes func.
-        self._client.emit(
+        self._get_client().emit(
             RunEvent(
                 eventType=RunState.START,
                 eventTime=_now_iso(),
@@ -109,13 +135,13 @@ class OpenLineageExtender(Extender):
             )
         )
 
-        token = _current_calculate_invocation.set(invocation)
+        token = _open_invocations.set(_open_invocations.get() + ((id(self), invocation),))
         try:
             result = func(*args, **kwargs)
         except BaseException as exc:
-            # Guarded: a broken transport on the FAIL path must never mask func's real exception.
+            # Guarded: a transport error on the FAIL path must not mask the wrapped function's exception.
             try:
-                self._client.emit(
+                self._get_client().emit(
                     RunEvent(
                         eventType=RunState.FAIL,
                         eventTime=_now_iso(),
@@ -133,13 +159,13 @@ class OpenLineageExtender(Extender):
             logger.warning("OpenLineageExtender observed %s failure: %s: %s", job.name, type(exc).__name__, exc)
             raise
         finally:
-            _current_calculate_invocation.reset(token)
+            _open_invocations.reset(token)
 
         # Guarded: a bug in this post-success block must never corrupt func's already-computed result.
         try:
             fields = _infer_schema_fields(result)
             outputs = [_build_output_dataset(self.dataset_namespace, name, fields) for name in context.feature_names]
-            self._client.emit(
+            self._get_client().emit(
                 RunEvent(
                     eventType=RunState.COMPLETE,
                     eventTime=_now_iso(),
@@ -165,9 +191,9 @@ def _build_output_dataset(
 ) -> OutputDataset:
     facets: dict[str, Any] = {}
     if fields is not None:
-        matching_fields = [f for f in fields if f.name == name]
-        if matching_fields:
-            facets["schema"] = schema_dataset.SchemaDatasetFacet(fields=matching_fields)
+        first_match = next((f for f in fields if f.name == name), None)
+        if first_match is not None:
+            facets["schema"] = schema_dataset.SchemaDatasetFacet(fields=[first_match])
     return OutputDataset(namespace=namespace, name=name, facets=facets)
 
 
@@ -179,19 +205,30 @@ def _infer_schema_fields(result: Any) -> list[schema_dataset.SchemaDatasetFacetF
 
 
 def _infer_schema_fields_unsafe(result: Any) -> list[schema_dataset.SchemaDatasetFacetFields] | None:
-    schema = getattr(result, "schema", None)
-    if schema and hasattr(schema, "items"):
+    collect_schema = getattr(result, "collect_schema", None)
+    if callable(collect_schema):
+        schema = collect_schema()
+    elif hasattr(type(result), "schema") or "schema" in getattr(result, "__dict__", {}):
+        # `hasattr(type(result), ...)` alone catches a real class-level descriptor (pyarrow.Table,
+        # pyspark.sql.DataFrame); the `__dict__` fallback catches a plain instance attribute. Neither
+        # is true for pandas, whose unknown-attribute-as-column fallback lives only on the instance
+        # via __getattr__, so a DataFrame with a "schema" column never enters this branch.
+        schema = getattr(result, "schema", None)
+    else:
+        schema = None
+
+    if schema is not None and hasattr(schema, "items"):
         return [schema_dataset.SchemaDatasetFacetFields(name=str(n), type=str(t)) for n, t in schema.items()]
+
+    # Spark StructType: schema.fields carries StructField entries with name and dataType.
+    if schema is not None and hasattr(schema, "fields"):
+        return [schema_dataset.SchemaDatasetFacetFields(name=str(f.name), type=str(f.dataType)) for f in schema.fields]
 
     if schema is not None and hasattr(schema, "names") and hasattr(schema, "types"):
         return [
             schema_dataset.SchemaDatasetFacetFields(name=str(n), type=str(t))
             for n, t in zip(schema.names, schema.types)
         ]
-
-    # Spark StructType: schema.fields carries StructField entries with name and dataType.
-    if schema is not None and hasattr(schema, "fields"):
-        return [schema_dataset.SchemaDatasetFacetFields(name=str(f.name), type=str(f.dataType)) for f in schema.fields]
 
     columns = getattr(result, "columns", None)
     dtypes = getattr(result, "dtypes", None)

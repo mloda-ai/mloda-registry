@@ -7,12 +7,13 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from mloda.steward import Extender, ExtenderHook
+from mloda.steward import Extender, ExtenderHook, HookContext
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
+    FailingFeatureGroup,
     expected_value_int,
     failing_feature_group,
     run_failing_feature,
@@ -40,6 +41,52 @@ class _ProbeExtender(Extender):
         self.sink.append("before")
         result = func(*args, **kwargs)
         self.sink.append("after")
+        return result
+
+
+class _BreakingProbeExtender(Extender):
+    """Breaking-by-default probe with no zero-arg constructor: `sink` is required."""
+
+    explode = False
+
+    def __init__(self, sink: list[str], raise_on_error: bool = True, explode: bool = False) -> None:
+        self.sink = sink
+        self.raise_on_error = raise_on_error
+        if explode:
+            self.explode = explode
+
+    def wraps(self) -> set[ExtenderHook]:
+        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        if self.explode:
+            raise RuntimeError("breaking probe instrumentation boom")
+        self.sink.append("before")
+        result = func(*args, **kwargs)
+        self.sink.append("after")
+        return result
+
+
+class _ValidateOnlyProbeExtender(Extender):
+    """Wraps VALIDATE_OUTPUT_FEATURE only; records the active HookContext.hook on every call."""
+
+    explode = False
+
+    def __init__(self, sink: list[Any] | None = None, raise_on_error: bool = False, explode: bool = False) -> None:
+        self.raise_on_error = raise_on_error
+        self.sink = sink if sink is not None else []
+        if explode:
+            self.explode = explode
+
+    def wraps(self) -> set[ExtenderHook]:
+        return {ExtenderHook.VALIDATE_OUTPUT_FEATURE}
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        if self.explode:
+            raise RuntimeError("validate-only probe instrumentation boom")
+        context = HookContext.current()
+        self.sink.append(context.hook if context is not None else None)
+        result = func(*args, **kwargs)
         return result
 
 
@@ -80,6 +127,38 @@ class TestMakeHookContextOverrides:
         context = make_hook_context(worker_index=3)
         assert context.worker_index == 3
 
+    def test_tenant_id_override(self) -> None:
+        context = make_hook_context(tenant_id="tenant-1")
+        assert context.tenant_id == "tenant-1"
+
+    def test_project_id_override(self) -> None:
+        context = make_hook_context(project_id="project-1")
+        assert context.project_id == "project-1"
+
+    def test_principal_override(self) -> None:
+        context = make_hook_context(principal="user-1")
+        assert context.principal == "user-1"
+
+    def test_join_type_override(self) -> None:
+        context = make_hook_context(join_type="inner")
+        assert context.join_type == "inner"
+
+    def test_join_keys_override(self) -> None:
+        context = make_hook_context(join_keys=("id",))
+        assert context.join_keys == ("id",)
+
+    def test_plan_depth_override(self) -> None:
+        context = make_hook_context(plan_depth=2)
+        assert context.plan_depth == 2
+
+    def test_duration_seconds_override(self) -> None:
+        context = make_hook_context(duration_seconds=1.5)
+        assert context.duration_seconds == 1.5
+
+    def test_status_override(self) -> None:
+        context = make_hook_context(status="ok")
+        assert context.status == "ok"
+
 
 class TestExpectedValueInt:
     def test_matches_raw_data_creator(self) -> None:
@@ -115,6 +194,17 @@ class TestFailingFeatureGroup:
 
         assert fg.calls == 1
 
+    def test_base_feature_name_is_never_requested_sentinel(self) -> None:
+        assert FailingFeatureGroup.feature_name == "mloda_testing_never_requested"
+
+    def test_same_name_calls_produce_distinct_qualnames(self) -> None:
+        first = failing_feature_group("same")
+        second = failing_feature_group("same")
+
+        assert first.__qualname__ != second.__qualname__
+        assert first.__qualname__.startswith("FailingFeatureGroup_same_")
+        assert second.__qualname__.startswith("FailingFeatureGroup_same_")
+
 
 class TestProbeExtenderContract(ExtenderContractTestMixin):
     """Self-test: _ProbeExtender must satisfy every contract test the mixin defines."""
@@ -123,8 +213,67 @@ class TestProbeExtenderContract(ExtenderContractTestMixin):
     def extender_class(cls) -> type[Extender]:
         return _ProbeExtender
 
-    def make_extender(self, *, raise_on_error: bool = False) -> Extender:
+    @classmethod
+    def raise_on_error_default(cls) -> bool:
+        return False
+
+    def make_extender(self, *, raise_on_error: bool | None = None) -> _ProbeExtender:
+        if raise_on_error is None:
+            return _ProbeExtender(sink=[])
         return _ProbeExtender(raise_on_error=raise_on_error, sink=[])
 
     def own_failure(self) -> AbstractContextManager[Any]:
         return patch.object(_ProbeExtender, "explode", True, create=True)
+
+
+class TestBreakingProbeExtenderContract(ExtenderContractTestMixin):
+    """Proves the mixin only ever builds instances via make_extender(), never extender_class()()."""
+
+    @classmethod
+    def extender_class(cls) -> type[Extender]:
+        return _BreakingProbeExtender
+
+    def make_extender(self, *, raise_on_error: bool | None = None) -> _BreakingProbeExtender:
+        if raise_on_error is None:
+            return _BreakingProbeExtender(sink=[])
+        return _BreakingProbeExtender(sink=[], raise_on_error=raise_on_error)
+
+    def own_failure(self) -> AbstractContextManager[Any]:
+        return patch.object(_BreakingProbeExtender, "explode", True, create=True)
+
+
+class TestValidateOnlyProbeContract(ExtenderContractTestMixin):
+    """Self-test: a probe wrapping only VALIDATE_OUTPUT_FEATURE, pinning _context_hook()."""
+
+    @classmethod
+    def extender_class(cls) -> type[Extender]:
+        return _ValidateOnlyProbeExtender
+
+    @classmethod
+    def raise_on_error_default(cls) -> bool:
+        return False
+
+    def make_extender(self, *, raise_on_error: bool | None = None) -> _ValidateOnlyProbeExtender:
+        if raise_on_error is None:
+            return _ValidateOnlyProbeExtender(sink=[])
+        return _ValidateOnlyProbeExtender(sink=[], raise_on_error=raise_on_error)
+
+    def own_failure(self) -> AbstractContextManager[Any]:
+        return patch.object(_ValidateOnlyProbeExtender, "explode", True, create=True)
+
+    def test_contract_context_uses_wrapped_hook(self) -> None:
+        extender = self.make_extender()
+        with make_hook_context(hook=self._context_hook()).activate():
+            extender(lambda: None)
+        assert extender.sink[-1] == ExtenderHook.VALIDATE_OUTPUT_FEATURE
+
+
+class TestExtenderContractTestMixinShape:
+    """B3: the mixin's own raise_on_error default, and the pickle-vs-subclass test swap."""
+
+    def test_raise_on_error_default_is_true(self) -> None:
+        assert ExtenderContractTestMixin.raise_on_error_default() is True
+
+    def test_pickle_contract_test_replaces_subclass_check(self) -> None:
+        assert not hasattr(ExtenderContractTestMixin, "test_contract_is_extender_subclass")
+        assert hasattr(ExtenderContractTestMixin, "test_contract_extender_pickles")
