@@ -87,7 +87,7 @@ pip install "git+https://github.com/mloda-ai/mloda-registry.git#subdirectory=mlo
 curl -LsSf https://astral.sh/uv/install.sh | sh   # once
 uv venv
 source .venv/bin/activate
-uv sync --all-extras
+uv sync --all-extras --all-packages
 tox                                               # the gate: pytest, ruff, mypy --strict, bandit
 ```
 

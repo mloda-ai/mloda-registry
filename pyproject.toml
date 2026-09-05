@@ -34,7 +34,6 @@ dev = [
     # Deliberate: exercises the pytz-style tzinfo path in cross-framework DST tests
     # explicitly, rather than leaving it to whatever pyarrow's ambient dependency set produces.
     "pytz",
-    "opentelemetry-sdk>=1.30,<2",
 ]
 
 [tool.ruff]

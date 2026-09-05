@@ -102,14 +102,14 @@ uv venv
 source .venv/bin/activate
 
 # 4. Install dependencies
-uv sync --all-extras
+uv sync --all-extras --all-packages
 ```
 
 For subsequent sessions, just activate and sync:
 
 ```bash
 source .venv/bin/activate
-uv sync --all-extras
+uv sync --all-extras --all-packages
 ```
 
 ## Devcontainer Tox Usage
