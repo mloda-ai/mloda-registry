@@ -112,6 +112,10 @@ mloda-community (bundled)
         └── extenders/*
 ```
 
+A bundled plugin whose runtime dependency is heavy sits behind a bundle extra instead of a
+hard dependency (today `mloda-community[openlineage]`), and its manifest must import cleanly
+without that dependency installed so entry-point loading of the rest of the bundle stays intact.
+
 ### Individual packages
 
 Aggregation uses optional dependencies to avoid a circular dependency: the base
@@ -131,6 +135,7 @@ py_typed = true
 | Command | Result |
 |---------|--------|
 | `pip install mloda-community` | All community plugins (bundled) |
+| `pip install mloda-community[openlineage]` | The bundle plus the OpenLineage extender's dependency |
 | `pip install mloda-community-example` | Base example only |
 | `pip install mloda-community-example[all]` | Base + all variants |
 | `pip install mloda-community-example-a` | Variant A + base |

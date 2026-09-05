@@ -814,21 +814,39 @@ def test_bundle_declares_every_nested_leaf_external_runtime_dependency() -> None
     """An entry_point_bundle wheel ships a nested package's code without inheriting its pyproject.toml's
     ``dependencies``: nothing else installs a nested leaf's real (non-mloda, non-internal-registry)
     runtime dependency for it. So every such external dependency a nested package declares must also
-    appear, at an equal-or-higher floor, in its bundle's OWN ``dependencies`` list. This guards the
-    invariant for the FUTURE: nothing else stops a new bundled leaf with an external runtime dependency
-    from being added without propagating it to the bundle again (as mloda-community-otel's
-    opentelemetry-api once was)."""
+    appear, at an equal-or-higher floor, in its bundle's OWN ``dependencies`` or in one of the bundle's
+    OWN non-dev ``optional_dependencies`` extras (that path is opt-in, so the leaf's manifest must then
+    import cleanly without the dependency; see mloda-community-openlineage). This guards the invariant
+    for the FUTURE: nothing else stops a new bundled leaf with an external runtime dependency from
+    being added without covering it in the bundle again (as mloda-community-otel's opentelemetry-api
+    once was)."""
     packages = _packages()
     core_placeholder = "{core_dependency}"
 
     for bundle_name in _entry_point_bundles(packages):
+        bundle_cfg = packages[bundle_name]
+        bundle_dep_sources = list(bundle_cfg.get("dependencies", []))
+        for extra_name, extra_deps in bundle_cfg.get("optional_dependencies", {}).items():
+            if extra_name == "dev":
+                continue
+            bundle_dep_sources.extend(extra_deps)
+
         bundle_floors: dict[str, str | None] = {}
-        for dep in packages[bundle_name].get("dependencies", []):
+        for dep in bundle_dep_sources:
             if dep.strip() == core_placeholder:
                 continue
             parsed = _parse_dependency(dep)
-            if parsed is not None:
-                bundle_floors[parsed[0]] = parsed[1]
+            if parsed is None:
+                continue
+            name, floor = parsed
+            if name in packages or name == "mloda":
+                continue  # internal-registry dependency, or the core dependency's own expansion
+            if name not in bundle_floors:
+                bundle_floors[name] = floor
+            elif floor is not None:
+                existing = bundle_floors[name]
+                if existing is None or version_tuple(floor) > version_tuple(existing):
+                    bundle_floors[name] = floor
 
         for nested_name in _nested_under(bundle_name, packages):
             for dep in packages[nested_name].get("dependencies", []):
@@ -843,17 +861,17 @@ def test_bundle_declares_every_nested_leaf_external_runtime_dependency() -> None
 
                 assert name in bundle_floors, (
                     f"{nested_name} declares external dependency {dep!r}, but its bundle {bundle_name} "
-                    f"does not declare {name!r} in its own 'dependencies'; {bundle_name} ships "
-                    f"{nested_name}'s code without inheriting its pyproject.toml, so nothing else "
-                    f"installs {name!r} for it."
+                    f"does not declare {name!r} in its own 'dependencies' or in one of its extras; "
+                    f"{bundle_name} ships {nested_name}'s code without inheriting its pyproject.toml, "
+                    f"so nothing else installs {name!r} for it."
                 )
 
                 bundle_floor = bundle_floors[name]
                 if floor is not None:
                     assert bundle_floor is not None and version_tuple(bundle_floor) >= version_tuple(floor), (
                         f"{nested_name} declares {dep!r} (floor {floor!r}), but {bundle_name} declares "
-                        f"{name!r} at floor {bundle_floor!r}, which is lower; bump {bundle_name}'s "
-                        f"dependency floor to at least {floor!r}."
+                        f"{name!r} at floor {bundle_floor!r} in its 'dependencies' or extras, which is "
+                        f"lower; bump {bundle_name}'s dependency floor to at least {floor!r}."
                     )
 
 
