@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-community-resample"
-version = "0.4.5"
+version = "0.4.6"
 description = "Resample feature group (collapse events onto a regular time grid: floor to bucket, group, aggregate; one row per non-empty bucket, row-changing)"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]

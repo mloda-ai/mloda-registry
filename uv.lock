@@ -207,7 +207,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -371,7 +371,7 @@ wheels = [
 
 [[package]]
 name = "mloda-community"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community" }
 dependencies = [
     { name = "mloda" },
@@ -386,7 +386,7 @@ requires-dist = [
 
 [[package]]
 name = "mloda-community-aggregation"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/aggregation" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -436,7 +436,7 @@ provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars"
 
 [[package]]
 name = "mloda-community-binning"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/binning" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -486,7 +486,7 @@ provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars"
 
 [[package]]
 name = "mloda-community-compute-frameworks-example"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/compute_frameworks/example" }
 dependencies = [
     { name = "mloda" },
@@ -508,7 +508,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-community-data-operations"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations" }
 dependencies = [
     { name = "mloda" },
@@ -566,7 +566,7 @@ provides-extras = ["dev", "all"]
 
 [[package]]
 name = "mloda-community-datetime"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/datetime" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -616,7 +616,7 @@ provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars"
 
 [[package]]
 name = "mloda-community-ema"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/ema" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -666,7 +666,7 @@ provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars"
 
 [[package]]
 name = "mloda-community-example"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/example" }
 dependencies = [
     { name = "mloda" },
@@ -694,7 +694,7 @@ provides-extras = ["dev", "all"]
 
 [[package]]
 name = "mloda-community-example-a"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/example/example_a" }
 dependencies = [
     { name = "mloda-community-example" },
@@ -716,7 +716,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-community-example-b"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/example/example_b" }
 dependencies = [
     { name = "mloda-community-example" },
@@ -738,7 +738,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-community-extenders-example"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/extenders/example" }
 dependencies = [
     { name = "mloda" },
@@ -760,7 +760,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-community-ffill"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/ffill" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -810,7 +810,7 @@ provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars"
 
 [[package]]
 name = "mloda-community-frame-aggregate"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -854,7 +854,7 @@ provides-extras = ["dev", "sqlite", "python-dict", "duckdb", "polars", "pandas",
 
 [[package]]
 name = "mloda-community-offset"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/offset" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -898,7 +898,7 @@ provides-extras = ["dev", "sqlite", "python-dict", "duckdb", "polars", "pandas",
 
 [[package]]
 name = "mloda-community-otel"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/extenders/otel" }
 dependencies = [
     { name = "mloda" },
@@ -924,7 +924,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-community-percentile"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/percentile" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -968,7 +968,7 @@ provides-extras = ["dev", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
 name = "mloda-community-point-arithmetic"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -1018,7 +1018,7 @@ provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars"
 
 [[package]]
 name = "mloda-community-rank"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/rank" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -1062,7 +1062,7 @@ provides-extras = ["dev", "sqlite", "python-dict", "duckdb", "polars", "pandas",
 
 [[package]]
 name = "mloda-community-resample"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_changing/resample" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -1112,7 +1112,7 @@ provides-extras = ["dev", "pyarrow", "python-dict", "duckdb", "polars", "pandas"
 
 [[package]]
 name = "mloda-community-scalar-aggregate"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -1162,7 +1162,7 @@ provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars"
 
 [[package]]
 name = "mloda-community-scalar-arithmetic"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -1212,7 +1212,7 @@ provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars"
 
 [[package]]
 name = "mloda-community-sessionization"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/sessionization" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -1262,7 +1262,7 @@ provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars"
 
 [[package]]
 name = "mloda-community-string"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/string" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -1312,7 +1312,7 @@ provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars"
 
 [[package]]
 name = "mloda-community-time-bucketization"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/time_bucketization" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -1362,7 +1362,7 @@ provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars"
 
 [[package]]
 name = "mloda-community-window-aggregation"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation" }
 dependencies = [
     { name = "mloda-community-data-operations" },
@@ -1412,7 +1412,7 @@ provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars"
 
 [[package]]
 name = "mloda-enterprise"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/enterprise" }
 dependencies = [
     { name = "mloda" },
@@ -1423,7 +1423,7 @@ requires-dist = [{ name = "mloda", specifier = ">=0.12.0,<0.13.0" }]
 
 [[package]]
 name = "mloda-enterprise-compute-frameworks-example"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/enterprise/compute_frameworks/example" }
 dependencies = [
     { name = "mloda" },
@@ -1445,7 +1445,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-enterprise-example"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/enterprise/feature_groups/example" }
 dependencies = [
     { name = "mloda" },
@@ -1467,7 +1467,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-enterprise-extenders-example"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/enterprise/extenders/example" }
 dependencies = [
     { name = "mloda" },
@@ -1489,7 +1489,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-registry"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/registry" }
 dependencies = [
     { name = "mloda" },
@@ -1562,7 +1562,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-testing"
-version = "0.4.5"
+version = "0.4.6"
 source = { editable = "mloda/testing" }
 dependencies = [
     { name = "mloda" },
@@ -1855,10 +1855,10 @@ resolution-markers = [
     "python_full_version < '3.11'",
 ]
 dependencies = [
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "python-dateutil", marker = "python_full_version < '3.11'" },
-    { name = "pytz", marker = "python_full_version < '3.11'" },
-    { name = "tzdata", marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" } },
+    { name = "python-dateutil" },
+    { name = "pytz" },
+    { name = "tzdata" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/33/01/d40b85317f86cf08d853a4f495195c73815fdf205eef3993821720274518/pandas-2.3.3.tar.gz", hash = "sha256:e05e1af93b977f7eafa636d043f9f94c7ee3ac81af99c13508215942e64c993b", size = 4495223, upload-time = "2025-09-29T23:34:51.853Z" }
 wheels = [
@@ -1924,9 +1924,9 @@ resolution-markers = [
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "python-dateutil", marker = "python_full_version >= '3.11'" },
-    { name = "tzdata", marker = "(python_full_version >= '3.11' and sys_platform == 'emscripten') or (python_full_version >= '3.11' and sys_platform == 'win32')" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" } },
+    { name = "python-dateutil" },
+    { name = "tzdata", marker = "sys_platform == 'emscripten' or sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f8/87/4341c6252d1c47b08768c3d25ac487362bf403f0313ddae4a2a26c9b1b4c/pandas-3.0.3.tar.gz", hash = "sha256:696a4a00a2a2a35d4e5deb3fc946641b96c944f02230e4f76137fe35d806c4fc", size = 4651414, upload-time = "2026-05-11T18:54:29.21Z" }
 wheels = [
