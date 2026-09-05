@@ -1,12 +1,22 @@
-"""Self-tests for mloda.testing.extenders.otel helpers."""
+"""Self-tests for mloda.testing.extenders.otel helpers, plus a minimal probe extender that
+exercises the full OtelExtenderTestMixin contract independently of the real registry extender."""
 
 from __future__ import annotations
 
+import logging
 import re
+import uuid
+from typing import Any
 
 import pytest
 
 pytest.importorskip("opentelemetry.sdk")
+
+from mloda.steward import Extender, ExtenderHook, HookContext
+from opentelemetry import propagate, trace
+from opentelemetry.context import Context
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.trace import NonRecordingSpan, SpanContext, Status, StatusCode, TraceFlags, set_span_in_context
 
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.otel import (
@@ -18,6 +28,58 @@ from mloda.testing.extenders.otel import (
 )
 
 _TRACEPARENT_PATTERN = re.compile(r"^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$")
+
+logger = logging.getLogger(__name__)
+
+_SPAN_NAME = "probe.calculate"
+# Fixed, nonzero placeholder span id: only the derived trace_id matters for a synthesized parent.
+_PARENT_SPAN_ID = 0x0000000000000001
+
+
+def _parent_context(context: HookContext | None) -> Context | None:
+    """Carrier wins when truthy; else a non-recording span whose trace id derives from run_id; else None."""
+    if context is None:
+        return None
+    if context.carrier:
+        return propagate.extract(context.carrier)
+    if context.run_id is not None:
+        span_context = SpanContext(
+            trace_id=uuid.UUID(context.run_id).int,
+            span_id=_PARENT_SPAN_ID,
+            is_remote=True,
+            trace_flags=TraceFlags(TraceFlags.SAMPLED),
+        )
+        return set_span_in_context(NonRecordingSpan(span_context))
+    return None
+
+
+class _ProbeOtelExtender(Extender):
+    """Minimal OTel probe: one span per call, parented from carrier/run_id, error status on failure."""
+
+    def __init__(self, tracer_provider: TracerProvider | None = None, raise_on_error: bool = False) -> None:
+        self.raise_on_error = raise_on_error
+        self._tracer_provider = tracer_provider
+
+    def __getstate__(self) -> dict[str, Any]:
+        state = dict(self.__dict__)
+        state["_tracer_provider"] = None
+        return state
+
+    def wraps(self) -> set[ExtenderHook]:
+        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        context = HookContext.current()
+        parent = _parent_context(context)
+        tracer = trace.get_tracer("mloda-testing-probe-otel", tracer_provider=self._tracer_provider)
+        with tracer.start_as_current_span(_SPAN_NAME, record_exception=False, context=parent) as span:
+            try:
+                return func(*args, **kwargs)
+            except Exception as exc:
+                span.set_status(Status(StatusCode.ERROR))
+                span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
+                logger.warning("_ProbeOtelExtender %s failed: %s: %s", _SPAN_NAME, type(exc).__name__, exc)
+                raise
 
 
 class TestMakeSpanCapture:
@@ -83,20 +145,23 @@ class TestOtelExtenderTestMixinShape:
     def test_expected_span_names_defaults_to_none(self) -> None:
         assert OtelExtenderTestMixin.expected_span_names() is None
 
-    @pytest.mark.parametrize(
-        "name",
-        [
-            "test_otel_one_span_per_call",
-            "test_otel_span_names_per_hook",
-            "test_otel_wrapped_failure_marks_span_error_and_propagates",
-            "test_otel_wrapped_failure_logs_warning_naming_extender",
-            "test_otel_exception_message_never_leaks_into_span",
-            "test_otel_carrier_parents_span",
-            "test_otel_empty_carrier_falls_through",
-            "test_otel_run_id_derives_trace_id_without_carrier",
-            "test_otel_carrier_wins_over_run_id",
-            "test_otel_run_all_spans_share_one_trace_id",
-        ],
-    )
-    def test_otel_test_methods_exist(self, name: str) -> None:
-        assert hasattr(OtelExtenderTestMixin, name)
+
+class TestProbeOtelExtenderContract(OtelExtenderTestMixin):
+    """Self-test: _ProbeOtelExtender must satisfy every OTel contract test the mixin defines."""
+
+    @classmethod
+    def extender_class(cls) -> type[Extender]:
+        return _ProbeOtelExtender
+
+    def make_otel_extender(self, tracer_provider: TracerProvider, *, raise_on_error: bool | None = None) -> Extender:
+        if raise_on_error is None:
+            return _ProbeOtelExtender(tracer_provider=tracer_provider)
+        return _ProbeOtelExtender(tracer_provider=tracer_provider, raise_on_error=raise_on_error)
+
+    @classmethod
+    def expected_hooks(cls) -> set[ExtenderHook] | None:
+        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+    @classmethod
+    def expected_span_names(cls) -> dict[ExtenderHook, str] | None:
+        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: _SPAN_NAME}
