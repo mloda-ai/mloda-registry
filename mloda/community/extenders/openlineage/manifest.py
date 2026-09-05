@@ -1,8 +1,4 @@
-"""Entry-point manifest for mloda-community-openlineage.
-
-Lists the concrete Extender classes that mloda discovers via the
-``mloda.extenders`` entry point.
-"""
+"""Entry-point manifest for mloda-community-openlineage."""
 
 from __future__ import annotations
 

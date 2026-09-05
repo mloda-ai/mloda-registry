@@ -77,14 +77,39 @@ results = mloda.run_all(features=["my_feature"], function_extender={MyExtender()
 
 ## Testing
 
-```python
-def test_my_extender():
-    extender = MyExtender()
-    assert ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE in extender.wraps()
+`mloda-testing` ships an extender contract mixin plus helpers (`make_hook_context`, `run_value_int`, `failing_feature_group`) so every extender's test suite exercises the same shared behavior.
 
-    result = extender(lambda x, y: x + y, 1, 2)
-    assert result == 3
+```python
+from unittest.mock import patch
+
+from mloda.testing.extenders.contract import ExtenderContractTestMixin
+
+
+class TestMyExtenderContract(ExtenderContractTestMixin):
+    @classmethod
+    def extender_class(cls) -> type[MyExtender]:
+        return MyExtender
+
+    def make_extender(self, *, raise_on_error: bool = False) -> MyExtender:
+        return MyExtender(raise_on_error=raise_on_error, sink=[])
+
+    def own_failure(self):
+        return patch.object(MyExtender, "record", side_effect=RuntimeError("boom"))
 ```
+
+`extender_class` names the class under test. `make_extender` returns an instance wired to an in-memory backend, never a real network sink. `own_failure` makes the extender's own code fail (not the wrapped function) so the fallback path is exercised.
+
+The mixin pins:
+
+- `MyExtender` subclasses `Extender`
+- `wraps()` returns only known hooks
+- the `raise_on_error` default
+- a call returns the wrapped result unchanged
+- a wrapped failure propagates and runs the wrapped function exactly once
+- the extender's own failure falls back with a warning when `raise_on_error` is `False`, and propagates when `True`
+- two `run_all` round trips (one success, one wrapped failure)
+
+`make_hook_context` builds a `HookContext` for direct `__call__` tests, and package-specific capture doubles ship next to each extender (for example `mloda.community.extenders.openlineage.testing.RecordingTransport`).
 
 ## Real Implementations
 
@@ -92,4 +117,5 @@ def test_my_extender():
 |------|-------------|
 | [otel_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/otel/otel_extender.py) | OpenTelemetry spans, metadata-only by default (`mloda-community-otel`) |
 | [openlineage_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/openlineage/openlineage_extender.py) | OpenLineage RunEvents with schema, data-source and parent-run facets (`mloda-community-openlineage`) |
+| [contract.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/testing/extenders/contract.py) | Extender contract test mixin (mloda-testing) |
 | [test_composite_extender.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/extender/test_composite_extender.py) | Chaining tests |
