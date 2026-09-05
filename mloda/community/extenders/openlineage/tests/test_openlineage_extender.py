@@ -9,38 +9,23 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Iterator
+from contextlib import AbstractContextManager
 from typing import Any
 from unittest.mock import patch
 
 import pyarrow as pa
 import pytest
-from mloda.core.abstract_plugins.function_extender import _CompositeExtender  # no public equivalent yet
-from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
 from mloda.steward import Extender, ExtenderHook, HookContext
-from mloda.user import PluginCollector, mloda
-from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
+from mloda.community.extenders.openlineage.testing import RecordingTransport
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from openlineage.client.client import Event, OpenLineageClient
-from openlineage.client.event_v2 import InputDataset, OutputDataset, RunEvent, RunState
+from mloda.testing.extenders.contract import ExtenderContractTestMixin
+from mloda.testing.extenders.hook_context import make_hook_context
+from mloda.testing.extenders.runners import expected_value_int, run_value_int
+from openlineage.client.client import OpenLineageClient
+from openlineage.client.event_v2 import InputDataset, OutputDataset, RunState
 from openlineage.client.facet_v2 import parent_run, schema_dataset
-from openlineage.client.transport.transport import Config, Transport
-
-
-class RecordingTransport(Transport):
-    """In-memory Transport double: the OpenLineage equivalent of InMemorySpanExporter."""
-
-    kind = "recording"
-    config_class = Config
-
-    def __init__(self, config: Config | None = None) -> None:
-        self.events: list[RunEvent] = []
-
-    def emit(self, event: Event) -> None:
-        # OpenLineageExtender only ever emits RunEvent; Event's other union members are unused here.
-        assert isinstance(event, RunEvent)
-        self.events.append(event)
 
 
 @pytest.fixture
@@ -49,36 +34,6 @@ def ol_capture() -> Iterator[tuple[OpenLineageClient, RecordingTransport]]:
     transport = RecordingTransport()
     client = OpenLineageClient(transport=transport)
     yield client, transport
-
-
-def _make_context(
-    *,
-    hook: ExtenderHook = ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
-    feature_group_class: str = "tests.openlineage.DummyFeatureGroup",
-    feature_group_version: str = "1",
-    plugin_version: str | None = None,
-    feature_names: tuple[str, ...] = ("value_int",),
-    input_features: frozenset[str] | None = None,
-    compute_framework_name: str = "PyArrowTable",
-    rows_in: int | None = None,
-    rows_out: int | None = None,
-    run_id: str | None = None,
-    data_access_identity: str | None = None,
-) -> HookContext:
-    """Build a HookContext with sane defaults; every field is overridable per test."""
-    return HookContext(
-        hook=hook,
-        feature_group_class=feature_group_class,
-        feature_group_version=feature_group_version,
-        plugin_version=plugin_version,
-        feature_names=feature_names,
-        input_features=input_features,
-        compute_framework_name=compute_framework_name,
-        rows_in=rows_in,
-        rows_out=rows_out,
-        run_id=run_id,
-        data_access_identity=data_access_identity,
-    )
 
 
 class TestOpenLineageExtenderImport:
@@ -93,19 +48,27 @@ class TestOpenLineageExtenderImport:
         assert isinstance(OpenLineageExtender, type)
 
 
-class TestOpenLineageExtenderInheritance:
-    def test_inherits_from_extender(self) -> None:
-        assert issubclass(OpenLineageExtender, Extender)
+class TestOpenLineageExtenderContract(ExtenderContractTestMixin):
+    """OpenLineageExtender must satisfy the shared Extender contract."""
 
-    def test_instance_is_extender(self) -> None:
-        assert isinstance(OpenLineageExtender(), Extender)
+    @classmethod
+    def extender_class(cls) -> type[Extender]:
+        return OpenLineageExtender
+
+    def make_extender(self, *, raise_on_error: bool = False) -> Extender:
+        return OpenLineageExtender(
+            raise_on_error=raise_on_error, client=OpenLineageClient(transport=RecordingTransport())
+        )
+
+    def own_failure(self) -> AbstractContextManager[Any]:
+        return patch(
+            "openlineage.client.client.OpenLineageClient.emit",
+            side_effect=RuntimeError("openlineage instrumentation boom"),
+        )
 
 
 class TestOpenLineageExtenderErrorContract:
     """raise_on_error and wraps(): observability-only, so it must default to warning-only."""
-
-    def test_raise_on_error_defaults_to_false(self) -> None:
-        assert OpenLineageExtender().raise_on_error is False
 
     def test_raise_on_error_can_be_enabled(self) -> None:
         assert OpenLineageExtender(raise_on_error=True).raise_on_error is True
@@ -127,7 +90,7 @@ class TestOpenLineageExtenderConstructorOptions:
     def test_client_is_used_to_emit_events(self, ol_capture: tuple[OpenLineageClient, RecordingTransport]) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
-        context = _make_context()
+        context = make_hook_context()
 
         with context.activate():
             extender(lambda: None)
@@ -139,7 +102,7 @@ class TestOpenLineageExtenderConstructorOptions:
         resolves to NoopTransport here, regardless of the environment running the suite."""
         monkeypatch.setenv("OPENLINEAGE_DISABLED", "true")
         extender = OpenLineageExtender()
-        context = _make_context()
+        context = make_hook_context()
 
         with context.activate():
             result = extender(lambda: 42)
@@ -174,7 +137,7 @@ class TestOpenLineageExtenderStartEvent:
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
-        context = _make_context(feature_group_class="pkg.mod.MyFeatureGroup")
+        context = make_hook_context(feature_group_class="pkg.mod.MyFeatureGroup")
         extender = OpenLineageExtender(client=client)
 
         with context.activate():
@@ -192,7 +155,7 @@ class TestOpenLineageExtenderStartEvent:
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
-        context = _make_context()
+        context = make_hook_context()
         extender = OpenLineageExtender(client=client, job_namespace="custom-ns")
 
         with context.activate():
@@ -204,7 +167,7 @@ class TestOpenLineageExtenderStartEvent:
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
-        context = _make_context()
+        context = make_hook_context()
         extender = OpenLineageExtender(client=client)
         observed: dict[str, int] = {}
 
@@ -226,7 +189,7 @@ class TestOpenLineageExtenderCompleteEvent:
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
-        context = _make_context()
+        context = make_hook_context()
         extender = OpenLineageExtender(client=client)
 
         with context.activate():
@@ -238,7 +201,7 @@ class TestOpenLineageExtenderCompleteEvent:
 
     def test_output_dataset_per_feature_name(self, ol_capture: tuple[OpenLineageClient, RecordingTransport]) -> None:
         client, transport = ol_capture
-        context = _make_context(feature_names=("value_int", "value_str"))
+        context = make_hook_context(feature_names=("value_int", "value_str"))
         extender = OpenLineageExtender(client=client, dataset_namespace="custom-ds")
 
         with context.activate():
@@ -255,7 +218,7 @@ class TestOpenLineageExtenderCompleteEvent:
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
-        context = _make_context(feature_names=("value_int", "value_str"))
+        context = make_hook_context(feature_names=("value_int", "value_str"))
         extender = OpenLineageExtender(client=client)
         table = pa.table({"value_int": [1, 2, 3], "value_str": ["a", "b", "c"]})
 
@@ -288,7 +251,7 @@ class TestOpenLineageExtenderCompleteEvent:
         """Each OutputDataset's schema facet must be narrowed to its own field only, never the
         whole frame's schema; a column absent from feature_names must never appear anywhere."""
         client, transport = ol_capture
-        context = _make_context(feature_names=("value_int", "value_str"))
+        context = make_hook_context(feature_names=("value_int", "value_str"))
         extender = OpenLineageExtender(client=client)
         table = pa.table(
             {
@@ -326,7 +289,7 @@ class TestOpenLineageExtenderCompleteEvent:
         import pandas as pd
 
         client, transport = ol_capture
-        context = _make_context(feature_names=("0", "1"))
+        context = make_hook_context(feature_names=("0", "1"))
         extender = OpenLineageExtender(client=client)
         frame = pd.DataFrame([[1, "a"]])
 
@@ -355,7 +318,7 @@ class TestOpenLineageExtenderCompleteEvent:
         import pandas as pd
 
         client, transport = ol_capture
-        context = _make_context(feature_names=("x",))
+        context = make_hook_context(feature_names=("x",))
         extender = OpenLineageExtender(client=client)
         frame = pd.DataFrame([[1, 2]], columns=["x", "x"])
 
@@ -405,7 +368,7 @@ class TestOpenLineageExtenderCompleteEvent:
                 self.schema = schema
 
         client, transport = ol_capture
-        context = _make_context(feature_names=("value_int", "value_str"))
+        context = make_hook_context(feature_names=("value_int", "value_str"))
         extender = OpenLineageExtender(client=client)
         frame = _SparkFrame(
             columns=["value_int", "value_str"],
@@ -439,7 +402,7 @@ class TestOpenLineageExtenderCompleteEvent:
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
-        context = _make_context()
+        context = make_hook_context()
         extender = OpenLineageExtender(client=client)
 
         with context.activate():
@@ -460,7 +423,7 @@ class TestOpenLineageExtenderParentRunFacet:
     ) -> None:
         client, transport = ol_capture
         run_id = str(uuid.uuid4())
-        context = _make_context(run_id=run_id)
+        context = make_hook_context(run_id=run_id)
         extender = OpenLineageExtender(client=client)
 
         with context.activate():
@@ -479,7 +442,7 @@ class TestOpenLineageExtenderParentRunFacet:
     ) -> None:
         client, transport = ol_capture
         run_id = str(uuid.uuid4())
-        context = _make_context(run_id=run_id)
+        context = make_hook_context(run_id=run_id)
         extender = OpenLineageExtender(client=client, job_namespace="custom-ns", root_job_name="custom.root")
 
         with context.activate():
@@ -496,7 +459,7 @@ class TestOpenLineageExtenderParentRunFacet:
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
-        context = _make_context(run_id=None)
+        context = make_hook_context(run_id=None)
         extender = OpenLineageExtender(client=client)
 
         with context.activate():
@@ -510,29 +473,11 @@ class TestOpenLineageExtenderParentRunFacet:
 class TestOpenLineageExtenderFailureHandling:
     """When the wrapped function raises: never swallow, always propagate, but observe first."""
 
-    def test_call_propagates_func_failure_and_invokes_func_exactly_once(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        client, _ = ol_capture
-        context = _make_context()
-        extender = OpenLineageExtender(client=client)
-        calls = {"n": 0}
-
-        def func() -> None:
-            calls["n"] += 1
-            raise RuntimeError("inner boom")
-
-        with context.activate():
-            with pytest.raises(RuntimeError, match="inner boom"):
-                extender(func)
-
-        assert calls["n"] == 1
-
     def test_call_emits_exactly_one_fail_event_after_the_start_event(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
-        context = _make_context()
+        context = make_hook_context()
         extender = OpenLineageExtender(client=client)
 
         def func() -> None:
@@ -551,7 +496,7 @@ class TestOpenLineageExtenderFailureHandling:
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
     ) -> None:
         client, _ = ol_capture
-        context = _make_context()
+        context = make_hook_context()
         extender = OpenLineageExtender(client=client)
 
         def func() -> None:
@@ -571,7 +516,7 @@ class TestOpenLineageExtenderFailureHandling:
         """A BaseException that is not an Exception (e.g. KeyboardInterrupt-like) must still get a
         FAIL event emitted before propagating, never be swallowed by an `except Exception` guard."""
         client, transport = ol_capture
-        context = _make_context()
+        context = make_hook_context()
         extender = OpenLineageExtender(client=client)
 
         class _CustomBaseException(BaseException):
@@ -593,7 +538,7 @@ class TestOpenLineageExtenderFailureHandling:
     ) -> None:
         """A broken transport on the FAIL-emit path must never replace func's real exception."""
         client, _ = ol_capture
-        context = _make_context()
+        context = make_hook_context()
         extender = OpenLineageExtender(client=client)
 
         original_emit = client.emit
@@ -624,8 +569,10 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
     ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client, dataset_namespace="custom-ds")
-        outer_context = _make_context()
-        inner_context = _make_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="s3://bucket/key.parquet")
+        outer_context = make_hook_context()
+        inner_context = make_hook_context(
+            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="s3://bucket/key.parquet"
+        )
 
         def inner_func() -> str:
             return "loaded-data"
@@ -663,8 +610,10 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
     ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
-        outer_context = _make_context()
-        inner_context = _make_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="s3://bucket/key.parquet")
+        outer_context = make_hook_context()
+        inner_context = make_hook_context(
+            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="s3://bucket/key.parquet"
+        )
 
         def inner_func() -> str:
             return "loaded-data"
@@ -690,7 +639,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
     ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
-        context = _make_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="standalone")
+        context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="standalone")
 
         with caplog.at_level(logging.DEBUG):
             with context.activate():
@@ -717,7 +666,7 @@ class TestOpenLineageExtenderPostCallInstrumentationFailure:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         client, transport = ol_capture
-        context = _make_context()
+        context = make_hook_context()
         extender = OpenLineageExtender(client=client)
 
         original_emit = client.emit
@@ -744,87 +693,6 @@ class TestOpenLineageExtenderPostCallInstrumentationFailure:
         assert func_calls["n"] == 1
 
 
-class TestOpenLineageExtenderCompositeChaining:
-    """OpenLineageExtender chains via _CompositeExtender; faults are injected on OpenLineageClient.emit."""
-
-    def test_own_failure_falls_back_when_raise_on_error_false(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
-    ) -> None:
-        client, _ = ol_capture
-        context = _make_context()
-        extender = OpenLineageExtender(raise_on_error=False, client=client)
-        composite = _CompositeExtender([extender])
-        calls = {"n": 0}
-
-        def func(x: int, y: int) -> int:
-            calls["n"] += 1
-            return x + y
-
-        with patch(
-            "openlineage.client.client.OpenLineageClient.emit",
-            side_effect=RuntimeError("openlineage instrumentation boom"),
-        ):
-            with caplog.at_level(logging.WARNING):
-                with context.activate():
-                    result = composite(func, 3, 4)
-
-        assert result == 7, "Failing OpenLineageExtender must fall back to the wrapped function result"
-        assert calls["n"] == 1
-        assert any(r.levelno == logging.WARNING and "OpenLineageExtender" in r.message for r in caplog.records), (
-            caplog.records
-        )
-
-    def test_own_failure_propagates_when_raise_on_error_true(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        client, _ = ol_capture
-        context = _make_context()
-        extender = OpenLineageExtender(raise_on_error=True, client=client)
-        composite = _CompositeExtender([extender])
-
-        def func(x: int, y: int) -> int:
-            return x + y
-
-        with patch(
-            "openlineage.client.client.OpenLineageClient.emit",
-            side_effect=RuntimeError("openlineage instrumentation boom"),
-        ):
-            with context.activate():
-                with pytest.raises(RuntimeError, match="openlineage instrumentation boom"):
-                    composite(func, 3, 4)
-
-
-class FailingCalculateFeatureGroup(FeatureGroup):
-    """Root feature group whose calculate_feature always raises, counting its invocations."""
-
-    calls = 0
-
-    @classmethod
-    def input_data(cls) -> BaseInputData | None:
-        return DataCreator({"openlineage_boom_feature"})
-
-    @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
-        return {PyArrowTable}
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        cls.calls += 1
-        raise RuntimeError("inner boom")
-
-
-def _run_boom_feature(*extenders: Extender) -> Any:
-    """Run the always-failing ``openlineage_boom_feature`` through run_all with the given extenders."""
-    plugin_collector = PluginCollector.enabled_feature_groups({FailingCalculateFeatureGroup})
-
-    return mloda.run_all(
-        ["openlineage_boom_feature"],
-        compute_frameworks={PyArrowTable},
-        plugin_collector=plugin_collector,
-        function_extender=set(extenders),
-    )
-
-
 class TestOpenLineageExtenderRunAll:
     """End-to-end wiring through mloda.user.mloda.run_all: real RunEvents, unmodified results."""
 
@@ -832,21 +700,9 @@ class TestOpenLineageExtenderRunAll:
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
-        plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator})
 
-        results = mloda.run_all(
-            ["value_int"],
-            compute_frameworks={PyArrowTable},
-            plugin_collector=plugin_collector,
-            function_extender={OpenLineageExtender(client=client)},
-        )
-
-        values = None
-        for table in results:
-            if "value_int" in table.column_names:
-                values = table.to_pydict()["value_int"]
-        expected_values = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
-        assert values == expected_values
+        values = run_value_int(OpenLineageExtender(client=client))
+        assert values == expected_value_int()
 
         expected_job_name = f"{PyArrowDataOpsTestDataCreator.__module__}.{PyArrowDataOpsTestDataCreator.__qualname__}"
         matching_events = [e for e in transport.events if e.job.name == expected_job_name]
@@ -863,20 +719,6 @@ class TestOpenLineageExtenderRunAll:
             parent_run_ids.add(parent.run.runId)
         assert len(parent_run_ids) == 1, parent_run_ids
 
-    def test_run_all_wrapped_function_failure_propagates_and_runs_once(self, caplog: pytest.LogCaptureFixture) -> None:
-        """A failure of the wrapped function propagates through the real _CompositeExtender/core
-        dispatch path, regardless of raise_on_error, without a re-run."""
-        FailingCalculateFeatureGroup.calls = 0
-
-        with caplog.at_level(logging.WARNING):
-            with pytest.raises(Exception, match="inner boom"):
-                _run_boom_feature(OpenLineageExtender(raise_on_error=False))
-
-        assert FailingCalculateFeatureGroup.calls == 1
-
-        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-        assert any("OpenLineageExtender" in message and "inner boom" in message for message in warnings), warnings
-
 
 class TestOpenLineageExtenderContentIsolation:
     """Emitted events must never carry the wrapped function's exception message text."""
@@ -887,7 +729,7 @@ class TestOpenLineageExtenderContentIsolation:
         from openlineage.client.serde import Serde
 
         client, transport = ol_capture
-        context = _make_context()
+        context = make_hook_context()
         extender = OpenLineageExtender(client=client)
         marker = "SENSITIVE_ROW_VALUE_xyz123"
 
