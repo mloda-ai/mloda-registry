@@ -62,6 +62,10 @@ namespaces = true
 testpaths = ["tests", "mloda/**/tests"]
 pythonpath = ["."]
 addopts = "--import-mode=importlib --ignore-glob=*/build/* --ignore-glob=*/dist/*"
+# Required so a community package directory (e.g. "openlineage") whose name collides with one
+# of its own third-party dependencies resolves its full "mloda...." dotted module name instead
+# of being imported as a bare top-level name that shadows the real dependency.
+consider_namespace_packages = true
 filterwarnings = [
     "error:The behavior of DataFrame concatenation with empty or all-NA entries:FutureWarning",
     "error:Mean of empty slice:RuntimeWarning",
@@ -131,6 +135,7 @@ members = [
     "mloda/community",
     "mloda/community/compute_frameworks/example",
     "mloda/community/extenders/example",
+    "mloda/community/extenders/openlineage",
     "mloda/community/extenders/otel",
     "mloda/community/feature_groups/data_operations",
     "mloda/community/feature_groups/data_operations/aggregation",
