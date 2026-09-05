@@ -45,12 +45,13 @@ _TOX_INI = _REPO_ROOT / "tox.ini"
 _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterprise"]
 
 # The released set, in config order: bundles, examples kept for PyPI resolution coverage,
-# the otel extender, and the data-operations base plus its plugin packages.
+# the otel and openlineage extenders, and the data-operations base plus its plugin packages.
 _EXPECTED_PUBLISHED = [
     *_BUNDLES,
     "mloda-community-example",
     "mloda-community-example-a",
     "mloda-community-otel",
+    "mloda-community-openlineage",
     "mloda-community-data-operations",
     "mloda-community-aggregation",
     "mloda-community-rank",
