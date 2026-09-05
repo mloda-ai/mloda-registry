@@ -34,6 +34,8 @@ dev = [
     # Deliberate: exercises the pytz-style tzinfo path in cross-framework DST tests
     # explicitly, rather than leaving it to whatever pyarrow's ambient dependency set produces.
     "pytz",
+    # AUTO-GENERATED from config/packages.toml package dev extras (third-party only)
+    # Do not edit manually - run: python scripts/generate_pyproject.py
     "opentelemetry-sdk>=1.30,<2",
 ]
 

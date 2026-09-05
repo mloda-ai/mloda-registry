@@ -378,6 +378,115 @@ def update_workspace_members(packages: dict[str, Any], check: bool = False) -> t
     return True, "updated"
 
 
+# Bare PEP 508 distribution name: letters/digits/./_/- up to the first version operator, extra
+# marker bracket, or whitespace.
+_DIST_NAME_RE = re.compile(r"[A-Za-z0-9._-]+")
+
+# Marks where hand-authored root dev = [...] entries end and auto-synced third-party ones begin.
+DEV_DEPS_MARKER_LINES = (
+    "    # AUTO-GENERATED from config/packages.toml package dev extras (third-party only)",
+    "    # Do not edit manually - run: python scripts/generate_pyproject.py",
+)
+
+_DEV_ARRAY_RE = re.compile(r"^dev = \[\n(?P<body>.*?)\n\](?P<trailing>\n?)", re.DOTALL | re.MULTILINE)
+_DEV_ENTRY_RE = re.compile(r'^\s*"(?P<value>[^"]+)",?\s*$')
+
+
+def _bare_dist_name(requirement: str) -> str:
+    """Normalized bare distribution name of a requirement: lowercase, ``_``/``.`` as ``-``."""
+    match = _DIST_NAME_RE.match(requirement)
+    name = match.group(0) if match else requirement
+    return name.lower().replace("_", "-").replace(".", "-")
+
+
+def collect_third_party_dev_deps(packages: dict[str, dict[str, Any]]) -> list[tuple[str, str]]:
+    """Collect third-party ``dev`` extra requirements across packages, deduped by bare name.
+
+    An entry whose bare name matches a configured package name is internal (a workspace
+    member, not something root needs from PyPI) and is skipped. Returns ``(requirement,
+    owning_package_name)`` pairs, first occurrence in ``packages`` iteration order wins on a
+    dedup. Raises ``ValueError`` if two packages pin different requirement strings for the
+    same bare name.
+    """
+    internal_names = {_bare_dist_name(name) for name in packages}
+    seen: dict[str, str] = {}
+    result: list[tuple[str, str]] = []
+
+    for pkg_name, pkg_config in packages.items():
+        for requirement in pkg_config.get("optional_dependencies", {}).get("dev", []):
+            bare_name = _bare_dist_name(requirement)
+            if bare_name in internal_names:
+                continue
+            if bare_name in seen:
+                if seen[bare_name] != requirement:
+                    raise ValueError(
+                        f"conflicting dev dependency specs for {bare_name!r}: {seen[bare_name]!r} vs {requirement!r}"
+                    )
+                continue
+            seen[bare_name] = requirement
+            result.append((requirement, pkg_name))
+
+    return result
+
+
+def update_root_dev_dependencies(packages: dict[str, dict[str, Any]], check: bool = False) -> tuple[bool, str]:
+    """Update or check third-party dev-extra requirements in root pyproject.toml.
+
+    tox's shared dev environment installs from root ``pyproject.toml`` rather than each
+    workspace member's own generated extras, so a package-local third-party ``dev``
+    requirement (e.g. ``opentelemetry-sdk`` for ``mloda-community-otel``) also needs a root
+    entry. Lines above ``DEV_DEPS_MARKER_LINES`` in the root ``dev`` array are hand-authored
+    and are never touched, reordered, or deduplicated; lines at/after the marker are fully
+    owned and recomputed here from ``collect_third_party_dev_deps``, excluding any bare name
+    already covered by a hand-authored line. Idempotent. Returns (success, message) tuple.
+    """
+    if not ROOT_PYPROJECT.exists():
+        return False, f"{ROOT_PYPROJECT}: missing"
+
+    content = ROOT_PYPROJECT.read_text()
+    match = _DEV_ARRAY_RE.search(content)
+    if not match:
+        return False, f"{ROOT_PYPROJECT}: [project.optional-dependencies] dev array not found"
+
+    body_lines = match.group("body").split("\n") if match.group("body") else []
+
+    marker_index = next(
+        (i for i, line in enumerate(body_lines) if line == DEV_DEPS_MARKER_LINES[0]),
+        None,
+    )
+    hand_authored = body_lines[:marker_index] if marker_index is not None else body_lines
+
+    hand_authored_names: set[str] = set()
+    for line in hand_authored:
+        entry = _DEV_ENTRY_RE.match(line)
+        if entry:
+            hand_authored_names.add(_bare_dist_name(entry.group("value")))
+
+    additions = [
+        requirement
+        for requirement, _owner in collect_third_party_dev_deps(packages)
+        if _bare_dist_name(requirement) not in hand_authored_names
+    ]
+
+    new_body_lines = list(hand_authored)
+    if additions:
+        new_body_lines.extend(DEV_DEPS_MARKER_LINES)
+        new_body_lines.extend(f'    "{req}",' for req in additions)
+
+    new_body = "\n".join(new_body_lines)
+    new_array = f"dev = [\n{new_body}\n]{match.group('trailing')}"
+    new_content = content[: match.start()] + new_array + content[match.end() :]
+
+    if new_content == content:
+        return True, "up-to-date"
+
+    if check:
+        return False, f"{ROOT_PYPROJECT}: dev extras out of date"
+
+    ROOT_PYPROJECT.write_text(new_content)
+    return True, "updated"
+
+
 def update_root_core_dependency(shared: dict[str, Any], check: bool = False) -> tuple[bool, str]:
     """Update or check the mloda-core dependency in root pyproject.toml.
 
@@ -454,11 +563,16 @@ def main() -> int:
     # Handle root pyproject.toml mloda-core dependency (single source of truth)
     core_ok, core_msg = update_root_core_dependency(shared, check=args.check)
 
+    # Handle root pyproject.toml dev extras (third-party deps from package dev extras)
+    dev_deps_ok, dev_deps_msg = update_root_dev_dependencies(packages, check=args.check)
+
     if args.check:
         if not workspace_ok:
             errors.append(workspace_msg)
         if not core_ok:
             errors.append(core_msg)
+        if not dev_deps_ok:
+            errors.append(dev_deps_msg)
         if errors:
             print("❌ Files out of date:")
             for e in errors:
@@ -468,14 +582,17 @@ def main() -> int:
         print(f"✅ All {len(packages)} pyproject.toml files are up-to-date")
         print("✅ Workspace members are up-to-date")
         print("✅ Root mloda-core dependency is up-to-date")
+        print("✅ Root dev extras are up-to-date")
         return 0
 
-    if not workspace_ok or not core_ok:
+    if not workspace_ok or not core_ok or not dev_deps_ok:
         print("❌ Failed to sync root pyproject.toml:")
         if not workspace_ok:
             print(f"  - {workspace_msg}")
         if not core_ok:
             print(f"  - {core_msg}")
+        if not dev_deps_ok:
+            print(f"  - {dev_deps_msg}")
         return 1
 
     if workspace_ok and workspace_msg == "updated":
@@ -483,6 +600,9 @@ def main() -> int:
 
     if core_ok and core_msg == "updated":
         print(f"  ✓ {ROOT_PYPROJECT} (mloda-core dependency)")
+
+    if dev_deps_ok and dev_deps_msg == "updated":
+        print(f"  ✓ {ROOT_PYPROJECT} (dev extras)")
 
     print(f"\n✅ Generated {len(updated)} pyproject.toml files")
     return 0
