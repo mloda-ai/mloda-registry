@@ -11,9 +11,9 @@ Exit code: 1 if any floored pair fails to install or its import surface fails to
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import os
 import re
+import runpy
 import subprocess  # nosec
 import sys
 import tempfile
@@ -30,6 +30,11 @@ DEP_NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 # Only the lower bound matters: ">=0.4.0" and " >= 0.4.0, <1" both floor at 0.4.0.
 FLOOR_RE = re.compile(r">=\s*([^\s,;]+)")
 
+# Not a plain import: this script is also loaded by file path in tests, where scripts/ is not on sys.path.
+_load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(REPO_ROOT / "scripts" / "script_loader.py"))[
+    "load_sibling"
+]
+
 
 class FloorPair(NamedTuple):
     """One published package with the in-repo dependency floor it declares."""
@@ -43,19 +48,6 @@ class FloorPair(NamedTuple):
 def _normalize(name: str) -> str:
     """PEP 503 normal form: lowercase, runs of '-', '_', '.' collapsed to '-'."""
     return re.sub(r"[-_.]+", "-", name).lower()
-
-
-def _load_sibling(name: str) -> ModuleType:
-    """Load a sibling scripts/ module by file path, so an arbitrary cwd cannot break the import."""
-    path = Path(__file__).resolve().parent / f"{name}.py"
-    if not path.exists():
-        raise ImportError(f"{path} is missing; {Path(__file__).name} derives its checks from it")
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"could not load spec for {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def internal_floor_pairs(packages: dict[str, dict[str, Any]]) -> list[FloorPair]:
