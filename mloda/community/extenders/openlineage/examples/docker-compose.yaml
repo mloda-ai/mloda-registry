@@ -9,12 +9,12 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   marquez:
-    image: marquezproject/marquez:latest
+    image: marquezproject/marquez:0.50.0
     depends_on:
       - postgres
     ports:
-      - "5000:5000"
-      - "5001:5001"
+      - "127.0.0.1:5000:5000"
+      - "127.0.0.1:5001:5001"
     environment:
       MARQUEZ_PORT: 5000
       MARQUEZ_ADMIN_PORT: 5001
@@ -25,11 +25,11 @@ services:
       POSTGRES_PASSWORD: marquez
 
   marquez-web:
-    image: marquezproject/marquez-web:latest
+    image: marquezproject/marquez-web:0.50.0
     depends_on:
       - marquez
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       MARQUEZ_HOST: marquez
       MARQUEZ_PORT: 5000

@@ -15,6 +15,7 @@ from unittest.mock import patch
 import pyarrow as pa
 import pytest
 from mloda.core.abstract_plugins.function_extender import _CompositeExtender  # no public equivalent yet
+from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
 from mloda.steward import Extender, ExtenderHook, HookContext
 from mloda.user import PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
@@ -133,7 +134,10 @@ class TestOpenLineageExtenderConstructorOptions:
 
         assert len(transport.events) >= 1
 
-    def test_default_client_is_none_and_call_still_works(self) -> None:
+    def test_default_client_is_none_and_call_still_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Disable ambient OpenLineage env vars (e.g. OPENLINEAGE_URL) so the default client always
+        resolves to NoopTransport here, regardless of the environment running the suite."""
+        monkeypatch.setenv("OPENLINEAGE_DISABLED", "true")
         extender = OpenLineageExtender()
         context = _make_context()
 
@@ -260,15 +264,116 @@ class TestOpenLineageExtenderCompleteEvent:
 
         complete_event = transport.events[1]
         assert complete_event.outputs is not None
+        datasets_by_name = {ds.name: ds for ds in complete_event.outputs}
+
+        int_facet = datasets_by_name["value_int"].facets
+        assert int_facet is not None
+        int_schema = int_facet.get("schema")
+        assert isinstance(int_schema, schema_dataset.SchemaDatasetFacet)
+        assert int_schema.fields is not None
+        assert [f.name for f in int_schema.fields] == ["value_int"]
+        assert [f.type for f in int_schema.fields] == ["int64"]
+
+        str_facet = datasets_by_name["value_str"].facets
+        assert str_facet is not None
+        str_schema = str_facet.get("schema")
+        assert isinstance(str_schema, schema_dataset.SchemaDatasetFacet)
+        assert str_schema.fields is not None
+        assert [f.name for f in str_schema.fields] == ["value_str"]
+        assert [f.type for f in str_schema.fields] == ["string"]
+
+    def test_schema_facet_never_leaks_columns_outside_feature_names(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        """Each OutputDataset's schema facet must be narrowed to its own field only, never the
+        whole frame's schema; a column absent from feature_names must never appear anywhere."""
+        client, transport = ol_capture
+        context = _make_context(feature_names=("value_int", "value_str"))
+        extender = OpenLineageExtender(client=client)
+        table = pa.table(
+            {
+                "value_int": [1, 2, 3],
+                "value_str": ["a", "b", "c"],
+                "internal_secret_col": [1, 2, 3],
+            }
+        )
+
+        with context.activate():
+            extender(lambda: table)
+
+        complete_event = transport.events[1]
+        assert complete_event.outputs is not None
         for dataset in complete_event.outputs:
+            assert dataset.facets is not None
+            schema_facet = dataset.facets.get("schema")
+            if schema_facet is not None:
+                assert isinstance(schema_facet, schema_dataset.SchemaDatasetFacet)
+                assert schema_facet.fields is not None
+                field_names = [f.name for f in schema_facet.fields]
+                assert "internal_secret_col" not in field_names
+
+        from openlineage.client.serde import Serde
+
+        for event in transport.events:
+            serialized = Serde.to_json(event)
+            assert "internal_secret_col" not in serialized
+
+    def test_schema_facet_field_names_are_strings_for_pandas_rangeindex_columns(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        """A pandas DataFrame with the default integer RangeIndex columns (labels 0, 1, ...) must
+        still produce string field names in the schema facet, never raw ints."""
+        import pandas as pd
+
+        client, transport = ol_capture
+        context = _make_context(feature_names=("0", "1"))
+        extender = OpenLineageExtender(client=client)
+        frame = pd.DataFrame([[1, "a"]])
+
+        with context.activate():
+            extender(lambda: frame)
+
+        complete_event = transport.events[1]
+        assert complete_event.outputs is not None
+        datasets_by_name = {ds.name: ds for ds in complete_event.outputs}
+
+        for expected_name in ("0", "1"):
+            dataset = datasets_by_name[expected_name]
             assert dataset.facets is not None
             schema_facet = dataset.facets.get("schema")
             assert isinstance(schema_facet, schema_dataset.SchemaDatasetFacet)
             assert schema_facet.fields is not None
-            field_names = [f.name for f in schema_facet.fields]
-            field_types = [f.type for f in schema_facet.fields]
-            assert field_names == ["value_int", "value_str"]
-            assert field_types == ["int64", "string"]
+            for f in schema_facet.fields:
+                assert isinstance(f.name, str)
+            assert [f.name for f in schema_facet.fields] == [expected_name]
+
+    def test_schema_facet_type_not_garbage_for_duplicate_pandas_column_names(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        """A duplicate pandas column name ('x', 'x') must not make dtypes[c] return a Series whose
+        str() is a multi-line garbage repr; every field for name 'x' must report the real dtype."""
+        import pandas as pd
+
+        client, transport = ol_capture
+        context = _make_context(feature_names=("x",))
+        extender = OpenLineageExtender(client=client)
+        frame = pd.DataFrame([[1, 2]], columns=["x", "x"])
+
+        with context.activate():
+            extender(lambda: frame)
+
+        complete_event = transport.events[1]
+        assert complete_event.outputs is not None
+        output = complete_event.outputs[0]
+        assert output.name == "x"
+        assert output.facets is not None
+        schema_facet = output.facets.get("schema")
+        assert isinstance(schema_facet, schema_dataset.SchemaDatasetFacet)
+        assert schema_facet.fields is not None
+        assert len(schema_facet.fields) >= 1
+        for f in schema_facet.fields:
+            assert f.name == "x"
+            assert f.type == "int64"
 
     def test_schema_facet_absent_when_result_has_no_introspectable_schema(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
@@ -400,6 +505,27 @@ class TestOpenLineageExtenderFailureHandling:
         warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert any("OpenLineageExtender" in r.message and "inner boom" in r.message for r in warnings), warnings
 
+    def test_base_exception_still_emits_fail_event_and_propagates(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        """A BaseException that is not an Exception (e.g. KeyboardInterrupt-like) must still get a
+        FAIL event emitted before propagating, never be swallowed by an `except Exception` guard."""
+        client, transport = ol_capture
+        context = _make_context()
+        extender = OpenLineageExtender(client=client)
+
+        class _CustomBaseException(BaseException):
+            pass
+
+        def func() -> None:
+            raise _CustomBaseException("base boom")
+
+        with context.activate():
+            with pytest.raises(_CustomBaseException):
+                extender(func)
+
+        assert transport.events[-1].eventType == RunState.FAIL
+
     def test_fail_event_emit_failure_does_not_mask_original_exception(
         self,
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
@@ -465,6 +591,13 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         assert input_dataset.namespace == "custom-ds"
         assert input_dataset.name == "s3://bucket/key.parquet"
 
+        from openlineage.client.facet_v2 import datasource_dataset
+
+        assert input_dataset.facets is not None
+        data_source_facet = input_dataset.facets["dataSource"]
+        assert isinstance(data_source_facet, datasource_dataset.DatasourceDatasetFacet)
+        assert data_source_facet.name == "s3://bucket/key.parquet"
+
     def test_fail_event_carries_accumulated_input_from_nested_input_data_load(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
@@ -493,17 +626,26 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         assert fail_event.inputs[0].name == "s3://bucket/key.parquet"
 
     def test_input_data_load_without_enclosing_calculate_does_not_raise_or_emit(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
     ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
         context = _make_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="standalone")
 
-        with context.activate():
-            result = extender(lambda: "loaded")
+        with caplog.at_level(logging.DEBUG):
+            with context.activate():
+                result = extender(lambda: "loaded")
 
         assert result == "loaded"
         assert transport.events == []
+
+        debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any(
+            "OpenLineageExtender" in r.message
+            and "calculate" in r.message.lower()
+            and ("enclosing" in r.message.lower() or "open" in r.message.lower())
+            for r in debug_records
+        ), debug_records
 
 
 class TestOpenLineageExtenderPostCallInstrumentationFailure:
@@ -552,8 +694,10 @@ class TestOpenLineageExtenderCompositeChaining:
         context = _make_context()
         extender = OpenLineageExtender(raise_on_error=False, client=client)
         composite = _CompositeExtender([extender])
+        calls = {"n": 0}
 
         def func(x: int, y: int) -> int:
+            calls["n"] += 1
             return x + y
 
         with patch(
@@ -565,6 +709,7 @@ class TestOpenLineageExtenderCompositeChaining:
                     result = composite(func, 3, 4)
 
         assert result == 7, "Failing OpenLineageExtender must fall back to the wrapped function result"
+        assert calls["n"] == 1
         assert any(r.levelno == logging.WARNING and "OpenLineageExtender" in r.message for r in caplog.records), (
             caplog.records
         )
@@ -587,6 +732,37 @@ class TestOpenLineageExtenderCompositeChaining:
             with context.activate():
                 with pytest.raises(RuntimeError, match="openlineage instrumentation boom"):
                     composite(func, 3, 4)
+
+
+class FailingCalculateFeatureGroup(FeatureGroup):
+    """Root feature group whose calculate_feature always raises, counting its invocations."""
+
+    calls = 0
+
+    @classmethod
+    def input_data(cls) -> BaseInputData | None:
+        return DataCreator({"openlineage_boom_feature"})
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
+        return {PyArrowTable}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        cls.calls += 1
+        raise RuntimeError("inner boom")
+
+
+def _run_boom_feature(*extenders: Extender) -> Any:
+    """Run the always-failing ``openlineage_boom_feature`` through run_all with the given extenders."""
+    plugin_collector = PluginCollector.enabled_feature_groups({FailingCalculateFeatureGroup})
+
+    return mloda.run_all(
+        ["openlineage_boom_feature"],
+        compute_frameworks={PyArrowTable},
+        plugin_collector=plugin_collector,
+        function_extender=set(extenders),
+    )
 
 
 class TestOpenLineageExtenderRunAll:
@@ -626,3 +802,43 @@ class TestOpenLineageExtenderRunAll:
             assert isinstance(parent, parent_run.ParentRunFacet)
             parent_run_ids.add(parent.run.runId)
         assert len(parent_run_ids) == 1, parent_run_ids
+
+    def test_run_all_wrapped_function_failure_propagates_and_runs_once(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A failure of the wrapped function propagates through the real _CompositeExtender/core
+        dispatch path, regardless of raise_on_error, without a re-run."""
+        FailingCalculateFeatureGroup.calls = 0
+
+        with caplog.at_level(logging.WARNING):
+            with pytest.raises(Exception, match="inner boom"):
+                _run_boom_feature(OpenLineageExtender(raise_on_error=False))
+
+        assert FailingCalculateFeatureGroup.calls == 1
+
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("OpenLineageExtender" in message and "inner boom" in message for message in warnings), warnings
+
+
+class TestOpenLineageExtenderContentIsolation:
+    """Emitted events must never carry the wrapped function's exception message text."""
+
+    def test_func_exception_message_does_not_leak_into_emitted_events(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        from openlineage.client.serde import Serde
+
+        client, transport = ol_capture
+        context = _make_context()
+        extender = OpenLineageExtender(client=client)
+        marker = "SENSITIVE_ROW_VALUE_xyz123"
+
+        def func() -> None:
+            raise ValueError(f"invalid value found: {marker}")
+
+        with context.activate():
+            with pytest.raises(ValueError):
+                extender(func)
+
+        assert len(transport.events) >= 1
+        for event in transport.events:
+            serialized = Serde.to_json(event)
+            assert marker not in serialized, f"event {event.eventType} leaked the func exception's message ({marker!r})"
