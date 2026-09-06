@@ -39,19 +39,12 @@ class RecordingTransport(Transport):
 
 
 def make_recording_client() -> tuple[OpenLineageClient, RecordingTransport]:
-    """An OpenLineageClient wired to a fresh RecordingTransport.
-
-    OPENLINEAGE_DISABLED is popped from the environment for the constructor call only: with it
-    set, OpenLineageClient silently replaces any given transport with its own noop transport.
-    """
+    """An OpenLineageClient wired to a fresh RecordingTransport; OPENLINEAGE_DISABLED is cleared for the constructor call, since OpenLineageClient otherwise swaps in its own noop transport."""
     transport = RecordingTransport()
     with patch.dict(os.environ):
         os.environ.pop("OPENLINEAGE_DISABLED", None)
         client = OpenLineageClient(transport=transport)
-    assert client.transport is transport, (
-        "OPENLINEAGE_DISABLED was set during OpenLineageClient construction, so the recording "
-        "transport was replaced by a noop one"
-    )
+    assert client.transport is transport, "OPENLINEAGE_DISABLED swapped the recording transport for a noop one"
     return client, transport
 
 

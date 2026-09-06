@@ -18,8 +18,6 @@ except ModuleNotFoundError as exc:
     if (exc.name or "").split(".")[0] != "opentelemetry":
         raise
     EXTENDERS = []
-    _logger.info(
-        "OtelExtender is unavailable: install 'opentelemetry-api' via the 'mloda-community[otel]' extra to enable it."
-    )
+    _logger.info("OtelExtender unavailable: install 'opentelemetry-api' via 'mloda-community[otel]'.")
 else:
     EXTENDERS = [OtelExtender]

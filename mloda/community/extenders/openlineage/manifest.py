@@ -18,9 +18,6 @@ except ModuleNotFoundError as exc:
     if (exc.name or "").split(".")[0] != "openlineage":
         raise
     EXTENDERS = []
-    _logger.info(
-        "OpenLineageExtender is unavailable: install 'openlineage-python' via the "
-        "'mloda-community[openlineage]' extra to enable it."
-    )
+    _logger.info("OpenLineageExtender unavailable: install 'openlineage-python' via 'mloda-community[openlineage]'.")
 else:
     EXTENDERS = [OpenLineageExtender]

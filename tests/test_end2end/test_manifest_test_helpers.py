@@ -1,6 +1,4 @@
-"""Both extender leaf test_manifest.py files must share one eviction helper, not near-duplicate
-local copies, so a fix to import-isolation logic lands once instead of drifting between leaves.
-"""
+"""Both extender test_manifest.py files must share one eviction helper, not near-duplicate local copies."""
 
 from __future__ import annotations
 

@@ -179,7 +179,7 @@ class TestExpectedValueInt:
         values = expected_value_int()
         assert isinstance(values, list)
         assert values
-        # The canonical fixture column carries one deliberate null; every other entry is an int.
+        # The canonical fixture column carries a null; every other entry is an int.
         assert all(isinstance(v, int) for v in values if v is not None)
 
 
@@ -193,8 +193,7 @@ class TestRunValueInt:
 
 
 class TestRunTwoFeatures:
-    """run_two_features() is added by Green in mloda.testing.extenders.runners; imported locally per test
-    so an early ImportError only fails these two tests, not the whole module."""
+    """run_two_features() lives in mloda.testing.extenders.runners, imported locally so an early ImportError only fails these two tests."""
 
     def test_returns_the_plus_one_column(self) -> None:
         from mloda.testing.extenders.runners import run_two_features
@@ -228,8 +227,7 @@ class TestRunTwoFeatures:
 
 
 class TestRunCsvFeature:
-    """run_csv_feature() is added by Green in mloda.testing.extenders.runners; imported locally per test
-    so an early ImportError only fails these two tests, not the whole module."""
+    """run_csv_feature() lives in mloda.testing.extenders.runners, imported locally so an early ImportError only fails these two tests."""
 
     def test_returns_the_alpha_column(self, tmp_path: Path) -> None:
         from mloda.testing.extenders.runners import run_csv_feature

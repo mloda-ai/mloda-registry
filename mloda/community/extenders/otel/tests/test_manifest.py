@@ -84,7 +84,7 @@ def test_manifest_logs_when_dependency_is_missing(
         and record.levelno >= logging.INFO
         and "mloda-community[otel]" in record.getMessage()
     ]
-    assert matching, "expected an INFO+ log record naming the mloda-community[otel] extra"
+    assert matching, "no INFO log named the mloda-community[otel] extra"
 
 
 def test_blocking_tests_leave_no_degraded_module_behind() -> None:

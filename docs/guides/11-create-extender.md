@@ -75,7 +75,7 @@ Only needed with `ParallelizationMode.MULTIPROCESSING`. Avoid unpicklable instan
 
 ## Emitting on the calculation thread
 
-Extender code runs inline with the wrapped call. A blocking sink stalls every wrapped call, and when `raise_on_error` is `True` a sink failure fails the run. For OpenLineage, prefer the `async_http` transport or a short timeout in production, configured through `OPENLINEAGE_CONFIG` or `OPENLINEAGE__TRANSPORT__*` environment variables, and keep `raise_on_error=False` for observability.
+Extender code runs inline with the wrapped call: a blocking sink stalls every call, and with `raise_on_error=True` a sink failure fails the run. For OpenLineage, prefer the `async_http` transport or a short timeout (via `OPENLINEAGE_CONFIG` or `OPENLINEAGE__TRANSPORT__*`), and keep `raise_on_error=False` for observability.
 
 ## Usage
 
@@ -168,7 +168,7 @@ The mixin pins:
 - a wrapped failure marks the span `ERROR` without leaking the exception message
 - the carrier parents the span; without a carrier, the trace id derives from `run_id`
 - `run_all` spans share one trace id
-- an interrupt (`BaseException`) still marks the span `ERROR`, and the exception message never reaches the span status description
+- an interrupt (`BaseException`) still marks the span `ERROR` without leaking the exception message
 
 Helpers: `make_span_capture`, `single_span`, `single_span_attributes`, `inject_parent_carrier`.
 

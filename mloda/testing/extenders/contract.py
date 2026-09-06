@@ -118,8 +118,7 @@ class ExtenderContractTestMixin:
         name = self.extender_class().__name__
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert any(name in message for message in warnings), (
-            f"{name}: own_failure() did not fault the extender's own code; "
-            "override own_failure() (see docs/guides/11-create-extender.md)"
+            f"{name}: own_failure() did not fault the extender's own code (see docs/guides/11-create-extender.md)"
         )
 
     def test_contract_own_failure_propagates_when_raise_on_error_true(self) -> None:
@@ -184,8 +183,7 @@ class ExtenderContractTestMixin:
         name = self.extender_class().__name__
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert any(name in message for message in warnings), (
-            f"{name}: own_failure() did not fault the extender's own code; "
-            "override own_failure() (see docs/guides/11-create-extender.md)"
+            f"{name}: own_failure() did not fault the extender's own code (see docs/guides/11-create-extender.md)"
         )
 
     def test_contract_run_all_own_failure_falls_back_when_raise_on_error_false(
@@ -203,6 +201,5 @@ class ExtenderContractTestMixin:
         name = self.extender_class().__name__
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert any(name in message for message in warnings), (
-            f"{name}: own_failure() did not fault the extender's own code; "
-            "override own_failure() (see docs/guides/11-create-extender.md)"
+            f"{name}: own_failure() did not fault the extender's own code (see docs/guides/11-create-extender.md)"
         )

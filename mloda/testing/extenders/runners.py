@@ -54,11 +54,7 @@ class ValueIntPlusOne(FeatureGroup):
 
 
 def run_two_features(*extenders: Extender) -> list[Any]:
-    """Run `ValueIntPlusOne` (depends on `value_int`) through the pipeline; return the plus-one column.
-
-    This chains two FEATURE_GROUP_CALCULATE_FEATURE invocations (the data creator, then this
-    feature group) within one run.
-    """
+    """Run `ValueIntPlusOne` (depends on `value_int`) through the pipeline, chaining two FEATURE_GROUP_CALCULATE_FEATURE invocations (the data creator, then this feature group); return the plus-one column."""
     plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ValueIntPlusOne})
     column_name = ValueIntPlusOne.get_class_name()
     results = mloda.run_all(
@@ -75,11 +71,7 @@ def run_two_features(*extenders: Extender) -> list[Any]:
 
 
 def run_csv_feature(directory: Path, *extenders: Extender) -> list[Any]:
-    """Write a small CSV into `directory` and run its `alpha` column through the pipeline; return it.
-
-    This fires an INPUT_DATA_LOAD hook nested inside ReadFileFeature.calculate_feature, with
-    `data_access_identity` equal to the CSV's path.
-    """
+    """Write a small CSV into `directory` and run its `alpha` column through the pipeline, firing a nested INPUT_DATA_LOAD hook with `data_access_identity` set to the CSV's path; return the column."""
     path = directory / "data.csv"
     path.write_text("alpha,beta\n1,2\n3,4\n", encoding="utf-8")
     plugin_collector = PluginCollector.enabled_feature_groups({ReadFileFeature})
