@@ -72,10 +72,12 @@ class _ProbeOtelExtender(Extender):
         context = HookContext.current()
         parent = _parent_context(context)
         tracer = trace.get_tracer("mloda-testing-probe-otel", tracer_provider=self._tracer_provider)
-        with tracer.start_as_current_span(_SPAN_NAME, record_exception=False, context=parent) as span:
+        with tracer.start_as_current_span(
+            _SPAN_NAME, record_exception=False, context=parent, set_status_on_exception=False
+        ) as span:
             try:
                 return func(*args, **kwargs)
-            except Exception as exc:
+            except BaseException as exc:
                 span.set_status(Status(StatusCode.ERROR))
                 span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
                 logger.warning("_ProbeOtelExtender %s failed: %s: %s", _SPAN_NAME, type(exc).__name__, exc)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextvars
 import logging
+import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -13,7 +14,7 @@ from mloda.steward import Extender, ExtenderHook, HookContext
 
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
-from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset
+from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset, set_producer
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ _open_invocations: contextvars.ContextVar[tuple[tuple[int, "_OpenCalculateInvoca
 
 
 class OpenLineageExtender(Extender):
-    """Emits one OpenLineage START/COMPLETE|FAIL RunEvent per calculate invocation, correlating
+    """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating
     nested INPUT_DATA_LOAD calls as inputs of the enclosing run. Without an injected client, the
     resolved OpenLineageClient() follows the ambient OpenLineage config; worker processes resolve their own."""
 
@@ -53,16 +54,24 @@ class OpenLineageExtender(Extender):
         self.job_namespace = job_namespace
         self.dataset_namespace = dataset_namespace
         self.root_job_name = root_job_name
+        self._client_lock = threading.Lock()
 
     def _get_client(self) -> OpenLineageClient:
         if self._client is None:
-            self._client = OpenLineageClient()
+            with self._client_lock:
+                if self._client is None:
+                    self._client = OpenLineageClient()
         return self._client
 
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
         state["_client"] = None
+        del state["_client_lock"]
         return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        self._client_lock = threading.Lock()
 
     def wraps(self) -> set[ExtenderHook]:
         return {
@@ -80,12 +89,8 @@ class OpenLineageExtender(Extender):
         return self._call_calculate_feature(context, func, *args, **kwargs)
 
     def _call_input_data_load(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
-        result = func(*args, **kwargs)
         invocation = self._find_open_invocation()
-        if invocation is None:
-            logger.debug("OpenLineageExtender: INPUT_DATA_LOAD has no enclosing open calculate invocation to attach to")
-            return result
-        if context.data_access_identity is not None:
+        if invocation is not None and context.data_access_identity is not None:
             already_present = any(
                 i.namespace == self.dataset_namespace and i.name == context.data_access_identity
                 for i in invocation.inputs
@@ -96,11 +101,15 @@ class OpenLineageExtender(Extender):
                         namespace=self.dataset_namespace,
                         name=context.data_access_identity,
                         facets={
-                            "dataSource": datasource_dataset.DatasourceDatasetFacet(name=context.data_access_identity)
+                            "dataSource": datasource_dataset.DatasourceDatasetFacet(
+                                name=context.data_access_identity, producer=_PRODUCER
+                            )
                         },
                     )
                 )
-        return result
+        if invocation is None:
+            logger.debug("OpenLineageExtender: INPUT_DATA_LOAD has no enclosing open calculate invocation to attach to")
+        return func(*args, **kwargs)
 
     def _find_open_invocation(self) -> _OpenCalculateInvocation | None:
         """Return this instance's own last-opened invocation from the shared stack, else None."""
@@ -111,11 +120,15 @@ class OpenLineageExtender(Extender):
         return None
 
     def _call_calculate_feature(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
+        # Also covers facets the client library injects itself (e.g. its "tags" run facet), which
+        # otherwise fall back to the library's own default producer instead of ours.
+        set_producer(_PRODUCER)
         run_facets: dict[str, Any] = {}
         if context.run_id is not None:
             run_facets["parent"] = parent_run.ParentRunFacet(
                 run=parent_run.Run(runId=context.run_id),
                 job=parent_run.Job(namespace=self.job_namespace, name=self.root_job_name),
+                producer=_PRODUCER,
             )
         job = Job(namespace=self.job_namespace, name=context.feature_group_class)
         run = Run(runId=str(uuid.uuid4()), facets=run_facets)
@@ -139,11 +152,12 @@ class OpenLineageExtender(Extender):
         try:
             result = func(*args, **kwargs)
         except BaseException as exc:
-            # Guarded: a transport error on the FAIL path must not mask the wrapped function's exception.
+            event_state = RunState.FAIL if isinstance(exc, Exception) else RunState.ABORT
+            # Guarded: a transport error on the FAIL/ABORT path must not mask the wrapped function's exception.
             try:
                 self._get_client().emit(
                     RunEvent(
-                        eventType=RunState.FAIL,
+                        eventType=event_state,
                         eventTime=_now_iso(),
                         run=run,
                         job=job,
@@ -154,9 +168,13 @@ class OpenLineageExtender(Extender):
                 )
             except Exception as emit_exc:
                 logger.warning(
-                    "OpenLineageExtender failed to emit FAIL event: %s: %s", type(emit_exc).__name__, emit_exc
+                    "OpenLineageExtender failed to emit %s event: %s: %s",
+                    event_state.name,
+                    type(emit_exc).__name__,
+                    emit_exc,
                 )
-            logger.warning("OpenLineageExtender observed %s failure: %s: %s", job.name, type(exc).__name__, exc)
+            outcome = "failure" if event_state == RunState.FAIL else "abort"
+            logger.warning("OpenLineageExtender observed %s %s: %s: %s", job.name, outcome, type(exc).__name__, exc)
             raise
         finally:
             _open_invocations.reset(token)
@@ -193,7 +211,7 @@ def _build_output_dataset(
     if fields is not None:
         first_match = next((f for f in fields if f.name == name), None)
         if first_match is not None:
-            facets["schema"] = schema_dataset.SchemaDatasetFacet(fields=[first_match])
+            facets["schema"] = schema_dataset.SchemaDatasetFacet(fields=[first_match], producer=_PRODUCER)
     return OutputDataset(namespace=namespace, name=name, facets=facets)
 
 

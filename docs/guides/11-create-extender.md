@@ -164,6 +164,7 @@ The mixin pins:
 - a wrapped failure marks the span `ERROR` without leaking the exception message
 - the carrier parents the span; without a carrier, the trace id derives from `run_id`
 - `run_all` spans share one trace id
+- an interrupt (`BaseException`) still marks the span `ERROR`, and the exception message never reaches the span status description
 
 Helpers: `make_span_capture`, `single_span`, `single_span_attributes`, `inject_parent_carrier`.
 
@@ -195,7 +196,7 @@ The mixin pins:
 - a run emits START then COMPLETE, or START then FAIL
 - the START event precedes the wrapped call
 - the COMPLETE event carries one output per feature name
-- a `BaseException` from the wrapped call still ends in a FAIL event
+- an `Exception` from the wrapped call ends in a FAIL event, any other `BaseException` (an interrupt) in an ABORT event
 - an emit failure never masks the wrapped exception or corrupts the result
 - no event ever leaks the exception message
 - the parent facet ties the run to the ambient `run_id`

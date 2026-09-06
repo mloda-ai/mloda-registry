@@ -123,6 +123,27 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         assert span.attributes is not None
         assert "error.type" in span.attributes
 
+    def test_otel_base_exception_marks_span_error_and_propagates(self) -> None:
+        provider, exporter = make_span_capture()
+        extender = self.make_otel_extender(provider)
+        marker = "SENSITIVE_ROW_VALUE_xyz123"
+
+        class _Boom(BaseException):
+            pass
+
+        def func() -> None:
+            raise _Boom(f"base exception boom: {marker}")
+
+        with make_hook_context(hook=self.context_hook()).activate():
+            with pytest.raises(_Boom):
+                extender(func)
+
+        span = single_span(exporter)
+        assert span.status.status_code == StatusCode.ERROR
+        assert span.attributes is not None
+        assert "error.type" in span.attributes
+        assert marker not in (span.status.description or "")
+
     def test_otel_wrapped_failure_logs_warning_naming_extender(self, caplog: pytest.LogCaptureFixture) -> None:
         provider, _ = make_span_capture()
         extender = self.make_otel_extender(provider)
@@ -160,6 +181,7 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
                 continue
             for value in event.attributes.values():
                 assert marker not in str(value)
+        assert marker not in (span.status.description or "")
 
     def test_otel_carrier_parents_span(self) -> None:
         carrier, trace_id, span_id = inject_parent_carrier()

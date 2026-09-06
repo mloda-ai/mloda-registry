@@ -94,13 +94,15 @@ class OtelExtender(Extender):
 
         tracer = trace.get_tracer(_TRACER_NAME, tracer_provider=self._tracer_provider)
         parent_context = _parent_context(context)
-        with tracer.start_as_current_span(span_name, record_exception=False, context=parent_context) as span:
+        with tracer.start_as_current_span(
+            span_name, record_exception=False, context=parent_context, set_status_on_exception=False
+        ) as span:
             if context is not None:
                 _set_context_attributes(span, context)
 
             try:
                 result = func(*args, **kwargs)
-            except Exception as exc:
+            except BaseException as exc:
                 span.set_status(Status(StatusCode.ERROR))
                 span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
                 logger.warning("OtelExtender %s failed: %s: %s", span_name, type(exc).__name__, exc)

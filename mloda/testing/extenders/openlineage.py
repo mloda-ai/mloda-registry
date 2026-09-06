@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from contextlib import AbstractContextManager
@@ -40,6 +41,20 @@ def make_recording_client() -> tuple[OpenLineageClient, RecordingTransport]:
     """An OpenLineageClient wired to a fresh RecordingTransport."""
     transport = RecordingTransport()
     return OpenLineageClient(transport=transport), transport
+
+
+def _collect_values_for_key(obj: Any, key: str) -> list[Any]:
+    """Recursively collect every value stored under `key` anywhere in a nested dict/list structure."""
+    found: list[Any] = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == key:
+                found.append(v)
+            found.extend(_collect_values_for_key(v, key))
+    elif isinstance(obj, list):
+        for item in obj:
+            found.extend(_collect_values_for_key(item, key))
+    return found
 
 
 class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
@@ -134,7 +149,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         assert transport.events[1].eventType == RunState.FAIL
         assert transport.events[1].outputs == []
 
-    def test_openlineage_base_exception_emits_fail_and_propagates(self) -> None:
+    def test_openlineage_base_exception_emits_abort_and_propagates(self) -> None:
         client, transport = make_recording_client()
         extender = self.make_openlineage_extender(client)
 
@@ -148,7 +163,22 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             with pytest.raises(_Boom):
                 extender(func)
 
-        assert transport.events[-1].eventType == RunState.FAIL
+        assert transport.events[-1].eventType == RunState.ABORT
+
+    def test_openlineage_keyboard_interrupt_emits_abort_and_propagates(self) -> None:
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+
+        def func() -> None:
+            raise KeyboardInterrupt()
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            with pytest.raises(KeyboardInterrupt):
+                extender(func)
+
+        abort_event = transport.events[-1]
+        assert abort_event.eventType == RunState.ABORT
+        assert abort_event.outputs == []
 
     def test_openlineage_fail_emit_error_never_masks_wrapped_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
         client, transport = make_recording_client()
@@ -278,6 +308,32 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         assert fail_event.inputs is not None
         assert [i.name for i in fail_event.inputs] == ["s3://bucket/key.parquet"]
 
+    def test_openlineage_failing_input_data_load_is_still_attributed_on_fail(self) -> None:
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+        if ExtenderHook.INPUT_DATA_LOAD not in extender.wraps():
+            pytest.skip("extender does not wrap INPUT_DATA_LOAD")
+
+        inner_context = make_hook_context(
+            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="s3://bucket/key.parquet"
+        )
+
+        def failing_load() -> str:
+            raise RuntimeError("load boom")
+
+        def outer_func() -> None:
+            with inner_context.activate():
+                extender(failing_load)
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            with pytest.raises(RuntimeError, match="load boom"):
+                extender(outer_func)
+
+        fail_event = transport.events[-1]
+        assert fail_event.eventType == RunState.FAIL
+        assert fail_event.inputs is not None
+        assert [i.name for i in fail_event.inputs] == ["s3://bucket/key.parquet"]
+
     def test_openlineage_completion_emit_failure_keeps_result(self, monkeypatch: pytest.MonkeyPatch) -> None:
         client, _ = make_recording_client()
         extender = self.make_openlineage_extender(client)
@@ -320,3 +376,28 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             assert isinstance(parent, parent_run.ParentRunFacet)
             parent_run_ids.add(parent.run.runId)
         assert len(parent_run_ids) == 1
+
+    def test_openlineage_facet_producers_match_event_producer(self) -> None:
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+        if ExtenderHook.INPUT_DATA_LOAD not in extender.wraps():
+            pytest.skip("extender does not wrap INPUT_DATA_LOAD")
+        run_id = "018f1e4a-7c3b-7c3b-8c3b-1234567890ab"
+
+        inner_context = make_hook_context(
+            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="s3://bucket/key.parquet"
+        )
+
+        def outer_func() -> None:
+            with inner_context.activate():
+                extender(lambda: "loaded-data")
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, run_id=run_id).activate():
+            extender(outer_func)
+
+        assert transport.events
+        for event in transport.events:
+            payload = json.loads(Serde.to_json(event))
+            producer = payload["producer"]
+            offending = [value for value in _collect_values_for_key(payload, "_producer") if value != producer]
+            assert not offending, offending

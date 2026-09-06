@@ -15,7 +15,7 @@ pytest.importorskip("openlineage.client")
 from mloda.steward import Extender, ExtenderHook, HookContext
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
-from openlineage.client.facet_v2 import parent_run
+from openlineage.client.facet_v2 import parent_run, set_producer
 
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.openlineage import OpenLineageExtenderTestMixin, RecordingTransport, make_recording_client
@@ -42,7 +42,7 @@ def _build_run_event() -> RunEvent:
 
 
 class _ProbeOpenLineageExtender(Extender):
-    """Minimal OpenLineage probe: START/COMPLETE|FAIL per calculate, correlating nested input loads."""
+    """Minimal OpenLineage probe: START/COMPLETE|FAIL|ABORT per calculate, correlating nested input loads."""
 
     def __init__(self, client: OpenLineageClient | None = None, raise_on_error: bool = False) -> None:
         self.raise_on_error = raise_on_error
@@ -72,19 +72,21 @@ class _ProbeOpenLineageExtender(Extender):
         return self._call_calculate(context, func, *args, **kwargs)
 
     def _call_input_data_load(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
-        result = func(*args, **kwargs)
         if self._open_inputs is not None and context.data_access_identity is not None:
             already_present = any(i.name == context.data_access_identity for i in self._open_inputs)
             if not already_present:
                 self._open_inputs.append(InputDataset(namespace="probe", name=context.data_access_identity))
-        return result
+        return func(*args, **kwargs)
 
     def _call_calculate(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
+        # Also covers facets the client library injects itself (e.g. its "tags" run facet).
+        set_producer(_PRODUCER)
         run_facets: dict[str, Any] = {}
         if context.run_id is not None:
             run_facets["parent"] = parent_run.ParentRunFacet(
                 run=parent_run.Run(runId=context.run_id),
                 job=parent_run.Job(namespace="probe", name="probe.run_all"),
+                producer=_PRODUCER,
             )
         job = Job(namespace="probe", name=context.feature_group_class)
         run = Run(runId=str(uuid.uuid4()), facets=run_facets)
@@ -110,10 +112,11 @@ class _ProbeOpenLineageExtender(Extender):
             result = func(*args, **kwargs)
             current_inputs = list(self._open_inputs)
         except BaseException as exc:
+            event_state = RunState.FAIL if isinstance(exc, Exception) else RunState.ABORT
             try:
                 self._get_client().emit(
                     RunEvent(
-                        eventType=RunState.FAIL,
+                        eventType=event_state,
                         eventTime=_now_iso(),
                         run=run,
                         job=job,
@@ -124,9 +127,15 @@ class _ProbeOpenLineageExtender(Extender):
                 )
             except Exception as emit_exc:
                 logger.warning(
-                    "_ProbeOpenLineageExtender failed to emit FAIL event: %s: %s", type(emit_exc).__name__, emit_exc
+                    "_ProbeOpenLineageExtender failed to emit %s event: %s: %s",
+                    event_state.name,
+                    type(emit_exc).__name__,
+                    emit_exc,
                 )
-            logger.warning("_ProbeOpenLineageExtender observed %s failure: %s: %s", job.name, type(exc).__name__, exc)
+            outcome = "failure" if event_state == RunState.FAIL else "abort"
+            logger.warning(
+                "_ProbeOpenLineageExtender observed %s %s: %s: %s", job.name, outcome, type(exc).__name__, exc
+            )
             raise
         finally:
             self._open_inputs = previous_inputs

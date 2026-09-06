@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import pickle  # nosec
 import threading
+import time
 import uuid
 from collections.abc import Iterator
 from typing import Any
@@ -20,6 +21,7 @@ import pytest
 from mloda.core.abstract_plugins.function_extender import _CompositeExtender
 from mloda.steward import ExtenderHook
 
+from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.hook_context import make_hook_context
@@ -116,6 +118,54 @@ class TestOpenLineageExtenderPickling:
         assert copy.job_namespace == "custom-ns"
         assert copy.dataset_namespace == "custom-ds"
         assert copy.root_job_name == "custom.root"
+
+    def test_pickled_copy_can_still_build_a_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        extender = OpenLineageExtender()
+
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        monkeypatch.setenv("OPENLINEAGE_DISABLED", "true")
+        first = copy._get_client()
+        second = copy._get_client()
+
+        assert isinstance(first, OpenLineageClient)
+        assert first is second
+
+
+class TestOpenLineageExtenderLazyClientInit:
+    """`_get_client()`'s lazy default-construction must be race-free across concurrent first calls."""
+
+    def test_concurrent_first_calls_build_exactly_one_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        build_count = 0
+        count_lock = threading.Lock()
+
+        class _FakeOpenLineageClient:
+            def __init__(self) -> None:
+                nonlocal build_count
+                time.sleep(0.05)
+                with count_lock:
+                    build_count += 1
+                self.transport = None
+
+        monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _FakeOpenLineageClient)
+
+        extender = OpenLineageExtender()
+        thread_count = 16
+        barrier = threading.Barrier(thread_count)
+        results: list[Any] = [None] * thread_count
+
+        def worker(index: int) -> None:
+            barrier.wait()
+            results[index] = extender._get_client()
+
+        threads = [threading.Thread(target=worker, args=(index,)) for index in range(thread_count)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert build_count == 1
+        assert all(result is results[0] for result in results)
 
 
 class TestOpenLineageExtenderStartEvent:
