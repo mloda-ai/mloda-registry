@@ -113,8 +113,9 @@ mloda-community (bundled)
 ```
 
 A bundled plugin whose runtime dependency is heavy sits behind a bundle extra instead of a
-hard dependency (today `mloda-community[openlineage]`), and its manifest must import cleanly
-without that dependency installed so entry-point loading of the rest of the bundle stays intact.
+hard dependency (today `mloda-community[otel]` and `mloda-community[openlineage]`, or both
+together via `mloda-community[all]`), and its manifest must import cleanly without that
+dependency installed so entry-point loading of the rest of the bundle stays intact.
 
 ### Individual packages
 
@@ -135,7 +136,9 @@ py_typed = true
 | Command | Result |
 |---------|--------|
 | `pip install mloda-community` | All community plugins (bundled) |
+| `pip install mloda-community[otel]` | The bundle plus the OTel extender's dependency |
 | `pip install mloda-community[openlineage]` | The bundle plus the OpenLineage extender's dependency |
+| `pip install mloda-community[all]` | The bundle plus every extender's dependency |
 | `pip install mloda-community-example` | Base example only |
 | `pip install mloda-community-example[all]` | Base + all variants |
 | `pip install mloda-community-example-a` | Variant A + base |

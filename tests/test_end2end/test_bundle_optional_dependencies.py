@@ -1,5 +1,6 @@
-"""mloda-community must not hard-require openlineage-python; it ships as the ``openlineage`` extra,
-pinned in exactly one place: packages.mloda-community-openlineage's own dependency.
+"""mloda-community must not hard-require an optional plugin's own third-party dependency
+(openlineage-python, opentelemetry-api, ...); each ships as its own bundle extra, pinned in
+exactly one place: the leaf package's own dependency.
 """
 
 from __future__ import annotations
@@ -24,13 +25,21 @@ _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
 _COMMUNITY_PYPROJECT = _REPO_ROOT / "mloda" / "community" / "pyproject.toml"
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
 
-# Distribution name -> the import root that provides it. Extend this when a bundle covers a new
-# nested leaf's dependency only through an extra.
-_IMPORT_ROOT_OF_DISTRIBUTION = {"openlineage-python": "openlineage"}
+# One row per mloda-community extra-only dependency: (extra name, distribution name, leaf
+# package name, import root, exposed extender names). Extend this when the bundle gains another
+# extra-only plugin dependency.
+_ROWS: list[tuple[str, str, str, str, list[str]]] = [
+    ("openlineage", "openlineage-python", "mloda-community-openlineage", "openlineage", ["OpenLineageExtender"]),
+    ("otel", "opentelemetry-api", "mloda-community-otel", "opentelemetry", ["OtelExtender"]),
+]
 
-# Package name -> attribute name(s) the leaf's own __init__ must not expose when the extra-only
-# dependency above is absent. Extend this alongside _IMPORT_ROOT_OF_DISTRIBUTION.
-_EXPOSED_EXTENDER_NAMES: dict[str, list[str]] = {"mloda-community-openlineage": ["OpenLineageExtender"]}
+# Distribution name -> the import root that provides it, derived from _ROWS. Extend _ROWS above
+# when a bundle covers a new nested leaf's dependency only through an extra.
+_IMPORT_ROOT_OF_DISTRIBUTION = {distribution_name: root for _, distribution_name, _, root, _ in _ROWS}
+
+# Leaf package name -> attribute name(s) its own __init__ must not expose when its extra-only
+# dependency is absent, derived from _ROWS.
+_EXPOSED_EXTENDER_NAMES: dict[str, list[str]] = {leaf_name: exposed for _, _, leaf_name, _, exposed in _ROWS}
 
 gen = load_script("generate_pyproject", _GEN_PATH)
 
@@ -64,61 +73,92 @@ def _external_dependency_names(deps: list[str], packages: dict[str, dict[str, An
     return names
 
 
-def test_mloda_community_dependencies_do_not_pin_openlineage_python() -> None:
+@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
+def test_mloda_community_dependencies_do_not_pin_extra_only_distribution(
+    extra_name: str, distribution_name: str, leaf_name: str, root: str, exposed: list[str]
+) -> None:
     community = _packages()["mloda-community"]
     hard_deps = community.get("dependencies", [])
-    offending = [dep for dep in hard_deps if _dep_name(dep) == "openlineage-python"]
+    offending = [dep for dep in hard_deps if _dep_name(dep) == distribution_name]
     assert not offending, (
-        f"packages.mloda-community.dependencies must not pin openlineage-python directly, found {offending!r}; "
-        "it belongs in optional_dependencies.openlineage instead"
+        f"packages.mloda-community.dependencies must not pin {distribution_name} directly, found "
+        f"{offending!r}; it belongs in optional_dependencies.{extra_name} instead"
     )
 
 
-def test_mloda_community_declares_openlineage_extra_matching_pin_source() -> None:
+@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
+def test_mloda_community_declares_extra_matching_pin_source(
+    extra_name: str, distribution_name: str, leaf_name: str, root: str, exposed: list[str]
+) -> None:
     packages = _packages()
-    community_extra = packages["mloda-community"].get("optional_dependencies", {}).get("openlineage")
-    assert community_extra is not None, "packages.mloda-community.optional_dependencies.openlineage must be declared"
+    community_extra = packages["mloda-community"].get("optional_dependencies", {}).get(extra_name)
+    assert community_extra is not None, f"packages.mloda-community.optional_dependencies.{extra_name} must be declared"
 
-    matching = [dep for dep in community_extra if _dep_name(dep) == "openlineage-python"]
+    matching = [dep for dep in community_extra if _dep_name(dep) == distribution_name]
     assert len(matching) == 1, (
-        f"packages.mloda-community.optional_dependencies.openlineage must contain exactly one "
-        f"openlineage-python entry, got {community_extra!r}"
+        f"packages.mloda-community.optional_dependencies.{extra_name} must contain exactly one "
+        f"{distribution_name} entry, got {community_extra!r}"
     )
 
-    leaf_deps = packages["mloda-community-openlineage"]["dependencies"]
-    leaf_matching = [dep for dep in leaf_deps if _dep_name(dep) == "openlineage-python"]
+    leaf_deps = packages[leaf_name]["dependencies"]
+    leaf_matching = [dep for dep in leaf_deps if _dep_name(dep) == distribution_name]
     assert len(leaf_matching) == 1, (
-        f"packages.mloda-community-openlineage.dependencies must declare exactly one openlineage-python "
-        f"entry, got {leaf_deps!r}"
+        f"packages.{leaf_name}.dependencies must declare exactly one {distribution_name} entry, got {leaf_deps!r}"
     )
     assert matching[0] == leaf_matching[0], (
-        "the openlineage-python pin must live in one place: packages.mloda-community.optional_dependencies."
-        f"openlineage ({matching[0]!r}) must equal packages.mloda-community-openlineage.dependencies "
+        f"the {distribution_name} pin must live in one place: packages.mloda-community."
+        f"optional_dependencies.{extra_name} ({matching[0]!r}) must equal packages.{leaf_name}.dependencies "
         f"({leaf_matching[0]!r})"
     )
 
 
-def test_generated_pyproject_lists_openlineage_python_only_under_optional_extra() -> None:
+@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
+def test_generated_pyproject_lists_distribution_only_under_optional_extra(
+    extra_name: str, distribution_name: str, leaf_name: str, root: str, exposed: list[str]
+) -> None:
     assert _COMMUNITY_PYPROJECT.is_file(), f"generated pyproject not found at {_COMMUNITY_PYPROJECT}"
     project = _load_toml(_COMMUNITY_PYPROJECT)["project"]
 
     hard_deps = project.get("dependencies", [])
-    offending = [dep for dep in hard_deps if _dep_name(dep) == "openlineage-python"]
+    offending = [dep for dep in hard_deps if _dep_name(dep) == distribution_name]
     assert not offending, (
-        f"{_COMMUNITY_PYPROJECT}: [project].dependencies must not pin openlineage-python, found {offending!r}"
+        f"{_COMMUNITY_PYPROJECT}: [project].dependencies must not pin {distribution_name}, found {offending!r}"
     )
 
     optional_deps: dict[str, list[str]] = project.get("optional-dependencies", {})
-    groups_with_openlineage = {
+    # "all" is expected to re-list every extra's entries (see the union test below), so it is not
+    # itself a violation of "only under <extra_name>".
+    groups_with_distribution = {
         group: deps
         for group, deps in optional_deps.items()
-        if any(_dep_name(dep) == "openlineage-python" for dep in deps)
+        if group != "all" and any(_dep_name(dep) == distribution_name for dep in deps)
     }
-    assert groups_with_openlineage == {"openlineage": optional_deps.get("openlineage", [])}, (
-        f"{_COMMUNITY_PYPROJECT}: openlineage-python must appear only under "
-        f"[project.optional-dependencies].openlineage, found it under {sorted(groups_with_openlineage)}"
+    assert groups_with_distribution == {extra_name: optional_deps.get(extra_name, [])}, (
+        f"{_COMMUNITY_PYPROJECT}: {distribution_name} must appear only under "
+        f"[project.optional-dependencies].{extra_name}, found it under {sorted(groups_with_distribution)}"
     )
-    assert len(optional_deps.get("openlineage", [])) == 1
+    assert len(optional_deps.get(extra_name, [])) == 1
+
+
+def test_mloda_community_declares_all_extra_as_union_of_per_extra_entries() -> None:
+    """mloda-community[all] must install every optional plugin dependency."""
+    optional = _packages()["mloda-community"].get("optional_dependencies", {})
+    assert "all" in optional, "packages.mloda-community.optional_dependencies.all must be declared"
+
+    expected: list[str] = []
+    seen: set[str] = set()
+    for extra_name, deps in optional.items():
+        if extra_name in ("all", "dev"):
+            continue
+        for dep in deps:
+            if dep not in seen:
+                seen.add(dep)
+                expected.append(dep)
+
+    assert sorted(optional["all"]) == sorted(expected), (
+        "packages.mloda-community.optional_dependencies.all must be exactly the union of every other "
+        f"extra's entries, expected {sorted(expected)!r}, got {sorted(optional['all'])!r}"
+    )
 
 
 def test_extra_only_bundle_dependencies_have_import_safe_manifests(monkeypatch: pytest.MonkeyPatch) -> None:
