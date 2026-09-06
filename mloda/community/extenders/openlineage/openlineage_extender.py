@@ -37,7 +37,9 @@ _open_invocations: contextvars.ContextVar[tuple[tuple[int, "_OpenCalculateInvoca
 
 
 class OpenLineageExtender(Extender):
-    """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, on the calculation thread, correlating nested INPUT_DATA_LOAD calls as inputs; resolves its own OpenLineageClient() when none is injected."""
+    """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating nested
+    INPUT_DATA_LOAD calls as inputs; resolves its own OpenLineageClient() when none is injected. Emits happen
+    synchronously on the calculation thread, so a blocking transport delays every wrapped feature calculation."""
 
     def __init__(
         self,

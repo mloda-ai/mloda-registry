@@ -117,9 +117,15 @@ hard dependency (today `mloda-community[otel]` and `mloda-community[openlineage]
 together via `mloda-community[all]`), and its manifest must import cleanly without that
 dependency installed so entry-point loading of the rest of the bundle stays intact.
 
-Moving a dependency behind an extra breaks existing installs: importing the extender without
-the matching extra now raises `ImportError`, and the manifest silently drops it from plugin
-discovery instead of registering it.
+Moving a dependency behind an extra changes existing installs: when the dependency is missing,
+the manifest logs a record at INFO level naming the extra, and discovery skips the extender
+instead of registering it. Importing the extender name from the package still raises
+`ImportError` naming the extra.
+
+When the dependency is missing, the package module's `__getattr__` raises `ImportError` for the
+extender name, so `hasattr(pkg, "OtelExtender")` raises rather than returning `False`. Code that
+wants to probe availability should check `"OtelExtender" in vars(pkg)` or catch `ImportError`
+around the import.
 
 ### Individual packages
 

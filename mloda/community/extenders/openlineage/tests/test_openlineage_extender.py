@@ -73,6 +73,10 @@ class TestOpenLineageExtenderContract(OpenLineageExtenderTestMixin):
             ExtenderHook.INPUT_DATA_LOAD,
         }
 
+    @classmethod
+    def emits_schema_facets(cls) -> bool:
+        return True
+
 
 class TestOpenLineageExtenderConstructorOptions:
     """client injection: the seam that keeps tests off any real OpenLineage backend."""
@@ -155,10 +159,10 @@ class TestOpenLineageExtenderLazyClientInit:
         results: list[Any] = [None] * thread_count
 
         def worker(index: int) -> None:
-            barrier.wait()
+            barrier.wait(timeout=5)
             results[index] = extender._get_client()
 
-        threads = [threading.Thread(target=worker, args=(index,)) for index in range(thread_count)]
+        threads = [threading.Thread(target=worker, args=(index,), daemon=True) for index in range(thread_count)]
         for thread in threads:
             thread.start()
         for thread in threads:

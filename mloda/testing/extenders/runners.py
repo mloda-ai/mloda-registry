@@ -37,26 +37,34 @@ def run_value_int(*extenders: Extender) -> list[Any]:
     raise AssertionError("No result table with value_int found")
 
 
-class ValueIntPlusOne(FeatureGroup):
-    """Adds one to `value_int`, null-safe; used to exercise two chained calculate invocations."""
+def _value_int_plus_one_feature_group() -> type[FeatureGroup]:
+    """Build a fresh `ValueIntPlusOne` subclass per call so parallel tests never share state."""
 
-    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        return {Feature("value_int")}
+    class ValueIntPlusOne(FeatureGroup):
+        """Adds one to `value_int`, null-safe; used to exercise two chained calculate invocations."""
 
-    @classmethod
-    def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
-        return {PyArrowTable}
+        def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+            return {Feature("value_int")}
 
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        values = data["value_int"].to_pylist()
-        return {cls.get_class_name(): [None if v is None else v + 1 for v in values]}
+        @classmethod
+        def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
+            return {PyArrowTable}
+
+        @classmethod
+        def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+            values = data["value_int"].to_pylist()
+            return {cls.get_class_name(): [None if v is None else v + 1 for v in values]}
+
+    return ValueIntPlusOne
 
 
 def run_two_features(*extenders: Extender) -> list[Any]:
-    """Run `ValueIntPlusOne` (depends on `value_int`) through the pipeline, chaining two FEATURE_GROUP_CALCULATE_FEATURE invocations (the data creator, then this feature group); return the plus-one column."""
-    plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ValueIntPlusOne})
-    column_name = ValueIntPlusOne.get_class_name()
+    """Run a `value_int`-plus-one feature group through the pipeline, chaining two
+    FEATURE_GROUP_CALCULATE_FEATURE invocations (the data creator, then this feature group); return the plus-one
+    column."""
+    feature_group = _value_int_plus_one_feature_group()
+    plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, feature_group})
+    column_name = feature_group.get_class_name()
     results = mloda.run_all(
         [column_name],
         compute_frameworks={PyArrowTable},
@@ -71,7 +79,8 @@ def run_two_features(*extenders: Extender) -> list[Any]:
 
 
 def run_csv_feature(directory: Path, *extenders: Extender) -> list[Any]:
-    """Write a small CSV into `directory` and run its `alpha` column through the pipeline, firing a nested INPUT_DATA_LOAD hook with `data_access_identity` set to the CSV's path; return the column."""
+    """Write a small CSV into `directory` and run its `alpha` column through the pipeline, firing a nested
+    INPUT_DATA_LOAD hook with `data_access_identity` set to the CSV's path; return the column."""
     path = directory / "data.csv"
     path.write_text("alpha,beta\n1,2\n3,4\n", encoding="utf-8")
     plugin_collector = PluginCollector.enabled_feature_groups({ReadFileFeature})

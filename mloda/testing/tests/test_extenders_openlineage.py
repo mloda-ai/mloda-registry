@@ -3,10 +3,10 @@ exercises the full OpenLineageExtenderTestMixin contract independently of the re
 
 from __future__ import annotations
 
-import inspect
 import logging
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -195,9 +195,18 @@ class TestMakeRecordingClient:
         assert client.transport is transport
         assert transport.events == [event]
 
-    def test_transport_identity_is_asserted_with_a_hint(self) -> None:
-        source = inspect.getsource(make_recording_client)
-        assert "OPENLINEAGE_DISABLED" in source
+    def test_records_events_even_when_openlineage_config_filters_are_set(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config_path = tmp_path / "openlineage.yml"
+        config_path.write_text('filters:\n  - type: regex\n    regex: ".*"\n', encoding="utf-8")
+        monkeypatch.setenv("OPENLINEAGE_CONFIG", str(config_path))
+
+        client, transport = make_recording_client()
+        event = _build_run_event()
+        client.emit(event)
+
+        assert transport.events == [event]
 
 
 class TestOpenLineageExtenderTestMixinShape:

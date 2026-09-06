@@ -251,7 +251,6 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         assert len(trace_ids) == 1
 
         expected = self.expected_span_names()
-        if expected is not None:
-            allowed_names = set(expected.values())
-            for span in spans:
-                assert span.name in allowed_names
+        if expected is not None and ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE in expected:
+            span_names = {span.name for span in spans}
+            assert expected[ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE] in span_names

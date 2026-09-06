@@ -98,7 +98,12 @@ class OtelExtender(Extender):
             span_name, record_exception=False, context=parent_context, set_status_on_exception=False
         ) as span:
             if context is not None:
-                _set_context_attributes(span, context)
+                try:
+                    _set_context_attributes(span, context)
+                except BaseException as exc:
+                    span.set_status(Status(StatusCode.ERROR))
+                    span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
+                    raise
 
             try:
                 result = func(*args, **kwargs)

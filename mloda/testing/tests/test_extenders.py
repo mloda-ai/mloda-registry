@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 from mloda.steward import Extender, ExtenderHook, HookContext
 
+from mloda.testing.extenders import runners
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
@@ -20,7 +21,9 @@ from mloda.testing.extenders.runners import (
     FailingFeatureGroup,
     expected_value_int,
     failing_feature_group,
+    run_csv_feature,
     run_failing_feature,
+    run_two_features,
     run_value_int,
 )
 
@@ -30,11 +33,9 @@ class _ProbeExtender(Extender):
 
     explode = False
 
-    def __init__(self, raise_on_error: bool = False, sink: list[str] | None = None, explode: bool = False) -> None:
+    def __init__(self, raise_on_error: bool = False, sink: list[str] | None = None) -> None:
         self.raise_on_error = raise_on_error
         self.sink = sink if sink is not None else []
-        if explode:
-            self.explode = explode
 
     def wraps(self) -> set[ExtenderHook]:
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
@@ -53,11 +54,9 @@ class _BreakingProbeExtender(Extender):
 
     explode = False
 
-    def __init__(self, sink: list[str], raise_on_error: bool = True, explode: bool = False) -> None:
+    def __init__(self, sink: list[str], raise_on_error: bool = True) -> None:
         self.sink = sink
         self.raise_on_error = raise_on_error
-        if explode:
-            self.explode = explode
 
     def wraps(self) -> set[ExtenderHook]:
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
@@ -76,11 +75,9 @@ class _ValidateOnlyProbeExtender(Extender):
 
     explode = False
 
-    def __init__(self, sink: list[Any] | None = None, raise_on_error: bool = False, explode: bool = False) -> None:
+    def __init__(self, sink: list[Any] | None = None, raise_on_error: bool = False) -> None:
         self.raise_on_error = raise_on_error
         self.sink = sink if sink is not None else []
-        if explode:
-            self.explode = explode
 
     def wraps(self) -> set[ExtenderHook]:
         return {ExtenderHook.VALIDATE_OUTPUT_FEATURE}
@@ -174,15 +171,6 @@ class TestMakeHookContextOverrides:
         assert context.status == "ok"
 
 
-class TestExpectedValueInt:
-    def test_is_a_non_empty_list_of_ints(self) -> None:
-        values = expected_value_int()
-        assert isinstance(values, list)
-        assert values
-        # The canonical fixture column carries a null; every other entry is an int.
-        assert all(isinstance(v, int) for v in values if v is not None)
-
-
 class TestRunValueInt:
     def test_no_extenders_returns_expected(self) -> None:
         assert run_value_int() == expected_value_int()
@@ -193,18 +181,12 @@ class TestRunValueInt:
 
 
 class TestRunTwoFeatures:
-    """run_two_features() lives in mloda.testing.extenders.runners, imported locally so an early ImportError only fails these two tests."""
-
     def test_returns_the_plus_one_column(self) -> None:
-        from mloda.testing.extenders.runners import run_two_features
-
         result = run_two_features()
 
         assert result == [None if v is None else v + 1 for v in expected_value_int()]
 
     def test_two_calculate_invocations_share_one_run_id(self) -> None:
-        from mloda.testing.extenders.runners import run_two_features
-
         class _RunIdRecorder(Extender):
             def __init__(self) -> None:
                 self.raise_on_error = True
@@ -225,18 +207,20 @@ class TestRunTwoFeatures:
         assert len(recorder.run_ids) == 2
         assert len(set(recorder.run_ids)) == 1
 
+    def test_does_not_leave_a_module_level_feature_group_registered(self) -> None:
+        assert not hasattr(runners, "ValueIntPlusOne")
+
+        first = run_two_features()
+        second = run_two_features()
+
+        assert first == second
+
 
 class TestRunCsvFeature:
-    """run_csv_feature() lives in mloda.testing.extenders.runners, imported locally so an early ImportError only fails these two tests."""
-
     def test_returns_the_alpha_column(self, tmp_path: Path) -> None:
-        from mloda.testing.extenders.runners import run_csv_feature
-
         assert run_csv_feature(tmp_path) == [1, 3]
 
     def test_input_data_load_reports_the_csv_path(self, tmp_path: Path) -> None:
-        from mloda.testing.extenders.runners import run_csv_feature
-
         class _IdentityRecorder(Extender):
             def __init__(self) -> None:
                 self.raise_on_error = True

@@ -71,7 +71,7 @@ Options such as `partition_by` and `order_by`, plus the shared contracts, are in
 
 > **Note:** Only `mloda/enterprise/` and its PyPI package require a license. Everything else in this repository is Apache 2.0 (see [LICENSE](LICENSE)).
 
-`opentelemetry-api` and `openlineage-python` are optional now, behind the `[otel]`, `[openlineage]`, and `[all]` extras. Importing `OtelExtender` or `OpenLineageExtender` without the matching extra raises `ImportError`, and plugin discovery silently skips the extender.
+`opentelemetry-api` and `openlineage-python` are optional now, behind the `[otel]`, `[openlineage]`, and `[all]` extras. When the dependency is missing, the manifest logs a record at INFO level naming the extra, and plugin discovery skips the extender; importing `OtelExtender` or `OpenLineageExtender` from the package still raises `ImportError` naming the extra.
 
 The remaining example packages are not on PyPI; install them from git, replacing the subdirectory with the package `path` from `config/packages.toml`:
 

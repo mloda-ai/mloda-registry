@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.function_extender import _CompositeExtender
 from mloda.steward import Extender, ExtenderHook
 from openlineage.client.client import Event, OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, OutputDataset, RunEvent, RunState
@@ -39,12 +41,19 @@ class RecordingTransport(Transport):
 
 
 def make_recording_client() -> tuple[OpenLineageClient, RecordingTransport]:
-    """An OpenLineageClient wired to a fresh RecordingTransport; OPENLINEAGE_DISABLED is cleared for the constructor call, since OpenLineageClient otherwise swaps in its own noop transport."""
+    """An OpenLineageClient wired to a fresh RecordingTransport. OPENLINEAGE_DISABLED and any
+    config-file or env-declared filters are cleared for the constructor call, since
+    OpenLineageClient otherwise swaps in its own noop transport or drops events before the
+    recording transport sees them."""
     transport = RecordingTransport()
     with patch.dict(os.environ):
         os.environ.pop("OPENLINEAGE_DISABLED", None)
+        os.environ.pop("OPENLINEAGE_CONFIG", None)
+        for key in [name for name in os.environ if name.startswith("OPENLINEAGE__")]:
+            os.environ.pop(key, None)
         client = OpenLineageClient(transport=transport)
-    assert client.transport is transport, "OPENLINEAGE_DISABLED swapped the recording transport for a noop one"
+    if client.transport is not transport:
+        raise RuntimeError("OPENLINEAGE_DISABLED swapped the recording transport for a noop one")
     return client, transport
 
 
@@ -70,6 +79,11 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
 
     @classmethod
     def raise_on_error_default(cls) -> bool:
+        return False
+
+    @classmethod
+    def emits_schema_facets(cls) -> bool:
+        """True when the host attaches a schema facet to output datasets; default False."""
         return False
 
     def make_extender(self, *, raise_on_error: bool | None = None) -> Extender:
@@ -234,6 +248,58 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
 
         with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
             with pytest.raises(ValueError):
+                extender(func)
+
+        assert transport.events
+        for event in transport.events:
+            assert marker not in Serde.to_json(event)
+
+    def test_openlineage_start_emit_failure_still_runs_func_when_raise_on_error_false(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        if not self.supports_warning_only():
+            pytest.skip("extender is breaking-only")
+        client, _ = make_recording_client()
+        original_emit = client.emit
+        calls = 0
+
+        def flaky_emit(event: Event) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("start boom")
+            original_emit(event)
+
+        monkeypatch.setattr(client, "emit", flaky_emit)
+        extender = self.make_openlineage_extender(client, raise_on_error=False)
+        composite = _CompositeExtender([extender])
+        func_calls = 0
+
+        def func() -> int:
+            nonlocal func_calls
+            func_calls += 1
+            return 42
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            with caplog.at_level(logging.WARNING):
+                result = composite(func)
+
+        assert result == 42
+        assert func_calls == 1
+        extender_name = self.extender_class().__name__
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any(extender_name in message for message in warnings)
+
+    def test_openlineage_keyboard_interrupt_never_leaks_message(self) -> None:
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+        marker = "SENSITIVE_ROW_VALUE_xyz123"
+
+        def func() -> None:
+            raise KeyboardInterrupt(f"interrupted: {marker}")
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            with pytest.raises(KeyboardInterrupt):
                 extender(func)
 
         assert transport.events
@@ -413,14 +479,19 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="s3://bucket/key.parquet"
         )
 
-        def outer_func() -> None:
+        def outer_func() -> pa.Table:
             with inner_context.activate():
                 extender(lambda: "loaded-data")
+            return pa.Table.from_pydict({"value_int": [1, 2]})
 
-        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, run_id=run_id).activate():
+        with make_hook_context(
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, run_id=run_id, feature_names=("value_int",)
+        ).activate():
             extender(outer_func)
 
         assert transport.events
+        complete_outputs = transport.events[-1].outputs or []
+        assert any("schema" in (output.facets or {}) for output in complete_outputs) or not self.emits_schema_facets()
         for event in transport.events:
             payload = json.loads(Serde.to_json(event))
             producer = payload["producer"]

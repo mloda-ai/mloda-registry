@@ -494,6 +494,34 @@ class TestOtelExtenderContentCapture:
         assert masked in str(attrs[_CONTENT_ATTRIBUTE])
 
 
+class TestOtelExtenderPreCallInstrumentationFailure:
+    """A bug in the extender's OWN pre-call code (_set_context_attributes) runs before the
+    try/except around func; since the span is started with set_status_on_exception=False, only the
+    explicit except block marks a span ERROR, so a pre-call failure must still leave the span ERROR."""
+
+    def test_pre_call_instrumentation_failure_marks_span_error_and_propagates(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mloda.community.extenders.otel import otel_extender as otel_extender_module
+
+        def broken_set_context_attributes(span: Any, context: Any) -> None:
+            raise RuntimeError("attrs boom")
+
+        monkeypatch.setattr(otel_extender_module, "_set_context_attributes", broken_set_context_attributes)
+
+        provider, exporter = otel_capture
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+        otel = OtelExtender(tracer_provider=provider)
+
+        with context.activate():
+            with pytest.raises(RuntimeError, match="attrs boom"):
+                otel(lambda: None)
+
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1, spans
+        assert spans[0].status.status_code == StatusCode.ERROR
+
+
 class TestOtelExtenderPostCallInstrumentationFailure:
     """A bug in the extender's OWN post-call code (reading context.rows_out, then mask/str on a result
     that func already returned successfully) runs outside any try/except, inside the

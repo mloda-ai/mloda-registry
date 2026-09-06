@@ -167,7 +167,7 @@ The mixin pins:
 - per-hook span names, when `expected_span_names()` is declared
 - a wrapped failure marks the span `ERROR` without leaking the exception message
 - the carrier parents the span; without a carrier, the trace id derives from `run_id`
-- `run_all` spans share one trace id
+- `run_all` spans share one trace id, and the check requires at least two spans, one of them the declared calculate span name
 - an interrupt (`BaseException`) still marks the span `ERROR` without leaking the exception message
 
 Helpers: `make_span_capture`, `single_span`, `single_span_attributes`, `inject_parent_carrier`.
@@ -204,7 +204,8 @@ The mixin pins:
 - an emit failure never masks the wrapped exception or corrupts the result
 - no event ever leaks the exception message
 - the parent facet ties the run to the ambient `run_id`
-- a nested `INPUT_DATA_LOAD` call becomes an input, on both COMPLETE and FAIL, when the extender wraps that hook
+- a nested `INPUT_DATA_LOAD` call becomes an input, on both COMPLETE and FAIL, when the extender wraps that hook; the input is attributed before the load runs, so a failing load still appears on the FAIL event, and inputs mean attempted reads
+- a START emit failure under warning-only mode never prevents the wrapped call from running
 - `run_all` events share one parent run id
 
 `RecordingTransport` and `make_recording_client` live in `mloda.testing.extenders.openlineage`.
