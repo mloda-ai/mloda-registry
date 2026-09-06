@@ -222,7 +222,7 @@ optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], 
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-ema]
-description = "EMA feature group (exponential moving average, adjust=False, null-skipping recurrence, per partition, row-preserving; pandas/polars native, pyarrow/duckdb/sqlite reject)"
+description = "EMA feature group (exponential moving average, adjust=False, null-skipping recurrence, per partition, row-preserving; pandas/polars/python_dict only, no pyarrow/duckdb/sqlite backend)"
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/ema"
 published = true
