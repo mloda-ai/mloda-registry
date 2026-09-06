@@ -18,17 +18,14 @@ A consumer's **group** options flow onto every input feature by default. **Conte
 | `context` | No | `inherit_context_keys` (child pull) or `propagate_context_keys` (consumer push) |
 | `in_features` | Never | not configurable |
 
-Forward-by-default means a consumer configured once at the top ("use backend X") transparently configures the upstream too. The cost: a consumer-local key you never meant for the upstream also forwards, and if the upstream does not accept it, resolution fails with:
+Forward-by-default means a consumer configured once at the top ("use backend X") transparently configures the upstream too. The cost: a consumer-local key you never meant for the upstream also forwards. Whether that fails resolution depends on the upstream: if the forwarded key carries a value its `PROPERTY_MAPPING` or a custom match hook rejects, resolution fails, naming the rejecting candidate and its reason:
 
 ```text
-Feature group(s) [...] match the name 'knowledge_graph' but reject it because of
-extra group option(s) {'top_k'}. Group options flow onto input features from the
-consumer by default; ... Keep them off 'knowledge_graph' by setting
-forward_group_exclude={...}, an allowlist, or forward_group=False on the child in
-the consumer's input_features.
+Feature group(s) eliminated while matching '<feature_name>':
+  - <Candidate> (option value): <reason>
 ```
 
-That is the signal to carve the key out.
+That is the signal to carve the key out with `forward_group_exclude`, an allowlist, or `forward_group=False`.
 
 ## The Directives
 
@@ -45,7 +42,7 @@ Set these on the `Feature(...)` you return from `input_features()`:
 
 `forward_group=False` combined with a non-empty `forward_group_exclude` is contradictory and raises `ValueError`.
 
-`feature_chainer_parser_key` carries no special meaning here: a leftover key from an older integration forwards like any other group option and can trigger the "extra group option(s)" rejection above if the upstream does not recognize it.
+`feature_chainer_parser_key` carries no special meaning here: a leftover key from an older integration forwards like any other group option and can trigger the rejection above if the upstream does not accept it.
 
 ## Worked Example: A Connector Consuming a Source Feature
 
