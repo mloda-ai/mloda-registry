@@ -226,7 +226,7 @@ description = "EMA feature group (exponential moving average, adjust=False, null
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/ema"
 published = true
-optional_dependencies = { pyarrow = ["pyarrow"], sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars"], pandas = ["pandas"], all = ["pyarrow", "polars", "pandas", "duckdb"] }
+optional_dependencies = { python_dict = [], polars = ["polars"], pandas = ["pandas"], all = ["polars", "pandas"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-sessionization]
