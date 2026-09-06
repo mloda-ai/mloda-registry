@@ -73,6 +73,10 @@ Only the extender's own failure is caught. An exception raised by the wrapped fu
 
 Only needed with `ParallelizationMode.MULTIPROCESSING`. Avoid unpicklable instance variables (locks, tracers, connections). Use class-level storage or create resources lazily in `__call__()`.
 
+## Emitting on the calculation thread
+
+Extender code runs inline with the wrapped call. A blocking sink stalls every wrapped call, and when `raise_on_error` is `True` a sink failure fails the run. For OpenLineage, prefer the `async_http` transport or a short timeout in production, configured through `OPENLINEAGE_CONFIG` or `OPENLINEAGE__TRANSPORT__*` environment variables, and keep `raise_on_error=False` for observability.
+
 ## Usage
 
 ```python

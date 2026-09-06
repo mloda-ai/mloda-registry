@@ -117,6 +117,11 @@ hard dependency (today `mloda-community[otel]` and `mloda-community[openlineage]
 together via `mloda-community[all]`), and its manifest must import cleanly without that
 dependency installed so entry-point loading of the rest of the bundle stays intact.
 
+Moving a dependency behind an extra like this is a breaking change for an existing install:
+an environment that already imports the extender from the bundle without the matching extra
+starts hitting an `ImportError`, and the manifest quietly drops the extender from plugin
+discovery instead of registering it.
+
 ### Individual packages
 
 Aggregation uses optional dependencies to avoid a circular dependency: the base

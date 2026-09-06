@@ -9,5 +9,6 @@ try:
 except ModuleNotFoundError as exc:
     if (exc.name or "").split(".")[0] != "openlineage":
         raise
+    from ._missing_dependency import __getattr__  # noqa: F401
 else:
     __all__ = ["OpenLineageExtender"]

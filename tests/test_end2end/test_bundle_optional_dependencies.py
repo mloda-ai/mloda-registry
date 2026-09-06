@@ -18,6 +18,7 @@ else:
 
 import pytest
 
+from mloda.testing.import_isolation import block_root, evict_package
 from tests.script_loader import load_script
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -203,24 +204,11 @@ def test_extra_only_bundle_dependencies_have_import_safe_manifests(monkeypatch: 
                     f"'{bundle_name}' optional extra; add {dist_name!r} to _IMPORT_ROOT_OF_DISTRIBUTION "
                     "in this test so its manifest can be checked for an import-safe degrade"
                 )
-                monkeypatch.setitem(sys.modules, root, None)
-                for name in list(sys.modules):
-                    if name == root or name.startswith(f"{root}."):
-                        monkeypatch.setitem(sys.modules, name, None)
+                block_root(monkeypatch, root)
 
-            for name in list(sys.modules):
-                if name == dotted or name.startswith(f"{dotted}."):
-                    monkeypatch.delitem(sys.modules, name, raising=False)
+            evict_package(monkeypatch, dotted)
 
             manifest_name = f"{dotted}.manifest"
-            # monkeypatch.delitem is a no-op (untracked) when the key is absent, but the imports below
-            # insert fresh modules directly into sys.modules; setitem always tracks a restore, even for
-            # an absent key, so this guarantees teardown removes whatever we cold-import next, however
-            # it was cached (or not) before this test ran.
-            for fresh_name in (dotted, manifest_name):
-                monkeypatch.setitem(sys.modules, fresh_name, None)
-                monkeypatch.delitem(sys.modules, fresh_name, raising=False)
-
             module = importlib.import_module(manifest_name)
 
             for group in groups:
@@ -238,7 +226,7 @@ def test_extra_only_bundle_dependencies_have_import_safe_manifests(monkeypatch: 
             )
             leaf_module = importlib.import_module(dotted)
             for attr in exposed_attrs:
-                assert not hasattr(leaf_module, attr), (
+                assert attr not in vars(leaf_module), (
                     f"{dotted} still exposes {attr!r} after blocking {covered_only_by_extra}; "
                     f"{leaf_name} is covered only through {bundle_name}'s extra, so the package's "
                     "__init__ must not import it eagerly"
