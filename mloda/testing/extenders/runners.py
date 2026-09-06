@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-import uuid
+from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
 from mloda.provider import ComputeFramework, DataCreator, FeatureGroup, FeatureSet
 from mloda.steward import Extender, ExtenderHook
-from mloda.user import PluginCollector, mloda
+from mloda.user import Feature, FeatureName, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFeature
+from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
 
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 
@@ -33,6 +35,65 @@ def run_value_int(*extenders: Extender) -> list[Any]:
             column: list[Any] = table.to_pydict()["value_int"]
             return column
     raise AssertionError("No result table with value_int found")
+
+
+class ValueIntPlusOne(FeatureGroup):
+    """Adds one to `value_int`, null-safe; used to exercise two chained calculate invocations."""
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        return {Feature("value_int")}
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
+        return {PyArrowTable}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        values = data["value_int"].to_pylist()
+        return {cls.get_class_name(): [None if v is None else v + 1 for v in values]}
+
+
+def run_two_features(*extenders: Extender) -> list[Any]:
+    """Run `ValueIntPlusOne` (depends on `value_int`) through the pipeline; return the plus-one column.
+
+    This chains two FEATURE_GROUP_CALCULATE_FEATURE invocations (the data creator, then this
+    feature group) within one run.
+    """
+    plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, ValueIntPlusOne})
+    column_name = ValueIntPlusOne.get_class_name()
+    results = mloda.run_all(
+        [column_name],
+        compute_frameworks={PyArrowTable},
+        plugin_collector=plugin_collector,
+        function_extender=set(extenders),
+    )
+    for table in results:
+        if isinstance(table, pa.Table) and column_name in table.column_names:
+            column: list[Any] = table.to_pydict()[column_name]
+            return column
+    raise AssertionError(f"No result table with {column_name} found")
+
+
+def run_csv_feature(directory: Path, *extenders: Extender) -> list[Any]:
+    """Write a small CSV into `directory` and run its `alpha` column through the pipeline; return it.
+
+    This fires an INPUT_DATA_LOAD hook nested inside ReadFileFeature.calculate_feature, with
+    `data_access_identity` equal to the CSV's path.
+    """
+    path = directory / "data.csv"
+    path.write_text("alpha,beta\n1,2\n3,4\n", encoding="utf-8")
+    plugin_collector = PluginCollector.enabled_feature_groups({ReadFileFeature})
+    results = mloda.run_all(
+        [Feature("alpha", options={CsvReader.__name__: str(path)})],
+        compute_frameworks={PyArrowTable},
+        plugin_collector=plugin_collector,
+        function_extender=set(extenders),
+    )
+    for table in results:
+        if isinstance(table, pa.Table) and "alpha" in table.column_names:
+            column: list[Any] = table.to_pydict()["alpha"]
+            return column
+    raise AssertionError("No result table with alpha found")
 
 
 class CountingExtender(Extender):
@@ -81,9 +142,6 @@ def failing_feature_group(feature_name: str) -> type[FailingFeatureGroup]:
 
     _Failing.feature_name = feature_name
     _Failing.calls = 0
-    suffix = uuid.uuid4().hex[:8]
-    _Failing.__name__ = f"FailingFeatureGroup_{feature_name}_{suffix}"
-    _Failing.__qualname__ = f"FailingFeatureGroup_{feature_name}_{suffix}"
     return _Failing
 
 

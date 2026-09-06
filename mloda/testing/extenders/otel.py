@@ -19,7 +19,7 @@ from opentelemetry.trace import StatusCode
 
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
-from mloda.testing.extenders.runners import expected_value_int, run_value_int
+from mloda.testing.extenders.runners import run_two_features
 
 
 def make_span_capture() -> tuple[TracerProvider, InMemorySpanExporter]:
@@ -240,12 +240,18 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
 
     def test_otel_run_all_spans_share_one_trace_id(self) -> None:
         provider, exporter = make_span_capture()
-        assert run_value_int(self.make_otel_extender(provider)) == expected_value_int()
+        run_two_features(self.make_otel_extender(provider))
 
         spans = exporter.get_finished_spans()
-        assert spans
+        assert len(spans) >= 2
         trace_ids = set()
         for span in spans:
             assert span.context is not None
             trace_ids.add(span.context.trace_id)
         assert len(trace_ids) == 1
+
+        expected = self.expected_span_names()
+        if expected is not None:
+            allowed_names = set(expected.values())
+            for span in spans:
+                assert span.name in allowed_names

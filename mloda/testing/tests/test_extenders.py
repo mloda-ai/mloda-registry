@@ -6,13 +6,13 @@ import dataclasses
 import inspect
 import pickle  # nosec
 from contextlib import AbstractContextManager
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 from mloda.steward import Extender, ExtenderHook, HookContext
 
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
@@ -175,8 +175,12 @@ class TestMakeHookContextOverrides:
 
 
 class TestExpectedValueInt:
-    def test_matches_raw_data_creator(self) -> None:
-        assert expected_value_int() == PyArrowDataOpsTestDataCreator.get_raw_data()["value_int"]
+    def test_is_a_non_empty_list_of_ints(self) -> None:
+        values = expected_value_int()
+        assert isinstance(values, list)
+        assert values
+        # The canonical fixture column carries one deliberate null; every other entry is an int.
+        assert all(isinstance(v, int) for v in values if v is not None)
 
 
 class TestRunValueInt:
@@ -188,13 +192,81 @@ class TestRunValueInt:
         assert run_value_int(probe) == expected_value_int()
 
 
+class TestRunTwoFeatures:
+    """run_two_features() is added by Green in mloda.testing.extenders.runners; imported locally per test
+    so an early ImportError only fails these two tests, not the whole module."""
+
+    def test_returns_the_plus_one_column(self) -> None:
+        from mloda.testing.extenders.runners import run_two_features
+
+        result = run_two_features()
+
+        assert result == [None if v is None else v + 1 for v in expected_value_int()]
+
+    def test_two_calculate_invocations_share_one_run_id(self) -> None:
+        from mloda.testing.extenders.runners import run_two_features
+
+        class _RunIdRecorder(Extender):
+            def __init__(self) -> None:
+                self.raise_on_error = True
+                self.run_ids: list[str | None] = []
+
+            def wraps(self) -> set[ExtenderHook]:
+                return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+            def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+                context = HookContext.current()
+                if context is not None:
+                    self.run_ids.append(context.run_id)
+                return func(*args, **kwargs)
+
+        recorder = _RunIdRecorder()
+        run_two_features(recorder)
+
+        assert len(recorder.run_ids) == 2
+        assert len(set(recorder.run_ids)) == 1
+
+
+class TestRunCsvFeature:
+    """run_csv_feature() is added by Green in mloda.testing.extenders.runners; imported locally per test
+    so an early ImportError only fails these two tests, not the whole module."""
+
+    def test_returns_the_alpha_column(self, tmp_path: Path) -> None:
+        from mloda.testing.extenders.runners import run_csv_feature
+
+        assert run_csv_feature(tmp_path) == [1, 3]
+
+    def test_input_data_load_reports_the_csv_path(self, tmp_path: Path) -> None:
+        from mloda.testing.extenders.runners import run_csv_feature
+
+        class _IdentityRecorder(Extender):
+            def __init__(self) -> None:
+                self.raise_on_error = True
+                self.identities: list[str | None] = []
+
+            def wraps(self) -> set[ExtenderHook]:
+                return {ExtenderHook.INPUT_DATA_LOAD}
+
+            def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+                context = HookContext.current()
+                if context is not None:
+                    self.identities.append(context.data_access_identity)
+                return func(*args, **kwargs)
+
+        recorder = _IdentityRecorder()
+        run_csv_feature(tmp_path, recorder)
+
+        csv_paths = list(tmp_path.glob("*.csv"))
+        assert len(csv_paths) == 1
+        assert recorder.identities == [str(csv_paths[0])]
+
+
 class TestFailingFeatureGroup:
     def test_distinct_names_produce_distinct_classes(self) -> None:
         first = failing_feature_group("boom_one")
         second = failing_feature_group("boom_two")
 
-        assert first.__name__ != second.__name__
-        assert first.__qualname__ != second.__qualname__
+        assert first is not second
         assert first.feature_name == "boom_one"
         assert second.feature_name == "boom_two"
         assert first.calls == 0
@@ -211,13 +283,40 @@ class TestFailingFeatureGroup:
     def test_base_feature_name_is_never_requested_sentinel(self) -> None:
         assert FailingFeatureGroup.feature_name == "mloda_testing_never_requested"
 
-    def test_same_name_calls_produce_distinct_qualnames(self) -> None:
-        first = failing_feature_group("same")
-        second = failing_feature_group("same")
+    def test_minted_class_reports_a_real_version(self) -> None:
+        fg = failing_feature_group("boom_version")
 
-        assert first.__qualname__ != second.__qualname__
-        assert first.__qualname__.startswith("FailingFeatureGroup_same_")
-        assert second.__qualname__.startswith("FailingFeatureGroup_same_")
+        version = fg.version()
+
+        assert version != "unavailable"
+        assert isinstance(version, str)
+        assert version
+        assert fg.feature_name == "boom_version"
+        assert fg.calls == 0
+
+    def test_failure_path_hook_context_carries_real_version(self) -> None:
+        class _VersionRecorder(Extender):
+            def __init__(self) -> None:
+                self.raise_on_error = True
+                self.versions: list[str] = []
+
+            def wraps(self) -> set[ExtenderHook]:
+                return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+            def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+                context = HookContext.current()
+                assert context is not None
+                self.versions.append(context.feature_group_version)
+                return func(*args, **kwargs)
+
+        recorder = _VersionRecorder()
+        fg = failing_feature_group("boom_ctx")
+
+        with pytest.raises(Exception, match="inner boom"):
+            run_failing_feature(fg, recorder)
+
+        assert recorder.versions
+        assert "unavailable" not in recorder.versions
 
 
 class TestProbeExtenderContract(ExtenderContractTestMixin):

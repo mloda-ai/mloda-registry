@@ -6,6 +6,7 @@ import json
 import logging
 import os
 from contextlib import AbstractContextManager
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -19,7 +20,7 @@ from openlineage.client.transport.transport import Config, Transport
 
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
-from mloda.testing.extenders.runners import expected_value_int, run_value_int
+from mloda.testing.extenders.runners import run_csv_feature, run_two_features
 
 
 class RecordingTransport(Transport):
@@ -38,9 +39,20 @@ class RecordingTransport(Transport):
 
 
 def make_recording_client() -> tuple[OpenLineageClient, RecordingTransport]:
-    """An OpenLineageClient wired to a fresh RecordingTransport."""
+    """An OpenLineageClient wired to a fresh RecordingTransport.
+
+    OPENLINEAGE_DISABLED is popped from the environment for the constructor call only: with it
+    set, OpenLineageClient silently replaces any given transport with its own noop transport.
+    """
     transport = RecordingTransport()
-    return OpenLineageClient(transport=transport), transport
+    with patch.dict(os.environ):
+        os.environ.pop("OPENLINEAGE_DISABLED", None)
+        client = OpenLineageClient(transport=transport)
+    assert client.transport is transport, (
+        "OPENLINEAGE_DISABLED was set during OpenLineageClient construction, so the recording "
+        "transport was replaced by a noop one"
+    )
+    return client, transport
 
 
 def _collect_values_for_key(obj: Any, key: str) -> list[Any]:
@@ -363,11 +375,10 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
 
     def test_openlineage_run_all_events_share_one_parent_run_id(self) -> None:
         client, transport = make_recording_client()
-        assert run_value_int(self.make_openlineage_extender(client)) == expected_value_int()
+        run_two_features(self.make_openlineage_extender(client))
 
-        event_types = {event.eventType for event in transport.events}
-        assert RunState.START in event_types
-        assert RunState.COMPLETE in event_types
+        start_events = [event for event in transport.events if event.eventType == RunState.START]
+        assert len(start_events) >= 2
 
         parent_run_ids = set()
         for event in transport.events:
@@ -376,6 +387,27 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             assert isinstance(parent, parent_run.ParentRunFacet)
             parent_run_ids.add(parent.run.runId)
         assert len(parent_run_ids) == 1
+
+        run_ids = {event.run.runId for event in start_events}
+        assert len(run_ids) >= 2
+
+    def test_openlineage_run_all_reader_backed_feature_reports_input_dataset(self, tmp_path: Path) -> None:
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+        if ExtenderHook.INPUT_DATA_LOAD not in extender.wraps():
+            pytest.skip("extender does not wrap INPUT_DATA_LOAD")
+
+        assert run_csv_feature(tmp_path, extender) == [1, 3]
+
+        csv_paths = list(tmp_path.glob("*.csv"))
+        assert len(csv_paths) == 1
+
+        complete_events = [event for event in transport.events if event.eventType == RunState.COMPLETE]
+        assert len(complete_events) == 1
+        complete_event = complete_events[0]
+        assert complete_event.inputs is not None
+        assert len(complete_event.inputs) == 1
+        assert complete_event.inputs[0].name == str(csv_paths[0])
 
     def test_openlineage_facet_producers_match_event_producer(self) -> None:
         client, transport = make_recording_client()
@@ -399,5 +431,18 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         for event in transport.events:
             payload = json.loads(Serde.to_json(event))
             producer = payload["producer"]
-            offending = [value for value in _collect_values_for_key(payload, "_producer") if value != producer]
+            # Client-injected run facets (e.g. its "tags" facet) keep the client's own producer,
+            # so only the facets the extender itself builds are checked here.
+            facet_groups = []
+            parent_facet = (payload.get("run") or {}).get("facets") or {}
+            if "parent" in parent_facet:
+                facet_groups.append(parent_facet["parent"])
+            facet_groups.extend((dataset.get("facets") or {}) for dataset in payload.get("inputs") or [])
+            facet_groups.extend((dataset.get("facets") or {}) for dataset in payload.get("outputs") or [])
+            offending = [
+                value
+                for facets in facet_groups
+                for value in _collect_values_for_key(facets, "_producer")
+                if value != producer
+            ]
             assert not offending, offending

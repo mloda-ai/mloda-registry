@@ -115,8 +115,12 @@ class ExtenderContractTestMixin:
                 with caplog.at_level(logging.WARNING):
                     result = composite(lambda a, b: a + b, 3, 4)
         assert result == 7
+        name = self.extender_class().__name__
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any(self.extender_class().__name__ in message for message in warnings)
+        assert any(name in message for message in warnings), (
+            f"{name}: own_failure() did not fault the extender's own code; "
+            "override own_failure() (see docs/guides/11-create-extender.md)"
+        )
 
     def test_contract_own_failure_propagates_when_raise_on_error_true(self) -> None:
         composite = _CompositeExtender([self.make_extender(raise_on_error=True)])
@@ -165,7 +169,7 @@ class ExtenderContractTestMixin:
             with make_hook_context(hook=self.context_hook()).activate():
                 assert copy(lambda a, b: a + b, 3, 4) == 7
 
-    def test_contract_own_failure_does_not_stop_chained_extender(self) -> None:
+    def test_contract_own_failure_does_not_stop_chained_extender(self, caplog: pytest.LogCaptureFixture) -> None:
         if not self.supports_warning_only():
             pytest.skip("extender is breaking-only")
         extender = self.make_extender(raise_on_error=False)
@@ -174,8 +178,15 @@ class ExtenderContractTestMixin:
         composite = _CompositeExtender([extender, counting])
         with make_hook_context(hook=self.context_hook()).activate():
             with self.own_failure():
-                assert composite(lambda a, b: a + b, 3, 4) == 7
+                with caplog.at_level(logging.WARNING):
+                    assert composite(lambda a, b: a + b, 3, 4) == 7
         assert counting.calls == 1
+        name = self.extender_class().__name__
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any(name in message for message in warnings), (
+            f"{name}: own_failure() did not fault the extender's own code; "
+            "override own_failure() (see docs/guides/11-create-extender.md)"
+        )
 
     def test_contract_run_all_own_failure_falls_back_when_raise_on_error_false(
         self, caplog: pytest.LogCaptureFixture
@@ -189,5 +200,9 @@ class ExtenderContractTestMixin:
             with caplog.at_level(logging.WARNING):
                 assert run_value_int(extender, counting) == expected_value_int()
         assert counting.calls >= 1
+        name = self.extender_class().__name__
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any(self.extender_class().__name__ in message for message in warnings)
+        assert any(name in message for message in warnings), (
+            f"{name}: own_failure() did not fault the extender's own code; "
+            "override own_failure() (see docs/guides/11-create-extender.md)"
+        )

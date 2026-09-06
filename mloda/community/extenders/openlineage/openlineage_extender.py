@@ -14,7 +14,7 @@ from mloda.steward import Extender, ExtenderHook, HookContext
 
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
-from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset, set_producer
+from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset
 
 logger = logging.getLogger(__name__)
 
@@ -120,9 +120,6 @@ class OpenLineageExtender(Extender):
         return None
 
     def _call_calculate_feature(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
-        # Also covers facets the client library injects itself (e.g. its "tags" run facet), which
-        # otherwise fall back to the library's own default producer instead of ours.
-        set_producer(_PRODUCER)
         run_facets: dict[str, Any] = {}
         if context.run_id is not None:
             run_facets["parent"] = parent_run.ParentRunFacet(

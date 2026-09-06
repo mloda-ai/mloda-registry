@@ -167,3 +167,54 @@ class TestProbeOtelExtenderContract(OtelExtenderTestMixin):
     @classmethod
     def expected_span_names(cls) -> dict[ExtenderHook, str] | None:
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: _SPAN_NAME}
+
+
+class _CachedTracerProbeOtelExtender(Extender):
+    """Copy of _ProbeOtelExtender that resolves its tracer once in __init__ and never calls get_tracer again."""
+
+    def __init__(self, tracer_provider: TracerProvider | None = None, raise_on_error: bool = False) -> None:
+        self.raise_on_error = raise_on_error
+        self._tracer_provider = tracer_provider
+        self._tracer = trace.get_tracer("mloda-testing-probe-otel-cached", tracer_provider=tracer_provider)
+
+    def __getstate__(self) -> dict[str, Any]:
+        state = dict(self.__dict__)
+        state["_tracer_provider"] = None
+        state["_tracer"] = None
+        return state
+
+    def wraps(self) -> set[ExtenderHook]:
+        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        context = HookContext.current()
+        parent = _parent_context(context)
+        with self._tracer.start_as_current_span(
+            _SPAN_NAME, record_exception=False, context=parent, set_status_on_exception=False
+        ) as span:
+            try:
+                return func(*args, **kwargs)
+            except BaseException as exc:
+                span.set_status(Status(StatusCode.ERROR))
+                span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
+                raise
+
+
+class TestOwnFailureDefaultDetectsNoFault:
+    """Proves the chained own_failure() test is no longer vacuous for a probe with an already-cached tracer."""
+
+    def test_default_own_failure_fails_loudly_when_nothing_is_faulted(self, caplog: pytest.LogCaptureFixture) -> None:
+        class _Host(OtelExtenderTestMixin):
+            @classmethod
+            def extender_class(cls) -> type[Extender]:
+                return _CachedTracerProbeOtelExtender
+
+            def make_otel_extender(
+                self, tracer_provider: TracerProvider, *, raise_on_error: bool | None = None
+            ) -> Extender:
+                if raise_on_error is None:
+                    return _CachedTracerProbeOtelExtender(tracer_provider=tracer_provider)
+                return _CachedTracerProbeOtelExtender(tracer_provider=tracer_provider, raise_on_error=raise_on_error)
+
+        with pytest.raises(AssertionError, match="own_failure"):
+            _Host().test_contract_own_failure_does_not_stop_chained_extender(caplog)
