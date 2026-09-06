@@ -41,7 +41,6 @@ _ARTIFACT_PATHS = [
     "__pycache__/module.py",
     "pkg/dep.egg-info",
     "migrations/0001_initial.py",
-    "./.devcontainer/setup.py",
     ".vscode/settings.json",
     "attribution/report.py",
 ]

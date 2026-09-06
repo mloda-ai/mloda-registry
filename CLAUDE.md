@@ -89,7 +89,7 @@ Issues that meet this bar are eligible for the `good first issue` label without 
 
 ## Virtual Environment Setup
 
-If not in a devcontainer, set up the environment:
+Set up the environment:
 
 ```bash
 # 1. Install uv (if not already installed)
@@ -112,9 +112,9 @@ source .venv/bin/activate
 uv sync --all-extras --all-packages
 ```
 
-## Devcontainer Tox Usage
+## Tox Usage
 
-- Use `tox` when running tests without dependency changes (uses pre-built environment)
+- Use `tox` when running tests without dependency changes
 - Use `uv run tox` when dependencies have changed (rebuilds environment with new deps)
 
 ## Package Management
