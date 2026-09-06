@@ -19,12 +19,18 @@ installed package), so it is loaded here by file path.
 
 from __future__ import annotations
 
+import copy
 import shutil
 import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 from tests.script_loader import load_script
 
@@ -140,6 +146,37 @@ def test_meta_package_without_py_typed_still_generates() -> None:
 
     assert "packages = []" in content, content
     assert "package-data" not in content, content
+
+
+def test_generate_escapes_quotes_and_backslashes_in_free_text_fields() -> None:
+    """Free-text fields with ``"`` and ``\\`` must produce parseable TOML.
+
+    Descriptions and URLs are emitted verbatim into ``pyproject.toml``. A stray
+    double quote or backslash used to terminate the TOML string early and yield
+    malformed output. Every string value now passes through ``to_toml_string``,
+    so the generated file both parses via ``tomllib`` and round-trips the exact
+    values. See issue #560.
+    """
+    shared, packages_config = gen.load_configs()
+    packages = packages_config.get("packages", {})
+
+    nasty_description = 'A "quoted" registry with a \\ backslash and a trailing "'
+    nasty_url = 'https://example.com/"weird"\\path'
+
+    # Deep-copy so the injected special characters never touch the real config.
+    shared = copy.deepcopy(shared)
+    shared["project"]["urls"]["Weird"] = nasty_url
+
+    pkg_config = copy.deepcopy(packages["mloda-registry"])
+    pkg_config["description"] = nasty_description
+
+    content = gen.generate_pyproject("mloda-registry", pkg_config, shared, packages)
+
+    # The whole document must parse; an unescaped quote/backslash would raise here.
+    parsed = tomllib.loads(content)
+
+    assert parsed["project"]["description"] == nasty_description, parsed["project"]["description"]
+    assert parsed["project"]["urls"]["Weird"] == nasty_url, parsed["project"]["urls"]["Weird"]
 
 
 def test_discover_packages_excludes_real_egg_info_dirs(tmp_path: Path) -> None:
