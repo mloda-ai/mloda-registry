@@ -16,7 +16,7 @@ Submit your plugin to mloda-registry for others to use.
    mloda/community/feature_groups/your_plugin/
    ```
 
-3. **Add to package config** in `config/packages.toml`. A plugin that should also ship as its own PyPI distribution, not only inside the `mloda-community` bundle wheel, needs `published = true`. For a typed plugin, set `py_typed = true` and commit an empty `<path>/py.typed`. A plugin nested under an already-typed path (anything under `data_operations/`) inherits the ancestor marker and needs neither the flag nor its own file. Such a plugin must floor its dependency on the marker-shipping base at the release that first shipped the marker, otherwise an older base resolves and the plugin installs untyped.
+3. **Add to package config** in `config/packages.toml`. A plugin that should also ship as its own PyPI distribution, not only inside the `mloda-community` bundle wheel, needs `published = true`. For a typed plugin, set `py_typed = true` and commit an empty `<path>/py.typed`. A plugin nested under an already-typed path (anything under `data_operations/`) inherits the ancestor marker and needs neither the flag nor its own file. Its dependency on that base is declared as `"<base>>={version}"` in `config/packages.toml`, and the generator expands the placeholder (see [Sibling dependency floors](../packaging.md#sibling-dependency-floors)).
 
 4. **Run tests** to ensure everything works:
    ```bash

@@ -24,7 +24,6 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
 _VERIFY_BUILDS_PATH = _REPO_ROOT / "scripts" / "verify_builds.py"
 _PUBLISHED_PACKAGES_PATH = _REPO_ROOT / "scripts" / "published_packages.py"
-_VERIFY_FLOOR_INSTALLS_PATH = _REPO_ROOT / "scripts" / "verify_floor_installs.py"
 
 # The bundle distributions, always part of the released set.
 _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterprise"]
@@ -43,7 +42,6 @@ _MARKER_FLOORS = {
 
 gen = load_script("generate_pyproject", _GEN_PATH)
 vb = load_script("verify_builds", _VERIFY_BUILDS_PATH)
-vf = load_script("verify_floor_installs", _VERIFY_FLOOR_INSTALLS_PATH)
 
 
 def _packages() -> dict[str, dict[str, Any]]:
@@ -206,51 +204,16 @@ def test_marker_floors_cover_exactly_the_non_bundle_typed_packages() -> None:
     )
 
 
-def _declared_floor(dep: str, base_name: str) -> str | None:
-    """The '>=' version floor a dependency string declares on ``base_name``, or None if it names another package
-    (or names ``base_name`` without a '>=' floor). Reuses verify_floor_installs' DEP_NAME_RE/FLOOR_RE so extras
-    markers (e.g. "pkg[all]>=0.4.0") and other PEP 508 spellings parse the same way here as they do there."""
-    requirement = dep.strip()
-    name_match = vf.DEP_NAME_RE.match(requirement)
-    if not name_match:
-        return None
-    name = re.sub(r"[-_.]+", "-", name_match.group(1)).lower()
-    if name != base_name:
-        return None
-    floor_match = vf.FLOOR_RE.search(requirement)
-    return floor_match.group(1) if floor_match else None
-
-
-def _leaves_with_marker_floor_dependency() -> list[tuple[str, str, str]]:
-    """(leaf_pkg_name, base_pkg_name, declared_floor) for every configured, non-typed package depending on one of
-    _MARKER_FLOORS' keys."""
-    packages = _packages()
-    found: list[tuple[str, str, str]] = []
-    for pkg_name, cfg in packages.items():
-        if pkg_name in _TYPED_PACKAGES:
-            continue
-        for dep in cfg.get("dependencies", []):
-            for base_name in _MARKER_FLOORS:
-                floor = _declared_floor(dep, base_name)
-                if floor is not None:
-                    found.append((pkg_name, base_name, floor))
-    assert found, (
-        "expected at least one configured, non-typed package to declare a '>=' floor on a _MARKER_FLOORS base; "
-        "an empty result here would silently skip test_leaf_dependency_floor_meets_py_typed_marker instead of "
-        "failing it"
-    )
-    return found
-
-
-@pytest.mark.parametrize("pkg_name,base_name,declared_floor", _leaves_with_marker_floor_dependency())
-def test_leaf_dependency_floor_meets_py_typed_marker(pkg_name: str, base_name: str, declared_floor: str) -> None:
-    """A leaf's declared floor on its typed base must be at or above the base release that first shipped py.typed,
-    or an environment can resolve an older, unmarked base and the leaf silently installs untyped."""
-    required = _MARKER_FLOORS[base_name]
-    assert version_tuple(declared_floor) >= version_tuple(required), (
-        f"{pkg_name}: declares '{base_name}>={declared_floor}', but {base_name}'s py.typed marker first shipped "
-        f"in {required}; bump config/packages.toml to '{base_name}>={required}' for {pkg_name}"
-    )
+def test_marker_floor_versions_are_at_or_below_the_shared_project_version() -> None:
+    """Every sibling floor the generator emits is [project].version itself, so the only invariant left
+    to check is that the shared version hasn't regressed below a recorded py.typed marker floor."""
+    shared, _packages_config = gen.load_configs()
+    current = version_tuple(shared["project"]["version"])
+    for base_name, first in _MARKER_FLOORS.items():
+        assert current >= version_tuple(first), (
+            f"{base_name}: [project].version {shared['project']['version']!r} is below the recorded py.typed "
+            f"marker floor {first!r}"
+        )
 
 
 def _write_wheel(path: Path, names: list[str]) -> Path:

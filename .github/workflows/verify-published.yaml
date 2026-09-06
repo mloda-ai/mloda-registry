@@ -54,12 +54,6 @@ jobs:
       run: tox -e verify-extras
       timeout-minutes: 10
 
-    - name: Verify floors install
-      env:
-        MLODA_REGISTRY_VERSION: ${{ steps.get_version.outputs.version }}
-      run: tox -e verify-floor-installs
-      timeout-minutes: 10
-
     - name: Verify typed leaf install
       env:
         MLODA_REGISTRY_VERSION: ${{ steps.get_version.outputs.version }}

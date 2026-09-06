@@ -32,6 +32,18 @@ HEADER = """\
 # Expands to the published packages nested under a package's path. See issue #345.
 PUBLISHED_CHILDREN = "{published_children}"
 
+# Expands to [project].version in shared.toml; sibling dependencies must use this instead of a hand-written floor.
+VERSION_PLACEHOLDER = "{version}"
+
+# The distribution name a PEP 508 dependency string starts with; placeholders like {core_dependency} match none.
+DEP_NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
+
+# A sibling requirement (marker already stripped), spelled exactly '<name>[extras]>={version}'.
+SIBLING_FLOOR_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?\s*>=\s*\{version\}\s*$")
+
+# A bare sibling requirement: just the name (and optional extras), no specifier at all.
+BARE_SIBLING_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?\s*$")
+
 # Entry-point group -> manifest attribute exposing the concrete plugin classes.
 # mloda 0.9.0 discovers installed plugins through these entry-point groups; each
 # plugin package ships a ``manifest.py`` listing its concrete plugin classes
@@ -41,6 +53,101 @@ ENTRY_POINT_ATTRS = {
     "mloda.compute_frameworks": "COMPUTE_FRAMEWORKS",
     "mloda.extenders": "EXTENDERS",
 }
+
+
+def normalize_package_name(name: str) -> str:
+    """PEP 503 normal form: lowercase, runs of '-', '_', '.' collapsed to '-'."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _validate_sibling_spelling(
+    pkg_name: str,
+    dep: str,
+    with_core: str,
+    canonical_siblings: set[str],
+    allow_bare: bool,
+) -> None:
+    """Raise if ``with_core`` hand-pins a sibling floor, or places {version} anywhere but '<sibling>[extras]>={version}'."""
+    requirement = with_core.split(";", 1)[0]
+    match = DEP_NAME_RE.match(requirement)
+    is_sibling = match is not None and normalize_package_name(match.group(1)) in canonical_siblings
+    spelled_as_floor = is_sibling and SIBLING_FLOOR_RE.match(requirement) is not None
+
+    if is_sibling and not spelled_as_floor and not (allow_bare and BARE_SIBLING_RE.match(requirement) is not None):
+        raise ValueError(
+            f"{pkg_name}: sibling dependency {dep!r} must use the {{version}} placeholder instead of a hand-written floor"
+        )
+
+    if VERSION_PLACEHOLDER in with_core and not (spelled_as_floor and with_core.count(VERSION_PLACEHOLDER) == 1):
+        message = (
+            f"{pkg_name}: dependency {dep!r} uses {{version}} outside a sibling floor "
+            "spelled '<sibling>[extras]>={version}'"
+        )
+        if with_core != dep:
+            message += f" (expands to {with_core!r})"
+        raise ValueError(message)
+
+
+def _resolve_dep_list(
+    pkg_name: str,
+    raw_deps: list[str],
+    shared: dict[str, Any],
+    all_packages: dict[str, dict[str, Any]],
+    allow_bare_sibling: bool,
+) -> list[str]:
+    """Expand {core_dependency} first, validate sibling spelling on the result, then expand {version}."""
+    defaults = shared.get("defaults", {})
+    core_dep = defaults.get("core_dependency", "")
+    if not core_dep and any("{core_dependency}" in dep for dep in raw_deps):
+        raise ValueError(
+            f"{pkg_name}: dependency uses {{core_dependency}} placeholder but "
+            "[defaults].core_dependency is not set in config/shared.toml"
+        )
+
+    version = shared.get("project", {}).get("version")
+    if version is None and any(VERSION_PLACEHOLDER in dep for dep in raw_deps):
+        raise ValueError(
+            f"{pkg_name}: dependency uses {{version}} placeholder but "
+            "[project].version is not set in config/shared.toml"
+        )
+
+    canonical_siblings = {normalize_package_name(name) for name in all_packages}
+    resolved: list[str] = []
+    for dep in raw_deps:
+        with_core = dep.replace("{core_dependency}", core_dep)
+        _validate_sibling_spelling(pkg_name, dep, with_core, canonical_siblings, allow_bare_sibling)
+        expanded = with_core.replace(VERSION_PLACEHOLDER, str(version))
+        if "{" in expanded:
+            raise ValueError(
+                f"{pkg_name}: dependency {dep!r} still contains a placeholder after expansion ({expanded!r})"
+            )
+        resolved.append(expanded)
+    return resolved
+
+
+def resolve_dependencies(
+    pkg_name: str,
+    raw_deps: list[str],
+    shared: dict[str, Any],
+    all_packages: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Expand {core_dependency} and {version} placeholders in a package's plain ``dependencies``; raises if a
+    sibling dependency isn't spelled '<name>[extras]>={version}'."""
+    return _resolve_dep_list(pkg_name, raw_deps, shared, all_packages, allow_bare_sibling=False)
+
+
+def resolve_optional_dependencies(
+    pkg_name: str,
+    opt_deps: dict[str, list[str]],
+    shared: dict[str, Any],
+    all_packages: dict[str, dict[str, Any]],
+) -> dict[str, list[str]]:
+    """Expand {core_dependency} and {version} placeholders in a package's merged ``optional_dependencies``; a
+    sibling entry here may also be bare, unlike plain ``dependencies``' strict '<name>[extras]>={version}'."""
+    return {
+        group: _resolve_dep_list(pkg_name, deps, shared, all_packages, allow_bare_sibling=True)
+        for group, deps in opt_deps.items()
+    }
 
 
 def nested_package_names(pkg_path: str, all_packages: dict[str, dict[str, Any]]) -> list[str]:
@@ -110,10 +217,15 @@ def expand_published_children(
     return expanded
 
 
+def to_toml_string(value: str) -> str:
+    """Quote a string as a TOML basic string, escaping backslashes and double quotes."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def to_toml_list(items: list[str]) -> str:
-    """Format a list as TOML with double quotes."""
-    quoted = [f'"{item}"' for item in items]
-    return f"[{', '.join(quoted)}]"
+    """Format a list as a TOML array of quoted strings."""
+    return f"[{', '.join(to_toml_string(item) for item in items)}]"
 
 
 def discover_packages(pkg_path: str, exclude_paths: list[str] | None = None) -> list[str]:
@@ -177,6 +289,10 @@ def generate_pyproject(
     if "workspace_deps" in pkg_config and "py_typed" in pkg_config:
         raise ValueError(f"{pkg_name}: workspace_deps and py_typed are mutually exclusive")
 
+    # Resolved early so a missing version raises this function's own ValueError, not a raw KeyError.
+    defaults = shared.get("defaults", {})
+    deps = resolve_dependencies(pkg_name, pkg_config.get("dependencies", []), shared, all_packages)
+
     lines = [HEADER]
 
     # Build system
@@ -195,7 +311,6 @@ def generate_pyproject(
         lines.append('readme = "README.md"')
 
     # License - infer from path (enterprise = proprietary), or use default
-    defaults = shared.get("defaults", {})
     if pkg_config["path"].startswith("mloda/enterprise"):
         license_val = "LicenseRef-Proprietary"
     else:
@@ -207,16 +322,6 @@ def generate_pyproject(
     author_strs = [f'{{ name = "{a["name"]}", email = "{a["email"]}" }}' for a in authors]
     lines.append(f"authors = [{', '.join(author_strs)}]")
 
-    # Dependencies - substitute the shared core dependency placeholder so the
-    # mloda-core pin lives in exactly one place (config/shared.toml).
-    raw_deps = pkg_config.get("dependencies", [])
-    core_dep = defaults.get("core_dependency", "")
-    if not core_dep and any("{core_dependency}" in dep for dep in raw_deps):
-        raise ValueError(
-            f"{pkg_name}: dependency uses {{core_dependency}} placeholder but "
-            "[defaults].core_dependency is not set in config/shared.toml"
-        )
-    deps = [dep.replace("{core_dependency}", core_dep) for dep in raw_deps]
     lines.append(f"dependencies = {to_toml_list(deps)}")
 
     lines.append(f'requires-python = "{shared["project"]["requires-python"]}"')
@@ -227,7 +332,9 @@ def generate_pyproject(
     skip_defaults = pkg_name in ("mloda-testing", "mloda-community", "mloda-enterprise")
     default_opt_deps = {} if skip_defaults else defaults.get("optional_dependencies", {})
     pkg_opt_deps = expand_published_children(pkg_config, all_packages)
-    merged_opt_deps = {**default_opt_deps, **pkg_opt_deps}
+    merged_opt_deps = resolve_optional_dependencies(
+        pkg_name, {**default_opt_deps, **pkg_opt_deps}, shared, all_packages
+    )
     if merged_opt_deps:
         lines.append("[project.optional-dependencies]")
         for group, deps in merged_opt_deps.items():
