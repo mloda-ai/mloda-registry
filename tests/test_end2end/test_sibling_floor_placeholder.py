@@ -144,6 +144,29 @@ def test_malformed_version_placeholder_specifier_is_rejected(dependency: str) ->
     assert dependency in message, f"error message must name the offending dependency {dependency!r}, got: {message}"
 
 
+@pytest.mark.parametrize(
+    "dependency",
+    [
+        "pytest{version}",
+        "{version}",
+        "mloda-comunity-data-operations>={version}",
+    ],
+    ids=["placeholder-in-external-name", "placeholder-alone", "typo-sibling-name"],
+)
+def test_version_placeholder_outside_a_sibling_floor_is_rejected(dependency: str) -> None:
+    """{version} is only valid inside a sibling floor '<sibling>[extras]>={version}'; used anywhere
+    else (an unrelated external name, standalone, or a misspelled sibling name) it must raise ValueError."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_packages(dependency)
+
+    with pytest.raises(ValueError) as exc_info:
+        gen.generate_pyproject(_LEAF, packages[_LEAF], shared, packages)
+
+    message = str(exc_info.value)
+    assert _LEAF in message, f"error message must name the leaf package {_LEAF!r}, got: {message}"
+    assert dependency in message, f"error message must name the offending dependency {dependency!r}, got: {message}"
+
+
 def test_version_placeholder_with_extras_is_accepted() -> None:
     """A sibling requirement may carry extras before the floor operator: '<name>[extras]>={version}'."""
     shared, _packages_config = gen.load_configs()
@@ -196,6 +219,29 @@ def test_hand_pinned_optional_sibling_dependency_is_rejected(dependency: str) ->
     assert dependency in message, f"error message must name the offending entry {dependency!r}, got: {message}"
 
 
+@pytest.mark.parametrize(
+    "dependency",
+    [
+        "pytest{version}",
+        "{version}",
+        "mloda-comunity-data-operations>={version}",
+    ],
+    ids=["placeholder-in-external-name", "placeholder-alone", "typo-sibling-name"],
+)
+def test_optional_version_placeholder_outside_a_sibling_floor_is_rejected(dependency: str) -> None:
+    """Same guard as test_version_placeholder_outside_a_sibling_floor_is_rejected, applied to an
+    optional-dependencies group instead of plain dependencies."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_packages_with_base_extra({"all": [dependency]})
+
+    with pytest.raises(ValueError) as exc_info:
+        gen.generate_pyproject(_DEP, packages[_DEP], shared, packages)
+
+    message = str(exc_info.value)
+    assert _DEP in message, f"error message must name the package {_DEP!r}, got: {message}"
+    assert dependency in message, f"error message must name the offending dependency {dependency!r}, got: {message}"
+
+
 def test_optional_dependency_non_sibling_entry_is_untouched() -> None:
     """An extra naming no sibling package must pass through unchanged, same as an external plain dependency."""
     shared, _packages_config = gen.load_configs()
@@ -233,6 +279,21 @@ def test_core_dependency_placeholder_does_not_silently_absorb_the_registry_versi
         gen.generate_pyproject(pkg_name, packages[pkg_name], shared, packages)
 
     assert pkg_name in str(exc_info.value), f"error message must name the package {pkg_name!r}, got: {exc_info.value}"
+
+
+def test_core_dependency_expanding_to_a_hand_pinned_sibling_is_rejected() -> None:
+    """Sibling-spelling validation must run on the {core_dependency}-expanded string: a shared
+    core_dependency default that hand-pins a sibling floor must be rejected, not emitted verbatim."""
+    shared, _packages_config = gen.load_configs()
+    shared = deepcopy(shared)
+    shared["defaults"]["core_dependency"] = f"{_DEP}>=0.0.1"
+    packages = _synthetic_packages("{core_dependency}")
+
+    with pytest.raises(ValueError) as exc_info:
+        gen.generate_pyproject(_LEAF, packages[_LEAF], shared, packages)
+
+    message = str(exc_info.value)
+    assert _LEAF in message, f"error message must name the leaf package {_LEAF!r}, got: {message}"
 
 
 def test_typo_placeholder_is_rejected_as_a_hand_written_floor() -> None:

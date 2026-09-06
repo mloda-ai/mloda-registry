@@ -63,21 +63,29 @@ def normalize_package_name(name: str) -> str:
 def _validate_sibling_spelling(
     pkg_name: str,
     dep: str,
+    with_core: str,
     canonical_siblings: set[str],
     allow_bare: bool,
 ) -> None:
-    """Raise if ``dep`` names a sibling but isn't spelled '<name>[extras]>={version}' or (allow_bare) bare."""
-    requirement = dep.split(";", 1)[0]
+    """Raise if ``with_core`` hand-pins a sibling floor, or places {version} anywhere but '<sibling>[extras]>={version}'."""
+    requirement = with_core.split(";", 1)[0]
     match = DEP_NAME_RE.match(requirement)
-    if match is None or normalize_package_name(match.group(1)) not in canonical_siblings:
-        return
-    if SIBLING_FLOOR_RE.match(requirement) is not None:
-        return
-    if allow_bare and BARE_SIBLING_RE.match(requirement) is not None:
-        return
-    raise ValueError(
-        f"{pkg_name}: sibling dependency {dep!r} must use the {{version}} placeholder instead of a hand-written floor"
-    )
+    is_sibling = match is not None and normalize_package_name(match.group(1)) in canonical_siblings
+    spelled_as_floor = is_sibling and SIBLING_FLOOR_RE.match(requirement) is not None
+
+    if is_sibling and not spelled_as_floor and not (allow_bare and BARE_SIBLING_RE.match(requirement) is not None):
+        raise ValueError(
+            f"{pkg_name}: sibling dependency {dep!r} must use the {{version}} placeholder instead of a hand-written floor"
+        )
+
+    if VERSION_PLACEHOLDER in with_core and not (spelled_as_floor and with_core.count(VERSION_PLACEHOLDER) == 1):
+        message = (
+            f"{pkg_name}: dependency {dep!r} uses {{version}} outside a sibling floor "
+            "spelled '<sibling>[extras]>={version}'"
+        )
+        if with_core != dep:
+            message += f" (expands to {with_core!r})"
+        raise ValueError(message)
 
 
 def _resolve_dep_list(
@@ -87,9 +95,7 @@ def _resolve_dep_list(
     all_packages: dict[str, dict[str, Any]],
     allow_bare_sibling: bool,
 ) -> list[str]:
-    """Validate sibling spelling, then expand {version} and {core_dependency} placeholders in a list of
-    PEP 508 dependency strings. {version} is expanded first, so a {core_dependency} value containing a
-    literal "{version}" is caught by the leftover-placeholder check, not silently absorbed."""
+    """Expand {core_dependency} first, validate sibling spelling on the result, then expand {version}."""
     defaults = shared.get("defaults", {})
     core_dep = defaults.get("core_dependency", "")
     if not core_dep and any("{core_dependency}" in dep for dep in raw_deps):
@@ -108,8 +114,9 @@ def _resolve_dep_list(
     canonical_siblings = {normalize_package_name(name) for name in all_packages}
     resolved: list[str] = []
     for dep in raw_deps:
-        _validate_sibling_spelling(pkg_name, dep, canonical_siblings, allow_bare_sibling)
-        expanded = dep.replace(VERSION_PLACEHOLDER, str(version)).replace("{core_dependency}", core_dep)
+        with_core = dep.replace("{core_dependency}", core_dep)
+        _validate_sibling_spelling(pkg_name, dep, with_core, canonical_siblings, allow_bare_sibling)
+        expanded = with_core.replace(VERSION_PLACEHOLDER, str(version))
         if "{" in expanded:
             raise ValueError(
                 f"{pkg_name}: dependency {dep!r} still contains a placeholder after expansion ({expanded!r})"

@@ -82,7 +82,9 @@ unaffected: it stays a real, hand-set minimum in `shared.toml`.
 
 The same rule covers `optional_dependencies`: a sibling entry there may also be listed
 bare, as `"{published_children}"` expands to. The generator refuses any dependency string
-left carrying an unexpanded placeholder after expansion.
+left carrying an unexpanded placeholder after expansion. `{version}` is only accepted in
+that exact spelling, `"<sibling>[extras]>={version}"`, for a name that normalizes to a
+configured sibling package; any other use of `{version}` fails generation.
 
 **Generator infers:**
 
