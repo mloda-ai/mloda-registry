@@ -112,8 +112,14 @@ def expand_published_children(
 
 def to_toml_list(items: list[str]) -> str:
     """Format a list as TOML with double quotes."""
-    quoted = [f'"{item}"' for item in items]
+    quoted = [to_toml_string(item) for item in items]
     return f"[{', '.join(quoted)}]"
+
+
+def to_toml_string(value: str) -> str:
+    """Format a string as a TOML basic string."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def discover_packages(pkg_path: str, exclude_paths: list[str] | None = None) -> list[str]:
@@ -182,14 +188,14 @@ def generate_pyproject(
     # Build system
     lines.append("[build-system]")
     lines.append(f"requires = {to_toml_list(shared['build-system']['requires'])}")
-    lines.append(f'build-backend = "{shared["build-system"]["build-backend"]}"')
+    lines.append(f"build-backend = {to_toml_string(shared['build-system']['build-backend'])}")
     lines.append("")
 
     # Project section
     lines.append("[project]")
-    lines.append(f'name = "{pkg_name}"')
-    lines.append(f'version = "{shared["project"]["version"]}"')
-    lines.append(f'description = "{pkg_config["description"]}"')
+    lines.append(f"name = {to_toml_string(pkg_name)}")
+    lines.append(f"version = {to_toml_string(shared['project']['version'])}")
+    lines.append(f"description = {to_toml_string(pkg_config['description'])}")
 
     if pkg_config.get("has_readme"):
         lines.append('readme = "README.md"')
@@ -200,11 +206,14 @@ def generate_pyproject(
         license_val = "LicenseRef-Proprietary"
     else:
         license_val = defaults.get("license", "Apache-2.0")
-    lines.append(f'license = "{license_val}"')
+    lines.append(f"license = {to_toml_string(license_val)}")
 
     # Authors - format as inline table
     authors = shared["project"]["authors"]
-    author_strs = [f'{{ name = "{a["name"]}", email = "{a["email"]}" }}' for a in authors]
+    author_strs = [
+        f"{{ name = {to_toml_string(a['name'])}, email = {to_toml_string(a['email'])} }}"
+        for a in authors
+    ]
     lines.append(f"authors = [{', '.join(author_strs)}]")
 
     # Dependencies - substitute the shared core dependency placeholder so the
@@ -219,7 +228,7 @@ def generate_pyproject(
     deps = [dep.replace("{core_dependency}", core_dep) for dep in raw_deps]
     lines.append(f"dependencies = {to_toml_list(deps)}")
 
-    lines.append(f'requires-python = "{shared["project"]["requires-python"]}"')
+    lines.append(f"requires-python = {to_toml_string(shared['project']['requires-python'])}")
     lines.append("")
 
     # Optional dependencies - merge defaults with package-specific
@@ -237,7 +246,7 @@ def generate_pyproject(
     # URLs
     lines.append("[project.urls]")
     for key, value in shared["project"]["urls"].items():
-        lines.append(f'{key} = "{value}"')
+        lines.append(f"{key} = {to_toml_string(value)}")
     lines.append("")
 
     # Entry points - mloda plugin discovery (issue #271). Emit groups in the
@@ -250,7 +259,7 @@ def generate_pyproject(
             continue
         lines.append(f'[project.entry-points."{group}"]')
         for label, value in pairs:
-            lines.append(f'{label} = "{value}"')
+            lines.append(f"{label} = {to_toml_string(value)}")
         lines.append("")
 
     # Setuptools config - infer meta-package from workspace_deps
@@ -287,7 +296,7 @@ def generate_pyproject(
             package_data = ["", "[tool.setuptools.package-data]", f'"{dotted_path}" = ["py.typed"]']
 
         lines.append("[tool.setuptools]")
-        lines.append(f'package-dir = {{"" = "{rel_path}"}}')
+        lines.append(f'package-dir = {{"" = {to_toml_string(rel_path)}}}')
         lines.append(f"packages = {to_toml_list(packages)}")
         lines.extend(package_data)
     lines.append("")

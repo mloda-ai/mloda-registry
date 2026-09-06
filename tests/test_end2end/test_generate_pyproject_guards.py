@@ -19,8 +19,10 @@ installed package), so it is loaded here by file path.
 
 from __future__ import annotations
 
+import copy
 import shutil
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +35,21 @@ _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
 _ROOT_PYPROJECT = _REPO_ROOT / "pyproject.toml"
 
 gen = load_script("generate_pyproject", _GEN_PATH)
+
+
+def test_generate_escapes_free_text_toml_values() -> None:
+    """Quoted free-text configuration values must generate parseable TOML."""
+    shared, packages_config = gen.load_configs()
+    packages = copy.deepcopy(packages_config["packages"])
+    pkg_config = packages["mloda-registry"]
+    pkg_config["description"] = 'A "quoted" path: C:\\registry'
+    shared["project"]["urls"]["Repository"] = 'https://example.test/"quoted"\\path'
+
+    generated = gen.generate_pyproject("mloda-registry", pkg_config, shared, packages)
+    parsed = tomllib.loads(generated)
+
+    assert parsed["project"]["description"] == pkg_config["description"]
+    assert parsed["project"]["urls"]["Repository"] == shared["project"]["urls"]["Repository"]
 
 
 def test_generate_raises_when_core_dependency_missing() -> None:
