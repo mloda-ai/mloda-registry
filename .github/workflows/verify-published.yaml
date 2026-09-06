@@ -46,7 +46,7 @@ jobs:
       env:
         MLODA_REGISTRY_VERSION: ${{ steps.get_version.outputs.version }}
       run: tox -e verify-published-independent
-      timeout-minutes: 15
+      timeout-minutes: 10
 
     - name: Verify optional dependencies
       env:
