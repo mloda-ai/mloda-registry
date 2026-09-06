@@ -39,11 +39,13 @@ _TYPED_PACKAGES = [
 ]
 
 # Confirmed by inspecting the published wheels directly: py.typed first appears in each base's 0.4.1 wheel.
+# A package added before its first release records the workspace version at the time it was added, since
+# its first wheel ships with the next release.
 _MARKER_FLOORS = {
     "mloda-community-data-operations": "0.4.1",
     "mloda-community-example": "0.4.1",
     "mloda-community-otel": "0.4.6",
-    "mloda-community-openlineage": "0.4.7",
+    "mloda-community-openlineage": "0.4.6",
 }
 
 
