@@ -124,10 +124,8 @@ def resolve_dependencies(
     shared: dict[str, Any],
     all_packages: dict[str, dict[str, Any]],
 ) -> list[str]:
-    """Expand {core_dependency} and {version} placeholders in a package's plain ``dependencies``.
-
-    Raises if a sibling dependency isn't spelled '<name>[extras]>={version}'.
-    """
+    """Expand {core_dependency} and {version} placeholders in a package's plain ``dependencies``; raises if a
+    sibling dependency isn't spelled '<name>[extras]>={version}'."""
     return _resolve_dep_list(pkg_name, raw_deps, shared, all_packages, allow_bare_sibling=False)
 
 
@@ -137,10 +135,8 @@ def resolve_optional_dependencies(
     shared: dict[str, Any],
     all_packages: dict[str, dict[str, Any]],
 ) -> dict[str, list[str]]:
-    """Expand {core_dependency} and {version} placeholders in a package's merged ``optional_dependencies``.
-
-    A sibling entry here may also be bare, unlike plain ``dependencies``' strict '<name>[extras]>={version}'.
-    """
+    """Expand {core_dependency} and {version} placeholders in a package's merged ``optional_dependencies``; a
+    sibling entry here may also be bare, unlike plain ``dependencies``' strict '<name>[extras]>={version}'."""
     return {
         group: _resolve_dep_list(pkg_name, deps, shared, all_packages, allow_bare_sibling=True)
         for group, deps in opt_deps.items()
@@ -221,7 +217,7 @@ def to_toml_string(value: str) -> str:
 
 
 def to_toml_list(items: list[str]) -> str:
-    """Format a list as a TOML array, quoting each item with to_toml_string."""
+    """Format a list as a TOML array of quoted strings."""
     return f"[{', '.join(to_toml_string(item) for item in items)}]"
 
 

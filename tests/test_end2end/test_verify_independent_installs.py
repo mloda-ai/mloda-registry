@@ -23,7 +23,7 @@ _WORKFLOW_PATH = _REPO_ROOT / ".github" / "workflows" / "verify-published.yaml"
 
 _INDEPENDENT_STEP = "Verify packages install independently"
 
-# Two published distributions whose 'uv pip install' the fakes below fail, to check isolation.
+# Published distributions whose 'uv pip install' the fakes below fail, to check isolation.
 _FAILING_DISTRIBUTIONS = ["mloda-community-ema", "mloda-community-rank"]
 
 # A step name line, followed by its body up to the next step at the same indent or end of file.

@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
-"""Install each published distribution into its own venv and probe its full import surface.
-
-Every distribution flagged 'published = true' installs and imports independently. A bundle's
+"""Install each published distribution into its own venv and probe its full import surface,
+running the install-and-probe cycles concurrently through a bounded thread pool. A bundle's
 probe also covers every package nested under its path, so a payload-less bundle wheel fails.
-The per-distribution install-and-probe cycles run concurrently through a bounded thread pool.
 
 Run: python scripts/verify_independent_installs.py <version>
 Exit code: 1 if any distribution fails to install or import on its own, 0 otherwise.
