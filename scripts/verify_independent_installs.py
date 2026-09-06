@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Install each published distribution into its own venv and probe its full import surface,
-running the install-and-probe cycles concurrently through a bounded thread pool. A bundle's
-probe also covers every package nested under its path, so a payload-less bundle wheel fails.
+running the install-and-probe cycles concurrently through a bounded thread pool. An
+entry_point_bundle's probe also covers every package nested under its path, since its wheel
+ships that code too, so a payload-less bundle wheel fails; other wheels probe only their own.
 
 Run: python scripts/verify_independent_installs.py <version>
 Exit code: 1 if any distribution fails to install or import on its own, 0 otherwise.
@@ -40,12 +41,15 @@ def independent_distributions(packages: dict[str, dict[str, Any]]) -> list[str]:
 
 
 def probe_modules(name: str, packages: dict[str, dict[str, Any]]) -> list[str]:
-    """The distribution's own import surface (root plus base/manifest modules) plus every nested
-    configured package's, in config order."""
+    """The distribution's own import surface (root plus base/manifest modules). An entry_point_bundle
+    also ships every nested configured package's code in its wheel, so its probe adds their surfaces
+    too, in config order; a plain wheel excludes its nested packages, so it probes only its own."""
     # The single derivation point for import surfaces lives in verify_published_imports.
     surface: Callable[[str], tuple[str, ...]] = _load_sibling("verify_published_imports").import_surface
     path = str(packages[name]["path"]).rstrip("/")
     modules = list(surface(path))
+    if packages[name].get("entry_point_bundle") is not True:
+        return modules
     prefix = path + "/"
     for pkg_config in packages.values():
         nested = str(pkg_config["path"]).rstrip("/")

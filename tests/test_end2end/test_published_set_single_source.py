@@ -621,6 +621,47 @@ def test_probe_modules_for_a_top_level_leaf_is_its_own_surface() -> None:
     )
 
 
+@pytest.mark.parametrize("base", [_DATA_OPERATIONS, _COMMUNITY_EXAMPLE])
+def test_probe_modules_for_a_base_package_is_its_own_surface(base: str) -> None:
+    """A base package's wheel excludes its nested packages, so probing them fails the independent install."""
+    packages = _packages()
+    prefix = packages[base]["path"] + "/"
+    nested = [name for name, cfg in packages.items() if cfg["path"].startswith(prefix)]
+    assert nested, f"fixture assumption: {base} has configured packages nested under {prefix}"
+    assert packages[base].get("entry_point_bundle") is not True, (
+        f"fixture assumption: {base} is not flagged 'entry_point_bundle = true'"
+    )
+
+    modules = _probe_modules(base, packages)
+
+    expected = _expected_surface(packages[base]["path"])
+    assert modules == expected, (
+        f"probe_modules({base!r}) returned {modules!r}, expected only its own import surface {expected!r}; "
+        f"the {base} wheel excludes its nested packages, so probing them makes the independent install fail"
+    )
+
+
+def test_probe_modules_adds_nested_surfaces_only_for_an_entry_point_bundle() -> None:
+    """Nested surfaces join the probe only when the parent ships them, i.e. is flagged 'entry_point_bundle = true'."""
+    packages: dict[str, dict[str, Any]] = {
+        "mloda-sandbox": {"description": "sandbox", "path": "mloda/sandbox", "published": True},
+        "mloda-sandbox-child": {"description": "sandbox", "path": "mloda/sandbox/child", "published": True},
+    }
+
+    modules = _probe_modules("mloda-sandbox", packages)
+    assert modules == ["mloda.sandbox"], (
+        f"probe_modules('mloda-sandbox') returned {modules!r}, expected only ['mloda.sandbox']; without "
+        "'entry_point_bundle = true' the base wheel excludes its nested child"
+    )
+
+    packages["mloda-sandbox"]["entry_point_bundle"] = True
+    bundled = _probe_modules("mloda-sandbox", packages)
+    assert bundled == ["mloda.sandbox", "mloda.sandbox.child"], (
+        f"probe_modules('mloda-sandbox') returned {bundled!r} after flagging 'entry_point_bundle = true', "
+        "expected ['mloda.sandbox', 'mloda.sandbox.child']"
+    )
+
+
 def test_internal_extra_members_yields_exactly_the_internal_extras() -> None:
     """The extras that pull in configured packages are the only ones verify-extras must exercise."""
     entries = _internal_extra_entries(_packages())
