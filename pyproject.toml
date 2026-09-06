@@ -101,8 +101,6 @@ exclude_dirs = [
     "*/build/*",
     "dist/*",
     "*/dist/*",
-    ".devcontainer/*",
-    "*/.devcontainer/*",
     ".tox/*",
     "*/.tox/*",
     ".vscode/*",
