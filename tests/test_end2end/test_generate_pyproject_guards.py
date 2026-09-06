@@ -24,6 +24,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
+
 import pytest
 
 from tests.script_loader import load_script
@@ -33,6 +38,54 @@ _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
 _ROOT_PYPROJECT = _REPO_ROOT / "pyproject.toml"
 
 gen = load_script("generate_pyproject", _GEN_PATH)
+
+
+def test_generate_quotes_all_configured_toml_string_values() -> None:
+    """Every configured string surface must survive TOML generation unchanged."""
+    special = 'value with "quotes" and \\backslashes'
+    configured_path = f"missing/{special}"
+    dotted_path = configured_path.replace("/", ".")
+    entry_point_target = f"{dotted_path}.manifest:FEATURE_GROUPS"
+    shared = {
+        "build-system": {"requires": [special], "build-backend": special},
+        "project": {
+            "version": special,
+            "authors": [{"name": special, "email": special}],
+            "requires-python": special,
+            "urls": {"Homepage": special},
+        },
+        "defaults": {"license": special, "optional_dependencies": {"default-extra": [special]}},
+    }
+    pkg_config = {
+        "description": special,
+        "path": configured_path,
+        "dependencies": [special],
+        "optional_dependencies": {"package-extra": [special]},
+        "entry_point_groups": ["mloda.feature_groups"],
+        "py_typed": True,
+    }
+
+    generated = gen.generate_pyproject(special, pkg_config, shared, {special: pkg_config})
+    parsed = tomllib.loads(generated)
+
+    assert parsed["build-system"] == {"requires": [special], "build-backend": special}
+    assert parsed["project"] == {
+        "name": special,
+        "version": special,
+        "description": special,
+        "license": special,
+        "authors": [{"name": special, "email": special}],
+        "dependencies": [special],
+        "requires-python": special,
+        "optional-dependencies": {"default-extra": [special], "package-extra": [special]},
+        "urls": {"Homepage": special},
+        "entry-points": {"mloda.feature_groups": {special: entry_point_target}},
+    }
+    assert parsed["tool"]["setuptools"] == {
+        "package-dir": {"": "../.."},
+        "packages": [dotted_path],
+        "package-data": {dotted_path: ["py.typed"]},
+    }
 
 
 def test_generate_raises_when_core_dependency_missing() -> None:
