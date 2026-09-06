@@ -217,15 +217,30 @@ def expand_published_children(
     return expanded
 
 
-def to_toml_string(value: str) -> str:
-    """Quote a string as a TOML basic string, escaping backslashes and double quotes."""
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+def quote_toml_basic_string(value: str, *, key: bool = False) -> str:
+    """Quote and escape a TOML basic string, preserving safe bare keys."""
+    if key and re.fullmatch(r"[A-Za-z0-9_-]+", value):
+        return value
+
+    escapes = {
+        '"': r"\"",
+        "\\": r"\\",
+        "\b": r"\b",
+        "\t": r"\t",
+        "\n": r"\n",
+        "\f": r"\f",
+        "\r": r"\r",
+    }
+    escaped = "".join(
+        escapes.get(char, f"\\u{ord(char):04X}" if ord(char) < 0x20 or ord(char) == 0x7F else char) for char in value
+    )
     return f'"{escaped}"'
 
 
 def to_toml_list(items: list[str]) -> str:
-    """Format a list as a TOML array of quoted strings."""
-    return f"[{', '.join(to_toml_string(item) for item in items)}]"
+    """Format a list of TOML basic strings."""
+    quoted = [quote_toml_basic_string(item) for item in items]
+    return f"[{', '.join(quoted)}]"
 
 
 def discover_packages(pkg_path: str, exclude_paths: list[str] | None = None) -> list[str]:
@@ -298,33 +313,36 @@ def generate_pyproject(
     # Build system
     lines.append("[build-system]")
     lines.append(f"requires = {to_toml_list(shared['build-system']['requires'])}")
-    lines.append(f'build-backend = "{shared["build-system"]["build-backend"]}"')
+    lines.append(f"build-backend = {quote_toml_basic_string(shared['build-system']['build-backend'])}")
     lines.append("")
 
     # Project section
     lines.append("[project]")
-    lines.append(f'name = "{pkg_name}"')
-    lines.append(f'version = "{shared["project"]["version"]}"')
-    lines.append(f'description = "{pkg_config["description"]}"')
+    lines.append(f"name = {quote_toml_basic_string(pkg_name)}")
+    lines.append(f"version = {quote_toml_basic_string(shared['project']['version'])}")
+    lines.append(f"description = {quote_toml_basic_string(pkg_config['description'])}")
 
     if pkg_config.get("has_readme"):
-        lines.append('readme = "README.md"')
+        lines.append(f"readme = {quote_toml_basic_string('README.md')}")
 
     # License - infer from path (enterprise = proprietary), or use default
     if pkg_config["path"].startswith("mloda/enterprise"):
         license_val = "LicenseRef-Proprietary"
     else:
         license_val = defaults.get("license", "Apache-2.0")
-    lines.append(f'license = "{license_val}"')
+    lines.append(f"license = {quote_toml_basic_string(license_val)}")
 
     # Authors - format as inline table
     authors = shared["project"]["authors"]
-    author_strs = [f'{{ name = "{a["name"]}", email = "{a["email"]}" }}' for a in authors]
+    author_strs = [
+        f"{{ name = {quote_toml_basic_string(a['name'])}, email = {quote_toml_basic_string(a['email'])} }}"
+        for a in authors
+    ]
     lines.append(f"authors = [{', '.join(author_strs)}]")
 
     lines.append(f"dependencies = {to_toml_list(deps)}")
 
-    lines.append(f'requires-python = "{shared["project"]["requires-python"]}"')
+    lines.append(f"requires-python = {quote_toml_basic_string(shared['project']['requires-python'])}")
     lines.append("")
 
     # Optional dependencies - merge defaults with package-specific
@@ -338,13 +356,13 @@ def generate_pyproject(
     if merged_opt_deps:
         lines.append("[project.optional-dependencies]")
         for group, deps in merged_opt_deps.items():
-            lines.append(f"{group} = {to_toml_list(deps)}")
+            lines.append(f"{quote_toml_basic_string(group, key=True)} = {to_toml_list(deps)}")
         lines.append("")
 
     # URLs
     lines.append("[project.urls]")
     for key, value in shared["project"]["urls"].items():
-        lines.append(f'{key} = "{value}"')
+        lines.append(f"{quote_toml_basic_string(key, key=True)} = {quote_toml_basic_string(value)}")
     lines.append("")
 
     # Entry points - mloda plugin discovery (issue #271). Emit groups in the
@@ -355,9 +373,9 @@ def generate_pyproject(
         pairs = entry_points.get(group)
         if not pairs:
             continue
-        lines.append(f'[project.entry-points."{group}"]')
+        lines.append(f"[project.entry-points.{quote_toml_basic_string(group, key=True)}]")
         for label, value in pairs:
-            lines.append(f'{label} = "{value}"')
+            lines.append(f"{quote_toml_basic_string(label, key=True)} = {quote_toml_basic_string(value)}")
         lines.append("")
 
     # Setuptools config - infer meta-package from workspace_deps
@@ -391,10 +409,14 @@ def generate_pyproject(
             dotted_path = pkg_config["path"].replace("/", ".")
             packages = sorted(set(packages) | {dotted_path})
             # Subtable of [tool.setuptools]: must stay after its keys, or they reparent into it.
-            package_data = ["", "[tool.setuptools.package-data]", f'"{dotted_path}" = ["py.typed"]']
+            package_data = [
+                "",
+                "[tool.setuptools.package-data]",
+                f"{quote_toml_basic_string(dotted_path, key=True)} = {to_toml_list(['py.typed'])}",
+            ]
 
         lines.append("[tool.setuptools]")
-        lines.append(f'package-dir = {{"" = "{rel_path}"}}')
+        lines.append(f"package-dir = {{{quote_toml_basic_string('', key=True)} = {quote_toml_basic_string(rel_path)}}}")
         lines.append(f"packages = {to_toml_list(packages)}")
         lines.extend(package_data)
     lines.append("")
@@ -408,11 +430,11 @@ def generate_pyproject(
     if "workspace_deps" in pkg_config:
         lines.append("[tool.uv.sources]")
         for dep in pkg_config["workspace_deps"]:
-            lines.append(f"{dep} = {{ workspace = true }}")
+            lines.append(f"{quote_toml_basic_string(dep, key=True)} = {{ workspace = true }}")
         lines.append("")
     elif gets_default_dev_deps and depth <= 2:
         lines.append("[tool.uv.sources]")
-        lines.append("mloda-testing = { workspace = true }")
+        lines.append(f"{quote_toml_basic_string('mloda-testing', key=True)} = {{ workspace = true }}")
         lines.append("")
 
     return "\n".join(lines)
@@ -433,7 +455,7 @@ def generate_workspace_members(packages: dict[str, Any]) -> str:
         "members = [",
     ]
     for member in members:
-        lines.append(f'    "{member}",')
+        lines.append(f"    {quote_toml_basic_string(member)},")
     lines.append("]")
     return "\n".join(lines)
 
@@ -452,7 +474,7 @@ def update_workspace_members(packages: dict[str, Any], check: bool = False) -> t
 
     # Pattern to match [tool.uv.workspace] section (with optional comment header)
     # Only match 1-2 preceding newlines to avoid eating content from previous sections
-    pattern = r"\n{1,2}(?:# AUTO-GENERATED workspace members[^\n]*\n# Do not edit manually[^\n]*\n)?\[tool\.uv\.workspace\]\nmembers = \[\n(?:    \"[^\"]+\",\n)*\]\n?"
+    pattern = r'\n{1,2}(?:# AUTO-GENERATED workspace members[^\n]*\n# Do not edit manually[^\n]*\n)?\[tool\.uv\.workspace\]\nmembers = \[\n(?:    "(?:[^"\\]|\\.)*",\n)*\]\n?'
 
     match = re.search(pattern, content)
 
@@ -509,7 +531,7 @@ def update_root_core_dependency(shared: dict[str, Any], check: bool = False) -> 
     pattern = re.compile(r'(?P<indent>[ \t]*)"mloda(?=[<>=!~])[^"]*"')
 
     def _replace(match: re.Match[str]) -> str:
-        return f'{match.group("indent")}"{core_dep}"'
+        return f"{match.group('indent')}{quote_toml_basic_string(core_dep)}"
 
     new_content, count = pattern.subn(_replace, content)
 
