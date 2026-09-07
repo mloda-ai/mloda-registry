@@ -325,10 +325,18 @@ class BinaryModelConformanceBase:
 
     # -- Fixtures --
 
+    def platform_env(self, env: dict[str, str]) -> dict[str, str]:
+        """Add SYSTEMROOT from the host environment on Windows (mirrors transport.py's minimal_environment())."""
+        if os.name == "nt":
+            systemroot = os.environ.get("SYSTEMROOT")
+            if systemroot is not None:
+                return {**env, "SYSTEMROOT": systemroot}
+        return env
+
     @pytest.fixture
     def hermetic_env(self) -> dict[str, str]:
         """A minimal, controlled environment: no ambient shell variables, no license variables."""
-        return {}
+        return self.platform_env({})
 
     @pytest.fixture
     def valid_config_path(self, tmp_path: Path) -> Path:
@@ -344,7 +352,7 @@ class BinaryModelConformanceBase:
     def valid_license_env(self, valid_license_file: Path) -> dict[str, str]:
         """``MLODA_LICENSE_FILE`` pointed at a valid token; used by config-validation tests to
         isolate config behaviour from the license gate."""
-        return {"MLODA_LICENSE_FILE": str(valid_license_file)}
+        return self.platform_env({"MLODA_LICENSE_FILE": str(valid_license_file)})
 
     # -------------------------------------------------------------------------------------------
     # 1. Invocation surface (contract: Invocation, Capabilities)
@@ -1304,8 +1312,11 @@ class BinaryModelConformanceBase:
 
     def test_input_path_not_readable_is_usage_error(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
         """An `--input` path that exists but is not readable (chmod 000) is a usage error, exit 1
-        (contract: Errors). Skipped when running as root, which ignores file read permissions."""
-        if hasattr(os, "geteuid") and os.geteuid() == 0:
+        (contract: Errors). Skipped without POSIX file permissions (e.g. Windows), or when running
+        as root, which ignores file read permissions."""
+        if not hasattr(os, "geteuid"):
+            pytest.skip("no POSIX file permissions on this platform")
+        if os.geteuid() == 0:
             pytest.skip("running as root ignores file read permissions")
         column = self.default_input_columns[0]
         config = self.make_config(input_columns=[column])
@@ -1583,7 +1594,7 @@ class BinaryModelConformanceBase:
         config_path = write_json(tmp_path / "config.json", config)
         rows = self.default_input_rows()
         input_bytes = arrow_stream_bytes(self.default_input_schema(), rows)
-        env = {"MLODA_LICENSE_KEY": self.valid_license_text, "PATH": os.environ.get("PATH", "")}
+        env = self.platform_env({"MLODA_LICENSE_KEY": self.valid_license_text, "PATH": os.environ.get("PATH", "")})
         result = run_binary(
             self.binary_cmd,
             ["run", "--config", str(config_path)],
