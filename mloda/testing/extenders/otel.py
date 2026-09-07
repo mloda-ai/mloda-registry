@@ -59,10 +59,9 @@ def inject_parent_carrier() -> tuple[dict[str, str], int, int]:
 
 @contextmanager
 def _tracer_provider_resolution_spy() -> Iterator[list[Any]]:
-    """Patch trace.get_tracer_provider to record every ambient resolution and return a capture provider.
-
-    trace.get_tracer(name, tracer_provider=None) falls through to this module-level function, so an
-    explicit tracer_provider (injected, or a no-op passed by the inert path) never triggers it."""
+    """Patch trace.get_tracer_provider, which trace.get_tracer only falls through to when its
+    tracer_provider argument is None; an explicit provider, injected or the inert path's no-op,
+    never reaches it. Records every ambient resolution and returns a capture provider."""
     calls: list[Any] = []
     provider, _ = make_span_capture()
 
@@ -103,6 +102,10 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
 
     def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
         return _tracer_provider_resolution_spy()
+
+    def make_injected_and_sdk_defaults_extender(self) -> Extender:
+        provider, _ = make_span_capture()
+        return self.extender_class()(tracer_provider=provider, use_sdk_defaults=True)  # type: ignore[call-arg]
 
     def make_extender(self, *, raise_on_error: bool | None = None) -> Extender:
         provider, _ = make_span_capture()

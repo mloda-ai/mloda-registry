@@ -11,9 +11,12 @@ import ast
 import contextlib
 import logging
 import pickle  # nosec
+import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
@@ -23,6 +26,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import StatusCode
 
 from mloda.community.extenders.otel import OtelExtender
+from mloda.community.extenders.otel import otel_extender as otel_extender_module
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.otel import OtelExtenderTestMixin, make_span_capture, single_span_attributes
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
@@ -134,13 +138,92 @@ class TestOtelExtenderPickledInertLogging:
 
         copy = pickle.loads(pickle.dumps(otel))  # nosec
 
-        with caplog.at_level(logging.INFO):
+        with caplog.at_level(logging.WARNING):
             with make_hook_context().activate():
                 result = copy(lambda: 42)
 
         assert result == 42
-        info_records = [r for r in caplog.records if r.levelno == logging.INFO]
-        assert any("OtelExtender" in r.message and "inert" in r.message.lower() for r in info_records), info_records
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("OtelExtender" in r.message and "inert" in r.message.lower() for r in warning_records), (
+            warning_records
+        )
+
+
+class TestOtelExtenderConcurrentInertLogging:
+    """`_logged_inert`'s unsynchronized check-then-set must not log more than once under concurrency."""
+
+    def test_concurrent_first_calls_log_exactly_once(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        otel = OtelExtender()
+        original_info = otel_extender_module.logger.info
+
+        def slow_info(msg: str, *args: Any, **kwargs: Any) -> None:
+            # Widens the check-then-set race window, following the pattern of
+            # TestOpenLineageExtenderLazyClientInit's time.sleep so the race is deterministic.
+            time.sleep(0.05)
+            original_info(msg, *args, **kwargs)
+
+        monkeypatch.setattr(otel_extender_module.logger, "info", slow_info)
+
+        thread_count = 32
+        barrier = threading.Barrier(thread_count)
+
+        def worker() -> None:
+            barrier.wait(timeout=5)
+            with make_hook_context().activate():
+                otel(lambda: None)
+
+        threads = [threading.Thread(target=worker, daemon=True) for _ in range(thread_count)]
+        with caplog.at_level(logging.INFO):
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        inert_records = [r for r in caplog.records if "OtelExtender" in r.message and "inert" in r.message.lower()]
+        assert len(inert_records) == 1, inert_records
+
+
+class TestOtelExtenderInertContentCapture:
+    """An inert extender must short-circuit before running any content-capture work."""
+
+    def test_inert_extender_never_calls_mask(self) -> None:
+        calls = 0
+
+        def mask(_value: Any) -> Any:
+            nonlocal calls
+            calls += 1
+            return _value
+
+        otel = OtelExtender(capture_content=True, mask=mask)
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+
+        with context.activate():
+            result = otel(lambda: [1, 2, 3])
+
+        assert result == [1, 2, 3]
+        assert calls == 0
+
+
+class TestOtelExtenderPickling:
+    """Mirrors OpenLineageExtender's pickle-plus-sdk-defaults test: an injected provider is
+    process-local, so use_sdk_defaults must resolve the ambient global provider after pickling
+    drops it (the ParallelizationMode.MULTIPROCESSING path)."""
+
+    def test_pickled_copy_with_sdk_defaults_resolves_ambient_provider(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, _ = otel_capture
+        otel = OtelExtender(tracer_provider=provider, use_sdk_defaults=True)
+        copy = pickle.loads(pickle.dumps(otel))  # nosec
+
+        ambient_provider, ambient_exporter = make_span_capture()
+        with patch("opentelemetry.trace.get_tracer_provider", return_value=ambient_provider):
+            with make_hook_context().activate():
+                copy(lambda: None)
+
+        assert len(ambient_exporter.get_finished_spans()) == 1
 
 
 class TestOtelExtenderSpanAttributes:

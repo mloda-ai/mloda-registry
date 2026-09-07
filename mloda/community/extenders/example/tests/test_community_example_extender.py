@@ -33,6 +33,10 @@ class TestCommunityExampleExtenderContract(ExtenderContractTestMixin):
     def expected_hooks(cls) -> set[ExtenderHook] | None:
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
 
+    @classmethod
+    def has_backend_sink(cls) -> bool:
+        return False
+
     def make_extender(self, *, raise_on_error: bool | None = None) -> CommunityExampleExtender:
         if raise_on_error is None:
             return CommunityExampleExtender()

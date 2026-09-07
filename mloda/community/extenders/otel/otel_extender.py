@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import reprlib
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -84,25 +85,37 @@ class OtelExtender(Extender):
         self._tracer_provider = tracer_provider
         self.use_sdk_defaults = use_sdk_defaults
         self._logged_inert = False
+        self._logged_inert_lock = threading.Lock()
 
     def _resolve_tracer_provider(self) -> TracerProvider | None:
         if self._tracer_provider is not None:
             return self._tracer_provider
         if self.use_sdk_defaults:
             return None
-        if not self._logged_inert:
-            logger.info(
-                "OtelExtender is inert: no injected tracer_provider and use_sdk_defaults is False; no spans "
-                "will be emitted. Inject a tracer_provider or pass use_sdk_defaults=True to enable emission."
-            )
-            self._logged_inert = True
+        self._log_inert_once()
         return _NOOP_TRACER_PROVIDER
+
+    def _log_inert_once(self) -> None:
+        if self._logged_inert:
+            return
+        with self._logged_inert_lock:
+            if not self._logged_inert:
+                logger.warning(
+                    "OtelExtender is inert: no injected tracer_provider and use_sdk_defaults is False; no spans "
+                    "will be emitted. Inject a tracer_provider or pass use_sdk_defaults=True to enable emission."
+                )
+                self._logged_inert = True
 
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
         state["_tracer_provider"] = None
         state["_logged_inert"] = False
+        del state["_logged_inert_lock"]
         return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        self._logged_inert_lock = threading.Lock()
 
     def wraps(self) -> set[ExtenderHook]:
         return {
@@ -115,7 +128,8 @@ class OtelExtender(Extender):
         context = HookContext.current()
         span_name = _SPAN_NAMES.get(context.hook, "mloda.unknown") if context is not None else "mloda.unknown"
 
-        tracer = trace.get_tracer(_TRACER_NAME, tracer_provider=self._resolve_tracer_provider())
+        tracer_provider = self._resolve_tracer_provider()
+        tracer = trace.get_tracer(_TRACER_NAME, tracer_provider=tracer_provider)
         parent_context = _parent_context(context)
         with tracer.start_as_current_span(
             span_name, record_exception=False, context=parent_context, set_status_on_exception=False
@@ -140,7 +154,7 @@ class OtelExtender(Extender):
                 if context is not None and context.hook == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
                     if context.rows_out is not None:
                         span.set_attribute("mloda.rows.out", context.rows_out)
-                    if self._content_capture_enabled():
+                    if tracer_provider is not _NOOP_TRACER_PROVIDER and self._content_capture_enabled():
                         span.set_attribute("mloda.content.preview", self._content_preview(result))
             except Exception as exc:
                 logger.warning("OtelExtender post-call instrumentation failed: %s: %s", type(exc).__name__, exc)

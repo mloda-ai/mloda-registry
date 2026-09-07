@@ -116,14 +116,20 @@ class OpenLineageExtender(Extender):
             ExtenderHook.INPUT_DATA_LOAD,
         }
 
-    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
-        if self._client is None and not self.use_sdk_defaults:
+    def _log_inert_once(self) -> None:
+        if self._logged_inert:
+            return
+        with self._client_lock:
             if not self._logged_inert:
-                logger.info(
+                logger.warning(
                     "OpenLineageExtender is inert: no client injected and use_sdk_defaults is False; no "
                     "OpenLineage events will be emitted. Pass a client or use_sdk_defaults=True to enable emission."
                 )
                 self._logged_inert = True
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        if self._client is None and not self.use_sdk_defaults:
+            self._log_inert_once()
             return func(*args, **kwargs)
 
         context = HookContext.current()

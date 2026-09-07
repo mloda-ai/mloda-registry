@@ -106,8 +106,8 @@ class TestOpenLineageExtenderConstructorOptions:
         assert len(transport.events) >= 1
 
     def test_default_client_is_none_and_call_still_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Disable ambient OpenLineage env vars (e.g. OPENLINEAGE_URL) so the default client always
-        resolves to NoopTransport here, regardless of the environment running the suite."""
+        """A default (no client, no use_sdk_defaults) extender is inert and constructs no
+        OpenLineageClient; calling it must still run func and return its result unchanged."""
         monkeypatch.setenv("OPENLINEAGE_DISABLED", "true")
         extender = OpenLineageExtender()
         context = make_hook_context()
@@ -428,15 +428,53 @@ class TestOpenLineageExtenderPickledInertLogging:
 
         copy = pickle.loads(pickle.dumps(extender))  # nosec
 
-        with caplog.at_level(logging.INFO):
+        with caplog.at_level(logging.WARNING):
             with make_hook_context().activate():
                 result = copy(lambda: 42)
 
         assert result == 42
-        info_records = [r for r in caplog.records if r.levelno == logging.INFO]
-        assert any("OpenLineageExtender" in r.message and "inert" in r.message.lower() for r in info_records), (
-            info_records
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("OpenLineageExtender" in r.message and "inert" in r.message.lower() for r in warning_records), (
+            warning_records
         )
+
+
+class TestOpenLineageExtenderConcurrentInertLogging:
+    """`_logged_inert`'s unsynchronized check-then-set must not log more than once under concurrency."""
+
+    def test_concurrent_first_calls_log_exactly_once(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        extender = OpenLineageExtender()
+        original_info = openlineage_extender_module.logger.info
+
+        def slow_info(msg: str, *args: Any, **kwargs: Any) -> None:
+            # Widens the check-then-set race window, following the pattern of
+            # TestOpenLineageExtenderLazyClientInit's time.sleep so the race is deterministic.
+            time.sleep(0.05)
+            original_info(msg, *args, **kwargs)
+
+        monkeypatch.setattr(openlineage_extender_module.logger, "info", slow_info)
+
+        thread_count = 32
+        barrier = threading.Barrier(thread_count)
+
+        def worker() -> None:
+            barrier.wait(timeout=5)
+            with make_hook_context().activate():
+                extender(lambda: None)
+
+        threads = [threading.Thread(target=worker, daemon=True) for _ in range(thread_count)]
+        with caplog.at_level(logging.INFO):
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        inert_records = [
+            r for r in caplog.records if "OpenLineageExtender" in r.message and "inert" in r.message.lower()
+        ]
+        assert len(inert_records) == 1, inert_records
 
 
 class TestOpenLineageExtenderStartEvent:

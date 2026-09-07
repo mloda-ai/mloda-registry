@@ -122,15 +122,16 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
     def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
         return _client_init_resolution_spy()
 
+    def make_injected_and_sdk_defaults_extender(self) -> Extender:
+        client, _ = make_recording_client()
+        return self.extender_class()(client=client, use_sdk_defaults=True)  # type: ignore[call-arg]
+
     def make_extender(self, *, raise_on_error: bool | None = None) -> Extender:
         client, _ = make_recording_client()
         return self.make_openlineage_extender(client, raise_on_error=raise_on_error)
 
     def own_failure(self) -> AbstractContextManager[Any]:
         return patch.object(OpenLineageClient, "emit", side_effect=RuntimeError("openlineage instrumentation boom"))
-
-    def pickled_copy_environment(self) -> AbstractContextManager[Any]:
-        return patch.dict(os.environ, {"OPENLINEAGE_DISABLED": "true"})
 
     def test_openlineage_no_ambient_context_emits_nothing(self) -> None:
         client, transport = make_recording_client()

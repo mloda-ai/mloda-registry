@@ -44,10 +44,8 @@ def _build_run_event() -> RunEvent:
 
 class _ProbeOpenLineageExtender(Extender):
     """Minimal OpenLineage probe: START/COMPLETE|FAIL|ABORT per calculate, correlating nested input loads.
-
-    Sink-resolution policy: an injected client always wins; else use_sdk_defaults delegates to a
-    lazily built OpenLineageClient() (the SDK's own ambient resolution); else the probe is inert
-    (no client ever touched, func still runs)."""
+    Sink resolution: an injected client wins, else use_sdk_defaults delegates to a lazily built client,
+    else the probe is inert and func still runs untouched."""
 
     def __init__(
         self,

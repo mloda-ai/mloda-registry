@@ -80,11 +80,11 @@ Extender code runs inline with the wrapped call: a blocking sink stalls every ca
 
 ## Sink Resolution
 
-Adding an extender opts a pipeline into instrumentation; it does not opt into ambient configuration. `use_sdk_defaults` is the separate, explicit opt-in that lets ambient configuration choose the destination, so a shared runner's ambient config can never silently redirect a pipeline's metadata. Resolution order, strict:
+Adding an extender opts a pipeline into instrumentation, not into ambient configuration. `use_sdk_defaults` is the explicit opt-in for that. Resolution order, strict:
 
 1. An injected client/provider wins. No other sink is resolved alongside it.
 2. Else `use_sdk_defaults=True` delegates fully to the vendor SDK's own resolution (globals, env vars, config files, console fallback included).
-3. Else the extender is inert: no vendor configuration consulted, no backend constructed, nothing emitted. The wrapped call still runs and its result is returned unchanged. Logged once per instance at INFO, including after a pickle round trip that drops an injected sink.
+3. Else the extender is inert: no vendor configuration consulted, no backend constructed, nothing emitted. The wrapped call still runs and its result is returned unchanged. Logged once per instance at WARNING, including after a pickle round trip that drops an injected sink.
 
 ## Usage
 
@@ -144,11 +144,11 @@ The mixin pins:
 - own failure is contained: a chained extender still runs, and a `run_all` round trip still completes with the warning-only fallback
 - the extender survives a pickle round trip, and a pickled copy still wraps a call
 - `run_all` round trips (one success, one wrapped failure)
-- when `has_backend_sink()` is `True`: an unconfigured extender emits nothing against ambient sink configuration, both on a direct call and in `run_all`; `use_sdk_defaults=True` resolves the sink from that same ambient configuration; an injected sink ignores ambient configuration entirely. Extenders with no external sink inherit `has_backend_sink()` returning `False` and skip these four tests
+- when `has_backend_sink()` is `True`: an unconfigured extender emits nothing against ambient sink configuration, both on a direct call and in `run_all`; `use_sdk_defaults=True` resolves the sink from that same ambient configuration; an injected sink ignores ambient configuration entirely. Extenders with no external sink inherit `has_backend_sink()` returning `False` and skip these tests
 
 ### OtelExtenderTestMixin
 
-Install `mloda-testing[otel]`. Host provides `extender_class` and `make_otel_extender(tracer_provider, *, raise_on_error=None)`, and optionally `expected_span_names` and `trace_id_from_run_id` (the run_id-to-trace-id mapping; return `None` to skip the derivation test). It supplies `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`), so a host needs no extra code for the four sink-resolution tests.
+Install `mloda-testing[otel]`. Host provides `extender_class` and `make_otel_extender(tracer_provider, *, raise_on_error=None)`, and optionally `expected_span_names` and `trace_id_from_run_id` (the run_id-to-trace-id mapping; return `None` to skip the derivation test). It supplies `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`), so a host needs no extra code for the sink-resolution tests.
 
 `own_failure` and `pickled_copy_environment` are overridable on both backend mixins. The OTel default faults `TracerProvider.get_tracer`; an extender that caches its tracer at construction must override `own_failure`. The OpenLineage default faults `OpenLineageClient.emit`. A host whose pickled copy would resolve a real sink overrides `pickled_copy_environment`.
 
@@ -184,7 +184,7 @@ Helpers: `make_span_capture`, `single_span`, `single_span_attributes`, `inject_p
 
 ### OpenLineageExtenderTestMixin
 
-Install `mloda-testing[openlineage]`. Host provides `extender_class` and `make_openlineage_extender(client, *, raise_on_error=None)`. It supplies `make_extender`, `own_failure`, a `pickled_copy_environment` with OpenLineage disabled, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`), so a host needs no extra code for the four sink-resolution tests.
+Install `mloda-testing[openlineage]`. Host provides `extender_class` and `make_openlineage_extender(client, *, raise_on_error=None)`. It supplies `make_extender`, `own_failure`, a `pickled_copy_environment` with OpenLineage disabled, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`), so a host needs no extra code for the sink-resolution tests.
 
 ```python
 from openlineage.client.client import OpenLineageClient
