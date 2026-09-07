@@ -45,10 +45,17 @@ def _build_run_event() -> RunEvent:
 class _ProbeOpenLineageExtender(Extender):
     """Minimal OpenLineage probe: START/COMPLETE|FAIL|ABORT per calculate, correlating nested input loads."""
 
-    def __init__(self, client: OpenLineageClient | None = None, raise_on_error: bool = False) -> None:
+    def __init__(
+        self,
+        client: OpenLineageClient | None = None,
+        raise_on_error: bool = False,
+        use_sdk_defaults: bool = False,
+    ) -> None:
         self.raise_on_error = raise_on_error
+        self.use_sdk_defaults = use_sdk_defaults
         self._client = client
         self._open_inputs: list[InputDataset] | None = None
+        self._logged_inert = False
 
     def _get_client(self) -> OpenLineageClient:
         if self._client is None:
@@ -65,6 +72,12 @@ class _ProbeOpenLineageExtender(Extender):
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        if self._client is None and not self.use_sdk_defaults:
+            if not self._logged_inert:
+                logger.info("_ProbeOpenLineageExtender is inert: no injected client and use_sdk_defaults is False")
+                self._logged_inert = True
+            return func(*args, **kwargs)
+
         context = HookContext.current()
         if context is None:
             return func(*args, **kwargs)

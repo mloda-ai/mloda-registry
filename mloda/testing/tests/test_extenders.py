@@ -312,6 +312,10 @@ class TestProbeExtenderContract(ExtenderContractTestMixin):
     def raise_on_error_default(cls) -> bool:
         return False
 
+    @classmethod
+    def has_backend_sink(cls) -> bool:
+        return False
+
     def make_extender(self, *, raise_on_error: bool | None = None) -> _ProbeExtender:
         if raise_on_error is None:
             return _ProbeExtender(sink=[])
@@ -327,6 +331,10 @@ class TestBreakingProbeExtenderContract(ExtenderContractTestMixin):
     @classmethod
     def extender_class(cls) -> type[Extender]:
         return _BreakingProbeExtender
+
+    @classmethod
+    def has_backend_sink(cls) -> bool:
+        return False
 
     def make_extender(self, *, raise_on_error: bool | None = None) -> _BreakingProbeExtender:
         if raise_on_error is None:
@@ -348,6 +356,10 @@ class TestValidateOnlyProbeContract(ExtenderContractTestMixin):
     def raise_on_error_default(cls) -> bool:
         return False
 
+    @classmethod
+    def has_backend_sink(cls) -> bool:
+        return False
+
     def make_extender(self, *, raise_on_error: bool | None = None) -> _ValidateOnlyProbeExtender:
         if raise_on_error is None:
             return _ValidateOnlyProbeExtender(sink=[])
@@ -361,6 +373,24 @@ class TestValidateOnlyProbeContract(ExtenderContractTestMixin):
         with make_hook_context(hook=self.context_hook()).activate():
             extender(lambda: None)
         assert extender.sink[-1] == ExtenderHook.VALIDATE_OUTPUT_FEATURE
+
+
+class TestHasBackendSinkMustBeDeclared:
+    def test_default_raises_not_implemented_error(self) -> None:
+        with pytest.raises(NotImplementedError):
+            ExtenderContractTestMixin.has_backend_sink()
+
+    def test_undeclared_host_errors_instead_of_skipping_sink_gated_test(self) -> None:
+        class _UndeclaredHost(ExtenderContractTestMixin):
+            @classmethod
+            def extender_class(cls) -> type[Extender]:
+                return _ProbeExtender
+
+            def make_extender(self, *, raise_on_error: bool | None = None) -> _ProbeExtender:
+                return _ProbeExtender(sink=[])
+
+        with pytest.raises(NotImplementedError):
+            _UndeclaredHost().test_contract_unconfigured_extender_emits_nothing()
 
 
 class TestCountingExtender:
@@ -431,6 +461,10 @@ class TestProbeExtenderDeclaredHooks(ExtenderContractTestMixin):
     @classmethod
     def expected_hooks(cls) -> set[ExtenderHook] | None:
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+    @classmethod
+    def has_backend_sink(cls) -> bool:
+        return False
 
     def make_extender(self, *, raise_on_error: bool | None = None) -> _ProbeExtender:
         if raise_on_error is None:

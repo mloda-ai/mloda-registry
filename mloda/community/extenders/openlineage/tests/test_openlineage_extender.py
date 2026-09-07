@@ -106,8 +106,6 @@ class TestOpenLineageExtenderConstructorOptions:
         assert len(transport.events) >= 1
 
     def test_default_client_is_none_and_call_still_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Disable ambient OpenLineage env vars (e.g. OPENLINEAGE_URL) so the default client always
-        resolves to NoopTransport here, regardless of the environment running the suite."""
         monkeypatch.setenv("OPENLINEAGE_DISABLED", "true")
         extender = OpenLineageExtender()
         context = make_hook_context()
@@ -138,7 +136,7 @@ class TestOpenLineageExtenderPickling:
         assert copy.root_job_name == "custom.root"
 
     def test_pickled_copy_can_still_build_a_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        extender = OpenLineageExtender()
+        extender = OpenLineageExtender(use_sdk_defaults=True)
 
         copy = pickle.loads(pickle.dumps(extender))  # nosec
 
@@ -168,7 +166,7 @@ class TestOpenLineageExtenderLazyClientInit:
         monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _FakeOpenLineageClient)
         monkeypatch.setattr(atexit, "register", lambda *args, **kwargs: None)
 
-        extender = OpenLineageExtender()
+        extender = OpenLineageExtender(use_sdk_defaults=True)
         thread_count = 16
         barrier = threading.Barrier(thread_count)
         results: list[Any] = [None] * thread_count
@@ -230,7 +228,7 @@ class TestOpenLineageExtenderClose:
                 return True
 
         monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _FakeClientWithClose)
-        extender = OpenLineageExtender()
+        extender = OpenLineageExtender(use_sdk_defaults=True)
         built: Any = extender._get_client()
 
         result = extender.close(timeout=9.0)
@@ -264,7 +262,7 @@ class TestOpenLineageExtenderClose:
         monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _FakeClient)
         registered: list[Any] = []
         monkeypatch.setattr(atexit, "register", lambda *args, **kwargs: registered.append(args[0]))
-        extender = OpenLineageExtender()
+        extender = OpenLineageExtender(use_sdk_defaults=True)
 
         extender._get_client()
         extender._get_client()
@@ -316,7 +314,7 @@ class TestOpenLineageExtenderCloseIdempotencyAndReuse:
         unregistered: list[Any] = []
         monkeypatch.setattr(atexit, "register", lambda *args, **kwargs: registered.append((args, kwargs)))
         monkeypatch.setattr(atexit, "unregister", lambda func: unregistered.append(func))
-        extender = OpenLineageExtender()
+        extender = OpenLineageExtender(use_sdk_defaults=True)
 
         extender._get_client()
         extender.close()
@@ -335,7 +333,7 @@ class TestOpenLineageExtenderCloseIdempotencyAndReuse:
         monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _FakeClient)
         captured: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
         monkeypatch.setattr(atexit, "register", lambda *args, **kwargs: captured.append((args, kwargs)))
-        extender = OpenLineageExtender()
+        extender = OpenLineageExtender(use_sdk_defaults=True)
 
         extender._get_client()
 
@@ -392,6 +390,78 @@ class TestOpenLineageExtenderCloseIdempotencyAndReuse:
         assert result is sentinel
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert any("OpenLineageExtender" in message for message in warnings)
+
+
+class TestOpenLineageExtenderGetClientBoundary:
+    def test_unconfigured_extender_returns_none_and_builds_no_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        build_count = 0
+
+        class _CountingOpenLineageClient:
+            def __init__(self) -> None:
+                nonlocal build_count
+                build_count += 1
+
+        monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _CountingOpenLineageClient)
+
+        extender = OpenLineageExtender()
+
+        assert extender._get_client() is None
+        assert build_count == 0
+
+
+class TestOpenLineageExtenderPickledInertLogging:
+    def test_pickled_copy_logs_its_own_inert_state(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+        extender._logged_inert = True
+
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        with caplog.at_level(logging.WARNING):
+            with make_hook_context().activate():
+                result = copy(lambda: 42)
+
+        assert result == 42
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("OpenLineageExtender" in r.message and "inert" in r.message.lower() for r in warning_records), (
+            warning_records
+        )
+
+
+class TestOpenLineageExtenderConcurrentInertLogging:
+    def test_concurrent_first_calls_log_exactly_once(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        extender = OpenLineageExtender()
+        original_info = openlineage_extender_module.logger.info
+
+        def slow_info(msg: str, *args: Any, **kwargs: Any) -> None:
+            time.sleep(0.05)
+            original_info(msg, *args, **kwargs)
+
+        monkeypatch.setattr(openlineage_extender_module.logger, "info", slow_info)
+
+        thread_count = 32
+        barrier = threading.Barrier(thread_count)
+
+        def worker() -> None:
+            barrier.wait(timeout=5)
+            with make_hook_context().activate():
+                extender(lambda: None)
+
+        threads = [threading.Thread(target=worker, daemon=True) for _ in range(thread_count)]
+        with caplog.at_level(logging.INFO):
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        inert_records = [
+            r for r in caplog.records if "OpenLineageExtender" in r.message and "inert" in r.message.lower()
+        ]
+        assert len(inert_records) == 1, inert_records
 
 
 class TestOpenLineageExtenderStartEvent:

@@ -56,9 +56,16 @@ def _parent_context(context: HookContext | None) -> Context | None:
 class _ProbeOtelExtender(Extender):
     """Minimal OTel probe: one span per call, parented from carrier/run_id, error status on failure."""
 
-    def __init__(self, tracer_provider: TracerProvider | None = None, raise_on_error: bool = False) -> None:
+    def __init__(
+        self,
+        tracer_provider: TracerProvider | None = None,
+        raise_on_error: bool = False,
+        use_sdk_defaults: bool = False,
+    ) -> None:
         self.raise_on_error = raise_on_error
+        self.use_sdk_defaults = use_sdk_defaults
         self._tracer_provider = tracer_provider
+        self._logged_inert = False
 
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
@@ -69,6 +76,12 @@ class _ProbeOtelExtender(Extender):
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        if self._tracer_provider is None and not self.use_sdk_defaults:
+            if not self._logged_inert:
+                logger.info("_ProbeOtelExtender is inert: no injected tracer_provider and use_sdk_defaults is False")
+                self._logged_inert = True
+            return func(*args, **kwargs)
+
         context = HookContext.current()
         parent = _parent_context(context)
         tracer = trace.get_tracer("mloda-testing-probe-otel", tracer_provider=self._tracer_provider)

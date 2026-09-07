@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import os
-from contextlib import AbstractContextManager
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -62,6 +64,24 @@ def make_recording_client() -> tuple[OpenLineageClient, RecordingTransport]:
     return client, transport
 
 
+@contextmanager
+def _client_init_resolution_spy() -> Iterator[list[Any]]:
+    """Forces a fresh RecordingTransport so the SDK-defaults path never hits the network."""
+    calls: list[Any] = []
+    original_init = OpenLineageClient.__init__
+    signature = inspect.signature(original_init)
+
+    def spy_init(self: OpenLineageClient, *args: Any, **kwargs: Any) -> None:
+        bound = signature.bind_partial(self, *args, **kwargs)
+        if bound.arguments.get("transport") is None:
+            calls.append(True)
+            bound.arguments["transport"] = RecordingTransport()
+        original_init(*bound.args, **bound.kwargs)
+
+    with patch.object(OpenLineageClient, "__init__", spy_init):
+        yield calls
+
+
 def _collect_values_for_key(obj: Any, key: str) -> list[Any]:
     """Recursively collect every value stored under `key` anywhere in a nested dict/list structure."""
     found: list[Any] = []
@@ -91,15 +111,26 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         """True when the host attaches a schema facet to output datasets; default False."""
         return False
 
+    @classmethod
+    def has_backend_sink(cls) -> bool:
+        return True
+
+    def ambient_sink_environment(self) -> AbstractContextManager[Any]:
+        return patch.dict(os.environ, {"OPENLINEAGE_URL": "http://poisoned.invalid"})
+
+    def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
+        return _client_init_resolution_spy()
+
+    def make_injected_and_sdk_defaults_extender(self) -> Extender:
+        client, _ = make_recording_client()
+        return self.extender_class()(client=client, use_sdk_defaults=True)  # type: ignore[call-arg]
+
     def make_extender(self, *, raise_on_error: bool | None = None) -> Extender:
         client, _ = make_recording_client()
         return self.make_openlineage_extender(client, raise_on_error=raise_on_error)
 
     def own_failure(self) -> AbstractContextManager[Any]:
         return patch.object(OpenLineageClient, "emit", side_effect=RuntimeError("openlineage instrumentation boom"))
-
-    def pickled_copy_environment(self) -> AbstractContextManager[Any]:
-        return patch.dict(os.environ, {"OPENLINEAGE_DISABLED": "true"})
 
     def test_openlineage_no_ambient_context_emits_nothing(self) -> None:
         client, transport = make_recording_client()

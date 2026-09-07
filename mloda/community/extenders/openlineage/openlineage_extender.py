@@ -39,8 +39,8 @@ _open_invocations: contextvars.ContextVar[tuple[tuple[int, "_OpenCalculateInvoca
 
 class OpenLineageExtender(Extender):
     """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating nested
-    INPUT_DATA_LOAD calls as inputs; resolves its own OpenLineageClient() when none is injected. Emits happen
-    synchronously on the calculation thread, so a blocking transport delays every wrapped feature calculation.
+    INPUT_DATA_LOAD calls as inputs. Sink resolution: injected client wins, else use_sdk_defaults, else inert.
+    Emits happen synchronously on the calculation thread, so a blocking transport delays every wrapped calculation.
     close() flushes the client and is terminal; a self-built client also gets a bounded-timeout atexit flush
     (main process only, not MULTIPROCESSING workers)."""
 
@@ -53,23 +53,29 @@ class OpenLineageExtender(Extender):
         job_namespace: str = "mloda",
         dataset_namespace: str = "mloda",
         root_job_name: str = "mloda.run_all",
+        use_sdk_defaults: bool = False,
     ) -> None:
         self.raise_on_error = raise_on_error
         self._client = client
         self.job_namespace = job_namespace
         self.dataset_namespace = dataset_namespace
         self.root_job_name = root_job_name
+        self.use_sdk_defaults = use_sdk_defaults
         self._client_lock = threading.Lock()
         self._closed = False
+        self._logged_inert = False
 
-    def _get_client(self) -> OpenLineageClient:
+    def _get_client(self) -> OpenLineageClient | None:
         if self._closed:
             raise RuntimeError(f"{type(self).__name__} was closed; it can no longer be used to emit OpenLineage events")
-        if self._client is None:
-            with self._client_lock:
-                if self._client is None:
-                    self._client = OpenLineageClient()
-                    atexit.register(self.close, self._ATEXIT_CLOSE_TIMEOUT)
+        if self._client is not None:
+            return self._client
+        if not self.use_sdk_defaults:
+            return None
+        with self._client_lock:
+            if self._client is None:
+                self._client = OpenLineageClient()
+                atexit.register(self.close, self._ATEXIT_CLOSE_TIMEOUT)
         return self._client
 
     def close(self, timeout: float = -1.0) -> bool:
@@ -87,9 +93,16 @@ class OpenLineageExtender(Extender):
             logger.warning("%s failed to flush all events within timeout", type(self).__name__)
         return flushed
 
+    def _emit(self, event: RunEvent) -> None:
+        client = self._get_client()
+        if client is None:
+            return
+        client.emit(event)
+
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
         state["_client"] = None
+        state["_logged_inert"] = False
         del state["_client_lock"]
         return state
 
@@ -103,7 +116,22 @@ class OpenLineageExtender(Extender):
             ExtenderHook.INPUT_DATA_LOAD,
         }
 
+    def _log_inert_once(self) -> None:
+        if self._logged_inert:
+            return
+        with self._client_lock:
+            if not self._logged_inert:
+                logger.warning(
+                    "OpenLineageExtender is inert: no client injected and use_sdk_defaults is False; no "
+                    "OpenLineage events will be emitted. Pass a client or use_sdk_defaults=True to enable emission."
+                )
+                self._logged_inert = True
+
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        if self._client is None and not self.use_sdk_defaults:
+            self._log_inert_once()
+            return func(*args, **kwargs)
+
         context = HookContext.current()
         if context is None:
             return func(*args, **kwargs)
@@ -157,7 +185,7 @@ class OpenLineageExtender(Extender):
 
         # Unguarded on purpose: this call must propagate naturally so _CompositeExtender's
         # raise_on_error fallback machinery sees the real failure and never double-invokes func.
-        self._get_client().emit(
+        self._emit(
             RunEvent(
                 eventType=RunState.START,
                 eventTime=_now_iso(),
@@ -176,7 +204,7 @@ class OpenLineageExtender(Extender):
             event_state = RunState.FAIL if isinstance(exc, Exception) else RunState.ABORT
             # Guarded: a transport error on the FAIL/ABORT path must not mask the wrapped function's exception.
             try:
-                self._get_client().emit(
+                self._emit(
                     RunEvent(
                         eventType=event_state,
                         eventTime=_now_iso(),
@@ -204,7 +232,7 @@ class OpenLineageExtender(Extender):
         try:
             fields = _infer_schema_fields(result)
             outputs = [_build_output_dataset(self.dataset_namespace, name, fields) for name in context.feature_names]
-            self._get_client().emit(
+            self._emit(
                 RunEvent(
                     eventType=RunState.COMPLETE,
                     eventTime=_now_iso(),
