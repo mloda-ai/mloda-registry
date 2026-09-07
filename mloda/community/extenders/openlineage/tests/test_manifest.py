@@ -12,3 +12,6 @@ class TestOpenLineageManifest(OptionalDependencyPackageTestMixin):
     extra = "mloda-community[openlineage]"
     extender_name = "OpenLineageExtender"
     extender_module = "openlineage_extender"
+    broken_module = "openlineage.client.event_v2"
+    broken_name = "RunEvent"
+    transitive_dependency = "attr"

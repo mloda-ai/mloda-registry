@@ -6,9 +6,10 @@ __all__: list[str] = []
 # extra; core's loader would otherwise raise on the missing opentelemetry-api dependency.
 try:
     from mloda.community.extenders.otel.otel_extender import OtelExtender
-except ModuleNotFoundError as exc:
-    if (exc.name or "").split(".")[0] != "opentelemetry":
-        raise
-    from ._missing_dependency import __getattr__  # noqa: F401
+except ImportError as exc:
+    from ._optional_dependency import missing_attribute, reraise_unless_optional
+
+    reraise_unless_optional(exc, "opentelemetry")
+    __getattr__ = missing_attribute("OtelExtender", "opentelemetry-api", "mloda-community[otel]", exc)
 else:
     __all__ = ["OtelExtender"]

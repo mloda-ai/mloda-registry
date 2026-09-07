@@ -86,6 +86,12 @@ Adding an extender opts a pipeline into instrumentation, not into ambient config
 2. Else `use_sdk_defaults=True` delegates fully to the vendor SDK's own resolution (globals, env vars, config files, console fallback included).
 3. Else the extender is inert: no vendor configuration consulted, no backend constructed, nothing emitted. The wrapped call still runs and its result is returned unchanged. Logged once per instance at WARNING, including after a pickle round trip that drops an injected sink.
 
+## Optional Runtime Dependency
+
+A leaf whose third-party dependency ships behind a bundle extra (e.g. `mloda-community[otel]`) must degrade rather than raise when that dependency is absent: its manifest is an mloda entry point, and a raising manifest breaks plugin discovery for every installed plugin, not just this one. Degrade for anything attributable to the dependency (absent, too old, or missing one of its own transitive dependencies); re-raise anything else unchanged. Log INFO when it is absent, WARNING with the real cause when it is installed but unusable.
+
+`OptionalDependencyPackageTestMixin` (`mloda.testing.optional_dependency`) is the shared test contract; a host declares `package`, `root`, `distribution`, `extra`, `extender_name`, `extender_module`, `broken_module`, `broken_name`, `transitive_dependency` (`None` skips the transitive-dependency tests).
+
 ## Usage
 
 ```python

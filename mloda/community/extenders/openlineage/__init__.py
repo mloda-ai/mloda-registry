@@ -6,9 +6,10 @@ __all__: list[str] = []
 # extra; core's loader would otherwise raise on the missing openlineage-python dependency.
 try:
     from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
-except ModuleNotFoundError as exc:
-    if (exc.name or "").split(".")[0] != "openlineage":
-        raise
-    from ._missing_dependency import __getattr__  # noqa: F401
+except ImportError as exc:
+    from ._optional_dependency import missing_attribute, reraise_unless_optional
+
+    reraise_unless_optional(exc, "openlineage")
+    __getattr__ = missing_attribute("OpenLineageExtender", "openlineage-python", "mloda-community[openlineage]", exc)
 else:
     __all__ = ["OpenLineageExtender"]

@@ -236,3 +236,20 @@ def test_extra_only_bundle_dependencies_have_import_safe_manifests(monkeypatch: 
         "expected at least one entry-point-bundle nested leaf whose dependency is covered only through "
         "the bundle's own optional extra (e.g. mloda-community-openlineage / openlineage-python)"
     )
+
+
+def test_optional_dependency_helper_is_byte_identical_across_leaves() -> None:
+    """Every leaf's ``_optional_dependency.py`` must stay byte-identical: it is vendored by convention, not shared."""
+    packages = _packages()
+    paths = [_REPO_ROOT / packages[leaf_name]["path"] / "_optional_dependency.py" for _, _, leaf_name, _, _ in _ROWS]
+
+    assert len(paths) >= 2, "expected at least two leaves to compare for vendoring drift"
+    for path in paths:
+        assert path.is_file(), f"{path} does not exist"
+
+    contents = [path.read_bytes() for path in paths]
+    first_path, first_content = paths[0], contents[0]
+    for path, content in zip(paths[1:], contents[1:]):
+        assert content == first_content, (
+            f"{path} differs from {first_path}; _optional_dependency.py must be byte-identical across every leaf"
+        )

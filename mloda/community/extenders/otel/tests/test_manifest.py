@@ -12,3 +12,6 @@ class TestOtelManifest(OptionalDependencyPackageTestMixin):
     extra = "mloda-community[otel]"
     extender_name = "OtelExtender"
     extender_module = "otel_extender"
+    broken_module = "opentelemetry.trace"
+    broken_name = "NonRecordingSpan"
+    transitive_dependency = None

@@ -37,6 +37,19 @@ def _sibling_submodule_names(parent_name: str) -> set[str]:
     return names
 
 
+def evict_root(monkeypatch: pytest.MonkeyPatch, root: str) -> None:
+    """Cold-evict every sys.modules entry at or under ``root``, forcing a genuine cold re-import (unlike
+    ``block_root``, which poisons entries to raise ModuleNotFoundError instead).
+
+    The setitem-then-delitem dance queues two undo entries per name, so teardown restores the pre-test
+    module object even if the test's cold re-import rebinds the name to a new one.
+    """
+    for name in list(sys.modules):
+        if name == root or name.startswith(f"{root}."):
+            monkeypatch.setitem(sys.modules, name, sys.modules[name])
+            monkeypatch.delitem(sys.modules, name)
+
+
 def evict_package(monkeypatch: pytest.MonkeyPatch, dotted: str) -> None:
     """Cold-evict ``dotted`` (and its manifest) from sys.modules and detach it from its parent package.
 
