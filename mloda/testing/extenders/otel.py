@@ -59,9 +59,7 @@ def inject_parent_carrier() -> tuple[dict[str, str], int, int]:
 
 @contextmanager
 def _tracer_provider_resolution_spy() -> Iterator[list[Any]]:
-    """Patch trace.get_tracer_provider, which trace.get_tracer only falls through to when its
-    tracer_provider argument is None; an explicit provider, injected or the inert path's no-op,
-    never reaches it. Records every ambient resolution and returns a capture provider."""
+    """trace.get_tracer only falls through to get_tracer_provider when tracer_provider is None."""
     calls: list[Any] = []
     provider, _ = make_span_capture()
 

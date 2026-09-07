@@ -376,8 +376,6 @@ class TestValidateOnlyProbeContract(ExtenderContractTestMixin):
 
 
 class TestHasBackendSinkMustBeDeclared:
-    """A host that forgets to declare has_backend_sink() must fail loudly, not silently skip."""
-
     def test_default_raises_not_implemented_error(self) -> None:
         with pytest.raises(NotImplementedError):
             ExtenderContractTestMixin.has_backend_sink()

@@ -66,8 +66,7 @@ def make_recording_client() -> tuple[OpenLineageClient, RecordingTransport]:
 
 @contextmanager
 def _client_init_resolution_spy() -> Iterator[list[Any]]:
-    """Patch OpenLineageClient.__init__ to record every no-transport (ambient-resolving) construction
-    and force it onto a fresh RecordingTransport, so the SDK-defaults path never touches the network."""
+    """Forces a fresh RecordingTransport so the SDK-defaults path never hits the network."""
     calls: list[Any] = []
     original_init = OpenLineageClient.__init__
     signature = inspect.signature(original_init)

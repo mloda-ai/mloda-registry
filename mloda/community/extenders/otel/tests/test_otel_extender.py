@@ -125,10 +125,6 @@ class TestOtelExtenderConstructorOptions:
 
 
 class TestOtelExtenderPickledInertLogging:
-    """A pickled copy that loses its injected tracer_provider (`__getstate__` always drops it) becomes
-    inert on its own and must log that on its own, independent of whether the pre-pickle instance
-    ever logged."""
-
     def test_pickled_copy_logs_its_own_inert_state(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -150,8 +146,6 @@ class TestOtelExtenderPickledInertLogging:
 
 
 class TestOtelExtenderConcurrentInertLogging:
-    """`_logged_inert`'s unsynchronized check-then-set must not log more than once under concurrency."""
-
     def test_concurrent_first_calls_log_exactly_once(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -159,8 +153,6 @@ class TestOtelExtenderConcurrentInertLogging:
         original_info = otel_extender_module.logger.info
 
         def slow_info(msg: str, *args: Any, **kwargs: Any) -> None:
-            # Widens the check-then-set race window, following the pattern of
-            # TestOpenLineageExtenderLazyClientInit's time.sleep so the race is deterministic.
             time.sleep(0.05)
             original_info(msg, *args, **kwargs)
 
@@ -186,8 +178,6 @@ class TestOtelExtenderConcurrentInertLogging:
 
 
 class TestOtelExtenderInertContentCapture:
-    """An inert extender must short-circuit before running any content-capture work."""
-
     def test_inert_extender_never_calls_mask(self) -> None:
         calls = 0
 
@@ -207,10 +197,6 @@ class TestOtelExtenderInertContentCapture:
 
 
 class TestOtelExtenderPickling:
-    """Mirrors OpenLineageExtender's pickle-plus-sdk-defaults test: an injected provider is
-    process-local, so use_sdk_defaults must resolve the ambient global provider after pickling
-    drops it (the ParallelizationMode.MULTIPROCESSING path)."""
-
     def test_pickled_copy_with_sdk_defaults_resolves_ambient_provider(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:

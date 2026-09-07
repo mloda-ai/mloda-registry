@@ -47,8 +47,6 @@ _BOUNDED_REPR.maxtuple = 10
 _BOUNDED_REPR.maxstring = 30
 _BOUNDED_REPR.maxother = 30
 
-# Inert singleton: a non-recording span is still created (so the extender's call shape stays
-# uniform), but the global tracer provider is never consulted.
 _NOOP_TRACER_PROVIDER = trace.NoOpTracerProvider()
 
 _SPAN_NAMES: dict[ExtenderHook, str] = {
@@ -66,8 +64,7 @@ _OPERATION_NAMES: dict[ExtenderHook, str] = {
 
 class OtelExtender(Extender):
     """Emits one OpenTelemetry span per wrapped hook invocation, populated from the ambient HookContext.
-    Sink resolution: an injected tracer_provider always wins; else use_sdk_defaults delegates to the
-    ambient global provider; else the extender is inert (a non-recording span only, nothing emitted).
+    Sink resolution: injected tracer_provider wins, else use_sdk_defaults, else inert (no-op span).
     An injected tracer_provider is process-local: pickled copies (worker processes under
     ParallelizationMode.MULTIPROCESSING) drop it and fall back to the resolution rule above."""
 

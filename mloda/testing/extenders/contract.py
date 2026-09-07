@@ -57,27 +57,21 @@ class ExtenderContractTestMixin:
 
     @classmethod
     def has_backend_sink(cls) -> bool:
-        """Whether the extender resolves an external sink; every host must declare this explicitly."""
         raise NotImplementedError
 
     def make_unconfigured_extender(self) -> Extender:
-        """The no-argument instance a user gets."""
         return self.extender_class()()
 
     def make_sdk_defaults_extender(self) -> Extender:
-        """Instance delegating sink resolution fully to the vendor SDK's own defaults."""
         return self.extender_class()(use_sdk_defaults=True)  # type: ignore[call-arg]
 
     def make_injected_and_sdk_defaults_extender(self) -> Extender:
-        """Instance with BOTH an injected sink and use_sdk_defaults=True; only backend mixins override."""
         raise NotImplementedError
 
     def ambient_sink_environment(self) -> AbstractContextManager[Any]:
-        """Poisoned ambient sink configuration; backend mixins supply their vendor SDK's real one."""
         return nullcontext()
 
     def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
-        """Records every attempt to resolve a sink from ambient configuration; only reached when has_backend_sink()."""
         raise NotImplementedError
 
     def context_hook(self) -> ExtenderHook:
@@ -256,7 +250,6 @@ class ExtenderContractTestMixin:
             assert spy == []
 
     def test_contract_sdk_defaults_resolves_sink(self) -> None:
-        """Anti-vacuous guard: proves the ambient config would have been picked up if not inert."""
         if not self.has_backend_sink():
             pytest.skip("extender has no external sink")
         extender = self.make_sdk_defaults_extender()

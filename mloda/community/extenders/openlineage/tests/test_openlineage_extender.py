@@ -106,8 +106,6 @@ class TestOpenLineageExtenderConstructorOptions:
         assert len(transport.events) >= 1
 
     def test_default_client_is_none_and_call_still_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A default (no client, no use_sdk_defaults) extender is inert and constructs no
-        OpenLineageClient; calling it must still run func and return its result unchanged."""
         monkeypatch.setenv("OPENLINEAGE_DISABLED", "true")
         extender = OpenLineageExtender()
         context = make_hook_context()
@@ -395,9 +393,6 @@ class TestOpenLineageExtenderCloseIdempotencyAndReuse:
 
 
 class TestOpenLineageExtenderGetClientBoundary:
-    """`_get_client()` is the sink-resolution boundary itself, not just a `__call__`-level gate: any
-    caller reaching it while unconfigured must get None, and no OpenLineageClient may be built."""
-
     def test_unconfigured_extender_returns_none_and_builds_no_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
         build_count = 0
 
@@ -415,10 +410,6 @@ class TestOpenLineageExtenderGetClientBoundary:
 
 
 class TestOpenLineageExtenderPickledInertLogging:
-    """A pickled copy that loses its injected client (`__getstate__` always drops `_client`) becomes
-    inert on its own and must log that on its own, independent of whether the pre-pickle instance
-    ever logged."""
-
     def test_pickled_copy_logs_its_own_inert_state(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -440,8 +431,6 @@ class TestOpenLineageExtenderPickledInertLogging:
 
 
 class TestOpenLineageExtenderConcurrentInertLogging:
-    """`_logged_inert`'s unsynchronized check-then-set must not log more than once under concurrency."""
-
     def test_concurrent_first_calls_log_exactly_once(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -449,8 +438,6 @@ class TestOpenLineageExtenderConcurrentInertLogging:
         original_info = openlineage_extender_module.logger.info
 
         def slow_info(msg: str, *args: Any, **kwargs: Any) -> None:
-            # Widens the check-then-set race window, following the pattern of
-            # TestOpenLineageExtenderLazyClientInit's time.sleep so the race is deterministic.
             time.sleep(0.05)
             original_info(msg, *args, **kwargs)
 

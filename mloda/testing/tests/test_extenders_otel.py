@@ -54,9 +54,7 @@ def _parent_context(context: HookContext | None) -> Context | None:
 
 
 class _ProbeOtelExtender(Extender):
-    """Minimal OTel probe: one span per call, parented from carrier/run_id, error status on failure.
-    Sink resolution: an injected tracer_provider wins, else use_sdk_defaults delegates to the ambient
-    global provider, else the probe is inert and func still runs untouched."""
+    """Minimal OTel probe: one span per call, parented from carrier/run_id, error status on failure."""
 
     def __init__(
         self,
