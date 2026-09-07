@@ -9,11 +9,14 @@ core's INPUT_DATA_LOAD nesting inside the enclosing CALCULATE_FEATURE HookContex
 from __future__ import annotations
 
 import atexit
+import gc
 import logging
+import multiprocessing
 import pickle  # nosec
 import threading
 import time
 import uuid
+import weakref
 from collections.abc import Iterator
 from typing import Any
 
@@ -146,6 +149,79 @@ class TestOpenLineageExtenderPickling:
 
         assert isinstance(first, OpenLineageClient)
         assert first is second
+
+    def test_pickled_copy_in_same_process_emits_into_injected_client(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        """An in-process copy keeps its injected client: pickling never leaves the process here."""
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            copy(lambda: None)
+
+        assert len(transport.events) == 2
+        assert transport.events[0].eventType == RunState.START
+        assert transport.events[1].eventType == RunState.COMPLETE
+
+
+def _child_reports_client_is_none(payload: bytes, result_queue: "multiprocessing.Queue[bool]") -> None:
+    """Module-level so the spawn context can import it by qualified name; unpickles payload in the child."""
+    import pickle  # nosec
+
+    copy = pickle.loads(payload)  # nosec
+    result_queue.put(copy._client is None)
+
+
+class TestOpenLineageExtenderCrossProcessPickle:
+    """A real spawned child process, not a monkeypatched simulation, must drop the injected client."""
+
+    def test_pickled_copy_in_spawned_child_drops_injected_client(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+        payload = pickle.dumps(extender)  # nosec
+
+        ctx = multiprocessing.get_context("spawn")
+        result_queue: "multiprocessing.Queue[bool]" = ctx.Queue()
+        process = ctx.Process(target=_child_reports_client_is_none, args=(payload, result_queue))
+        process.start()
+        try:
+            is_none = result_queue.get(timeout=30)
+        finally:
+            process.join(timeout=30)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=5)
+
+        assert is_none is True
+
+
+class TestOpenLineageExtenderProcessLocalRegistryDoesNotPin:
+    """weakref.finalize on the extender must release the registry entry, not pin the sink for the process lifetime."""
+
+    def test_registry_does_not_pin_client_after_owning_extender_is_collected(self) -> None:
+        from mloda.community.extenders.openlineage import _process_local
+
+        assert callable(_process_local.register)
+        assert callable(_process_local.resolve)
+
+        client, _ = make_recording_client()
+        client_ref = weakref.ref(client)
+        extender = OpenLineageExtender(client=client)
+        del client
+
+        del extender
+        gc.collect()
+
+        assert client_ref() is None, "injected client was still referenced after its owning extender was collected"
+
+    def test_resolve_returns_none_for_an_unknown_token(self) -> None:
+        from mloda.community.extenders.openlineage import _process_local
+
+        assert _process_local.resolve("unknown-token") is None
 
 
 class TestOpenLineageExtenderLazyClientInit:
@@ -411,13 +487,21 @@ class TestOpenLineageExtenderGetClientBoundary:
 
 class TestOpenLineageExtenderPickledInertLogging:
     def test_pickled_copy_logs_its_own_inert_state(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """A copy whose token does not resolve falls back to inert and logs it, independently of the original."""
+        from mloda.community.extenders.openlineage import _process_local
+
         client, _ = ol_capture
         extender = OpenLineageExtender(client=client)
         extender._logged_inert = True
+        payload = pickle.dumps(extender)  # nosec
 
-        copy = pickle.loads(pickle.dumps(extender))  # nosec
+        monkeypatch.setattr(_process_local, "resolve", lambda token: None)
+        copy = pickle.loads(payload)  # nosec
 
         with caplog.at_level(logging.WARNING):
             with make_hook_context().activate():

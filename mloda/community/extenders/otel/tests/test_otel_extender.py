@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import gc
 import logging
+import multiprocessing
 import pickle  # nosec
 import threading
 import time
+import weakref
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -28,7 +31,7 @@ from opentelemetry.trace import StatusCode
 from mloda.community.extenders.otel import OtelExtender
 from mloda.community.extenders.otel import otel_extender as otel_extender_module
 from mloda.testing.extenders.hook_context import make_hook_context
-from mloda.testing.extenders.otel import OtelExtenderTestMixin, make_span_capture, single_span_attributes
+from mloda.testing.extenders.otel import OtelExtenderTestMixin, make_span_capture, single_span, single_span_attributes
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
 
 # The one attribute key that MUST carry content preview.
@@ -126,13 +129,21 @@ class TestOtelExtenderConstructorOptions:
 
 class TestOtelExtenderPickledInertLogging:
     def test_pickled_copy_logs_its_own_inert_state(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
+        self,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """A copy whose token does not resolve falls back to inert and logs it, independently of the original."""
+        from mloda.community.extenders.otel import _process_local
+
         provider, _ = otel_capture
         otel = OtelExtender(tracer_provider=provider)
         otel._logged_inert = True
+        payload = pickle.dumps(otel)  # nosec
 
-        copy = pickle.loads(pickle.dumps(otel))  # nosec
+        monkeypatch.setattr(_process_local, "resolve", lambda token: None)
+        copy = pickle.loads(payload)  # nosec
 
         with caplog.at_level(logging.WARNING):
             with make_hook_context().activate():
@@ -197,12 +208,44 @@ class TestOtelExtenderInertContentCapture:
 
 
 class TestOtelExtenderPickling:
-    def test_pickled_copy_with_sdk_defaults_resolves_ambient_provider(
+    def test_pickled_copy_in_same_process_emits_into_injected_provider(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
-        provider, _ = otel_capture
+        """An in-process copy keeps its injected provider: pickling never leaves the process here."""
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        copy = pickle.loads(pickle.dumps(otel))  # nosec
+
+        with make_hook_context().activate():
+            copy(lambda: None)
+
+        single_span(exporter)
+
+    def test_pickled_copy_in_same_process_keeps_injected_provider_over_sdk_defaults(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        """The injected provider wins over use_sdk_defaults even after an in-process pickle round trip."""
+        provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider, use_sdk_defaults=True)
         copy = pickle.loads(pickle.dumps(otel))  # nosec
+
+        with make_hook_context().activate():
+            copy(lambda: None)
+
+        single_span(exporter)
+
+    def test_pickled_copy_with_unresolved_token_falls_back_to_ambient_provider(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A copy whose token does not resolve falls back to use_sdk_defaults."""
+        from mloda.community.extenders.otel import _process_local
+
+        provider, _ = otel_capture
+        otel = OtelExtender(tracer_provider=provider, use_sdk_defaults=True)
+        payload = pickle.dumps(otel)  # nosec
+
+        monkeypatch.setattr(_process_local, "resolve", lambda token: None)
+        copy = pickle.loads(payload)  # nosec
 
         ambient_provider, ambient_exporter = make_span_capture()
         with patch("opentelemetry.trace.get_tracer_provider", return_value=ambient_provider):
@@ -210,6 +253,66 @@ class TestOtelExtenderPickling:
                 copy(lambda: None)
 
         assert len(ambient_exporter.get_finished_spans()) == 1
+
+
+def _child_reports_tracer_provider_is_none(payload: bytes, result_queue: "multiprocessing.Queue[bool]") -> None:
+    """Module-level so the spawn context can import it by qualified name; unpickles payload in the child."""
+    import pickle  # nosec
+
+    copy = pickle.loads(payload)  # nosec
+    result_queue.put(copy._tracer_provider is None)
+
+
+class TestOtelExtenderCrossProcessPickle:
+    """A real spawned child process, not a monkeypatched simulation, must drop the injected provider."""
+
+    def test_pickled_copy_in_spawned_child_drops_injected_provider(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, _ = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        payload = pickle.dumps(otel)  # nosec
+
+        ctx = multiprocessing.get_context("spawn")
+        result_queue: "multiprocessing.Queue[bool]" = ctx.Queue()
+        process = ctx.Process(target=_child_reports_tracer_provider_is_none, args=(payload, result_queue))
+        process.start()
+        try:
+            is_none = result_queue.get(timeout=30)
+        finally:
+            process.join(timeout=30)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=5)
+
+        assert is_none is True
+
+
+class TestOtelExtenderProcessLocalRegistryDoesNotPin:
+    """weakref.finalize on the extender must release the registry entry, not pin the sink for the process lifetime."""
+
+    def test_registry_does_not_pin_provider_after_owning_extender_is_collected(self) -> None:
+        from mloda.community.extenders.otel import _process_local
+
+        assert callable(_process_local.register)
+        assert callable(_process_local.resolve)
+
+        provider, _ = make_span_capture()
+        provider_ref = weakref.ref(provider)
+        otel = OtelExtender(tracer_provider=provider)
+        del provider
+
+        del otel
+        gc.collect()
+
+        assert provider_ref() is None, (
+            "injected tracer_provider was still referenced after its owning extender was collected"
+        )
+
+    def test_resolve_returns_none_for_an_unknown_token(self) -> None:
+        from mloda.community.extenders.otel import _process_local
+
+        assert _process_local.resolve("unknown-token") is None
 
 
 class TestOtelExtenderSpanAttributes:

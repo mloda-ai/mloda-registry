@@ -13,6 +13,7 @@ from typing import Any
 
 from mloda.steward import Extender, ExtenderHook, HookContext
 
+from mloda.community.extenders.openlineage import _process_local
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
 from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset
@@ -42,7 +43,8 @@ class OpenLineageExtender(Extender):
     INPUT_DATA_LOAD calls as inputs. Sink resolution: injected client wins, else use_sdk_defaults, else inert.
     Emits happen synchronously on the calculation thread, so a blocking transport delays every wrapped calculation.
     close() flushes the client and is terminal; a self-built client also gets a bounded-timeout atexit flush
-    (main process only, not MULTIPROCESSING workers)."""
+    (main process only, not MULTIPROCESSING workers). An injected client survives a pickle round trip
+    in its own process; a copy unpickled elsewhere drops it and falls back to the resolution rule above."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
 
@@ -64,6 +66,7 @@ class OpenLineageExtender(Extender):
         self._client_lock = threading.Lock()
         self._closed = False
         self._logged_inert = False
+        self._client_token = _process_local.register(self, client) if client is not None else None
 
     def _get_client(self) -> OpenLineageClient | None:
         if self._closed:
@@ -109,6 +112,7 @@ class OpenLineageExtender(Extender):
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
         self._client_lock = threading.Lock()
+        self._client = _process_local.resolve(self._client_token)
 
     def wraps(self) -> set[ExtenderHook]:
         return {

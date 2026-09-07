@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from typing import Any
 from unittest.mock import patch
@@ -100,6 +100,11 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
 
     def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
         return _tracer_provider_resolution_spy()
+
+    def injected_sink_capture(self) -> tuple[Extender, Callable[[], int]]:
+        provider, exporter = make_span_capture()
+        extender = self.make_otel_extender(provider)
+        return extender, lambda: len(exporter.get_finished_spans())
 
     def make_injected_and_sdk_defaults_extender(self) -> Extender:
         provider, _ = make_span_capture()

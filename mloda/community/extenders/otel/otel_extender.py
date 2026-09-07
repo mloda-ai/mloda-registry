@@ -23,6 +23,7 @@ from opentelemetry.trace import (
     set_span_in_context,
 )
 
+from mloda.community.extenders.otel import _process_local
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
 
 logger = logging.getLogger(__name__)
@@ -65,8 +66,8 @@ _OPERATION_NAMES: dict[ExtenderHook, str] = {
 class OtelExtender(Extender):
     """Emits one OpenTelemetry span per wrapped hook invocation, populated from the ambient HookContext.
     Sink resolution: injected tracer_provider wins, else use_sdk_defaults, else inert (no-op span).
-    An injected tracer_provider is process-local: pickled copies (worker processes under
-    ParallelizationMode.MULTIPROCESSING) drop it and fall back to the resolution rule above."""
+    An injected tracer_provider survives a pickle round trip in its own process; a copy unpickled
+    elsewhere (a MULTIPROCESSING worker) drops it and falls back to the resolution rule above."""
 
     def __init__(
         self,
@@ -83,6 +84,9 @@ class OtelExtender(Extender):
         self.use_sdk_defaults = use_sdk_defaults
         self._logged_inert = False
         self._logged_inert_lock = threading.Lock()
+        self._tracer_provider_token = (
+            _process_local.register(self, tracer_provider) if tracer_provider is not None else None
+        )
 
     def _resolve_tracer_provider(self) -> TracerProvider | None:
         if self._tracer_provider is not None:
@@ -113,6 +117,7 @@ class OtelExtender(Extender):
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
         self._logged_inert_lock = threading.Lock()
+        self._tracer_provider = _process_local.resolve(self._tracer_provider_token)
 
     def wraps(self) -> set[ExtenderHook]:
         return {

@@ -441,6 +441,7 @@ class TestExtenderContractTestMixinShape:
             "test_contract_pickled_copy_still_wraps",
             "test_contract_own_failure_does_not_stop_chained_extender",
             "test_contract_run_all_own_failure_falls_back_when_raise_on_error_false",
+            "test_contract_injected_sink_survives_pickle_in_same_process",
         ],
     )
     def test_new_contract_tests_exist(self, name: str) -> None:

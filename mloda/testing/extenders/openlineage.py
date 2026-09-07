@@ -6,7 +6,7 @@ import inspect
 import json
 import logging
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import Any
@@ -120,6 +120,11 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
 
     def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
         return _client_init_resolution_spy()
+
+    def injected_sink_capture(self) -> tuple[Extender, Callable[[], int]]:
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+        return extender, lambda: len(transport.events)
 
     def make_injected_and_sdk_defaults_extender(self) -> Extender:
         client, _ = make_recording_client()

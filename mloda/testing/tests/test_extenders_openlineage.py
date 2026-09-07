@@ -3,7 +3,9 @@ exercises the full OpenLineageExtenderTestMixin contract independently of the re
 
 from __future__ import annotations
 
+import itertools
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +44,11 @@ def _build_run_event() -> RunEvent:
     )
 
 
+# Process-local stash for the probe's injected client, mirroring OpenLineageExtender's pid-scoped token resolution.
+_probe_openlineage_registry: dict[str, OpenLineageClient] = {}
+_probe_openlineage_token_ids = itertools.count()
+
+
 class _ProbeOpenLineageExtender(Extender):
     """Minimal OpenLineage probe: START/COMPLETE|FAIL|ABORT per calculate, correlating nested input loads."""
 
@@ -56,6 +63,10 @@ class _ProbeOpenLineageExtender(Extender):
         self._client = client
         self._open_inputs: list[InputDataset] | None = None
         self._logged_inert = False
+        self._token: str | None = None
+        if client is not None:
+            self._token = f"{os.getpid()}:{next(_probe_openlineage_token_ids)}"
+            _probe_openlineage_registry[self._token] = client
 
     def _get_client(self) -> OpenLineageClient:
         if self._client is None:
@@ -67,6 +78,11 @@ class _ProbeOpenLineageExtender(Extender):
         state["_client"] = None
         state["_open_inputs"] = None
         return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        if self._token is not None and self._token.split(":", 1)[0] == str(os.getpid()):
+            self._client = _probe_openlineage_registry.get(self._token)
 
     def wraps(self) -> set[ExtenderHook]:
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}

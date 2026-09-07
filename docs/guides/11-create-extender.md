@@ -18,6 +18,8 @@ Q2: Need execution order control?
 
 Q3: Need state with ParallelizationMode.MULTIPROCESSING?
     YES → Use class-level storage (pickle-safe)
+Q4: Hold an injected client/provider that must survive?
+    YES → Process-local token, see Pickle Compatibility
 ```
 
 ## Required Methods
@@ -74,6 +76,8 @@ Only the extender's own failure is caught. An exception raised by the wrapped fu
 
 Only needed with `ParallelizationMode.MULTIPROCESSING`. Avoid unpicklable instance variables (locks, tracers, connections). Use class-level storage or create resources lazily in `__call__()`.
 
+An injected handle (client, provider) does not survive `__getstate__`/`__setstate__` unchanged: core also unpickles a copy in the parent process, not only in workers. Keep the handle by storing it in a process-local table under a token that carries the minting pid, and resolving the token in `__setstate__`. A copy unpickled in the same process gets the live object back; any other copy resolves nothing and falls back to the resolution order below. The pid is what makes this safe under both start methods: a spawn child starts with an empty table, and a fork child inherits the table but has a different pid. Release the entry with `weakref.finalize` on the extender so the handle is not pinned for the process lifetime. See `_process_local.py` in the openlineage and otel extender packages.
+
 ## Emitting on the calculation thread
 
 Extender code runs inline with the wrapped call: a blocking sink stalls every call, and with `raise_on_error=True` a sink failure fails the run. For OpenLineage, prefer the `async_http` transport or a short timeout (via `OPENLINEAGE_CONFIG` or `OPENLINEAGE__TRANSPORT__*`), and keep `raise_on_error=False` for observability.
@@ -84,7 +88,7 @@ Adding an extender opts a pipeline into instrumentation, not into ambient config
 
 1. An injected client/provider wins. No other sink is resolved alongside it.
 2. Else `use_sdk_defaults=True` delegates fully to the vendor SDK's own resolution (globals, env vars, config files, console fallback included).
-3. Else the extender is inert: no vendor configuration consulted, no backend constructed, nothing emitted. The wrapped call still runs and its result is returned unchanged. Logged once per instance at WARNING, including after a pickle round trip that drops an injected sink.
+3. Else the extender is inert: no vendor configuration consulted, no backend constructed, nothing emitted. The wrapped call still runs and its result is returned unchanged. Logged once per instance at WARNING, including in a process where a pickled copy could not resolve its injected sink.
 
 ## Usage
 
@@ -106,7 +110,7 @@ The OTel and OpenLineage mixins both enforce the same observability mandate: a w
 
 ### ExtenderContractTestMixin
 
-Required host hooks: `extender_class`, `make_extender`, `own_failure`. Optional: `raise_on_error_default`, `expected_hooks`, `pickled_copy_environment`, `supports_warning_only` (return `False` for a host with no `raise_on_error=False` mode), `has_backend_sink` (return `True` for an extender with an external sink, and override `ambient_sink_environment` plus `sink_resolution_spy`; `make_unconfigured_extender`/`make_sdk_defaults_extender` default to `extender_class()()` and `extender_class()(use_sdk_defaults=True)`).
+Required host hooks: `extender_class`, `make_extender`, `own_failure`. Optional: `raise_on_error_default`, `expected_hooks`, `pickled_copy_environment`, `supports_warning_only` (return `False` for a host with no `raise_on_error=False` mode), `has_backend_sink` (return `True` for an extender with an external sink, and override `ambient_sink_environment`, `sink_resolution_spy` plus `injected_sink_capture`; `make_unconfigured_extender`/`make_sdk_defaults_extender` default to `extender_class()()` and `extender_class()(use_sdk_defaults=True)`).
 
 ```python
 from contextlib import AbstractContextManager
@@ -144,11 +148,11 @@ The mixin pins:
 - own failure is contained: a chained extender still runs, and a `run_all` round trip still completes with the warning-only fallback
 - the extender survives a pickle round trip, and a pickled copy still wraps a call
 - `run_all` round trips (one success, one wrapped failure)
-- when `has_backend_sink()` is `True`: an unconfigured extender emits nothing against ambient sink configuration, both on a direct call and in `run_all`; `use_sdk_defaults=True` resolves the sink from that same ambient configuration; an injected sink ignores ambient configuration entirely. Extenders with no external sink inherit `has_backend_sink()` returning `False` and skip these tests
+- when `has_backend_sink()` is `True`: an unconfigured extender emits nothing against ambient sink configuration, both on a direct call and in `run_all`; `use_sdk_defaults=True` resolves the sink from that same ambient configuration; an injected sink ignores ambient configuration entirely, and still receives emissions after a pickle round trip in the same process. Extenders with no external sink inherit `has_backend_sink()` returning `False` and skip these tests
 
 ### OtelExtenderTestMixin
 
-Install `mloda-testing[otel]`. Host provides `extender_class` and `make_otel_extender(tracer_provider, *, raise_on_error=None)`, and optionally `expected_span_names` and `trace_id_from_run_id` (the run_id-to-trace-id mapping; return `None` to skip the derivation test). It supplies `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`), so a host needs no extra code for the sink-resolution tests.
+Install `mloda-testing[otel]`. Host provides `extender_class` and `make_otel_extender(tracer_provider, *, raise_on_error=None)`, and optionally `expected_span_names` and `trace_id_from_run_id` (the run_id-to-trace-id mapping; return `None` to skip the derivation test). It supplies `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`, `injected_sink_capture`), so a host needs no extra code for the sink-resolution tests.
 
 `own_failure` and `pickled_copy_environment` are overridable on both backend mixins. The OTel default faults `TracerProvider.get_tracer`; an extender that caches its tracer at construction must override `own_failure`. The OpenLineage default faults `OpenLineageClient.emit`. A host whose pickled copy would resolve a real sink overrides `pickled_copy_environment`.
 
@@ -184,7 +188,7 @@ Helpers: `make_span_capture`, `single_span`, `single_span_attributes`, `inject_p
 
 ### OpenLineageExtenderTestMixin
 
-Install `mloda-testing[openlineage]`. Host provides `extender_class` and `make_openlineage_extender(client, *, raise_on_error=None)`. It supplies `make_extender`, `own_failure`, a `pickled_copy_environment` with OpenLineage disabled, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`), so a host needs no extra code for the sink-resolution tests.
+Install `mloda-testing[openlineage]`. Host provides `extender_class` and `make_openlineage_extender(client, *, raise_on_error=None)`. It supplies `make_extender`, `own_failure`, a `pickled_copy_environment` with OpenLineage disabled, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`, `injected_sink_capture`), so a host needs no extra code for the sink-resolution tests.
 
 ```python
 from openlineage.client.client import OpenLineageClient

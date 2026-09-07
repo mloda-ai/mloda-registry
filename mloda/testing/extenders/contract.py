@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import pickle  # nosec
+from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
@@ -72,6 +73,10 @@ class ExtenderContractTestMixin:
         return nullcontext()
 
     def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
+        raise NotImplementedError
+
+    def injected_sink_capture(self) -> tuple[Extender, Callable[[], int]]:
+        """An extender wired to an injected sink, plus a callable returning how many emissions it received."""
         raise NotImplementedError
 
     def context_hook(self) -> ExtenderHook:
@@ -280,3 +285,14 @@ class ExtenderContractTestMixin:
                     with pytest.raises(RuntimeError):
                         extender(lambda: None)
             assert spy == []
+
+    def test_contract_injected_sink_survives_pickle_in_same_process(self) -> None:
+        if not self.has_backend_sink():
+            pytest.skip("extender has no external sink")
+        extender, received = self.injected_sink_capture()
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        with make_hook_context(hook=self.context_hook()).activate():
+            copy(lambda: None)
+
+        assert received() > 0

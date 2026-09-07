@@ -3,7 +3,9 @@ exercises the full OtelExtenderTestMixin contract independently of the real regi
 
 from __future__ import annotations
 
+import itertools
 import logging
+import os
 import re
 import uuid
 from typing import Any
@@ -53,6 +55,11 @@ def _parent_context(context: HookContext | None) -> Context | None:
     return None
 
 
+# Process-local stash for the probe's injected tracer_provider, mirroring OtelExtender's pid-scoped token resolution.
+_probe_otel_registry: dict[str, TracerProvider] = {}
+_probe_otel_token_ids = itertools.count()
+
+
 class _ProbeOtelExtender(Extender):
     """Minimal OTel probe: one span per call, parented from carrier/run_id, error status on failure."""
 
@@ -66,11 +73,20 @@ class _ProbeOtelExtender(Extender):
         self.use_sdk_defaults = use_sdk_defaults
         self._tracer_provider = tracer_provider
         self._logged_inert = False
+        self._token: str | None = None
+        if tracer_provider is not None:
+            self._token = f"{os.getpid()}:{next(_probe_otel_token_ids)}"
+            _probe_otel_registry[self._token] = tracer_provider
 
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
         state["_tracer_provider"] = None
         return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        if self._token is not None and self._token.split(":", 1)[0] == str(os.getpid()):
+            self._tracer_provider = _probe_otel_registry.get(self._token)
 
     def wraps(self) -> set[ExtenderHook]:
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
