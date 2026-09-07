@@ -41,7 +41,12 @@ class OpenLineageExtender(Extender):
     """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating nested
     INPUT_DATA_LOAD calls as inputs; resolves its own OpenLineageClient() when none is injected. Emits happen
     synchronously on the calculation thread, so a blocking transport delays every wrapped feature calculation.
-    close() flushes the client; a self-built client is also registered with atexit to flush on interpreter exit."""
+    close() flushes the client and is terminal, the extender cannot be reused afterward; a self-built client
+    is also registered with atexit, using a bounded timeout, to flush on interpreter exit (a main-process
+    safety net only, since it never runs in a MULTIPROCESSING worker, which mloda terminates rather than
+    shuts down cleanly)."""
+
+    _ATEXIT_CLOSE_TIMEOUT = 10.0
 
     def __init__(
         self,
@@ -57,20 +62,32 @@ class OpenLineageExtender(Extender):
         self.dataset_namespace = dataset_namespace
         self.root_job_name = root_job_name
         self._client_lock = threading.Lock()
+        self._closed = False
 
     def _get_client(self) -> OpenLineageClient:
+        if self._closed:
+            raise RuntimeError(f"{type(self).__name__} was closed; it can no longer be used to emit OpenLineage events")
         if self._client is None:
             with self._client_lock:
                 if self._client is None:
                     self._client = OpenLineageClient()
-                    atexit.register(self.close)
+                    atexit.register(self.close, self._ATEXIT_CLOSE_TIMEOUT)
         return self._client
 
     def close(self, timeout: float = -1.0) -> bool:
-        """Flush the underlying client. A no-op returning True if no client has been built yet."""
-        if self._client is None:
-            return True
-        return self._client.close(timeout)
+        """Flush the underlying client. A no-op returning True if no client has been built yet, or if
+        already closed. Idempotent: only the first call actually flushes; subsequent calls are no-ops."""
+        with self._client_lock:
+            if self._client is None or self._closed:
+                return True
+            self._closed = True
+            atexit.unregister(self.close)
+            client = self._client
+
+        flushed = client.close(timeout)
+        if not flushed:
+            logger.warning("%s failed to flush all events within timeout", type(self).__name__)
+        return flushed
 
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
