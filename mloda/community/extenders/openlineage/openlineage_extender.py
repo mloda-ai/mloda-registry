@@ -41,10 +41,8 @@ class OpenLineageExtender(Extender):
     """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating nested
     INPUT_DATA_LOAD calls as inputs; resolves its own OpenLineageClient() when none is injected. Emits happen
     synchronously on the calculation thread, so a blocking transport delays every wrapped feature calculation.
-    close() flushes the client and is terminal, the extender cannot be reused afterward; a self-built client
-    is also registered with atexit, using a bounded timeout, to flush on interpreter exit (a main-process
-    safety net only, since it never runs in a MULTIPROCESSING worker, which mloda terminates rather than
-    shuts down cleanly)."""
+    close() flushes the client and is terminal; a self-built client also gets a bounded-timeout atexit flush
+    (main process only, not MULTIPROCESSING workers)."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
 
