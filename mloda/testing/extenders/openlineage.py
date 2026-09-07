@@ -33,11 +33,16 @@ class RecordingTransport(Transport):
 
     def __init__(self, config: Config | None = None) -> None:
         self.events: list[RunEvent] = []
+        self.close_calls = 0
 
     def emit(self, event: Event) -> None:
         if not isinstance(event, RunEvent):
             raise TypeError(f"RecordingTransport only records RunEvent, got {type(event).__name__}")
         self.events.append(event)
+
+    def close(self, timeout: float = -1.0) -> bool:
+        self.close_calls += 1
+        return True
 
 
 def make_recording_client() -> tuple[OpenLineageClient, RecordingTransport]:

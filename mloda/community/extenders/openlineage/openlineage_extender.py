@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import contextvars
 import logging
 import threading
@@ -39,7 +40,8 @@ _open_invocations: contextvars.ContextVar[tuple[tuple[int, "_OpenCalculateInvoca
 class OpenLineageExtender(Extender):
     """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating nested
     INPUT_DATA_LOAD calls as inputs; resolves its own OpenLineageClient() when none is injected. Emits happen
-    synchronously on the calculation thread, so a blocking transport delays every wrapped feature calculation."""
+    synchronously on the calculation thread, so a blocking transport delays every wrapped feature calculation.
+    close() flushes the client; a self-built client is also registered with atexit to flush on interpreter exit."""
 
     def __init__(
         self,
@@ -61,7 +63,14 @@ class OpenLineageExtender(Extender):
             with self._client_lock:
                 if self._client is None:
                     self._client = OpenLineageClient()
+                    atexit.register(self.close)
         return self._client
+
+    def close(self, timeout: float = -1.0) -> bool:
+        """Flush the underlying client. A no-op returning True if no client has been built yet."""
+        if self._client is None:
+            return True
+        return self._client.close(timeout)
 
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
