@@ -12,6 +12,12 @@ import pytest
 from mloda.testing.import_isolation import block_root, evict_package, evict_root
 
 
+def _raise_boom() -> None:
+    """Module-level so its code object can be rebound to fake globals, fabricating a real traceback
+    frame with an arbitrary ``__name__`` without resorting to ``exec``."""
+    raise ImportError("boom")
+
+
 class OptionalDependencyPackageTestMixin:
     """Manifest resilience contract. Host declares package, root, distribution, extra, extender_name,
     extender_module, broken_module, broken_name, transitive_dependency: mloda's entry-point loader must
@@ -20,9 +26,10 @@ class OptionalDependencyPackageTestMixin:
     unchanged.
 
     ``broken_module`` names a real submodule of ``root`` from which ``broken_name`` is imported by the
-    extender module; ``transitive_dependency`` names a real third-party dependency of ``root`` itself
-    (``None`` when the host has no safe transitive dependency to poison, in which case the corresponding
-    tests are skipped).
+    extender module; ``transitive_dependency`` names a real third-party dependency of ``root`` itself.
+    All three default to ``None`` (a legacy host declaring only the original six attributes still works;
+    the corresponding tests are skipped rather than erroring), and are ``None`` when the host has no safe
+    module/name/transitive dependency to poison.
     """
 
     package: str
@@ -31,9 +38,9 @@ class OptionalDependencyPackageTestMixin:
     extra: str
     extender_name: str
     extender_module: str
-    broken_module: str
-    broken_name: str
-    transitive_dependency: str | None
+    broken_module: str | None = None
+    broken_name: str | None = None
+    transitive_dependency: str | None = None
 
     def test_manifest_lists_the_extender_when_installed(self) -> None:
         manifest = importlib.import_module(f"{self.package}.manifest")
@@ -56,6 +63,15 @@ class OptionalDependencyPackageTestMixin:
 
         with pytest.raises(ModuleNotFoundError):
             importlib.import_module(f"{self.package}.manifest")
+
+    def test_package_reraises_unrelated_import_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Mirror of ``test_manifest_reraises_unrelated_import_errors`` for the package's own
+        ``__init__.py`` guard, which is otherwise only exercised transitively via the manifest import."""
+        monkeypatch.setitem(sys.modules, f"{self.package}.{self.extender_module}", None)
+        monkeypatch.delitem(sys.modules, self.package, raising=False)
+
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(self.package)
 
     def test_manifest_reraises_unrelated_plain_import_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A plain ImportError (not ModuleNotFoundError) from our own submodule, unrelated to ``root``:
@@ -126,6 +142,9 @@ class OptionalDependencyPackageTestMixin:
     def test_package_hides_extender_and_chains_cause_when_dependency_is_broken(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        if self.broken_module is None:
+            pytest.skip("no broken_module declared")
+
         monkeypatch.setitem(sys.modules, self.broken_module, None)
         evict_package(monkeypatch, self.package)
 
@@ -138,10 +157,15 @@ class OptionalDependencyPackageTestMixin:
 
         assert self.distribution in str(info.value)
         assert self.extra in str(info.value)
-        assert info.value.__cause__ is not None
+        cause = info.value.__cause__
+        assert isinstance(cause, ImportError)
+        assert self.broken_module in str(cause)
 
     def test_manifest_is_empty_when_dependency_module_is_broken(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """``root`` is installed but one of ITS OWN submodules is absent, as if too old a version."""
+        if self.broken_module is None:
+            pytest.skip("no broken_module declared")
+
         monkeypatch.setitem(sys.modules, self.broken_module, None)
         evict_package(monkeypatch, self.package)
 
@@ -152,6 +176,9 @@ class OptionalDependencyPackageTestMixin:
     def test_manifest_logs_warning_when_dependency_module_is_broken(
         self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        if self.broken_module is None:
+            pytest.skip("no broken_module declared")
+
         monkeypatch.setitem(sys.modules, self.broken_module, None)
         evict_package(monkeypatch, self.package)
 
@@ -175,6 +202,9 @@ class OptionalDependencyPackageTestMixin:
     def test_manifest_is_empty_when_dependency_name_is_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """``root`` is installed but too old to expose ``broken_name`` inside ``broken_module``: unlike a
         missing submodule, this raises a plain ImportError rather than a ModuleNotFoundError."""
+        if self.broken_module is None or self.broken_name is None:
+            pytest.skip("no broken_module/broken_name declared")
+
         monkeypatch.delattr(importlib.import_module(self.broken_module), self.broken_name)
         evict_package(monkeypatch, self.package)
 
@@ -185,6 +215,9 @@ class OptionalDependencyPackageTestMixin:
     def test_manifest_logs_warning_when_dependency_name_is_missing(
         self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        if self.broken_module is None or self.broken_name is None:
+            pytest.skip("no broken_module/broken_name declared")
+
         monkeypatch.delattr(importlib.import_module(self.broken_module), self.broken_name)
         evict_package(monkeypatch, self.package)
 
@@ -269,6 +302,39 @@ class OptionalDependencyPackageTestMixin:
             optional_dependency.reraise_unless_optional(exc, self.root)
 
         assert info.value is exc
+
+    def test_optional_dependency_helper_reraises_sibling_distribution_sharing_prefix(self) -> None:
+        """A dot-boundary regression (``name.startswith(root)`` instead of ``name.startswith(f"{root}.")``)
+        would wrongly swallow an unrelated sibling distribution whose name merely shares ``root``'s prefix."""
+        optional_dependency = importlib.import_module(f"{self.package}._optional_dependency")
+        exc = ImportError("boom", name=f"{self.root}_unrelated.thing")
+
+        with pytest.raises(ImportError) as info:
+            optional_dependency.reraise_unless_optional(exc, self.root)
+
+        assert info.value is exc
+
+    def test_optional_dependency_helper_reraises_sibling_distribution_from_traceback(self) -> None:
+        """Same dot-boundary regression, covered via the traceback-attribution path: a real frame whose
+        module ``__name__`` merely shares ``root``'s prefix must not be blamed on ``root``."""
+        optional_dependency = importlib.import_module(f"{self.package}._optional_dependency")
+
+        # A function object sharing _raise_boom's code but bound to fake globals: calling it produces a
+        # real traceback frame whose f_globals["__name__"] is the fabricated, unrelated module name.
+        fake_globals = dict(_raise_boom.__globals__, __name__=f"{self.root}_unrelated")
+        fake_raiser = types.FunctionType(_raise_boom.__code__, fake_globals, "_raise_boom")
+
+        captured: ImportError | None = None
+        try:
+            fake_raiser()
+        except ImportError as exc:
+            captured = exc
+        assert captured is not None
+
+        with pytest.raises(ImportError) as info:
+            optional_dependency.reraise_unless_optional(captured, self.root)
+
+        assert info.value is captured
 
     def test_blocking_tests_leave_no_degraded_module_behind(self) -> None:
         """A prior test blocking the dependency must not leak its degraded module into later imports."""

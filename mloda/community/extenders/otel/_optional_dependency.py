@@ -3,9 +3,11 @@ independently installable and shares no runtime package to import this from."""
 
 from __future__ import annotations
 
+import importlib.metadata
 import importlib.util
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 def _traceback_blames(exc: ImportError, root: str) -> bool:
@@ -19,6 +21,8 @@ def _traceback_blames(exc: ImportError, root: str) -> bool:
 
 
 def _blames(exc: ImportError, root: str) -> bool:
+    # Heuristic: a first-party typo in a symbol imported FROM the dependency is blamed on the
+    # dependency too and degrades (the installed-path test catches that in CI).
     name = exc.name
     if name is not None and (name == root or name.startswith(f"{root}.")):
         return True
@@ -32,10 +36,21 @@ def reraise_unless_optional(exc: ImportError, root: str) -> None:
         raise exc
 
 
-def _root_is_installed(root: str) -> bool:
+def _installed_version(distribution: str) -> str | None:
     try:
-        return importlib.util.find_spec(root) is not None
-    except (ImportError, ValueError):
+        return importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _root_is_installed(root: str, distribution: str) -> bool:
+    """``root`` is a real distribution, not merely an importable directory: ``openlineage`` and
+    ``opentelemetry`` are PEP 420 namespace packages, so ``find_spec`` alone would also report a stray
+    empty directory of that name on ``sys.path`` as installed. Require distribution metadata too, and
+    never let this log-level decision crash the import."""
+    try:
+        return importlib.util.find_spec(root) is not None and _installed_version(distribution) is not None
+    except Exception:
         return False
 
 
@@ -49,14 +64,16 @@ def log_unavailable(
 ) -> None:
     """Log why ``subject`` is unavailable: INFO when ``root`` is genuinely absent, WARNING (naming the
     real failure) when ``root`` is installed but unusable."""
-    if _root_is_installed(root):
+    if _root_is_installed(root, distribution):
         logger.warning(
-            "%s unavailable: install '%s' via '%s' (real cause, %s: %s).",
+            "%s unavailable: '%s' %s is installed but unusable (real cause, %s: %s); check the version "
+            "constraint or reinstall via '%s'.",
             subject,
             distribution,
-            extra,
+            _installed_version(distribution),
             type(exc).__name__,
             exc,
+            extra,
         )
     else:
         logger.info("%s unavailable: install '%s' via '%s'.", subject, distribution, extra)

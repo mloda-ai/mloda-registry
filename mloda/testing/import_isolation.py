@@ -64,10 +64,7 @@ def evict_package(monkeypatch: pytest.MonkeyPatch, dotted: str) -> None:
         monkeypatch.setattr(parent, leaf, None, raising=False)
         monkeypatch.delattr(parent, leaf, raising=False)
 
-    for name in list(sys.modules):
-        if name == dotted or name.startswith(f"{dotted}."):
-            monkeypatch.setitem(sys.modules, name, sys.modules[name])
-            monkeypatch.delitem(sys.modules, name)
+    evict_root(monkeypatch, dotted)
 
     candidates = (
         {dotted, f"{dotted}.manifest"} | _sibling_submodule_names(parent_name) | _sibling_submodule_names(dotted)

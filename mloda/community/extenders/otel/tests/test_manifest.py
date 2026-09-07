@@ -14,4 +14,4 @@ class TestOtelManifest(OptionalDependencyPackageTestMixin):
     extender_module = "otel_extender"
     broken_module = "opentelemetry.trace"
     broken_name = "NonRecordingSpan"
-    transitive_dependency = None
+    transitive_dependency = "typing_extensions"
