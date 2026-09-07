@@ -1304,9 +1304,12 @@ class BinaryModelConformanceBase:
 
     def test_input_path_not_readable_is_usage_error(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
         """An `--input` path that exists but is not readable (chmod 000) is a usage error, exit 1
-        (contract: Errors). Skipped when running as root, which ignores file read permissions."""
+        (contract: Errors). Skipped when running as root, which ignores file read permissions, and
+        on Windows, where chmod does not restrict read access."""
         if hasattr(os, "geteuid") and os.geteuid() == 0:
             pytest.skip("running as root ignores file read permissions")
+        if sys.platform == "win32":
+            pytest.skip("chmod does not restrict read access on Windows")
         column = self.default_input_columns[0]
         config = self.make_config(input_columns=[column])
         config_path = write_json(tmp_path / "config.json", config)
@@ -1584,6 +1587,10 @@ class BinaryModelConformanceBase:
         rows = self.default_input_rows()
         input_bytes = arrow_stream_bytes(self.default_input_schema(), rows)
         env = {"MLODA_LICENSE_KEY": self.valid_license_text, "PATH": os.environ.get("PATH", "")}
+        if sys.platform == "win32":
+            systemroot = os.environ.get("SYSTEMROOT")
+            if systemroot is not None:
+                env["SYSTEMROOT"] = systemroot
         result = run_binary(
             self.binary_cmd,
             ["run", "--config", str(config_path)],
