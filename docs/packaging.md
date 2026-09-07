@@ -116,6 +116,21 @@ mloda-community (bundled)
         └── extenders/*
 ```
 
+A bundled plugin whose runtime dependency is heavy sits behind a bundle extra instead of a
+hard dependency (today `mloda-community[otel]` and `mloda-community[openlineage]`, or both
+together via `mloda-community[all]`), and its manifest must import cleanly without that
+dependency installed so entry-point loading of the rest of the bundle stays intact.
+
+Moving a dependency behind an extra changes existing installs: when the dependency is missing,
+the manifest logs a record at INFO level naming the extra, and discovery skips the extender
+instead of registering it. Importing the extender name from the package still raises
+`ImportError` naming the extra.
+
+When the dependency is missing, the package module's `__getattr__` raises `ImportError` for the
+extender name, so `hasattr(pkg, "OtelExtender")` raises rather than returning `False`. Code that
+wants to probe availability should check `"OtelExtender" in vars(pkg)` or catch `ImportError`
+around the import.
+
 ### Individual packages
 
 Aggregation uses optional dependencies to avoid a circular dependency: the base
@@ -135,6 +150,9 @@ py_typed = true
 | Command | Result |
 |---------|--------|
 | `pip install mloda-community` | All community plugins (bundled) |
+| `pip install mloda-community[otel]` | The bundle plus the OTel extender's dependency |
+| `pip install mloda-community[openlineage]` | The bundle plus the OpenLineage extender's dependency |
+| `pip install mloda-community[all]` | The bundle plus every extender's dependency |
 | `pip install mloda-community-example` | Base example only |
 | `pip install mloda-community-example[all]` | Base + all variants |
 | `pip install mloda-community-example-a` | Variant A + base |

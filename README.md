@@ -63,13 +63,15 @@ Options such as `partition_by` and `order_by`, plus the shared contracts, are in
 
 | Package | Description | License | Install |
 |---------|-------------|---------|---------|
-| `mloda-community` | All community plugins (bundle) | Apache 2.0 | `pip install mloda-community` |
+| `mloda-community` | All community plugins (bundle) | Apache 2.0 | `pip install mloda-community` (add `[otel]`, `[openlineage]`, or `[all]` for the extenders) |
 | `mloda-community-<plugin>` | One plugin from the table above | Apache 2.0 | `pip install "mloda-community-rank[pandas]"` |
 | `mloda-registry` | Plugin discovery and search | Apache 2.0 | `pip install mloda-registry` |
 | `mloda-testing` | Test utilities for plugin development | Apache 2.0 | `pip install mloda-testing` |
 | `mloda-enterprise` | All enterprise plugins (bundle) | [Source-available](mloda/enterprise/LICENSE) ([Get license](https://mloda.ai/enterprise)) | `pip install mloda-enterprise` |
 
 > **Note:** Only `mloda/enterprise/` and its PyPI package require a license. Everything else in this repository is Apache 2.0 (see [LICENSE](LICENSE)).
+
+`opentelemetry-api` and `openlineage-python` are optional now, behind the `[otel]`, `[openlineage]`, and `[all]` extras. When the dependency is missing, the manifest logs a record at INFO level naming the extra, and plugin discovery skips the extender; importing `OtelExtender` or `OpenLineageExtender` from the package still raises `ImportError` naming the extra.
 
 The remaining example packages are not on PyPI; install them from git, replacing the subdirectory with the package `path` from `config/packages.toml`:
 

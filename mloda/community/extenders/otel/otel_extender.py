@@ -60,7 +60,9 @@ _OPERATION_NAMES: dict[ExtenderHook, str] = {
 
 
 class OtelExtender(Extender):
-    """Emits one OpenTelemetry span per wrapped hook invocation, populated from the ambient HookContext."""
+    """Emits one OpenTelemetry span per wrapped hook invocation, populated from the ambient HookContext.
+    An injected tracer_provider is process-local: pickled copies (worker processes under
+    ParallelizationMode.MULTIPROCESSING) drop it and fall back to the global tracer provider."""
 
     def __init__(
         self,
@@ -73,6 +75,11 @@ class OtelExtender(Extender):
         self.capture_content = capture_content
         self.mask = mask
         self._tracer_provider = tracer_provider
+
+    def __getstate__(self) -> dict[str, Any]:
+        state = dict(self.__dict__)
+        state["_tracer_provider"] = None
+        return state
 
     def wraps(self) -> set[ExtenderHook]:
         return {
@@ -87,13 +94,20 @@ class OtelExtender(Extender):
 
         tracer = trace.get_tracer(_TRACER_NAME, tracer_provider=self._tracer_provider)
         parent_context = _parent_context(context)
-        with tracer.start_as_current_span(span_name, record_exception=False, context=parent_context) as span:
+        with tracer.start_as_current_span(
+            span_name, record_exception=False, context=parent_context, set_status_on_exception=False
+        ) as span:
             if context is not None:
-                _set_context_attributes(span, context)
+                try:
+                    _set_context_attributes(span, context)
+                except BaseException as exc:
+                    span.set_status(Status(StatusCode.ERROR))
+                    span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
+                    raise
 
             try:
                 result = func(*args, **kwargs)
-            except Exception as exc:
+            except BaseException as exc:
                 span.set_status(Status(StatusCode.ERROR))
                 span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
                 logger.warning("OtelExtender %s failed: %s: %s", span_name, type(exc).__name__, exc)
