@@ -57,12 +57,15 @@ from mloda.testing.binary_model.arrow import (
 
 __all__ = [
     "CONTRACT_VERSION",
+    "COLUMN_TYPES",
     "DATA_ERROR",
     "DATA_FREE_MARKER",
     "INTERNAL_ERROR",
     "IPC_END_OF_STREAM_MARKER",
     "LICENSE_INVALID",
     "LICENSE_MISSING",
+    "MESSAGE_MAX_BYTES",
+    "STDERR_SOFT_CAP_BYTES",
     "UNSUPPORTED",
     "USAGE_ERROR",
     "arrow_file_format_bytes",
@@ -335,7 +338,9 @@ class BinaryModelConformanceBase:
 
     @pytest.fixture
     def hermetic_env(self) -> dict[str, str]:
-        """A minimal, controlled environment: no ambient shell variables, no license variables."""
+        """A minimal, controlled environment: no ambient shell variables, no license variables,
+        except ``SYSTEMROOT`` on Windows, part of the minimal environment a Windows child process
+        needs to start."""
         return self.platform_env({})
 
     @pytest.fixture
@@ -420,6 +425,36 @@ class BinaryModelConformanceBase:
         assert_error_response(result, USAGE_ERROR)
         assert result.stdout == b"", f"expected no stdout data, got {result.stdout!r}"
 
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            pytest.param("--config", id="config"),
+            pytest.param("--input", id="input"),
+            pytest.param("--output", id="output"),
+        ],
+    )
+    def test_repeated_flag_is_usage_error(
+        self, valid_license_env: dict[str, str], valid_config_path: Path, tmp_path: Path, flag: str
+    ) -> None:
+        """Repeating any of `--config`/`--input`/`--output` is a usage error, not "last one wins"
+        (contract: Invocation). Real Arrow IPC data is supplied on stdin in every branch, so a
+        regression that drops the repeated-flag check surfaces as an accepted run (exit 0), never
+        masked by an unrelated zero-byte-input data error."""
+        input_bytes = arrow_stream_bytes(self.default_input_schema(), self.default_input_rows())
+        args = ["run", "--config", str(valid_config_path)]
+        if flag == "--config":
+            args = [*args, "--config", str(valid_config_path)]
+        elif flag == "--input":
+            input_path = tmp_path / "input.arrows"
+            input_path.write_bytes(input_bytes)
+            args = [*args, "--input", str(input_path), "--input", str(input_path)]
+        else:
+            output_path = tmp_path / "out.arrows"
+            args = [*args, "--output", str(output_path), "--output", str(output_path)]
+        result = run_binary(self.binary_cmd, args, valid_license_env, input_bytes, timeout=self.binary_timeout_seconds)
+        assert_error_response(result, USAGE_ERROR)
+        assert result.stdout == b"", f"expected no stdout data, got {result.stdout!r}"
+
     def test_run_without_config_is_usage_error(self, hermetic_env: dict[str, str]) -> None:
         """`run` requires `--config`; without it, usage error (contract: Invocation)."""
         result = run_binary(self.binary_cmd, ["run"], hermetic_env, timeout=self.binary_timeout_seconds)
@@ -450,21 +485,47 @@ class BinaryModelConformanceBase:
     def test_license_missing_when_no_source_set(self, valid_config_path: Path, env: dict[str, str]) -> None:
         """Neither license variable set to a non-empty value (contract: License)."""
         result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
+            self.binary_cmd,
+            ["run", "--config", str(valid_config_path)],
+            self.platform_env(env),
+            timeout=self.binary_timeout_seconds,
         )
         assert_error_response(result, LICENSE_MISSING)
 
     def test_license_missing_when_file_path_nonexistent(self, valid_config_path: Path, tmp_path: Path) -> None:
         """`MLODA_LICENSE_FILE` naming a file that does not exist: exit 2 (contract: License)."""
-        env = {"MLODA_LICENSE_FILE": str(tmp_path / "no-such-license.txt")}
+        env = self.platform_env({"MLODA_LICENSE_FILE": str(tmp_path / "no-such-license.txt")})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
         assert_error_response(result, LICENSE_MISSING)
 
+    def test_license_invalid_when_file_path_is_a_directory(self, valid_config_path: Path, tmp_path: Path) -> None:
+        """`MLODA_LICENSE_FILE` naming an existing directory, not a file: exit 3, not exit 2 -- the
+        path exists, it just can't be read as license content (contract: License)."""
+        license_dir = tmp_path / "some-name"
+        license_dir.mkdir()
+        env = self.platform_env({"MLODA_LICENSE_FILE": str(license_dir)})
+        result = run_binary(
+            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
+        )
+        error = assert_error_response(result, LICENSE_INVALID)
+        assert "MLODA_LICENSE_FILE" in error["message"], f"message does not name the source: {error!r}"
+
+    def test_license_file_named_pipe_is_license_invalid_not_hung(self, valid_config_path: Path, tmp_path: Path) -> None:
+        """`MLODA_LICENSE_FILE` naming a FIFO with no writer must return promptly, never block
+        reading an unopened pipe (contract: License, Invocation)."""
+        if not hasattr(os, "mkfifo"):
+            pytest.skip("os.mkfifo is not available on this platform")
+        fifo_path = tmp_path / "license-fifo"
+        os.mkfifo(fifo_path)
+        env = self.platform_env({"MLODA_LICENSE_FILE": str(fifo_path)})
+        result = run_binary(self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=5.0)
+        assert_error_response(result, LICENSE_INVALID)
+
     def test_license_missing_message_names_file_source(self, valid_config_path: Path, tmp_path: Path) -> None:
         """The code 2 `message` names the source that was set (contract: License)."""
-        env = {"MLODA_LICENSE_FILE": str(tmp_path / "no-such-license.txt")}
+        env = self.platform_env({"MLODA_LICENSE_FILE": str(tmp_path / "no-such-license.txt")})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -487,7 +548,7 @@ class BinaryModelConformanceBase:
     def test_license_accepted_via_license_key_inline(self, valid_config_path: Path) -> None:
         """A valid token via `MLODA_LICENSE_KEY` (inline) is accepted the same as a file (contract:
         License)."""
-        env = {"MLODA_LICENSE_KEY": self.valid_license_text}
+        env = self.platform_env({"MLODA_LICENSE_KEY": self.valid_license_text})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -496,7 +557,9 @@ class BinaryModelConformanceBase:
     def test_license_file_wins_over_license_key(self, valid_config_path: Path, valid_license_file: Path) -> None:
         """When both are set, `MLODA_LICENSE_FILE` wins with no fallback to `MLODA_LICENSE_KEY`: a
         valid file plus garbage inline key is still accepted (contract: License)."""
-        env = {"MLODA_LICENSE_FILE": str(valid_license_file), "MLODA_LICENSE_KEY": "not-json-and-must-not-be-used"}
+        env = self.platform_env(
+            {"MLODA_LICENSE_FILE": str(valid_license_file), "MLODA_LICENSE_KEY": "not-json-and-must-not-be-used"}
+        )
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -505,7 +568,7 @@ class BinaryModelConformanceBase:
     def test_license_expired_is_invalid(self, valid_config_path: Path, tmp_path: Path) -> None:
         """An expired token: exit 3, license invalid (contract: License)."""
         license_path = write_text(tmp_path / "license.txt", self.expired_license_text)
-        env = {"MLODA_LICENSE_FILE": str(license_path)}
+        env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -514,7 +577,7 @@ class BinaryModelConformanceBase:
     def test_license_wrong_plugin_is_invalid(self, valid_config_path: Path) -> None:
         """A token whose `plugins` entitlement list omits this `plugin_id`: exit 3. The message also
         names the source (contract: License)."""
-        env = {"MLODA_LICENSE_KEY": self.wrong_plugin_license_text}
+        env = self.platform_env({"MLODA_LICENSE_KEY": self.wrong_plugin_license_text})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -537,7 +600,7 @@ class BinaryModelConformanceBase:
         constants."""
         tampered_text = getattr(self, attr_name)
         license_path = write_text(tmp_path / "license.txt", tampered_text)
-        env = {"MLODA_LICENSE_FILE": str(license_path)}
+        env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -547,7 +610,7 @@ class BinaryModelConformanceBase:
         """A token past ``exp`` but still inside its ``grace_days`` window proceeds past the
         license check; whatever happens next is never code 2 or 3 (spec: Verification step 6;
         contract: License)."""
-        env = {"MLODA_LICENSE_KEY": license_vectors.in_grace_license_token([self.plugin_id])}
+        env = self.platform_env({"MLODA_LICENSE_KEY": license_vectors.in_grace_license_token([self.plugin_id])})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -556,7 +619,7 @@ class BinaryModelConformanceBase:
     def test_license_not_yet_valid_is_invalid(self, valid_config_path: Path) -> None:
         """A token whose ``nbf`` lies in the future: exit 3, not yet valid (spec: Verification
         step 6; contract: License)."""
-        env = {"MLODA_LICENSE_KEY": license_vectors.not_yet_valid_license_token([self.plugin_id])}
+        env = self.platform_env({"MLODA_LICENSE_KEY": license_vectors.not_yet_valid_license_token([self.plugin_id])})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -565,7 +628,7 @@ class BinaryModelConformanceBase:
     def test_license_unknown_kid_is_invalid(self, valid_config_path: Path) -> None:
         """A well-signed token under a ``kid`` the verifier's key map does not contain: exit 3
         (spec: Verification step 3; contract: License)."""
-        env = {"MLODA_LICENSE_KEY": license_vectors.unknown_kid_license_token([self.plugin_id])}
+        env = self.platform_env({"MLODA_LICENSE_KEY": license_vectors.unknown_kid_license_token([self.plugin_id])})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -577,7 +640,7 @@ class BinaryModelConformanceBase:
         """A valid license with a syntactically broken config gets past the license stage and fails
         on config parsing instead: exit 1, never 2 or 3 (contract: Errors, check order)."""
         config_path = write_text(tmp_path / "config.json", "{not valid json")
-        env = {"MLODA_LICENSE_FILE": str(valid_license_file)}
+        env = self.platform_env({"MLODA_LICENSE_FILE": str(valid_license_file)})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -589,7 +652,7 @@ class BinaryModelConformanceBase:
         """An invalid license with an otherwise valid config still exits 2 or 3, not something else,
         proving license is checked before config (contract: Errors, check order)."""
         license_path = write_text(tmp_path / "license.txt", self.expired_license_text)
-        env = {"MLODA_LICENSE_FILE": str(license_path)}
+        env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -604,10 +667,12 @@ class BinaryModelConformanceBase:
     ) -> None:
         """`MLODA_LICENSE_FILE` naming a missing file wins over a simultaneously valid
         `MLODA_LICENSE_KEY`: still code 2, no fallback (contract: License)."""
-        env = {
-            "MLODA_LICENSE_FILE": str(tmp_path / "no-such-license.txt"),
-            "MLODA_LICENSE_KEY": self.valid_license_text,
-        }
+        env = self.platform_env(
+            {
+                "MLODA_LICENSE_FILE": str(tmp_path / "no-such-license.txt"),
+                "MLODA_LICENSE_KEY": self.valid_license_text,
+            }
+        )
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -619,7 +684,7 @@ class BinaryModelConformanceBase:
         """`MLODA_LICENSE_FILE` naming a file with tampered content wins over a simultaneously valid
         `MLODA_LICENSE_KEY`: still code 3, no fallback (contract: License)."""
         license_path = write_text(tmp_path / "license.txt", self.tampered_unparseable_text)
-        env = {"MLODA_LICENSE_FILE": str(license_path), "MLODA_LICENSE_KEY": self.valid_license_text}
+        env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path), "MLODA_LICENSE_KEY": self.valid_license_text})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -1138,7 +1203,7 @@ class BinaryModelConformanceBase:
         before any data is read, schema-only input included (contract: Data, License)."""
         input_bytes = arrow_stream_bytes(self.default_input_schema(), None)
         license_path = write_text(tmp_path / "license.txt", self.expired_license_text)
-        env = {"MLODA_LICENSE_FILE": str(license_path)}
+        env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
         result = run_binary(
             self.binary_cmd,
             ["run", "--config", str(valid_config_path)],
@@ -1233,6 +1298,28 @@ class BinaryModelConformanceBase:
         )
         assert_error_response(result, DATA_ERROR)
 
+    def test_truncated_stream_with_unsupported_column_type_reports_type_error_first(
+        self, valid_license_env: dict[str, str], tmp_path: Path
+    ) -> None:
+        """A stream cut off right before the end-of-stream marker, whose single column is typed
+        outside the vocabulary, is unsupported (code 4), not a data error: the vocabulary check
+        must run before the truncation check (contract: Data, Capabilities)."""
+        column = self.default_input_columns[0]
+        config = self.make_config(input_columns=[column])
+        config_path = write_json(tmp_path / "config.json", config)
+        schema = pa.schema([pa.field(column, pa.int32())])
+        full_bytes = arrow_stream_bytes(schema, {column: [1, 2, 3]})
+        assert full_bytes.endswith(IPC_END_OF_STREAM_MARKER), "test setup: expected the writer to emit the EOS marker"
+        truncated = full_bytes[: -len(IPC_END_OF_STREAM_MARKER)]
+        result = run_binary(
+            self.binary_cmd,
+            ["run", "--config", str(config_path)],
+            valid_license_env,
+            truncated,
+            timeout=self.binary_timeout_seconds,
+        )
+        assert_error_response(result, UNSUPPORTED)
+
     def test_ipc_file_format_instead_of_stream_is_data_error(
         self, valid_license_env: dict[str, str], tmp_path: Path
     ) -> None:
@@ -1324,6 +1411,7 @@ class BinaryModelConformanceBase:
         schema = pa.schema([pa.field(column, pa.int64())])
         input_path = tmp_path / "input.arrows"
         input_path.write_bytes(arrow_stream_bytes(schema, {column: [1, 2, 3]}))
+        original_mode = input_path.stat().st_mode
         input_path.chmod(0o000)
         try:
             result = run_binary(
@@ -1333,7 +1421,7 @@ class BinaryModelConformanceBase:
                 timeout=self.binary_timeout_seconds,
             )
         finally:
-            input_path.chmod(0o644)
+            input_path.chmod(original_mode)
         assert_error_response(result, USAGE_ERROR)
 
     # -------------------------------------------------------------------------------------------
@@ -1629,7 +1717,7 @@ class BinaryModelConformanceBase:
         read as the license token (contract: License)."""
         license_path = tmp_path / "license.txt"
         license_path.write_bytes(b"\xff\xfe\x00invalid-utf8-license")
-        env = {"MLODA_LICENSE_FILE": str(license_path)}
+        env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -1679,9 +1767,11 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
     ``BinaryModelConformanceBase`` to assemble a full conformance suite for a binary whose worked
     example is "hash".
 
-    Delegates the reference algorithm and test-case builder to
-    ``mloda.testing.binary_model.hash_reference``, the single implementation also imported by
-    ``simulated_binary.py``, so the two can never silently drift apart."""
+    Delegates the reference algorithm to ``mloda.testing.binary_model.hash_reference``, the single
+    implementation also imported by ``simulated_binary.py``, so the two can never silently drift
+    apart. A subclass may list only this class, or both explicitly with the mixin first
+    (``class T(HashOperationConformanceMixin, BinaryModelConformanceBase)``) -- never the reverse
+    order, which fails Python's MRO resolution."""
 
     operations: ClassVar[list[str]] = ["hash"]
     default_output_columns: ClassVar[dict[str, str]] = {"result": "hash_out"}
@@ -1692,12 +1782,42 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
     compute_expected_hash_column = staticmethod(hash_reference.compute_expected_hash_column)
 
     def hash_multi_column_case(self, key: str | None = None) -> dict[str, Any]:
-        """Delegates to ``hash_reference.hash_multi_column_case`` (see there for the dataset shape),
-        passing ``self.make_config``/``self.default_output_column_name`` through so a subclass's
-        overrides are honoured."""
-        return hash_reference.hash_multi_column_case(
-            key=key, output_column_name=self.default_output_column_name, make_config=self.make_config
+        """Build one self-contained "hash" test case: a small multi-column, multi-row dataset (every
+        vocabulary type, one null) with its Arrow schema, a config built via ``self.make_config``,
+        and the expected output computed independently via ``compute_expected_hash_column``
+        (contract: Configuration "hash" operation shape). ``key`` is forwarded to both the config
+        and the independent computation. ``id`` varies per row so a row-order bug is caught even
+        though the hash also depends on every other column; ``amount`` is null on one row to
+        exercise the null-sentinel path."""
+        input_columns = ["id", "count", "amount", "active", "name"]
+        rows: dict[str, list[Any]] = {
+            "id": ["row-0", "row-1", "row-2", "row-3"],
+            "count": [10, -5, 0, 42],
+            "amount": [1.5, None, -3.25, 0.0],
+            "active": [True, False, True, False],
+            "name": ["alpha", "beta", "gamma", "delta"],
+        }
+        schema = pa.schema(
+            [
+                pa.field("id", pa.string()),
+                pa.field("count", pa.int64()),
+                pa.field("amount", pa.float64()),
+                pa.field("active", pa.bool_()),
+                pa.field("name", pa.string()),
+            ]
         )
+        output_columns = {"result": self.default_output_column_name}
+        parameters: dict[str, Any] = {} if key is None else {"key": key}
+        config = self.make_config(input_columns=input_columns, parameters=parameters, output_columns=output_columns)
+        expected = hash_reference.compute_expected_hash_column(rows, input_columns, key)
+        return {
+            "input_columns": input_columns,
+            "rows": rows,
+            "schema": schema,
+            "output_columns": output_columns,
+            "config": config,
+            "expected": expected,
+        }
 
     # -------------------------------------------------------------------------------------------
     # H1. "hash" reference algorithm (contract: Configuration "hash" operation shape; Data)

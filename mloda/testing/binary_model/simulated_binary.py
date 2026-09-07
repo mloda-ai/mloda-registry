@@ -201,10 +201,14 @@ def _parse_run_args(args: list[str]) -> _RunArgs:
     config_value: str | None = None
     input_value: str | None = None
     output_value: str | None = None
+    seen_flags: set[str] = set()
     i = 0
     while i < len(args):
         arg = args[i]
         if arg in ("--config", "--input", "--output") and i + 1 < len(args):
+            if arg in seen_flags:
+                raise _CliError(USAGE_ERROR, f"{arg} specified more than once")
+            seen_flags.add(arg)
             i += 1
             if arg == "--config":
                 config_value = args[i]
@@ -235,8 +239,10 @@ def _license_source() -> tuple[str, str]:
     file_value = os.environ.get("MLODA_LICENSE_FILE", "")
     if file_value:
         path = Path(file_value)
-        if not path.is_file():
+        if not path.exists():
             raise _CliError(LICENSE_MISSING, f"MLODA_LICENSE_FILE {file_value}: not found")
+        if not path.is_file():
+            raise _CliError(LICENSE_INVALID, f"MLODA_LICENSE_FILE {file_value}: not a regular file")
         try:
             return "MLODA_LICENSE_FILE", path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
@@ -520,8 +526,8 @@ def _run_data_stage(raw: bytes, config: dict[str, Any], output_path: Path | None
 
     buffer_reader = pa.BufferReader(pa.py_buffer(raw))
     reader = _open_ipc_stream_reader(buffer_reader)
-    _assert_ends_with_eos_marker(raw)
     _validate_input_schema(reader.schema, config["input_columns"])
+    _assert_ends_with_eos_marker(raw)
     _assert_no_compressed_record_batch(raw)
     table = _read_all_batches(reader)
     _assert_no_trailing_data(buffer_reader, raw)

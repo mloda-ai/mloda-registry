@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 import pyarrow as pa
 import pytest
@@ -31,7 +31,8 @@ from mloda.community.feature_groups.binary_model.errors import (
 )
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
 from mloda.community.feature_groups.binary_model.transport import TEMP_PARENT_NAME, pid_is_alive
-from mloda.testing.binary_model.hash_reference import compute_expected_hash_column, hash_multi_column_case
+from mloda.testing.binary_model.conformance import BinaryModelConformanceBase, HashOperationConformanceMixin
+from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
 from mloda.testing.binary_model.license_vectors import expired_license_token, valid_license_token
 
 STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
@@ -559,6 +560,13 @@ class _FileTransportStubModel(StubModel):
     FILE_TRANSPORT_THRESHOLD_BYTES = 0
 
 
+class _HashCaseBuilder(HashOperationConformanceMixin, BinaryModelConformanceBase):
+    """Only used to reach ``hash_multi_column_case``'s dataset builder with a non-default output
+    column name; never run as a conformance suite itself."""
+
+    default_output_columns: ClassVar[dict[str, str]] = {"result": "multi_hash"}
+
+
 class TestHappyPaths:
     def test_single_utf8_column(self) -> None:
         rows = {"col_a": ["alpha", "beta", "gamma"]}
@@ -568,7 +576,7 @@ class TestHappyPaths:
         assert result.column("col_a_hash").to_pylist() == expected
 
     def test_five_column_mixed_case_with_null(self) -> None:
-        case = hash_multi_column_case(key=None, output_column_name="multi_hash", make_config=lambda **kwargs: kwargs)
+        case = _HashCaseBuilder().hash_multi_column_case(key=None)
         table = pa.Table.from_pydict(case["rows"], schema=case["schema"])
         result = StubModel.run_binary_model(table, case["input_columns"], "hash", {}, case["output_columns"])
         assert result.column("multi_hash").to_pylist() == case["expected"]
