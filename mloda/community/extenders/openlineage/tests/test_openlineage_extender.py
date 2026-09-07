@@ -8,6 +8,7 @@ core's INPUT_DATA_LOAD nesting inside the enclosing CALCULATE_FEATURE HookContex
 
 from __future__ import annotations
 
+import atexit
 import logging
 import pickle  # nosec
 import threading
@@ -44,6 +45,19 @@ class _LockHoldingTransport(Transport):
 
     def emit(self, event: Any) -> None:
         pass
+
+
+class _IncompleteFlushTransport(Transport):
+    """A Transport whose close() reports that not everything was flushed in time."""
+
+    kind = "incomplete-flush"
+    config_class = Config
+
+    def emit(self, event: Any) -> None:
+        pass
+
+    def close(self, timeout: float = -1.0) -> bool:
+        return False
 
 
 @pytest.fixture
@@ -152,6 +166,7 @@ class TestOpenLineageExtenderLazyClientInit:
                 self.transport = None
 
         monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _FakeOpenLineageClient)
+        monkeypatch.setattr(atexit, "register", lambda *args, **kwargs: None)
 
         extender = OpenLineageExtender()
         thread_count = 16
@@ -170,6 +185,213 @@ class TestOpenLineageExtenderLazyClientInit:
 
         assert build_count == 1
         assert all(result is results[0] for result in results)
+
+
+class TestOpenLineageExtenderClose:
+    """close() flushes the underlying OpenLineageClient/transport and registers an atexit hook
+    only for a client this extender built itself; a caller-injected client is never touched by
+    atexit, and closing before any client exists must not build one."""
+
+    def test_close_delegates_to_injected_client_and_flushes_transport(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        result = extender.close()
+
+        assert result is True
+        assert transport.close_calls == 1
+
+    def test_close_passes_timeout_argument_through_to_client_close(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+        received: list[float] = []
+
+        def fake_close(timeout: float = -1.0) -> bool:
+            received.append(timeout)
+            return True
+
+        monkeypatch.setattr(client, "close", fake_close)
+
+        extender.close(timeout=5.5)
+
+        assert received == [5.5]
+
+    def test_close_delegates_to_lazily_built_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _FakeClientWithClose:
+            def __init__(self) -> None:
+                self.close_calls: list[float] = []
+
+            def close(self, timeout: float = -1.0) -> bool:
+                self.close_calls.append(timeout)
+                return True
+
+        monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _FakeClientWithClose)
+        extender = OpenLineageExtender()
+        built: Any = extender._get_client()
+
+        result = extender.close(timeout=9.0)
+
+        assert result is True
+        assert built.close_calls == [9.0]
+
+    def test_close_without_a_built_client_is_noop_returning_true_and_never_constructs_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class _FailingClient:
+            def __init__(self) -> None:
+                raise AssertionError("OpenLineageClient must not be constructed as a side effect of close()")
+
+        monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _FailingClient)
+        registered: list[Any] = []
+        monkeypatch.setattr(atexit, "register", lambda func: registered.append(func))
+        extender = OpenLineageExtender()
+
+        result = extender.close()
+
+        assert result is True
+        assert extender._client is None
+        assert registered == []
+
+    def test_atexit_registered_exactly_once_when_client_lazily_built(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _FakeClient:
+            def close(self, timeout: float = -1.0) -> bool:
+                return True
+
+        monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _FakeClient)
+        registered: list[Any] = []
+        monkeypatch.setattr(atexit, "register", lambda *args, **kwargs: registered.append(args[0]))
+        extender = OpenLineageExtender()
+
+        extender._get_client()
+        extender._get_client()
+
+        assert len(registered) == 1
+        assert registered[0].__self__ is extender
+        assert registered[0].__func__ is OpenLineageExtender.close
+
+    def test_atexit_not_registered_when_client_injected_via_constructor(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client, _ = ol_capture
+        registered: list[Any] = []
+        monkeypatch.setattr(atexit, "register", lambda func: registered.append(func))
+        extender = OpenLineageExtender(client=client)
+
+        assert extender._get_client() is client
+        extender.close()
+
+        assert registered == []
+
+
+class TestOpenLineageExtenderCloseIdempotencyAndReuse:
+    """close() must be idempotent, unregister its own atexit hook, use a bounded atexit timeout,
+    warn on incomplete flush, and reject reuse of a closed extender with a RuntimeError that the
+    standard warning-only _CompositeExtender fallback degrades gracefully instead of silently
+    emitting into a dead client."""
+
+    def test_close_is_idempotent_only_invokes_client_close_once(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        first = extender.close()
+        second = extender.close()
+
+        assert first is True
+        assert second is True
+        assert transport.close_calls == 1
+
+    def test_close_unregisters_atexit_hook_when_client_lazily_built(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _FakeClient:
+            def close(self, timeout: float = -1.0) -> bool:
+                return True
+
+        monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _FakeClient)
+        registered: list[Any] = []
+        unregistered: list[Any] = []
+        monkeypatch.setattr(atexit, "register", lambda *args, **kwargs: registered.append((args, kwargs)))
+        monkeypatch.setattr(atexit, "unregister", lambda func: unregistered.append(func))
+        extender = OpenLineageExtender()
+
+        extender._get_client()
+        extender.close()
+
+        assert len(unregistered) == 1
+        assert unregistered[0].__self__ is extender
+        assert unregistered[0].__func__ is OpenLineageExtender.close
+
+    def test_atexit_registered_close_uses_bounded_timeout_not_blocking_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class _FakeClient:
+            def close(self, timeout: float = -1.0) -> bool:
+                return True
+
+        monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _FakeClient)
+        captured: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+        monkeypatch.setattr(atexit, "register", lambda *args, **kwargs: captured.append((args, kwargs)))
+        extender = OpenLineageExtender()
+
+        extender._get_client()
+
+        assert len(captured) == 1
+        args, kwargs = captured[0]
+        assert args[0].__self__ is extender
+        assert args[0].__func__ is OpenLineageExtender.close
+        if len(args) > 1:
+            timeout = args[1]
+        else:
+            assert "timeout" in kwargs, "atexit.register must pass an explicit bounded timeout"
+            timeout = kwargs["timeout"]
+        assert isinstance(timeout, float)
+        assert timeout != -1.0
+        assert 0 < timeout < float("inf")
+
+    def test_close_logs_warning_naming_extender_when_flush_incomplete(self, caplog: pytest.LogCaptureFixture) -> None:
+        extender = OpenLineageExtender(client=OpenLineageClient(transport=_IncompleteFlushTransport()))
+
+        with caplog.at_level(logging.WARNING):
+            result = extender.close()
+
+        assert result is False
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("OpenLineageExtender" in message for message in warnings)
+
+    def test_get_client_after_close_raises_runtime_error(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        extender.close()
+
+        with pytest.raises(RuntimeError):
+            extender._get_client()
+
+    def test_reuse_after_close_falls_back_to_func_and_logs_warning_via_composite(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+        extender.close()
+        composite = _CompositeExtender([extender])
+        sentinel = object()
+
+        def func() -> object:
+            return sentinel
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            with caplog.at_level(logging.WARNING):
+                result = composite(func)
+
+        assert result is sentinel
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("OpenLineageExtender" in message for message in warnings)
 
 
 class TestOpenLineageExtenderStartEvent:
