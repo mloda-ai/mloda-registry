@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import struct
-from typing import Any, Callable
-
-import pyarrow as pa
+from typing import Any
 
 # Sentinel/delimiter for the "hash" algorithm: the sentinel embeds NUL bytes so it can't collide
 # with real utf8 input; the delimiter is the ASCII unit separator (0x1F), also unlikely in text.
@@ -65,48 +63,3 @@ def compute_expected_hash_column(rows: dict[str, list[Any]], input_columns: list
         compute_expected_hash(key, [rows[column][row_index] for column in input_columns])
         for row_index in range(num_rows)
     ]
-
-
-def hash_multi_column_case(
-    *,
-    key: str | None,
-    output_column_name: str,
-    make_config: Callable[..., dict[str, Any]],
-) -> dict[str, Any]:
-    """Build one self-contained "hash" test case: a small multi-column, multi-row dataset (every
-    vocabulary type, one null) with its Arrow schema, a config built via ``make_config``, and the
-    expected output computed independently via ``compute_expected_hash_column`` (contract:
-    Configuration "hash" operation shape). ``key`` is forwarded to both the config and the
-    independent computation. ``id`` varies per row so a row-order bug is caught even though the
-    hash also depends on every other column; ``amount`` is null on one row to exercise the
-    null-sentinel path.
-    """
-    input_columns = ["id", "count", "amount", "active", "name"]
-    rows: dict[str, list[Any]] = {
-        "id": ["row-0", "row-1", "row-2", "row-3"],
-        "count": [10, -5, 0, 42],
-        "amount": [1.5, None, -3.25, 0.0],
-        "active": [True, False, True, False],
-        "name": ["alpha", "beta", "gamma", "delta"],
-    }
-    schema = pa.schema(
-        [
-            pa.field("id", pa.string()),
-            pa.field("count", pa.int64()),
-            pa.field("amount", pa.float64()),
-            pa.field("active", pa.bool_()),
-            pa.field("name", pa.string()),
-        ]
-    )
-    output_columns = {"result": output_column_name}
-    parameters: dict[str, Any] = {} if key is None else {"key": key}
-    config = make_config(input_columns=input_columns, parameters=parameters, output_columns=output_columns)
-    expected = compute_expected_hash_column(rows, input_columns, key)
-    return {
-        "input_columns": input_columns,
-        "rows": rows,
-        "schema": schema,
-        "output_columns": output_columns,
-        "config": config,
-        "expected": expected,
-    }
