@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Mapping
-from contextlib import AbstractContextManager
+from collections.abc import Iterator, Mapping
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from typing import Any
 from unittest.mock import patch
 
@@ -57,6 +57,23 @@ def inject_parent_carrier() -> tuple[dict[str, str], int, int]:
     return carrier, trace_id, span_id
 
 
+@contextmanager
+def _tracer_provider_resolution_spy() -> Iterator[list[Any]]:
+    """Patch trace.get_tracer_provider to record every ambient resolution and return a capture provider.
+
+    trace.get_tracer(name, tracer_provider=None) falls through to this module-level function, so an
+    explicit tracer_provider (injected, or a no-op passed by the inert path) never triggers it."""
+    calls: list[Any] = []
+    provider, _ = make_span_capture()
+
+    def spy_get_tracer_provider() -> TracerProvider:
+        calls.append(provider)
+        return provider
+
+    with patch("opentelemetry.trace.get_tracer_provider", side_effect=spy_get_tracer_provider):
+        yield calls
+
+
 class OtelExtenderTestMixin(ExtenderContractTestMixin):
     """Contract for extenders that emit OTel spans. Host provides extender_class and make_otel_extender."""
 
@@ -76,6 +93,16 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
     @classmethod
     def raise_on_error_default(cls) -> bool:
         return False
+
+    @classmethod
+    def has_backend_sink(cls) -> bool:
+        return True
+
+    def ambient_sink_environment(self) -> AbstractContextManager[Any]:
+        return nullcontext()
+
+    def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
+        return _tracer_provider_resolution_spy()
 
     def make_extender(self, *, raise_on_error: bool | None = None) -> Extender:
         provider, _ = make_span_capture()

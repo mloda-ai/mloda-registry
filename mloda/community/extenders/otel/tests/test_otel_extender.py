@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import contextlib
 import logging
+import pickle  # nosec
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -117,6 +118,29 @@ class TestOtelExtenderConstructorOptions:
 
     def test_wraps_is_independent_of_raise_on_error_and_capture_content(self) -> None:
         assert OtelExtender(raise_on_error=True, capture_content=True).wraps() == OtelExtender().wraps()
+
+
+class TestOtelExtenderPickledInertLogging:
+    """A pickled copy that loses its injected tracer_provider (`__getstate__` always drops it) becomes
+    inert on its own and must log that on its own, independent of whether the pre-pickle instance
+    ever logged."""
+
+    def test_pickled_copy_logs_its_own_inert_state(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        provider, _ = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        otel._logged_inert = True
+
+        copy = pickle.loads(pickle.dumps(otel))  # nosec
+
+        with caplog.at_level(logging.INFO):
+            with make_hook_context().activate():
+                result = copy(lambda: 42)
+
+        assert result == 42
+        info_records = [r for r in caplog.records if r.levelno == logging.INFO]
+        assert any("OtelExtender" in r.message and "inert" in r.message.lower() for r in info_records), info_records
 
 
 class TestOtelExtenderSpanAttributes:

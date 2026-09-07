@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import os
-from contextlib import AbstractContextManager
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -62,6 +64,25 @@ def make_recording_client() -> tuple[OpenLineageClient, RecordingTransport]:
     return client, transport
 
 
+@contextmanager
+def _client_init_resolution_spy() -> Iterator[list[Any]]:
+    """Patch OpenLineageClient.__init__ to record every no-transport (ambient-resolving) construction
+    and force it onto a fresh RecordingTransport, so the SDK-defaults path never touches the network."""
+    calls: list[Any] = []
+    original_init = OpenLineageClient.__init__
+    signature = inspect.signature(original_init)
+
+    def spy_init(self: OpenLineageClient, *args: Any, **kwargs: Any) -> None:
+        bound = signature.bind_partial(self, *args, **kwargs)
+        if bound.arguments.get("transport") is None:
+            calls.append(True)
+            bound.arguments["transport"] = RecordingTransport()
+        original_init(*bound.args, **bound.kwargs)
+
+    with patch.object(OpenLineageClient, "__init__", spy_init):
+        yield calls
+
+
 def _collect_values_for_key(obj: Any, key: str) -> list[Any]:
     """Recursively collect every value stored under `key` anywhere in a nested dict/list structure."""
     found: list[Any] = []
@@ -90,6 +111,16 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
     def emits_schema_facets(cls) -> bool:
         """True when the host attaches a schema facet to output datasets; default False."""
         return False
+
+    @classmethod
+    def has_backend_sink(cls) -> bool:
+        return True
+
+    def ambient_sink_environment(self) -> AbstractContextManager[Any]:
+        return patch.dict(os.environ, {"OPENLINEAGE_URL": "http://poisoned.invalid"})
+
+    def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
+        return _client_init_resolution_spy()
 
     def make_extender(self, *, raise_on_error: bool | None = None) -> Extender:
         client, _ = make_recording_client()

@@ -55,6 +55,27 @@ class ExtenderContractTestMixin:
         """Context active around a call made through a pickled copy; default is a no-op."""
         return nullcontext()
 
+    @classmethod
+    def has_backend_sink(cls) -> bool:
+        """True when the extender resolves an external sink; the two backend mixins override to True."""
+        return False
+
+    def make_unconfigured_extender(self) -> Extender:
+        """The no-argument instance a user gets."""
+        return self.extender_class()()
+
+    def make_sdk_defaults_extender(self) -> Extender:
+        """Instance delegating sink resolution fully to the vendor SDK's own defaults."""
+        return self.extender_class()(use_sdk_defaults=True)  # type: ignore[call-arg]
+
+    def ambient_sink_environment(self) -> AbstractContextManager[Any]:
+        """Poisoned ambient sink configuration; backend mixins supply their vendor SDK's real one."""
+        return nullcontext()
+
+    def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
+        """Records every attempt to resolve a sink from ambient configuration; only reached when has_backend_sink()."""
+        raise NotImplementedError
+
     def context_hook(self) -> ExtenderHook:
         """FEATURE_GROUP_CALCULATE_FEATURE when wrapped, else the wrapped hook with the smallest value."""
         wraps = self.make_extender().wraps()
@@ -203,3 +224,50 @@ class ExtenderContractTestMixin:
         assert any(name in message for message in warnings), (
             f"{name}: own_failure() did not fault the extender's own code (see docs/guides/11-create-extender.md)"
         )
+
+    def test_contract_unconfigured_extender_emits_nothing(self) -> None:
+        if not self.has_backend_sink():
+            pytest.skip("extender has no external sink")
+        extender = self.make_unconfigured_extender()
+        calls = 0
+
+        def func(a: int, b: int) -> int:
+            nonlocal calls
+            calls += 1
+            return a + b
+
+        with self.ambient_sink_environment(), self.sink_resolution_spy() as spy:
+            with make_hook_context(hook=self.context_hook()).activate():
+                assert extender(func, 3, 4) == 7
+            assert spy == []
+        assert calls == 1
+
+    def test_contract_unconfigured_extender_emits_nothing_in_run_all(self) -> None:
+        if not self.has_backend_sink():
+            pytest.skip("extender has no external sink")
+        extender = self.make_unconfigured_extender()
+
+        with self.ambient_sink_environment(), self.sink_resolution_spy() as spy:
+            assert run_value_int(extender) == expected_value_int()
+            assert spy == []
+
+    def test_contract_sdk_defaults_resolves_sink(self) -> None:
+        """Anti-vacuous guard: proves the ambient config would have been picked up if not inert."""
+        if not self.has_backend_sink():
+            pytest.skip("extender has no external sink")
+        extender = self.make_sdk_defaults_extender()
+
+        with self.ambient_sink_environment(), self.sink_resolution_spy() as spy:
+            with make_hook_context(hook=self.context_hook()).activate():
+                extender(lambda: None)
+            assert spy != []
+
+    def test_contract_injected_sink_ignores_ambient(self) -> None:
+        if not self.has_backend_sink():
+            pytest.skip("extender has no external sink")
+        extender = self.make_extender()
+
+        with self.ambient_sink_environment(), self.sink_resolution_spy() as spy:
+            with make_hook_context(hook=self.context_hook()).activate():
+                extender(lambda: None)
+            assert spy == []

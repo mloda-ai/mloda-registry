@@ -46,6 +46,10 @@ _BOUNDED_REPR.maxtuple = 10
 _BOUNDED_REPR.maxstring = 30
 _BOUNDED_REPR.maxother = 30
 
+# Inert singleton: a non-recording span is still created (so the extender's call shape stays
+# uniform), but the global tracer provider is never consulted.
+_NOOP_TRACER_PROVIDER = trace.NoOpTracerProvider()
+
 _SPAN_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: "mloda.calculate",
     ExtenderHook.VALIDATE_INPUT_FEATURE: "mloda.validate.input",
@@ -61,8 +65,10 @@ _OPERATION_NAMES: dict[ExtenderHook, str] = {
 
 class OtelExtender(Extender):
     """Emits one OpenTelemetry span per wrapped hook invocation, populated from the ambient HookContext.
+    Sink resolution: an injected tracer_provider always wins; else use_sdk_defaults delegates to the
+    ambient global provider; else the extender is inert (a non-recording span only, nothing emitted).
     An injected tracer_provider is process-local: pickled copies (worker processes under
-    ParallelizationMode.MULTIPROCESSING) drop it and fall back to the global tracer provider."""
+    ParallelizationMode.MULTIPROCESSING) drop it and fall back to the resolution rule above."""
 
     def __init__(
         self,
@@ -70,15 +76,32 @@ class OtelExtender(Extender):
         capture_content: bool = False,
         mask: Callable[[Any], Any] | None = None,
         tracer_provider: TracerProvider | None = None,
+        use_sdk_defaults: bool = False,
     ) -> None:
         self.raise_on_error = raise_on_error
         self.capture_content = capture_content
         self.mask = mask
         self._tracer_provider = tracer_provider
+        self.use_sdk_defaults = use_sdk_defaults
+        self._logged_inert = False
+
+    def _resolve_tracer_provider(self) -> TracerProvider | None:
+        if self._tracer_provider is not None:
+            return self._tracer_provider
+        if self.use_sdk_defaults:
+            return None
+        if not self._logged_inert:
+            logger.info(
+                "OtelExtender is inert: no injected tracer_provider and use_sdk_defaults is False; no spans "
+                "will be emitted. Inject a tracer_provider or pass use_sdk_defaults=True to enable emission."
+            )
+            self._logged_inert = True
+        return _NOOP_TRACER_PROVIDER
 
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
         state["_tracer_provider"] = None
+        state["_logged_inert"] = False
         return state
 
     def wraps(self) -> set[ExtenderHook]:
@@ -92,7 +115,7 @@ class OtelExtender(Extender):
         context = HookContext.current()
         span_name = _SPAN_NAMES.get(context.hook, "mloda.unknown") if context is not None else "mloda.unknown"
 
-        tracer = trace.get_tracer(_TRACER_NAME, tracer_provider=self._tracer_provider)
+        tracer = trace.get_tracer(_TRACER_NAME, tracer_provider=self._resolve_tracer_provider())
         parent_context = _parent_context(context)
         with tracer.start_as_current_span(
             span_name, record_exception=False, context=parent_context, set_status_on_exception=False
