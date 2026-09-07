@@ -83,7 +83,7 @@ description = "OpenTelemetry spans, metadata-only by default, for mloda pipeline
 dependencies = ["{core_dependency}", "opentelemetry-api>=1.30,<2"]
 path = "mloda/community/extenders/otel"
 published = true
-optional_dependencies = { dev = ["mloda-testing[otel]", "pytest>=9.0.3"] }
+optional_dependencies = { dev = ["mloda-testing[otel]", "pytest>=9.0.3", "pyarrow"] }
 entry_point_groups = ["mloda.extenders"]
 py_typed = true
 
