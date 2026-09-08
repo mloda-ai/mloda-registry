@@ -12,6 +12,16 @@ _lock = threading.Lock()
 _table: dict[str, Any] = {}
 
 
+def _reset_after_fork() -> None:
+    """Clear the inherited table then release the lock held across the fork."""
+    _table.clear()
+    _lock.release()
+
+
+if hasattr(os, "register_at_fork"):  # POSIX only
+    os.register_at_fork(before=_lock.acquire, after_in_parent=_lock.release, after_in_child=_reset_after_fork)
+
+
 def register(owner: object, handle: Any) -> str:
     """Return a token resolving back to `handle`, in this process only, while `owner` lives."""
     token = f"{os.getpid()}:{uuid.uuid4().hex}"
@@ -32,11 +42,7 @@ def resolve(token: str | None) -> Any | None:
     # so neither can ever resolve a token minted by another process.
     if token is None:
         return None
-    try:
-        pid_str, _, _ = token.partition(":")
-        if not pid_str or int(pid_str) != os.getpid():
-            return None
-    except (ValueError, AttributeError):
+    if not token.startswith(f"{os.getpid()}:"):
         return None
     with _lock:
         return _table.get(token)

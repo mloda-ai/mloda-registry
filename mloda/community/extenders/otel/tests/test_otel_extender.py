@@ -11,8 +11,9 @@ import ast
 import contextlib
 import gc
 import logging
-import multiprocessing
+import os
 import pickle  # nosec
+import select
 import threading
 import time
 import weakref
@@ -33,6 +34,7 @@ from mloda.community.extenders.otel import otel_extender as otel_extender_module
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.otel import OtelExtenderTestMixin, make_span_capture, single_span, single_span_attributes
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
+from mloda.testing.extenders.spawn import assert_spawned_child_drops
 
 # The one attribute key that MUST carry content preview.
 _CONTENT_ATTRIBUTE = "mloda.content.preview"
@@ -255,14 +257,6 @@ class TestOtelExtenderPickling:
         assert len(ambient_exporter.get_finished_spans()) == 1
 
 
-def _child_reports_tracer_provider_is_none(payload: bytes, result_queue: "multiprocessing.Queue[bool]") -> None:
-    """Module-level so the spawn context can import it by qualified name; unpickles payload in the child."""
-    import pickle  # nosec
-
-    copy = pickle.loads(payload)  # nosec
-    result_queue.put(copy._tracer_provider is None)
-
-
 class TestOtelExtenderCrossProcessPickle:
     """A real spawned child process, not a monkeypatched simulation, must drop the injected provider."""
 
@@ -271,21 +265,8 @@ class TestOtelExtenderCrossProcessPickle:
     ) -> None:
         provider, _ = otel_capture
         otel = OtelExtender(tracer_provider=provider)
-        payload = pickle.dumps(otel)  # nosec
 
-        ctx = multiprocessing.get_context("spawn")
-        result_queue: "multiprocessing.Queue[bool]" = ctx.Queue()
-        process = ctx.Process(target=_child_reports_tracer_provider_is_none, args=(payload, result_queue))
-        process.start()
-        try:
-            is_none = result_queue.get(timeout=30)
-        finally:
-            process.join(timeout=30)
-            if process.is_alive():
-                process.terminate()
-                process.join(timeout=5)
-
-        assert is_none is True
+        assert_spawned_child_drops(otel, "_tracer_provider")
 
 
 class TestOtelExtenderProcessLocalRegistryDoesNotPin:
@@ -309,10 +290,72 @@ class TestOtelExtenderProcessLocalRegistryDoesNotPin:
             "injected tracer_provider was still referenced after its owning extender was collected"
         )
 
-    def test_resolve_returns_none_for_an_unknown_token(self) -> None:
+    def test_resolve_rejects_a_token_present_in_the_table_under_a_foreign_pid(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        """A token minted by another pid must never resolve, even when a copy of it sits in this
+        process's own table under a foreign-pid key: resolve() must reject on the pid segment, not
+        merely on whether the token string is present in the table."""
         from mloda.community.extenders.otel import _process_local
 
-        assert _process_local.resolve("unknown-token") is None
+        provider, _ = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        real_token = otel._tracer_provider_token
+        assert real_token is not None
+
+        _, _, unique_part = real_token.partition(":")
+        foreign_token = f"{os.getpid() + 1}:{unique_part}"
+        try:
+            with _process_local._lock:
+                _process_local._table[foreign_token] = provider
+
+            assert _process_local.resolve(foreign_token) is None
+        finally:
+            with _process_local._lock:
+                _process_local._table.pop(foreign_token, None)
+
+
+class TestOtelExtenderProcessLocalForkSafety:
+    """A real os.fork() child, not a simulated pid, must never resolve a token minted by its parent."""
+
+    @pytest.mark.skipif(not hasattr(os, "fork"), reason="platform has no os.fork")
+    def test_forked_child_cannot_resolve_parents_token(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        from mloda.community.extenders.otel import _process_local
+
+        provider, _ = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        token = otel._tracer_provider_token
+        assert token is not None
+
+        read_fd, write_fd = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            os.close(read_fd)
+            resolved_is_none = _process_local.resolve(token) is None
+            os.write(write_fd, b"1" if resolved_is_none else b"0")
+            os.close(write_fd)
+            os._exit(0)
+
+        os.close(write_fd)
+        try:
+            ready, _, _ = select.select([read_fd], [], [], 10)
+            data = os.read(read_fd, 1) if ready else b""
+        finally:
+            os.close(read_fd)
+            deadline = time.monotonic() + 10
+            reaped_pid = 0
+            while time.monotonic() < deadline:
+                reaped_pid, _ = os.waitpid(pid, os.WNOHANG)
+                if reaped_pid == pid:
+                    break
+                time.sleep(0.05)
+            if reaped_pid != pid:
+                os.kill(pid, 9)
+                os.waitpid(pid, 0)
+
+        assert data == b"1"
 
 
 class TestOtelExtenderSpanAttributes:

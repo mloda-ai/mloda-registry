@@ -11,8 +11,9 @@ from __future__ import annotations
 import atexit
 import gc
 import logging
-import multiprocessing
+import os
 import pickle  # nosec
+import select
 import threading
 import time
 import uuid
@@ -31,6 +32,7 @@ from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.openlineage import OpenLineageExtenderTestMixin, RecordingTransport, make_recording_client
 from mloda.testing.extenders.runners import run_value_int
+from mloda.testing.extenders.spawn import assert_spawned_child_drops
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import RunState
 from openlineage.client.facet_v2 import parent_run, schema_dataset
@@ -166,14 +168,6 @@ class TestOpenLineageExtenderPickling:
         assert transport.events[1].eventType == RunState.COMPLETE
 
 
-def _child_reports_client_is_none(payload: bytes, result_queue: "multiprocessing.Queue[bool]") -> None:
-    """Module-level so the spawn context can import it by qualified name; unpickles payload in the child."""
-    import pickle  # nosec
-
-    copy = pickle.loads(payload)  # nosec
-    result_queue.put(copy._client is None)
-
-
 class TestOpenLineageExtenderCrossProcessPickle:
     """A real spawned child process, not a monkeypatched simulation, must drop the injected client."""
 
@@ -182,21 +176,74 @@ class TestOpenLineageExtenderCrossProcessPickle:
     ) -> None:
         client, _ = ol_capture
         extender = OpenLineageExtender(client=client)
-        payload = pickle.dumps(extender)  # nosec
 
-        ctx = multiprocessing.get_context("spawn")
-        result_queue: "multiprocessing.Queue[bool]" = ctx.Queue()
-        process = ctx.Process(target=_child_reports_client_is_none, args=(payload, result_queue))
-        process.start()
-        try:
-            is_none = result_queue.get(timeout=30)
-        finally:
-            process.join(timeout=30)
-            if process.is_alive():
-                process.terminate()
-                process.join(timeout=5)
+        assert_spawned_child_drops(extender, "_client")
 
-        assert is_none is True
+
+class TestOpenLineageExtenderCloseAcrossInProcessSiblings:
+    """close() must be terminal for every in-process sibling sharing the same injected client, not
+    only the instance close() was actually called on: core re-fetches the extender set through a
+    manager proxy once per compute framework, so several sibling copies of the same extender can
+    share one injected client in a single process."""
+
+    def test_close_on_original_makes_pickled_copys_get_client_raise_and_stops_emission(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        extender.close()
+
+        with pytest.raises(RuntimeError):
+            copy._get_client()
+
+        events_before = len(transport.events)
+        composite = _CompositeExtender([copy])
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            composite(lambda: None)
+
+        assert len(transport.events) == events_before
+
+    def test_close_on_pickled_copy_makes_originals_get_client_raise(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        copy.close()
+
+        with pytest.raises(RuntimeError):
+            extender._get_client()
+
+    def test_close_across_siblings_is_idempotent_transport_closed_once(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        first = extender.close()
+        second = copy.close()
+
+        assert first is True
+        assert second is True
+        assert transport.close_calls == 1
+
+    def test_two_extenders_with_own_injected_clients_stay_independent(self) -> None:
+        """Existing behaviour that must not change: closing one extender's own client must never
+        touch a sibling extender's own, distinct injected client."""
+        client_a, transport_a = make_recording_client()
+        client_b, transport_b = make_recording_client()
+        extender_a = OpenLineageExtender(client=client_a)
+        extender_b = OpenLineageExtender(client=client_b)
+
+        extender_a.close()
+
+        assert transport_a.close_calls == 1
+        assert transport_b.close_calls == 0
+        assert extender_b._get_client() is client_b
 
 
 class TestOpenLineageExtenderProcessLocalRegistryDoesNotPin:
@@ -218,10 +265,72 @@ class TestOpenLineageExtenderProcessLocalRegistryDoesNotPin:
 
         assert client_ref() is None, "injected client was still referenced after its owning extender was collected"
 
-    def test_resolve_returns_none_for_an_unknown_token(self) -> None:
+    def test_resolve_rejects_a_token_present_in_the_table_under_a_foreign_pid(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        """A token minted by another pid must never resolve, even when a copy of it sits in this
+        process's own table under a foreign-pid key: resolve() must reject on the pid segment, not
+        merely on whether the token string is present in the table."""
         from mloda.community.extenders.openlineage import _process_local
 
-        assert _process_local.resolve("unknown-token") is None
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+        real_token = extender._client_token
+        assert real_token is not None
+
+        _, _, unique_part = real_token.partition(":")
+        foreign_token = f"{os.getpid() + 1}:{unique_part}"
+        try:
+            with _process_local._lock:
+                _process_local._table[foreign_token] = client
+
+            assert _process_local.resolve(foreign_token) is None
+        finally:
+            with _process_local._lock:
+                _process_local._table.pop(foreign_token, None)
+
+
+class TestOpenLineageExtenderProcessLocalForkSafety:
+    """A real os.fork() child, not a simulated pid, must never resolve a token minted by its parent."""
+
+    @pytest.mark.skipif(not hasattr(os, "fork"), reason="platform has no os.fork")
+    def test_forked_child_cannot_resolve_parents_token(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        from mloda.community.extenders.openlineage import _process_local
+
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+        token = extender._client_token
+        assert token is not None
+
+        read_fd, write_fd = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            os.close(read_fd)
+            resolved_is_none = _process_local.resolve(token) is None
+            os.write(write_fd, b"1" if resolved_is_none else b"0")
+            os.close(write_fd)
+            os._exit(0)
+
+        os.close(write_fd)
+        try:
+            ready, _, _ = select.select([read_fd], [], [], 10)
+            data = os.read(read_fd, 1) if ready else b""
+        finally:
+            os.close(read_fd)
+            deadline = time.monotonic() + 10
+            reaped_pid = 0
+            while time.monotonic() < deadline:
+                reaped_pid, _ = os.waitpid(pid, os.WNOHANG)
+                if reaped_pid == pid:
+                    break
+                time.sleep(0.05)
+            if reaped_pid != pid:
+                os.kill(pid, 9)
+                os.waitpid(pid, 0)
+
+        assert data == b"1"
 
 
 class TestOpenLineageExtenderLazyClientInit:

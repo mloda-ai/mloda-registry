@@ -38,13 +38,23 @@ _open_invocations: contextvars.ContextVar[tuple[tuple[int, "_OpenCalculateInvoca
 )
 
 
+class _ClientState:
+    """Client, lock and closed flag shared by every in-process copy of one extender."""
+
+    def __init__(self, client: OpenLineageClient | None) -> None:
+        self.client = client
+        self.lock = threading.Lock()
+        self.closed = False
+
+
 class OpenLineageExtender(Extender):
     """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating nested
     INPUT_DATA_LOAD calls as inputs. Sink resolution: injected client wins, else use_sdk_defaults, else inert.
     Emits happen synchronously on the calculation thread, so a blocking transport delays every wrapped calculation.
     close() flushes the client and is terminal; a self-built client also gets a bounded-timeout atexit flush
     (main process only, not MULTIPROCESSING workers). An injected client survives a pickle round trip
-    in its own process; a copy unpickled elsewhere drops it and falls back to the resolution rule above."""
+    in its own process, sharing its lifecycle with every such copy so close() on any one of them is terminal
+    for all of them; a copy unpickled elsewhere drops it and falls back to the resolution rule above."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
 
@@ -58,38 +68,50 @@ class OpenLineageExtender(Extender):
         use_sdk_defaults: bool = False,
     ) -> None:
         self.raise_on_error = raise_on_error
-        self._client = client
+        self._state = _ClientState(client)
         self.job_namespace = job_namespace
         self.dataset_namespace = dataset_namespace
         self.root_job_name = root_job_name
         self.use_sdk_defaults = use_sdk_defaults
-        self._client_lock = threading.Lock()
-        self._closed = False
         self._logged_inert = False
-        self._client_token = _process_local.register(self, client) if client is not None else None
+        self._client_token = _process_local.register(self, self._state) if client is not None else None
+
+    @property
+    def _client(self) -> OpenLineageClient | None:
+        return self._state.client
+
+    @property
+    def _client_lock(self) -> threading.Lock:
+        return self._state.lock
+
+    @property
+    def _closed(self) -> bool:
+        return self._state.closed
 
     def _get_client(self) -> OpenLineageClient | None:
-        if self._closed:
+        if self._state.closed:
             raise RuntimeError(f"{type(self).__name__} was closed; it can no longer be used to emit OpenLineage events")
-        if self._client is not None:
-            return self._client
+        if self._state.client is not None:
+            return self._state.client
         if not self.use_sdk_defaults:
             return None
-        with self._client_lock:
-            if self._client is None:
-                self._client = OpenLineageClient()
+        with self._state.lock:
+            if self._state.client is None:
+                self._state.client = OpenLineageClient()
                 atexit.register(self.close, self._ATEXIT_CLOSE_TIMEOUT)
-        return self._client
+        return self._state.client
 
     def close(self, timeout: float = -1.0) -> bool:
         """Flush the underlying client. A no-op returning True if no client has been built yet, or if
-        already closed. Idempotent: only the first call actually flushes; subsequent calls are no-ops."""
-        with self._client_lock:
-            if self._client is None or self._closed:
+        already closed. Idempotent: only the first call actually flushes; subsequent calls are no-ops.
+        Terminal for every in-process sibling sharing this client, not only the instance close() was
+        called on."""
+        with self._state.lock:
+            if self._state.client is None or self._state.closed:
                 return True
-            self._closed = True
+            self._state.closed = True
             atexit.unregister(self.close)
-            client = self._client
+            client = self._state.client
 
         flushed = client.close(timeout)
         if not flushed:
@@ -104,15 +126,14 @@ class OpenLineageExtender(Extender):
 
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
-        state["_client"] = None
+        state["_state"] = None
         state["_logged_inert"] = False
-        del state["_client_lock"]
         return state
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
-        self._client_lock = threading.Lock()
-        self._client = _process_local.resolve(self._client_token)
+        resolved = _process_local.resolve(state.get("_client_token"))
+        self._state = resolved if resolved is not None else _ClientState(None)
 
     def wraps(self) -> set[ExtenderHook]:
         return {
@@ -123,7 +144,7 @@ class OpenLineageExtender(Extender):
     def _log_inert_once(self) -> None:
         if self._logged_inert:
             return
-        with self._client_lock:
+        with self._state.lock:
             if not self._logged_inert:
                 logger.warning(
                     "OpenLineageExtender is inert: no client injected and use_sdk_defaults is False; no "

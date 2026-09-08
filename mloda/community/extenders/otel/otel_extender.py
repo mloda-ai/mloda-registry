@@ -117,7 +117,7 @@ class OtelExtender(Extender):
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
         self._logged_inert_lock = threading.Lock()
-        self._tracer_provider = _process_local.resolve(self._tracer_provider_token)
+        self._tracer_provider = _process_local.resolve(state.get("_tracer_provider_token"))
 
     def wraps(self) -> set[ExtenderHook]:
         return {

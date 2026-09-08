@@ -77,7 +77,7 @@ class ExtenderContractTestMixin:
 
     def injected_sink_capture(self) -> tuple[Extender, Callable[[], int]]:
         """An extender wired to an injected sink, plus a callable returning how many emissions it received."""
-        raise NotImplementedError
+        pytest.skip("host does not expose an injected-sink capture")
 
     def context_hook(self) -> ExtenderHook:
         """FEATURE_GROUP_CALCULATE_FEATURE when wrapped, else the wrapped hook with the smallest value."""

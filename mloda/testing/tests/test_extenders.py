@@ -393,6 +393,28 @@ class TestHasBackendSinkMustBeDeclared:
             _UndeclaredHost().test_contract_unconfigured_extender_emits_nothing()
 
 
+class TestInjectedSinkCaptureMustDegradeToSkip:
+    """`mloda-testing` is a published package: a third-party host built against an older version
+    that already returns has_backend_sink() -> True but predates injected_sink_capture() must get a
+    skip on upgrade, not a hard NotImplementedError."""
+
+    def test_undeclared_injected_sink_capture_skips_instead_of_erroring(self) -> None:
+        class _BackendSinkHostWithoutCapture(ExtenderContractTestMixin):
+            @classmethod
+            def extender_class(cls) -> type[Extender]:
+                return _ProbeExtender
+
+            @classmethod
+            def has_backend_sink(cls) -> bool:
+                return True
+
+            def make_extender(self, *, raise_on_error: bool | None = None) -> _ProbeExtender:
+                return _ProbeExtender(sink=[])
+
+        with pytest.raises(pytest.skip.Exception):
+            _BackendSinkHostWithoutCapture().test_contract_injected_sink_survives_pickle_in_same_process()
+
+
 class TestCountingExtender:
     """CountingExtender: breaking pass-through probe that counts its own invocations."""
 
