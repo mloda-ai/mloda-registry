@@ -106,3 +106,4 @@ packages share one out-dir and prefix siblings (`mloda-community` vs
 - `scripts/published_packages.py` - prints that set for the workflow and the tox envs
 - `.github/workflows/release.yaml` - release workflow
 - `.github/workflows/verify-published.yaml` - weekly post-release verification
+- `.github/workflows/commit-lint.yaml` - gates PRs on Conventional Commits, protects commit-analyzer's input
