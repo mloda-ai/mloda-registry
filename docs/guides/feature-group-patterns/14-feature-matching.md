@@ -46,6 +46,8 @@ def match_feature_group_criteria(
 
 **Note:** This only controls MATCHING. It doesn't define discoverable names - users must know to request matching names.
 
+**Note:** Overriding `match_feature_group_criteria()` does not bypass the required-presence checks below: `install_name_path_presence_guard` and `install_required_when_guard` wrap the class at definition time, so those still run. Strict-value validation (`strict_validation` / `allowed_values` / `element_validator`) is not guarded, though - it runs inside the matcher itself, so an override must delegate through `cls.match_parser_criteria()` to keep it.
+
 ---
 
 ## Discriminator Keys for Configuration-Based Matching
@@ -108,6 +110,8 @@ Feature("my_output", Options(context={"my_method": "algo_b", "in_features": "inp
 
 ### Named-Capture Form
 
+Named-capture binding to `PROPERTY_MAPPING` keys is available since mloda 0.11.0.
+
 The example above uses a legacy positional capture group: `bind_name_captures` only binds `MY_METHOD`'s value when it is already a member of `MY_METHODS` (`allowed_values`), so an unsupported token in the feature name just fails to bind rather than reaching `element_validator`. Name the capture group after the `PROPERTY_MAPPING` key instead, and the mixin binds it unconditionally, so `element_validator` and `match_guard` run against it like any explicit option and can reject it (see [What a Validator Receives](#what-a-validator-receives)):
 
 ```python
@@ -149,6 +153,8 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         data[feature.name] = apply_transform(data[source], method)
     return data
 ```
+
+`_resolve_operation` is only correct for the discriminator key (`MY_METHOD` above): it returns `PREFIX_PATTERN`'s first captured group on the string path, not the value for the key passed. See [Chained Features](03-chained-features.md) for how to read a second name-encoded key.
 
 ### Why Unique Keys?
 

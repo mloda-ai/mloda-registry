@@ -71,6 +71,8 @@ class MeanImputedFeature(FeatureChainParserMixin, FeatureGroup):
 
 > **Linting**: `PROPERTY_MAPPING` and other mutable class-level defaults trip ruff `RUF012` unless annotated `ClassVar`. See [Options: Annotate with ClassVar](11-options.md#annotate-with-classvar).
 
+> **`_resolve_operation` is for the discriminator key only**: on the string path it returns `PREFIX_PATTERN`'s first captured group whenever that group participated in the match, regardless of the key passed; it falls back to `options.get(key)` only when nothing was captured (a captureless pattern, or an optional-first group that didn't participate). A second value encoded in the name is not recoverable through `_resolve_operation` or `feature.options.get(key)`: name-derived bindings serve match-time validation only and are never written back onto the `Feature`'s stored `options`. The group must parse that value itself from `feature.name`, mark its `PROPERTY_MAPPING` entry `deferred_binding=True` so the name-path presence check doesn't reject the match for its absence, and validate it in `_validate_string_match` (only called when the pattern's first group participates in the match; a captureless or `RECOGNITION_ONLY_PATTERN` matcher never reaches it, so validate inside an overridden `match_feature_group_criteria` via `match_parser_criteria` instead). See `DimensionalityReductionFeatureGroup.parse_reduction_suffix` / its `DIMENSION` spec for the precedent.
+
 ## Usage
 
 ```python

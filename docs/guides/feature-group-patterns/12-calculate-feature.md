@@ -150,7 +150,7 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
     return data
 ```
 
-`_resolve_operation(feature, config_key)` tries string-based parsing via `PREFIX_PATTERN` first, then falls back to `options.get(config_key)`. See [Chained Features](03-chained-features.md) for the full pattern.
+`_resolve_operation(feature, config_key)` tries string-based parsing via `PREFIX_PATTERN` first, then falls back to `options.get(config_key)`. It is only correct for the discriminator key (`imputation_method` above, the pattern's first captured group): on the string path it returns that captured value regardless of `config_key`, so a second name-encoded key needs its own parsing. See [Chained Features](03-chained-features.md) for the full pattern.
 
 A base that writes into the caller's data rather than returning a new frame (Pattern 9) calls the column-wise data hooks from inside `calculate_feature` rather than accessing columns directly. See [Framework-Specific: Column-Wise Data Hooks](09-framework-specific.md#column-wise-data-hooks).
 
