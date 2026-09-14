@@ -4,6 +4,7 @@ exercises the full OpenLineageExtenderTestMixin contract independently of the re
 from __future__ import annotations
 
 import logging
+import pickle  # nosec
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,9 +65,17 @@ class _ProbeOpenLineageExtender(Extender):
 
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
-        state["_client"] = None
+        if self._client is not None and not self._client_is_picklable():
+            state["_client"] = None
         state["_open_inputs"] = None
         return state
+
+    def _client_is_picklable(self) -> bool:
+        try:
+            pickle.dumps(self._client)  # nosec
+        except (pickle.PicklingError, TypeError, AttributeError):
+            return False
+        return True
 
     def wraps(self) -> set[ExtenderHook]:
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}

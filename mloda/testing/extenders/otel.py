@@ -101,6 +101,10 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
     def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
         return _tracer_provider_resolution_spy()
 
+    # No injected_sink_capture()/supports_pickled_sink_capture() override: OtelExtender.__getstate__
+    # unconditionally drops _tracer_provider (a real SDK TracerProvider can never survive pickling), so
+    # the "picklable injected sink survives pickling" contract does not apply here; that drop is already
+    # pinned at the package level (test_otel_extender.TestOtelExtenderInjectedProviderDropWarningUnderRealMultiprocessing).
     def make_injected_and_sdk_defaults_extender(self) -> Extender:
         provider, _ = make_span_capture()
         return self.extender_class()(tracer_provider=provider, use_sdk_defaults=True)  # type: ignore[call-arg]

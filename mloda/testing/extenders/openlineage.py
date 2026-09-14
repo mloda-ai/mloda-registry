@@ -46,6 +46,34 @@ class RecordingTransport(Transport):
         return True
 
 
+class _SharedCaptureTransport(RecordingTransport):
+    """RecordingTransport variant that records into shared class state instead of instance state.
+
+    Plain pickling on this branch has no process-local identity registry: unpickling an extender
+    holding a client reconstructs a brand-new Transport instance whose own `events` list is
+    disconnected from the pre-pickle original. Recording into a class attribute instead means every
+    instance (the pre-pickle one and the post-unpickle copy alike) appends into the one list
+    `injected_sink_capture()` hands back, so what the *copy* actually emitted stays observable.
+    """
+
+    kind = "shared-capture"
+    captured: list[RunEvent] = []
+
+    def emit(self, event: Event) -> None:
+        if not isinstance(event, RunEvent):
+            raise TypeError(f"_SharedCaptureTransport only records RunEvent, got {type(event).__name__}")
+        type(self).captured.append(event)
+
+
+@contextmanager
+def _injected_sink_capture() -> Iterator[list[Any]]:
+    """Every RecordingTransport built by make_recording_client() during this context is actually a
+    _SharedCaptureTransport (see its docstring for why identity, not just picklability, matters here)."""
+    _SharedCaptureTransport.captured = []
+    with patch("mloda.testing.extenders.openlineage.RecordingTransport", _SharedCaptureTransport):
+        yield _SharedCaptureTransport.captured
+
+
 def make_recording_client() -> tuple[OpenLineageClient, RecordingTransport]:
     """An OpenLineageClient wired to a fresh RecordingTransport. OPENLINEAGE_DISABLED and any
     config-file or env-declared filters are cleared for the constructor call, since
@@ -119,6 +147,13 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
 
     def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
         return _client_init_resolution_spy()
+
+    @classmethod
+    def supports_pickled_sink_capture(cls) -> bool:
+        return True
+
+    def injected_sink_capture(self) -> AbstractContextManager[list[Any]]:
+        return _injected_sink_capture()
 
     def make_injected_and_sdk_defaults_extender(self) -> Extender:
         client, _ = make_recording_client()
