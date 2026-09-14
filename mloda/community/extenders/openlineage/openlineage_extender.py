@@ -144,7 +144,7 @@ class OpenLineageExtender(Extender):
     def _client_is_picklable(self) -> bool:
         try:
             pickle.dumps(self._client)  # nosec
-        except (pickle.PicklingError, TypeError, AttributeError):
+        except Exception:  # degrade gracefully: any transport __getstate__/__reduce__ failure, not just pickle's own
             return False
         return True
 

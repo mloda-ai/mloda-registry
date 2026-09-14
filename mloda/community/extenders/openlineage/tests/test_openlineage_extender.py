@@ -59,6 +59,19 @@ class _IncompleteFlushTransport(Transport):
         return False
 
 
+class _RuntimeErrorOnPickleTransport(Transport):
+    """A Transport whose pickling raises something outside {PicklingError, TypeError, AttributeError}."""
+
+    kind = "runtime-error-on-pickle"
+    config_class = Config
+
+    def emit(self, event: Any) -> None:
+        pass
+
+    def __getstate__(self) -> Any:
+        raise RuntimeError("transport refuses to pickle")
+
+
 @pytest.fixture
 def ol_capture() -> Iterator[tuple[OpenLineageClient, RecordingTransport]]:
     """A fresh, isolated (client, transport) pair per test."""
@@ -169,6 +182,24 @@ class TestOpenLineageExtenderPickling:
 
     def test_unpicklable_client_is_dropped_from_copy_and_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         extender = OpenLineageExtender(client=OpenLineageClient(transport=_LockHoldingTransport()))
+
+        with caplog.at_level(logging.WARNING):
+            copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        assert copy._client is None
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any(
+            "OpenLineageExtender" in message and "client" in message.lower() and "pickl" in message.lower()
+            for message in warnings
+        ), warnings
+
+    def test_client_pickle_probe_raising_runtime_error_still_pickles_extender_and_drops_client(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """`_client_is_picklable()` must degrade gracefully (null + warn) even when the picklability
+        probe itself raises something outside {PicklingError, TypeError, AttributeError}; a bare
+        RuntimeError from the transport must not escape __getstate__ and fail the whole extender."""
+        extender = OpenLineageExtender(client=OpenLineageClient(transport=_RuntimeErrorOnPickleTransport()))
 
         with caplog.at_level(logging.WARNING):
             copy = pickle.loads(pickle.dumps(extender))  # nosec

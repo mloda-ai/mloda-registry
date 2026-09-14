@@ -18,6 +18,7 @@ from mloda.steward import Extender, ExtenderHook, HookContext
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
 from openlineage.client.facet_v2 import parent_run
+from openlineage.client.transport.transport import Config, Transport
 
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.openlineage import OpenLineageExtenderTestMixin, RecordingTransport, make_recording_client
@@ -73,7 +74,7 @@ class _ProbeOpenLineageExtender(Extender):
     def _client_is_picklable(self) -> bool:
         try:
             pickle.dumps(self._client)  # nosec
-        except (pickle.PicklingError, TypeError, AttributeError):
+        except Exception:
             return False
         return True
 
@@ -254,6 +255,33 @@ class TestProbeOpenLineageExtenderContract(OpenLineageExtenderTestMixin):
     @classmethod
     def expected_hooks(cls) -> set[ExtenderHook] | None:
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}
+
+
+class _RuntimeErrorOnPickleTransport(Transport):
+    """A Transport whose pickling raises something outside {PicklingError, TypeError, AttributeError}."""
+
+    kind = "runtime-error-on-pickle"
+    config_class = Config
+
+    def emit(self, event: Any) -> None:
+        pass
+
+    def __getstate__(self) -> Any:
+        raise RuntimeError("transport refuses to pickle")
+
+
+class TestProbeOpenLineageExtenderPickling:
+    """`_client` must never make the probe itself unpicklable, mirroring OpenLineageExtender."""
+
+    def test_client_pickle_probe_raising_runtime_error_still_pickles_extender_and_drops_client(self) -> None:
+        """`_client_is_picklable()` must degrade gracefully (null the client) even when the
+        picklability probe itself raises something outside {PicklingError, TypeError, AttributeError};
+        a bare RuntimeError from the transport must not escape __getstate__ and fail the whole probe."""
+        extender = _ProbeOpenLineageExtender(client=OpenLineageClient(transport=_RuntimeErrorOnPickleTransport()))
+
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        assert copy._client is None
 
 
 class _DirectTransportProbeOpenLineageExtender(Extender):
