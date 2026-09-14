@@ -21,13 +21,19 @@ else:
 CONFIG_DIR = Path("config")
 PACKAGES_CONFIG = CONFIG_DIR / "packages.toml"
 
+# Each mloda entry-point group's own (module suffix, manifest attribute) pairing. A group's entry
+# point must match ITS OWN pairing, not just be a member of the module suffixes/attrs used by any
+# group, or a mloda.extenders entry could resolve to ._optional_dependencies:OPTIONAL_DEPENDENCIES.
+_ENTRY_POINT_GROUP_SHAPE: dict[str, tuple[str, str]] = {
+    "mloda.feature_groups": (".manifest", "FEATURE_GROUPS"),
+    "mloda.compute_frameworks": (".manifest", "COMPUTE_FRAMEWORKS"),
+    "mloda.extenders": (".manifest", "EXTENDERS"),
+    "mloda.optional_dependencies": ("._optional_dependencies", "OPTIONAL_DEPENDENCIES"),
+}
+
 # Valid manifest attributes for the mloda plugin entry-point groups, plus the companion
 # mloda.optional_dependencies marker attribute.
-_VALID_ENTRY_POINT_ATTRS = {"FEATURE_GROUPS", "COMPUTE_FRAMEWORKS", "EXTENDERS", "OPTIONAL_DEPENDENCIES"}
-
-# Module suffixes a namespaced entry-point target may end with: "manifest" for the three plugin
-# groups, "_optional_dependencies" for the dependency-free marker sibling.
-_VALID_ENTRY_POINT_MODULE_SUFFIXES = (".manifest", "._optional_dependencies")
+_VALID_ENTRY_POINT_ATTRS = {attr for _, attr in _ENTRY_POINT_GROUP_SHAPE.values()}
 
 
 def load_packages_config() -> dict[str, dict[str, Any]]:
@@ -70,14 +76,17 @@ def namespaced_entry_point_error(group: str, name: str, value: str) -> str | Non
             "'mloda.community.' or 'mloda.enterprise.' namespace"
         )
 
-    if not module.endswith(_VALID_ENTRY_POINT_MODULE_SUFFIXES):
-        return (
-            f"{group}: entry point {name!r} module {module!r} does not end with "
-            f"{' or '.join(repr(suffix) for suffix in _VALID_ENTRY_POINT_MODULE_SUFFIXES)}"
-        )
+    shape = _ENTRY_POINT_GROUP_SHAPE.get(group)
+    if shape is None:
+        return f"{group}: entry point {name!r} is not a recognized mloda entry-point group"
 
-    if attr not in _VALID_ENTRY_POINT_ATTRS:
-        return f"{group}: entry point {name!r} attribute {attr!r} is not one of {sorted(_VALID_ENTRY_POINT_ATTRS)}"
+    module_suffix, expected_attr = shape
+
+    if not module.endswith(module_suffix):
+        return f"{group}: entry point {name!r} module {module!r} does not end with {module_suffix!r}"
+
+    if attr != expected_attr:
+        return f"{group}: entry point {name!r} attribute {attr!r} is not {expected_attr!r}"
 
     return None
 

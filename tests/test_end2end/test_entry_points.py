@@ -305,3 +305,51 @@ def test_verify_builds_accepts_optional_dependencies_marker_target() -> None:
         )
         is None
     )
+
+
+def test_verify_builds_accepts_extenders_manifest_target() -> None:
+    """The mloda.extenders group's own valid pairing (.manifest:EXTENDERS) must still be accepted once
+    namespaced_entry_point_error cross-checks group against the (suffix, attr) pairing rather than
+    validating suffix and attr independently."""
+    assert (
+        vb.namespaced_entry_point_error(
+            "mloda.extenders",
+            "mloda-community-extenders-example",
+            "mloda.community.extenders.example.manifest:EXTENDERS",
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("group", "value"),
+    [
+        pytest.param(
+            "mloda.optional_dependencies",
+            "mloda.community.foo.manifest:OPTIONAL_DEPENDENCIES",
+            id="optional_dependencies_group_targets_manifest_module",
+        ),
+        pytest.param(
+            "mloda.extenders",
+            "mloda.community.foo._optional_dependencies:EXTENDERS",
+            id="extenders_group_targets_optional_dependencies_module",
+        ),
+        pytest.param(
+            "mloda.extenders",
+            "mloda.community.foo.manifest:OPTIONAL_DEPENDENCIES",
+            id="extenders_group_resolves_to_optional_dependencies_attr",
+        ),
+    ],
+)
+def test_verify_builds_rejects_group_suffix_attr_mismatch(group: str, value: str) -> None:
+    """namespaced_entry_point_error must cross-check the specific group against BOTH the module suffix
+    and the attribute together, not validate suffix and attr independently against two flat sets/tuples.
+    A group's entry point resolving to the wrong sibling module, or to the right module but the wrong
+    attribute, is exactly the OPTIONAL_DEPENDENCIES-in-manifest.py placement mistake this branch's
+    design exists to prevent (see the companion ``mloda/community/extenders/*/_optional_dependencies.py``
+    modules), and verify_builds.py is the check meant to catch it in built wheels.
+    """
+    error = vb.namespaced_entry_point_error(group, "some-label", value)
+    assert error is not None, (
+        f"{group} entry point resolving to {value!r} must be rejected as a group/suffix/attr mismatch"
+    )
