@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from mloda.testing.import_isolation import evict_package
+from mloda.testing.import_isolation import evict_package, evict_root
 
 
 def _write_throwaway_package(base: Path, name: str) -> None:
@@ -90,3 +90,24 @@ def test_cold_imported_submodule_under_the_evicted_package_is_gone_after_context
         assert inner_name in sys.modules
 
     assert inner_name not in sys.modules
+
+
+def test_evict_root_forces_a_genuine_cold_reimport_and_restores_the_original_module_after(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`evict_root` (unlike `block_root`, which poisons sys.modules to raise) removes the module so the
+    next import re-executes it from scratch, then restores the original module object on teardown."""
+    package_name = f"ii_throwaway_{uuid.uuid4().hex}"
+    _write_throwaway_package(tmp_path, package_name)
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    original = importlib.import_module(package_name)
+
+    with pytest.MonkeyPatch.context() as mp:
+        evict_root(mp, package_name)
+        assert package_name not in sys.modules
+
+        reimported = importlib.import_module(package_name)
+        assert reimported is not original
+
+    assert sys.modules[package_name] is original

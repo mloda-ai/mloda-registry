@@ -21,8 +21,14 @@ else:
 CONFIG_DIR = Path("config")
 PACKAGES_CONFIG = CONFIG_DIR / "packages.toml"
 
-# Valid manifest attributes for the mloda plugin entry-point groups (issue #271).
-_VALID_ENTRY_POINT_ATTRS = {"FEATURE_GROUPS", "COMPUTE_FRAMEWORKS", "EXTENDERS"}
+# Valid manifest attributes for the mloda plugin entry-point groups (issue #271), plus the
+# companion mloda.optional_dependencies marker attribute.
+_VALID_ENTRY_POINT_ATTRS = {"FEATURE_GROUPS", "COMPUTE_FRAMEWORKS", "EXTENDERS", "OPTIONAL_DEPENDENCIES"}
+
+# Module suffixes a namespaced entry-point target may end with: "manifest" for the three plugin
+# groups, "_optional_dependencies" for the dependency-free marker sibling (see generate_pyproject
+# .ENTRY_POINT_MODULE_SUFFIX for why the marker cannot live inside manifest.py itself).
+_VALID_ENTRY_POINT_MODULE_SUFFIXES = (".manifest", "._optional_dependencies")
 
 
 def load_packages_config() -> dict[str, dict[str, Any]]:
@@ -65,8 +71,11 @@ def namespaced_entry_point_error(group: str, name: str, value: str) -> str | Non
             "'mloda.community.' or 'mloda.enterprise.' namespace"
         )
 
-    if not module.endswith(".manifest"):
-        return f"{group}: entry point {name!r} module {module!r} does not end with '.manifest'"
+    if not module.endswith(_VALID_ENTRY_POINT_MODULE_SUFFIXES):
+        return (
+            f"{group}: entry point {name!r} module {module!r} does not end with "
+            f"{' or '.join(repr(suffix) for suffix in _VALID_ENTRY_POINT_MODULE_SUFFIXES)}"
+        )
 
     if attr not in _VALID_ENTRY_POINT_ATTRS:
         return f"{group}: entry point {name!r} attribute {attr!r} is not one of {sorted(_VALID_ENTRY_POINT_ATTRS)}"

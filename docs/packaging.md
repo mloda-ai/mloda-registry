@@ -177,6 +177,7 @@ under a per-group attribute:
 | `mloda.feature_groups` | `FEATURE_GROUPS` | `FeatureGroup` |
 | `mloda.compute_frameworks` | `COMPUTE_FRAMEWORKS` | `ComputeFramework` |
 | `mloda.extenders` | `EXTENDERS` | `Extender` |
+| `mloda.optional_dependencies` | `OPTIONAL_DEPENDENCIES` | n/a (tuple of import roots) |
 
 Conventions:
 
@@ -189,6 +190,13 @@ Conventions:
   `mloda-community-ffill = "mloda.community.feature_groups.data_operations.row_preserving.ffill.manifest:FEATURE_GROUPS"`.
 - Bundle packages set `entry_point_bundle = true` and aggregate the entry points of
   every nested plugin package under their path.
+- `mloda.optional_dependencies` is a companion marker group, not a plugin group: it
+  declares a package's optional import roots for `PluginLoader` to consult when an
+  entry point's own import fails. Its target is the dependency-free sibling module
+  `_optional_dependencies.py`, not `manifest.py` - PluginLoader only reads the marker
+  inside the except-ImportError handler for the guarded entry point, i.e. after
+  `manifest.py`'s own import has already failed, so a marker living inside
+  `manifest.py` could never be read exactly when it is needed.
 
 ## UV workspace sources
 

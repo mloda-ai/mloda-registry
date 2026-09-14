@@ -2,22 +2,10 @@
 
 from __future__ import annotations
 
-import logging
-
 from mloda.steward import Extender
 
-EXTENDERS: list[type[Extender]]
+from .otel_extender import OtelExtender
 
-_logger = logging.getLogger(__name__)
-
-# The mloda-community bundle ships this extender behind the mloda-community[otel]
-# extra; core's loader would otherwise raise on the missing opentelemetry-api dependency.
-try:
-    from .otel_extender import OtelExtender
-except ModuleNotFoundError as exc:
-    if (exc.name or "").split(".")[0] != "opentelemetry":
-        raise
-    EXTENDERS = []
-    _logger.info("OtelExtender unavailable: install 'opentelemetry-api' via 'mloda-community[otel]'.")
-else:
-    EXTENDERS = [OtelExtender]
+# No try/except: PluginLoader.load_entry_points() (guided by the mloda.optional_dependencies
+# marker in _optional_dependencies.py) is the sole guard tolerating a missing opentelemetry-api.
+EXTENDERS: list[type[Extender]] = [OtelExtender]

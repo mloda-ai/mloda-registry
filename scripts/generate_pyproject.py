@@ -48,10 +48,21 @@ BARE_SIBLING_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?\
 # mloda 0.9.0 discovers installed plugins through these entry-point groups; each
 # plugin package ships a ``manifest.py`` listing its concrete plugin classes
 # under the mapped attribute. See issue #271.
+#
+# ``mloda.optional_dependencies`` is a companion marker group (not a plugin-type group): it
+# declares a package's optional import roots for PluginLoader instead of listing plugin classes.
 ENTRY_POINT_ATTRS = {
     "mloda.feature_groups": "FEATURE_GROUPS",
     "mloda.compute_frameworks": "COMPUTE_FRAMEWORKS",
     "mloda.extenders": "EXTENDERS",
+    "mloda.optional_dependencies": "OPTIONAL_DEPENDENCIES",
+}
+
+# Entry-point group -> target module suffix, default "manifest". Only the optional-dependencies
+# marker targets a different, dependency-free sibling module (see PluginLoader placement
+# constraint in ENTRY_POINT_ATTRS above): loading it must not re-trigger manifest.py's own failure.
+ENTRY_POINT_MODULE_SUFFIX: dict[str, str] = {
+    "mloda.optional_dependencies": "_optional_dependencies",
 }
 
 
@@ -164,7 +175,9 @@ def compute_entry_points(
     """Compute entry-point tables for a package.
 
     Returns a mapping of entry-point group -> sorted list of ``(label, value)``
-    pairs, where ``value`` is the canonical ``<dotted>.manifest:<ATTR>`` target.
+    pairs, where ``value`` is the canonical ``<dotted>.<module_suffix>:<ATTR>`` target
+    (``module_suffix`` is ``manifest`` for every group except ``mloda.optional_dependencies``,
+    see ``ENTRY_POINT_MODULE_SUFFIX``).
 
     Bundle packages (``entry_point_bundle = true``) aggregate the entry points of
     every nested plugin package whose path lives under the bundle path. Regular
@@ -182,11 +195,13 @@ def compute_entry_points(
             if not groups:
                 continue
             for group in groups:
-                value = f"{cfg['path'].replace('/', '.')}.manifest:{ENTRY_POINT_ATTRS[group]}"
+                module_suffix = ENTRY_POINT_MODULE_SUFFIX.get(group, "manifest")
+                value = f"{cfg['path'].replace('/', '.')}.{module_suffix}:{ENTRY_POINT_ATTRS[group]}"
                 result.setdefault(group, []).append((name, value))
     else:
         for group in pkg_config.get("entry_point_groups", []):
-            value = f"{pkg_config['path'].replace('/', '.')}.manifest:{ENTRY_POINT_ATTRS[group]}"
+            module_suffix = ENTRY_POINT_MODULE_SUFFIX.get(group, "manifest")
+            value = f"{pkg_config['path'].replace('/', '.')}.{module_suffix}:{ENTRY_POINT_ATTRS[group]}"
             result.setdefault(group, []).append((pkg_name, value))
 
     return {group: sorted(pairs, key=lambda pair: pair[0]) for group, pairs in result.items() if pairs}

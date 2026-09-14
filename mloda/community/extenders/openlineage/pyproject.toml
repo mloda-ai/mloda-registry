@@ -24,6 +24,9 @@ Repository = "https://github.com/mloda-ai/mloda-registry"
 [project.entry-points."mloda.extenders"]
 mloda-community-openlineage = "mloda.community.extenders.openlineage.manifest:EXTENDERS"
 
+[project.entry-points."mloda.optional_dependencies"]
+mloda-community-openlineage = "mloda.community.extenders.openlineage._optional_dependencies:OPTIONAL_DEPENDENCIES"
+
 [tool.setuptools]
 package-dir = {"" = "../../../.."}
 packages = ["mloda.community.extenders.openlineage"]

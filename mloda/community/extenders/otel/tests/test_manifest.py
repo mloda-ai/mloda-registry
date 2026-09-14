@@ -12,3 +12,7 @@ class TestOtelManifest(OptionalDependencyPackageTestMixin):
     extra = "mloda-community[otel]"
     extender_name = "OtelExtender"
     extender_module = "otel_extender"
+    # A real submodule/name otel_extender.py imports from: simulates an installed-but-too-old
+    # opentelemetry-api (the widened __init__.py guard must also catch a plain ImportError here).
+    broken_module = "opentelemetry.trace"
+    broken_name = "TracerProvider"
