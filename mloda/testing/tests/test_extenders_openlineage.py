@@ -103,7 +103,7 @@ class _ProbeOpenLineageExtender(Extender):
         job = Job(namespace="probe", name=context.feature_group_class)
         run = Run(runId=str(uuid.uuid4()), facets=run_facets)
 
-        # Unguarded on purpose: this must propagate naturally so _CompositeExtender's raise_on_error
+        # Unguarded on purpose: this must propagate naturally so CompositeExtender's raise_on_error
         # fallback machinery sees the real failure and never double-invokes func.
         self._get_client().emit(
             RunEvent(

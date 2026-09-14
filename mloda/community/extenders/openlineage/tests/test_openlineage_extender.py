@@ -19,8 +19,7 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-from mloda.core.abstract_plugins.function_extender import _CompositeExtender
-from mloda.steward import ExtenderHook
+from mloda.steward import CompositeExtender, ExtenderHook
 
 from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
@@ -288,7 +287,7 @@ class TestOpenLineageExtenderClose:
 class TestOpenLineageExtenderCloseIdempotencyAndReuse:
     """close() must be idempotent, unregister its own atexit hook, use a bounded atexit timeout,
     warn on incomplete flush, and reject reuse of a closed extender with a RuntimeError that the
-    standard warning-only _CompositeExtender fallback degrades gracefully instead of silently
+    standard warning-only CompositeExtender fallback degrades gracefully instead of silently
     emitting into a dead client."""
 
     def test_close_is_idempotent_only_invokes_client_close_once(
@@ -377,7 +376,7 @@ class TestOpenLineageExtenderCloseIdempotencyAndReuse:
         client, _ = ol_capture
         extender = OpenLineageExtender(client=client)
         extender.close()
-        composite = _CompositeExtender([extender])
+        composite = CompositeExtender([extender])
         sentinel = object()
 
         def func() -> object:
@@ -867,7 +866,7 @@ class TestOpenLineageExtenderPerInstanceAttribution:
         transport_b = RecordingTransport()
         extender_a = OpenLineageExtender(client=OpenLineageClient(transport=transport_a))
         extender_b = OpenLineageExtender(client=OpenLineageClient(transport=transport_b))
-        composite = _CompositeExtender([extender_a, extender_b])
+        composite = CompositeExtender([extender_a, extender_b])
 
         inner_context = make_hook_context(
             hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="s3://bucket/key.parquet"

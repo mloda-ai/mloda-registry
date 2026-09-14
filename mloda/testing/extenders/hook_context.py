@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mloda.steward import ExtenderHook, HookContext
+from mloda.steward import ExtenderHook, HookContext, OutputSchema
 
 
 def make_hook_context(
@@ -16,6 +16,7 @@ def make_hook_context(
     compute_framework_name: str = "PyArrowTable",
     rows_in: int | None = None,
     rows_out: int | None = None,
+    output_schema: OutputSchema | None = None,
     duration_seconds: float | None = None,
     status: str | None = None,
     run_id: str | None = None,
@@ -44,6 +45,7 @@ def make_hook_context(
         compute_framework_name=compute_framework_name,
         rows_in=rows_in,
         rows_out=rows_out,
+        output_schema=output_schema,
         duration_seconds=duration_seconds,
         status=status,
         run_id=run_id,

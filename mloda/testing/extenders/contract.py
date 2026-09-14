@@ -8,8 +8,7 @@ from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
 import pytest
-from mloda.core.abstract_plugins.function_extender import _CompositeExtender
-from mloda.steward import Extender, ExtenderHook, HookContext
+from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext
 
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
@@ -128,7 +127,7 @@ class ExtenderContractTestMixin:
             pytest.skip("extender is breaking-only")
         extender = self.make_extender(raise_on_error=False)
         assert extender.raise_on_error is False
-        composite = _CompositeExtender([extender])
+        composite = CompositeExtender([extender])
         with make_hook_context(hook=self.context_hook()).activate():
             with self.own_failure():
                 with caplog.at_level(logging.WARNING):
@@ -141,7 +140,7 @@ class ExtenderContractTestMixin:
         )
 
     def test_contract_own_failure_propagates_when_raise_on_error_true(self) -> None:
-        composite = _CompositeExtender([self.make_extender(raise_on_error=True)])
+        composite = CompositeExtender([self.make_extender(raise_on_error=True)])
         with make_hook_context(hook=self.context_hook()).activate():
             with self.own_failure():
                 with pytest.raises(RuntimeError):
@@ -193,7 +192,7 @@ class ExtenderContractTestMixin:
         extender = self.make_extender(raise_on_error=False)
         assert extender.raise_on_error is False
         counting = CountingExtender()
-        composite = _CompositeExtender([extender, counting])
+        composite = CompositeExtender([extender, counting])
         with make_hook_context(hook=self.context_hook()).activate():
             with self.own_failure():
                 with caplog.at_level(logging.WARNING):

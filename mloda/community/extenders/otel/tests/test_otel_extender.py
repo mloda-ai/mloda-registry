@@ -637,7 +637,7 @@ class TestOtelExtenderPostCallInstrumentationFailure:
         def func() -> list[int]:
             return [1, 2, 3]
 
-        # Called directly (not through _CompositeExtender): raise_on_error has no bearing on this path,
+        # Called directly (not through CompositeExtender): raise_on_error has no bearing on this path,
         # since it only governs how core's _invoke_extender reacts to a raise from ANYWHERE inside
         # __call__, not whether the extender's own post-call code corrupts the span it already built.
         # func already succeeded by the time broken_mask runs, so whatever escapes here is the

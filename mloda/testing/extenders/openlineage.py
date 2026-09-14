@@ -14,8 +14,7 @@ from unittest.mock import patch
 
 import pyarrow as pa
 import pytest
-from mloda.core.abstract_plugins.function_extender import _CompositeExtender
-from mloda.steward import Extender, ExtenderHook
+from mloda.steward import CompositeExtender, Extender, ExtenderHook
 from openlineage.client.client import Event, OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, OutputDataset, RunEvent, RunState
 from openlineage.client.facet_v2 import parent_run
@@ -308,7 +307,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
 
         monkeypatch.setattr(client, "emit", flaky_emit)
         extender = self.make_openlineage_extender(client, raise_on_error=False)
-        composite = _CompositeExtender([extender])
+        composite = CompositeExtender([extender])
         func_calls = 0
 
         def func() -> int:

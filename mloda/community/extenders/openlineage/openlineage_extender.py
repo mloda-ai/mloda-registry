@@ -183,7 +183,7 @@ class OpenLineageExtender(Extender):
         run = Run(runId=str(uuid.uuid4()), facets=run_facets)
         invocation = _OpenCalculateInvocation(run_id=run.runId, job=job)
 
-        # Unguarded on purpose: this call must propagate naturally so _CompositeExtender's
+        # Unguarded on purpose: this call must propagate naturally so CompositeExtender's
         # raise_on_error fallback machinery sees the real failure and never double-invokes func.
         self._emit(
             RunEvent(
