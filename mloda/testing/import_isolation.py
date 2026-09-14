@@ -38,15 +38,13 @@ def _sibling_submodule_names(parent_name: str) -> set[str]:
 
 
 def evict_root(monkeypatch: pytest.MonkeyPatch, root: str) -> None:
-    """Cold-evict every sys.modules entry at or under ``root``, forcing a genuine cold re-import (unlike
-    ``block_root``, which poisons entries to raise ModuleNotFoundError instead).
+    """Cold-evict every sys.modules entry at or under ``root``, forcing a genuine cold re-import
+    (unlike ``block_root``, which poisons entries to raise ModuleNotFoundError instead).
 
-    Used to simulate a real optional dependency (``root``) being installed but having one of ITS OWN
-    transitive dependencies missing: the caller poisons the transitive dependency's sys.modules entry
-    separately, then this forces ``root`` to re-execute its own import machinery and hit that poison.
-
-    The setitem-then-delitem dance queues two undo entries per name, so teardown restores the pre-test
-    module object even if the test's cold re-import rebinds the name to a new one.
+    Used to simulate ``root`` being installed but missing one of its own transitive dependencies:
+    the caller poisons that dependency's sys.modules entry separately, then this forces ``root`` to
+    re-execute its own import machinery and hit that poison. The setitem-then-delitem dance restores
+    the pre-test module object on teardown even if the re-import rebinds the name to a new one.
     """
     for name in list(sys.modules):
         if name == root or name.startswith(f"{root}."):

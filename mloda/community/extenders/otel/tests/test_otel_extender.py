@@ -240,7 +240,7 @@ class TestOtelExtenderPickling:
 
 
 class TestOtelExtenderSyncIdentityPreservation:
-    """Core (0.13.0+) CfwManager no longer round-trips extenders through a pickling proxy for
+    """Core's CfwManager no longer round-trips extenders through a pickling proxy for
     ParallelizationMode.SYNC/THREADING (no real subprocess involved, so no pickle ever happens): an
     injected tracer_provider must survive identity-intact, not merely equal-by-value."""
 
@@ -798,8 +798,7 @@ class _InstallRealTracerProviderBootstrap:
     MULTIPROCESSING worker, before that worker processes its first command.
 
     OtelExtender(use_sdk_defaults=True) (no injected tracer_provider) then resolves this ambiently via
-    trace.get_tracer(_TRACER_NAME, tracer_provider=None), which falls through to
-    opentelemetry.trace.get_tracer_provider() - the process-global provider this bootstrap just set.
+    opentelemetry.trace.get_tracer_provider(), the process-global provider this bootstrap just set.
     """
 
     def __init__(self, marker_path: Path) -> None:
@@ -844,8 +843,8 @@ class TestOtelExtenderInjectedProviderDropWarningUnderRealMultiprocessing:
     MULTIPROCESSING worker (the SDK TracerProvider's own __init__ creates a lock that pickle can never
     serialize). __getstate__ dropping it silently leaves the caller with no signal that their sink
     stopped working. The drop must be logged exactly once, even though this (parent) process pickles
-    the extender twice before any worker starts: once via core's raise_on_unpicklable_extender preflight
-    probe (validate_multiprocessing_link.py), once for the real worker dispatch payload."""
+    the extender twice before any worker starts: once via core's preflight picklability check, once
+    for the real worker dispatch payload."""
 
     def test_dropped_injected_provider_logs_exactly_one_warning(
         self,

@@ -45,9 +45,9 @@ SIBLING_FLOOR_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?
 BARE_SIBLING_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?\s*$")
 
 # Entry-point group -> manifest attribute exposing the concrete plugin classes.
-# mloda 0.9.0 discovers installed plugins through these entry-point groups; each
+# mloda discovers installed plugins through these entry-point groups; each
 # plugin package ships a ``manifest.py`` listing its concrete plugin classes
-# under the mapped attribute. See issue #271.
+# under the mapped attribute.
 #
 # ``mloda.optional_dependencies`` is a companion marker group (not a plugin-type group): it
 # declares a package's optional import roots for PluginLoader instead of listing plugin classes.

@@ -4,10 +4,9 @@ __all__: list[str] = []
 
 # The mloda-community bundle ships this extender behind the mloda-community[openlineage]
 # extra; core's loader would otherwise raise on the missing openlineage-python dependency.
-# Widened from ModuleNotFoundError to ImportError, and from a bare exc.name prefix check to
-# blames_root(): an installed-but-broken openlineage-python can fail either directly (a missing
-# attribute inside openlineage itself) or via one of ITS OWN transitive dependencies (e.g. attr),
-# whose failure is named after that dependency, not "openlineage" - both must still degrade.
+# Uses ImportError (not just ModuleNotFoundError) and blames_root(): an installed-but-broken
+# openlineage-python can fail directly or via one of its own transitive dependencies, whose
+# failure is named after that dependency, not "openlineage" - both must still degrade.
 try:
     from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
 except ImportError as exc:

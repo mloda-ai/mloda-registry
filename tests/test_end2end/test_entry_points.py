@@ -236,12 +236,10 @@ def test_optional_dependencies_group_is_registered_in_entry_point_attrs() -> Non
 
 def test_optional_dependencies_entry_point_targets_a_dependency_free_sibling_module_not_manifest() -> None:
     """OPTIONAL_DEPENDENCIES cannot live inside manifest.py itself: PluginLoader only consults the
-    ``mloda.optional_dependencies`` marker *inside* the except-ImportError handler for the guarded entry
-    point, i.e. after manifest.py's own import has already failed. If the marker lived in manifest.py,
-    loading it would re-attempt that same failing import and fail too, so the declaration would never be
-    readable exactly when it is needed. It must live in a separate, dependency-free sibling module
-    instead (e.g. ``_optional_dependencies.py``), which ``compute_entry_points`` must target instead of
-    the ``<path>.manifest:<ATTR>`` value every other group uses today.
+    ``mloda.optional_dependencies`` marker after manifest.py's own import has already failed, so a
+    marker living inside manifest.py could never be read. It must live in a separate, dependency-free
+    sibling module instead (e.g. ``_optional_dependencies.py``), which ``compute_entry_points`` must
+    target instead of the ``<path>.manifest:<ATTR>`` value every other group uses.
     """
     pkg_config: dict[str, Any] = {
         "path": "mloda/community/extenders/openlineage",
@@ -297,9 +295,8 @@ def test_verify_builds_valid_entry_point_attrs_include_optional_dependencies() -
 
 def test_verify_builds_accepts_optional_dependencies_marker_target() -> None:
     """namespaced_entry_point_error must accept the mloda.optional_dependencies group's target module,
-    which is a dependency-free sibling of manifest.py (not manifest.py itself, see the placement
-    constraint documented on test_optional_dependencies_entry_point_targets_a_dependency_free_sibling_module_not_manifest
-    above): it cannot keep requiring every entry point's module to end with '.manifest'."""
+    a dependency-free sibling of manifest.py, not manifest.py itself: it cannot keep requiring every
+    entry point's module to end with '.manifest'."""
     assert (
         vb.namespaced_entry_point_error(
             "mloda.optional_dependencies",

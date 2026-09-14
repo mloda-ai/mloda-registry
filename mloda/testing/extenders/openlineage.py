@@ -49,10 +49,9 @@ class RecordingTransport(Transport):
 class _SharedCaptureTransport(RecordingTransport):
     """RecordingTransport variant that records into shared class state instead of instance state.
 
-    Plain pickling on this branch has no process-local identity registry: unpickling an extender
-    holding a client reconstructs a brand-new Transport instance whose own `events` list is
-    disconnected from the pre-pickle original. Recording into a class attribute instead means every
-    instance (the pre-pickle one and the post-unpickle copy alike) appends into the one list
+    Unpickling an extender holding a client reconstructs a brand-new Transport instance whose own
+    `events` list is disconnected from the pre-pickle original. Recording into a class attribute
+    instead means every instance, pre-pickle and post-unpickle alike, appends into the one list
     `injected_sink_capture()` hands back, so what the *copy* actually emitted stays observable.
     """
 

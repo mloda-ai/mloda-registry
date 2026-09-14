@@ -177,13 +177,9 @@ def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A nested leaf's runtime dependency covered only through its bundle's own extra is optional at
-    runtime: PluginLoader.load_entry_points(), not a direct ``<leaf>.manifest`` import, is the sole guard
-    tolerating that. Rewritten from the old ``test_extra_only_bundle_dependencies_have_import_safe_manifests``:
-    that test imported ``<leaf>.manifest`` directly and asserted it degraded to an empty attribute list,
-    which pinned ``manifest.py``'s own now-deleted try/except. Once that guard is gone, a direct import of
-    the manifest with the dependency missing raises by design (that is the whole point of moving the
-    guard to PluginLoader, which declares the optional root via the ``mloda.optional_dependencies`` entry
-    point instead), so the only way to observe the intended degrade is through PluginLoader itself.
+    runtime: PluginLoader.load_entry_points(), not a direct ``<leaf>.manifest`` import, is the sole
+    guard tolerating that. A direct import of the manifest with the dependency missing now raises by
+    design, so the only way to observe the intended degrade is through PluginLoader itself.
     """
     packages = _packages()
     checked = 0
@@ -286,15 +282,15 @@ def test_plugin_loader_skips_entry_point_with_warning_when_transitive_dependency
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """``root`` is genuinely installed, but one of ITS OWN transitive dependencies is missing (as if too
+    """``root`` is genuinely installed, but one of its own transitive dependencies is missing (as if too
     old a version): the failure surfaces from a frame inside ``root``'s own code, named by that
     transitive dependency, not by ``root`` itself. PluginLoader.load_entry_points() must not abort
     discovery for every plugin over this, it must skip only this one entry point with a WARNING.
 
-    Today there is no ``mloda.optional_dependencies`` declaration for either leaf, so this failure falls
-    through to PluginLoader's hardcoded OPTIONAL_PLUGIN_DEPENDENCIES allowlist (which does not include
-    ``openlineage``/``opentelemetry``) and re-raises, aborting load_entry_points() entirely instead of
-    skipping just this one entry point.
+    Neither leaf declares ``mloda.optional_dependencies`` for this case, so the failure falls through
+    to PluginLoader's hardcoded OPTIONAL_PLUGIN_DEPENDENCIES allowlist (which excludes
+    openlineage/opentelemetry) and re-raises, aborting discovery entirely instead of skipping just
+    this one entry point.
     """
     transitive_dependency = _TRANSITIVE_DEPENDENCY_OF_ROOT[root]
     packages = _packages()

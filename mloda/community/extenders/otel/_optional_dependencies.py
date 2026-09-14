@@ -1,8 +1,7 @@
 """Dependency-free marker consumed by PluginLoader's optional-dependency lookup.
 
-Must stay import-free of opentelemetry: PluginLoader reads this only inside the except-ImportError
-handler for manifest.py's own entry point, i.e. after manifest.py's import already failed. A marker
-living inside manifest.py would re-trigger that same failure instead of being readable.
+Must stay import-free of opentelemetry: PluginLoader reads it only after manifest.py's own import
+has already failed, so a marker living inside manifest.py could never be read.
 """
 
 from __future__ import annotations

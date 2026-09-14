@@ -12,18 +12,15 @@ from mloda.testing.import_isolation import block_root, evict_package
 
 class OptionalDependencyPackageTestMixin:
     """Manifest resilience contract. Host declares package, root, distribution, extra, extender_name,
-    extender_module: mloda's entry-point loader (``PluginLoader``, see
-    ``tests/test_end2end/test_bundle_optional_dependencies.py`` for that contract) is now the sole
-    guard tolerating a missing ``root``, so ``<package>.manifest`` itself no longer swallows anything:
-    importing it directly always either succeeds or raises, whatever the reason. ``<package>``'s own
-    ``__init__.py`` keeps a local guard (a real user doing ``import <package>`` outside of entry-point
-    discovery still needs the friendly, deferred error), widened from ``ModuleNotFoundError`` to
-    ``ImportError`` and chaining ``__cause__`` to the real underlying failure.
+    extender_module: mloda's entry-point loader (``PluginLoader``) is now the sole guard tolerating a
+    missing ``root``, so ``<package>.manifest`` itself no longer swallows anything: importing it
+    directly always either succeeds or raises. ``<package>``'s own ``__init__.py`` keeps a local guard
+    for a real user doing ``import <package>`` outside of entry-point discovery, widened from
+    ``ModuleNotFoundError`` to ``ImportError`` and chaining ``__cause__`` to the real failure.
 
-    ``broken_module``/``broken_name`` (default ``None``, tests skip when unset) name a real submodule of
-    ``root`` and a real name imported from it by the extender module, for simulating an installed-but-
-    too-old ``root`` whose failure is a plain ``ImportError`` (not a ``ModuleNotFoundError``): the widened
-    ``__init__.py`` guard must catch that too, not just a fully-missing root.
+    ``broken_module``/``broken_name`` (default ``None``, tests skip when unset) name a real submodule
+    of ``root`` and a name it exports, to simulate an installed-but-too-old ``root`` whose failure is
+    a plain ``ImportError`` rather than ``ModuleNotFoundError``.
     """
 
     package: str
@@ -45,12 +42,9 @@ class OptionalDependencyPackageTestMixin:
     def test_manifest_raises_when_dependency_is_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """``<package>.manifest`` carries no try/except of its own any more: PluginLoader is the sole
         guard (declared via the ``mloda.optional_dependencies`` entry-point group), so a direct import
-        of the manifest with ``root`` missing must raise, not degrade to an empty EXTENDERS list. This
-        replaces the old ``test_manifest_is_empty_when_missing`` /
-        ``test_manifest_reraises_unrelated_import_errors`` / ``test_manifest_logs_when_dependency_is_missing``,
-        which pinned the now-deleted local guard; the skip-and-warn contract they used to cover for a
-        missing/unusable ``root`` now lives at the bundle level against PluginLoader (see
-        ``tests/test_end2end/test_bundle_optional_dependencies.py``), not here.
+        of the manifest with ``root`` missing must raise, not degrade to an empty EXTENDERS list. The
+        skip-and-warn contract for a missing/unusable ``root`` now lives at the bundle level against
+        PluginLoader (see ``tests/test_end2end/test_bundle_optional_dependencies.py``), not here.
         """
         block_root(monkeypatch, self.root)
         evict_package(monkeypatch, self.package)
@@ -59,8 +53,8 @@ class OptionalDependencyPackageTestMixin:
             importlib.import_module(f"{self.package}.manifest")
 
     def test_manifest_reraises_unrelated_import_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Still meaningful post-rewrite: proves the manifest has no special-casing left at all, so an
-        import error unrelated to ``root`` propagates exactly like a missing ``root`` does above."""
+        """Proves the manifest has no special-casing left: an import error unrelated to ``root``
+        propagates exactly like a missing ``root`` does above."""
         monkeypatch.setitem(sys.modules, f"{self.package}.{self.extender_module}", None)
         monkeypatch.delitem(sys.modules, f"{self.package}.manifest", raising=False)
 
@@ -138,10 +132,9 @@ class OptionalDependencyPackageTestMixin:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """``root`` installed but too old to expose ``broken_name`` inside ``broken_module``: this raises
-        a plain ``ImportError`` (not a ``ModuleNotFoundError``), from the extender module's own
-        ``from ... import ...`` statement. Today's ``__init__.py`` guard only catches
-        ``ModuleNotFoundError``, so this plain ``ImportError`` is not caught at all and crashes the
-        package import outright instead of degrading gracefully like a fully-missing root does.
+        a plain ``ImportError`` (not a ``ModuleNotFoundError``) from the extender module's own
+        ``from ... import ...`` statement. The ``__init__.py`` guard must catch that too, not just a
+        fully-missing root, to degrade gracefully instead of crashing the package import outright.
         """
         if self.broken_module is None or self.broken_name is None:
             pytest.skip("no broken_module/broken_name declared")

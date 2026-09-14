@@ -323,12 +323,8 @@ class TestOpenLineageExtenderClose:
     def test_atexit_registered_on_lazy_build_even_inside_simulated_worker_context(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`_get_client()` has no process-awareness at all: it registers the same atexit flush hook
-        whether or not the lazy build happens inside a MULTIPROCESSING-worker-shaped HookContext.
-        Worker context is simulated via `worker_index` (mirrors how the otel extender's tests
-        simulate a worker via `make_hook_context(worker_index=...)`), since the code never reads
-        the ambient HookContext at all when building its client. This pins the class docstring's
-        atexit behavior claim against a worker-shaped call site."""
+        """`_get_client()` has no process-awareness: it registers the same atexit flush hook whether
+        or not the lazy build happens inside a MULTIPROCESSING-worker-shaped HookContext."""
 
         class _FakeClient:
             def close(self, timeout: float = -1.0) -> bool:
@@ -468,10 +464,9 @@ class TestOpenLineageExtenderCloseIdempotencyAndReuse:
 
 
 class TestOpenLineageExtenderSharedInjectedClientCloseState:
-    """Two extenders constructed with the *same* injected client object (e.g. two sibling copies
-    core re-fetches from a manager proxy under MULTIPROCESSING) must share that client's close
-    lifecycle: closing either one must make the other react as closed too, in both directions, and
-    closing the second one afterward must stay idempotent instead of double-flushing."""
+    """Two extenders constructed with the *same* injected client object (e.g. sibling copies core
+    re-fetches from a manager proxy under MULTIPROCESSING) must share that client's close lifecycle:
+    closing either one closes the other too, and closing the second one afterward stays idempotent."""
 
     def test_closing_a_makes_bs_get_client_raise_too(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
@@ -556,10 +551,9 @@ class TestOpenLineageExtenderGetClientBoundary:
 
 class TestOpenLineageExtenderPickledInertLogging:
     def test_pickled_copy_logs_its_own_inert_state(self, caplog: pytest.LogCaptureFixture) -> None:
-        """A client that cannot survive pickling (see TestOpenLineageExtenderPickling's
-        unpicklable-client tests) leaves the copy with no client at all, so the copy is genuinely
-        inert and must log its own inert state independently of the original, not inherit
-        `_logged_inert` from it. A picklable client's copy is covered separately and is NOT inert."""
+        """A client that cannot survive pickling leaves the copy with no client at all, so the copy
+        is genuinely inert and must log its own inert state independently of the original, not
+        inherit `_logged_inert` from it."""
         extender = OpenLineageExtender(client=OpenLineageClient(transport=_LockHoldingTransport()))
         extender._logged_inert = True
 

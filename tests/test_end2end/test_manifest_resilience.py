@@ -102,14 +102,11 @@ def test_reraises_non_optional_module_not_found(monkeypatch: pytest.MonkeyPatch)
 def test_skips_backend_via_traceback_blame_when_transitive_reraise_drops_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Case A: a backend's own framework can fail to import because one of ITS transitive deps is
-    missing, and the framework may wrap that failure in its own ModuleNotFoundError without
-    preserving ``.name`` (e.g. re-raising a friendlier message around a broken native extension).
-    ``exc.name`` is then None, so literal root-matching against _OPTIONAL_BACKENDS cannot attribute
-    the failure; only inspecting the innermost traceback frame (the mloda core PluginLoader's
-    ``_traceback_blames_root`` technique, reimplemented locally here) can. Currently
-    load_plugin_classes only root-matches exc.name, so this ModuleNotFoundError propagates
-    uncaught instead of being attributed and skipped.
+    """A backend's own framework can fail to import because one of its transitive deps is missing,
+    and the framework may wrap that failure in its own ModuleNotFoundError without preserving
+    ``.name`` (e.g. re-raising a friendlier message around a broken native extension). ``exc.name``
+    is then None, so literal root-matching against _OPTIONAL_BACKENDS cannot attribute the failure;
+    only inspecting the innermost traceback frame (``_traceback_blames_root``) can.
     """
     framework_dir = tmp_path / "regmanifest_casea_framework"
     framework_dir.mkdir()
@@ -145,11 +142,9 @@ def test_skips_backend_via_traceback_blame_when_transitive_reraise_drops_name(
 
 
 def test_skips_backend_with_plain_import_error_for_too_old_framework(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Case C: a backend "installed but too old" (a name added in a newer release is absent) raises
-    a plain ImportError (Python's real "cannot import name X from Y" shape, which sets .name to Y,
-    the framework's own root), not ModuleNotFoundError. load_plugin_classes only catches
-    ModuleNotFoundError today, so this currently propagates uncaught and aborts the whole specs
-    list instead of skipping just the one broken backend.
+    """A backend "installed but too old" (a name added in a newer release is absent) raises a plain
+    ImportError (Python's real "cannot import name X from Y" shape, which sets .name to Y, the
+    framework's own root), not ModuleNotFoundError.
     """
     kept_module = SimpleNamespace(KeptClass=_KeptClass)
 
@@ -176,9 +171,9 @@ def test_skips_backend_with_plain_import_error_for_too_old_framework(monkeypatch
 
 def test_reraises_plain_import_error_not_rooted_at_optional_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     """Regression guard: widening the caught exception type from ModuleNotFoundError to ImportError
-    (to support Case C) must not swallow a genuine, unrelated ImportError bug in first-party code
-    (e.g. a real typo), matching the module's own contract that "any other ModuleNotFoundError is a
-    real error and re-raised" -- here for its ImportError sibling.
+    must not swallow a genuine, unrelated ImportError bug in first-party code (e.g. a real typo),
+    matching the module's own contract that "any other ModuleNotFoundError is a real error and
+    re-raised" -- here for its ImportError sibling.
     """
 
     def fake_import(name: str) -> ModuleType:

@@ -28,8 +28,7 @@ _OPTIONAL_BACKENDS = frozenset({"pandas", "polars", "duckdb", "pyarrow", "numpy"
 def _traceback_blames_root(exc: ImportError, root: str) -> bool:
     """True if the innermost (deepest) frame of exc's traceback, i.e. where the failure actually
     occurred, belongs to root or a submodule of it. Reimplements core's private
-    PluginLoader._traceback_blames_root (not imported: it is core-private and this repo's
-    test_no_internal_core_imports.py allowlist is being narrowed, not widened, in a parallel PR).
+    PluginLoader._traceback_blames_root locally, since that helper is core-private.
     """
     tb = exc.__traceback__
     if tb is None:

@@ -21,13 +21,12 @@ else:
 CONFIG_DIR = Path("config")
 PACKAGES_CONFIG = CONFIG_DIR / "packages.toml"
 
-# Valid manifest attributes for the mloda plugin entry-point groups (issue #271), plus the
-# companion mloda.optional_dependencies marker attribute.
+# Valid manifest attributes for the mloda plugin entry-point groups, plus the companion
+# mloda.optional_dependencies marker attribute.
 _VALID_ENTRY_POINT_ATTRS = {"FEATURE_GROUPS", "COMPUTE_FRAMEWORKS", "EXTENDERS", "OPTIONAL_DEPENDENCIES"}
 
 # Module suffixes a namespaced entry-point target may end with: "manifest" for the three plugin
-# groups, "_optional_dependencies" for the dependency-free marker sibling (see generate_pyproject
-# .ENTRY_POINT_MODULE_SUFFIX for why the marker cannot live inside manifest.py itself).
+# groups, "_optional_dependencies" for the dependency-free marker sibling.
 _VALID_ENTRY_POINT_MODULE_SUFFIXES = (".manifest", "._optional_dependencies")
 
 
