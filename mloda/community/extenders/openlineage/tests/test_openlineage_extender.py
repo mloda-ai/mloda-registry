@@ -320,6 +320,32 @@ class TestOpenLineageExtenderClose:
         assert registered[0].__self__ is extender
         assert registered[0].__func__ is OpenLineageExtender.close
 
+    def test_atexit_registered_on_lazy_build_even_inside_simulated_worker_context(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`_get_client()` has no process-awareness at all: it registers the same atexit flush hook
+        whether or not the lazy build happens inside a MULTIPROCESSING-worker-shaped HookContext.
+        Worker context is simulated via `worker_index` (mirrors how the otel extender's tests
+        simulate a worker via `make_hook_context(worker_index=...)`), since the code never reads
+        the ambient HookContext at all when building its client. This pins the class docstring's
+        atexit behavior claim against a worker-shaped call site."""
+
+        class _FakeClient:
+            def close(self, timeout: float = -1.0) -> bool:
+                return True
+
+        monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _FakeClient)
+        registered: list[Any] = []
+        monkeypatch.setattr(atexit, "register", lambda *args, **kwargs: registered.append(args[0]))
+        extender = OpenLineageExtender(use_sdk_defaults=True)
+
+        with make_hook_context(worker_index=3).activate():
+            extender._get_client()
+
+        assert len(registered) == 1
+        assert registered[0].__self__ is extender
+        assert registered[0].__func__ is OpenLineageExtender.close
+
     def test_atexit_not_registered_when_client_injected_via_constructor(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
     ) -> None:

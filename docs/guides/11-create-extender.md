@@ -204,7 +204,7 @@ Helpers: `make_span_capture`, `single_span`, `single_span_attributes`, `inject_p
 
 ### OpenLineageExtenderTestMixin
 
-Install `mloda-testing[openlineage]`. Host provides `extender_class` and `make_openlineage_extender(client, *, raise_on_error=None)`. It supplies `make_extender`, `own_failure`, a `pickled_copy_environment` with OpenLineage disabled, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`), so a host needs no extra code for the sink-resolution tests.
+Install `mloda-testing[openlineage]`. Host provides `extender_class` and `make_openlineage_extender(client, *, raise_on_error=None)`. It supplies `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`), so a host needs no extra code for the sink-resolution tests.
 
 ```python
 from openlineage.client.client import OpenLineageClient

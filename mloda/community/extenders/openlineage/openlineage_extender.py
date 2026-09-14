@@ -64,8 +64,8 @@ class OpenLineageExtender(Extender):
     """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating nested
     INPUT_DATA_LOAD calls as inputs. Sink resolution: injected client wins, else use_sdk_defaults, else inert.
     Emits happen synchronously on the calculation thread, so a blocking transport delays every wrapped calculation.
-    close() flushes the client and is terminal; a self-built client also gets a bounded-timeout atexit flush
-    (main process only, not MULTIPROCESSING workers)."""
+    close() flushes the client and is terminal; a self-built client also gets a bounded-timeout atexit flush,
+    registered on every lazy build regardless of process (MULTIPROCESSING workers included)."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
 
