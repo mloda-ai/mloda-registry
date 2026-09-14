@@ -25,20 +25,39 @@ from typing import Any
 _OPTIONAL_BACKENDS = frozenset({"pandas", "polars", "duckdb", "pyarrow", "numpy"})
 
 
+def _traceback_blames_root(exc: ImportError, root: str) -> bool:
+    """True if the innermost (deepest) frame of exc's traceback, i.e. where the failure actually
+    occurred, belongs to root or a submodule of it. Reimplements core's private
+    PluginLoader._traceback_blames_root (not imported: it is core-private and this repo's
+    test_no_internal_core_imports.py allowlist is being narrowed, not widened, in a parallel PR).
+    """
+    tb = exc.__traceback__
+    if tb is None:
+        return False
+    while tb.tb_next is not None:
+        tb = tb.tb_next
+    module_name = tb.tb_frame.f_globals.get("__name__")
+    return isinstance(module_name, str) and (module_name == root or module_name.startswith(f"{root}."))
+
+
 def load_plugin_classes(package: str, specs: Iterable[tuple[str, str]]) -> list[type[Any]]:
     """Import ``(submodule, class_name)`` pairs under ``package``.
 
-    Skips a backend whose optional framework dependency is not installed;
-    re-raises every other import error. Order follows ``specs``.
+    Skips a backend whose optional framework dependency is not installed, attributed either by
+    ``exc.name``'s root or, if that isn't set or doesn't match, by traceback-frame blame; re-raises
+    every other import error. Order follows ``specs``.
     """
     classes: list[type[Any]] = []
     for submodule, class_name in specs:
         try:
             module = importlib.import_module(f"{package}.{submodule}")
-        except ModuleNotFoundError as exc:
+        except ImportError as exc:
             root = (exc.name or "").split(".")[0]
-            if root in _OPTIONAL_BACKENDS:
-                continue
-            raise
+            blamed = root in _OPTIONAL_BACKENDS or any(
+                _traceback_blames_root(exc, candidate) for candidate in _OPTIONAL_BACKENDS
+            )
+            if not blamed:
+                raise
+            continue
         classes.append(getattr(module, class_name))
     return classes

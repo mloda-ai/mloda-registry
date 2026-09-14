@@ -6,6 +6,7 @@ honest: an on-disk import-root sweep, and a cross-check against config/packages.
 from __future__ import annotations
 
 import ast
+import importlib
 import re
 import sys
 from pathlib import Path
@@ -95,6 +96,100 @@ def test_reraises_non_optional_module_not_found(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(_IMPORT_MODULE_TARGET, fake_import)
 
     with pytest.raises(ModuleNotFoundError):
+        load_plugin_classes("pkg", [("missing_backend", "MissingClass")])
+
+
+def test_skips_backend_via_traceback_blame_when_transitive_reraise_drops_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Case A: a backend's own framework can fail to import because one of ITS transitive deps is
+    missing, and the framework may wrap that failure in its own ModuleNotFoundError without
+    preserving ``.name`` (e.g. re-raising a friendlier message around a broken native extension).
+    ``exc.name`` is then None, so literal root-matching against _OPTIONAL_BACKENDS cannot attribute
+    the failure; only inspecting the innermost traceback frame (the mloda core PluginLoader's
+    ``_traceback_blames_root`` technique, reimplemented locally here) can. Currently
+    load_plugin_classes only root-matches exc.name, so this ModuleNotFoundError propagates
+    uncaught instead of being attributed and skipped.
+    """
+    framework_dir = tmp_path / "regmanifest_casea_framework"
+    framework_dir.mkdir()
+    (framework_dir / "__init__.py").write_text(
+        "raise ModuleNotFoundError('regmanifest_casea_framework failed to import its native extension')\n"
+    )
+
+    backend_pkg_dir = tmp_path / "regmanifest_casea_pkg"
+    backend_pkg_dir.mkdir()
+    (backend_pkg_dir / "__init__.py").write_text("")
+    (backend_pkg_dir / "pandas_backend.py").write_text(
+        "import regmanifest_casea_framework\n\n\nclass PandasClass:\n    pass\n"
+    )
+    (backend_pkg_dir / "polars_backend.py").write_text("class KeptClass:\n    pass\n")
+
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr(
+        manifest_utils,
+        "_OPTIONAL_BACKENDS",
+        manifest_utils._OPTIONAL_BACKENDS | frozenset({"regmanifest_casea_framework"}),
+    )
+    importlib.invalidate_caches()
+
+    classes = load_plugin_classes(
+        "regmanifest_casea_pkg",
+        [
+            ("pandas_backend", "PandasClass"),
+            ("polars_backend", "KeptClass"),
+        ],
+    )
+
+    assert [c.__name__ for c in classes] == ["KeptClass"]
+
+
+def test_skips_backend_with_plain_import_error_for_too_old_framework(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Case C: a backend "installed but too old" (a name added in a newer release is absent) raises
+    a plain ImportError (Python's real "cannot import name X from Y" shape, which sets .name to Y,
+    the framework's own root), not ModuleNotFoundError. load_plugin_classes only catches
+    ModuleNotFoundError today, so this currently propagates uncaught and aborts the whole specs
+    list instead of skipping just the one broken backend.
+    """
+    kept_module = SimpleNamespace(KeptClass=_KeptClass)
+
+    def fake_import(name: str) -> Any:
+        if name.endswith("pandas_backend"):
+            raise ImportError(
+                "cannot import name 'NewFeature' from 'pandas' (too old, missing native extension)",
+                name="pandas",
+            )
+        return kept_module
+
+    monkeypatch.setattr(_IMPORT_MODULE_TARGET, fake_import)
+
+    classes = load_plugin_classes(
+        "pkg",
+        [
+            ("pandas_backend", "PandasClass"),
+            ("polars_backend", "KeptClass"),
+        ],
+    )
+
+    assert [c.__name__ for c in classes] == ["_KeptClass"]
+
+
+def test_reraises_plain_import_error_not_rooted_at_optional_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression guard: widening the caught exception type from ModuleNotFoundError to ImportError
+    (to support Case C) must not swallow a genuine, unrelated ImportError bug in first-party code
+    (e.g. a real typo), matching the module's own contract that "any other ModuleNotFoundError is a
+    real error and re-raised" -- here for its ImportError sibling.
+    """
+
+    def fake_import(name: str) -> ModuleType:
+        raise ImportError(
+            "cannot import name 'RealTypo' from 'mloda.community.foo.bar'",
+            name="mloda.community.foo.bar",
+        )
+
+    monkeypatch.setattr(_IMPORT_MODULE_TARGET, fake_import)
+
+    with pytest.raises(ImportError):
         load_plugin_classes("pkg", [("missing_backend", "MissingClass")])
 
 
