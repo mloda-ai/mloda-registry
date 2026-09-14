@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import logging
 import re
 import sys
 from pathlib import Path
@@ -63,6 +64,38 @@ def test_skips_backend_with_missing_optional_framework(monkeypatch: pytest.Monke
     )
 
     assert [c.__name__ for c in classes] == ["_KeptClass"]
+
+
+def test_skipping_backend_logs_warning_naming_the_backend(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A skipped backend must be loud in the logs, not silent: core's PluginLoader.load_entry_points
+    logs a WARNING on every skip (issue #583 DoD parity), so the whole backend can be identified
+    from log output alone without re-running with a debugger. Currently no warning is emitted at all.
+    """
+    kept_module = SimpleNamespace(KeptClass=_KeptClass)
+
+    def fake_import(name: str) -> Any:
+        if name.endswith("polars_backend"):
+            raise ModuleNotFoundError("No module named 'polars'", name="polars")
+        return kept_module
+
+    monkeypatch.setattr(_IMPORT_MODULE_TARGET, fake_import)
+
+    with caplog.at_level(logging.WARNING, logger="mloda.community.feature_groups.data_operations.manifest_utils"):
+        load_plugin_classes(
+            "pkg",
+            [
+                ("polars_backend", "PolarsClass"),
+                ("pandas_backend", "KeptClass"),
+            ],
+        )
+
+    warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert len(warnings) == 1, f"expected exactly one WARNING log record, got {caplog.records}"
+    message = warnings[0].getMessage()
+    assert "polars_backend" in message, f"log message does not name the skipped backend: {message!r}"
+    assert "polars" in message, f"log message does not name the missing optional dependency: {message!r}"
 
 
 def test_skips_backend_with_missing_numpy(monkeypatch: pytest.MonkeyPatch) -> None:
