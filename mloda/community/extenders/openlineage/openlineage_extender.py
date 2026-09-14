@@ -5,8 +5,10 @@ from __future__ import annotations
 import atexit
 import contextvars
 import logging
+import pickle  # nosec
 import threading
 import uuid
+import weakref
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -36,6 +38,27 @@ _open_invocations: contextvars.ContextVar[tuple[tuple[int, "_OpenCalculateInvoca
     "openlineage_open_invocations", default=()
 )
 
+# Process-local: two extenders holding the *same* client object share its close lifecycle. Keyed by
+# client identity via a WeakSet (not pickled state), so a worker's freshly-unpickled client always
+# starts unclosed regardless of what was closed in the parent process's memory.
+_closed_clients_lock = threading.Lock()
+_closed_clients: "weakref.WeakSet[OpenLineageClient]" = weakref.WeakSet()
+
+
+def _claim_client_close(client: OpenLineageClient) -> bool:
+    """True for the first close() to reach this client object process-wide; later callers (any
+    instance sharing the client) must not re-flush the underlying transport."""
+    with _closed_clients_lock:
+        if client in _closed_clients:
+            return False
+        _closed_clients.add(client)
+        return True
+
+
+def _is_client_closed(client: OpenLineageClient) -> bool:
+    with _closed_clients_lock:
+        return client in _closed_clients
+
 
 class OpenLineageExtender(Extender):
     """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating nested
@@ -64,11 +87,16 @@ class OpenLineageExtender(Extender):
         self._client_lock = threading.Lock()
         self._closed = False
         self._logged_inert = False
+        self._logged_pickle_drop = False
 
     def _get_client(self) -> OpenLineageClient | None:
         if self._closed:
             raise RuntimeError(f"{type(self).__name__} was closed; it can no longer be used to emit OpenLineage events")
         if self._client is not None:
+            if _is_client_closed(self._client):
+                raise RuntimeError(
+                    f"{type(self).__name__} was closed; it can no longer be used to emit OpenLineage events"
+                )
             return self._client
         if not self.use_sdk_defaults:
             return None
@@ -80,13 +108,17 @@ class OpenLineageExtender(Extender):
 
     def close(self, timeout: float = -1.0) -> bool:
         """Flush the underlying client. A no-op returning True if no client has been built yet, or if
-        already closed. Idempotent: only the first call actually flushes; subsequent calls are no-ops."""
+        already closed. Idempotent: only the first call reaching a given client actually flushes it,
+        even across distinct instances that share the same injected client; subsequent calls no-op."""
         with self._client_lock:
             if self._client is None or self._closed:
                 return True
             self._closed = True
             atexit.unregister(self.close)
             client = self._client
+
+        if not _claim_client_close(client):
+            return True
 
         flushed = client.close(timeout)
         if not flushed:
@@ -101,10 +133,32 @@ class OpenLineageExtender(Extender):
 
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
-        state["_client"] = None
+        if self._client is not None and not self._client_is_picklable():
+            state["_client"] = None
+            self._log_pickle_drop_once()
         state["_logged_inert"] = False
+        state["_logged_pickle_drop"] = False
         del state["_client_lock"]
         return state
+
+    def _client_is_picklable(self) -> bool:
+        try:
+            pickle.dumps(self._client)  # nosec
+        except (pickle.PicklingError, TypeError, AttributeError):
+            return False
+        return True
+
+    def _log_pickle_drop_once(self) -> None:
+        if self._logged_pickle_drop:
+            return
+        with self._client_lock:
+            if not self._logged_pickle_drop:
+                logger.warning(
+                    "%s could not preserve its injected client across pickling: the client is not "
+                    "picklable, so the copy starts with no client.",
+                    type(self).__name__,
+                )
+                self._logged_pickle_drop = True
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)

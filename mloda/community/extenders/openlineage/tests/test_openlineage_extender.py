@@ -146,6 +146,56 @@ class TestOpenLineageExtenderPickling:
         assert isinstance(first, OpenLineageClient)
         assert first is second
 
+    def test_pickled_copy_preserves_picklable_injected_client_and_still_emits(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        """A client that pickles cleanly on its own (unlike the _LockHoldingTransport-backed client
+        below) must survive pickling the extender too: the copy keeps a real client and can emit."""
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        assert copy._client is not None
+        copied_transport = copy._client.transport
+        assert isinstance(copied_transport, RecordingTransport)
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            copy(lambda: None)
+
+        assert len(copied_transport.events) == 2
+        assert copied_transport.events[0].eventType == RunState.START
+        assert copied_transport.events[1].eventType == RunState.COMPLETE
+
+    def test_unpicklable_client_is_dropped_from_copy_and_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        extender = OpenLineageExtender(client=OpenLineageClient(transport=_LockHoldingTransport()))
+
+        with caplog.at_level(logging.WARNING):
+            copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        assert copy._client is None
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any(
+            "OpenLineageExtender" in message and "client" in message.lower() and "pickl" in message.lower()
+            for message in warnings
+        ), warnings
+
+    def test_unpicklable_client_warning_logged_exactly_once_across_repeated_pickling(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        extender = OpenLineageExtender(client=OpenLineageClient(transport=_LockHoldingTransport()))
+
+        with caplog.at_level(logging.WARNING):
+            pickle.dumps(extender)  # nosec
+            pickle.dumps(extender)  # nosec
+
+        warnings = [
+            r.message
+            for r in caplog.records
+            if r.levelno >= logging.WARNING and "OpenLineageExtender" in r.message and "pickl" in r.message.lower()
+        ]
+        assert len(warnings) == 1, warnings
+
 
 class TestOpenLineageExtenderLazyClientInit:
     """`_get_client()`'s lazy default-construction must be race-free across concurrent first calls."""
@@ -391,6 +441,76 @@ class TestOpenLineageExtenderCloseIdempotencyAndReuse:
         assert any("OpenLineageExtender" in message for message in warnings)
 
 
+class TestOpenLineageExtenderSharedInjectedClientCloseState:
+    """Two extenders constructed with the *same* injected client object (e.g. two sibling copies
+    core re-fetches from a manager proxy under MULTIPROCESSING) must share that client's close
+    lifecycle: closing either one must make the other react as closed too, in both directions, and
+    closing the second one afterward must stay idempotent instead of double-flushing."""
+
+    def test_closing_a_makes_bs_get_client_raise_too(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        shared, _ = ol_capture
+        extender_a = OpenLineageExtender(client=shared)
+        extender_b = OpenLineageExtender(client=shared)
+
+        extender_a.close()
+
+        with pytest.raises(RuntimeError):
+            extender_b._get_client()
+
+    def test_closing_b_makes_as_get_client_raise_too(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        shared, _ = ol_capture
+        extender_a = OpenLineageExtender(client=shared)
+        extender_b = OpenLineageExtender(client=shared)
+
+        extender_b.close()
+
+        with pytest.raises(RuntimeError):
+            extender_a._get_client()
+
+    def test_closing_a_stops_bs_emission_into_the_shared_transport_via_composite_fallback(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Mirrors test_reuse_after_close_falls_back_to_func_and_logs_warning_via_composite, but the
+        close() call lands on extender_a while extender_b is the one doing the emitting."""
+        shared, transport = ol_capture
+        extender_a = OpenLineageExtender(client=shared)
+        extender_b = OpenLineageExtender(client=shared)
+        extender_a.close()
+        composite = CompositeExtender([extender_b])
+        events_before = len(transport.events)
+        sentinel = object()
+
+        def func() -> object:
+            return sentinel
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            with caplog.at_level(logging.WARNING):
+                result = composite(func)
+
+        assert result is sentinel
+        assert len(transport.events) == events_before
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("OpenLineageExtender" in message for message in warnings)
+
+    def test_closing_b_after_a_is_idempotent_only_flushes_shared_transport_once(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        shared, transport = ol_capture
+        extender_a = OpenLineageExtender(client=shared)
+        extender_b = OpenLineageExtender(client=shared)
+
+        first = extender_a.close()
+        second = extender_b.close()
+
+        assert first is True
+        assert second is True
+        assert transport.close_calls == 1
+
+
 class TestOpenLineageExtenderGetClientBoundary:
     def test_unconfigured_extender_returns_none_and_builds_no_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
         build_count = 0
@@ -409,11 +529,12 @@ class TestOpenLineageExtenderGetClientBoundary:
 
 
 class TestOpenLineageExtenderPickledInertLogging:
-    def test_pickled_copy_logs_its_own_inert_state(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
-    ) -> None:
-        client, _ = ol_capture
-        extender = OpenLineageExtender(client=client)
+    def test_pickled_copy_logs_its_own_inert_state(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A client that cannot survive pickling (see TestOpenLineageExtenderPickling's
+        unpicklable-client tests) leaves the copy with no client at all, so the copy is genuinely
+        inert and must log its own inert state independently of the original, not inherit
+        `_logged_inert` from it. A picklable client's copy is covered separately and is NOT inert."""
+        extender = OpenLineageExtender(client=OpenLineageClient(transport=_LockHoldingTransport()))
         extender._logged_inert = True
 
         copy = pickle.loads(pickle.dumps(extender))  # nosec
