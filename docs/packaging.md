@@ -192,9 +192,12 @@ Conventions:
   every nested plugin package under their path.
 - `mloda.optional_dependencies` is a companion marker group, not a plugin group: it
   declares a package's optional import roots for `PluginLoader` to consult when an
-  entry point's own import fails. Its target is the dependency-free sibling module
+  entry point's own import fails. Its target is the sibling module
   `_optional_dependencies.py`, not `manifest.py`, since `PluginLoader` only reads the
-  marker after `manifest.py`'s own import has already failed.
+  marker after `manifest.py`'s own import has already failed. That module itself imports
+  nothing from the optional dependency, but loading it still runs the package's own
+  `__init__.py` first, which does import it -- that `__init__.py`'s own try/except
+  `ImportError` guard is what keeps this working.
 
 ## UV workspace sources
 

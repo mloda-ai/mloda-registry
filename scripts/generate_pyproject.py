@@ -59,8 +59,10 @@ ENTRY_POINT_ATTRS = {
 }
 
 # Entry-point group -> target module suffix, default "manifest". Only the optional-dependencies
-# marker targets a different, dependency-free sibling module (see PluginLoader placement
-# constraint in ENTRY_POINT_ATTRS above): loading it must not re-trigger manifest.py's own failure.
+# marker targets a different sibling module that itself has no import of the optional dependency
+# (see PluginLoader placement constraint in ENTRY_POINT_ATTRS above): loading it must not re-trigger
+# manifest.py's own failure. entry_point.load() still runs the package's own __init__.py first,
+# though, which is why that guard's own try/except ImportError still matters.
 ENTRY_POINT_MODULE_SUFFIX: dict[str, str] = {
     "mloda.optional_dependencies": "_optional_dependencies",
 }

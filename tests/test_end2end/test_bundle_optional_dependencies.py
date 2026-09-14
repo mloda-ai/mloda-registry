@@ -287,10 +287,12 @@ def test_plugin_loader_skips_entry_point_with_warning_when_transitive_dependency
     transitive dependency, not by ``root`` itself. PluginLoader.load_entry_points() must not abort
     discovery for every plugin over this, it must skip only this one entry point with a WARNING.
 
-    Neither leaf declares ``mloda.optional_dependencies`` for this case, so the failure falls through
-    to PluginLoader's hardcoded OPTIONAL_PLUGIN_DEPENDENCIES allowlist (which excludes
-    openlineage/opentelemetry) and re-raises, aborting discovery entirely instead of skipping just
-    this one entry point.
+    Both leaves declare ``mloda.optional_dependencies`` (this package's own ``_optional_dependencies.py``
+    marker), so PluginLoader resolves the leaf's own declared root (``openlineage``/``opentelemetry``)
+    instead of falling back to its hardcoded OPTIONAL_PLUGIN_DEPENDENCIES allowlist. Traceback-frame
+    blame (``_traceback_blames_root``) then attributes the failure, which surfaces under the transitive
+    dependency's own name, back to that declared root, so discovery survives with a clean skip and
+    WARNING rather than a re-raise.
     """
     transitive_dependency = _TRANSITIVE_DEPENDENCY_OF_ROOT[root]
     packages = _packages()

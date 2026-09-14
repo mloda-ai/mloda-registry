@@ -74,6 +74,8 @@ Only the extender's own failure is caught. An exception raised by the wrapped fu
 
 Only needed with `ParallelizationMode.MULTIPROCESSING`. Avoid unpicklable instance variables (locks, tracers, connections). Use class-level storage or create resources lazily in `__call__()`.
 
+`OpenLineageExtender` preserves a picklable injected client as a value copy into worker processes instead of dropping it; only an unpicklable client is dropped (logged once at WARNING).
+
 ## Emitting on the calculation thread
 
 Extender code runs inline with the wrapped call: a blocking sink stalls every call, and with `raise_on_error=True` a sink failure fails the run. For OpenLineage, prefer the `async_http` transport or a short timeout (via `OPENLINEAGE_CONFIG` or `OPENLINEAGE__TRANSPORT__*`), and keep `raise_on_error=False` for observability.
@@ -126,7 +128,7 @@ The OTel and OpenLineage mixins both enforce the same observability mandate: a w
 
 ### ExtenderContractTestMixin
 
-Required host hooks: `extender_class`, `make_extender`, `own_failure`. Optional: `raise_on_error_default`, `expected_hooks`, `pickled_copy_environment`, `supports_warning_only` (return `False` for a host with no `raise_on_error=False` mode), `has_backend_sink` (return `True` for an extender with an external sink, and override `ambient_sink_environment` plus `sink_resolution_spy`; `make_unconfigured_extender`/`make_sdk_defaults_extender` default to `extender_class()()` and `extender_class()(use_sdk_defaults=True)`).
+Required host hooks: `extender_class`, `make_extender`, `own_failure`. Optional: `raise_on_error_default`, `expected_hooks`, `pickled_copy_environment`, `supports_warning_only` (return `False` for a host with no `raise_on_error=False` mode), `has_backend_sink` (return `True` for an extender with an external sink, and override `ambient_sink_environment` plus `sink_resolution_spy`; `make_unconfigured_extender`/`make_sdk_defaults_extender` default to `extender_class()()` and `extender_class()(use_sdk_defaults=True)`), `supports_pickled_sink_capture` plus `injected_sink_capture` (for an extender whose `__getstate__` preserves a picklable injected sink across pickling; `supports_pickled_sink_capture` defaults to `False`).
 
 ```python
 from contextlib import AbstractContextManager
@@ -163,6 +165,7 @@ The mixin pins:
 - the extender's own failure falls back with a warning when `raise_on_error` is `False`, and propagates when `True`
 - own failure is contained: a chained extender still runs, and a `run_all` round trip still completes with the warning-only fallback
 - the extender survives a pickle round trip, and a pickled copy still wraps a call
+- when `supports_pickled_sink_capture()` is `True`: a picklable injected sink survives pickling and the pickled copy still emits into it
 - `run_all` round trips (one success, one wrapped failure)
 - when `has_backend_sink()` is `True`: an unconfigured extender emits nothing against ambient sink configuration, both on a direct call and in `run_all`; `use_sdk_defaults=True` resolves the sink from that same ambient configuration; an injected sink ignores ambient configuration entirely. Extenders with no external sink inherit `has_backend_sink()` returning `False` and skip these tests
 
@@ -204,7 +207,7 @@ Helpers: `make_span_capture`, `single_span`, `single_span_attributes`, `inject_p
 
 ### OpenLineageExtenderTestMixin
 
-Install `mloda-testing[openlineage]`. Host provides `extender_class` and `make_openlineage_extender(client, *, raise_on_error=None)`. It supplies `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`), so a host needs no extra code for the sink-resolution tests.
+Install `mloda-testing[openlineage]`. Host provides `extender_class` and `make_openlineage_extender(client, *, raise_on_error=None)`. It supplies `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`), so a host needs no extra code for the sink-resolution tests. It also sets `supports_pickled_sink_capture()` to `True` and supplies `injected_sink_capture`, exercising `OpenLineageExtender`'s picklable-injected-client preservation.
 
 ```python
 from openlineage.client.client import OpenLineageClient

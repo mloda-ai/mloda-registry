@@ -12,7 +12,10 @@ _EXTENDER_NAME = "OpenLineageExtender"
 
 def blames_root(exc: ImportError, root: str) -> bool:
     """True if ``exc`` names ``root`` directly, or its innermost traceback frame runs inside
-    ``root`` (a transitive dependency can fail under its own name, not ``root``'s)."""
+    ``root`` (a transitive dependency can fail under its own name, not ``root``'s).
+
+    Keep in sync with the byte-identical copy in mloda/community/extenders/otel/_missing_dependency.py.
+    """
     if (exc.name or "").split(".")[0] == root:
         return True
     tb = exc.__traceback__
