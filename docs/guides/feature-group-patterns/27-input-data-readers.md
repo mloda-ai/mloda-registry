@@ -75,6 +75,8 @@ features = [
 ]
 ```
 
+Both `GovDataReader` and `UbaAirReader` above accept any `feature_names` unconditionally; see [Decline Names You Cannot Confirm](#decline-names-you-cannot-confirm) below before shipping either as written.
+
 ## Non-File / HTTP Sources
 
 `ReadFile`'s default matching (`match_read_file_data_access`) is file-suffix and directory shaped. For a non-file source (an HTTP endpoint returning JSON), the sanctioned recipe is: subclass `ReadFile`, override `match_subclass_data_access` and `load_data` wholesale. On that path `suffix()` is never consulted (it is inert), so you do not implement it.
@@ -82,6 +84,35 @@ features = [
 `ApiInputData` is not the tool for this despite its name: it injects in-memory data passed through the API request and is not an HTTP client.
 
 A reader that overrides `load_data` wholesale is classified as a final reader structurally; no reader code runs during classification.
+
+## Decline Names You Cannot Confirm
+
+A wholesale `match_subclass_data_access` override replaces `ReadFile`'s own column check entirely, so nothing stops it from claiming a feature name it has no way to verify. If a consumer's own name is chain-shaped (`value__rebased`) and it forwards this reader's option key to its upstream source feature (Pattern 26), an unconditional accept collides with the root group using the same reader, and resolution fails with `Multiple feature groups found`, pointing at neither reader as the cause.
+
+Once the data access is confirmed yours, decline a name that carries the chain separator before returning it (core strips only a trailing digits-only `~N` multi-output suffix, so a custom non-digit part suffix, Pattern 5, still carries `COLUMN_SEPARATOR` on the matching path; check for both). Record why: the recorded rejection is not just diagnostic, it gates the name-based resolution rules for this owner, so a silent decline can still leave the collision in place.
+
+```python
+from mloda.provider import CHAIN_SEPARATOR, COLUMN_SEPARATOR, INPUT_DATA_STAGE, record_match_rejection
+
+
+# UbaAirReader.match_subclass_data_access, extended to decline after confirming ownership:
+@classmethod
+def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any:
+    if not (isinstance(data_access, str) and data_access.startswith("https://api.")):
+        return None
+    if any(CHAIN_SEPARATOR in name or COLUMN_SEPARATOR in name for name in feature_names):
+        record_match_rejection(
+            cls.get_class_name(),
+            f"{cls.get_class_name()} cannot confirm a chain/column-separated feature name",
+            stage=INPUT_DATA_STAGE,
+        )
+        return None
+    return data_access
+```
+
+A stock `ReadFile` subclass that never implements `get_column_names`, and a stock `ReadDB` subclass that never implements `check_feature_in_data_access`, already decline a chain-separated name for free from mloda core, recorded rejection included, unless the name is pinned via `column_to_file`. Only a wholesale `match_subclass_data_access` override needs the decline written out like this: it bypasses the built-in check entirely, so a subclass that declares `get_column_names` but raises `NotImplementedError` gets neither the free decline nor a wholesale one. If your reader can list its columns, prefer that over a wholesale override: implement `get_column_names` (or `check_feature_in_data_access` for `ReadDB`) instead, and let the built-in check do the work for you.
+
+If your wholesale override still matches by file suffix (i.e. you do implement `suffix()`, unlike the HTTP case above), delegate to `cls._file_matches(path, feature_names, document_suffixes)` rather than hand-writing this check: it returns a bool, so use `return path if cls._file_matches(...) else None`, and it keeps the `document_suffixes` exclusion (from `cls.reader_option("document_suffixes", options)`), `validate_columns`, and the recorded decline intact.
 
 ## Test
 
@@ -107,6 +138,7 @@ End to end, run the feature through `mloda.run_all` with `PluginCollector.enable
 | [base_input_data.py](https://github.com/mloda-ai/mloda/blob/main/mloda/core/abstract_plugins/components/input_data/base_input_data.py) | `feature_scope_data_access`, class-or-string key helper, `init_reader` |
 | [read_file.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/input_data/read_file.py) | `ReadFile` base, `match_subclass_data_access` seam |
 | [test_sibling_reader_selection.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/feature_group/input_data/test_sibling_reader_selection.py) | The pinned selection contract |
+| [test_reader_declines_chain_separated_names.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/feature_group/input_data/test_reader_declines_chain_separated_names.py) | Pins the chain/column-separated-name decline contract for `ReadFile`/`ReadDB` |
 
 See also [Data Access Patterns](https://mloda-ai.github.io/mloda/in_depth/data-access-patterns/) for the underlying model.
 
@@ -115,3 +147,4 @@ See also [Data Access Patterns](https://mloda-ai.github.io/mloda/in_depth/data-a
 - **Pattern 1 (Root features)**: readers are the `input_data()` of root features
 - **Pattern 17 (Data connection matching)**: `DataAccessCollection` and handles for connection-shaped sources
 - **Pattern 11 (Options)**: option keys and context vs group semantics
+- **Pattern 26 (Input-feature option forwarding)**: a forwarded reader key can collide with a root reader that doesn't decline names it cannot confirm

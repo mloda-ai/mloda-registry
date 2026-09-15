@@ -27,6 +27,15 @@ Feature group(s) eliminated while matching '<feature_name>':
 
 That is the signal to carve the key out with `forward_group_exclude`, an allowlist, or `forward_group=False`.
 
+## Caveat: A Forwarded Reader Key Can Collide With the Root Group
+
+A different failure produces no rejection. When the forwarded key is a root reader's own selection key (Pattern 27, "the reader class itself also works as the key") and the consumer's own name is chain-shaped (`value__rebased`), the root group can claim the same name the consumer group claims, and resolution fails with `Multiple feature groups found for feature '<name>'`, naming neither group's reader as the cause.
+
+`forward_group_exclude` cannot carve this one out: the reader key is exactly what the upstream needs to configure itself, so excluding it defeats the "configure the upstream once" pattern this page exists for. Two remedies apply instead:
+
+- Fix it at the reader (Pattern 27, "Decline Names You Cannot Confirm"): a root reader that declines a name it cannot confirm belongs to it never creates the collision.
+- Or scope the caller's request with `feature_group=` (accepts the class or its name as a string; see [FeatureConfig Fields](22-feature-config.md#featureconfig-fields)) so the resolver never considers the root group for this name.
+
 ## The Directives
 
 Set these on the `Feature(...)` you return from `input_features()`:
@@ -132,3 +141,4 @@ def test_connector_carves_local_key_and_pulls_context():
 - **Pattern 1 (Root features)**: the upstream you consume is typically a root/source feature group.
 - **Pattern 8 (Links joins)**: an alternative when the two groups relate by a join key rather than a direct input dependency.
 - **[Options](11-options.md)**: group vs context, and `propagate_context_keys`.
+- **Pattern 27 (Input-data readers)**: declining a name a reader cannot confirm avoids the collision this page describes
