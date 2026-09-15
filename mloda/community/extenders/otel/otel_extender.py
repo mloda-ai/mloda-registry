@@ -105,11 +105,13 @@ class OtelExtender(Extender):
                 self._logged_inert = True
 
     def __getstate__(self) -> dict[str, Any]:
-        if self._tracer_provider is not None and not self._logged_pickle_drop:
+        # Only worth warning when use_sdk_defaults is False: with it True, the copy still has a
+        # supported fallback (the ambient provider), so dropping the injected one is not a problem.
+        if self._tracer_provider is not None and not self.use_sdk_defaults and not self._logged_pickle_drop:
             logger.warning(
-                "OtelExtender does not preserve an injected tracer_provider across pickling; worker processes "
-                "fall back to use_sdk_defaults/inert resolution. Under MULTIPROCESSING install a provider per "
-                "worker via child_bootstrap and pass use_sdk_defaults=True."
+                "OtelExtender drops an injected tracer_provider when pickled or copied; the copy is inert "
+                "until a provider is installed. Under MULTIPROCESSING install a provider per worker via "
+                "child_bootstrap and pass use_sdk_defaults=True."
             )
             self._logged_pickle_drop = True
         state = dict(self.__dict__)

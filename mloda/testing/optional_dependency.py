@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import importlib
 import sys
+from typing import Any
 
 import pytest
+from mloda.user import PluginLoader
 
 from mloda.testing.import_isolation import block_root, evict_package
 
@@ -61,3 +63,33 @@ class OptionalDependencyPackageTestMixin:
 
         assert extender_module_name in sys.modules
         assert extender is getattr(sys.modules[extender_module_name], self.extender_name)
+
+    def test_star_import_without_dependency_succeeds_and_binds_no_extender(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A star import must not blow up just because the optional dependency is missing."""
+        block_root(monkeypatch, self.root)
+        evict_package(monkeypatch, self.package)
+        namespace: dict[str, Any] = {}
+
+        exec(f"from {self.package} import *", namespace)  # nosec
+
+        assert self.extender_name not in namespace
+
+    def test_star_import_all_lists_extender_when_dependency_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """__all__ must only promise the extender name when the dependency import can actually succeed."""
+        evict_package(monkeypatch, self.package)
+
+        module = importlib.import_module(self.package)
+
+        assert self.extender_name in module.__all__
+
+    def test_plugin_loader_reraises_unrelated_import_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """PIN: a poisoned extender submodule, unrelated to the optional dependency, is never swallowed."""
+        evict_package(monkeypatch, self.package)
+        monkeypatch.setitem(sys.modules, f"{self.package}.{self.extender_module}", None)
+
+        with pytest.raises(ImportError) as excinfo:
+            PluginLoader().load_entry_points(group="mloda.extenders")
+
+        assert excinfo.value.name == f"{self.package}.{self.extender_module}"

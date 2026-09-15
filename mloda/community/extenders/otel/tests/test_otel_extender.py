@@ -227,6 +227,20 @@ class TestOtelExtenderPickling:
         tracer_provider_warnings = [r for r in warning_records if "tracer_provider" in r.message]
         assert len(tracer_provider_warnings) == 1, tracer_provider_warnings
 
+    def test_pickling_with_use_sdk_defaults_and_injected_provider_does_not_warn_about_tracer_provider(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """use_sdk_defaults gives the pickled copy a supported fallback (the ambient provider), so dropping
+        the injected one across pickling is not worth warning about."""
+        provider, _ = otel_capture
+        otel = OtelExtender(tracer_provider=provider, use_sdk_defaults=True)
+
+        with caplog.at_level(logging.WARNING):
+            pickle.dumps(otel)  # nosec
+
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert not any("tracer_provider" in message for message in warnings), warnings
+
 
 class TestOtelExtenderInProcessIdentityPreservation:
     """Core's CfwManager never round-trips extenders through a pickling proxy for SYNC/THREADING (no

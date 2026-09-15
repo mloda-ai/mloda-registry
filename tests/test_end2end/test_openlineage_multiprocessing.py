@@ -5,6 +5,7 @@ tracer_provider resolution, which needs a child_bootstrap.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -20,6 +21,21 @@ from openlineage.client.transport.transport import Config, Transport
 
 from mloda.community.extenders.openlineage import OpenLineageExtender
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
+
+
+class _LockHoldingTransport(Transport):
+    """A Transport whose lock attribute cannot survive pickling, so the extender that injects it
+    must be rejected at plan time, before any worker is spawned."""
+
+    kind = "lock-holding"
+    config_class = Config
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.events: list[Event] = []
+
+    def emit(self, event: Event) -> None:
+        self.events.append(event)
 
 
 class _FileTransport(Transport):
@@ -73,3 +89,20 @@ def test_injected_client_emits_into_a_real_spawned_worker(
     event_types = marker_path.read_text().splitlines()
     assert "START" in event_types
     assert "COMPLETE" in event_types
+
+
+def test_injected_client_with_unpicklable_transport_is_rejected_before_dispatch(
+    flight_server: ParallelRunnerFlightServer,
+) -> None:
+    """PIN: an injected client that cannot survive pickling is rejected at plan time, not silently dropped."""
+    transport = _LockHoldingTransport()
+    client = OpenLineageClient(transport=transport)
+
+    with pytest.raises(ValueError, match="cannot be pickled for multiprocessing"):
+        run_value_int(
+            OpenLineageExtender(client=client),
+            parallelization_modes={ParallelizationMode.MULTIPROCESSING},
+            flight_server=flight_server,
+        )
+
+    assert transport.events == []

@@ -14,8 +14,8 @@ import pickle  # nosec
 import threading
 import time
 import uuid
-from collections.abc import Iterator
-from typing import Any
+from collections.abc import Callable, Iterator
+from typing import Any, cast
 
 import pyarrow as pa
 import pytest
@@ -53,11 +53,37 @@ class _IncompleteFlushTransport(Transport):
     kind = "incomplete-flush"
     config_class = Config
 
+    def __init__(self) -> None:
+        self.close_calls = 0
+
     def emit(self, event: Any) -> None:
         pass
 
     def close(self, timeout: float = -1.0) -> bool:
+        self.close_calls += 1
         return False
+
+
+class _BlockingFlushTransport(Transport):
+    """A Transport whose close() blocks on an Event until released, recording every call made
+    while it is blocked."""
+
+    kind = "blocking-flush"
+    config_class = Config
+
+    def __init__(self) -> None:
+        self.close_calls = 0
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def emit(self, event: Any) -> None:
+        pass
+
+    def close(self, timeout: float = -1.0) -> bool:
+        self.close_calls += 1
+        self.entered.set()
+        self.release.wait(timeout=5)
+        return True
 
 
 class _PicklableFakeClient:
@@ -65,6 +91,72 @@ class _PicklableFakeClient:
 
     def close(self, timeout: float = -1.0) -> bool:
         return True
+
+
+class _EqDefiningClient(OpenLineageClient):
+    """Defines __eq__ without __hash__, so Python sets __hash__ = None: unhashable, like a WeakSet item must not
+    be required to be."""
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _EqDefiningClient)
+
+
+class _EqualityCollidingClient(OpenLineageClient):
+    """Two distinct instances compare and hash equal, unlike real client object identity."""
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _EqualityCollidingClient)
+
+    def __hash__(self) -> int:
+        return 0
+
+
+class _SlottedDuckTypeClient:
+    """A minimal duck-typed client with __slots__ and no __weakref__ slot: it cannot be weak-referenced."""
+
+    __slots__ = ("close_calls",)
+
+    def __init__(self) -> None:
+        self.close_calls: list[float] = []
+
+    def close(self, timeout: float = -1.0) -> bool:
+        self.close_calls.append(timeout)
+        return True
+
+
+def _identity_case_hash_none_client_can_emit_and_close() -> None:
+    """__eq__ without __hash__ makes the client unhashable; a WeakSet cannot even check membership."""
+    transport = RecordingTransport()
+    client = _EqDefiningClient(transport=transport)
+    extender = OpenLineageExtender(client=client)
+
+    assert extender._get_client() is client
+    assert extender.close() is True
+
+
+def _identity_case_equal_but_distinct_clients_close_independently() -> None:
+    """Two different client objects that compare equal must not share close state."""
+    transport_a = RecordingTransport()
+    transport_b = RecordingTransport()
+    client_a = _EqualityCollidingClient(transport=transport_a)
+    client_b = _EqualityCollidingClient(transport=transport_b)
+    extender_a = OpenLineageExtender(client=client_a)
+    extender_b = OpenLineageExtender(client=client_b)
+
+    extender_a.close()
+
+    assert extender_b._get_client() is client_b
+
+
+def _identity_case_slotted_duck_type_client_closes_exactly_once() -> None:
+    """A client with no __weakref__ slot cannot be added to a WeakSet at all."""
+    client = _SlottedDuckTypeClient()
+    extender = OpenLineageExtender(client=cast(OpenLineageClient, client))
+
+    result = extender.close()
+
+    assert result is True
+    assert client.close_calls == [-1.0]
 
 
 @pytest.fixture
@@ -175,6 +267,17 @@ class TestOpenLineageExtenderPickling:
         assert isinstance(copy._get_client(), _PicklableFakeClient)
         assert len(registered) == 2
         assert registered[1].__self__ is copy
+
+    def test_client_published_before_ownership_flag_is_still_dropped_on_pickle(self) -> None:
+        """Simulates the narrow race where a lazy build publishes _client an instant before it sets
+        _owns_client: ownership here must follow from use_sdk_defaults with no injected client, not from a
+        flag that is only ever set after the fact."""
+        extender = OpenLineageExtender(use_sdk_defaults=True)
+        extender._client = cast(OpenLineageClient, _PicklableFakeClient())
+
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        assert copy._client is None
 
 
 class TestOpenLineageExtenderInProcessIdentityPreservation:
@@ -466,6 +569,88 @@ class TestOpenLineageExtenderSharedInjectedClientCloseState:
 
         with pytest.raises(RuntimeError):
             extender_a._get_client()
+
+    @pytest.mark.parametrize(
+        "run_case",
+        [
+            _identity_case_hash_none_client_can_emit_and_close,
+            _identity_case_equal_but_distinct_clients_close_independently,
+            _identity_case_slotted_duck_type_client_closes_exactly_once,
+        ],
+        ids=["eq-without-hash", "equal-but-distinct-instances", "slotted-duck-type-no-weakref"],
+    )
+    def test_close_state_tracked_by_client_identity_not_hash_or_equality(self, run_case: Callable[[], None]) -> None:
+        run_case()
+
+    def test_shared_incomplete_flush_result_is_returned_to_every_closer(self) -> None:
+        transport = _IncompleteFlushTransport()
+        shared = OpenLineageClient(transport=transport)
+        extender_a = OpenLineageExtender(client=shared)
+        extender_b = OpenLineageExtender(client=shared)
+
+        result_a = extender_a.close()
+        result_b = extender_b.close()
+
+        assert result_a is False
+        assert result_b is False, "B must see the real recorded flush result, not a blanket True"
+        assert transport.close_calls == 1
+
+    def test_concurrent_close_of_shared_client_serializes_and_returns_the_same_result(self) -> None:
+        transport = _BlockingFlushTransport()
+        shared = OpenLineageClient(transport=transport)
+        extender_a = OpenLineageExtender(client=shared)
+        extender_b = OpenLineageExtender(client=shared)
+        results: dict[str, bool] = {}
+
+        def close_a() -> None:
+            results["a"] = extender_a.close()
+
+        def close_b() -> None:
+            results["b"] = extender_b.close()
+
+        thread_a = threading.Thread(target=close_a)
+        thread_b = threading.Thread(target=close_b)
+        try:
+            thread_a.start()
+            assert transport.entered.wait(timeout=5), "transport.close() was never entered"
+            thread_b.start()
+
+            thread_b.join(timeout=0.2)
+            assert thread_b.is_alive(), "B.close() must block on A's in-flight flush, not return immediately"
+        finally:
+            transport.release.set()
+            thread_a.join(timeout=5)
+            thread_b.join(timeout=5)
+
+        assert not thread_a.is_alive()
+        assert not thread_b.is_alive()
+        assert results["a"] == results["b"]
+        assert transport.close_calls == 1
+
+    def test_close_with_timeout_gives_up_on_an_in_flight_shared_flush(self) -> None:
+        transport = _BlockingFlushTransport()
+        shared = OpenLineageClient(transport=transport)
+        extender_a = OpenLineageExtender(client=shared)
+        extender_b = OpenLineageExtender(client=shared)
+        result_b: list[bool] = []
+
+        def close_a() -> None:
+            extender_a.close()
+
+        thread_a = threading.Thread(target=close_a)
+        try:
+            thread_a.start()
+            assert transport.entered.wait(timeout=5), "transport.close() was never entered"
+
+            started = time.monotonic()
+            result_b.append(extender_b.close(timeout=0.05))
+            elapsed = time.monotonic() - started
+
+            assert result_b == [False], "B must not fall back to a blanket True while A's flush is in flight"
+            assert elapsed < 1.0, "B.close() must not block waiting for A's in-flight flush"
+        finally:
+            transport.release.set()
+            thread_a.join(timeout=5)
 
 
 class TestOpenLineageExtenderGetClientBoundary:
