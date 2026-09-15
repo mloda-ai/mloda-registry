@@ -123,13 +123,12 @@ dependency installed so entry-point loading of the rest of the bundle stays inta
 
 Moving a dependency behind an extra changes existing installs: when the dependency is missing,
 PluginLoader skips the entry point with a WARNING, and discovery never registers the extender.
-A direct import of the manifest module now raises instead of degrading. Importing the extender
-name from the package still raises `ImportError` naming the extra.
+A direct import of the manifest module now raises instead of degrading.
 
-When the dependency is missing, the package module's `__getattr__` raises `ImportError` for the
-extender name, so `hasattr(pkg, "OtelExtender")` raises rather than returning `False`. Code that
-wants to probe availability should check `"OtelExtender" in vars(pkg)` or catch `ImportError`
-around the import.
+When the dependency is missing, accessing the extender name on the package (`OtelExtender`,
+`OpenLineageExtender`) raises `ModuleNotFoundError` through the package's lazy `__getattr__`, so
+`hasattr(pkg, "OtelExtender")` raises rather than returning `False`. Probe availability with
+`importlib.util.find_spec("opentelemetry")` or `find_spec("openlineage")` instead.
 
 ### Individual packages
 

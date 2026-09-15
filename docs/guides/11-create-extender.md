@@ -74,11 +74,13 @@ Only the extender's own failure is caught. An exception raised by the wrapped fu
 
 Only needed with `ParallelizationMode.MULTIPROCESSING`. Avoid unpicklable instance variables (locks, tracers, connections). Use class-level storage or create resources lazily in `__call__()`.
 
-`OpenLineageExtender` pickles an injected client as-is into worker processes (so it must be picklable under `MULTIPROCESSING`) and rebuilds a self-built one lazily per worker. `OtelExtender` never pickles an injected `tracer_provider`; under `MULTIPROCESSING` pass a `child_bootstrap` to `run_all` that installs a provider in each worker and use `use_sdk_defaults=True`.
+`OpenLineageExtender` pickles an injected client as-is into worker processes (so it must be picklable under `MULTIPROCESSING`) and rebuilds a self-built one lazily per worker. `OtelExtender` never pickles an injected `tracer_provider`; under `MULTIPROCESSING` pass a `child_bootstrap` to `run_all` that installs a provider in each worker and use `use_sdk_defaults=True`. An unpicklable injected OpenLineage client (for example, the `async_http` transport) makes `run_all` raise `ValueError` up front, before any step runs.
+
+mloda terminates `MULTIPROCESSING` workers with no teardown, so a buffered sink loses events there: OpenLineage `async_http` or kafka transports, and an OTel `BatchSpanProcessor` installed by `child_bootstrap`. Use a synchronous sink instead under `MULTIPROCESSING`: OpenLineage `http`, `console`, or `file` transport (injected or via `OPENLINEAGE_CONFIG`), or OTel `SimpleSpanProcessor`.
 
 ## Emitting on the calculation thread
 
-Extender code runs inline with the wrapped call: a blocking sink stalls every call, and with `raise_on_error=True` a sink failure fails the run. For OpenLineage, prefer the `async_http` transport or a short timeout (via `OPENLINEAGE_CONFIG` or `OPENLINEAGE__TRANSPORT__*`), and keep `raise_on_error=False` for observability.
+Extender code runs inline with the wrapped call: a blocking sink stalls every call, and with `raise_on_error=True` a sink failure fails the run. For OpenLineage under SYNC and THREADING, prefer the `async_http` transport or a short timeout (via `OPENLINEAGE_CONFIG` or `OPENLINEAGE__TRANSPORT__*`), and keep `raise_on_error=False` for observability. Under `MULTIPROCESSING`, see [Pickle Compatibility](#pickle-compatibility) for the synchronous-sink requirement.
 
 ## Sink Resolution
 
