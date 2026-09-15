@@ -97,6 +97,9 @@ def test_skipping_backend_with_missing_optional_framework_logs_debug_naming_the_
     message = debugs[0].getMessage()
     assert "polars_backend" in message, f"log message does not name the skipped backend: {message!r}"
     assert "polars" in message, f"log message does not name the missing optional dependency: {message!r}"
+    assert getattr(debugs[0], "blamed_dependency", None) == "polars", (
+        f"log record does not carry blamed_dependency='polars': {debugs[0].__dict__}"
+    )
 
 
 def test_skips_backend_with_missing_numpy(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -176,6 +179,15 @@ def test_skips_backend_via_traceback_blame_when_transitive_reraise_drops_name(
     message = warnings[0].getMessage()
     assert "pandas_backend" in message, f"log message does not name the skipped backend: {message!r}"
     assert "regmanifest_casea_framework" in message, f"log message does not name the dependency: {message!r}"
+    assert getattr(warnings[0], "blamed_dependency", None) == "regmanifest_casea_framework", (
+        f"log record does not carry blamed_dependency='regmanifest_casea_framework': {warnings[0].__dict__}"
+    )
+    assert "regmanifest_casea_framework failed to import its native extension" in message, (
+        f"log message does not include the original exception text: {message!r}"
+    )
+    assert "missing" not in message, (
+        f"log message must not say 'missing' for an installed-but-broken backend: {message!r}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -185,7 +197,7 @@ def test_skips_backend_via_traceback_blame_when_transitive_reraise_drops_name(
             [("pandas_backend", "PandasClass"), ("polars_backend", "KeptClass")],
             "pandas_backend",
             ImportError(
-                "cannot import name 'NewFeature' from 'pandas' (too old, missing native extension)",
+                "cannot import name 'NewFeature' from 'pandas' (too old)",
                 name="pandas",
             ),
             "pandas",
@@ -229,6 +241,13 @@ def test_skips_backend_installed_but_broken_logs_warning_naming_the_backend(
     message = warnings[0].getMessage()
     assert failing_submodule in message, f"log message does not name the skipped backend: {message!r}"
     assert expected_dependency in message, f"log message does not name the dependency: {message!r}"
+    assert getattr(warnings[0], "blamed_dependency", None) == expected_dependency, (
+        f"log record does not carry blamed_dependency={expected_dependency!r}: {warnings[0].__dict__}"
+    )
+    assert str(exc) in message, f"log message does not include the original exception text: {message!r}"
+    assert "missing" not in message, (
+        f"log message must not say 'missing' for an installed-but-broken backend: {message!r}"
+    )
 
 
 def test_reraises_plain_import_error_not_rooted_at_optional_backend(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -511,8 +530,9 @@ def test_reloading_manifest_never_skips_a_backend_whose_framework_is_installed(
         importlib.reload(module)
 
     for record in caplog.records:
-        args = record.args
-        root = args[-1] if isinstance(args, tuple) and args else None
+        if record.name != manifest_utils.logger.name:
+            continue
+        root = getattr(record, "blamed_dependency", None)
         if not isinstance(root, str):
             continue
         assert importlib.util.find_spec(root) is None, (

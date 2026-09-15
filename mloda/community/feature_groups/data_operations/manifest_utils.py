@@ -27,9 +27,6 @@ logger = logging.getLogger(__name__)
 # a real error and re-raised.
 _OPTIONAL_BACKENDS = frozenset({"pandas", "polars", "duckdb", "pyarrow", "numpy"})
 
-# Shared message for both skip levels; the blamed root must stay the last log arg.
-_SKIP_MESSAGE = "Skipping backend %s.%s: missing optional dependency %s"
-
 
 def _innermost_traceback_module(exc: ImportError) -> str | None:
     """Module name of the innermost (deepest) frame of exc's traceback, or None if exc has no traceback.
@@ -86,7 +83,14 @@ def load_plugin_classes(package: str, specs: Iterable[tuple[str, str]]) -> list[
             if classification is None:
                 raise
             level, blamed = classification
-            logger.log(level, _SKIP_MESSAGE, package, submodule, blamed)
+            if level == logging.DEBUG:
+                message = f"Skipping backend {package}.{submodule}: missing optional dependency {blamed}"
+            else:
+                message = (
+                    f"Skipping backend {package}.{submodule}: dependency {blamed} is installed "
+                    f"but failed to import: {exc}"
+                )
+            logger.log(level, message, extra={"blamed_dependency": blamed})
             continue
         classes.append(getattr(module, class_name))
     return classes
