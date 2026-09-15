@@ -20,13 +20,14 @@ from typing import Any
 import pyarrow as pa
 import pytest
 from mloda.steward import CompositeExtender, ExtenderHook
+from mloda.user import ParallelizationMode
 
 from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.openlineage import OpenLineageExtenderTestMixin, RecordingTransport, make_recording_client
-from mloda.testing.extenders.runners import run_value_int
+from mloda.testing.extenders.runners import expected_value_int, run_value_int
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import RunState
 from openlineage.client.facet_v2 import parent_run, schema_dataset
@@ -174,6 +175,25 @@ class TestOpenLineageExtenderPickling:
         assert isinstance(copy._get_client(), _PicklableFakeClient)
         assert len(registered) == 2
         assert registered[1].__self__ is copy
+
+
+class TestOpenLineageExtenderInProcessIdentityPreservation:
+    """Core never pickles extenders under SYNC or THREADING (no real subprocess), so an injected
+    client must receive real pipeline events over a genuine run_all, not just survive a manual
+    pickle round trip."""
+
+    @pytest.mark.parametrize("mode", [ParallelizationMode.SYNC, ParallelizationMode.THREADING])
+    def test_run_all_emits_into_the_exact_injected_client(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], mode: ParallelizationMode
+    ) -> None:
+        client, transport = ol_capture
+
+        values = run_value_int(OpenLineageExtender(client=client), parallelization_modes={mode})
+
+        assert values == expected_value_int()
+        assert transport.events, "no events reached the injected client's transport"
+        assert transport.events[0].eventType == RunState.START
+        assert transport.events[-1].eventType == RunState.COMPLETE
 
 
 class TestOpenLineageExtenderLazyClientInit:
