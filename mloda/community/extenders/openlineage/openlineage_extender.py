@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from mloda.steward import Extender, ExtenderHook, HookContext
+from mloda.steward import Extender, ExtenderHook, HookContext, OutputSchema
 
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
@@ -290,7 +290,7 @@ class OpenLineageExtender(Extender):
 
         # Guarded: a bug in this post-success block must never corrupt func's already-computed result.
         try:
-            fields = _infer_schema_fields(result)
+            fields = _schema_dataset_fields(context.output_schema)
             outputs = [_build_output_dataset(self.dataset_namespace, name, fields) for name in context.feature_names]
             self._emit(
                 RunEvent(
@@ -314,56 +314,16 @@ def _now_iso() -> str:
 
 
 def _build_output_dataset(
-    namespace: str, name: str, fields: list[schema_dataset.SchemaDatasetFacetFields] | None
+    namespace: str, name: str, fields: list[schema_dataset.SchemaDatasetFacetFields]
 ) -> OutputDataset:
     facets: dict[str, Any] = {}
-    if fields is not None:
-        first_match = next((f for f in fields if f.name == name), None)
-        if first_match is not None:
-            facets["schema"] = schema_dataset.SchemaDatasetFacet(fields=[first_match], producer=_PRODUCER)
+    first_match = next((f for f in fields if f.name == name), None)
+    if first_match is not None:
+        facets["schema"] = schema_dataset.SchemaDatasetFacet(fields=[first_match], producer=_PRODUCER)
     return OutputDataset(namespace=namespace, name=name, facets=facets)
 
 
-def _infer_schema_fields(result: Any) -> list[schema_dataset.SchemaDatasetFacetFields] | None:
-    try:
-        return _infer_schema_fields_unsafe(result)
-    except Exception:
-        return None
-
-
-def _infer_schema_fields_unsafe(result: Any) -> list[schema_dataset.SchemaDatasetFacetFields] | None:
-    collect_schema = getattr(result, "collect_schema", None)
-    if callable(collect_schema):
-        schema = collect_schema()
-    elif hasattr(type(result), "schema") or "schema" in getattr(result, "__dict__", {}):
-        # `hasattr(type(result), ...)` alone catches a real class-level descriptor (pyarrow.Table,
-        # pyspark.sql.DataFrame); the `__dict__` fallback catches a plain instance attribute. Neither
-        # is true for pandas, whose unknown-attribute-as-column fallback lives only on the instance
-        # via __getattr__, so a DataFrame with a "schema" column never enters this branch.
-        schema = getattr(result, "schema", None)
-    else:
-        schema = None
-
-    if schema is not None and hasattr(schema, "items"):
-        return [schema_dataset.SchemaDatasetFacetFields(name=str(n), type=str(t)) for n, t in schema.items()]
-
-    # Spark StructType: schema.fields carries StructField entries with name and dataType.
-    if schema is not None and hasattr(schema, "fields"):
-        return [schema_dataset.SchemaDatasetFacetFields(name=str(f.name), type=str(f.dataType)) for f in schema.fields]
-
-    if schema is not None and hasattr(schema, "names") and hasattr(schema, "types"):
-        return [
-            schema_dataset.SchemaDatasetFacetFields(name=str(n), type=str(t))
-            for n, t in zip(schema.names, schema.types)
-        ]
-
-    columns = getattr(result, "columns", None)
-    dtypes = getattr(result, "dtypes", None)
-    if columns is not None and dtypes is not None:
-        return [schema_dataset.SchemaDatasetFacetFields(name=str(c), type=str(t)) for c, t in zip(columns, dtypes)]
-
-    column_names = getattr(result, "column_names", None)
-    if column_names is not None:
-        return [schema_dataset.SchemaDatasetFacetFields(name=str(n)) for n in column_names]
-
-    return None
+def _schema_dataset_fields(output_schema: OutputSchema | None) -> list[schema_dataset.SchemaDatasetFacetFields]:
+    if output_schema is None:
+        return []
+    return [schema_dataset.SchemaDatasetFacetFields(name=name, type=type_) for name, type_ in output_schema]

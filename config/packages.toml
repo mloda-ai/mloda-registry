@@ -92,7 +92,7 @@ description = "OpenLineage RunEvents with schema, data-source and parent-run fac
 dependencies = ["{core_dependency}", "openlineage-python>=1.20,<2"]
 path = "mloda/community/extenders/openlineage"
 published = true
-optional_dependencies = { dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "pandas", "pyarrow"] }
+optional_dependencies = { dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "pyarrow"] }
 entry_point_groups = ["mloda.extenders", "mloda.optional_dependencies"]
 py_typed = true
 
