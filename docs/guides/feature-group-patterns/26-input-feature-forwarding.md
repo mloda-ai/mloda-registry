@@ -29,7 +29,7 @@ That is the signal to carve the key out with `forward_group_exclude`, an allowli
 
 ## Caveat: A Forwarded Reader Key Can Collide With the Root Group
 
-A different failure produces no rejection at all. When the forwarded key is a root reader's own selection key (Pattern 27, "the reader class itself also works as the key") and the consumer's own name is chain-shaped (`value__rebased`), the root group can claim the same name the consumer group claims, and resolution fails with `Multiple feature groups found for feature '<name>'`, naming neither group's reader as the cause.
+A different failure produces no rejection. When the forwarded key is a root reader's own selection key (Pattern 27, "the reader class itself also works as the key") and the consumer's own name is chain-shaped (`value__rebased`), the root group can claim the same name the consumer group claims, and resolution fails with `Multiple feature groups found for feature '<name>'`, naming neither group's reader as the cause.
 
 `forward_group_exclude` cannot carve this one out: the reader key is exactly what the upstream needs to configure itself, so excluding it defeats the "configure the upstream once" pattern this page exists for. Two remedies apply instead:
 
