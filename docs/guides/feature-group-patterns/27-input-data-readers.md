@@ -75,6 +75,8 @@ features = [
 ]
 ```
 
+Both `GovDataReader` and `UbaAirReader` above accept any `feature_names` unconditionally; see [Decline Names You Cannot Confirm](#decline-names-you-cannot-confirm) below before shipping either as written.
+
 ## Non-File / HTTP Sources
 
 `ReadFile`'s default matching (`match_read_file_data_access`) is file-suffix and directory shaped. For a non-file source (an HTTP endpoint returning JSON), the sanctioned recipe is: subclass `ReadFile`, override `match_subclass_data_access` and `load_data` wholesale. On that path `suffix()` is never consulted (it is inert), so you do not implement it.
@@ -82,6 +84,35 @@ features = [
 `ApiInputData` is not the tool for this despite its name: it injects in-memory data passed through the API request and is not an HTTP client.
 
 A reader that overrides `load_data` wholesale is classified as a final reader structurally; no reader code runs during classification.
+
+## Decline Names You Cannot Confirm
+
+A wholesale `match_subclass_data_access` override replaces `ReadFile`'s own column check entirely, so nothing stops it from claiming a feature name it has no way to verify. If a chained group elsewhere forwards this reader's option key for a name like `value__rebased` (Pattern 26), an unconditional accept collides with that group and resolution fails with `Multiple feature groups found`, pointing at neither reader as the cause.
+
+Decline a name that carries the chain separator before accepting the data access (core only strips a multi-output `~N` suffix, so a wholesale override never sees `COLUMN_SEPARATOR` on the matching path; check for it anyway if you call `match_subclass_data_access` directly, e.g. from a test), and record why so the rejection is attributable instead of silent:
+
+```python
+from mloda.provider import CHAIN_SEPARATOR, COLUMN_SEPARATOR, INPUT_DATA_STAGE, record_match_rejection
+
+
+# UbaAirReader.match_subclass_data_access, extended to decline first:
+@classmethod
+def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any:
+    if any(CHAIN_SEPARATOR in name or COLUMN_SEPARATOR in name for name in feature_names):
+        record_match_rejection(
+            cls.get_class_name(),
+            f"{cls.get_class_name()} cannot confirm a chain/column-separated feature name",
+            stage=INPUT_DATA_STAGE,
+        )
+        return None
+    if isinstance(data_access, str) and data_access.startswith("https://api."):
+        return data_access
+    return None
+```
+
+A stock `ReadFile` subclass that never implements `get_column_names`, and a stock `ReadDB` subclass that never implements `check_feature_in_data_access`, already decline a chain-separated name for free from mloda core, recorded rejection included. Only a wholesale `match_subclass_data_access` override needs the decline written out like this. If your reader can list its columns, confirm the name instead of declining it outright: implement `get_column_names` (or `check_feature_in_data_access` for `ReadDB`) and let the built-in check do the work.
+
+If your wholesale override is still file-shaped, call `cls._file_matches(path, feature_names, document_suffixes)` rather than hand-writing this check: it keeps the suffix check, the `document_suffixes` exclusion, `validate_columns`, and the recorded decline intact.
 
 ## Test
 
@@ -107,6 +138,7 @@ End to end, run the feature through `mloda.run_all` with `PluginCollector.enable
 | [base_input_data.py](https://github.com/mloda-ai/mloda/blob/main/mloda/core/abstract_plugins/components/input_data/base_input_data.py) | `feature_scope_data_access`, class-or-string key helper, `init_reader` |
 | [read_file.py](https://github.com/mloda-ai/mloda/blob/main/mloda_plugins/feature_group/input_data/read_file.py) | `ReadFile` base, `match_subclass_data_access` seam |
 | [test_sibling_reader_selection.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/feature_group/input_data/test_sibling_reader_selection.py) | The pinned selection contract |
+| [test_reader_declines_chain_separated_names.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/feature_group/input_data/test_reader_declines_chain_separated_names.py) | Pins the chain/column-separated-name decline contract for `ReadFile`/`ReadDB` |
 
 See also [Data Access Patterns](https://mloda-ai.github.io/mloda/in_depth/data-access-patterns/) for the underlying model.
 
