@@ -166,8 +166,7 @@ def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         data = cls._add_result_to_data(data, feature.name, computed[base])
     return data
 ```
-
-**Base-name extraction**: neither `FeatureGroup.get_column_base_feature()` (`column_name.split(COLUMN_SEPARATOR)[0]`, splits at the *first* `~`) nor an unconditional `rsplit("~", 1)[0]` is safe for a chained name. An upstream part can sit inside the source portion of the name: `"x__op~a__next~b".split("~")[0]` gives `"x__op"`, discarding the embedded `~a` reference; `.rsplit("~", 1)[0]` gives the correct `"x__op~a__next"`. But `rsplit` fails too when a co-requested sibling has no trailing part of its own: `"x__op~a__next".rsplit("~", 1)[0]` gives `"x__op"`, when the whole name is already the base. Strip only the trailing token your own group emits, matched against your own value space (e.g. `\d+` for `EncodingFeatureGroup`), not just "whatever follows the last `~`".
+**Base-name extraction**: `FeatureGroup.get_column_base_feature()` strips only a trailing digits-only `~N` suffix, matching the last `~`. It leaves the name unchanged when there is no trailing numeric suffix. For example, `"x__op~2__next~3"` becomes `"x__op~2__next"`, preserving the embedded `~2` reference, while `"x__op~2__next"` remains unchanged because its final suffix is not numeric. Groups that emit non-digit suffixes should handle their own base-name extraction according to their suffix value space.
 
 ## Combines With
 
