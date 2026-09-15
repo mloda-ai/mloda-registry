@@ -65,8 +65,7 @@ class _IncompleteFlushTransport(Transport):
 
 
 class _BlockingFlushTransport(Transport):
-    """A Transport whose close() blocks on an Event until released, recording every call made
-    while it is blocked."""
+    """A Transport whose close() blocks on an Event until released."""
 
     kind = "blocking-flush"
     config_class = Config
@@ -94,8 +93,7 @@ class _PicklableFakeClient:
 
 
 class _EqDefiningClient(OpenLineageClient):
-    """Defines __eq__ without __hash__, so Python sets __hash__ = None: unhashable, like a WeakSet item must not
-    be required to be."""
+    """Defines __eq__ without __hash__, so Python sets __hash__ = None: unhashable."""
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, _EqDefiningClient)
@@ -269,9 +267,8 @@ class TestOpenLineageExtenderPickling:
         assert registered[1].__self__ is copy
 
     def test_client_published_before_ownership_flag_is_still_dropped_on_pickle(self) -> None:
-        """Simulates the narrow race where a lazy build publishes _client an instant before it sets
-        _owns_client: ownership here must follow from use_sdk_defaults with no injected client, not from a
-        flag that is only ever set after the fact."""
+        """Ownership must follow from use_sdk_defaults with no injected client, not from a flag that
+        could lag a lazy build publishing _client."""
         extender = OpenLineageExtender(use_sdk_defaults=True)
         extender._client = cast(OpenLineageClient, _PicklableFakeClient())
 

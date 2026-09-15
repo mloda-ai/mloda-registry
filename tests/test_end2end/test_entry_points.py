@@ -143,8 +143,7 @@ def test_non_plugin_packages_have_no_entry_points(pkg_name: str) -> None:
 
 
 def test_all_entry_point_values_are_namespaced_manifests() -> None:
-    """Every emitted entry-point target must be a namespaced manifest value valid for its own group,
-    including the mloda.optional_dependencies marker (verify_builds validates that shape too)."""
+    """Every emitted entry-point target must be a namespaced manifest value valid for its own group."""
     shared, packages_config = gen.load_configs()
     packages: dict[str, dict[str, Any]] = packages_config["packages"]
 

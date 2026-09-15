@@ -44,13 +44,11 @@ SIBLING_FLOOR_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?
 # A bare sibling requirement: just the name (and optional extras), no specifier at all.
 BARE_SIBLING_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?\s*$")
 
-# Companion marker group (not a plugin-type group): it declares a package's optional import roots
-# for PluginLoader instead of listing plugin classes. PluginLoader.load_entry_points(group=...)
-# only accepts plugin-type groups, so callers must filter this one out.
+# Companion marker group (not a plugin-type group): declares a package's optional import roots for
+# PluginLoader instead of listing plugin classes; not a valid load_entry_points(group=...) argument.
 OPTIONAL_DEPENDENCIES_GROUP = "mloda.optional_dependencies"
 
-# Every entry-point target module suffix defaults to "manifest" unless overridden in
-# ENTRY_POINT_MODULE_SUFFIX below; exposed once so other scripts never hand-write the literal.
+# Default entry-point target module suffix, exposed once so other scripts never hand-write the literal.
 DEFAULT_MODULE_SUFFIX = "manifest"
 
 # Entry-point group -> manifest attribute exposing the concrete plugin classes.
@@ -64,9 +62,8 @@ ENTRY_POINT_ATTRS = {
     OPTIONAL_DEPENDENCIES_GROUP: "OPTIONAL_DEPENDENCIES",
 }
 
-# Entry-point group -> target module suffix, default DEFAULT_MODULE_SUFFIX. The
-# optional-dependencies marker targets a sibling module that must import cleanly without the
-# optional dependency.
+# Entry-point group -> target module suffix, default DEFAULT_MODULE_SUFFIX. The optional-dependencies
+# marker targets a sibling module that must import cleanly without the optional dependency.
 ENTRY_POINT_MODULE_SUFFIX: dict[str, str] = {
     OPTIONAL_DEPENDENCIES_GROUP: "_optional_dependencies",
 }

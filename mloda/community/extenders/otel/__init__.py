@@ -11,8 +11,7 @@ if TYPE_CHECKING:
     from mloda.community.extenders.otel.otel_extender import OtelExtender
 
 __all__ = ["OtelExtender"]
-# mypy only reads a plain list/tuple literal for __all__, so the extra is kept above and only
-# cleared here, at runtime, when the optional dependency this extender needs is not installed.
+# mypy only reads a plain list/tuple literal, so the extra is kept above and cleared here at runtime.
 if not TYPE_CHECKING and importlib.util.find_spec(OPTIONAL_DEPENDENCIES[0]) is None:
     __all__ = []
 

@@ -31,8 +31,7 @@ _load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(_SCRIPTS_DIR / "
 gen = _load_sibling("generate_pyproject")
 
 # Each entry-point group's own (module suffix, attribute) pairing, derived from generate_pyproject's
-# own tables so the two scripts never drift apart. An entry point must match its group's pairing,
-# not merely use a suffix and attribute that some other group accepts.
+# own tables so the two scripts never drift apart.
 _ENTRY_POINT_GROUP_SHAPE: dict[str, tuple[str, str]] = {
     group: (f".{gen.ENTRY_POINT_MODULE_SUFFIX.get(group, gen.DEFAULT_MODULE_SUFFIX)}", attr)
     for group, attr in gen.ENTRY_POINT_ATTRS.items()

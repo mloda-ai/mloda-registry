@@ -230,8 +230,8 @@ class TestOtelExtenderPickling:
     def test_pickling_with_use_sdk_defaults_and_injected_provider_does_not_warn_about_tracer_provider(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
     ) -> None:
-        """use_sdk_defaults gives the pickled copy a supported fallback (the ambient provider), so dropping
-        the injected one across pickling is not worth warning about."""
+        """With a supported fallback (the ambient provider) available, dropping the injected provider
+        across pickling is not worth warning about."""
         provider, _ = otel_capture
         otel = OtelExtender(tracer_provider=provider, use_sdk_defaults=True)
 

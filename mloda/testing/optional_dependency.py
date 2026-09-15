@@ -85,7 +85,7 @@ class OptionalDependencyPackageTestMixin:
         assert self.extender_name in module.__all__
 
     def test_plugin_loader_reraises_unrelated_import_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """PIN: a poisoned extender submodule, unrelated to the optional dependency, is never swallowed."""
+        """A poisoned extender submodule, unrelated to the optional dependency, is never swallowed."""
         evict_package(monkeypatch, self.package)
         monkeypatch.setitem(sys.modules, f"{self.package}.{self.extender_module}", None)
 

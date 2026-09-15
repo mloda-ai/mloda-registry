@@ -24,8 +24,7 @@ from mloda.testing.extenders.runners import expected_value_int, run_value_int
 
 
 class _LockHoldingTransport(Transport):
-    """A Transport whose lock attribute cannot survive pickling, so the extender that injects it
-    must be rejected at plan time, before any worker is spawned."""
+    """A Transport whose lock attribute cannot survive pickling."""
 
     kind = "lock-holding"
     config_class = Config
@@ -94,7 +93,7 @@ def test_injected_client_emits_into_a_real_spawned_worker(
 def test_injected_client_with_unpicklable_transport_is_rejected_before_dispatch(
     flight_server: ParallelRunnerFlightServer,
 ) -> None:
-    """PIN: an injected client that cannot survive pickling is rejected at plan time, not silently dropped."""
+    """An injected client that cannot survive pickling is rejected at plan time, not silently dropped."""
     transport = _LockHoldingTransport()
     client = OpenLineageClient(transport=transport)
 

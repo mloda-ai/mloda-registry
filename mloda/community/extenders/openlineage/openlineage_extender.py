@@ -41,17 +41,17 @@ _open_invocations: contextvars.ContextVar[tuple[tuple[int, "_OpenCalculateInvoca
 @dataclass
 class _SharedClose:
     """Shared close state for one injected client, keyed by id(client) in _shared_close_registry.
-    The strong reference to client is deliberate: it keeps id() from being reused while the entry
-    exists, and it avoids requiring the client to be hashable or weakrefable."""
+    Holding client itself (not a weakref) keeps id() from being reused and avoids requiring the
+    client to be hashable or weakrefable."""
 
     client: OpenLineageClient
     lock: threading.Lock = field(default_factory=threading.Lock)
     result: bool | None = None
 
 
-# Process-local: extenders sharing one injected client object share its close lifecycle. Keyed by
-# identity (not pickled state), so a worker's freshly-unpickled client always starts unclosed. A
-# self-built client is never shared and never enters this registry; it flushes directly in close().
+# Process-local: extenders sharing one injected client object share its close lifecycle, keyed by
+# identity so a worker's freshly-unpickled client always starts unclosed. A self-built client is
+# never shared and never enters this registry.
 _shared_close_registry_lock = threading.Lock()
 _shared_close_registry: dict[int, _SharedClose] = {}
 
@@ -94,8 +94,7 @@ class OpenLineageExtender(Extender):
         self._client_lock = threading.Lock()
         self._closed = False
         self._logged_inert = False
-        # Set once here and never reassigned: whether this instance owns the client it ends up with is
-        # determined entirely by whether one was injected, not by when the lazy build happens to run.
+        # Determined by whether a client was injected, not by when the lazy build happens to run.
         self._owns_client = client is None
 
     def _get_client(self) -> OpenLineageClient | None:
@@ -116,11 +115,9 @@ class OpenLineageExtender(Extender):
         return self._client
 
     def close(self, timeout: float = -1.0) -> bool:
-        """Flush the underlying client. A no-op returning True if no client has been built yet, or if
-        already closed on this instance. A self-built client is never shared, so it flushes directly
-        here. An injected client may be shared by other extenders: its close lifecycle is tracked in
-        _shared_close_registry, so only the first closer actually flushes it and every closer (even a
-        concurrent one, serialized on the shared entry's own lock) sees the real flush result."""
+        """Flush the underlying client; a no-op if none has been built yet or it is already closed.
+        A self-built client flushes directly; a shared injected client is tracked in
+        _shared_close_registry so only the first closer flushes it and every closer sees the result."""
         with self._client_lock:
             if self._client is None or self._closed:
                 return True
@@ -143,8 +140,7 @@ class OpenLineageExtender(Extender):
         if timeout < 0:
             acquired = entry.lock.acquire(timeout=-1)
         else:
-            # Probe first without counting the probe itself as "waiting": an uncontended entry (the
-            # common case) must pass the caller's timeout through to the flush unchanged.
+            # Probe first so an uncontended entry passes the caller's timeout to the flush unchanged.
             acquired = entry.lock.acquire(timeout=0)
             if not acquired:
                 started = time.monotonic()
@@ -173,8 +169,7 @@ class OpenLineageExtender(Extender):
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
         if self._owns_client:
-            # _owns_client is left as-is: it already reflects "no client was injected" from __init__
-            # and must keep meaning that after unpickling, regardless of whether a client was built yet.
+            # _owns_client keeps meaning "no client was injected" after unpickling too.
             state["_client"] = None
         state["_logged_inert"] = False
         del state["_client_lock"]

@@ -136,9 +136,8 @@ def test_reraises_non_optional_module_not_found(monkeypatch: pytest.MonkeyPatch)
 def test_skips_backend_via_traceback_blame_when_transitive_reraise_drops_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A framework re-raising its own ModuleNotFoundError without ``.name`` leaves nothing to match on;
-    only the innermost traceback frame can attribute the failure to the optional backend. This is an
-    installed-but-broken shape, so it is skipped with exactly one WARNING naming backend and dependency."""
+    """A framework re-raising ModuleNotFoundError without ``.name`` needs traceback-frame blame; this
+    installed-but-broken shape is skipped with exactly one WARNING naming backend and dependency."""
     framework_dir = tmp_path / "regmanifest_casea_framework"
     framework_dir.mkdir()
     (framework_dir / "__init__.py").write_text(
@@ -209,9 +208,8 @@ def test_skips_backend_installed_but_broken_logs_warning_naming_the_backend(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """An installed-but-too-old framework (plain ImportError, .name set to the root) and a dotted
-    submodule import failure (ModuleNotFoundError.name like 'polars.selectorz') are both installed-but-
-    broken shapes: each is skipped with exactly one WARNING naming the backend and the dependency."""
+    """A too-old framework's plain ImportError and a dotted submodule ModuleNotFoundError are both
+    installed-but-broken shapes: each is skipped with exactly one WARNING naming backend and dependency."""
     kept_module = SimpleNamespace(KeptClass=_KeptClass)
 
     def fake_import(name: str) -> Any:

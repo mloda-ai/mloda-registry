@@ -105,8 +105,7 @@ class OtelExtender(Extender):
                 self._logged_inert = True
 
     def __getstate__(self) -> dict[str, Any]:
-        # Only worth warning when use_sdk_defaults is False: with it True, the copy still has a
-        # supported fallback (the ambient provider), so dropping the injected one is not a problem.
+        # Only worth warning when use_sdk_defaults is False; otherwise the copy has a supported fallback.
         if self._tracer_provider is not None and not self.use_sdk_defaults and not self._logged_pickle_drop:
             logger.warning(
                 "OtelExtender drops an injected tracer_provider when pickled or copied; the copy is inert "
