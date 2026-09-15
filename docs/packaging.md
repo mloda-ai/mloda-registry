@@ -128,7 +128,8 @@ A direct import of the manifest module now raises instead of degrading.
 When the dependency is missing, accessing the extender name on the package (`OtelExtender`,
 `OpenLineageExtender`) raises `ModuleNotFoundError` through the package's lazy `__getattr__`, so
 `hasattr(pkg, "OtelExtender")` raises rather than returning `False`. Probe availability with
-`importlib.util.find_spec("opentelemetry")` or `find_spec("openlineage")` instead.
+`importlib.util.find_spec("opentelemetry.trace")` or `find_spec("openlineage.client")` instead,
+since both are namespace packages and a root-only probe can miss a missing submodule.
 
 ### Individual packages
 

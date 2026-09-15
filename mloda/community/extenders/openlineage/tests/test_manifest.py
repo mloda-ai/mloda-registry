@@ -10,3 +10,4 @@ class TestOpenLineageManifest(OptionalDependencyPackageTestMixin):
     root = "openlineage"
     extender_name = "OpenLineageExtender"
     extender_module = "openlineage_extender"
+    api_module = "openlineage.client"

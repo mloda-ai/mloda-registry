@@ -13,14 +13,15 @@ from mloda.testing.import_isolation import block_root, evict_package
 
 
 class OptionalDependencyPackageTestMixin:
-    """Host declares package, root, extender_name, extender_module. The manifest never swallows a missing
-    ``root`` (PluginLoader is the sole guard), and the package re-exports its extender lazily, so importing
-    the package itself needs no dependency."""
+    """Host declares package, root, extender_name, extender_module, api_module. The manifest never swallows a
+    missing ``root`` (PluginLoader is the sole guard), and the package re-exports its extender lazily, so
+    importing the package itself needs no dependency."""
 
     package: str
     root: str
     extender_name: str
     extender_module: str
+    api_module: str
 
     def test_manifest_lists_the_extender_when_installed(self) -> None:
         manifest = importlib.import_module(f"{self.package}.manifest")
@@ -70,9 +71,22 @@ class OptionalDependencyPackageTestMixin:
         """A star import must not blow up just because the optional dependency is missing."""
         block_root(monkeypatch, self.root)
         evict_package(monkeypatch, self.package)
-        namespace: dict[str, Any] = {}
 
-        exec(f"from {self.package} import *", namespace)  # nosec
+        module = importlib.import_module(self.package)
+        namespace: dict[str, Any] = {name: getattr(module, name) for name in module.__all__}
+
+        assert self.extender_name not in namespace
+
+    def test_star_import_with_only_api_module_blocked_succeeds_and_binds_no_extender(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A partial namespace install, where the namespace root imports but the submodule the extender
+        actually uses does not, must still be treated as the dependency being unavailable."""
+        block_root(monkeypatch, self.api_module)
+        evict_package(monkeypatch, self.package)
+
+        module = importlib.import_module(self.package)
+        namespace: dict[str, Any] = {name: getattr(module, name) for name in module.__all__}
 
         assert self.extender_name not in namespace
 

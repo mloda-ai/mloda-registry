@@ -8,6 +8,7 @@ import logging
 import threading
 import time
 import uuid
+import weakref
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -39,31 +40,30 @@ _open_invocations: contextvars.ContextVar[tuple[tuple[int, "_OpenCalculateInvoca
 
 
 @dataclass
-class _SharedClose:
-    """Shared close state for one injected client, keyed by id(client) in _shared_close_registry.
-    Holding client itself (not a weakref) keeps id() from being reused and avoids requiring the
-    client to be hashable or weakrefable."""
+class _CloseState:
+    """Close state for one client: shared by client identity for an injected client, private for a
+    self-built one. `client` pins the id while a registry entry lives."""
 
-    client: OpenLineageClient
     lock: threading.Lock = field(default_factory=threading.Lock)
+    closed: bool = False
     result: bool | None = None
+    client: OpenLineageClient | None = None
 
 
-# Process-local: extenders sharing one injected client object share its close lifecycle, keyed by
-# identity so a worker's freshly-unpickled client always starts unclosed. A self-built client is
-# never shared and never enters this registry.
+# Process-local, keyed by client identity; values are weak so a closed client is released with
+# its last extender.
 _shared_close_registry_lock = threading.Lock()
-_shared_close_registry: dict[int, _SharedClose] = {}
+_shared_close_registry: weakref.WeakValueDictionary[int, _CloseState] = weakref.WeakValueDictionary()
 
 
-def _get_or_create_shared_close(client: OpenLineageClient) -> _SharedClose:
+def _get_or_create_close_state(client: OpenLineageClient) -> _CloseState:
     key = id(client)
     with _shared_close_registry_lock:
-        entry = _shared_close_registry.get(key)
-        if entry is None:
-            entry = _SharedClose(client=client)
-            _shared_close_registry[key] = entry
-        return entry
+        state = _shared_close_registry.get(key)
+        if state is None:
+            state = _CloseState(client=client)
+            _shared_close_registry[key] = state
+        return state
 
 
 class OpenLineageExtender(Extender):
@@ -96,15 +96,13 @@ class OpenLineageExtender(Extender):
         self._logged_inert = False
         # Determined by whether a client was injected, not by when the lazy build happens to run.
         self._owns_client = client is None
+        # Registry entry if injected, else a private state created upfront for the lazy build.
+        self._close_state = _get_or_create_close_state(client) if client is not None else _CloseState()
 
     def _get_client(self) -> OpenLineageClient | None:
-        if self._closed:
+        if self._closed or self._close_state.closed:
             raise RuntimeError(f"{type(self).__name__} was closed; it can no longer be used to emit OpenLineage events")
         if self._client is not None:
-            if id(self._client) in _shared_close_registry:
-                raise RuntimeError(
-                    f"{type(self).__name__} was closed; it can no longer be used to emit OpenLineage events"
-                )
             return self._client
         if not self.use_sdk_defaults:
             return None
@@ -115,50 +113,41 @@ class OpenLineageExtender(Extender):
         return self._client
 
     def close(self, timeout: float = -1.0) -> bool:
-        """Flush the underlying client; a no-op if none has been built yet or it is already closed.
-        A self-built client flushes directly; a shared injected client is tracked in
-        _shared_close_registry so only the first closer flushes it and every closer sees the result."""
+        """Flush the underlying client; a no-op if none has been built yet, waiting out any build in
+        flight. Otherwise every closer, including a sibling sharing an injected client, waits for one flush."""
         with self._client_lock:
-            if self._client is None or self._closed:
+            if self._client is None:
                 return True
-            self._closed = True
-            atexit.unregister(self.close)
             client = self._client
-            owns_client = self._owns_client
+            state = self._close_state
+            if not self._closed:
+                self._closed = True
+                atexit.unregister(self.close)
+            state.closed = True
 
-        if owns_client:
-            flushed = client.close(timeout)
-            if not flushed:
-                logger.warning("%s failed to flush all events within timeout", type(self).__name__)
-            return flushed
-
-        return self._close_shared(client, timeout)
-
-    def _close_shared(self, client: OpenLineageClient, timeout: float) -> bool:
-        entry = _get_or_create_shared_close(client)
         remaining = timeout
         if timeout < 0:
-            acquired = entry.lock.acquire(timeout=-1)
+            acquired = state.lock.acquire(timeout=-1)
         else:
-            # Probe first so an uncontended entry passes the caller's timeout to the flush unchanged.
-            acquired = entry.lock.acquire(timeout=0)
+            # Probe first so an uncontended close passes the caller's timeout to the flush unchanged.
+            acquired = state.lock.acquire(timeout=0)
             if not acquired:
                 started = time.monotonic()
-                acquired = entry.lock.acquire(timeout=timeout)
+                acquired = state.lock.acquire(timeout=timeout)
                 if acquired:
                     remaining = max(0.0, timeout - (time.monotonic() - started))
         if not acquired:
             return False
         try:
-            result = entry.result
+            result = state.result
             if result is None:
                 result = client.close(remaining)
                 if not result:
                     logger.warning("%s failed to flush all events within timeout", type(self).__name__)
-                entry.result = result
+                state.result = result
             return result
         finally:
-            entry.lock.release()
+            state.lock.release()
 
     def _emit(self, event: RunEvent) -> None:
         client = self._get_client()
@@ -173,11 +162,13 @@ class OpenLineageExtender(Extender):
             state["_client"] = None
         state["_logged_inert"] = False
         del state["_client_lock"]
+        del state["_close_state"]
         return state
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
         self._client_lock = threading.Lock()
+        self._close_state = _get_or_create_close_state(self._client) if self._client is not None else _CloseState()
 
     def wraps(self) -> set[ExtenderHook]:
         return {
