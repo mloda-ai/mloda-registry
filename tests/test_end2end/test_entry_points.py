@@ -30,22 +30,13 @@ else:
     import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 import pytest
-from mloda.provider import ComputeFramework, FeatureGroup
-from mloda.steward import Extender
+from mloda.core.abstract_plugins.plugin_loader.plugin_loader import ENTRY_POINT_GROUPS
 
 from tests.script_loader import load_script
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
 _VERIFY_BUILDS_PATH = _REPO_ROOT / "scripts" / "verify_builds.py"
-
-# The three valid plugin entry-point groups mapped to their base type. The manifest attribute comes
-# from gen.ENTRY_POINT_ATTRS[group] instead of a second local copy.
-_GROUP_INFO: dict[str, type] = {
-    "mloda.feature_groups": FeatureGroup,
-    "mloda.compute_frameworks": ComputeFramework,
-    "mloda.extenders": Extender,
-}
 
 gen = load_script("generate_pyproject", _GEN_PATH)
 vb = load_script("verify_builds", _VERIFY_BUILDS_PATH)
@@ -179,9 +170,9 @@ def test_manifest_modules_list_only_concrete_plugins() -> None:
         for group in pkg_config["entry_point_groups"]:
             if group == gen.OPTIONAL_DEPENDENCIES_GROUP:
                 continue
-            assert group in _GROUP_INFO, f"{pkg_name}: unexpected entry-point group {group!r}"
+            assert group in ENTRY_POINT_GROUPS, f"{pkg_name}: unexpected entry-point group {group!r}"
             attr_name = gen.ENTRY_POINT_ATTRS[group]
-            base_type = _GROUP_INFO[group]
+            base_type = ENTRY_POINT_GROUPS[group]
             assert hasattr(module, attr_name), f"{manifest_name}: missing attribute {attr_name}"
             plugins = getattr(module, attr_name)
 
