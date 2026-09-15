@@ -548,7 +548,10 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             return pa.Table.from_pydict({"value_int": [1, 2]})
 
         with make_hook_context(
-            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, run_id=run_id, feature_names=("value_int",)
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+            run_id=run_id,
+            feature_names=("value_int",),
+            output_schema=(("value_int", "int64"),),
         ).activate():
             extender(outer_func)
 

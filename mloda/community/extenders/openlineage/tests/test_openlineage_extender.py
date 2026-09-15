@@ -21,6 +21,7 @@ from typing import Any, cast
 
 import pyarrow as pa
 import pytest
+from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
 from mloda.steward import CompositeExtender, ExtenderHook
 from mloda.user import ParallelizationMode
 
@@ -920,18 +921,34 @@ class TestOpenLineageExtenderStartEvent:
 
 
 class TestOpenLineageExtenderCompleteEvent:
-    """After a successful func: outputs (one per feature name), then RunEvent(COMPLETE)."""
+    """After a successful func: outputs (one per feature name), then RunEvent(COMPLETE).
 
-    def test_schema_facet_present_when_result_exposes_pyarrow_schema(
+    Schema facets are driven entirely by context.output_schema (mloda core's real seam:
+    each compute framework's _extract_column_names/_extract_column_dtype, wired through
+    instrument() in core's compute_framework.py); the extender no longer introspects the
+    raw calculate-feature result at all. Duck-typing coverage for most pandas/spark/polars
+    shapes moved to mloda core's own per-compute-framework test suite, not here.
+
+    Note: test_schema_facet_type_not_garbage_for_duplicate_pandas_column_names was deleted along
+    with the other duck-typing tests rather than transferred, because core's behavior for that
+    exact scenario is NOT identical: a duplicate pandas column name now yields type=None instead
+    of the old garbage-avoided "int64". That one case is the exception to the paragraph above: it
+    was not picked up by core's own test suite either, so it is currently untested anywhere, not
+    just moved out of this file. This is a real, minor fidelity change, not a pure transfer.
+    """
+
+    def test_schema_facet_present_from_context_output_schema(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
         client, transport = ol_capture
-        context = make_hook_context(feature_names=("value_int", "value_str"))
+        context = make_hook_context(
+            feature_names=("value_int", "value_str"),
+            output_schema=(("value_int", "int64"), ("value_str", "string")),
+        )
         extender = OpenLineageExtender(client=client, dataset_namespace="custom-ds")
-        table = pa.table({"value_int": [1, 2, 3], "value_str": ["a", "b", "c"]})
 
         with context.activate():
-            extender(lambda: table)
+            extender(lambda: None)
 
         complete_event = transport.events[1]
         assert complete_event.outputs is not None
@@ -963,18 +980,14 @@ class TestOpenLineageExtenderCompleteEvent:
         """Each OutputDataset's schema facet must be narrowed to its own field only, never the
         whole frame's schema; a column absent from feature_names must never appear anywhere."""
         client, transport = ol_capture
-        context = make_hook_context(feature_names=("value_int", "value_str"))
-        extender = OpenLineageExtender(client=client)
-        table = pa.table(
-            {
-                "value_int": [1, 2, 3],
-                "value_str": ["a", "b", "c"],
-                "internal_secret_col": [1, 2, 3],
-            }
+        context = make_hook_context(
+            feature_names=("value_int", "value_str"),
+            output_schema=(("value_int", "int64"), ("value_str", "string"), ("internal_secret_col", "int64")),
         )
+        extender = OpenLineageExtender(client=client)
 
         with context.activate():
-            extender(lambda: table)
+            extender(lambda: None)
 
         complete_event = transport.events[1]
         assert complete_event.outputs is not None
@@ -993,133 +1006,17 @@ class TestOpenLineageExtenderCompleteEvent:
             serialized = Serde.to_json(event)
             assert "internal_secret_col" not in serialized
 
-    def test_schema_facet_field_names_are_strings_for_pandas_rangeindex_columns(
+    def test_schema_facet_absent_when_output_schema_none_even_with_pyarrow_result(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
-        """A pandas DataFrame with the default integer RangeIndex columns (labels 0, 1, ...) must
-        still produce string field names in the schema facet, never raw ints."""
-        import pandas as pd
-
-        client, transport = ol_capture
-        context = make_hook_context(feature_names=("0", "1"))
-        extender = OpenLineageExtender(client=client)
-        frame = pd.DataFrame([[1, "a"]])
-
-        with context.activate():
-            extender(lambda: frame)
-
-        complete_event = transport.events[1]
-        assert complete_event.outputs is not None
-        datasets_by_name = {ds.name: ds for ds in complete_event.outputs}
-
-        for expected_name in ("0", "1"):
-            dataset = datasets_by_name[expected_name]
-            assert dataset.facets is not None
-            schema_facet = dataset.facets.get("schema")
-            assert isinstance(schema_facet, schema_dataset.SchemaDatasetFacet)
-            assert schema_facet.fields is not None
-            for f in schema_facet.fields:
-                assert isinstance(f.name, str)
-            assert [f.name for f in schema_facet.fields] == [expected_name]
-
-    def test_schema_facet_type_not_garbage_for_duplicate_pandas_column_names(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        """A duplicate pandas column name ('x', 'x') must not make dtypes[c] return a Series whose
-        str() is a multi-line garbage repr; every field for name 'x' must report the real dtype."""
-        import pandas as pd
-
-        client, transport = ol_capture
-        context = make_hook_context(feature_names=("x",))
-        extender = OpenLineageExtender(client=client)
-        frame = pd.DataFrame([[1, 2]], columns=["x", "x"])
-
-        with context.activate():
-            extender(lambda: frame)
-
-        complete_event = transport.events[1]
-        assert complete_event.outputs is not None
-        output = complete_event.outputs[0]
-        assert output.name == "x"
-        assert output.facets is not None
-        schema_facet = output.facets.get("schema")
-        assert isinstance(schema_facet, schema_dataset.SchemaDatasetFacet)
-        assert schema_facet.fields is not None
-        assert len(schema_facet.fields) == 1
-        for f in schema_facet.fields:
-            assert f.name == "x"
-            assert f.type == "int64"
-
-    def test_schema_facet_types_come_from_schema_fields_for_spark_shaped_result(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        """schema.fields must win over schema.names/schema.types when a fake result exposes both shapes."""
-
-        class _DataType:
-            def __init__(self, rendered: str) -> None:
-                self._rendered = rendered
-
-            def __str__(self) -> str:
-                return self._rendered
-
-        class _StructField:
-            def __init__(self, name: str, data_type: _DataType) -> None:
-                self.name = name
-                self.dataType = data_type
-
-        class _StructType:
-            def __init__(self, fields: list[_StructField], types: list[tuple[str, str]]) -> None:
-                self.fields = fields
-                self.names = [f.name for f in fields]
-                self.types = types
-
-        class _SparkFrame:
-            def __init__(self, columns: list[str], dtypes: list[tuple[str, str]], schema: _StructType) -> None:
-                self.columns = columns
-                self.dtypes = dtypes
-                self.schema = schema
-
-        client, transport = ol_capture
-        context = make_hook_context(feature_names=("value_int", "value_str"))
-        extender = OpenLineageExtender(client=client)
-        frame = _SparkFrame(
-            columns=["value_int", "value_str"],
-            dtypes=[("value_int", "bigint"), ("value_str", "string")],
-            schema=_StructType(
-                fields=[
-                    _StructField("value_int", _DataType("LongType()")),
-                    _StructField("value_str", _DataType("StringType()")),
-                ],
-                types=[("value_int", "bigint"), ("value_str", "string")],
-            ),
-        )
-
-        with context.activate():
-            extender(lambda: frame)
-
-        complete_event = transport.events[1]
-        assert complete_event.outputs is not None
-        datasets_by_name = {ds.name: ds for ds in complete_event.outputs}
-
-        expected_types = {"value_int": "LongType()", "value_str": "StringType()"}
-        for expected_name, expected_type in expected_types.items():
-            dataset = datasets_by_name[expected_name]
-            assert dataset.facets is not None
-            schema_facet = dataset.facets.get("schema")
-            assert isinstance(schema_facet, schema_dataset.SchemaDatasetFacet)
-            assert schema_facet.fields is not None
-            assert [f.name for f in schema_facet.fields] == [expected_name]
-            assert [f.type for f in schema_facet.fields] == [expected_type]
-
-    def test_schema_facet_absent_when_result_has_no_introspectable_schema(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
+        """A real pyarrow Table result must never be duck-typed for a schema facet; only
+        context.output_schema may drive facet presence, and it defaults to None."""
         client, transport = ol_capture
         context = make_hook_context()
         extender = OpenLineageExtender(client=client)
 
         with context.activate():
-            extender(lambda: 42)
+            extender(lambda: pa.table({"value_int": [1, 2, 3]}))
 
         complete_event = transport.events[1]
         assert complete_event.outputs is not None
@@ -1127,25 +1024,55 @@ class TestOpenLineageExtenderCompleteEvent:
         assert output.facets is not None
         assert "schema" not in output.facets
 
-    def test_collect_schema_used_without_resolving_schema_property(
+    def test_schema_facet_dtype_string_shape_unit_pin(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
-        """A lazy frame's `schema` property must never be resolved when `collect_schema()` is available."""
-
-        class _LazyFrame:
-            def collect_schema(self) -> dict[str, str]:
-                return {"value_int": "Int64"}
-
-            @property
-            def schema(self) -> Any:
-                raise AssertionError("schema must not be resolved")
-
+        """Fast, isolated unit pin of the dict-interchange dtype-string shape (e.g. "int"/"str", as
+        core's `_dict_output_schema` produces), driven purely off a hand-set context.output_schema.
+        The extender never reads `func`'s return value for schema purposes (only context.output_schema
+        drives facet content), so `func` is a no-op here; distinct from
+        test_run_all_complete_event_carries_real_schema_facet, which proves the same shape end-to-end
+        through a real mloda.run_all."""
         client, transport = ol_capture
-        context = make_hook_context(feature_names=("value_int",))
+        context = make_hook_context(
+            feature_names=("value_int", "value_str"),
+            output_schema=(("value_int", "int"), ("value_str", "str")),
+        )
         extender = OpenLineageExtender(client=client)
 
         with context.activate():
-            extender(lambda: _LazyFrame())
+            extender(lambda: None)
+
+        complete_event = transport.events[1]
+        assert complete_event.outputs is not None
+        datasets_by_name = {ds.name: ds for ds in complete_event.outputs}
+
+        int_dataset = datasets_by_name["value_int"]
+        assert int_dataset.facets is not None
+        int_schema = int_dataset.facets.get("schema")
+        assert isinstance(int_schema, schema_dataset.SchemaDatasetFacet)
+        assert int_schema.fields is not None
+        assert [f.name for f in int_schema.fields] == ["value_int"]
+        assert [f.type for f in int_schema.fields] == ["int"]
+
+        str_dataset = datasets_by_name["value_str"]
+        assert str_dataset.facets is not None
+        str_schema = str_dataset.facets.get("schema")
+        assert isinstance(str_schema, schema_dataset.SchemaDatasetFacet)
+        assert str_schema.fields is not None
+        assert [f.name for f in str_schema.fields] == ["value_str"]
+        assert [f.type for f in str_schema.fields] == ["str"]
+
+    def test_schema_facet_type_none_passthrough(self, ol_capture: tuple[OpenLineageClient, RecordingTransport]) -> None:
+        """SchemaDatasetFacetFields(type=None) is a meaningful value (what a partial-dtype result,
+        e.g. python_dict/duckdb, produces in practice), not a reason to drop the field or
+        stringify it to the literal "None"."""
+        client, transport = ol_capture
+        context = make_hook_context(feature_names=("value_int",), output_schema=(("value_int", None),))
+        extender = OpenLineageExtender(client=client)
+
+        with context.activate():
+            extender(lambda: None)
 
         complete_event = transport.events[1]
         assert complete_event.outputs is not None
@@ -1154,26 +1081,30 @@ class TestOpenLineageExtenderCompleteEvent:
         schema_facet = output.facets.get("schema")
         assert isinstance(schema_facet, schema_dataset.SchemaDatasetFacet)
         assert schema_facet.fields is not None
-        assert [f.type for f in schema_facet.fields] == ["Int64"]
+        assert [f.name for f in schema_facet.fields] == ["value_int"]
+        assert schema_facet.fields[0].type is None
 
-    def test_schema_facet_present_for_pandas_frame_with_column_named_schema(
+    def test_schema_facet_uses_output_schema_populated_during_call(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
-        """A pandas column literally named "schema" must not hijack schema inference for other columns."""
-        import pandas as pd
-
+        """context.output_schema is set by instrument() only once func returns; the extender must
+        read it AFTER calling func, never a stale/empty value captured before the call completes."""
         client, transport = ol_capture
         context = make_hook_context(feature_names=("value_int",))
         extender = OpenLineageExtender(client=client)
-        frame = pd.DataFrame({"schema": [1], "value_int": [2]})
+
+        wrapped = instrument(
+            context,
+            lambda: pa.table({"value_int": [1, 2]}),
+            output_schema=lambda result: (("value_int", "int64"),),
+        )
 
         with context.activate():
-            extender(lambda: frame)
+            extender(wrapped)
 
         complete_event = transport.events[1]
         assert complete_event.outputs is not None
         output = complete_event.outputs[0]
-        assert output.name == "value_int"
         assert output.facets is not None
         schema_facet = output.facets.get("schema")
         assert isinstance(schema_facet, schema_dataset.SchemaDatasetFacet)
@@ -1359,3 +1290,34 @@ class TestOpenLineageExtenderRunAll:
 
         expected_job_name = f"{PyArrowDataOpsTestDataCreator.__module__}.{PyArrowDataOpsTestDataCreator.__qualname__}"
         assert any(e.job.name == expected_job_name for e in transport.events)
+
+    def test_run_all_complete_event_carries_real_schema_facet(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        """End-to-end: `DataOperationsTestDataCreator.calculate_feature` (which `run_value_int` drives)
+        returns a plain dict, so core's dict-interchange output_schema path (`_dict_output_schema` /
+        `_python_dtype`) is what feeds `instrument()` -> `context.output_schema` -> the extender here,
+        not the PyArrow arrow-schema path (`arrow_schema_output_schema` / `_extract_column_dtype`); that
+        path is proven separately in `test_schema_facet_uses_output_schema_populated_during_call`. This
+        test still proves the wiring is a real `mloda.run_all`, not a HookContext fixture mock."""
+        client, transport = ol_capture
+
+        run_value_int(OpenLineageExtender(client=client))
+
+        complete_events = [e for e in transport.events if e.eventType == RunState.COMPLETE]
+        assert complete_events
+
+        schema_types: list[str] = []
+        for event in complete_events:
+            for output in event.outputs or []:
+                if output.name != "value_int":
+                    continue
+                facets = output.facets or {}
+                schema_facet = facets.get("schema")
+                if isinstance(schema_facet, schema_dataset.SchemaDatasetFacet) and schema_facet.fields:
+                    schema_types.extend(f.type for f in schema_facet.fields if f.type is not None)
+
+        # value_int's raw fixture values are plain python ints, so `_python_dtype` (type(value).__name__)
+        # yields exactly "int" via the dict-interchange path; a silent regression to the arrow-schema
+        # path (e.g. "int64") or to a garbage/empty type must fail loudly, not pass on a loose substring.
+        assert schema_types == ["int"]
