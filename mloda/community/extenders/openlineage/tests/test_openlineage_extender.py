@@ -926,13 +926,15 @@ class TestOpenLineageExtenderCompleteEvent:
     Schema facets are driven entirely by context.output_schema (mloda core's real seam:
     each compute framework's _extract_column_names/_extract_column_dtype, wired through
     instrument() in core's compute_framework.py); the extender no longer introspects the
-    raw calculate-feature result at all. Duck-typing coverage for pandas/spark/polars shapes
-    now lives in mloda core's own per-compute-framework test suite, not here.
+    raw calculate-feature result at all. Duck-typing coverage for most pandas/spark/polars
+    shapes moved to mloda core's own per-compute-framework test suite, not here.
 
     Note: test_schema_facet_type_not_garbage_for_duplicate_pandas_column_names was deleted along
     with the other duck-typing tests rather than transferred, because core's behavior for that
     exact scenario is NOT identical: a duplicate pandas column name now yields type=None instead
-    of the old garbage-avoided "int64". This is a real, minor fidelity change, not a pure transfer.
+    of the old garbage-avoided "int64". That one case is the exception to the paragraph above: it
+    was not picked up by core's own test suite either, so it is currently untested anywhere, not
+    just moved out of this file. This is a real, minor fidelity change, not a pure transfer.
     """
 
     def test_schema_facet_present_from_context_output_schema(
@@ -1004,22 +1006,6 @@ class TestOpenLineageExtenderCompleteEvent:
             serialized = Serde.to_json(event)
             assert "internal_secret_col" not in serialized
 
-    def test_schema_facet_absent_when_result_has_no_introspectable_schema(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        client, transport = ol_capture
-        context = make_hook_context()
-        extender = OpenLineageExtender(client=client)
-
-        with context.activate():
-            extender(lambda: 42)
-
-        complete_event = transport.events[1]
-        assert complete_event.outputs is not None
-        output = complete_event.outputs[0]
-        assert output.facets is not None
-        assert "schema" not in output.facets
-
     def test_schema_facet_absent_when_output_schema_none_even_with_pyarrow_result(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
@@ -1038,11 +1024,15 @@ class TestOpenLineageExtenderCompleteEvent:
         assert output.facets is not None
         assert "schema" not in output.facets
 
-    def test_schema_facet_present_for_dict_shaped_result(
+    def test_schema_facet_dtype_string_shape_unit_pin(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
-        """A plain-dict (python_dict) calculate-feature result never got a schema facet under the
-        old duck-typing logic; context.output_schema now carries it regardless of result shape."""
+        """Fast, isolated unit pin of the dict-interchange dtype-string shape (e.g. "int"/"str", as
+        core's `_dict_output_schema` produces), driven purely off a hand-set context.output_schema.
+        The extender never reads `func`'s return value for schema purposes (only context.output_schema
+        drives facet content), so `func` is a no-op here; distinct from
+        test_run_all_complete_event_carries_real_schema_facet, which proves the same shape end-to-end
+        through a real mloda.run_all."""
         client, transport = ol_capture
         context = make_hook_context(
             feature_names=("value_int", "value_str"),
@@ -1051,7 +1041,7 @@ class TestOpenLineageExtenderCompleteEvent:
         extender = OpenLineageExtender(client=client)
 
         with context.activate():
-            extender(lambda: {"value_int": [1, 2], "value_str": ["a", "b"]})
+            extender(lambda: None)
 
         complete_event = transport.events[1]
         assert complete_event.outputs is not None
@@ -1304,9 +1294,12 @@ class TestOpenLineageExtenderRunAll:
     def test_run_all_complete_event_carries_real_schema_facet(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
-        """End-to-end: core's _extract_column_dtype -> instrument() -> context.output_schema ->
-        the extender, proving the whole seam is wired through a real mloda.run_all over
-        PyArrowTable, not merely mocked at the HookContext fixture level."""
+        """End-to-end: `DataOperationsTestDataCreator.calculate_feature` (which `run_value_int` drives)
+        returns a plain dict, so core's dict-interchange output_schema path (`_dict_output_schema` /
+        `_python_dtype`) is what feeds `instrument()` -> `context.output_schema` -> the extender here,
+        not the PyArrow arrow-schema path (`arrow_schema_output_schema` / `_extract_column_dtype`); that
+        path is proven separately in `test_schema_facet_uses_output_schema_populated_during_call`. This
+        test still proves the wiring is a real `mloda.run_all`, not a HookContext fixture mock."""
         client, transport = ol_capture
 
         run_value_int(OpenLineageExtender(client=client))
@@ -1324,5 +1317,7 @@ class TestOpenLineageExtenderRunAll:
                 if isinstance(schema_facet, schema_dataset.SchemaDatasetFacet) and schema_facet.fields:
                     schema_types.extend(f.type for f in schema_facet.fields if f.type is not None)
 
-        assert schema_types, "no schema facet type found for value_int across COMPLETE events"
-        assert any("int" in t for t in schema_types)
+        # value_int's raw fixture values are plain python ints, so `_python_dtype` (type(value).__name__)
+        # yields exactly "int" via the dict-interchange path; a silent regression to the arrow-schema
+        # path (e.g. "int64") or to a garbage/empty type must fail loudly, not pass on a loose substring.
+        assert schema_types == ["int"]

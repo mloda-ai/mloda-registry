@@ -326,4 +326,7 @@ def _build_output_dataset(
 def _schema_dataset_fields(output_schema: OutputSchema | None) -> list[schema_dataset.SchemaDatasetFacetFields]:
     if output_schema is None:
         return []
-    return [schema_dataset.SchemaDatasetFacetFields(name=name, type=type_) for name, type_ in output_schema]
+    return [
+        schema_dataset.SchemaDatasetFacetFields(name=name, type=str(type_) if type_ is not None else None)
+        for name, type_ in output_schema
+    ]
