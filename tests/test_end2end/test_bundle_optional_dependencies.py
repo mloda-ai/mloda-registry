@@ -27,10 +27,6 @@ from tests.script_loader import load_script
 # for a missing optional dependency (see mloda.core.abstract_plugins.plugin_loader.plugin_loader).
 _PLUGIN_LOADER_LOGGER = "mloda.core.abstract_plugins.plugin_loader.plugin_loader"
 
-# Companion marker group: PluginLoader consults it on every load_entry_points() call, so it is
-# never itself a valid `group=` argument.
-_OPTIONAL_DEPENDENCY_MARKER_GROUP = "mloda.optional_dependencies"
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
 _COMMUNITY_PYPROJECT = _REPO_ROOT / "mloda" / "community" / "pyproject.toml"
@@ -173,7 +169,7 @@ def test_mloda_community_declares_all_extra_as_union_of_per_extra_entries() -> N
 
 
 def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A leaf dependency covered only by a bundle extra is optional at runtime: PluginLoader is the sole
     guard, so the degrade is observed through load_entry_points(), not a direct manifest import."""
@@ -200,7 +196,7 @@ def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
             if not groups:
                 continue
             # PluginLoader.load_entry_points(group=...) only accepts plugin-type groups.
-            groups = [g for g in groups if g != _OPTIONAL_DEPENDENCY_MARKER_GROUP]
+            groups = [g for g in groups if g != gen.OPTIONAL_DEPENDENCIES_GROUP]
 
             leaf_names = _external_dependency_names(leaf_cfg.get("dependencies", []), packages)
             covered_only_by_extra = sorted(leaf_names & extra_only)
@@ -210,48 +206,52 @@ def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
             checked += 1
             dotted = leaf_cfg["path"].replace("/", ".")
 
-            for dist_name in covered_only_by_extra:
-                root = _IMPORT_ROOT_OF_DISTRIBUTION.get(dist_name)
-                assert root is not None, (
-                    f"{leaf_name} depends on {dist_name!r}, which {bundle_name} covers only through its "
-                    f"'{bundle_name}' optional extra; add {dist_name!r} to _IMPORT_ROOT_OF_DISTRIBUTION "
-                    "in this test so its manifest can be checked for an import-safe degrade"
-                )
-                block_root(monkeypatch, root)
-
-            evict_package(monkeypatch, dotted)
-
-            caplog.clear()
-            with caplog.at_level(logging.WARNING, logger=_PLUGIN_LOADER_LOGGER):
-                for group in groups:
-                    keys = PluginLoader().load_entry_points(group=group)
-                    assert not any(key.startswith(f"{dotted}.") for key in keys), (
-                        f"PluginLoader registered a class from {dotted}'s manifest even though "
-                        f"{covered_only_by_extra} was blocked; the entry point should have been skipped"
+            # Scoped per leaf so a block/evict from one iteration never leaks into the next.
+            with pytest.MonkeyPatch.context() as mp:
+                for dist_name in covered_only_by_extra:
+                    root = _IMPORT_ROOT_OF_DISTRIBUTION.get(dist_name)
+                    assert root is not None, (
+                        f"{leaf_name} depends on {dist_name!r}, which {bundle_name} covers only through its "
+                        f"'{bundle_name}' optional extra; add {dist_name!r} to _IMPORT_ROOT_OF_DISTRIBUTION "
+                        "in this test so its manifest can be checked for an import-safe degrade"
                     )
+                    block_root(mp, root)
 
-            plugin_loader_warnings = [
-                record
-                for record in caplog.records
-                if record.name == _PLUGIN_LOADER_LOGGER and record.levelno == logging.WARNING
-            ]
-            assert plugin_loader_warnings, (
-                f"PluginLoader.load_entry_points() logged no WARNING skipping {dotted}'s entry point "
-                f"while {covered_only_by_extra} was blocked"
-            )
+                evict_package(mp, dotted)
 
-            exposed_attrs = _EXPOSED_EXTENDER_NAMES.get(leaf_name)
-            assert exposed_attrs is not None, (
-                f"{leaf_name} has no entry in _EXPOSED_EXTENDER_NAMES in this test; add the attribute "
-                "name(s) its package __init__ must not expose when the extra-only dependency is absent"
-            )
-            leaf_module = importlib.import_module(dotted)
-            for attr in exposed_attrs:
-                assert attr not in vars(leaf_module), (
-                    f"{dotted} still exposes {attr!r} after blocking {covered_only_by_extra}; "
-                    f"{leaf_name} is covered only through {bundle_name}'s extra, so the package's "
-                    "__init__ must not import it eagerly"
+                caplog.clear()
+                with caplog.at_level(logging.WARNING, logger=_PLUGIN_LOADER_LOGGER):
+                    for group in groups:
+                        keys = PluginLoader().load_entry_points(group=group)
+                        assert not any(key.startswith(f"{dotted}.") for key in keys), (
+                            f"PluginLoader registered a class from {dotted}'s manifest even though "
+                            f"{covered_only_by_extra} was blocked; the entry point should have been skipped"
+                        )
+
+                plugin_loader_warnings = [
+                    record
+                    for record in caplog.records
+                    if record.name == _PLUGIN_LOADER_LOGGER
+                    and record.levelno == logging.WARNING
+                    and f"{dotted}.manifest:" in record.getMessage()
+                ]
+                assert plugin_loader_warnings, (
+                    f"PluginLoader.load_entry_points() logged no WARNING mentioning {dotted}.manifest: "
+                    f"while {covered_only_by_extra} was blocked"
                 )
+
+                exposed_attrs = _EXPOSED_EXTENDER_NAMES.get(leaf_name)
+                assert exposed_attrs is not None, (
+                    f"{leaf_name} has no entry in _EXPOSED_EXTENDER_NAMES in this test; add the attribute "
+                    "name(s) its package __init__ must not expose when the extra-only dependency is absent"
+                )
+                leaf_module = importlib.import_module(dotted)
+                for attr in exposed_attrs:
+                    assert attr not in vars(leaf_module), (
+                        f"{dotted} still exposes {attr!r} after blocking {covered_only_by_extra}; "
+                        f"{leaf_name} is covered only through {bundle_name}'s extra, so the package's "
+                        "__init__ must not import it eagerly"
+                    )
 
     assert checked, (
         "expected at least one entry-point-bundle nested leaf whose dependency is covered only through "
@@ -285,7 +285,7 @@ def test_plugin_loader_skips_entry_point_with_warning_when_transitive_dependency
     leaf_cfg = packages[leaf_name]
     dotted = leaf_cfg["path"].replace("/", ".")
     # PluginLoader.load_entry_points(group=...) only accepts plugin-type groups.
-    groups = [g for g in leaf_cfg["entry_point_groups"] if g != _OPTIONAL_DEPENDENCY_MARKER_GROUP]
+    groups = [g for g in leaf_cfg["entry_point_groups"] if g != gen.OPTIONAL_DEPENDENCIES_GROUP]
 
     evict_root(monkeypatch, root)
     monkeypatch.setitem(sys.modules, transitive_dependency, None)
@@ -302,6 +302,8 @@ def test_plugin_loader_skips_entry_point_with_warning_when_transitive_dependency
     plugin_loader_warnings = [
         record
         for record in caplog.records
-        if record.name == _PLUGIN_LOADER_LOGGER and record.levelno == logging.WARNING
+        if record.name == _PLUGIN_LOADER_LOGGER
+        and record.levelno == logging.WARNING
+        and f"{dotted}.manifest:" in record.getMessage()
     ]
-    assert plugin_loader_warnings, f"no WARNING logged for skipping {dotted}"
+    assert plugin_loader_warnings, f"no WARNING mentioning {dotted}.manifest: logged for skipping {dotted}"

@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import importlib
 import inspect
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -40,20 +39,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
 _VERIFY_BUILDS_PATH = _REPO_ROOT / "scripts" / "verify_builds.py"
 
-# The three valid entry-point groups mapped to (manifest attribute, base type).
-_GROUP_INFO: dict[str, tuple[str, type]] = {
-    "mloda.feature_groups": ("FEATURE_GROUPS", FeatureGroup),
-    "mloda.compute_frameworks": ("COMPUTE_FRAMEWORKS", ComputeFramework),
-    "mloda.extenders": ("EXTENDERS", Extender),
+# The three valid plugin entry-point groups mapped to their base type. The manifest attribute comes
+# from gen.ENTRY_POINT_ATTRS[group] instead of a second local copy.
+_GROUP_INFO: dict[str, type] = {
+    "mloda.feature_groups": FeatureGroup,
+    "mloda.compute_frameworks": ComputeFramework,
+    "mloda.extenders": Extender,
 }
-
-# Companion marker group: targets a sibling marker module and carries import roots, not plugin classes.
-_OPTIONAL_DEPENDENCY_MARKER_GROUP = "mloda.optional_dependencies"
-
-_VALUE_PATTERN = re.compile(
-    r"^(mloda\.community\.|mloda\.enterprise\.).*\.manifest:(FEATURE_GROUPS|COMPUTE_FRAMEWORKS|EXTENDERS)$"
-)
-
 
 gen = load_script("generate_pyproject", _GEN_PATH)
 vb = load_script("verify_builds", _VERIFY_BUILDS_PATH)
@@ -151,7 +143,8 @@ def test_non_plugin_packages_have_no_entry_points(pkg_name: str) -> None:
 
 
 def test_all_entry_point_values_are_namespaced_manifests() -> None:
-    """Every emitted entry-point target must be a namespaced ``.manifest:<ATTR>`` value."""
+    """Every emitted entry-point target must be a namespaced manifest value valid for its own group,
+    including the mloda.optional_dependencies marker (verify_builds validates that shape too)."""
     shared, packages_config = gen.load_configs()
     packages: dict[str, dict[str, Any]] = packages_config["packages"]
 
@@ -162,13 +155,9 @@ def test_all_entry_point_values_are_namespaced_manifests() -> None:
         if not entry_points:
             continue
         for group, mapping in entry_points.items():
-            if group == _OPTIONAL_DEPENDENCY_MARKER_GROUP:
-                continue
-            assert group in _GROUP_INFO, f"{pkg_name}: unexpected entry-point group {group!r}"
             for name, value in mapping.items():
-                assert _VALUE_PATTERN.match(value), (
-                    f"{pkg_name}: entry point {name!r} in group {group!r} has non-namespaced-manifest value {value!r}"
-                )
+                error = vb.namespaced_entry_point_error(group, name, value)
+                assert error is None, f"{pkg_name}: entry point {name!r} in group {group!r} is invalid: {error}"
 
 
 def _plugin_packages() -> list[tuple[str, dict[str, Any]]]:
@@ -189,10 +178,11 @@ def test_manifest_modules_list_only_concrete_plugins() -> None:
         module = importlib.import_module(manifest_name)
 
         for group in pkg_config["entry_point_groups"]:
-            if group == _OPTIONAL_DEPENDENCY_MARKER_GROUP:
+            if group == gen.OPTIONAL_DEPENDENCIES_GROUP:
                 continue
             assert group in _GROUP_INFO, f"{pkg_name}: unexpected entry-point group {group!r}"
-            attr_name, base_type = _GROUP_INFO[group]
+            attr_name = gen.ENTRY_POINT_ATTRS[group]
+            base_type = _GROUP_INFO[group]
             assert hasattr(module, attr_name), f"{manifest_name}: missing attribute {attr_name}"
             plugins = getattr(module, attr_name)
 

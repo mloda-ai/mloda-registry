@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import configparser
 import re
+import runpy
 import shutil
 import subprocess  # nosec
 import sys
 import tempfile
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 if sys.version_info >= (3, 11):
@@ -21,18 +24,19 @@ else:
 CONFIG_DIR = Path("config")
 PACKAGES_CONFIG = CONFIG_DIR / "packages.toml"
 
-# Each entry-point group's own (module suffix, attribute) pairing. An entry point must match its
-# group's pairing, not merely use a suffix and attribute that some other group accepts.
-_ENTRY_POINT_GROUP_SHAPE: dict[str, tuple[str, str]] = {
-    "mloda.feature_groups": (".manifest", "FEATURE_GROUPS"),
-    "mloda.compute_frameworks": (".manifest", "COMPUTE_FRAMEWORKS"),
-    "mloda.extenders": (".manifest", "EXTENDERS"),
-    "mloda.optional_dependencies": ("._optional_dependencies", "OPTIONAL_DEPENDENCIES"),
-}
+_SCRIPTS_DIR = Path(__file__).resolve().parent
 
-# Valid manifest attributes for the mloda plugin entry-point groups, plus the companion
-# mloda.optional_dependencies marker attribute.
-_VALID_ENTRY_POINT_ATTRS = {attr for _, attr in _ENTRY_POINT_GROUP_SHAPE.values()}
+# Not a plain import: this script is also loaded by file path in tests, where scripts/ is not on sys.path.
+_load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(_SCRIPTS_DIR / "script_loader.py"))["load_sibling"]
+gen = _load_sibling("generate_pyproject")
+
+# Each entry-point group's own (module suffix, attribute) pairing, derived from generate_pyproject's
+# own tables so the two scripts never drift apart. An entry point must match its group's pairing,
+# not merely use a suffix and attribute that some other group accepts.
+_ENTRY_POINT_GROUP_SHAPE: dict[str, tuple[str, str]] = {
+    group: (f".{gen.ENTRY_POINT_MODULE_SUFFIX.get(group, gen.DEFAULT_MODULE_SUFFIX)}", attr)
+    for group, attr in gen.ENTRY_POINT_ATTRS.items()
+}
 
 
 def load_packages_config() -> dict[str, dict[str, Any]]:

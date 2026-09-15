@@ -44,24 +44,31 @@ SIBLING_FLOOR_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?
 # A bare sibling requirement: just the name (and optional extras), no specifier at all.
 BARE_SIBLING_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?\s*$")
 
+# Companion marker group (not a plugin-type group): it declares a package's optional import roots
+# for PluginLoader instead of listing plugin classes. PluginLoader.load_entry_points(group=...)
+# only accepts plugin-type groups, so callers must filter this one out.
+OPTIONAL_DEPENDENCIES_GROUP = "mloda.optional_dependencies"
+
+# Every entry-point target module suffix defaults to "manifest" unless overridden in
+# ENTRY_POINT_MODULE_SUFFIX below; exposed once so other scripts never hand-write the literal.
+DEFAULT_MODULE_SUFFIX = "manifest"
+
 # Entry-point group -> manifest attribute exposing the concrete plugin classes.
 # mloda discovers installed plugins through these entry-point groups; each
 # plugin package ships a ``manifest.py`` listing its concrete plugin classes
 # under the mapped attribute.
-#
-# ``mloda.optional_dependencies`` is a companion marker group (not a plugin-type group): it
-# declares a package's optional import roots for PluginLoader instead of listing plugin classes.
 ENTRY_POINT_ATTRS = {
     "mloda.feature_groups": "FEATURE_GROUPS",
     "mloda.compute_frameworks": "COMPUTE_FRAMEWORKS",
     "mloda.extenders": "EXTENDERS",
-    "mloda.optional_dependencies": "OPTIONAL_DEPENDENCIES",
+    OPTIONAL_DEPENDENCIES_GROUP: "OPTIONAL_DEPENDENCIES",
 }
 
-# Entry-point group -> target module suffix, default "manifest". The optional-dependencies marker
-# targets a sibling module that must import cleanly without the optional dependency.
+# Entry-point group -> target module suffix, default DEFAULT_MODULE_SUFFIX. The
+# optional-dependencies marker targets a sibling module that must import cleanly without the
+# optional dependency.
 ENTRY_POINT_MODULE_SUFFIX: dict[str, str] = {
-    "mloda.optional_dependencies": "_optional_dependencies",
+    OPTIONAL_DEPENDENCIES_GROUP: "_optional_dependencies",
 }
 
 
@@ -193,12 +200,12 @@ def compute_entry_points(
             if not groups:
                 continue
             for group in groups:
-                module_suffix = ENTRY_POINT_MODULE_SUFFIX.get(group, "manifest")
+                module_suffix = ENTRY_POINT_MODULE_SUFFIX.get(group, DEFAULT_MODULE_SUFFIX)
                 value = f"{cfg['path'].replace('/', '.')}.{module_suffix}:{ENTRY_POINT_ATTRS[group]}"
                 result.setdefault(group, []).append((name, value))
     else:
         for group in pkg_config.get("entry_point_groups", []):
-            module_suffix = ENTRY_POINT_MODULE_SUFFIX.get(group, "manifest")
+            module_suffix = ENTRY_POINT_MODULE_SUFFIX.get(group, DEFAULT_MODULE_SUFFIX)
             value = f"{pkg_config['path'].replace('/', '.')}.{module_suffix}:{ENTRY_POINT_ATTRS[group]}"
             result.setdefault(group, []).append((pkg_name, value))
 
