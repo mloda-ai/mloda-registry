@@ -58,11 +58,8 @@ ENTRY_POINT_ATTRS = {
     "mloda.optional_dependencies": "OPTIONAL_DEPENDENCIES",
 }
 
-# Entry-point group -> target module suffix, default "manifest". Only the optional-dependencies
-# marker targets a different sibling module that itself has no import of the optional dependency
-# (see PluginLoader placement constraint in ENTRY_POINT_ATTRS above): loading it must not re-trigger
-# manifest.py's own failure. entry_point.load() still runs the package's own __init__.py first,
-# though, which is why that guard's own try/except ImportError still matters.
+# Entry-point group -> target module suffix, default "manifest". The optional-dependencies marker
+# targets a sibling module that must import cleanly without the optional dependency.
 ENTRY_POINT_MODULE_SUFFIX: dict[str, str] = {
     "mloda.optional_dependencies": "_optional_dependencies",
 }
@@ -178,8 +175,7 @@ def compute_entry_points(
 
     Returns a mapping of entry-point group -> sorted list of ``(label, value)``
     pairs, where ``value`` is the canonical ``<dotted>.<module_suffix>:<ATTR>`` target
-    (``module_suffix`` is ``manifest`` for every group except ``mloda.optional_dependencies``,
-    see ``ENTRY_POINT_MODULE_SUFFIX``).
+    (``module_suffix`` per ``ENTRY_POINT_MODULE_SUFFIX``, default ``manifest``).
 
     Bundle packages (``entry_point_bundle = true``) aggregate the entry points of
     every nested plugin package whose path lives under the bundle path. Regular

@@ -69,10 +69,8 @@ def test_skips_backend_with_missing_optional_framework(monkeypatch: pytest.Monke
 def test_skipping_backend_logs_warning_naming_the_backend(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A skipped backend must be loud in the logs, not silent: core's PluginLoader.load_entry_points
-    logs a WARNING on every skip (issue #583 DoD parity), so the whole backend can be identified
-    from log output alone without re-running with a debugger. Currently no warning is emitted at all.
-    """
+    """A skipped backend must be loud: one WARNING naming the backend and the missing dependency,
+    matching core's PluginLoader.load_entry_points."""
     kept_module = SimpleNamespace(KeptClass=_KeptClass)
 
     def fake_import(name: str) -> Any:
@@ -135,12 +133,8 @@ def test_reraises_non_optional_module_not_found(monkeypatch: pytest.MonkeyPatch)
 def test_skips_backend_via_traceback_blame_when_transitive_reraise_drops_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A backend's own framework can fail to import because one of its transitive deps is missing,
-    and the framework may wrap that failure in its own ModuleNotFoundError without preserving
-    ``.name`` (e.g. re-raising a friendlier message around a broken native extension). ``exc.name``
-    is then None, so literal root-matching against _OPTIONAL_BACKENDS cannot attribute the failure;
-    only inspecting the innermost traceback frame (``_traceback_blames_root``) can.
-    """
+    """A framework re-raising its own ModuleNotFoundError without ``.name`` leaves nothing to match on;
+    only the innermost traceback frame can attribute the failure to the optional backend."""
     framework_dir = tmp_path / "regmanifest_casea_framework"
     framework_dir.mkdir()
     (framework_dir / "__init__.py").write_text(
@@ -175,10 +169,8 @@ def test_skips_backend_via_traceback_blame_when_transitive_reraise_drops_name(
 
 
 def test_skips_backend_with_plain_import_error_for_too_old_framework(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A backend "installed but too old" (a name added in a newer release is absent) raises a plain
-    ImportError (Python's real "cannot import name X from Y" shape, which sets .name to Y, the
-    framework's own root), not ModuleNotFoundError.
-    """
+    """An installed-but-too-old framework raises a plain ImportError ("cannot import name X from Y",
+    with .name set to Y), not ModuleNotFoundError; it must still be skipped."""
     kept_module = SimpleNamespace(KeptClass=_KeptClass)
 
     def fake_import(name: str) -> Any:
@@ -203,11 +195,8 @@ def test_skips_backend_with_plain_import_error_for_too_old_framework(monkeypatch
 
 
 def test_reraises_plain_import_error_not_rooted_at_optional_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Regression guard: widening the caught exception type from ModuleNotFoundError to ImportError
-    must not swallow a genuine, unrelated ImportError bug in first-party code (e.g. a real typo),
-    matching the module's own contract that "any other ModuleNotFoundError is a real error and
-    re-raised" -- here for its ImportError sibling.
-    """
+    """Catching ImportError instead of only ModuleNotFoundError must not swallow an unrelated
+    first-party ImportError (a real typo stays loud)."""
 
     def fake_import(name: str) -> ModuleType:
         raise ImportError(

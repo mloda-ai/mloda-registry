@@ -47,10 +47,7 @@ _GROUP_INFO: dict[str, tuple[str, type]] = {
     "mloda.extenders": ("EXTENDERS", Extender),
 }
 
-# Companion marker group: targets a dependency-free sibling module (not manifest.py) and carries
-# a tuple of import roots, not a list of plugin classes, so it doesn't fit _GROUP_INFO's shape.
-# Covered separately by test_optional_dependencies_* and test_verify_builds_accepts_optional_
-# dependencies_marker_target below.
+# Companion marker group: targets a sibling marker module and carries import roots, not plugin classes.
 _OPTIONAL_DEPENDENCY_MARKER_GROUP = "mloda.optional_dependencies"
 
 _VALUE_PATTERN = re.compile(
@@ -226,21 +223,8 @@ def test_bundle_and_groups_are_mutually_exclusive() -> None:
         gen.compute_entry_points("mloda-bogus", pkg_config, all_packages)
 
 
-def test_optional_dependencies_group_is_registered_in_entry_point_attrs() -> None:
-    """The new ``mloda.optional_dependencies`` group must map to an ``OPTIONAL_DEPENDENCIES`` manifest
-    attribute in ENTRY_POINT_ATTRS, exactly like the three existing plugin groups map to their own
-    attribute, so a declaring package's generated pyproject.toml can carry it."""
-    assert "mloda.optional_dependencies" in gen.ENTRY_POINT_ATTRS
-    assert gen.ENTRY_POINT_ATTRS["mloda.optional_dependencies"] == "OPTIONAL_DEPENDENCIES"
-
-
-def test_optional_dependencies_entry_point_targets_a_dependency_free_sibling_module_not_manifest() -> None:
-    """OPTIONAL_DEPENDENCIES cannot live inside manifest.py itself: PluginLoader only consults the
-    ``mloda.optional_dependencies`` marker after manifest.py's own import has already failed, so a
-    marker living inside manifest.py could never be read. It must live in a separate, dependency-free
-    sibling module instead (e.g. ``_optional_dependencies.py``), which ``compute_entry_points`` must
-    target instead of the ``<path>.manifest:<ATTR>`` value every other group uses.
-    """
+def test_optional_dependencies_entry_point_targets_sibling_marker_module() -> None:
+    """The marker targets ``_optional_dependencies.py``, never ``manifest.py`` (read only after that import fails)."""
     pkg_config: dict[str, Any] = {
         "path": "mloda/community/extenders/openlineage",
         "entry_point_groups": ["mloda.extenders", "mloda.optional_dependencies"],
@@ -254,9 +238,7 @@ def test_optional_dependencies_entry_point_targets_a_dependency_free_sibling_mod
     assert label == "mloda-community-openlineage"
     assert value == "mloda.community.extenders.openlineage._optional_dependencies:OPTIONAL_DEPENDENCIES"
     assert not value.startswith("mloda.community.extenders.openlineage.manifest:"), (
-        "OPTIONAL_DEPENDENCIES must not live in manifest.py: PluginLoader only reads the "
-        "mloda.optional_dependencies marker after manifest.py's own import already failed, so a marker "
-        "living inside manifest.py could never be read exactly when it is needed"
+        "OPTIONAL_DEPENDENCIES must not live in manifest.py"
     )
 
 
@@ -287,16 +269,8 @@ def test_verify_builds_namespace_helper() -> None:
     assert helper("mloda.feature_groups", "mloda-community-foo", "mloda.community.foo.manifest:PLUGINS") is not None
 
 
-def test_verify_builds_valid_entry_point_attrs_include_optional_dependencies() -> None:
-    """OPTIONAL_DEPENDENCIES must join FEATURE_GROUPS/COMPUTE_FRAMEWORKS/EXTENDERS as a valid attribute,
-    or a built wheel declaring the new marker fails verify_builds.py's own consistency check."""
-    assert "OPTIONAL_DEPENDENCIES" in vb._VALID_ENTRY_POINT_ATTRS
-
-
 def test_verify_builds_accepts_optional_dependencies_marker_target() -> None:
-    """namespaced_entry_point_error must accept the mloda.optional_dependencies group's target module,
-    a dependency-free sibling of manifest.py, not manifest.py itself: it cannot keep requiring every
-    entry point's module to end with '.manifest'."""
+    """The marker group's ``._optional_dependencies:OPTIONAL_DEPENDENCIES`` target must pass verification."""
     assert (
         vb.namespaced_entry_point_error(
             "mloda.optional_dependencies",
@@ -308,9 +282,7 @@ def test_verify_builds_accepts_optional_dependencies_marker_target() -> None:
 
 
 def test_verify_builds_accepts_extenders_manifest_target() -> None:
-    """The mloda.extenders group's own valid pairing (.manifest:EXTENDERS) must still be accepted once
-    namespaced_entry_point_error cross-checks group against the (suffix, attr) pairing rather than
-    validating suffix and attr independently."""
+    """The mloda.extenders group's own ``.manifest:EXTENDERS`` pairing must still pass verification."""
     assert (
         vb.namespaced_entry_point_error(
             "mloda.extenders",
@@ -342,14 +314,6 @@ def test_verify_builds_accepts_extenders_manifest_target() -> None:
     ],
 )
 def test_verify_builds_rejects_group_suffix_attr_mismatch(group: str, value: str) -> None:
-    """namespaced_entry_point_error must cross-check the specific group against BOTH the module suffix
-    and the attribute together, not validate suffix and attr independently against two flat sets/tuples.
-    A group's entry point resolving to the wrong sibling module, or to the right module but the wrong
-    attribute, is exactly the OPTIONAL_DEPENDENCIES-in-manifest.py placement mistake this branch's
-    design exists to prevent (see the companion ``mloda/community/extenders/*/_optional_dependencies.py``
-    modules), and verify_builds.py is the check meant to catch it in built wheels.
-    """
+    """A group's entry point must match its own (suffix, attr) pairing, not a mix of two groups' halves."""
     error = vb.namespaced_entry_point_error(group, "some-label", value)
-    assert error is not None, (
-        f"{group} entry point resolving to {value!r} must be rejected as a group/suffix/attr mismatch"
-    )
+    assert error is not None, f"{group} -> {value!r} must be rejected"

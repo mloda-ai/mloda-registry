@@ -75,13 +75,11 @@ class ExtenderContractTestMixin:
 
     @classmethod
     def supports_pickled_sink_capture(cls) -> bool:
-        """False by default so hosts that predate this hook (community-example, enterprise-example,
-        and any *ExtenderTestMixin that never overrides injected_sink_capture) are skipped, not broken."""
+        """False unless the host's injected sink survives pickling (OpenLineage does; an OTel TracerProvider never can)."""
         return False
 
     def injected_sink_capture(self) -> AbstractContextManager[list[Any]]:
-        """Context yielding a list that records what a picklable, injected sink actually received,
-        observable even after the extender has been pickled and unpickled. Default: not supported."""
+        """Context yielding a list of what a picklable, injected sink actually received after the pickle round trip."""
         raise NotImplementedError
 
     def context_hook(self) -> ExtenderHook:

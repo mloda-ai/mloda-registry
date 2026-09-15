@@ -84,7 +84,6 @@ class OtelExtender(Extender):
         self._logged_inert = False
         self._logged_inert_lock = threading.Lock()
         self._logged_pickle_drop = False
-        self._logged_pickle_drop_lock = threading.Lock()
 
     def _resolve_tracer_provider(self) -> TracerProvider | None:
         if self._tracer_provider is not None:
@@ -106,31 +105,23 @@ class OtelExtender(Extender):
                 self._logged_inert = True
 
     def __getstate__(self) -> dict[str, Any]:
-        if self._tracer_provider is not None:
-            self._log_pickle_drop_once()
+        if self._tracer_provider is not None and not self._logged_pickle_drop:
+            logger.warning(
+                "OtelExtender does not preserve an injected tracer_provider across pickling; worker processes "
+                "fall back to use_sdk_defaults/inert resolution. Under MULTIPROCESSING install a provider per "
+                "worker via child_bootstrap and pass use_sdk_defaults=True."
+            )
+            self._logged_pickle_drop = True
         state = dict(self.__dict__)
         state["_tracer_provider"] = None
         state["_logged_inert"] = False
         state["_logged_pickle_drop"] = False
         del state["_logged_inert_lock"]
-        del state["_logged_pickle_drop_lock"]
         return state
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
         self._logged_inert_lock = threading.Lock()
-        self._logged_pickle_drop_lock = threading.Lock()
-
-    def _log_pickle_drop_once(self) -> None:
-        if self._logged_pickle_drop:
-            return
-        with self._logged_pickle_drop_lock:
-            if not self._logged_pickle_drop:
-                logger.warning(
-                    "OtelExtender's injected tracer_provider cannot be pickled and will not be preserved in "
-                    "worker processes; spans emitted there will fall back to use_sdk_defaults/inert resolution."
-                )
-                self._logged_pickle_drop = True
 
     def wraps(self) -> set[ExtenderHook]:
         return {

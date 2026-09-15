@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
 from mloda.provider import ComputeFramework, DataCreator, FeatureGroup, FeatureSet
 from mloda.steward import Extender, ExtenderHook
-from mloda.user import Feature, FeatureName, Options, PluginCollector, mloda
+from mloda.user import Feature, FeatureName, Options, ParallelizationMode, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFeature
 from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
@@ -21,14 +22,23 @@ def expected_value_int() -> list[Any]:
     return PyArrowDataOpsTestDataCreator.get_raw_data()["value_int"]
 
 
-def run_value_int(*extenders: Extender) -> list[Any]:
-    """Run `value_int` through the pipeline with the given extenders; return the column."""
+def run_value_int(
+    *extenders: Extender,
+    parallelization_modes: set[ParallelizationMode] | None = None,
+    flight_server: Any | None = None,
+    child_bootstrap: Callable[[], None] | None = None,
+) -> list[Any]:
+    """Run `value_int` through the pipeline with the given extenders; return the column. Optional
+    parallelization_modes, flight_server and child_bootstrap forward straight to mloda.run_all."""
     plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator})
     results = mloda.run_all(
         ["value_int"],
         compute_frameworks={PyArrowTable},
         plugin_collector=plugin_collector,
         function_extender=set(extenders),
+        parallelization_modes=parallelization_modes or {ParallelizationMode.SYNC},
+        flight_server=flight_server,
+        child_bootstrap=child_bootstrap,
     )
     for table in results:
         if isinstance(table, pa.Table) and "value_int" in table.column_names:

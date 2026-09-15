@@ -24,7 +24,6 @@ _ALLOWED_INTERNAL_IMPORTS = {
     ("mloda.core.abstract_plugins.components.utils", "escalate_match_abort"),
     ("mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser", "option_key_is_present"),
     ("mloda.core.abstract_plugins.hook_context", "instrument"),
-    ("mloda.core.runtime.flight.runner_flight_server", "ParallelRunnerFlightServer"),
 }
 
 

@@ -42,11 +42,8 @@ def _innermost_traceback_module(exc: ImportError) -> str | None:
 
 
 def _blamed_optional_backend(exc: ImportError) -> str | None:
-    """The ``_OPTIONAL_BACKENDS`` member responsible for exc, or None if exc isn't attributable to
-    one. Attributed either by ``exc.name``'s root or, if that isn't set or doesn't match, by
-    the innermost traceback frame's module (or a submodule of it). Reimplements core's private
-    PluginLoader._traceback_blames_root locally, since that helper is core-private.
-    """
+    """The ``_OPTIONAL_BACKENDS`` member blamed for exc (by ``exc.name``'s root, else the innermost
+    traceback frame's module), or None. Core's equivalent is private, hence this local copy."""
     root = (exc.name or "").split(".")[0]
     if root in _OPTIONAL_BACKENDS:
         return root

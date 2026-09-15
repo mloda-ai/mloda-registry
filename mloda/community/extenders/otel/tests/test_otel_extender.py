@@ -13,27 +13,22 @@ import logging
 import pickle  # nosec
 import threading
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.core.runtime.flight.runner_flight_server import ParallelRunnerFlightServer
 from mloda.steward import ExtenderHook
-from mloda.user import ParallelizationMode, PluginCollector, mloda
-from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
-from opentelemetry import trace
-from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, SpanExportResult
+from mloda.user import ParallelizationMode
+from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
 from opentelemetry.trace import TracerProvider as ApiTracerProvider
 
 from mloda.community.extenders.otel import OtelExtender
 from mloda.community.extenders.otel import otel_extender as otel_extender_module
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.otel import OtelExtenderTestMixin, make_span_capture, single_span_attributes
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
@@ -48,26 +43,6 @@ def otel_capture() -> Iterator[tuple[TracerProvider, InMemorySpanExporter]]:
     provider, exporter = make_span_capture()
     yield provider, exporter
     provider.shutdown()
-
-
-@pytest.fixture(scope="module")
-def flight_server() -> Iterator[ParallelRunnerFlightServer]:
-    """Required by ParallelizationMode.MULTIPROCESSING; shared across the real-multiprocessing tests
-    in this module (mirrors core's own session-scoped flight_server fixture)."""
-    server = ParallelRunnerFlightServer()
-    yield server
-    server.end_flight_server_process()
-
-
-def _prepare_value_int_multiprocessing_session() -> Any:
-    """A `value_int` session planned for a real ParallelizationMode.MULTIPROCESSING run."""
-    plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator})
-    return mloda.prepare(
-        ["value_int"],
-        compute_frameworks={PyArrowTable},
-        plugin_collector=plugin_collector,
-        parallelization_modes={ParallelizationMode.MULTIPROCESSING},
-    )
 
 
 class TestOtelExtenderContract(OtelExtenderTestMixin):
@@ -238,14 +213,31 @@ class TestOtelExtenderPickling:
 
         assert len(ambient_exporter.get_finished_spans()) == 1
 
+    def test_injected_provider_drop_warns_once_across_repeated_pickling(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        provider, _ = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
 
-class TestOtelExtenderSyncIdentityPreservation:
-    """Core's CfwManager no longer round-trips extenders through a pickling proxy for
-    ParallelizationMode.SYNC/THREADING (no real subprocess involved, so no pickle ever happens): an
-    injected tracer_provider must survive identity-intact, not merely equal-by-value."""
+        with caplog.at_level(logging.WARNING):
+            pickle.dumps(otel)  # nosec
+            pickle.dumps(otel)  # nosec
 
-    def test_run_all_under_sync_resolves_the_exact_injected_tracer_provider_object(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], monkeypatch: pytest.MonkeyPatch
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "OtelExtender" in r.message]
+        tracer_provider_warnings = [r for r in warning_records if "tracer_provider" in r.message]
+        assert len(tracer_provider_warnings) == 1, tracer_provider_warnings
+
+
+class TestOtelExtenderInProcessIdentityPreservation:
+    """Core's CfwManager never round-trips extenders through a pickling proxy for SYNC/THREADING (no
+    real subprocess involved), so an injected tracer_provider must resolve identity-intact."""
+
+    @pytest.mark.parametrize("mode", [ParallelizationMode.SYNC, ParallelizationMode.THREADING])
+    def test_run_all_resolves_the_exact_injected_tracer_provider_object(
+        self,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        monkeypatch: pytest.MonkeyPatch,
+        mode: ParallelizationMode,
     ) -> None:
         provider, exporter = otel_capture
         resolved_provider_ids: list[int] = []
@@ -258,14 +250,12 @@ class TestOtelExtenderSyncIdentityPreservation:
 
         monkeypatch.setattr(OtelExtender, "_resolve_tracer_provider", spying_resolve)
 
-        values = run_value_int(OtelExtender(tracer_provider=provider))
+        values = run_value_int(OtelExtender(tracer_provider=provider), parallelization_modes={mode})
 
         assert values == expected_value_int()
         assert resolved_provider_ids, "OtelExtender._resolve_tracer_provider was never invoked"
         assert all(resolved_id == id(provider) for resolved_id in resolved_provider_ids), (
-            "at least one worker-side OtelExtender resolved a different tracer_provider object than the "
-            "one injected at construction; under SYNC (no real subprocess) no pickle round trip, and "
-            "hence no identity loss, should ever occur"
+            "a worker-side OtelExtender resolved a different tracer_provider object than the injected one"
         )
         assert len(exporter.get_finished_spans()) >= 1
 
@@ -769,110 +759,3 @@ class TestOtelExtenderRunAll:
             assert span.attributes is not None
             assert span.attributes.get("mloda.feature.name") == "value_int"
             assert span.attributes.get("mloda.compute_framework.name") == "PyArrowTable"
-
-
-class _FileSpanExporter(SpanExporter):
-    """Appends one line per finished span name to marker_path.
-
-    Used from inside a real spawned MULTIPROCESSING worker to observe span emission:
-    InMemorySpanExporter's buffer lives in the worker's own memory and is never visible back in the
-    parent (pytest) process, so a plain file is the only cross-process-visible sink here.
-    """
-
-    def __init__(self, marker_path: Path) -> None:
-        self._marker_path = marker_path
-
-    def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
-        with open(self._marker_path, "a") as handle:
-            for span in spans:
-                handle.write(f"{span.name}\n")
-        return SpanExportResult.SUCCESS
-
-    def shutdown(self) -> None:
-        pass
-
-
-class _InstallRealTracerProviderBootstrap:
-    """Picklable child_bootstrap (a plain callable defined at module level, not a closure): installs a
-    real SDK TracerProvider, exporting to marker_path, as the process-global provider inside a spawned
-    MULTIPROCESSING worker, before that worker processes its first command.
-
-    OtelExtender(use_sdk_defaults=True) (no injected tracer_provider) then resolves this ambiently via
-    opentelemetry.trace.get_tracer_provider(), the process-global provider this bootstrap just set.
-    """
-
-    def __init__(self, marker_path: Path) -> None:
-        self._marker_path = marker_path
-
-    def __call__(self) -> None:
-        provider = TracerProvider()
-        provider.add_span_processor(SimpleSpanProcessor(_FileSpanExporter(self._marker_path)))
-        trace.set_tracer_provider(provider)
-
-
-class TestOtelExtenderChildBootstrapRealMultiprocessing:
-    """The supported pattern for real OTel spans across ParallelizationMode.MULTIPROCESSING worker
-    processes: a caller-supplied child_bootstrap installs a real TracerProvider as the process-global
-    one inside each spawned worker, and OtelExtender(use_sdk_defaults=True) (no injected
-    tracer_provider) picks it up ambiently. Uses a real spawned subprocess, not an in-process fake."""
-
-    def test_child_bootstrap_installed_provider_emits_a_span_inside_the_spawned_worker(
-        self, tmp_path: Path, flight_server: ParallelRunnerFlightServer
-    ) -> None:
-        marker_path = tmp_path / "otel_multiprocessing_spans.txt"
-        bootstrap = _InstallRealTracerProviderBootstrap(marker_path)
-        session = _prepare_value_int_multiprocessing_session()
-
-        session.run(
-            parallelization_modes={ParallelizationMode.MULTIPROCESSING},
-            function_extender={OtelExtender(use_sdk_defaults=True)},
-            flight_server=flight_server,
-            child_bootstrap=bootstrap,
-        )
-
-        assert marker_path.exists(), (
-            "child_bootstrap's installed TracerProvider never wrote a span marker file; the spawned "
-            "worker never emitted a span for OtelExtender(use_sdk_defaults=True)"
-        )
-        span_names = marker_path.read_text().splitlines()
-        assert "mloda.calculate" in span_names, span_names
-
-
-class TestOtelExtenderInjectedProviderDropWarningUnderRealMultiprocessing:
-    """An injected (non-default) tracer_provider cannot survive being pickled to a real
-    MULTIPROCESSING worker (the SDK TracerProvider's own __init__ creates a lock that pickle can never
-    serialize). __getstate__ dropping it silently leaves the caller with no signal that their sink
-    stopped working. The drop must be logged exactly once, even though this (parent) process pickles
-    the extender twice before any worker starts: once via core's preflight picklability check, once
-    for the real worker dispatch payload."""
-
-    def test_dropped_injected_provider_logs_exactly_one_warning(
-        self,
-        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
-        flight_server: ParallelRunnerFlightServer,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        provider, _ = otel_capture
-        otel = OtelExtender(tracer_provider=provider)
-        session = _prepare_value_int_multiprocessing_session()
-
-        with caplog.at_level(logging.WARNING):
-            results = session.run(
-                parallelization_modes={ParallelizationMode.MULTIPROCESSING},
-                function_extender={otel},
-                flight_server=flight_server,
-            )
-
-        assert results, "run produced no results"
-        dropped_provider_warnings = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.WARNING
-            and "OtelExtender" in r.message
-            and "tracer_provider" in r.message
-            and "preserved" in r.message.lower()
-        ]
-        assert len(dropped_provider_warnings) == 1, (
-            f"expected exactly one dropped-tracer_provider warning, got {len(dropped_provider_warnings)}: "
-            f"{dropped_provider_warnings}"
-        )

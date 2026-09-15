@@ -74,7 +74,7 @@ Only the extender's own failure is caught. An exception raised by the wrapped fu
 
 Only needed with `ParallelizationMode.MULTIPROCESSING`. Avoid unpicklable instance variables (locks, tracers, connections). Use class-level storage or create resources lazily in `__call__()`.
 
-`OpenLineageExtender` preserves a picklable injected client as a value copy into worker processes instead of dropping it; only an unpicklable client is dropped (logged once at WARNING).
+`OpenLineageExtender` pickles an injected client as-is into worker processes (so it must be picklable under `MULTIPROCESSING`) and rebuilds a self-built one lazily per worker. `OtelExtender` never pickles an injected `tracer_provider`; under `MULTIPROCESSING` pass a `child_bootstrap` to `run_all` that installs a provider in each worker and use `use_sdk_defaults=True`.
 
 ## Emitting on the calculation thread
 
@@ -128,7 +128,7 @@ The OTel and OpenLineage mixins both enforce the same observability mandate: a w
 
 ### ExtenderContractTestMixin
 
-Required host hooks: `extender_class`, `make_extender`, `own_failure`. Optional: `raise_on_error_default`, `expected_hooks`, `pickled_copy_environment`, `supports_warning_only` (return `False` for a host with no `raise_on_error=False` mode), `has_backend_sink` (return `True` for an extender with an external sink, and override `ambient_sink_environment` plus `sink_resolution_spy`; `make_unconfigured_extender`/`make_sdk_defaults_extender` default to `extender_class()()` and `extender_class()(use_sdk_defaults=True)`), `supports_pickled_sink_capture` plus `injected_sink_capture` (for an extender whose `__getstate__` preserves a picklable injected sink across pickling; `supports_pickled_sink_capture` defaults to `False`).
+Required host hooks: `extender_class`, `make_extender`, `own_failure`. Optional: `raise_on_error_default`, `expected_hooks`, `pickled_copy_environment`, `supports_warning_only` (return `False` for a host with no `raise_on_error=False` mode), `has_backend_sink` (return `True` for an extender with an external sink, and override `ambient_sink_environment` plus `sink_resolution_spy`; `make_unconfigured_extender`/`make_sdk_defaults_extender` default to `extender_class()()` and `extender_class()(use_sdk_defaults=True)`), `supports_pickled_sink_capture` plus `injected_sink_capture` (`True` when a picklable injected sink survives pickling; defaults to `False`).
 
 ```python
 from contextlib import AbstractContextManager

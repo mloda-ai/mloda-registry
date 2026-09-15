@@ -122,9 +122,9 @@ together via `mloda-community[all]`), and its manifest must import cleanly witho
 dependency installed so entry-point loading of the rest of the bundle stays intact.
 
 Moving a dependency behind an extra changes existing installs: when the dependency is missing,
-the manifest logs a record at INFO level naming the extra, and discovery skips the extender
-instead of registering it. Importing the extender name from the package still raises
-`ImportError` naming the extra.
+PluginLoader skips the entry point with a WARNING, and discovery never registers the extender.
+A direct import of the manifest module now raises instead of degrading. Importing the extender
+name from the package still raises `ImportError` naming the extra.
 
 When the dependency is missing, the package module's `__getattr__` raises `ImportError` for the
 extender name, so `hasattr(pkg, "OtelExtender")` raises rather than returning `False`. Code that
@@ -191,13 +191,11 @@ Conventions:
 - Bundle packages set `entry_point_bundle = true` and aggregate the entry points of
   every nested plugin package under their path.
 - `mloda.optional_dependencies` is a companion marker group, not a plugin group: it
-  declares a package's optional import roots for `PluginLoader` to consult when an
-  entry point's own import fails. Its target is the sibling module
-  `_optional_dependencies.py`, not `manifest.py`, since `PluginLoader` only reads the
-  marker after `manifest.py`'s own import has already failed. That module itself imports
-  nothing from the optional dependency, but loading it still runs the package's own
-  `__init__.py` first, which does import it -- that `__init__.py`'s own try/except
-  `ImportError` guard is what keeps this working.
+  declares a package's optional import roots for `PluginLoader` to consult when the
+  manifest import fails. Its target is the sibling `_optional_dependencies.py`, not
+  `manifest.py`, because the loader reads it only after that import has failed. The
+  package `__init__.py` therefore imports nothing from the optional dependency (both
+  extender packages re-export their extender lazily through a module `__getattr__`).
 
 ## UV workspace sources
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 import atexit
 import contextvars
 import logging
-import pickle  # nosec
 import threading
 import uuid
 import weakref
@@ -38,16 +37,14 @@ _open_invocations: contextvars.ContextVar[tuple[tuple[int, "_OpenCalculateInvoca
     "openlineage_open_invocations", default=()
 )
 
-# Process-local: two extenders holding the *same* client object share its close lifecycle. Keyed by
-# client identity via a WeakSet (not pickled state), so a worker's freshly-unpickled client always
-# starts unclosed regardless of what was closed in the parent process's memory.
+# Process-local: extenders sharing one client object share its close lifecycle. Keyed by identity
+# (not pickled state), so a worker's freshly-unpickled client always starts unclosed.
 _closed_clients_lock = threading.Lock()
 _closed_clients: "weakref.WeakSet[OpenLineageClient]" = weakref.WeakSet()
 
 
 def _claim_client_close(client: OpenLineageClient) -> bool:
-    """True for the first close() to reach this client object process-wide; later callers (any
-    instance sharing the client) must not re-flush the underlying transport."""
+    """True for the first close() to reach this client object process-wide; later callers must not re-flush."""
     with _closed_clients_lock:
         if client in _closed_clients:
             return False
@@ -64,8 +61,9 @@ class OpenLineageExtender(Extender):
     """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating nested
     INPUT_DATA_LOAD calls as inputs. Sink resolution: injected client wins, else use_sdk_defaults, else inert.
     Emits happen synchronously on the calculation thread, so a blocking transport delays every wrapped calculation.
-    close() flushes the client and is terminal; a self-built client also gets a bounded-timeout atexit flush,
-    registered on every lazy build regardless of process (MULTIPROCESSING workers included)."""
+    close() flushes the client and is terminal. A self-built client gets a bounded-timeout atexit flush and is
+    rebuilt, not pickled, in worker processes; an injected client is pickled as-is, so under MULTIPROCESSING it
+    must be picklable."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
 
@@ -87,7 +85,7 @@ class OpenLineageExtender(Extender):
         self._client_lock = threading.Lock()
         self._closed = False
         self._logged_inert = False
-        self._logged_pickle_drop = False
+        self._owns_client = False
 
     def _get_client(self) -> OpenLineageClient | None:
         if self._closed:
@@ -103,6 +101,7 @@ class OpenLineageExtender(Extender):
         with self._client_lock:
             if self._client is None:
                 self._client = OpenLineageClient()
+                self._owns_client = True
                 atexit.register(self.close, self._ATEXIT_CLOSE_TIMEOUT)
         return self._client
 
@@ -133,32 +132,12 @@ class OpenLineageExtender(Extender):
 
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
-        if self._client is not None and not self._client_is_picklable():
+        if self._owns_client:
             state["_client"] = None
-            self._log_pickle_drop_once()
+            state["_owns_client"] = False
         state["_logged_inert"] = False
-        state["_logged_pickle_drop"] = False
         del state["_client_lock"]
         return state
-
-    def _client_is_picklable(self) -> bool:
-        try:
-            pickle.dumps(self._client)  # nosec
-        except Exception:  # degrade gracefully: any transport __getstate__/__reduce__ failure, not just pickle's own
-            return False
-        return True
-
-    def _log_pickle_drop_once(self) -> None:
-        if self._logged_pickle_drop:
-            return
-        with self._client_lock:
-            if not self._logged_pickle_drop:
-                logger.warning(
-                    "%s could not preserve its injected client across pickling: the client is not "
-                    "picklable, so the copy starts with no client.",
-                    type(self).__name__,
-                )
-                self._logged_pickle_drop = True
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)

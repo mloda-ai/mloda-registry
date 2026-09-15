@@ -21,9 +21,8 @@ else:
 CONFIG_DIR = Path("config")
 PACKAGES_CONFIG = CONFIG_DIR / "packages.toml"
 
-# Each mloda entry-point group's own (module suffix, manifest attribute) pairing. A group's entry
-# point must match ITS OWN pairing, not just be a member of the module suffixes/attrs used by any
-# group, or a mloda.extenders entry could resolve to ._optional_dependencies:OPTIONAL_DEPENDENCIES.
+# Each entry-point group's own (module suffix, attribute) pairing. An entry point must match its
+# group's pairing, not merely use a suffix and attribute that some other group accepts.
 _ENTRY_POINT_GROUP_SHAPE: dict[str, tuple[str, str]] = {
     "mloda.feature_groups": (".manifest", "FEATURE_GROUPS"),
     "mloda.compute_frameworks": (".manifest", "COMPUTE_FRAMEWORKS"),

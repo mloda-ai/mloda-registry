@@ -47,13 +47,8 @@ class RecordingTransport(Transport):
 
 
 class _SharedCaptureTransport(RecordingTransport):
-    """RecordingTransport variant that records into shared class state instead of instance state.
-
-    Unpickling an extender holding a client reconstructs a brand-new Transport instance whose own
-    `events` list is disconnected from the pre-pickle original. Recording into a class attribute
-    instead means every instance, pre-pickle and post-unpickle alike, appends into the one list
-    `injected_sink_capture()` hands back, so what the *copy* actually emitted stays observable.
-    """
+    """Records into class state so a transport rebuilt by unpickling still appends to the list
+    `injected_sink_capture()` returns."""
 
     kind = "shared-capture"
     captured: list[RunEvent] = []
@@ -66,8 +61,7 @@ class _SharedCaptureTransport(RecordingTransport):
 
 @contextmanager
 def _injected_sink_capture() -> Iterator[list[Any]]:
-    """Every RecordingTransport built by make_recording_client() during this context is actually a
-    _SharedCaptureTransport (see its docstring for why identity, not just picklability, matters here)."""
+    """Every RecordingTransport built by make_recording_client() during this context is a _SharedCaptureTransport."""
     _SharedCaptureTransport.captured = []
     with patch("mloda.testing.extenders.openlineage.RecordingTransport", _SharedCaptureTransport):
         yield _SharedCaptureTransport.captured

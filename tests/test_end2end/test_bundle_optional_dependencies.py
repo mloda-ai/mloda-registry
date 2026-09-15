@@ -27,9 +27,8 @@ from tests.script_loader import load_script
 # for a missing optional dependency (see mloda.core.abstract_plugins.plugin_loader.plugin_loader).
 _PLUGIN_LOADER_LOGGER = "mloda.core.abstract_plugins.plugin_loader.plugin_loader"
 
-# Companion marker group (mloda.core...plugin_loader.OPTIONAL_DEPENDENCY_ENTRY_POINT_GROUP):
-# PluginLoader consults it internally on every load_entry_points() call regardless of which
-# group was requested, so it is never itself a valid `group=` argument to that method.
+# Companion marker group: PluginLoader consults it on every load_entry_points() call, so it is
+# never itself a valid `group=` argument.
 _OPTIONAL_DEPENDENCY_MARKER_GROUP = "mloda.optional_dependencies"
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -176,11 +175,8 @@ def test_mloda_community_declares_all_extra_as_union_of_per_extra_entries() -> N
 def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A nested leaf's runtime dependency covered only through its bundle's own extra is optional at
-    runtime: PluginLoader.load_entry_points(), not a direct ``<leaf>.manifest`` import, is the sole
-    guard tolerating that. A direct import of the manifest with the dependency missing now raises by
-    design, so the only way to observe the intended degrade is through PluginLoader itself.
-    """
+    """A leaf dependency covered only by a bundle extra is optional at runtime: PluginLoader is the sole
+    guard, so the degrade is observed through load_entry_points(), not a direct manifest import."""
     packages = _packages()
     checked = 0
 
@@ -241,8 +237,7 @@ def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
             ]
             assert plugin_loader_warnings, (
                 f"PluginLoader.load_entry_points() logged no WARNING skipping {dotted}'s entry point "
-                f"while {covered_only_by_extra} was blocked; manifest.py must no longer swallow this "
-                "itself now that PluginLoader is the sole guard"
+                f"while {covered_only_by_extra} was blocked"
             )
 
             exposed_attrs = _EXPOSED_EXTENDER_NAMES.get(leaf_name)
@@ -282,18 +277,9 @@ def test_plugin_loader_skips_entry_point_with_warning_when_transitive_dependency
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """``root`` is genuinely installed, but one of its own transitive dependencies is missing (as if too
-    old a version): the failure surfaces from a frame inside ``root``'s own code, named by that
-    transitive dependency, not by ``root`` itself. PluginLoader.load_entry_points() must not abort
-    discovery for every plugin over this, it must skip only this one entry point with a WARNING.
-
-    Both leaves declare ``mloda.optional_dependencies`` (this package's own ``_optional_dependencies.py``
-    marker), so PluginLoader resolves the leaf's own declared root (``openlineage``/``opentelemetry``)
-    instead of falling back to its hardcoded OPTIONAL_PLUGIN_DEPENDENCIES allowlist. Traceback-frame
-    blame (``_traceback_blames_root``) then attributes the failure, which surfaces under the transitive
-    dependency's own name, back to that declared root, so discovery survives with a clean skip and
-    WARNING rather than a re-raise.
-    """
+    """``root`` is installed but one of its transitive dependencies is missing, so the failure is named
+    after that dependency, not ``root``. PluginLoader must skip only this entry point with a WARNING,
+    via the declared marker plus traceback blame."""
     transitive_dependency = _TRANSITIVE_DEPENDENCY_OF_ROOT[root]
     packages = _packages()
     leaf_cfg = packages[leaf_name]
@@ -310,8 +296,7 @@ def test_plugin_loader_skips_entry_point_with_warning_when_transitive_dependency
         for group in groups:
             keys = PluginLoader().load_entry_points(group=group)
             assert not any(key.startswith(f"{dotted}.") for key in keys), (
-                f"PluginLoader registered a class from {dotted}'s manifest even though its transitive "
-                f"dependency {transitive_dependency!r} (of {root!r}) was blocked"
+                f"{dotted} was registered despite {transitive_dependency!r} being blocked"
             )
 
     plugin_loader_warnings = [
@@ -319,7 +304,4 @@ def test_plugin_loader_skips_entry_point_with_warning_when_transitive_dependency
         for record in caplog.records
         if record.name == _PLUGIN_LOADER_LOGGER and record.levelno == logging.WARNING
     ]
-    assert plugin_loader_warnings, (
-        f"PluginLoader.load_entry_points() logged no WARNING skipping {dotted}'s entry point while its "
-        f"transitive dependency {transitive_dependency!r} (of {root!r}) was blocked"
-    )
+    assert plugin_loader_warnings, f"no WARNING logged for skipping {dotted}"

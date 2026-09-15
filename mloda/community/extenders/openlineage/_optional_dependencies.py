@@ -1,10 +1,5 @@
-"""Marker consumed by PluginLoader's optional-dependency lookup: this module itself has no import of
-openlineage, but loading it via entry_point.load() still runs the parent package's own __init__.py
-first (Python always imports a submodule's parent package), which does import openlineage -- that's
-why __init__.py's own try/except ImportError guard still matters here.
-
-Must stay import-free of openlineage: PluginLoader reads it only after manifest.py's own import has
-already failed, so a marker living inside manifest.py could never be read.
+"""Marker PluginLoader reads for this package's optional import roots. Lives beside manifest.py rather
+than in it because the loader reads it only after manifest.py's own import has failed.
 """
 
 from __future__ import annotations

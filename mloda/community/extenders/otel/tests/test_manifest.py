@@ -8,10 +8,5 @@ from mloda.testing.optional_dependency import OptionalDependencyPackageTestMixin
 class TestOtelManifest(OptionalDependencyPackageTestMixin):
     package = "mloda.community.extenders.otel"
     root = "opentelemetry"
-    distribution = "opentelemetry-api"
-    extra = "mloda-community[otel]"
     extender_name = "OtelExtender"
     extender_module = "otel_extender"
-    # Simulates an installed-but-too-old opentelemetry-api.
-    broken_module = "opentelemetry.trace"
-    broken_name = "TracerProvider"

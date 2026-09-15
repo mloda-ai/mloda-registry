@@ -8,8 +8,6 @@ from mloda.testing.optional_dependency import OptionalDependencyPackageTestMixin
 class _ProbeOpenLineageManifest(OptionalDependencyPackageTestMixin):
     package = "mloda.community.extenders.openlineage"
     root = "openlineage"
-    distribution = "openlineage-python"
-    extra = "mloda-community[openlineage]"
     extender_name = "OpenLineageExtender"
     extender_module = "openlineage_extender"
 
