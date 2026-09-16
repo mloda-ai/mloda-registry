@@ -114,6 +114,12 @@ A stock `ReadFile` subclass that never implements `get_column_names`, and a stoc
 
 If your wholesale override still matches by file suffix (i.e. you do implement `suffix()`, unlike the HTTP case above), delegate to `cls._file_matches(path, feature_names, document_suffixes)` rather than hand-writing this check: it returns a bool, so use `return path if cls._file_matches(...) else None`, and it keeps the `document_suffixes` exclusion (from `cls.reader_option("document_suffixes", options)`), `validate_columns`, and the recorded decline intact.
 
+## Column Discovery
+
+The `get_column_names` seam used above to decline chain-separated names also backs `describe_columns(data_access) -> dict[str, DataType | None]` on `BaseInputData`: it maps each column name to its `DataType` (`None` where unknown), and raises `NotImplementedError` by default. `ReadFile` wraps it around `get_column_names` for free (every name mapped to `None`) once a subclass implements that; a reader that only overrides `match_subclass_data_access`/`load_data` wholesale, like `UbaAirReader` and `GovDataReader` above, never implements `get_column_names`, so it does not inherit this default and raises `NotImplementedError` unless it overrides `describe_columns` directly. `ParquetReader`, `FeatherReader`, `OrcReader`, `JsonReader`, and `ReadDB`'s `SQLITEReader` override it with real types read from the file or table schema.
+
+Requires an mloda release newer than 0.13.0; not yet shipped as of this registry's `mloda>=0.13.0,<0.14.0` floor.
+
 ## Test
 
 Follow the contract at unit level, then end to end:
