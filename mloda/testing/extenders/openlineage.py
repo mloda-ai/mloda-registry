@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import Any
@@ -171,6 +171,11 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
     def make_extender(self, *, raise_on_error: bool | None = None) -> Extender:
         client, _ = make_recording_client()
         return self.make_openlineage_extender(client, raise_on_error=raise_on_error)
+
+    def make_extender_with_sink_probe(self) -> tuple[Extender, Callable[[], Any]]:
+        client, transport = make_recording_client()
+        extender = self.make_openlineage_extender(client)
+        return extender, lambda: transport.events
 
     def own_failure(self) -> AbstractContextManager[Any]:
         return patch.object(OpenLineageClient, "emit", side_effect=RuntimeError("openlineage instrumentation boom"))

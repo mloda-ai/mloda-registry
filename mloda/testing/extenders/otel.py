@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from pathlib import Path
 from typing import Any, ClassVar
@@ -205,6 +205,11 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
     def make_extender(self, *, raise_on_error: bool | None = None) -> Extender:
         provider, _ = make_span_capture()
         return self.make_otel_extender(provider, raise_on_error=raise_on_error)
+
+    def make_extender_with_sink_probe(self) -> tuple[Extender, Callable[[], Any]]:
+        provider, exporter = make_span_capture()
+        extender = self.make_otel_extender(provider)
+        return extender, lambda: exporter.get_finished_spans()
 
     def own_failure(self) -> AbstractContextManager[Any]:
         return patch.object(TracerProvider, "get_tracer", side_effect=RuntimeError("otel instrumentation boom"))

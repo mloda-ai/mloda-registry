@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 import pickle  # nosec
+from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
 import pytest
 from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext
+from mloda.user import ParallelizationMode
 
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
@@ -80,6 +82,13 @@ class ExtenderContractTestMixin:
         return nullcontext()
 
     def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
+        raise NotImplementedError
+
+    def make_extender_with_sink_probe(self) -> tuple[Extender, Callable[[], Any]]:
+        """Return an extender wired to a fresh, per-instance in-memory sink, plus a zero-arg
+        callable returning whatever that exact sink instance captured. Must be per-instance state
+        (built alongside the extender), never shared/class-level state, or the identity test below
+        is vacuous."""
         raise NotImplementedError
 
     @classmethod
@@ -326,3 +335,18 @@ class ExtenderContractTestMixin:
                     with pytest.raises(RuntimeError):
                         extender(lambda: None)
             assert spy == []
+
+    @pytest.mark.parametrize("mode", [ParallelizationMode.SYNC, ParallelizationMode.THREADING])
+    def test_contract_run_all_emits_into_the_exact_injected_sink(
+        self, mode: ParallelizationMode, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        if not self.has_backend_sink():
+            pytest.skip("extender has no external sink")
+        extender, probe = self.make_extender_with_sink_probe()
+        name = self.extender_class().__name__
+        with caplog.at_level(logging.WARNING):
+            values = run_value_int(extender, parallelization_modes={mode})
+        assert values == expected_value_int()
+        assert probe(), "no observation reached the injected sink; identity was not preserved"
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING and name in r.message]
+        assert warnings == [], warnings
