@@ -67,6 +67,15 @@ class ExtenderContractTestMixin:
     def make_injected_and_sdk_defaults_extender(self) -> Extender:
         raise NotImplementedError
 
+    def make_unpicklable_sink_extender(self) -> Extender:
+        """Return an instance wired to a sink that cannot survive plain pickling."""
+        raise NotImplementedError
+
+    @classmethod
+    def supports_unpicklable_sink_degrade(cls) -> bool:
+        """False unless the host trial-pickles its sink and drops+warns instead of hard-failing pickling."""
+        return False
+
     def ambient_sink_environment(self) -> AbstractContextManager[Any]:
         return nullcontext()
 
@@ -204,6 +213,27 @@ class ExtenderContractTestMixin:
                 with make_hook_context(hook=self.context_hook()).activate():
                     assert copy(lambda a, b: a + b, 3, 4) == 7
             assert captured  # the pickled copy actually emitted into the shared/captured sink
+
+    def test_contract_unpicklable_sink_drops_and_warns_once_per_instance(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Trial-pickle probe: an unpicklable sink is dropped, not a hard pickling failure, and the drop
+        is logged exactly once per instance even across repeated pickling of the same instance."""
+        if not self.supports_unpicklable_sink_degrade():
+            pytest.skip("host does not support unpicklable-sink degrade")
+        extender = self.make_unpicklable_sink_extender()
+
+        with caplog.at_level(logging.WARNING):
+            pickle.loads(pickle.dumps(extender))  # nosec
+            copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        name = self.extender_class().__name__
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING and name in r.message]
+        assert len(warnings) == 1, warnings
+
+        with self.pickled_copy_environment():
+            with make_hook_context(hook=self.context_hook()).activate():
+                assert copy(lambda a, b: a + b, 3, 4) == 7
 
     def test_contract_own_failure_does_not_stop_chained_extender(self, caplog: pytest.LogCaptureFixture) -> None:
         if not self.supports_warning_only():

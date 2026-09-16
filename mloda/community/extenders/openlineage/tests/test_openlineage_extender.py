@@ -182,7 +182,8 @@ class TestOpenLineageExtenderConstructorOptions:
 
 
 class TestOpenLineageExtenderPickling:
-    """An injected client is pickled as-is; a self-built one is rebuilt by the copy."""
+    """An injected client is pickled as-is if it can be, else trial-pickle drops it with a warning;
+    a self-built one is rebuilt by the copy."""
 
     def test_pickle_round_trip_keeps_config(self, ol_capture: tuple[OpenLineageClient, RecordingTransport]) -> None:
         client, _ = ol_capture
@@ -213,12 +214,36 @@ class TestOpenLineageExtenderPickling:
         assert isinstance(first, OpenLineageClient)
         assert first is second
 
-    def test_unpicklable_injected_client_makes_pickling_fail(self) -> None:
-        """No probe, no silent drop: an injected client that cannot pickle fails the extender's pickling."""
+    def test_unpicklable_injected_client_is_dropped_on_pickle_and_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Trial-pickle probe (mirrors OtelExtender's tracer_provider degrade): an injected client
+        that cannot pickle is dropped instead of hard-failing the whole extender's pickling, and the
+        drop is logged."""
         extender = OpenLineageExtender(client=OpenLineageClient(transport=_LockHoldingTransport()))
 
-        with pytest.raises(TypeError):
-            pickle.dumps(extender)  # nosec
+        with caplog.at_level(logging.WARNING):
+            copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        assert copy._client is None
+        warnings = [
+            r.message for r in caplog.records if r.levelno == logging.WARNING and "OpenLineageExtender" in r.message
+        ]
+        assert any("client" in message.lower() for message in warnings), warnings
+
+    def test_picklable_injected_client_survives_pickling_with_no_warning(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        with caplog.at_level(logging.WARNING):
+            copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        assert copy._client is not None
+        warnings = [
+            r.message for r in caplog.records if r.levelno == logging.WARNING and "OpenLineageExtender" in r.message
+        ]
+        client_warnings = [message for message in warnings if "client" in message.lower()]
+        assert client_warnings == [], client_warnings
 
     def test_self_built_client_is_dropped_on_pickle_and_rebuilt_by_copy(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _PicklableFakeClient)

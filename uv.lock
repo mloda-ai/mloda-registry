@@ -33,6 +33,7 @@ members = [
     "mloda-community-example-a",
     "mloda-community-example-b",
     "mloda-community-extenders-example",
+    "mloda-community-extenders-shared",
     "mloda-community-ffill",
     "mloda-community-frame-aggregate",
     "mloda-community-offset",
@@ -984,6 +985,28 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
+name = "mloda-community-extenders-shared"
+version = "0.4.6"
+source = { editable = "mloda/community/extenders/shared" }
+dependencies = [
+    { name = "mloda" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "mloda-testing" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mloda", specifier = ">=0.13.0,<0.14.0" },
+    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "mloda-community-ffill"
 version = "0.4.6"
 source = { editable = "mloda/community/feature_groups/data_operations/row_preserving/ffill" }
@@ -1127,6 +1150,7 @@ version = "0.4.6"
 source = { editable = "mloda/community/extenders/openlineage" }
 dependencies = [
     { name = "mloda" },
+    { name = "mloda-community-extenders-shared" },
     { name = "openlineage-python" },
 ]
 
@@ -1140,6 +1164,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "mloda", specifier = ">=0.13.0,<0.14.0" },
+    { name = "mloda-community-extenders-shared", specifier = ">=0.4.6" },
     { name = "mloda-testing", extras = ["openlineage"], marker = "extra == 'dev'" },
     { name = "openlineage-python", specifier = ">=1.20,<2" },
     { name = "pyarrow", marker = "extra == 'dev'" },
@@ -1153,6 +1178,7 @@ version = "0.4.6"
 source = { editable = "mloda/community/extenders/otel" }
 dependencies = [
     { name = "mloda" },
+    { name = "mloda-community-extenders-shared" },
     { name = "opentelemetry-api" },
 ]
 
@@ -1166,6 +1192,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "mloda", specifier = ">=0.13.0,<0.14.0" },
+    { name = "mloda-community-extenders-shared", specifier = ">=0.4.6" },
     { name = "mloda-testing", extras = ["otel"], marker = "extra == 'dev'" },
     { name = "opentelemetry-api", specifier = ">=1.30,<2" },
     { name = "pyarrow", marker = "extra == 'dev'" },

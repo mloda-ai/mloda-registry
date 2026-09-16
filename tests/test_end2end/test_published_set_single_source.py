@@ -50,6 +50,7 @@ _EXPECTED_PUBLISHED = [
     *_BUNDLES,
     "mloda-community-example",
     "mloda-community-example-a",
+    "mloda-community-extenders-shared",
     "mloda-community-otel",
     "mloda-community-openlineage",
     "mloda-community-data-operations",

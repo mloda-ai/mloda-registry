@@ -181,6 +181,17 @@ class TestProbeOtelExtenderContract(OtelExtenderTestMixin):
     def expected_span_names(cls) -> dict[ExtenderHook, str] | None:
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: _SPAN_NAME}
 
+    @classmethod
+    def supports_pickled_sink_capture(cls) -> bool:
+        """_ProbeOtelExtender unconditionally drops its tracer_provider on pickle; it never implements
+        the trial-pickle-then-keep behavior this contract test proves."""
+        return False
+
+    @classmethod
+    def supports_unpicklable_sink_degrade(cls) -> bool:
+        """_ProbeOtelExtender never logs a drop warning; it's a minimal fake, not the real contract."""
+        return False
+
 
 class _CachedTracerProbeOtelExtender(Extender):
     """Copy of _ProbeOtelExtender that resolves its tracer once in __init__ and never calls get_tracer again."""

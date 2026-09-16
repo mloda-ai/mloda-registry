@@ -139,6 +139,7 @@ members = [
     "mloda/community/extenders/example",
     "mloda/community/extenders/openlineage",
     "mloda/community/extenders/otel",
+    "mloda/community/extenders/shared",
     "mloda/community/feature_groups/data_operations",
     "mloda/community/feature_groups/data_operations/aggregation",
     "mloda/community/feature_groups/data_operations/row_changing/resample",

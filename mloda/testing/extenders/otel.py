@@ -4,18 +4,20 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
-from typing import Any
+from pathlib import Path
+from typing import Any, ClassVar
 from unittest.mock import patch
 
 import pytest
 from mloda.steward import Extender, ExtenderHook
 from opentelemetry import propagate
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from opentelemetry.trace import StatusCode
+from opentelemetry.trace import StatusCode, Tracer
+from opentelemetry.trace import TracerProvider as ApiTracerProvider
 
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
@@ -71,6 +73,99 @@ def _tracer_provider_resolution_spy() -> Iterator[list[Any]]:
         yield calls
 
 
+class _FileSpanExporter(SpanExporter):
+    """Appends one line per finished span name to marker_path (mirrors the identically-named
+    exporter in tests/test_end2end/test_otel_child_bootstrap_multiprocessing.py); needed here too
+    so RebuildingSpanCaptureProvider can be observed from inside a real spawned worker process."""
+
+    def __init__(self, marker_path: Path) -> None:
+        self._marker_path = marker_path
+
+    def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
+        with open(self._marker_path, "a") as handle:
+            for span in spans:
+                handle.write(f"{span.name}\n")
+        return SpanExportResult.SUCCESS
+
+    def shutdown(self) -> None:
+        pass
+
+
+class _ClassAccumulatorSpanExporter(SpanExporter):
+    """Appends finished span names to class state (mirrors _SharedCaptureTransport.captured in
+    mloda/testing/extenders/openlineage.py), so a pickled copy (a NEW object) still appends to the
+    list make_picklable_span_capture()/injected_sink_capture() hand back to the test."""
+
+    captured: ClassVar[list[str]] = []
+
+    def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
+        for span in spans:
+            type(self).captured.append(span.name)
+        return SpanExportResult.SUCCESS
+
+    def shutdown(self) -> None:
+        pass
+
+
+class RebuildingSpanCaptureProvider(ApiTracerProvider):
+    """Genuinely-picklable custom TracerProvider: implements the opentelemetry.trace ABC directly
+    (unlike opentelemetry.sdk.trace.TracerProvider, which holds locks and can never survive
+    pickling). Lazily builds a real SDK TracerProvider the first time get_tracer() is called, wired
+    to a file exporter (marker_path set: cross-process/e2e observation) or a class-level accumulator
+    (marker_path=None: in-process observation of a pickled copy, which is a NEW object).
+    __getstate__ drops the live SDK provider entirely, so an instance is always picklable."""
+
+    def __init__(self, marker_path: Path | None = None) -> None:
+        self._marker_path = marker_path
+        self._sdk_provider: TracerProvider | None = None
+
+    def get_tracer(
+        self,
+        instrumenting_module_name: str,
+        instrumenting_library_version: str | None = None,
+        schema_url: str | None = None,
+        attributes: Any = None,
+    ) -> Tracer:
+        if self._sdk_provider is None:
+            self._sdk_provider = TracerProvider(shutdown_on_exit=False)
+            exporter: SpanExporter = (
+                _FileSpanExporter(self._marker_path)
+                if self._marker_path is not None
+                else _ClassAccumulatorSpanExporter()
+            )
+            self._sdk_provider.add_span_processor(SimpleSpanProcessor(exporter))
+        return self._sdk_provider.get_tracer(
+            instrumenting_module_name, instrumenting_library_version, schema_url, attributes
+        )
+
+    def __getstate__(self) -> dict[str, Any]:
+        return {"_marker_path": self._marker_path}
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self._marker_path = state["_marker_path"]
+        self._sdk_provider = None
+
+
+def make_picklable_span_capture() -> tuple[RebuildingSpanCaptureProvider, list[str]]:
+    """A genuinely-picklable custom TracerProvider wired to a class-level span-name accumulator,
+    reset for this call; mirrors make_span_capture()'s signature/style."""
+    _ClassAccumulatorSpanExporter.captured = []
+    return RebuildingSpanCaptureProvider(), _ClassAccumulatorSpanExporter.captured
+
+
+@contextmanager
+def _injected_sink_capture() -> Iterator[list[Any]]:
+    """Every make_span_capture() call during this context builds a RebuildingSpanCaptureProvider
+    (marker_path=None, in-process class-accumulator mode) instead of the real SDK provider."""
+    _ClassAccumulatorSpanExporter.captured = []
+
+    def picklable_span_capture() -> tuple[RebuildingSpanCaptureProvider, None]:
+        return RebuildingSpanCaptureProvider(), None
+
+    with patch("mloda.testing.extenders.otel.make_span_capture", side_effect=picklable_span_capture):
+        yield _ClassAccumulatorSpanExporter.captured
+
+
 class OtelExtenderTestMixin(ExtenderContractTestMixin):
     """Contract for extenders that emit OTel spans. Host provides extender_class and make_otel_extender."""
 
@@ -101,7 +196,13 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
     def sink_resolution_spy(self) -> AbstractContextManager[list[Any]]:
         return _tracer_provider_resolution_spy()
 
-    # No injected_sink_capture()/supports_pickled_sink_capture() override: a TracerProvider never survives pickling.
+    @classmethod
+    def supports_pickled_sink_capture(cls) -> bool:
+        return True
+
+    def injected_sink_capture(self) -> AbstractContextManager[list[Any]]:
+        return _injected_sink_capture()
+
     def make_injected_and_sdk_defaults_extender(self) -> Extender:
         provider, _ = make_span_capture()
         return self.extender_class()(tracer_provider=provider, use_sdk_defaults=True)  # type: ignore[call-arg]
@@ -112,6 +213,14 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
 
     def own_failure(self) -> AbstractContextManager[Any]:
         return patch.object(TracerProvider, "get_tracer", side_effect=RuntimeError("otel instrumentation boom"))
+
+    def make_unpicklable_sink_extender(self) -> Extender:
+        provider, _ = make_span_capture()
+        return self.make_otel_extender(provider)
+
+    @classmethod
+    def supports_unpicklable_sink_degrade(cls) -> bool:
+        return True
 
     def test_otel_one_span_per_call(self) -> None:
         provider, exporter = make_span_capture()

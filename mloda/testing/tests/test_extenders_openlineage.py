@@ -245,6 +245,12 @@ class TestProbeOpenLineageExtenderContract(OpenLineageExtenderTestMixin):
     def expected_hooks(cls) -> set[ExtenderHook] | None:
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}
 
+    @classmethod
+    def supports_unpicklable_sink_degrade(cls) -> bool:
+        """_ProbeOpenLineageExtender never drops or warns about an unpicklable client; it's a minimal
+        fake, not the real contract."""
+        return False
+
 
 class _DirectTransportProbeOpenLineageExtender(Extender):
     """Emits straight to the RecordingTransport, bypassing OpenLineageClient.emit entirely."""

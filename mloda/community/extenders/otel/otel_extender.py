@@ -24,6 +24,7 @@ from opentelemetry.trace import (
 )
 
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
+from mloda.community.extenders.shared.pickle_safety import is_picklable
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +66,10 @@ _OPERATION_NAMES: dict[ExtenderHook, str] = {
 class OtelExtender(Extender):
     """Emits one OpenTelemetry span per wrapped hook invocation, populated from the ambient HookContext.
     Sink resolution: injected tracer_provider wins, else use_sdk_defaults, else inert (no-op span).
-    An injected tracer_provider is process-local: pickled copies (worker processes under
-    ParallelizationMode.MULTIPROCESSING) drop it and fall back to the resolution rule above."""
+    An injected tracer_provider that cannot survive pickling (e.g. the real SDK TracerProvider, which
+    holds locks) is dropped by a trial-pickle probe when a copy is made (worker processes under
+    ParallelizationMode.MULTIPROCESSING), falling back to the resolution rule above; a genuinely
+    picklable custom provider is kept as-is."""
 
     def __init__(
         self,
@@ -105,16 +108,18 @@ class OtelExtender(Extender):
                 self._logged_inert = True
 
     def __getstate__(self) -> dict[str, Any]:
-        # Only worth warning when use_sdk_defaults is False; otherwise the copy has a supported fallback.
-        if self._tracer_provider is not None and not self.use_sdk_defaults and not self._logged_pickle_drop:
+        provider = self._tracer_provider
+        provider_unpicklable = provider is not None and not is_picklable(provider)
+        if provider_unpicklable and not self._logged_pickle_drop:
             logger.warning(
-                "OtelExtender drops an injected tracer_provider when pickled or copied; the copy is inert "
-                "unless use_sdk_defaults=True, which lets it resolve a provider installed in its own "
-                "process, e.g. via child_bootstrap under MULTIPROCESSING."
+                "OtelExtender drops an injected tracer_provider when pickled or copied because it could not "
+                "be pickled; the copy is inert unless use_sdk_defaults=True, which lets it resolve a provider "
+                "installed in its own process, e.g. via child_bootstrap under MULTIPROCESSING."
             )
             self._logged_pickle_drop = True
         state = dict(self.__dict__)
-        state["_tracer_provider"] = None
+        if provider_unpicklable:
+            state["_tracer_provider"] = None
         state["_logged_inert"] = False
         state["_logged_pickle_drop"] = False
         del state["_logged_inert_lock"]

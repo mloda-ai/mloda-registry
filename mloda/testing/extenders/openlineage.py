@@ -6,6 +6,7 @@ import inspect
 import json
 import logging
 import os
+import threading
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
@@ -57,6 +58,21 @@ class _SharedCaptureTransport(RecordingTransport):
         if not isinstance(event, RunEvent):
             raise TypeError(f"_SharedCaptureTransport only records RunEvent, got {type(event).__name__}")
         type(self).captured.append(event)
+
+
+class _LockHoldingTransport(Transport):
+    """A Transport whose lock attribute cannot survive plain pickling; mirrors the identically-named
+    fixture in test_openlineage_extender.py / test_openlineage_multiprocessing.py, needed here too as
+    the shared unpicklable-sink stand-in for the contract's degrade-and-warn test."""
+
+    kind = "lock-holding"
+    config_class = Config
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+
+    def emit(self, event: Event) -> None:
+        pass
 
 
 @contextmanager
@@ -158,6 +174,14 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
 
     def own_failure(self) -> AbstractContextManager[Any]:
         return patch.object(OpenLineageClient, "emit", side_effect=RuntimeError("openlineage instrumentation boom"))
+
+    def make_unpicklable_sink_extender(self) -> Extender:
+        client = OpenLineageClient(transport=_LockHoldingTransport())
+        return self.make_openlineage_extender(client)
+
+    @classmethod
+    def supports_unpicklable_sink_degrade(cls) -> bool:
+        return True
 
     def test_openlineage_no_ambient_context_emits_nothing(self) -> None:
         client, transport = make_recording_client()

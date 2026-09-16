@@ -34,6 +34,7 @@ _TYPED_PACKAGES = [
     *_BUNDLES,
     "mloda-community-data-operations",
     "mloda-community-example",
+    "mloda-community-extenders-shared",
     "mloda-community-otel",
     "mloda-community-openlineage",
 ]
@@ -44,6 +45,7 @@ _TYPED_PACKAGES = [
 _MARKER_FLOORS = {
     "mloda-community-data-operations": "0.4.1",
     "mloda-community-example": "0.4.1",
+    "mloda-community-extenders-shared": "0.4.6",
     "mloda-community-otel": "0.4.6",
     "mloda-community-openlineage": "0.4.6",
 }

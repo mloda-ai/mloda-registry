@@ -90,18 +90,21 @@ def test_injected_client_emits_into_a_real_spawned_worker(
     assert "COMPLETE" in event_types
 
 
-def test_injected_client_with_unpicklable_transport_is_rejected_before_dispatch(
+def test_injected_client_with_unpicklable_transport_degrades_gracefully(
     flight_server: ParallelRunnerFlightServer,
 ) -> None:
-    """An injected client that cannot survive pickling is rejected at plan time, not silently dropped."""
+    """An injected client whose transport cannot survive pickling is dropped by the extender's own
+    trial-pickle probe (OpenLineageExtender.__getstate__), so core's preflight pickle check
+    (raise_on_unpicklable_extender) sees an extender that pickles fine; the whole run succeeds
+    instead of failing at plan time, and the dropped client's transport never sees any events."""
     transport = _LockHoldingTransport()
     client = OpenLineageClient(transport=transport)
 
-    with pytest.raises(ValueError, match="cannot be pickled for multiprocessing"):
-        run_value_int(
-            OpenLineageExtender(client=client),
-            parallelization_modes={ParallelizationMode.MULTIPROCESSING},
-            flight_server=flight_server,
-        )
+    values = run_value_int(
+        OpenLineageExtender(client=client),
+        parallelization_modes={ParallelizationMode.MULTIPROCESSING},
+        flight_server=flight_server,
+    )
 
+    assert values == expected_value_int()
     assert transport.events == []

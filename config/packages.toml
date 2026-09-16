@@ -78,9 +78,16 @@ dependencies = ["{core_dependency}"]
 path = "mloda/community/extenders/example"
 entry_point_groups = ["mloda.extenders"]
 
+[packages.mloda-community-extenders-shared]
+description = "Pickle-safety helper shared by mloda community extenders"
+dependencies = ["{core_dependency}"]
+path = "mloda/community/extenders/shared"
+published = true
+py_typed = true
+
 [packages.mloda-community-otel]
 description = "OpenTelemetry spans, metadata-only by default, for mloda pipelines"
-dependencies = ["{core_dependency}", "opentelemetry-api>=1.30,<2"]
+dependencies = ["{core_dependency}", "opentelemetry-api>=1.30,<2", "mloda-community-extenders-shared>={version}"]
 path = "mloda/community/extenders/otel"
 published = true
 optional_dependencies = { dev = ["mloda-testing[otel]", "pytest>=9.0.3", "pyarrow"] }
@@ -89,7 +96,7 @@ py_typed = true
 
 [packages.mloda-community-openlineage]
 description = "OpenLineage RunEvents with schema, data-source and parent-run facets, for mloda pipelines"
-dependencies = ["{core_dependency}", "openlineage-python>=1.20,<2"]
+dependencies = ["{core_dependency}", "openlineage-python>=1.20,<2", "mloda-community-extenders-shared>={version}"]
 path = "mloda/community/extenders/openlineage"
 published = true
 optional_dependencies = { dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "pyarrow"] }

@@ -19,6 +19,7 @@ from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, SpanExportResult
 
 from mloda.community.extenders.otel import OtelExtender
+from mloda.testing.extenders.otel import RebuildingSpanCaptureProvider
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
 
 
@@ -86,6 +87,30 @@ def test_child_bootstrap_installed_provider_emits_a_span_inside_the_spawned_work
     assert marker_path.exists(), (
         "child_bootstrap's installed TracerProvider never wrote a span marker file; the spawned "
         "worker never emitted a span for OtelExtender(use_sdk_defaults=True)"
+    )
+    span_names = marker_path.read_text().splitlines()
+    assert "mloda.calculate" in span_names, span_names
+
+
+def test_injected_picklable_tracer_provider_emits_into_a_real_spawned_worker(
+    tmp_path: Path, flight_server: ParallelRunnerFlightServer
+) -> None:
+    """Unlike the ambient child_bootstrap pattern above, a genuinely-picklable custom TracerProvider
+    can ride the pickled extender itself into a spawned MULTIPROCESSING worker, mirroring
+    test_openlineage_multiprocessing.py::test_injected_client_emits_into_a_real_spawned_worker."""
+    marker_path = tmp_path / "otel_multiprocessing_injected_provider_spans.txt"
+    provider = RebuildingSpanCaptureProvider(marker_path=marker_path)
+
+    values = run_value_int(
+        OtelExtender(tracer_provider=provider),
+        parallelization_modes={ParallelizationMode.MULTIPROCESSING},
+        flight_server=flight_server,
+    )
+
+    assert values == expected_value_int()
+    assert marker_path.exists(), (
+        "the injected picklable TracerProvider's marker file was never written; the spawned worker "
+        "never emitted a span for the injected provider"
     )
     span_names = marker_path.read_text().splitlines()
     assert "mloda.calculate" in span_names, span_names
