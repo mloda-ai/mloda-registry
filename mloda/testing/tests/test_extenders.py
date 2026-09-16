@@ -456,6 +456,7 @@ class TestExtenderContractTestMixinShape:
             "test_contract_run_all_emits_into_the_exact_injected_sink",
             "test_contract_real_worker_multiprocessing_emits_into_the_exact_injected_sink",
             "test_contract_real_worker_multiprocessing_unpicklable_sink_degrades_gracefully",
+            "test_contract_pickled_copy_with_sdk_defaults_resolves_ambient_sink",
         ],
     )
     def test_new_contract_tests_exist(self, name: str) -> None:

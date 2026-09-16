@@ -222,6 +222,10 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
     def supports_unpicklable_sink_degrade(cls) -> bool:
         return True
 
+    @classmethod
+    def sink_noun(cls) -> str | None:
+        return "tracer_provider"
+
     def test_otel_one_span_per_call(self) -> None:
         provider, exporter = make_span_capture()
         extender = self.make_otel_extender(provider)

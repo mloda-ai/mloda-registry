@@ -61,6 +61,19 @@ class ExtenderContractTestMixin:
     def has_backend_sink(cls) -> bool:
         raise NotImplementedError
 
+    @classmethod
+    def sink_noun(cls) -> str | None:
+        """The word this host's drop-warning uses for its sink ('tracer_provider', 'client'). None
+        skips the noun-specific assertions below; only a host with supports_unpicklable_sink_degrade()
+        or supports_pickled_sink_capture() True need override this."""
+        return None
+
+    @classmethod
+    def unpicklable_sink_failure_type(cls) -> str:
+        """The pickle-failure exception type name this host's drop-warning names. Both current hosts
+        produce TypeError (pickling a threading.Lock always raises TypeError)."""
+        return "TypeError"
+
     def make_unconfigured_extender(self) -> Extender:
         return self.extender_class()()
 
@@ -227,15 +240,26 @@ class ExtenderContractTestMixin:
             with make_hook_context(hook=self.context_hook()).activate():
                 assert copy(lambda a, b: a + b, 3, 4) == 7
 
-    def test_contract_pickled_copy_with_picklable_sink_still_emits(self) -> None:
+    def test_contract_pickled_copy_with_picklable_sink_still_emits(self, caplog: pytest.LogCaptureFixture) -> None:
         if not self.supports_pickled_sink_capture():
             pytest.skip("host does not support pickled-sink capture")
-        with self.injected_sink_capture() as captured:
-            copy = pickle.loads(pickle.dumps(self.make_extender()))  # nosec
-            with self.pickled_copy_environment():
-                with make_hook_context(hook=self.context_hook()).activate():
-                    assert copy(lambda a, b: a + b, 3, 4) == 7
-            assert captured  # the pickled copy actually emitted into the shared/captured sink
+        with caplog.at_level(logging.WARNING):
+            with self.injected_sink_capture() as captured:
+                copy = pickle.loads(pickle.dumps(self.make_extender()))  # nosec
+                with self.pickled_copy_environment():
+                    with make_hook_context(hook=self.context_hook()).activate():
+                        assert copy(lambda a, b: a + b, 3, 4) == 7
+                assert captured  # the pickled copy actually emitted into the shared/captured sink
+
+        noun = self.sink_noun()
+        if noun is not None:
+            name = self.extender_class().__name__
+            drop_warnings = [
+                r.message
+                for r in caplog.records
+                if r.levelno >= logging.WARNING and name in r.message and noun in r.message
+            ]
+            assert drop_warnings == [], drop_warnings
 
     def test_contract_unpicklable_sink_drops_and_warns_once_per_instance(
         self, caplog: pytest.LogCaptureFixture
@@ -251,6 +275,12 @@ class ExtenderContractTestMixin:
         name = self.extender_class().__name__
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING and name in r.message]
         assert len(warnings) == 1, warnings
+
+        failure_type = self.unpicklable_sink_failure_type()
+        assert any(failure_type in message for message in warnings), warnings
+        noun = self.sink_noun()
+        if noun is not None:
+            assert any(noun in message for message in warnings), warnings
 
         with self.pickled_copy_environment():
             with make_hook_context(hook=self.context_hook()).activate():
@@ -326,6 +356,16 @@ class ExtenderContractTestMixin:
         with self.ambient_sink_environment(), self.sink_resolution_spy() as spy:
             with make_hook_context(hook=self.context_hook()).activate():
                 extender(lambda: None)
+            assert spy != []
+
+    def test_contract_pickled_copy_with_sdk_defaults_resolves_ambient_sink(self) -> None:
+        if not self.has_backend_sink():
+            pytest.skip("extender has no external sink")
+        copy = pickle.loads(pickle.dumps(self.make_sdk_defaults_extender()))  # nosec
+        with self.ambient_sink_environment(), self.sink_resolution_spy() as spy:
+            with self.pickled_copy_environment():
+                with make_hook_context(hook=self.context_hook()).activate():
+                    copy(lambda: None)
             assert spy != []
 
     def test_contract_injected_sink_ignores_ambient(self) -> None:

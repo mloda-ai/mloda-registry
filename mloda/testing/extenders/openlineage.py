@@ -207,6 +207,10 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
     def supports_unpicklable_sink_degrade(cls) -> bool:
         return True
 
+    @classmethod
+    def sink_noun(cls) -> str | None:
+        return "client"
+
     def test_openlineage_no_ambient_context_emits_nothing(self) -> None:
         client, transport = make_recording_client()
         extender = self.make_openlineage_extender(client)
