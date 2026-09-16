@@ -69,9 +69,10 @@ class ExtenderContractTestMixin:
         return None
 
     @classmethod
-    def unpicklable_sink_failure_type(cls) -> str:
+    def unpicklable_sink_failure_type(cls) -> str | None:
         """The pickle-failure exception type name this host's drop-warning names. Both current hosts
-        produce TypeError (pickling a threading.Lock always raises TypeError)."""
+        produce TypeError (pickling a threading.Lock always raises TypeError). None skips the
+        assertion, e.g. for a host whose drop-warning doesn't name a type."""
         return "TypeError"
 
     def make_unconfigured_extender(self) -> Extender:
@@ -82,6 +83,14 @@ class ExtenderContractTestMixin:
 
     def make_injected_and_sdk_defaults_extender(self) -> Extender:
         raise NotImplementedError
+
+    @classmethod
+    def injected_and_sdk_defaults_sink_survives_pickling(cls) -> bool:
+        """Whether make_injected_and_sdk_defaults_extender()'s sink is expected to survive a pickle
+        round trip and stay in direct use, rather than being dropped and re-resolved from ambient
+        sdk_defaults configuration. Default False (a drop is expected); a host whose injected sink
+        there is picklable overrides this to True."""
+        return False
 
     def make_unpicklable_sink_extender(self) -> Extender:
         """Return an instance wired to a sink that cannot survive plain pickling."""
@@ -104,6 +113,12 @@ class ExtenderContractTestMixin:
         (built alongside the extender), never shared/class-level state, or the identity test below
         is vacuous."""
         raise NotImplementedError
+
+    def sink_probe_expected_content(self) -> set[str] | None:
+        """Content make_extender_with_sink_probe()'s captured sink, or a real worker's marker file,
+        must contain. None skips the check (default; override once probe()'s return type is a
+        comparable string collection)."""
+        return None
 
     @classmethod
     def supports_pickled_sink_capture(cls) -> bool:
@@ -277,7 +292,8 @@ class ExtenderContractTestMixin:
         assert len(warnings) == 1, warnings
 
         failure_type = self.unpicklable_sink_failure_type()
-        assert any(failure_type in message for message in warnings), warnings
+        if failure_type is not None:
+            assert any(failure_type in message for message in warnings), warnings
         noun = self.sink_noun()
         if noun is not None:
             assert any(noun in message for message in warnings), warnings
@@ -361,12 +377,19 @@ class ExtenderContractTestMixin:
     def test_contract_pickled_copy_with_sdk_defaults_resolves_ambient_sink(self) -> None:
         if not self.has_backend_sink():
             pytest.skip("extender has no external sink")
-        copy = pickle.loads(pickle.dumps(self.make_sdk_defaults_extender()))  # nosec
+        copy = pickle.loads(pickle.dumps(self.make_injected_and_sdk_defaults_extender()))  # nosec
         with self.ambient_sink_environment(), self.sink_resolution_spy() as spy:
             with self.pickled_copy_environment():
                 with make_hook_context(hook=self.context_hook()).activate():
                     copy(lambda: None)
-            assert spy != []
+            if self.injected_and_sdk_defaults_sink_survives_pickling():
+                # The injected sink survived pickling and the copy kept using it directly (never
+                # touching ambient config), which is itself a legitimate resolves-through-pickling outcome.
+                assert spy == []
+            else:
+                # The injected sink didn't survive pickling; the copy must have re-resolved from
+                # ambient sdk_defaults configuration instead of silently staying inert.
+                assert spy != [], "sink was dropped on pickling but never re-resolved from ambient sdk defaults"
 
     def test_contract_injected_sink_ignores_ambient(self) -> None:
         if not self.has_backend_sink():
@@ -401,9 +424,12 @@ class ExtenderContractTestMixin:
         with caplog.at_level(logging.WARNING):
             values = run_value_int(extender, parallelization_modes={mode})
         assert values == expected_value_int()
-        assert probe(), "no observation reached the injected sink; identity was not preserved"
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING and name in r.message]
         assert warnings == [], warnings
+        assert probe(), "no observation reached the injected sink; identity was not preserved"
+        expected = self.sink_probe_expected_content()
+        if expected is not None:
+            assert expected <= set(probe()), probe()
 
     def test_contract_real_worker_multiprocessing_emits_into_the_exact_injected_sink(
         self, tmp_path: Path, request: pytest.FixtureRequest, caplog: pytest.LogCaptureFixture
@@ -421,6 +447,9 @@ class ExtenderContractTestMixin:
         assert marker_path.exists(), "no marker written; the spawned worker never emitted through the injected sink"
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING and name in r.message]
         assert warnings == [], warnings
+        expected = self.sink_probe_expected_content()
+        if expected is not None:
+            assert expected <= set(marker_path.read_text().splitlines()), marker_path.read_text()
 
     def test_contract_real_worker_multiprocessing_unpicklable_sink_degrades_gracefully(
         self, request: pytest.FixtureRequest, caplog: pytest.LogCaptureFixture

@@ -209,7 +209,13 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
     def make_extender_with_sink_probe(self) -> tuple[Extender, Callable[[], Any]]:
         provider, exporter = make_span_capture()
         extender = self.make_otel_extender(provider)
-        return extender, lambda: exporter.get_finished_spans()
+        return extender, lambda: [span.name for span in exporter.get_finished_spans()]
+
+    def sink_probe_expected_content(self) -> set[str] | None:
+        expected = self.expected_span_names()
+        if expected is None:
+            return None
+        return {expected[self.context_hook()]}
 
     def own_failure(self) -> AbstractContextManager[Any]:
         return patch.object(TracerProvider, "get_tracer", side_effect=RuntimeError("otel instrumentation boom"))

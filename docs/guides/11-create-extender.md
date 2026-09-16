@@ -134,7 +134,7 @@ Required host hooks: `extender_class`, `make_extender`, `own_failure`. Optional:
 
 A host with `has_backend_sink() == True` must also implement `make_extender_with_sink_probe` (an extender wired to a fresh, per-instance in-memory sink, plus a zero-arg callable returning what that exact sink captured; must be per-instance state, never shared/class-level, or the identity test below is vacuous). Real-worker `MULTIPROCESSING` coverage is opt-in, separate from `has_backend_sink`: override `supports_real_worker_sink` to `True` and implement `make_real_worker_extender_and_marker(tmp_path)` (an extender wired to a file-backed sink under `tmp_path`, plus the marker file a spawned worker's emission writes to) only on a host that actually wants this coverage; it spawns a real subprocess, so it is deliberately not inherited automatically the way `has_backend_sink` is, and a lightweight self-test host should leave it at the default `False`.
 
-The real-worker test needs `ParallelRunnerFlightServer`, which has no public re-export and cannot be imported anywhere under `mloda/` (this repo's internal-import guard forbids it). Its `flight_server` fixture instead lives in a `conftest.py` at the repo root, outside the guard's scan, and the contract test reaches it lazily via `request.getfixturevalue("flight_server")` rather than a parameter or an import.
+The real-worker test needs `ParallelRunnerFlightServer`, which has no public re-export and cannot be imported anywhere under `mloda/` (this repo's internal-import guard forbids it). Its `flight_server` fixture instead lives in a `conftest.py` at the repo root, outside the guard's scan, and the contract test reaches it lazily via `request.getfixturevalue("flight_server")` rather than a parameter or an import. A downstream host outside this repo that opts into `supports_real_worker_sink()` must supply its own `flight_server` fixture: this repo's lives in its root `conftest.py`, but the published `mloda-testing` package does not ship one.
 
 ```python
 from contextlib import AbstractContextManager
@@ -211,7 +211,7 @@ The mixin pins:
 - `run_all` spans share one trace id, and the check requires at least two spans, one of them the declared calculate span name
 - an interrupt (`BaseException`) still marks the span `ERROR` without leaking the exception message
 
-Helpers: `make_span_capture`, `make_picklable_span_capture`, `single_span`, `single_span_attributes`, `inject_parent_carrier`, `RebuildingSpanCaptureProvider`, `FileSpanExporter` (writes finished span names to a marker file, for `make_real_worker_extender_and_marker`), `InstallRealTracerProviderBootstrap` (a picklable `child_bootstrap` installing a real provider ambiently inside a spawned worker).
+Helpers: `make_span_capture`, `make_picklable_span_capture`, `single_span`, `single_span_attributes`, `inject_parent_carrier`, `RebuildingSpanCaptureProvider`, `FileSpanExporter` (writes finished span names to a marker file, for `make_real_worker_extender_and_marker`).
 
 ### OpenLineageExtenderTestMixin
 

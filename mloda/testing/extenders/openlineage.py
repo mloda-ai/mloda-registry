@@ -187,6 +187,12 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         client, _ = make_recording_client()
         return self.extender_class()(client=client, use_sdk_defaults=True)  # type: ignore[call-arg]
 
+    @classmethod
+    def injected_and_sdk_defaults_sink_survives_pickling(cls) -> bool:
+        """make_recording_client()'s RecordingTransport-backed client is picklable, so the injected
+        client here survives pickling intact and the copy keeps using it directly."""
+        return True
+
     def make_extender(self, *, raise_on_error: bool | None = None) -> Extender:
         client, _ = make_recording_client()
         return self.make_openlineage_extender(client, raise_on_error=raise_on_error)
@@ -194,7 +200,10 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
     def make_extender_with_sink_probe(self) -> tuple[Extender, Callable[[], Any]]:
         client, transport = make_recording_client()
         extender = self.make_openlineage_extender(client)
-        return extender, lambda: transport.events
+        return extender, lambda: [event.eventType.value for event in transport.events if event.eventType is not None]
+
+    def sink_probe_expected_content(self) -> set[str] | None:
+        return {"START", "COMPLETE"}
 
     def own_failure(self) -> AbstractContextManager[Any]:
         return patch.object(OpenLineageClient, "emit", side_effect=RuntimeError("openlineage instrumentation boom"))

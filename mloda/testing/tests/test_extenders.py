@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 from mloda.steward import Extender, ExtenderHook, HookContext
+from mloda.user import ParallelizationMode
 
 from mloda.testing.extenders import runners
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
@@ -398,11 +399,51 @@ class TestMakeExtenderWithSinkProbeMustBeDeclared:
         with pytest.raises(NotImplementedError):
             ExtenderContractTestMixin().make_extender_with_sink_probe()
 
+    def test_undeclared_host_errors_instead_of_skipping_sink_gated_test(self, caplog: pytest.LogCaptureFixture) -> None:
+        class _UndeclaredHost(ExtenderContractTestMixin):
+            @classmethod
+            def extender_class(cls) -> type[Extender]:
+                return _ProbeExtender
+
+            def make_extender(self, *, raise_on_error: bool | None = None) -> _ProbeExtender:
+                return _ProbeExtender(sink=[])
+
+            @classmethod
+            def has_backend_sink(cls) -> bool:
+                return True
+
+        with pytest.raises(NotImplementedError):
+            _UndeclaredHost().test_contract_run_all_emits_into_the_exact_injected_sink(ParallelizationMode.SYNC, caplog)
+
 
 class TestMakeRealWorkerExtenderAndMarkerMustBeDeclared:
     def test_default_raises_not_implemented_error(self, tmp_path: Path) -> None:
         with pytest.raises(NotImplementedError):
             ExtenderContractTestMixin().make_real_worker_extender_and_marker(tmp_path)
+
+    def test_undeclared_host_errors_instead_of_skipping_sink_gated_test(
+        self, tmp_path: Path, request: pytest.FixtureRequest, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        class _UndeclaredHost(ExtenderContractTestMixin):
+            @classmethod
+            def extender_class(cls) -> type[Extender]:
+                return _ProbeExtender
+
+            def make_extender(self, *, raise_on_error: bool | None = None) -> _ProbeExtender:
+                return _ProbeExtender(sink=[])
+
+            @classmethod
+            def has_backend_sink(cls) -> bool:
+                return False
+
+            @classmethod
+            def supports_real_worker_sink(cls) -> bool:
+                return True
+
+        with pytest.raises(NotImplementedError):
+            _UndeclaredHost().test_contract_real_worker_multiprocessing_emits_into_the_exact_injected_sink(
+                tmp_path, request, caplog
+            )
 
 
 class TestCountingExtender:

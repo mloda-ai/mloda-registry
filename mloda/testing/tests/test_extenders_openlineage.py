@@ -19,7 +19,12 @@ from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, R
 from openlineage.client.facet_v2 import parent_run
 
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
-from mloda.testing.extenders.openlineage import OpenLineageExtenderTestMixin, RecordingTransport, make_recording_client
+from mloda.testing.extenders.openlineage import (
+    FileTransport,
+    OpenLineageExtenderTestMixin,
+    RecordingTransport,
+    make_recording_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +188,23 @@ class TestRecordingTransport:
 
     def test_raises_type_error_for_non_run_event(self) -> None:
         transport = RecordingTransport()
+        with pytest.raises(TypeError):
+            transport.emit(object())  # type: ignore[arg-type]
+
+
+class TestFileTransport:
+    def test_emits_event_type_line_to_marker_file(self, tmp_path: Path) -> None:
+        marker_path = tmp_path / "marker.txt"
+        transport = FileTransport(marker_path)
+        event = _build_run_event()
+
+        transport.emit(event)
+
+        assert event.eventType is not None
+        assert marker_path.read_text() == f"{event.eventType.value}\n"
+
+    def test_raises_type_error_for_non_run_event(self, tmp_path: Path) -> None:
+        transport = FileTransport(tmp_path / "marker.txt")
         with pytest.raises(TypeError):
             transport.emit(object())  # type: ignore[arg-type]
 
