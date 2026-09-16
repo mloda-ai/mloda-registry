@@ -5,7 +5,6 @@ spawned worker.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -19,7 +18,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
 from mloda.community.extenders.otel import OtelExtender
-from mloda.testing.extenders.otel import FileSpanExporter, RebuildingSpanCaptureProvider
+from mloda.testing.extenders.otel import FileSpanExporter
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
 
 
@@ -41,14 +40,6 @@ class _InstallRealTracerProviderBootstrap:
         trace.set_tracer_provider(provider)
 
 
-@pytest.fixture(scope="module")
-def flight_server() -> Iterator[ParallelRunnerFlightServer]:
-    """Required by ParallelizationMode.MULTIPROCESSING."""
-    server = ParallelRunnerFlightServer()
-    yield server
-    server.end_flight_server_process()
-
-
 def test_child_bootstrap_installed_provider_emits_a_span_inside_the_spawned_worker(
     tmp_path: Path, flight_server: ParallelRunnerFlightServer
 ) -> None:
@@ -66,29 +57,6 @@ def test_child_bootstrap_installed_provider_emits_a_span_inside_the_spawned_work
     assert marker_path.exists(), (
         "child_bootstrap's installed TracerProvider never wrote a span marker file; the spawned "
         "worker never emitted a span for OtelExtender(use_sdk_defaults=True)"
-    )
-    span_names = marker_path.read_text().splitlines()
-    assert "mloda.calculate" in span_names, span_names
-
-
-def test_injected_picklable_tracer_provider_emits_into_a_real_spawned_worker(
-    tmp_path: Path, flight_server: ParallelRunnerFlightServer
-) -> None:
-    """Unlike the ambient child_bootstrap pattern above, a picklable custom TracerProvider can ride
-    the pickled extender itself into a spawned MULTIPROCESSING worker."""
-    marker_path = tmp_path / "otel_multiprocessing_injected_provider_spans.txt"
-    provider = RebuildingSpanCaptureProvider(marker_path=marker_path)
-
-    values = run_value_int(
-        OtelExtender(tracer_provider=provider),
-        parallelization_modes={ParallelizationMode.MULTIPROCESSING},
-        flight_server=flight_server,
-    )
-
-    assert values == expected_value_int()
-    assert marker_path.exists(), (
-        "the injected picklable TracerProvider's marker file was never written; the spawned worker "
-        "never emitted a span for the injected provider"
     )
     span_names = marker_path.read_text().splitlines()
     assert "mloda.calculate" in span_names, span_names

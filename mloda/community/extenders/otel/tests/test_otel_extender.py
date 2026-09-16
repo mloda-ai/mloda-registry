@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 import pytest
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.steward import ExtenderHook
+from mloda.steward import Extender, ExtenderHook
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
@@ -30,6 +30,7 @@ from mloda.community.extenders.otel import otel_extender as otel_extender_module
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.otel import (
     OtelExtenderTestMixin,
+    RebuildingSpanCaptureProvider,
     make_picklable_span_capture,
     make_span_capture,
     single_span_attributes,
@@ -77,6 +78,16 @@ class TestOtelExtenderContract(OtelExtenderTestMixin):
             ExtenderHook.VALIDATE_INPUT_FEATURE: "mloda.validate.input",
             ExtenderHook.VALIDATE_OUTPUT_FEATURE: "mloda.validate.output",
         }
+
+    @classmethod
+    def supports_real_worker_sink(cls) -> bool:
+        return True
+
+    def make_real_worker_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
+        marker_path = tmp_path / "otel_real_worker_spans.txt"
+        provider = RebuildingSpanCaptureProvider(marker_path=marker_path)
+        extender = self.extender_class()(tracer_provider=provider)
+        return extender, marker_path
 
 
 class TestOtelExtenderModuleImports:

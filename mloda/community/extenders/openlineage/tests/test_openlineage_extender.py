@@ -17,18 +17,20 @@ import time
 import uuid
 import weakref
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any, cast
 
 import pyarrow as pa
 import pytest
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.steward import CompositeExtender, ExtenderHook
+from mloda.steward import CompositeExtender, Extender, ExtenderHook
 
 from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.openlineage import (
+    FileTransport,
     LockHoldingTransport,
     OpenLineageExtenderTestMixin,
     RecordingTransport,
@@ -146,6 +148,16 @@ class TestOpenLineageExtenderContract(OpenLineageExtenderTestMixin):
     @classmethod
     def emits_schema_facets(cls) -> bool:
         return True
+
+    @classmethod
+    def supports_real_worker_sink(cls) -> bool:
+        return True
+
+    def make_real_worker_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
+        marker_path = tmp_path / "openlineage_real_worker_events.txt"
+        client = OpenLineageClient(transport=FileTransport(marker_path))
+        extender = self.make_openlineage_extender(client)
+        return extender, marker_path
 
 
 class TestOpenLineageExtenderConstructorOptions:

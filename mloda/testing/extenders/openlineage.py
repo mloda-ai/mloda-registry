@@ -75,6 +75,25 @@ class LockHoldingTransport(Transport):
         self.events.append(event)
 
 
+class FileTransport(Transport):
+    """Appends one line per emitted event's type to marker_path, so an event can be observed from
+    inside a real spawned worker process."""
+
+    kind = "file-transport"
+    config_class = Config
+
+    def __init__(self, marker_path: Path) -> None:
+        self._marker_path = marker_path
+
+    def emit(self, event: Event) -> None:
+        if not isinstance(event, RunEvent):
+            raise TypeError(f"FileTransport only records RunEvent, got {type(event).__name__}")
+        if event.eventType is None:
+            return
+        with open(self._marker_path, "a") as handle:
+            handle.write(f"{event.eventType.value}\n")
+
+
 @contextmanager
 def _injected_sink_capture() -> Iterator[list[Any]]:
     """Every RecordingTransport built by make_recording_client() during this context is a _SharedCaptureTransport."""

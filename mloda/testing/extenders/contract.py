@@ -6,6 +6,7 @@ import logging
 import pickle  # nosec
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -98,6 +99,19 @@ class ExtenderContractTestMixin:
 
     def injected_sink_capture(self) -> AbstractContextManager[list[Any]]:
         """Context yielding a list of what a picklable, injected sink actually received after the pickle round trip."""
+        raise NotImplementedError
+
+    @classmethod
+    def supports_real_worker_sink(cls) -> bool:
+        """True when the host provides a file-backed sink observable from a real spawned
+        MULTIPROCESSING worker. Default False: opt-in per concrete host, not inherited automatically
+        by a backend mixin (unlike has_backend_sink), since it requires a real flight_server and a
+        spawned subprocess, real overhead a lightweight probe host should not pay."""
+        return False
+
+    def make_real_worker_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
+        """Return an extender wired to a file-backed sink under tmp_path, plus the marker file path a
+        real spawned worker's emission writes to. Only called when supports_real_worker_sink() is True."""
         raise NotImplementedError
 
     def context_hook(self) -> ExtenderHook:
@@ -350,3 +364,38 @@ class ExtenderContractTestMixin:
         assert probe(), "no observation reached the injected sink; identity was not preserved"
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING and name in r.message]
         assert warnings == [], warnings
+
+    def test_contract_real_worker_multiprocessing_emits_into_the_exact_injected_sink(
+        self, tmp_path: Path, request: pytest.FixtureRequest, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        if not self.supports_real_worker_sink():
+            pytest.skip("host does not support a real-worker MULTIPROCESSING sink")
+        flight_server = request.getfixturevalue("flight_server")
+        extender, marker_path = self.make_real_worker_extender_and_marker(tmp_path)
+        name = self.extender_class().__name__
+        with caplog.at_level(logging.WARNING):
+            values = run_value_int(
+                extender, parallelization_modes={ParallelizationMode.MULTIPROCESSING}, flight_server=flight_server
+            )
+        assert values == expected_value_int()
+        assert marker_path.exists(), "no marker written; the spawned worker never emitted through the injected sink"
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING and name in r.message]
+        assert warnings == [], warnings
+
+    def test_contract_real_worker_multiprocessing_unpicklable_sink_degrades_gracefully(
+        self, request: pytest.FixtureRequest, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        if not self.supports_real_worker_sink():
+            pytest.skip("host does not support a real-worker MULTIPROCESSING sink")
+        if not self.supports_unpicklable_sink_degrade():
+            pytest.skip("host does not support unpicklable-sink degrade")
+        flight_server = request.getfixturevalue("flight_server")
+        extender = self.make_unpicklable_sink_extender()
+        name = self.extender_class().__name__
+        with caplog.at_level(logging.WARNING):
+            values = run_value_int(
+                extender, parallelization_modes={ParallelizationMode.MULTIPROCESSING}, flight_server=flight_server
+            )
+        assert values == expected_value_int()
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING and name in r.message]
+        assert warnings, "expected a drop-and-warn message when the injected sink could not survive pickling"
