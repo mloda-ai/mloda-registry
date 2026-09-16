@@ -20,6 +20,7 @@ from openlineage.client.client import Event, OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, OutputDataset, RunEvent, RunState
 from openlineage.client.facet_v2 import parent_run
 from openlineage.client.serde import Serde
+from openlineage.client.transport.file import FileConfig
 from openlineage.client.transport.transport import Config, Transport
 
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
@@ -92,6 +93,25 @@ class FileTransport(Transport):
             return
         with open(self._marker_path, "a") as handle:
             handle.write(f"{event.eventType.value}\n")
+
+
+class _PidTaggedFileTransport(Transport):
+    """Like FileTransport, but tags each line with the emitting pid to prove a spawned worker (not
+    the parent) emitted; selected via OPENLINEAGE__TRANSPORT__TYPE for a lazily-built client."""
+
+    kind = "pid-tagged-file"
+    config_class = FileConfig
+
+    def __init__(self, config: FileConfig) -> None:
+        self._marker_path = Path(config.log_file_path)
+
+    def emit(self, event: Event) -> None:
+        if not isinstance(event, RunEvent):
+            raise TypeError(f"_PidTaggedFileTransport only records RunEvent, got {type(event).__name__}")
+        if event.eventType is None:
+            return
+        with open(self._marker_path, "a") as handle:
+            handle.write(f"{os.getpid()}:{event.eventType.value}\n")
 
 
 @contextmanager
