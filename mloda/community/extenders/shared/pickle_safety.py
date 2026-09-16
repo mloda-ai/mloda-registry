@@ -6,9 +6,14 @@ import pickle  # nosec
 from typing import Any
 
 
-def is_picklable(value: Any) -> bool:
+def pickle_failure_reason(value: Any) -> str | None:
+    """None if value pickles cleanly, else the caught exception's type name."""
     try:
-        pickle.dumps(value)  # nosec
-    except Exception:
-        return False
-    return True
+        pickle.dumps(value)
+    except Exception as exc:
+        return type(exc).__name__
+    return None
+
+
+def is_picklable(value: Any) -> bool:
+    return pickle_failure_reason(value) is None

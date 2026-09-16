@@ -60,19 +60,19 @@ class _SharedCaptureTransport(RecordingTransport):
         type(self).captured.append(event)
 
 
-class _LockHoldingTransport(Transport):
-    """A Transport whose lock attribute cannot survive plain pickling; mirrors the identically-named
-    fixture in test_openlineage_extender.py / test_openlineage_multiprocessing.py, needed here too as
-    the shared unpicklable-sink stand-in for the contract's degrade-and-warn test."""
+class LockHoldingTransport(Transport):
+    """A Transport whose lock attribute cannot survive plain pickling. Records emitted events, though
+    a worker-side copy's events live only in the worker's own memory and are never visible here."""
 
     kind = "lock-holding"
     config_class = Config
 
     def __init__(self) -> None:
         self.lock = threading.Lock()
+        self.events: list[Event] = []
 
     def emit(self, event: Event) -> None:
-        pass
+        self.events.append(event)
 
 
 @contextmanager
@@ -176,7 +176,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         return patch.object(OpenLineageClient, "emit", side_effect=RuntimeError("openlineage instrumentation boom"))
 
     def make_unpicklable_sink_extender(self) -> Extender:
-        client = OpenLineageClient(transport=_LockHoldingTransport())
+        client = OpenLineageClient(transport=LockHoldingTransport())
         return self.make_openlineage_extender(client)
 
     @classmethod

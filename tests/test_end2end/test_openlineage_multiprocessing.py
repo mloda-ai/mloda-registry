@@ -5,7 +5,7 @@ tracer_provider resolution, which needs a child_bootstrap.
 
 from __future__ import annotations
 
-import threading
+import logging
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -20,21 +20,8 @@ from openlineage.client.event_v2 import RunEvent
 from openlineage.client.transport.transport import Config, Transport
 
 from mloda.community.extenders.openlineage import OpenLineageExtender
+from mloda.testing.extenders.openlineage import LockHoldingTransport
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
-
-
-class _LockHoldingTransport(Transport):
-    """A Transport whose lock attribute cannot survive pickling."""
-
-    kind = "lock-holding"
-    config_class = Config
-
-    def __init__(self) -> None:
-        self.lock = threading.Lock()
-        self.events: list[Event] = []
-
-    def emit(self, event: Event) -> None:
-        self.events.append(event)
 
 
 class _FileTransport(Transport):
@@ -91,20 +78,26 @@ def test_injected_client_emits_into_a_real_spawned_worker(
 
 
 def test_injected_client_with_unpicklable_transport_degrades_gracefully(
-    flight_server: ParallelRunnerFlightServer,
+    flight_server: ParallelRunnerFlightServer, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """An injected client whose transport cannot survive pickling is dropped by the extender's own
-    trial-pickle probe (OpenLineageExtender.__getstate__), so core's preflight pickle check
-    (raise_on_unpicklable_extender) sees an extender that pickles fine; the whole run succeeds
-    instead of failing at plan time, and the dropped client's transport never sees any events."""
-    transport = _LockHoldingTransport()
+    """The extender's own trial-pickle probe drops the unpicklable transport before core's preflight
+    pickle check runs, so the run succeeds instead of failing at plan time."""
+    transport = LockHoldingTransport()
     client = OpenLineageClient(transport=transport)
 
-    values = run_value_int(
-        OpenLineageExtender(client=client),
-        parallelization_modes={ParallelizationMode.MULTIPROCESSING},
-        flight_server=flight_server,
-    )
+    with caplog.at_level(logging.WARNING):
+        values = run_value_int(
+            OpenLineageExtender(client=client),
+            parallelization_modes={ParallelizationMode.MULTIPROCESSING},
+            flight_server=flight_server,
+        )
 
     assert values == expected_value_int()
+    # Vacuous on its own: a worker's copy of transport lives in the worker's own memory, so this
+    # list stays empty in the parent process regardless of whether the client was actually dropped.
     assert transport.events == []
+    # Real proof the drop happened: core's own preflight pickle check (raise_on_unpicklable_extender)
+    # pickles the extender in THIS (parent) process before ever spawning a worker, which triggers
+    # OpenLineageExtender.__getstate__'s own drop-and-warn path - directly observable via caplog here.
+    warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("OpenLineageExtender" in message for message in warnings), warnings

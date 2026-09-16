@@ -183,13 +183,12 @@ class TestProbeOtelExtenderContract(OtelExtenderTestMixin):
 
     @classmethod
     def supports_pickled_sink_capture(cls) -> bool:
-        """_ProbeOtelExtender unconditionally drops its tracer_provider on pickle; it never implements
-        the trial-pickle-then-keep behavior this contract test proves."""
+        """_ProbeOtelExtender unconditionally drops its tracer_provider on pickle."""
         return False
 
     @classmethod
     def supports_unpicklable_sink_degrade(cls) -> bool:
-        """_ProbeOtelExtender never logs a drop warning; it's a minimal fake, not the real contract."""
+        """_ProbeOtelExtender is a minimal fake; it never logs a drop warning."""
         return False
 
 

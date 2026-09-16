@@ -247,8 +247,7 @@ class TestProbeOpenLineageExtenderContract(OpenLineageExtenderTestMixin):
 
     @classmethod
     def supports_unpicklable_sink_degrade(cls) -> bool:
-        """_ProbeOpenLineageExtender never drops or warns about an unpicklable client; it's a minimal
-        fake, not the real contract."""
+        """_ProbeOpenLineageExtender is a minimal fake; it doesn't implement the drop-and-warn degrade."""
         return False
 
 

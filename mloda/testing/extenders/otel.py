@@ -73,10 +73,9 @@ def _tracer_provider_resolution_spy() -> Iterator[list[Any]]:
         yield calls
 
 
-class _FileSpanExporter(SpanExporter):
-    """Appends one line per finished span name to marker_path (mirrors the identically-named
-    exporter in tests/test_end2end/test_otel_child_bootstrap_multiprocessing.py); needed here too
-    so RebuildingSpanCaptureProvider can be observed from inside a real spawned worker process."""
+class FileSpanExporter(SpanExporter):
+    """Appends one line per finished span name to marker_path, so a span can be observed from
+    inside a real spawned worker process."""
 
     def __init__(self, marker_path: Path) -> None:
         self._marker_path = marker_path
@@ -92,9 +91,8 @@ class _FileSpanExporter(SpanExporter):
 
 
 class _ClassAccumulatorSpanExporter(SpanExporter):
-    """Appends finished span names to class state (mirrors _SharedCaptureTransport.captured in
-    mloda/testing/extenders/openlineage.py), so a pickled copy (a NEW object) still appends to the
-    list make_picklable_span_capture()/injected_sink_capture() hand back to the test."""
+    """Appends finished span names to class state, so a pickled copy (a new object) still appends
+    to the list the test holds."""
 
     captured: ClassVar[list[str]] = []
 
@@ -108,12 +106,10 @@ class _ClassAccumulatorSpanExporter(SpanExporter):
 
 
 class RebuildingSpanCaptureProvider(ApiTracerProvider):
-    """Genuinely-picklable custom TracerProvider: implements the opentelemetry.trace ABC directly
-    (unlike opentelemetry.sdk.trace.TracerProvider, which holds locks and can never survive
-    pickling). Lazily builds a real SDK TracerProvider the first time get_tracer() is called, wired
-    to a file exporter (marker_path set: cross-process/e2e observation) or a class-level accumulator
-    (marker_path=None: in-process observation of a pickled copy, which is a NEW object).
-    __getstate__ drops the live SDK provider entirely, so an instance is always picklable."""
+    """Picklable custom TracerProvider (implements the opentelemetry.trace ABC directly, unlike the
+    SDK's TracerProvider, which holds locks). Lazily builds a real SDK provider on the first
+    get_tracer() call, wired to a file exporter when marker_path is set, else a class-level
+    accumulator. __getstate__ drops the live SDK provider, so instances always pickle cleanly."""
 
     def __init__(self, marker_path: Path | None = None) -> None:
         self._marker_path = marker_path
@@ -129,7 +125,7 @@ class RebuildingSpanCaptureProvider(ApiTracerProvider):
         if self._sdk_provider is None:
             self._sdk_provider = TracerProvider(shutdown_on_exit=False)
             exporter: SpanExporter = (
-                _FileSpanExporter(self._marker_path)
+                FileSpanExporter(self._marker_path)
                 if self._marker_path is not None
                 else _ClassAccumulatorSpanExporter()
             )
@@ -147,8 +143,7 @@ class RebuildingSpanCaptureProvider(ApiTracerProvider):
 
 
 def make_picklable_span_capture() -> tuple[RebuildingSpanCaptureProvider, list[str]]:
-    """A genuinely-picklable custom TracerProvider wired to a class-level span-name accumulator,
-    reset for this call; mirrors make_span_capture()'s signature/style."""
+    """Picklable TracerProvider wired to a class-level span-name accumulator, reset for this call."""
     _ClassAccumulatorSpanExporter.captured = []
     return RebuildingSpanCaptureProvider(), _ClassAccumulatorSpanExporter.captured
 
@@ -156,7 +151,7 @@ def make_picklable_span_capture() -> tuple[RebuildingSpanCaptureProvider, list[s
 @contextmanager
 def _injected_sink_capture() -> Iterator[list[Any]]:
     """Every make_span_capture() call during this context builds a RebuildingSpanCaptureProvider
-    (marker_path=None, in-process class-accumulator mode) instead of the real SDK provider."""
+    instead of the real SDK provider."""
     _ClassAccumulatorSpanExporter.captured = []
 
     def picklable_span_capture() -> tuple[RebuildingSpanCaptureProvider, None]:

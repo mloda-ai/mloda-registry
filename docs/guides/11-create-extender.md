@@ -74,7 +74,7 @@ Only the extender's own failure is caught. An exception raised by the wrapped fu
 
 Only needed with `ParallelizationMode.MULTIPROCESSING`. Avoid unpicklable instance variables (locks, tracers, connections). Use class-level storage or create resources lazily in `__call__()`.
 
-`OpenLineageExtender` pickles an injected client as-is into worker processes (so it must be picklable under `MULTIPROCESSING`) and rebuilds a self-built one lazily per worker. `OtelExtender` never pickles an injected `tracer_provider`; under `MULTIPROCESSING` pass a `child_bootstrap` to `run_all` that installs a provider in each worker and use `use_sdk_defaults=True`. An unpicklable injected OpenLineage client (for example, the `async_http` transport) makes `run_all` raise `ValueError` up front, before any step runs.
+Both extenders trial-pickle an injected sink (`client` for `OpenLineageExtender`, `tracer_provider` for `OtelExtender`) whenever a copy is made (worker processes under `MULTIPROCESSING`). A picklable sink is pickled as-is and survives into the worker. An unpicklable one is dropped instead: logged once per instance at WARNING, naming the sink and the underlying pickle exception's type, and the resulting copy is inert unless `use_sdk_defaults=True`. With `use_sdk_defaults=True`, `OtelExtender` resolves a provider installed in the worker via `child_bootstrap` passed to `run_all`, and `OpenLineageExtender` builds its own client lazily per worker.
 
 mloda terminates `MULTIPROCESSING` workers with no teardown, so a buffered sink loses events there: OpenLineage `async_http` or kafka transports, and an OTel `BatchSpanProcessor` installed by `child_bootstrap`. Use a synchronous sink instead under `MULTIPROCESSING`: OpenLineage `http`, `console`, or `file` transport (injected or via `OPENLINEAGE_CONFIG`), or OTel `SimpleSpanProcessor`.
 
@@ -130,7 +130,7 @@ The OTel and OpenLineage mixins both enforce the same observability mandate: a w
 
 ### ExtenderContractTestMixin
 
-Required host hooks: `extender_class`, `make_extender`, `own_failure`. Optional: `raise_on_error_default`, `expected_hooks`, `pickled_copy_environment`, `supports_warning_only` (return `False` for a host with no `raise_on_error=False` mode), `has_backend_sink` (return `True` for an extender with an external sink, and override `ambient_sink_environment` plus `sink_resolution_spy`; `make_unconfigured_extender`/`make_sdk_defaults_extender` default to `extender_class()()` and `extender_class()(use_sdk_defaults=True)`), `supports_pickled_sink_capture` plus `injected_sink_capture` (`True` when a picklable injected sink survives pickling; defaults to `False`).
+Required host hooks: `extender_class`, `make_extender`, `own_failure`. Optional: `raise_on_error_default`, `expected_hooks`, `pickled_copy_environment`, `supports_warning_only` (return `False` for a host with no `raise_on_error=False` mode), `has_backend_sink` (return `True` for an extender with an external sink, and override `ambient_sink_environment` plus `sink_resolution_spy`; `make_unconfigured_extender`/`make_sdk_defaults_extender` default to `extender_class()()` and `extender_class()(use_sdk_defaults=True)`), `supports_pickled_sink_capture` plus `injected_sink_capture` (`True` when a picklable injected sink survives pickling; defaults to `False`), `supports_unpicklable_sink_degrade` plus `make_unpicklable_sink_extender` (`True` when the host trial-pickles its sink and drops+warns instead of hard-failing pickling; defaults to `False`).
 
 ```python
 from contextlib import AbstractContextManager
@@ -168,12 +168,13 @@ The mixin pins:
 - own failure is contained: a chained extender still runs, and a `run_all` round trip still completes with the warning-only fallback
 - the extender survives a pickle round trip, and a pickled copy still wraps a call
 - when `supports_pickled_sink_capture()` is `True`: a picklable injected sink survives pickling and the pickled copy still emits into it
+- when `supports_unpicklable_sink_degrade()` is `True`: an unpicklable injected sink is dropped and warned about exactly once across repeated pickling, and the resulting copy still wraps a call
 - `run_all` round trips (one success, one wrapped failure)
 - when `has_backend_sink()` is `True`: an unconfigured extender emits nothing against ambient sink configuration, both on a direct call and in `run_all`; `use_sdk_defaults=True` resolves the sink from that same ambient configuration; an injected sink ignores ambient configuration entirely. Extenders with no external sink inherit `has_backend_sink()` returning `False` and skip these tests
 
 ### OtelExtenderTestMixin
 
-Install `mloda-testing[otel]`. Host provides `extender_class` and `make_otel_extender(tracer_provider, *, raise_on_error=None)`, and optionally `expected_span_names` and `trace_id_from_run_id` (the run_id-to-trace-id mapping; return `None` to skip the derivation test). It supplies `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`), so a host needs no extra code for the sink-resolution tests.
+Install `mloda-testing[otel]`. Host provides `extender_class` and `make_otel_extender(tracer_provider, *, raise_on_error=None)`, and optionally `expected_span_names` and `trace_id_from_run_id` (the run_id-to-trace-id mapping; return `None` to skip the derivation test). It supplies `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`), so a host needs no extra code for the sink-resolution tests. It also sets `supports_pickled_sink_capture()` to `True` and supplies `injected_sink_capture`, exercising `OtelExtender`'s picklable-injected-`tracer_provider` preservation.
 
 `own_failure` and `pickled_copy_environment` are overridable on both backend mixins. The OTel default faults `TracerProvider.get_tracer`; an extender that caches its tracer at construction must override `own_failure`. The OpenLineage default faults `OpenLineageClient.emit`. A host whose pickled copy would resolve a real sink overrides `pickled_copy_environment`.
 
@@ -205,7 +206,7 @@ The mixin pins:
 - `run_all` spans share one trace id, and the check requires at least two spans, one of them the declared calculate span name
 - an interrupt (`BaseException`) still marks the span `ERROR` without leaking the exception message
 
-Helpers: `make_span_capture`, `single_span`, `single_span_attributes`, `inject_parent_carrier`.
+Helpers: `make_span_capture`, `make_picklable_span_capture`, `single_span`, `single_span_attributes`, `inject_parent_carrier`, `RebuildingSpanCaptureProvider`.
 
 ### OpenLineageExtenderTestMixin
 

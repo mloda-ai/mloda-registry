@@ -5,7 +5,7 @@ spawned worker.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -15,33 +15,12 @@ pytest.importorskip("opentelemetry.sdk")
 from mloda.core.runtime.flight.runner_flight_server import ParallelRunnerFlightServer
 from mloda.user import ParallelizationMode
 from opentelemetry import trace
-from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, SpanExportResult
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
 from mloda.community.extenders.otel import OtelExtender
-from mloda.testing.extenders.otel import RebuildingSpanCaptureProvider
+from mloda.testing.extenders.otel import FileSpanExporter, RebuildingSpanCaptureProvider
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
-
-
-class _FileSpanExporter(SpanExporter):
-    """Appends one line per finished span name to marker_path.
-
-    Used from inside a real spawned MULTIPROCESSING worker to observe span emission:
-    InMemorySpanExporter's buffer lives in the worker's own memory and is never visible back in the
-    parent (pytest) process, so a plain file is the only cross-process-visible sink here.
-    """
-
-    def __init__(self, marker_path: Path) -> None:
-        self._marker_path = marker_path
-
-    def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
-        with open(self._marker_path, "a") as handle:
-            for span in spans:
-                handle.write(f"{span.name}\n")
-        return SpanExportResult.SUCCESS
-
-    def shutdown(self) -> None:
-        pass
 
 
 class _InstallRealTracerProviderBootstrap:
@@ -58,7 +37,7 @@ class _InstallRealTracerProviderBootstrap:
 
     def __call__(self) -> None:
         provider = TracerProvider()
-        provider.add_span_processor(SimpleSpanProcessor(_FileSpanExporter(self._marker_path)))
+        provider.add_span_processor(SimpleSpanProcessor(FileSpanExporter(self._marker_path)))
         trace.set_tracer_provider(provider)
 
 
@@ -95,9 +74,8 @@ def test_child_bootstrap_installed_provider_emits_a_span_inside_the_spawned_work
 def test_injected_picklable_tracer_provider_emits_into_a_real_spawned_worker(
     tmp_path: Path, flight_server: ParallelRunnerFlightServer
 ) -> None:
-    """Unlike the ambient child_bootstrap pattern above, a genuinely-picklable custom TracerProvider
-    can ride the pickled extender itself into a spawned MULTIPROCESSING worker, mirroring
-    test_openlineage_multiprocessing.py::test_injected_client_emits_into_a_real_spawned_worker."""
+    """Unlike the ambient child_bootstrap pattern above, a picklable custom TracerProvider can ride
+    the pickled extender itself into a spawned MULTIPROCESSING worker."""
     marker_path = tmp_path / "otel_multiprocessing_injected_provider_spans.txt"
     provider = RebuildingSpanCaptureProvider(marker_path=marker_path)
 

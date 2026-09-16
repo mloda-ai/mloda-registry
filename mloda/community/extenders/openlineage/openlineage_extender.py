@@ -15,7 +15,7 @@ from typing import Any
 
 from mloda.steward import Extender, ExtenderHook, HookContext, OutputSchema
 
-from mloda.community.extenders.shared.pickle_safety import is_picklable
+from mloda.community.extenders.shared.pickle_safety import pickle_failure_reason
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
 from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset
@@ -71,9 +71,9 @@ class OpenLineageExtender(Extender):
     """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating nested
     INPUT_DATA_LOAD calls as inputs. Sink resolution: injected client wins, else use_sdk_defaults, else inert.
     Emits happen synchronously on the calculation thread, so a blocking transport delays every wrapped calculation.
-    close() flushes the client and is terminal. A self-built client is always rebuilt per worker; an injected
-    client that cannot survive pickling is dropped by a trial-pickle probe instead, falling back to the
-    resolution rule above, while a genuinely picklable injected client is pickled as-is. Workers are
+    close() flushes the client and is terminal. A self-built client is rebuilt per worker; an injected
+    client that can't survive pickling is dropped by a trial-pickle probe and falls back to the
+    resolution rule above, while a picklable injected client is pickled as-is. Workers are
     terminated without a flush, so a synchronous transport is needed there."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
@@ -160,18 +160,24 @@ class OpenLineageExtender(Extender):
 
     def __getstate__(self) -> dict[str, Any]:
         client = self._client
-        client_unpicklable = not self._owns_client and client is not None and not is_picklable(client)
+        failure_reason = pickle_failure_reason(client) if not self._owns_client and client is not None else None
+        client_unpicklable = failure_reason is not None
         if client_unpicklable and not self._logged_pickle_drop:
-            logger.warning(
-                "OpenLineageExtender drops an injected client when pickled or copied because it could not be "
-                "pickled; the copy is inert unless use_sdk_defaults=True, which lets it build its own client "
-                "in its own process, e.g. under MULTIPROCESSING."
-            )
-            self._logged_pickle_drop = True
+            with self._client_lock:
+                if not self._logged_pickle_drop:
+                    logger.warning(
+                        "OpenLineageExtender drops an injected client when pickled or copied because it isn't "
+                        f"picklable ({failure_reason}); the copy is inert unless use_sdk_defaults=True, which "
+                        "lets it build its own client in its own process, e.g. under MULTIPROCESSING."
+                    )
+                    self._logged_pickle_drop = True
         state = dict(self.__dict__)
         if self._owns_client or client_unpicklable:
-            # _owns_client keeps meaning "no client was injected" after unpickling too.
             state["_client"] = None
+        if client_unpicklable:
+            # The copy no longer holds an injected client; it will self-build (and own) whatever
+            # client it needs from here on, so a later pickle of the copy treats that client as owned.
+            state["_owns_client"] = True
         state["_logged_inert"] = False
         state["_logged_pickle_drop"] = False
         del state["_client_lock"]

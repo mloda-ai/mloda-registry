@@ -84,7 +84,7 @@ class ExtenderContractTestMixin:
 
     @classmethod
     def supports_pickled_sink_capture(cls) -> bool:
-        """False unless the host's injected sink survives pickling (OpenLineage does; an OTel TracerProvider never can)."""
+        """False unless the host's injected sink survives pickling."""
         return False
 
     def injected_sink_capture(self) -> AbstractContextManager[list[Any]]:
@@ -217,8 +217,6 @@ class ExtenderContractTestMixin:
     def test_contract_unpicklable_sink_drops_and_warns_once_per_instance(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Trial-pickle probe: an unpicklable sink is dropped, not a hard pickling failure, and the drop
-        is logged exactly once per instance even across repeated pickling of the same instance."""
         if not self.supports_unpicklable_sink_degrade():
             pytest.skip("host does not support unpicklable-sink degrade")
         extender = self.make_unpicklable_sink_extender()
