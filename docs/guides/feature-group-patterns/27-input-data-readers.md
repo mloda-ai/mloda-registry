@@ -116,9 +116,9 @@ If your wholesale override still matches by file suffix (i.e. you do implement `
 
 ## Column Discovery
 
-The `get_column_names` seam used above to decline chain-separated names also backs `describe_columns(data_access) -> dict[str, DataType | None]` on `BaseInputData`: it maps each column name to its `DataType` (`None` where unknown), and raises `NotImplementedError` by default. `ReadFile` wraps it around `get_column_names` for free (every name mapped to `None`) once a subclass implements that; a reader that only overrides `match_subclass_data_access`/`load_data` wholesale, like `UbaAirReader` and `GovDataReader` above, never implements `get_column_names`, so it does not inherit this default and raises `NotImplementedError` unless it overrides `describe_columns` directly. `ParquetReader`, `FeatherReader`, `OrcReader`, `JsonReader`, and `ReadDB`'s `SQLITEReader` override it with real types read from the file or table schema.
+The `get_column_names` seam used above to decline chain-separated names also backs `describe_columns(data_access) -> dict[str, DataType | None]` on `BaseInputData`: it maps each column name to its `DataType` (`None` where unknown), and raises `NotImplementedError` by default. `ReadFile` wraps it around `get_column_names` for free (every name mapped to `None`) once a subclass implements that; a reader that only overrides `match_subclass_data_access`/`load_data` wholesale, like `UbaAirReader` and `GovDataReader` above, never implements `get_column_names`, so the inherited default still raises `NotImplementedError` unless the reader overrides `describe_columns` directly. `ParquetReader`, `FeatherReader`, and `OrcReader` override it with the file's stored schema, `JsonReader` with pyarrow's inferred types, and `ReadDB`'s `SQLITEReader` with SQLite's declared column types.
 
-Requires an mloda release newer than 0.13.0; not yet shipped as of this registry's `mloda>=0.13.0,<0.14.0` floor.
+> **Note:** Not in a released mloda yet: the seam landed on core's main after 0.13.0, while this registry pins `mloda>=0.13.0,<0.14.0` (`config/shared.toml`). Drop this note once the pin moves past it.
 
 ## Test
 
