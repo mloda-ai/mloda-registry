@@ -1,4 +1,4 @@
-Copyright 2025- Tom Kaltofen <tomkaltofen@gmail.com>
+Copyright 2025- Tom Kaltofen <tomkaltofen@mloda.ai>
 
 This project, "mloda-registry," is licensed under the Apache License, Version 2.0 (the "License")
 for all files outside `mloda/enterprise/`; code under `mloda/enterprise/` is source-available under
