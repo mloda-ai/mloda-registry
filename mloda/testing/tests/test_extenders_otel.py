@@ -4,6 +4,7 @@ exercises the full OtelExtenderTestMixin contract independently of the real regi
 from __future__ import annotations
 
 import logging
+import pickle  # nosec
 import re
 import uuid
 from typing import Any
@@ -22,6 +23,7 @@ from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.otel import (
     OtelExtenderTestMixin,
     inject_parent_carrier,
+    make_picklable_span_capture,
     make_span_capture,
     single_span,
     single_span_attributes,
@@ -148,6 +150,40 @@ class TestInjectParentCarrier:
         _, hex_trace_id, hex_span_id, _ = traceparent.split("-")
         assert hex_trace_id == format(trace_id, "032x")
         assert hex_span_id == format(span_id, "016x")
+
+
+class TestMakePicklableSpanCapture:
+    def test_finished_span_lands_in_returned_list(self) -> None:
+        provider, captured = make_picklable_span_capture()
+        tracer = provider.get_tracer("test-extenders-otel")
+
+        with tracer.start_as_current_span("probe-span"):
+            pass
+
+        assert captured == ["probe-span"]
+
+    def test_unpickled_provider_still_records_into_the_same_list(self) -> None:
+        provider, captured = make_picklable_span_capture()
+        tracer = provider.get_tracer("test-extenders-otel")
+        with tracer.start_as_current_span("before-pickle-span"):
+            pass
+
+        restored = pickle.loads(pickle.dumps(provider))  # nosec
+        restored_tracer = restored.get_tracer("test-extenders-otel")
+        with restored_tracer.start_as_current_span("after-pickle-span"):
+            pass
+
+        assert captured == ["before-pickle-span", "after-pickle-span"]
+
+    def test_second_call_resets_the_captured_list(self) -> None:
+        provider, first_captured = make_picklable_span_capture()
+        tracer = provider.get_tracer("test-extenders-otel")
+        with tracer.start_as_current_span("first-call-span"):
+            pass
+        assert first_captured == ["first-call-span"]
+
+        _, second_captured = make_picklable_span_capture()
+        assert second_captured == []
 
 
 class TestOtelExtenderTestMixinShape:
