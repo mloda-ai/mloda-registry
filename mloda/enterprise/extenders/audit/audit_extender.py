@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,22 +23,33 @@ class AuditSink(Protocol):
     def write(self, record: Mapping[str, Any]) -> None: ...
 
 
+def _is_missing(value: str | None) -> bool:
+    """A required identity value is missing when it is None or blank."""
+    return value is None or not value.strip()
+
+
 class NdjsonAuditSink:
-    """Appends one JSON line per record, opening the file per write so it pickles and holds no
-    buffer a terminated worker could lose; ordering across concurrent writers is not guaranteed."""
+    """One os.write per record to an O_APPEND descriptor keeps concurrent writers from interleaving
+    a line, and the file is created owner-only. Opens per write, so it pickles and holds no buffer a
+    terminated worker could lose; ordering across writers is not guaranteed."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
 
     def write(self, record: Mapping[str, Any]) -> None:
-        with open(self.path, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, sort_keys=True) + "\n")
+        line = (json.dumps(record, sort_keys=True) + "\n").encode("utf-8")
+        fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        try:
+            os.write(fd, line)
+        finally:
+            os.close(fd)
 
 
 class AuditExtender(Extender):
     """Records tenant-scoped audit metadata (never values or exception messages) for every
     calculation. A missing required identity yields a deny record while the calculation still
-    runs; raise_on_error=True (default) means a sink failure fails the run."""
+    runs. With raise_on_error=True (default), a sink failure after a successful calculation fails
+    the run; when the calculation itself fails, its exception wins and the sink failure is only logged."""
 
     def __init__(
         self,
@@ -51,6 +63,10 @@ class AuditExtender(Extender):
                 f"AuditExtender required_identity has unknown name(s) {unknown}; "
                 f"allowed names are {list(_ALLOWED_IDENTITY_NAMES)}"
             )
+        if len(set(required_identity)) != len(required_identity):
+            raise ValueError(f"AuditExtender required_identity has duplicate name(s): {required_identity}")
+        if not callable(getattr(sink, "write", None)):
+            raise ValueError("AuditExtender sink must implement the AuditSink protocol: a callable write(record)")
         self.sink = sink
         self.required_identity = required_identity
         self.raise_on_error = raise_on_error
@@ -82,12 +98,13 @@ class AuditExtender(Extender):
 
         # Unguarded on purpose: a sink failure here must propagate (raise_on_error controls the
         # fallback), never be swallowed alongside a result that was already computed successfully.
-        record = self._build_record(context, status=context.status, error_type=None)
+        # context.status is only set by core's instrument() wrapper; without it, the call still succeeded.
+        record = self._build_record(context, status=context.status or "success", error_type=None)
         self.sink.write(record)
         return result
 
     def _build_record(self, context: HookContext, *, status: str | None, error_type: str | None) -> dict[str, Any]:
-        missing = [name for name in self.required_identity if getattr(context, name) is None]
+        missing = [name for name in self.required_identity if _is_missing(getattr(context, name))]
         return {
             "record_version": 1,
             # Audit records require the explicit Z, unlike OpenLineage's +00:00 offset.

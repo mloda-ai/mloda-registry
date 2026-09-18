@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import pickle  # nosec
+import stat
 from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from datetime import datetime
@@ -89,8 +90,8 @@ class TestAuditExtenderContract(ExtenderContractTestMixin):
         return AuditExtender(sink=NdjsonAuditSink(marker_path)), marker_path
 
 
-class TestAuditExtenderRequiredIdentity:
-    """required_identity is validated once, at construction time."""
+class TestAuditExtenderConstruction:
+    """sink and required_identity are validated once, at construction time."""
 
     @pytest.mark.parametrize("name", ["tenant_id", "project_id", "principal"])
     def test_known_identity_name_is_accepted(self, name: str) -> None:
@@ -99,6 +100,14 @@ class TestAuditExtenderRequiredIdentity:
     def test_unknown_identity_name_raises_value_error(self) -> None:
         with pytest.raises(ValueError):
             AuditExtender(sink=InMemoryAuditSink(), required_identity=("bogus",))
+
+    def test_duplicate_required_identity_raises_value_error(self) -> None:
+        with pytest.raises(ValueError):
+            AuditExtender(sink=InMemoryAuditSink(), required_identity=("tenant_id", "tenant_id"))
+
+    def test_invalid_sink_raises_value_error(self) -> None:
+        with pytest.raises(ValueError):
+            AuditExtender(sink=object())  # type: ignore[arg-type]
 
 
 class TestAuditExtenderRecord:
@@ -199,6 +208,8 @@ class TestAuditExtenderRecord:
             (None, "p", "s", "missing_tenant_id"),
             ("t", "p", None, "missing_principal"),
             (None, "p", None, "missing_tenant_id_and_principal"),
+            ("", "p", "s", "missing_tenant_id"),
+            ("t", "p", "   ", "missing_principal"),
         ],
     )
     def test_missing_required_identity_denies_but_still_runs(
@@ -248,14 +259,32 @@ class TestAuditExtenderRecord:
         assert record["error_type"] == "builtins.RuntimeError"
         assert marker not in json.dumps(record)
 
-    def test_successful_call_has_no_error_type(self) -> None:
+    def test_successful_call_records_success_and_no_error_type(self) -> None:
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink)
 
         with make_hook_context(tenant_id="tenant-1").activate():
             extender(lambda: None)
 
-        assert sink.records[0]["error_type"] is None
+        record = sink.records[0]
+        assert record["status"] == "success"
+        assert record["error_type"] is None
+
+    def test_keyboard_interrupt_records_error_and_propagates(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink)
+
+        def func() -> None:
+            raise KeyboardInterrupt()
+
+        with make_hook_context(tenant_id="tenant-1").activate():
+            with pytest.raises(KeyboardInterrupt):
+                extender(func)
+
+        assert len(sink.records) == 1
+        record = sink.records[0]
+        assert record["status"] == "error"
+        assert record["error_type"] == "builtins.KeyboardInterrupt"
 
     def test_wrapped_failure_and_sink_failure_propagates_original_and_logs_warning(
         self, caplog: pytest.LogCaptureFixture
@@ -276,17 +305,6 @@ class TestAuditExtenderRecord:
 
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert any("AuditExtender" in message for message in warnings)
-
-    def test_direct_call_sink_write_failure_after_success_propagates(self) -> None:
-        class _FailingWriteSink:
-            def write(self, record: Mapping[str, Any]) -> None:
-                raise RuntimeError("sink write boom")
-
-        extender = AuditExtender(sink=_FailingWriteSink())
-
-        with make_hook_context(tenant_id="tenant-1").activate():
-            with pytest.raises(RuntimeError, match="sink write boom"):
-                extender(lambda: 42)
 
 
 class TestNdjsonAuditSink:
@@ -312,6 +330,26 @@ class TestNdjsonAuditSink:
 
         lines = path.read_text(encoding="utf-8").splitlines()
         assert [json.loads(line) for line in lines] == [{"a": 1}, {"a": 2}]
+
+    def test_new_file_has_owner_only_permissions(self, tmp_path: Path) -> None:
+        path = tmp_path / "audit.ndjson"
+        sink = NdjsonAuditSink(path)
+
+        sink.write({"a": 1})
+
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+    def test_oversized_record_lands_as_one_exact_line(self, tmp_path: Path) -> None:
+        path = tmp_path / "audit.ndjson"
+        sink = NdjsonAuditSink(path)
+        record = {"feature_names": ["f" * 50] * 500}
+        assert len(json.dumps(record)) > 16 * 1024
+
+        sink.write(record)
+
+        lines = path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 1
+        assert json.loads(lines[0]) == record
 
 
 class TestAuditExtenderRunAll:
