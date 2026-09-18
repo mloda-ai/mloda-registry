@@ -115,6 +115,12 @@ dependencies = ["{core_dependency}"]
 path = "mloda/enterprise/extenders/example"
 entry_point_groups = ["mloda.extenders"]
 
+[packages.mloda-enterprise-audit]
+description = "Tenant-scoped audit records with an identity presence gate for mloda pipelines"
+dependencies = ["{core_dependency}"]
+path = "mloda/enterprise/extenders/audit"
+entry_point_groups = ["mloda.extenders"]
+
 # --- Data Operations ---
 # Sibling floor policy: docs/packaging.md#sibling-dependency-floors
 

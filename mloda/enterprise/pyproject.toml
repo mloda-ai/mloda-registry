@@ -25,11 +25,12 @@ mloda-enterprise-example = "mloda.enterprise.feature_groups.example.manifest:FEA
 mloda-enterprise-compute-frameworks-example = "mloda.enterprise.compute_frameworks.example.manifest:COMPUTE_FRAMEWORKS"
 
 [project.entry-points."mloda.extenders"]
+mloda-enterprise-audit = "mloda.enterprise.extenders.audit.manifest:EXTENDERS"
 mloda-enterprise-extenders-example = "mloda.enterprise.extenders.example.manifest:EXTENDERS"
 
 [tool.setuptools]
 package-dir = {"" = "../.."}
-packages = ["mloda.enterprise", "mloda.enterprise.compute_frameworks.example", "mloda.enterprise.extenders.example", "mloda.enterprise.feature_groups.example"]
+packages = ["mloda.enterprise", "mloda.enterprise.compute_frameworks.example", "mloda.enterprise.extenders.audit", "mloda.enterprise.extenders.example", "mloda.enterprise.feature_groups.example"]
 
 [tool.setuptools.package-data]
 "mloda.enterprise" = ["py.typed"]

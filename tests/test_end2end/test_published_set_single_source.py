@@ -81,6 +81,7 @@ _BUNDLE_ONLY = [
     "mloda-community-extenders-example",
     "mloda-enterprise-compute-frameworks-example",
     "mloda-enterprise-extenders-example",
+    "mloda-enterprise-audit",
 ]
 
 _DATA_OPERATIONS = "mloda-community-data-operations"

@@ -163,6 +163,7 @@ members = [
     "mloda/community/feature_groups/example/example_b",
     "mloda/enterprise",
     "mloda/enterprise/compute_frameworks/example",
+    "mloda/enterprise/extenders/audit",
     "mloda/enterprise/extenders/example",
     "mloda/enterprise/feature_groups/example",
     "mloda/registry",
