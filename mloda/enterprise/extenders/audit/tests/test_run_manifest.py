@@ -7,8 +7,12 @@ import copy
 import hashlib
 import hmac
 import json
+import os
+import re
 import stat
+import sys
 from collections.abc import Iterable, Mapping
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,12 +22,14 @@ from mloda.steward import verified_context
 from mloda.user import ParallelizationMode
 
 import mloda.enterprise.extenders.audit as audit_package
+import mloda.enterprise.extenders.audit.run_manifest as run_manifest_module
 from mloda.enterprise.extenders.audit import (
     AuditExtender,
     HmacSha256Signer,
     ManifestSigner,
     ManifestVerificationError,
     NdjsonAuditSink,
+    RunNotPendingError,
     manifest_hash,
     seal_ndjson_runs,
     seal_run,
@@ -98,10 +104,11 @@ def _rewrite_lines(path: Path, objects: Iterable[Mapping[str, Any]]) -> None:
     path.write_text("".join(json.dumps(obj, sort_keys=True) + "\n" for obj in objects), encoding="utf-8")
 
 
-def _append_line(path: Path, line: str) -> None:
-    """Append raw text, for a line json.dumps cannot produce or NdjsonAuditSink would never write."""
-    with open(path, "a", encoding="utf-8") as file:
-        file.write(line + "\n")
+def _append_line(path: Path, line: str | bytes) -> None:
+    """Append raw text or bytes, for a line json.dumps cannot produce or NdjsonAuditSink would never write."""
+    data = line.encode("utf-8") if isinstance(line, str) else line
+    with open(path, "ab") as file:
+        file.write(data + b"\n")
 
 
 def _resigned(manifest: Mapping[str, Any], **changes: Any) -> dict[str, Any]:
@@ -170,12 +177,18 @@ class TestRunManifestPublicApi:
             "ManifestSigner",
             "HmacSha256Signer",
             "ManifestVerificationError",
+            "RunNotPendingError",
             "seal_run",
             "manifest_hash",
             "verify_manifest",
             "seal_ndjson_runs",
             "verify_ndjson_log",
         } <= set(audit_package.__all__)
+
+    def test_run_not_pending_error_is_a_value_error_but_not_a_verification_error(self) -> None:
+        # An idempotent `except RunNotPendingError` must not swallow a broken chain.
+        assert issubclass(RunNotPendingError, ValueError)
+        assert not issubclass(RunNotPendingError, ManifestVerificationError)
 
 
 class TestHmacSha256Signer:
@@ -512,7 +525,14 @@ class TestVerifyManifest:
 
     @pytest.mark.parametrize(
         ("field", "value"),
-        [("manifest_version", 2), ("hash_algorithm", "md5"), ("record_count", 4), ("run_id", 5)],
+        [
+            ("manifest_version", 2),
+            ("hash_algorithm", "md5"),
+            ("record_count", 4),
+            ("run_id", 5),
+            ("compliant", False),
+            ("compliant", 1),
+        ],
     )
     def test_correctly_signed_manifest_with_an_unacceptable_field_fails(self, field: str, value: Any) -> None:
         records = [_record(second=second) for second in range(3)]
@@ -522,6 +542,25 @@ class TestVerifyManifest:
 
         with pytest.raises(ManifestVerificationError, match=field):
             verify_manifest(resigned, records, signer=_signer())
+
+    def test_correctly_signed_compliant_manifest_over_a_deny_record_fails(self) -> None:
+        records = [_record(second=1), _record(second=2, tenant_id=None), _record(second=3)]
+        manifest = seal_run(records, run_id="run-1", signer=_signer())
+        assert manifest["compliant"] is False
+
+        with pytest.raises(ManifestVerificationError, match="compliant"):
+            verify_manifest(_resigned(manifest, compliant=True), records, signer=_signer())
+
+    @pytest.mark.parametrize("field", ["record_count", "manifest_version"])
+    @pytest.mark.parametrize("value", [True, 1.0], ids=["bool", "float"])
+    def test_correctly_signed_manifest_with_a_non_int_number_fails(self, field: str, value: Any) -> None:
+        records = [_record()]
+        manifest = seal_run(records, run_id="run-1", signer=_signer())
+        # Equal to the expected 1, so only a type check can object.
+        assert manifest[field] == value
+
+        with pytest.raises(ManifestVerificationError, match=field):
+            verify_manifest(_resigned(manifest, **{field: value}), records, signer=_signer())
 
 
 class TestSealNdjsonRuns:
@@ -559,13 +598,27 @@ class TestSealNdjsonRuns:
 
         assert [manifest["run_id"] for manifest in manifests] == ["run-a", "run-b"]
 
-    def test_records_without_a_run_id_are_ignored(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        ("run_id", "drop_key"),
+        [(None, False), ("", False), ("   ", False), (None, True)],
+        ids=["null", "empty", "blank", "absent"],
+    )
+    def test_records_without_a_run_id_are_ignored(self, tmp_path: Path, run_id: str | None, drop_key: bool) -> None:
         audit_path = tmp_path / "audit.ndjson"
-        _write_records(audit_path, [_record(None, 1), _record("run-a", 2), _record(None, 3)])
+        manifest_path = tmp_path / "manifests.ndjson"
 
-        manifests = seal_ndjson_runs(audit_path, tmp_path / "manifests.ndjson", signer=_signer())
+        def unusable(second: int) -> dict[str, Any]:
+            record = _record(run_id, second)
+            if drop_key:
+                del record["run_id"]
+            return record
+
+        _write_records(audit_path, [unusable(1), _record("run-a", 2), unusable(3)])
+
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
 
         assert [(manifest["run_id"], manifest["record_count"]) for manifest in manifests] == [("run-a", 1)]
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
 
     def test_run_with_a_deny_record_is_sealed_as_non_compliant(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"
@@ -644,22 +697,22 @@ class TestSealNdjsonRuns:
         assert manifests[0]["previous_manifest_hash"] is None
         assert _read_lines(manifest_path) == manifests
 
-    def test_explicit_run_id_without_records_raises_value_error(self, tmp_path: Path) -> None:
+    def test_explicit_run_id_without_records_raises_run_not_pending_error(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"
         manifest_path = tmp_path / "manifests.ndjson"
         _write_records(audit_path, [_record("run-a", 1)])
 
-        with pytest.raises(ValueError):
+        with pytest.raises(RunNotPendingError):
             seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-missing")
 
-    def test_explicit_run_id_already_sealed_raises_value_error(self, tmp_path: Path) -> None:
+    def test_explicit_run_id_already_sealed_raises_run_not_pending_error(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"
         manifest_path = tmp_path / "manifests.ndjson"
         _write_records(audit_path, [_record("run-a", 1), _record("run-b", 2)])
         seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-a")
         before = manifest_path.read_bytes()
 
-        with pytest.raises(ValueError):
+        with pytest.raises(RunNotPendingError):
             seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-a")
 
         assert manifest_path.read_bytes() == before
@@ -692,6 +745,100 @@ class TestSealNdjsonRuns:
         assert [(manifest["run_id"], manifest["previous_manifest_hash"]) for manifest in manifests] == [("run-d", head)]
         with pytest.raises(ManifestVerificationError, match="record"):
             verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    def test_signing_failure_writes_nothing_and_a_retry_seals_every_run(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        _write_records(audit_path, [_record("run-d", 7), _record("run-e", 8), _record("run-f", 9)])
+        before = manifest_path.read_bytes()
+
+        class _FailingSigner(HmacSha256Signer):
+            def sign(self, payload: bytes) -> str:
+                # Fails on the last new manifest; verifying the sealed log signs too but never meets run-f.
+                if json.loads(payload).get("run_id") == "run-f":
+                    raise RuntimeError("signing boom")
+                return super().sign(payload)
+
+        with pytest.raises(RuntimeError, match="signing boom"):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_FailingSigner(_KEY, "key-1"), expected_head=head)
+
+        assert manifest_path.read_bytes() == before
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
+        assert [manifest["run_id"] for manifest in manifests] == ["run-d", "run-e", "run-f"]
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    @pytest.mark.parametrize("file_name", ["manifests.ndjson", "audit.ndjson"])
+    def test_unterminated_final_line_fails_and_leaves_both_files_untouched(
+        self, tmp_path: Path, file_name: str
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        # Pending run-d: sealing it would concatenate its JSON onto an unterminated manifest line.
+        _write_records(audit_path, [_record("run-d", 7)])
+        path = tmp_path / file_name
+        path.write_bytes(path.read_bytes().removesuffix(b"\n"))
+        audit_before, manifest_before = audit_path.read_bytes(), manifest_path.read_bytes()
+
+        with pytest.raises(ManifestVerificationError, match="newline"):
+            verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+        with pytest.raises(ManifestVerificationError, match="newline"):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+        assert audit_path.read_bytes() == audit_before
+        assert manifest_path.read_bytes() == manifest_before
+
+    def test_sealing_holds_an_exclusive_lock_on_the_manifest_log(self, tmp_path: Path) -> None:
+        fcntl = pytest.importorskip("fcntl")
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _write_records(audit_path, [_record("run-d", 7)])
+        refused: list[bool] = []
+
+        class _LockProbeSigner(HmacSha256Signer):
+            def sign(self, payload: bytes) -> str:
+                # Verifying the sealed log signs too. A second descriptor is a second lock owner, so it is refused.
+                fd = os.open(manifest_path, os.O_RDONLY)
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    refused.append(False)
+                except BlockingIOError:
+                    refused.append(True)
+                finally:
+                    os.close(fd)
+                return super().sign(payload)
+
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_LockProbeSigner(_KEY, "key-1"))
+
+        assert [manifest["run_id"] for manifest in manifests] == ["run-d"]
+        assert refused
+        assert all(refused)
+        fd = os.open(manifest_path, os.O_RDONLY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(fd)
+
+    def test_sealing_and_verifying_work_where_fcntl_is_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setitem(sys.modules, "fcntl", None)
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record("run-a", 1), _record("run-b", 2)])
+
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+        assert [manifest["run_id"] for manifest in manifests] == ["run-a", "run-b"]
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == manifest_hash(manifests[-1])
+
+    def test_nothing_pending_on_a_fresh_manifest_path_leaves_an_empty_log(self, tmp_path: Path) -> None:
+        pytest.importorskip("fcntl")  # The lock creates the log; where fcntl is missing there is none.
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record(None, 1), _record(None, 2)])
+
+        assert seal_ndjson_runs(audit_path, manifest_path, signer=_signer()) == []
+
+        assert manifest_path.read_bytes() == b""
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) is None
 
 
 class TestVerifyNdjsonLog:
@@ -788,10 +935,11 @@ class TestVerifyNdjsonLog:
         manifests = _read_lines(manifest_path)
         assert manifests[0]["run_id"] == "run-a"
         # A JSON list parses to an unhashable value; looking the run up must not surface as a TypeError.
-        manifests[0]["run_id"] = ["run-a"]
+        # Re-signed, so the run_id guard is reached and not the signature check.
+        manifests[0] = _resigned(manifests[0], run_id=["run-a"])
         _rewrite_lines(manifest_path, manifests)
 
-        with pytest.raises(ManifestVerificationError):
+        with pytest.raises(ManifestVerificationError, match="run_id"):
             verify_ndjson_log(audit_path, manifest_path, signer=_signer())
 
     @pytest.mark.parametrize("index", [0, 1])
@@ -837,6 +985,117 @@ class TestVerifyNdjsonLog:
 
         with pytest.raises(ManifestVerificationError):
             verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    @pytest.mark.parametrize(
+        "dump_options",
+        [{"sort_keys": True, "separators": (",", ":")}, {"sort_keys": False}],
+        ids=["compact", "reversed-keys"],
+    )
+    def test_reformatted_audit_line_of_a_sealed_run_fails(self, tmp_path: Path, dump_options: dict[str, Any]) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        lines = audit_path.read_text(encoding="utf-8").splitlines()
+        original = json.loads(lines[0])
+        assert original["run_id"] == "run-a"
+        # The same JSON value in other bytes: the seal covers the bytes the sink wrote.
+        reformatted = json.dumps(dict(reversed(original.items())), **dump_options)
+        assert reformatted != lines[0]
+        assert json.loads(reformatted) == original
+        lines[0] = reformatted
+        audit_path.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+
+        with pytest.raises(ManifestVerificationError, match="record"):
+            verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    @pytest.mark.parametrize("log_bytes", [None, b""], ids=["missing", "empty"])
+    def test_missing_or_empty_manifest_log_returns_none(self, tmp_path: Path, log_bytes: bytes | None) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record("run-a", 1)])
+        if log_bytes is not None:
+            manifest_path.write_bytes(log_bytes)
+
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) is None
+        assert manifest_path.exists() == (log_bytes is not None)
+
+    def test_missing_manifest_log_fails_against_an_expected_head(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        _write_records(audit_path, [_record("run-a", 1)])
+
+        with pytest.raises(ManifestVerificationError, match="head"):
+            verify_ndjson_log(audit_path, tmp_path / "manifests.ndjson", signer=_signer(), expected_head="ab" * 32)
+
+    def test_every_failing_run_is_reported_in_one_error(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        records = _read_lines(audit_path)
+        assert records[5]["run_id"] == "run-c"
+        records[5]["tenant_id"] = "tenant-other"
+        # A late record on run-a and an edit on run-c: the first failure must not hide the second.
+        _rewrite_lines(audit_path, [*records, _record("run-a", 9)])
+
+        with pytest.raises(ManifestVerificationError) as excinfo:
+            verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+        message = str(excinfo.value)
+        assert "run-a" in message
+        assert "run-c" in message
+        assert "run-b" not in message
+
+    def test_a_head_mismatch_is_reported_together_with_a_record_mismatch(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, head = _truncated_log(tmp_path)
+        records = _read_lines(audit_path)
+        assert records[0]["run_id"] == "run-a"
+        records[0]["tenant_id"] = "tenant-other"
+        _rewrite_lines(audit_path, records)
+
+        with pytest.raises(ManifestVerificationError) as excinfo:
+            verify_ndjson_log(audit_path, manifest_path, signer=_signer(), expected_head=head)
+
+        message = str(excinfo.value)
+        assert "head" in message
+        assert "record" in message
+
+    def test_manifest_log_is_read_before_the_audit_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        original = run_manifest_module._read_ndjson
+        reads: list[str] = []
+
+        def spy(path: str | Path) -> Any:
+            reads.append(Path(path).name)
+            return original(path)
+
+        monkeypatch.setattr(run_manifest_module, "_read_ndjson", spy)
+
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+        # A run sealed between the two reads must not look like tampering: the log has to be the older snapshot.
+        assert reads == ["manifests.ndjson", "audit.ndjson"]
+
+    def test_edited_audit_line_without_a_run_id_still_verifies(self, tmp_path: Path) -> None:
+        # Documents the limit: a record without a run_id is outside every seal.
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        records = _read_lines(audit_path)
+        assert records[2]["run_id"] is None
+        records[2]["tenant_id"] = "tenant-other"
+        _rewrite_lines(audit_path, records)
+
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    def test_verification_waits_for_a_sealer_holding_the_lock(self, tmp_path: Path) -> None:
+        fcntl = pytest.importorskip("fcntl")
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            fd = os.open(manifest_path, os.O_RDONLY)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                future = pool.submit(verify_ndjson_log, audit_path, manifest_path, signer=_signer())
+                done, _ = wait([future], timeout=0.3)
+            finally:
+                os.close(fd)
+
+            assert not done
+            assert future.result(timeout=10) == head
 
 
 class TestExpectedHead:
@@ -911,6 +1170,26 @@ class TestMalformedNdjsonLines:
         with pytest.raises(ManifestVerificationError):
             verify_ndjson_log(audit_path, manifest_path, signer=_signer())
         with pytest.raises(ManifestVerificationError):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+    @pytest.mark.parametrize(("file_name", "line_number"), [("audit.ndjson", 7), ("manifests.ndjson", 4)])
+    @pytest.mark.parametrize(
+        "line",
+        [b"", b'{"run_id": "run-d"', b"\xff\xfe", b"[" * 100000],
+        ids=["blank", "truncated", "bad-utf8", "deep-nesting"],
+    )
+    def test_undecodable_line_fails_naming_the_file_and_line(
+        self, tmp_path: Path, file_name: str, line_number: int, line: bytes
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        path = tmp_path / file_name
+        _append_line(path, line)
+        # The first line after what _sealed_log wrote.
+        location = re.escape(f"{path} line {line_number}")
+
+        with pytest.raises(ManifestVerificationError, match=location):
+            verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+        with pytest.raises(ManifestVerificationError, match=location):
             seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
 
 
