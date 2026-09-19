@@ -167,6 +167,22 @@ def _sealed_log(directory: Path) -> tuple[Path, Path]:
     return audit_path, manifest_path
 
 
+def _rotated_three_key_log(
+    directory: Path,
+) -> tuple[Path, Path, HmacSha256Signer, HmacSha256Signer, HmacSha256Signer]:
+    """One run each sealed by three keys in turn: two rotations."""
+    audit_path = directory / "audit.ndjson"
+    manifest_path = directory / "manifests.ndjson"
+    key_1, key_2, key_3 = _signer(key_id="key-1"), _signer(_OTHER_KEY, "key-2"), _signer(b"t" * 32, "key-3")
+    _write_records(audit_path, [_record("run-a", 1)])
+    seal_ndjson_runs(audit_path, manifest_path, signer=key_1)
+    _write_records(audit_path, [_record("run-b", 2)])
+    seal_ndjson_runs(audit_path, manifest_path, signer=key_2, previous_signers=[key_1])
+    _write_records(audit_path, [_record("run-c", 3)])
+    seal_ndjson_runs(audit_path, manifest_path, signer=key_3, previous_signers=[key_1, key_2])
+    return audit_path, manifest_path, key_1, key_2, key_3
+
+
 def _truncated_log(directory: Path) -> tuple[Path, Path, str]:
     """Seal runs a, b, c, cut the log to its first line, edit a run-b record; returns the head before the cut."""
     audit_path, manifest_path = _sealed_log(directory)
@@ -646,6 +662,14 @@ class TestVerifyManifest:
         with pytest.raises(ManifestVerificationError, match="signature"):
             verify_manifest(tampered, records, signer=_signer())
 
+    def test_unhashable_signature_key_id_fails_without_crashing(self) -> None:
+        records = [_record(second=second) for second in range(3)]
+        manifest = seal_run(records, run_id="run-1", signer=_signer())
+        tampered = {**manifest, "signature": {**manifest["signature"], "key_id": []}}
+
+        with pytest.raises(ManifestVerificationError):
+            verify_manifest(tampered, records, signer=_signer())
+
     def test_altered_record_fails_the_record_check(self) -> None:
         records = [_record(second=second) for second in range(3)]
         manifest = seal_run(records, run_id="run-1", signer=_signer())
@@ -679,6 +703,19 @@ class TestVerifyManifest:
         assert "run-1" in message
         assert "has 1 record(s) beyond its seal" in message
         assert "do not match the record_hashes" not in message
+
+    def test_added_record_together_with_an_edited_record_fails_the_generic_check(self) -> None:
+        """Count grows by one, but an edit replaces a sealed hash: not a pure late append."""
+        records = [_record(second=second) for second in range(3)]
+        manifest = seal_run(records, run_id="run-1", signer=_signer())
+        mixed = [{**records[0], "tenant_id": "tenant-other"}, records[1], records[2], _record(second=9)]
+
+        with pytest.raises(ManifestVerificationError) as excinfo:
+            verify_manifest(manifest, mixed, signer=_signer())
+
+        message = str(excinfo.value)
+        assert "do not match the record_hashes" in message
+        assert "beyond its seal" not in message
 
     def test_repeated_record_fails_the_record_check(self) -> None:
         records = [_record(second=second) for second in range(3)]
@@ -1032,6 +1069,75 @@ class TestSealNdjsonRuns:
         assert [manifest["run_id"] for manifest in manifests] == ["run-d", "run-e", "run-f"]
         verify_ndjson_log(audit_path, manifest_path, signer=_signer())
 
+    def test_failed_append_with_a_genuine_short_write_is_rolled_back_and_a_retry_seals_every_run(
+        self, tmp_path: Path
+    ) -> None:
+        """Unlike the raise-based case above, os.write here really writes a truncated prefix and returns the
+        short count: bytes land on disk before _append_records raises, so only the truncate saves the log."""
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        _write_records(audit_path, [_record("run-d", 7), _record("run-e", 8), _record("run-f", 9)])
+        before = manifest_path.read_bytes()
+        real_write = os.write
+
+        def short_write(fd: int, data: bytes | memoryview) -> int:
+            return real_write(fd, data[:7])
+
+        with patch("os.write", side_effect=short_write):
+            with pytest.raises(OSError):
+                seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
+
+        assert manifest_path.read_bytes() == before
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
+        assert [manifest["run_id"] for manifest in manifests] == ["run-d", "run-e", "run-f"]
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    def test_failed_append_fsyncs_the_manifest_log_and_its_directory_after_the_rollback_truncate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The rollback truncate must be durable: a crash right after it must not resurrect the manifests this
+        sealer already reported as failed via the raised OSError."""
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        _write_records(audit_path, [_record("run-d", 7), _record("run-e", 8), _record("run-f", 9)])
+        real_write = os.write
+        real_truncate = os.truncate
+        real_fsync = os.fsync
+        events: list[str] = []
+
+        def short_write(fd: int, data: bytes | memoryview) -> int:
+            return real_write(fd, data[:7])
+
+        def spy_truncate(path: str | Path, length: int) -> None:
+            events.append("truncate")
+            real_truncate(path, length)
+
+        def spy_fsync(fd: int) -> None:
+            try:
+                if os.path.samestat(os.fstat(fd), manifest_path.stat()):
+                    events.append("fsync-manifest")
+            except FileNotFoundError:
+                pass
+            try:
+                if os.path.samestat(os.fstat(fd), manifest_path.parent.stat()):
+                    events.append("fsync-manifest-dir")
+            except FileNotFoundError:
+                pass
+            real_fsync(fd)
+
+        monkeypatch.setattr(os, "truncate", spy_truncate)
+        monkeypatch.setattr(os, "fsync", spy_fsync)
+
+        with patch("os.write", side_effect=short_write):
+            with pytest.raises(OSError):
+                seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
+
+        assert "truncate" in events
+        assert "fsync-manifest" in events
+        assert "fsync-manifest-dir" in events
+        assert events.index("truncate") < events.index("fsync-manifest")
+        assert events.index("truncate") < events.index("fsync-manifest-dir")
+
     def test_seal_fsyncs_the_manifest_log_and_its_directory(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1332,6 +1438,44 @@ class TestVerifyNdjsonLog:
         _write_records(manifest_path, [forged])
 
         with pytest.raises(ManifestVerificationError, match="run-c"):
+            verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+    def test_three_key_rotation_verifies_with_the_current_and_both_previous_signers(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, key_1, key_2, key_3 = _rotated_three_key_log(tmp_path)
+
+        verify_ndjson_log(audit_path, manifest_path, signer=key_3, previous_signers=[key_1, key_2])
+
+    def test_three_key_rotation_rejects_a_retired_key_named_as_the_current_signer(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, key_1, key_2, key_3 = _rotated_three_key_log(tmp_path)
+
+        with pytest.raises(ManifestVerificationError, match="run-b") as excinfo:
+            verify_ndjson_log(audit_path, manifest_path, signer=key_1, previous_signers=[key_2, key_3])
+
+        assert "retired key after the current key" in str(excinfo.value)
+
+    def test_previous_signer_with_a_different_algorithm_verifies_against_its_own_algorithm(
+        self, tmp_path: Path
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        old_signer = _PrefixSigner()
+        new_signer = _signer(_OTHER_KEY, "key-2")
+        _write_records(audit_path, [_record("run-a", 1)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=old_signer)
+
+        verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+    def test_previous_signer_manifest_with_a_mismatched_algorithm_is_rejected(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        old_signer = _PrefixSigner()
+        new_signer = _signer(_OTHER_KEY, "key-2")
+        _write_records(audit_path, [_record("run-a", 1)])
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=old_signer)
+        forged = {**manifests[0], "signature": {**manifests[0]["signature"], "algorithm": "HMAC-SHA256"}}
+        _rewrite_lines(manifest_path, [forged])
+
+        with pytest.raises(ManifestVerificationError, match="algorithm"):
             verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
 
     @pytest.mark.parametrize(
@@ -2034,6 +2178,36 @@ class TestPathAliasingGuards:
         assert not isinstance(excinfo.value, ManifestVerificationError)
         assert _snapshot(tmp_path) == before
 
+    @pytest.mark.parametrize("spelling", ["same-path", "symlink"])
+    def test_quarantine_damaged_lines_refuses_an_aliased_manifest_and_quarantine_path(
+        self, tmp_path: Path, spelling: str
+    ) -> None:
+        """quarantine_path aliasing manifest_path would nest _flock(quarantine_path) inside _flock(manifest_path)
+        on the same file: a self-deadlock, not tampering."""
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        quarantine_path = _aliased(tmp_path, manifest_path, spelling)
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ValueError) as excinfo:
+            quarantine_damaged_lines(audit_path, manifest_path, quarantine_path=quarantine_path, signer=_signer())
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
+        assert _snapshot(tmp_path) == before
+
+    @pytest.mark.parametrize("spelling", ["same-path", "symlink"])
+    def test_quarantine_damaged_lines_refuses_an_aliased_audit_and_quarantine_path(
+        self, tmp_path: Path, spelling: str
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        quarantine_path = _aliased(tmp_path, audit_path, spelling)
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ValueError) as excinfo:
+            quarantine_damaged_lines(audit_path, manifest_path, quarantine_path=quarantine_path, signer=_signer())
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
+        assert _snapshot(tmp_path) == before
+
 
 class TestQuarantineDamagedLines:
     def test_quarantined_line_is_frozen(self) -> None:
@@ -2160,6 +2334,148 @@ class TestQuarantineDamagedLines:
         trace = _trace(tmp_path).read_bytes()
         assert trace.startswith(first)
         assert len(_read_lines(_trace(tmp_path))) == 4
+
+    def test_failed_trace_append_to_an_existing_trace_log_is_rolled_back_and_a_retry_quarantines_everything(
+        self, tmp_path: Path
+    ) -> None:
+        """os.write really writes a truncated prefix into the trace and returns the short count: bytes land on
+        disk before _append_records raises, so only the truncate back to the previous trace content saves it."""
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        _quarantine(tmp_path, audit_path, manifest_path)
+        trace_before = _trace(tmp_path).read_bytes()
+        manifest_before = manifest_path.read_bytes()
+        _append_line(audit_path, b"[]")
+        damaged = audit_path.read_bytes()
+        real_write = os.write
+
+        def short_write(fd: int, data: bytes | memoryview) -> int:
+            return real_write(fd, data[:7])
+
+        with patch("os.write", side_effect=short_write):
+            with pytest.raises(OSError):
+                _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert _trace(tmp_path).read_bytes() == trace_before
+        assert audit_path.read_bytes() == damaged
+        assert manifest_path.read_bytes() == manifest_before
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert _summary(removed) == _spans("audit", damaged, [7])
+        assert len(_read_lines(_trace(tmp_path))) == 4
+
+    def test_failed_trace_append_to_a_new_trace_log_leaves_no_trace_file_and_a_retry_quarantines_everything(
+        self, tmp_path: Path
+    ) -> None:
+        """Same as above, but the trace log did not exist before: the rollback unlinks it instead of truncating."""
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        audit_before = audit_path.read_bytes()
+        manifest_before = manifest_path.read_bytes()
+        assert not _trace(tmp_path).exists()
+        real_write = os.write
+
+        def short_write(fd: int, data: bytes | memoryview) -> int:
+            return real_write(fd, data[:7])
+
+        with patch("os.write", side_effect=short_write):
+            with pytest.raises(OSError):
+                _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert not _trace(tmp_path).exists()
+        assert audit_path.read_bytes() == audit_before
+        assert manifest_path.read_bytes() == manifest_before
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        entries = _read_lines(_trace(tmp_path))
+        assert len(removed) == len(entries) == 3
+
+    def test_failed_trace_append_to_an_existing_trace_log_fsyncs_it_and_its_directory_after_the_rollback_truncate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The rollback truncate of the trace log must be durable too, or a crash right after it can resurrect
+        bytes of an entry this recovery already reported as failed via the raised OSError."""
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        _quarantine(tmp_path, audit_path, manifest_path)
+        _append_line(audit_path, b"[]")
+        trace_path = _trace(tmp_path)
+        real_write = os.write
+        real_truncate = os.truncate
+        real_fsync = os.fsync
+        events: list[str] = []
+
+        def short_write(fd: int, data: bytes | memoryview) -> int:
+            return real_write(fd, data[:7])
+
+        def spy_truncate(path: str | Path, length: int) -> None:
+            events.append("truncate")
+            real_truncate(path, length)
+
+        def spy_fsync(fd: int) -> None:
+            try:
+                if os.path.samestat(os.fstat(fd), trace_path.stat()):
+                    events.append("fsync-trace")
+            except FileNotFoundError:
+                pass
+            try:
+                if os.path.samestat(os.fstat(fd), trace_path.parent.stat()):
+                    events.append("fsync-trace-dir")
+            except FileNotFoundError:
+                pass
+            real_fsync(fd)
+
+        monkeypatch.setattr(os, "truncate", spy_truncate)
+        monkeypatch.setattr(os, "fsync", spy_fsync)
+
+        with patch("os.write", side_effect=short_write):
+            with pytest.raises(OSError):
+                _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert "truncate" in events
+        assert "fsync-trace" in events
+        assert "fsync-trace-dir" in events
+        assert events.index("truncate") < events.index("fsync-trace")
+        assert events.index("truncate") < events.index("fsync-trace-dir")
+
+    def test_failed_trace_append_to_a_new_trace_log_fsyncs_its_directory_after_the_rollback_unlink(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Same as above, but the trace log did not exist before: the rollback unlinks it, and that unlink must
+        itself be durable, so its directory entry is fsynced after the unlink."""
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        trace_path = _trace(tmp_path)
+        assert not trace_path.exists()
+        real_write = os.write
+        real_unlink = os.unlink
+        real_fsync = os.fsync
+        events: list[str] = []
+
+        def short_write(fd: int, data: bytes | memoryview) -> int:
+            return real_write(fd, data[:7])
+
+        def spy_unlink(path: str | Path) -> None:
+            events.append("unlink")
+            real_unlink(path)
+
+        def spy_fsync(fd: int) -> None:
+            try:
+                if os.path.samestat(os.fstat(fd), trace_path.parent.stat()):
+                    events.append("fsync-trace-dir")
+            except FileNotFoundError:
+                pass
+            real_fsync(fd)
+
+        monkeypatch.setattr(os, "unlink", spy_unlink)
+        monkeypatch.setattr(os, "fsync", spy_fsync)
+
+        with patch("os.write", side_effect=short_write):
+            with pytest.raises(OSError):
+                _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert not trace_path.exists()
+        assert "unlink" in events
+        assert "fsync-trace-dir" in events
+        assert events.index("unlink") < events.index("fsync-trace-dir")
 
     def test_str_paths_are_accepted_and_recorded_as_given(self, tmp_path: Path) -> None:
         audit_path, manifest_path, _ = _damaged_log(tmp_path)

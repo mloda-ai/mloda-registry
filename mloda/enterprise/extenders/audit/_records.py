@@ -26,7 +26,8 @@ def _utc_now() -> str:
 
 
 def _append_records(path: str | Path, records: Sequence[Mapping[str, Any]]) -> None:
-    """Append one canonical line per record through one O_APPEND descriptor."""
+    """Append one canonical line per record through one O_APPEND descriptor. One write per call, so a very large
+    batch can exceed what a single write accepts and then fail every retry; seal one run_id at a time to bound it."""
     data = b"".join(_canonical_json(record) + b"\n" for record in records)
     if not data:
         return

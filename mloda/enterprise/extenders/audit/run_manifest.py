@@ -7,8 +7,12 @@ as expected_head, because removing the newest manifests or the whole log is othe
 Limits:
 - HMAC is symmetric: integrity, not non-repudiation.
 - Records without a usable run_id and unsealed runs sit outside every seal (verify_ndjson_log_coverage counts them).
-- One manifest log per audit file; sealers serialise on flock (POSIX). `previous_signers` is a migration window
-  for verifying manifests signed by a retired key, not a permanent trust set.
+- One manifest log per audit file; sealers serialise on flock (POSIX), but not at all where fcntl is missing, so
+  concurrent sealers and recoveries then race. `previous_signers` is a migration window for verifying manifests
+  signed by a retired key, not a permanent trust set.
+- A key rotation protects a log only from its own first seal under the new key onward: until then, a holder of a
+  retired key in `previous_signers` can still write seals on it that verify. Seal every active log with the new
+  key promptly after rotating.
 - A torn or undecodable line fails sealing and verification until quarantine_damaged_lines repairs it. It repairs
   only a torn manifest tail and the audit lines the readers reject; anything else stays a hard failure.
 """
@@ -446,13 +450,16 @@ def seal_ndjson_runs(
             # Under the lock, so only this sealer's partial bytes go.
             with suppress(OSError):
                 os.truncate(manifest_path, size)
+                _fsync(manifest_path)
+                _fsync(Path(manifest_path).parent)
             raise
         return manifests
 
 
 @dataclass(frozen=True)
 class LogCoverage:
-    """What a verification covered; unsealed_lines maps each unsealed run_id to its line count."""
+    """What a verification covered; unsealed_lines maps each unsealed run_id to its line count. It is a private
+    copy: do not mutate it if you hash the value."""
 
     head: str | None
     sealed_runs: int
@@ -628,8 +635,11 @@ def _append_trace(path: str | Path, entries: list[dict[str, Any]], *, existed: b
         with suppress(OSError):
             if not existed and size == 0:
                 os.unlink(path)
+                _fsync(Path(path).parent)
             else:
                 os.truncate(path, size)
+                _fsync(path)
+                _fsync(Path(path).parent)
         raise
 
 

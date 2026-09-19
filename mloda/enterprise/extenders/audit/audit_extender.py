@@ -28,7 +28,8 @@ class NdjsonAuditSink:
     """One os.write per record to an O_APPEND descriptor keeps concurrent writers from interleaving
     a line, and the file is created owner-only. Opens per write, so it pickles and holds no buffer a
     terminated worker could lose; ordering across writers is not guaranteed. A short write raises
-    instead of finishing the line."""
+    instead of finishing the line, leaving a torn line that blocks sealing and verification until
+    quarantine_damaged_lines repairs it."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
