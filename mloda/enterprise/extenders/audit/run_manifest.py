@@ -22,7 +22,7 @@ import os
 import stat
 import tempfile
 from collections import Counter
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -187,10 +187,26 @@ def _verify_manifest_fields(manifest: Mapping[str, Any], signer: ManifestSigner)
         raise ManifestVerificationError(f"run_id {manifest.get('run_id')!r} is not a string")
 
 
+def _record_mismatch(manifest: Mapping[str, Any], digest: _RunDigest) -> str:
+    """The message for a record_hashes mismatch: a distinct wording when the run merely has extra records."""
+    run_id = manifest["run_id"]
+    sealed_hashes = manifest["record_hashes"]
+    generic = f"records of run_id {run_id!r} do not match the record_hashes"
+    try:
+        sealed_counts: Counter[Any] = Counter(sealed_hashes)
+        actual_counts: Counter[Any] = Counter(digest.hashes)
+    except TypeError:
+        return generic
+    extra = len(digest.hashes) - len(sealed_hashes)
+    if extra > 0 and all(actual_counts[key] >= count for key, count in sealed_counts.items()):
+        return f"run_id {run_id!r} has {extra} record(s) beyond its seal"
+    return generic
+
+
 def _verify_digest(manifest: Mapping[str, Any], digest: _RunDigest) -> None:
     # Lists, not sets: a repeated record must not pass.
     if sorted(digest.hashes) != manifest["record_hashes"]:
-        raise ManifestVerificationError(f"records of run_id {manifest['run_id']!r} do not match the record_hashes")
+        raise ManifestVerificationError(_record_mismatch(manifest, digest))
     if digest.compliant is not manifest.get("compliant"):
         raise ManifestVerificationError(
             f"compliant {manifest.get('compliant')!r} of run_id {manifest['run_id']!r} is not what its records give"
@@ -270,6 +286,16 @@ def _digest_runs(
     return digests
 
 
+def _reject_aliased_paths(**named_paths: str | Path) -> None:
+    """Raise ValueError, never ManifestVerificationError, when two of the given paths resolve to the same file."""
+    seen: dict[str, str] = {}
+    for name, path in named_paths.items():
+        real = os.path.realpath(path)
+        if real in seen:
+            raise ValueError(f"{seen[real]} and {name} must not be the same file, but both resolve to {real}")
+        seen[real] = name
+
+
 @contextmanager
 def _flock(path: str | Path, *, exclusive: bool) -> Iterator[None]:
     """flock `path`; a shared lock is best-effort, an exclusive one raises on OSError. No lock without fcntl."""
@@ -332,6 +358,13 @@ def _verify_log(
     return sealed, head
 
 
+def _append_and_fsync(path: str | Path, records: Sequence[Mapping[str, Any]]) -> None:
+    """Append, then fsync the file and its parent directory."""
+    _append_records(path, records)
+    _fsync(path)
+    _fsync(Path(path).parent)
+
+
 def seal_ndjson_runs(
     audit_path: str | Path,
     manifest_path: str | Path,
@@ -340,14 +373,22 @@ def seal_ndjson_runs(
     run_id: str | None = None,
     expected_head: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Seal every unsealed run (or only `run_id`). Raises RunAlreadySealedError for a sealed `run_id` (catch that, not
-    ValueError, for an idempotent retry) and RunNotPendingError when it has no records."""
+    """Seal every unsealed run (or only `run_id`). Seal a run only once its writers have stopped: core has no
+    run-end hook, so sealing a run that is still being written fails its verification for good. The `run_id=None`
+    sweep is for an audit file no writer is appending to; pass `run_id` when other runs may still be live. Raises
+    RunAlreadySealedError for a sealed `run_id` (catch that, not ValueError, for an idempotent retry) and
+    RunNotPendingError when it has no records."""
+    _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
     if run_id is not None and (not isinstance(run_id, str) or _is_blank(run_id)):
         raise ValueError("seal_ndjson_runs run_id must be a non-blank string")
     with _flock(manifest_path, exclusive=True):
         sealed, head = _verify_log(_iter_manifests(manifest_path), signer=signer, expected_head=expected_head)
         if run_id is not None and run_id in sealed:
             raise RunAlreadySealedError(f"run_id {run_id!r} is already sealed in {manifest_path}")
+        # A durable manifest must not name audit records that never reached disk; a missing audit file
+        # is not sealing's problem to report, so let _digest_runs raise it as it always has.
+        with suppress(FileNotFoundError):
+            _fsync(audit_path)
         digests = _digest_runs(
             audit_path, lambda candidate: candidate == run_id if run_id is not None else candidate not in sealed
         )
@@ -361,7 +402,7 @@ def seal_ndjson_runs(
             head = manifest_hash(manifest)
         size = os.path.getsize(manifest_path) if os.path.exists(manifest_path) else 0
         try:
-            _append_records(manifest_path, manifests)
+            _append_and_fsync(manifest_path, manifests)
         except BaseException:
             # Under the lock, so only this sealer's partial bytes go.
             with suppress(OSError):
@@ -401,6 +442,7 @@ def verify_ndjson_log_coverage(
 ) -> LogCoverage:
     """Verify like verify_ndjson_log; return a LogCoverage (head, sealed_runs, sealed_lines, unattributed_lines,
     unsealed_lines)."""
+    _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
     # Log first: a run sealed after this read looks unsealed, not tampered.
     with _flock(manifest_path, exclusive=False):
         manifests = _read_manifests(manifest_path)
@@ -528,16 +570,16 @@ def _require_terminated(path: str | Path) -> None:
         return
 
 
-def _append_trace(path: str | Path, entries: list[dict[str, Any]]) -> None:
-    """Append and fsync; a failure restores the file, or removes it if it did not exist."""
-    size = os.path.getsize(path) if os.path.exists(path) else None
+def _append_trace(path: str | Path, entries: list[dict[str, Any]], *, existed: bool) -> None:
+    """Append and fsync under the caller's lock on `path`; a failure restores the file, or removes it if the lock
+    itself created it (`existed` must be captured before the lock is acquired, since the lock's open(O_CREAT)
+    would otherwise make it look pre-existing)."""
+    size = os.path.getsize(path) if os.path.exists(path) else 0
     try:
-        _append_records(path, entries)
-        _fsync(path)
-        _fsync(Path(path).parent)
+        _append_and_fsync(path, entries)
     except BaseException:
         with suppress(OSError):
-            if size is None:
+            if not existed and size == 0:
                 os.unlink(path)
             else:
                 os.truncate(path, size)
@@ -577,8 +619,7 @@ def quarantine_damaged_lines(
     appends without a lock. A valid-JSON unterminated last line is refused in both files (it may be a real seal or
     record). Without an anchored `expected_head`, truncating a torn manifest tail is indistinguishable from cutting
     the newest manifest. Anything else raises and changes nothing."""
-    if os.path.realpath(quarantine_path) in {os.path.realpath(audit_path), os.path.realpath(manifest_path)}:
-        raise ValueError("quarantine_path must not be the audit file or the manifest log")
+    _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path, quarantine_path=quarantine_path)
     if not (os.path.exists(audit_path) or os.path.exists(manifest_path)):
         return []
     with _flock(manifest_path, exclusive=not dry_run):
@@ -587,11 +628,21 @@ def quarantine_damaged_lines(
         damage = manifest_damage + audit_damage
         if not damage:
             return []
-        _require_terminated(quarantine_path)
+        # Captured before the lock: an exclusive _flock opens O_CREAT, so afterwards the file always exists.
+        existed = os.path.exists(quarantine_path)
+        with _flock(quarantine_path, exclusive=not dry_run):
+            _require_terminated(quarantine_path)
+            if not dry_run:
+                _append_trace(
+                    quarantine_path,
+                    [_trace_entry(item, raw, path, signer) for item, raw, path in damage],
+                    existed=existed,
+                )
         if not dry_run:
-            _append_trace(quarantine_path, [_trace_entry(item, raw, path, signer) for item, raw, path in damage])
             if audit_damage:
                 _rewrite_without(audit_path, {item.line for item, _, _ in audit_damage})
             if manifest_damage:
                 os.truncate(manifest_path, manifest_damage[0][0].offset)
+                _fsync(manifest_path)
+                _fsync(Path(manifest_path).parent)
         return [item for item, _, _ in damage]

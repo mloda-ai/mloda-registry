@@ -32,11 +32,8 @@ def _append_records(path: str | Path, records: Sequence[Mapping[str, Any]]) -> N
         return
     fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     try:
-        view = memoryview(data)
-        while view:
-            written = os.write(fd, view)
-            if written <= 0:
-                raise OSError(f"os.write wrote no bytes to {path}")
-            view = view[written:]
+        written = os.write(fd, data)
+        if written <= 0 or written < len(data):
+            raise OSError(f"os.write wrote {written} of {len(data)} bytes to {path}")
     finally:
         os.close(fd)

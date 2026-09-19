@@ -352,28 +352,32 @@ class TestNdjsonAuditSink:
         assert len(lines) == 1
         assert json.loads(lines[0]) == record
 
-    def test_short_writes_are_finished_and_the_lines_land_exact(self, tmp_path: Path) -> None:
+    def test_short_write_raises_os_error_naming_the_path(self, tmp_path: Path) -> None:
         path = tmp_path / "audit.ndjson"
         sink = NdjsonAuditSink(path)
-        records = [{"a": "x" * 40}, {"b": "y" * 40}]
+        record = {"a": "x" * 40}
         real_write = os.write
 
         def short_write(fd: int, data: bytes | memoryview) -> int:
             return real_write(fd, data[:7])
 
         with patch("os.write", side_effect=short_write) as mock_write:
-            for record in records:
+            with pytest.raises(OSError) as excinfo:
                 sink.write(record)
 
-        assert path.read_text(encoding="utf-8") == "".join(json.dumps(r, sort_keys=True) + "\n" for r in records)
-        assert mock_write.call_count > len(records)
+        assert str(path) in str(excinfo.value)
+        assert mock_write.call_count == 1
+        line = json.dumps(record, sort_keys=True).encode("utf-8") + b"\n"
+        assert path.read_bytes() == line[:7]
 
     def test_zero_byte_write_raises_os_error(self, tmp_path: Path) -> None:
         sink = NdjsonAuditSink(tmp_path / "audit.ndjson")
 
-        with patch("os.write", return_value=0):
+        with patch("os.write", return_value=0) as mock_write:
             with pytest.raises(OSError):
                 sink.write({"a": 1})
+
+        assert mock_write.call_count == 1
 
     def test_small_record_is_one_write_carrying_the_whole_line(self, tmp_path: Path) -> None:
         path = tmp_path / "audit.ndjson"
@@ -383,7 +387,8 @@ class TestNdjsonAuditSink:
         with patch("os.write", wraps=os.write) as mock_write:
             sink.write({"a": 1})
 
-        assert [bytes(call.args[1]) for call in mock_write.call_args_list].count(line) == 1
+        assert mock_write.call_count == 1
+        assert [bytes(call.args[1]) for call in mock_write.call_args_list] == [line]
         assert path.read_bytes() == line
 
 

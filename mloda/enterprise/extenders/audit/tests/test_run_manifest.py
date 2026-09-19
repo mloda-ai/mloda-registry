@@ -248,6 +248,15 @@ def _snapshot(directory: Path) -> dict[str, bytes]:
     return {path.name: path.read_bytes() for path in sorted(directory.iterdir())}
 
 
+def _aliased(tmp_path: Path, target: Path, spelling: str) -> Path:
+    """`target` itself, or a symlink to it: two spellings that resolve to the same file."""
+    if spelling == "same-path":
+        return target
+    link = tmp_path / "aliased.ndjson"
+    link.symlink_to(target)
+    return link
+
+
 def _spans(file: str, data: bytes, numbers: Iterable[int]) -> list[tuple[str, int, int, int, str]]:
     """What a recovery reports for the 1-based lines `numbers` of `data`."""
     lines = data.splitlines(keepends=True)
@@ -659,6 +668,18 @@ class TestVerifyManifest:
         with pytest.raises(ManifestVerificationError, match="record"):
             verify_manifest(manifest, [*records, _record(second=9)], signer=_signer())
 
+    def test_added_record_beyond_the_seal_names_the_run_and_the_count(self) -> None:
+        records = [_record(second=second) for second in range(3)]
+        manifest = seal_run(records, run_id="run-1", signer=_signer())
+
+        with pytest.raises(ManifestVerificationError) as excinfo:
+            verify_manifest(manifest, [*records, _record(second=9)], signer=_signer())
+
+        message = str(excinfo.value)
+        assert "run-1" in message
+        assert "has 1 record(s) beyond its seal" in message
+        assert "do not match the record_hashes" not in message
+
     def test_repeated_record_fails_the_record_check(self) -> None:
         records = [_record(second=second) for second in range(3)]
         manifest = seal_run(records, run_id="run-1", signer=_signer())
@@ -683,6 +704,17 @@ class TestVerifyManifest:
         resigned = _resigned(manifest, **{field: value})
 
         with pytest.raises(ManifestVerificationError, match=field):
+            verify_manifest(resigned, records, signer=_signer())
+
+    @pytest.mark.parametrize("record_hashes", [[[]], [1]], ids=["unhashable", "hashable-non-string"])
+    def test_correctly_signed_manifest_with_a_non_string_record_hash_fails_without_crashing(
+        self, record_hashes: list[Any]
+    ) -> None:
+        records = [_record(second=second) for second in range(3)]
+        manifest = seal_run(records, run_id="run-1", signer=_signer())
+        resigned = _resigned(manifest, record_hashes=record_hashes, record_count=len(record_hashes))
+
+        with pytest.raises(ManifestVerificationError):
             verify_manifest(resigned, records, signer=_signer())
 
     def test_correctly_signed_compliant_manifest_over_a_deny_record_fails(self) -> None:
@@ -924,26 +956,90 @@ class TestSealNdjsonRuns:
         _write_records(audit_path, [_record("run-d", 7), _record("run-e", 8), _record("run-f", 9)])
         before = manifest_path.read_bytes()
         real_write = os.write
-        landed: list[int] = []
 
-        def disk_fills_after_the_first_manifest(fd: int, data: bytes | memoryview) -> int:
-            payload = bytes(data)
-            if b"record_hashes" not in payload:
-                return real_write(fd, data)
-            if landed:
+        def disk_is_full(fd: int, data: bytes | memoryview) -> int:
+            if b"record_hashes" in bytes(data):
                 raise OSError(errno.ENOSPC, "disk full")
-            landed.append(real_write(fd, payload[: payload.index(b"\n") + 1]))
-            return landed[0]
+            return real_write(fd, data)
 
-        with patch("os.write", side_effect=disk_fills_after_the_first_manifest):
+        with patch("os.write", side_effect=disk_is_full):
             with pytest.raises(OSError):
                 seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
 
-        assert landed
         assert manifest_path.read_bytes() == before
         manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
         assert [manifest["run_id"] for manifest in manifests] == ["run-d", "run-e", "run-f"]
         verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    def test_seal_fsyncs_the_manifest_log_and_its_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _write_records(audit_path, [_record("run-d", 7)])
+        fsynced: list[Path] = []
+        real_fsync = run_manifest_module._fsync
+
+        def spy(path: str | Path) -> None:
+            fsynced.append(Path(path))
+            real_fsync(path)
+
+        monkeypatch.setattr(run_manifest_module, "_fsync", spy)
+
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+        assert manifest_path in fsynced
+        assert manifest_path.parent in fsynced
+
+    def test_seal_fsync_failure_rolls_back_the_new_manifests(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _write_records(audit_path, [_record("run-d", 7)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+        _write_records(audit_path, [_record("run-e", 8)])
+        before = _snapshot(tmp_path)
+        real_fsync = run_manifest_module._fsync
+
+        def fsync_boom(path: str | Path) -> None:
+            if Path(path) == manifest_path:
+                raise OSError(errno.EIO, "fsync failed")
+            real_fsync(path)
+
+        monkeypatch.setattr(run_manifest_module, "_fsync", fsync_boom)
+
+        with pytest.raises(OSError, match="fsync failed"):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+        assert _snapshot(tmp_path) == before
+
+    def test_audit_file_is_fsynced_before_the_manifest_log_is_appended(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _write_records(audit_path, [_record("run-d", 7)])
+        events: list[str] = []
+        real_fsync = os.fsync
+
+        def spy_fsync(fd: int) -> None:
+            try:
+                is_audit = os.path.samestat(os.fstat(fd), audit_path.stat())
+            except FileNotFoundError:
+                is_audit = False
+            if is_audit:
+                events.append("fsync-audit")
+            real_fsync(fd)
+
+        def spy_append(*args: Any, **kwargs: Any) -> None:
+            events.append("append")
+            _append_records(*args, **kwargs)
+
+        monkeypatch.setattr(os, "fsync", spy_fsync)
+        monkeypatch.setattr(run_manifest_module, "_append_records", spy_append)
+
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+        assert "fsync-audit" in events
+        assert events.index("fsync-audit") < events.index("append")
 
     @pytest.mark.parametrize("file_name", ["manifests.ndjson", "audit.ndjson"])
     def test_unterminated_final_line_fails_and_leaves_both_files_untouched(
@@ -1101,8 +1197,9 @@ class TestVerifyNdjsonLog:
         records[0]["tenant_id"] = "tenant-other"
         _rewrite_lines(audit_path, records)
 
-        with pytest.raises(ManifestVerificationError):
+        with pytest.raises(ManifestVerificationError) as excinfo:
             verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+        assert "do not match the record_hashes" in str(excinfo.value)
 
     def test_deleted_audit_line_of_a_sealed_run_fails(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
@@ -1110,8 +1207,9 @@ class TestVerifyNdjsonLog:
         assert records[0]["run_id"] == "run-a"
         _rewrite_lines(audit_path, records[1:])
 
-        with pytest.raises(ManifestVerificationError):
+        with pytest.raises(ManifestVerificationError) as excinfo:
             verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+        assert "do not match the record_hashes" in str(excinfo.value)
 
     def test_sealed_run_without_any_audit_line_left_fails(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
@@ -1122,13 +1220,20 @@ class TestVerifyNdjsonLog:
         with pytest.raises(ManifestVerificationError):
             verify_ndjson_log(audit_path, manifest_path, signer=_signer())
 
-    def test_record_appended_to_a_sealed_run_fails_and_the_run_is_never_resealed(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("appended", [1, 2])
+    def test_records_appended_to_a_sealed_run_fail_and_the_run_is_never_resealed(
+        self, tmp_path: Path, appended: int
+    ) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
-        _write_records(audit_path, [_record("run-a", 9)])
+        _write_records(audit_path, [_record("run-a", 9 + offset) for offset in range(appended)])
         before = manifest_path.read_bytes()
 
-        with pytest.raises(ManifestVerificationError):
+        with pytest.raises(ManifestVerificationError) as excinfo:
             verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+        message = str(excinfo.value)
+        assert "run-a" in message
+        assert f"has {appended} record(s) beyond its seal" in message
+        assert "do not match the record_hashes" not in message
         assert seal_ndjson_runs(audit_path, manifest_path, signer=_signer()) == []
         assert manifest_path.read_bytes() == before
 
@@ -1689,6 +1794,58 @@ class TestMalformedNdjsonLines:
             seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
 
 
+class TestPathAliasingGuards:
+    """audit_path and manifest_path must not resolve to the same file: that is a caller mistake, not tampering."""
+
+    @pytest.mark.parametrize("spelling", ["same-path", "symlink"])
+    def test_seal_ndjson_runs_refuses_an_aliased_audit_and_manifest_path(self, tmp_path: Path, spelling: str) -> None:
+        audit_path, _manifest_path = _sealed_log(tmp_path)
+        manifest_path = _aliased(tmp_path, audit_path, spelling)
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ValueError) as excinfo:
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
+        assert _snapshot(tmp_path) == before
+
+    @pytest.mark.parametrize("spelling", ["same-path", "symlink"])
+    def test_verify_ndjson_log_refuses_an_aliased_audit_and_manifest_path(self, tmp_path: Path, spelling: str) -> None:
+        audit_path, _manifest_path = _sealed_log(tmp_path)
+        manifest_path = _aliased(tmp_path, audit_path, spelling)
+
+        with pytest.raises(ValueError) as excinfo:
+            verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
+
+    @pytest.mark.parametrize("spelling", ["same-path", "symlink"])
+    def test_verify_ndjson_log_coverage_refuses_an_aliased_audit_and_manifest_path(
+        self, tmp_path: Path, spelling: str
+    ) -> None:
+        audit_path, _manifest_path = _sealed_log(tmp_path)
+        manifest_path = _aliased(tmp_path, audit_path, spelling)
+
+        with pytest.raises(ValueError) as excinfo:
+            verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
+
+    @pytest.mark.parametrize("spelling", ["same-path", "symlink"])
+    def test_quarantine_damaged_lines_refuses_an_aliased_audit_and_manifest_path(
+        self, tmp_path: Path, spelling: str
+    ) -> None:
+        audit_path, _manifest_path = _sealed_log(tmp_path)
+        manifest_path = _aliased(tmp_path, audit_path, spelling)
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ValueError) as excinfo:
+            quarantine_damaged_lines(audit_path, manifest_path, quarantine_path=_trace(tmp_path), signer=_signer())
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
+        assert _snapshot(tmp_path) == before
+
+
 class TestQuarantineDamagedLines:
     def test_quarantined_line_is_frozen(self) -> None:
         line = QuarantinedLine(file="audit", line=1, offset=0, length=1, sha256="0" * 64, reason="not valid JSON")
@@ -2134,6 +2291,8 @@ class TestQuarantineDamagedLines:
 
         assert _summary(removed) == _spans("audit", damaged, [3])
         assert audit_path.read_bytes() == clean
+        assert manifest_path.exists()
+        assert manifest_path.read_bytes() == b""
         manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
         assert [manifest["run_id"] for manifest in manifests] == ["run-a", "run-b"]
 
@@ -2418,6 +2577,93 @@ class TestQuarantineDamagedLines:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         finally:
             os.close(fd)
+
+    def test_quarantine_fsyncs_the_manifest_log_and_its_directory_after_truncating(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        audit_path, manifest_path, _ = _torn_manifest_log(tmp_path)
+        trace_dir = tmp_path / "trace"
+        trace_dir.mkdir()
+        events: list[str] = []
+        real_fsync = os.fsync
+
+        def spy_fsync(fd: int) -> None:
+            try:
+                if os.path.samestat(os.fstat(fd), manifest_path.stat()):
+                    events.append("fsync-manifest")
+            except FileNotFoundError:
+                pass
+            try:
+                if os.path.samestat(os.fstat(fd), manifest_path.parent.stat()):
+                    events.append("fsync-manifest-dir")
+            except FileNotFoundError:
+                pass
+            real_fsync(fd)
+
+        monkeypatch.setattr(os, "fsync", spy_fsync)
+
+        quarantine_damaged_lines(
+            audit_path, manifest_path, quarantine_path=trace_dir / "quarantine.ndjson", signer=_signer()
+        )
+
+        assert "fsync-manifest" in events
+        assert "fsync-manifest-dir" in events
+
+    def test_recovery_holds_an_exclusive_lock_on_the_quarantine_log_during_the_trace_append(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        pytest.importorskip("fcntl")
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        quarantine_path = _trace(tmp_path)
+        quarantine_path.write_bytes(b"")
+        refused: list[bool] = []
+
+        def spy_append(*args: Any, **kwargs: Any) -> None:
+            refused.append(_lock_refused(quarantine_path))
+            _append_records(*args, **kwargs)
+
+        monkeypatch.setattr(run_manifest_module, "_append_records", spy_append)
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert len(removed) == 3
+        assert refused
+        assert all(refused)
+
+    def test_failed_trace_append_under_the_exclusive_lock_still_leaves_no_file_when_none_existed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        pytest.importorskip("fcntl")
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        quarantine_path = _trace(tmp_path)
+        assert not quarantine_path.exists()
+
+        def partial_append(path: str | Path, records: Any) -> None:
+            with open(path, "ab") as file:
+                file.write(b'{"quarantine_version": 1, "fi')
+            raise OSError(errno.ENOSPC, "disk full")
+
+        monkeypatch.setattr(run_manifest_module, "_append_records", partial_append)
+
+        with pytest.raises(OSError, match="disk full"):
+            _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert not quarantine_path.exists()
+
+    def test_repairs_a_torn_manifest_tail_where_fcntl_is_missing_even_when_the_quarantine_log_does_not_exist_yet(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setitem(sys.modules, "fcntl", None)
+        audit_path, manifest_path, head = _torn_manifest_log(tmp_path)
+        manifest_before = manifest_path.read_bytes()
+        assert not _trace(tmp_path).exists()
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert _summary(removed) == _spans("manifest", manifest_before, [4])
+        assert manifest_path.read_bytes() == manifest_before[: manifest_before.rindex(b"\n") + 1]
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == head
+        assert len(_read_lines(_trace(tmp_path))) == 1
 
 
 class TestRunManifestRunAll:
