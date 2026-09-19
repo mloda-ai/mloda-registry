@@ -3,6 +3,7 @@ NDJSON sealing and verification built on them; file tests write their audit reco
 
 from __future__ import annotations
 
+import base64
 import copy
 import dataclasses
 import errno
@@ -33,9 +34,11 @@ from mloda.enterprise.extenders.audit import (
     ManifestSigner,
     ManifestVerificationError,
     NdjsonAuditSink,
+    QuarantinedLine,
     RunAlreadySealedError,
     RunNotPendingError,
     manifest_hash,
+    quarantine_damaged_lines,
     seal_ndjson_runs,
     seal_run,
     verify_manifest,
@@ -58,6 +61,30 @@ _EXPECTED_MANIFEST_KEYS = {
     "compliant",
     "previous_manifest_hash",
     "signature",
+}
+
+_EXPECTED_QUARANTINE_KEYS = {
+    "quarantine_version",
+    "quarantined_at",
+    "file",
+    "path",
+    "line",
+    "offset",
+    "length",
+    "sha256",
+    "reason",
+    "raw_base64",
+    "signature",
+}
+
+# Lines both readers reject; the last is the one that raises RecursionError.
+_DAMAGED_LINES: dict[str, bytes] = {
+    "blank": b"\n",
+    "bad-utf8": b"\xff\xfe\n",
+    "truncated": b'{"run_id": "run-d"\n',
+    "not-an-object": b"[]\n",
+    "duplicate-key": b'{"run_id": "run-d", "run_id": "run-e"}\n',
+    "deep-nesting": b"[" * 100000 + b"\n",
 }
 
 
@@ -159,6 +186,120 @@ def _truncated_log(directory: Path) -> tuple[Path, Path, str]:
     return audit_path, manifest_path, head
 
 
+def _torn(path: Path, tail: bytes) -> None:
+    """Append `tail` without a newline, as a crash mid-append leaves it."""
+    path.write_bytes(path.read_bytes() + tail)
+
+
+def _insert_line(path: Path, index: int, line: bytes) -> None:
+    """Put `line` before the 0-based line `index`; every other byte of the file stays as it was."""
+    lines = path.read_bytes().splitlines(keepends=True)
+    lines.insert(index, line)
+    path.write_bytes(b"".join(lines))
+
+
+def _torn_manifest_log(directory: Path) -> tuple[Path, Path, str]:
+    """A sealed log whose manifest log ends in half of a manifest line (line 4), and the head before the damage."""
+    audit_path, manifest_path = _sealed_log(directory)
+    head = manifest_hash(_read_lines(manifest_path)[-1])
+    last = manifest_path.read_bytes().splitlines(keepends=True)[-1]
+    _torn(manifest_path, last[: len(last) // 2])
+    return audit_path, manifest_path, head
+
+
+def _damaged_log(directory: Path) -> tuple[Path, Path, str]:
+    """A torn manifest log plus an undecodable audit line (line 4) and a torn last audit line (line 8)."""
+    audit_path, manifest_path, head = _torn_manifest_log(directory)
+    _insert_line(audit_path, 3, b"\xff\xfe\n")
+    _torn(audit_path, b'{"run_id": "run-d", "tenant')
+    return audit_path, manifest_path, head
+
+
+def _log_cut_mid_write(directory: Path) -> tuple[Path, Path, list[str]]:
+    """Seal run-a alone, then run-b and run-c in one write that a crash cut inside run-c's line (line 3). Returns the
+    heads after a, b and c; the log keeps the first two manifests and half of the third."""
+    audit_path = directory / "audit.ndjson"
+    manifest_path = directory / "manifests.ndjson"
+    _write_records(audit_path, [_record("run-a", 1)])
+    heads = [manifest_hash(manifest) for manifest in seal_ndjson_runs(audit_path, manifest_path, signer=_signer())]
+    _write_records(audit_path, [_record("run-b", 2), _record("run-c", 3)])
+    heads += [manifest_hash(manifest) for manifest in seal_ndjson_runs(audit_path, manifest_path, signer=_signer())]
+    assert len(heads) == 3
+    lines = manifest_path.read_bytes().splitlines(keepends=True)
+    manifest_path.write_bytes(b"".join(lines[:2]) + lines[2][: len(lines[2]) // 2])
+    return audit_path, manifest_path, heads
+
+
+def _trace(directory: Path) -> Path:
+    """Where `_quarantine` writes the quarantine log."""
+    return directory / "quarantine.ndjson"
+
+
+def _quarantine(
+    directory: Path,
+    audit_path: Path,
+    manifest_path: Path,
+    *,
+    signer: ManifestSigner | None = None,
+    expected_head: str | None = None,
+    dry_run: bool = False,
+) -> list[QuarantinedLine]:
+    return quarantine_damaged_lines(
+        audit_path,
+        manifest_path,
+        quarantine_path=_trace(directory),
+        signer=signer or _signer(),
+        expected_head=expected_head,
+        dry_run=dry_run,
+    )
+
+
+def _snapshot(directory: Path) -> dict[str, bytes]:
+    """Every file of `directory` with its bytes: equal snapshots mean nothing was changed, created or left behind."""
+    return {path.name: path.read_bytes() for path in sorted(directory.iterdir())}
+
+
+def _spans(file: str, data: bytes, numbers: Iterable[int]) -> list[tuple[str, int, int, int, str]]:
+    """What a recovery reports for the 1-based lines `numbers` of a file holding `data`, worked out from the bytes."""
+    lines = data.splitlines(keepends=True)
+    return [(file, n, len(b"".join(lines[: n - 1])), len(lines[n - 1]), _sha256(lines[n - 1])) for n in numbers]
+
+
+def _summary(removed: Iterable[QuarantinedLine]) -> list[tuple[str, int, int, int, str]]:
+    return [(item.file, item.line, item.offset, item.length, item.sha256) for item in removed]
+
+
+def _assert_refused(
+    directory: Path,
+    audit_path: Path,
+    manifest_path: Path,
+    *,
+    signer: ManifestSigner | None = None,
+    expected_head: str | None = None,
+    dry_run: bool = False,
+) -> None:
+    """Recovery must raise ManifestVerificationError and leave the directory exactly as it was."""
+    before = _snapshot(directory)
+
+    with pytest.raises(ManifestVerificationError):
+        _quarantine(directory, audit_path, manifest_path, signer=signer, expected_head=expected_head, dry_run=dry_run)
+
+    assert _snapshot(directory) == before
+
+
+def _lock_refused(path: Path) -> bool:
+    """Whether a second descriptor is refused an exclusive lock on `path`, so another owner holds a lock on it."""
+    fcntl = pytest.importorskip("fcntl")
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return False
+    except BlockingIOError:
+        return True
+    finally:
+        os.close(fd)
+
+
 def _flock_unsupported(fd: int, operation: int) -> None:
     """The error flock raises on a file system without lock support, such as NFS without a lock manager."""
     raise OSError(errno.ENOLCK, "no locks")
@@ -198,6 +339,8 @@ class TestRunManifestPublicApi:
             "verify_ndjson_log",
             "LogCoverage",
             "verify_ndjson_log_coverage",
+            "QuarantinedLine",
+            "quarantine_damaged_lines",
         } <= set(audit_package.__all__)
 
     def test_run_not_pending_error_is_a_value_error_but_not_a_verification_error(self) -> None:
@@ -1559,6 +1702,749 @@ class TestMalformedNdjsonLines:
             verify_ndjson_log(audit_path, manifest_path, signer=_signer())
         with pytest.raises(ManifestVerificationError, match=location):
             seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+
+class TestQuarantineDamagedLines:
+    """quarantine_damaged_lines removes what the readers reject from the audit file and a torn tail from the manifest
+    log, records every removed byte in a signed quarantine log first, and refuses any repair a seal could hide."""
+
+    def test_quarantined_line_is_frozen(self) -> None:
+        line = QuarantinedLine(file="audit", line=1, offset=0, length=1, sha256="0" * 64, reason="not valid JSON")
+
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            line.line = 2  # type: ignore[misc]
+
+    def test_quarantined_line_has_exactly_the_specified_fields(self) -> None:
+        assert [field.name for field in dataclasses.fields(QuarantinedLine)] == [
+            "file",
+            "line",
+            "offset",
+            "length",
+            "sha256",
+            "reason",
+        ]
+
+    def test_torn_manifest_tail_is_reported_by_a_dry_run_and_nothing_changes(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, _ = _torn_manifest_log(tmp_path)
+        before = _snapshot(tmp_path)
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path, dry_run=True)
+
+        assert _summary(removed) == _spans("manifest", before["manifests.ndjson"], [4])
+        assert all(item.reason for item in removed)
+        assert _snapshot(tmp_path) == before
+
+    @pytest.mark.parametrize("anchored", [False, True], ids=["unanchored", "anchored"])
+    def test_torn_manifest_tail_is_truncated_and_the_chain_continues(self, tmp_path: Path, anchored: bool) -> None:
+        audit_path, manifest_path, head = _torn_manifest_log(tmp_path)
+        before = _snapshot(tmp_path)
+        manifest_before = before["manifests.ndjson"]
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path, expected_head=head if anchored else None)
+
+        assert _summary(removed) == _spans("manifest", manifest_before, [4])
+        assert manifest_path.read_bytes() == manifest_before[: manifest_before.rindex(b"\n") + 1]
+        assert audit_path.read_bytes() == before["audit.ndjson"]
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == head
+        _write_records(audit_path, [_record("run-d", 7)])
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
+        assert [(manifest["run_id"], manifest["previous_manifest_hash"]) for manifest in manifests] == [("run-d", head)]
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == manifest_hash(manifests[-1])
+
+    def test_trace_has_one_entry_per_removed_line_in_removal_order(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        before = _snapshot(tmp_path)
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        entries = _read_lines(_trace(tmp_path))
+        assert len(removed) == len(entries) == 3
+        assert [
+            (entry["file"], entry["line"], entry["offset"], entry["length"], entry["sha256"]) for entry in entries
+        ] == [
+            *_spans("manifest", before["manifests.ndjson"], [4]),
+            *_spans("audit", before["audit.ndjson"], [4, 8]),
+        ]
+        for entry, item in zip(entries, removed, strict=True):
+            assert set(entry) == _EXPECTED_QUARANTINE_KEYS
+            assert entry["quarantine_version"] == 1
+            assert entry["path"] == str(manifest_path if item.file == "manifest" else audit_path)
+            assert entry["reason"] == item.reason
+        # Written through _append_records, so a line is the canonical JSON of its entry.
+        assert _trace(tmp_path).read_bytes() == b"".join(_canonical(entry) + b"\n" for entry in entries)
+
+    def test_trace_keeps_the_removed_bytes_so_they_can_be_inspected_or_restored(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        audit_lines = audit_path.read_bytes().splitlines(keepends=True)
+        manifest_lines = manifest_path.read_bytes().splitlines(keepends=True)
+
+        _quarantine(tmp_path, audit_path, manifest_path)
+
+        entries = _read_lines(_trace(tmp_path))
+        removed_bytes = [manifest_lines[3], audit_lines[3], audit_lines[7]]
+        assert [base64.b64decode(entry["raw_base64"], validate=True) for entry in entries] == removed_bytes
+        assert [entry["sha256"] for entry in entries] == [_sha256(raw) for raw in removed_bytes]
+
+    def test_trace_signature_covers_the_entry_without_its_signature(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+
+        _quarantine(tmp_path, audit_path, manifest_path)
+
+        entries = _read_lines(_trace(tmp_path))
+        assert entries
+        for entry in entries:
+            signature = entry["signature"]
+            payload = _canonical(_unsigned(entry))
+            assert set(signature) == {"algorithm", "key_id", "value"}
+            assert (signature["algorithm"], signature["key_id"]) == (_signer().algorithm, _signer().key_id)
+            assert signature["value"] == hmac.new(_KEY, payload, hashlib.sha256).hexdigest()
+            tampered = _canonical(_unsigned({**entry, "line": entry["line"] + 1}))
+            assert _signer().verify(tampered, signature["value"]) is False
+
+    def test_quarantined_at_is_rfc3339_utc(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+
+        _quarantine(tmp_path, audit_path, manifest_path)
+
+        entries = _read_lines(_trace(tmp_path))
+        assert entries
+        for entry in entries:
+            quarantined_at = entry["quarantined_at"]
+            assert quarantined_at.endswith("Z")
+            datetime.fromisoformat(quarantined_at.removesuffix("Z"))
+
+    def test_new_trace_file_has_owner_only_permissions(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+
+        _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert stat.S_IMODE(_trace(tmp_path).stat().st_mode) == 0o600
+
+    def test_a_second_recovery_appends_to_the_trace(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        _quarantine(tmp_path, audit_path, manifest_path)
+        first = _trace(tmp_path).read_bytes()
+        _append_line(audit_path, b"[]")
+        damaged = audit_path.read_bytes()
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert _summary(removed) == _spans("audit", damaged, [7])
+        trace = _trace(tmp_path).read_bytes()
+        assert trace.startswith(first)
+        assert len(_read_lines(_trace(tmp_path))) == 4
+
+    def test_str_paths_are_accepted_and_recorded_as_given(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+
+        removed = quarantine_damaged_lines(
+            str(audit_path), str(manifest_path), quarantine_path=str(_trace(tmp_path)), signer=_signer()
+        )
+
+        assert [item.file for item in removed] == ["manifest", "audit", "audit"]
+        entries = _read_lines(_trace(tmp_path))
+        assert [entry["path"] for entry in entries] == [str(manifest_path), str(audit_path), str(audit_path)]
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    @pytest.mark.parametrize(
+        "tail",
+        [b"{}", b"[]", b"null", b'{"run_id": "run-d"}'],
+        ids=["empty-object", "array", "null", "object"],
+    )
+    def test_unterminated_manifest_tail_that_is_valid_json_is_not_repaired(
+        self, tmp_path: Path, tail: bytes, dry_run: bool
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _insert_line(audit_path, 3, b"[]\n")
+        _torn(manifest_path, tail)
+
+        _assert_refused(tmp_path, audit_path, manifest_path, dry_run=dry_run)
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    def test_a_seal_missing_only_its_newline_is_not_repaired(self, tmp_path: Path, dry_run: bool) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _insert_line(audit_path, 3, b"[]\n")
+        manifest_path.write_bytes(manifest_path.read_bytes().removesuffix(b"\n"))
+
+        _assert_refused(tmp_path, audit_path, manifest_path, dry_run=dry_run)
+
+    @pytest.mark.parametrize("index", [1, 3], ids=["middle", "last"])
+    @pytest.mark.parametrize("damage", list(_DAMAGED_LINES.values()), ids=list(_DAMAGED_LINES))
+    def test_terminated_damaged_manifest_line_is_not_repaired(self, tmp_path: Path, damage: bytes, index: int) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _insert_line(audit_path, 3, b"[]\n")
+        _insert_line(manifest_path, index, damage)
+
+        _assert_refused(tmp_path, audit_path, manifest_path)
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    @pytest.mark.parametrize("failure", ["edited-manifest", "broken-chain", "other-key", "wrong-head"])
+    def test_manifest_log_that_does_not_verify_is_not_repaired(
+        self, tmp_path: Path, failure: str, dry_run: bool
+    ) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        lines = manifest_path.read_bytes().splitlines(keepends=True)
+        if failure == "edited-manifest":
+            edited = lines[0].replace(b'"compliant": true', b'"compliant": false')
+            assert edited != lines[0]
+            lines[0] = edited
+        if failure == "broken-chain":
+            del lines[1]
+        manifest_path.write_bytes(b"".join(lines))
+
+        _assert_refused(
+            tmp_path,
+            audit_path,
+            manifest_path,
+            signer=_signer(_OTHER_KEY) if failure == "other-key" else None,
+            expected_head="0" * 64 if failure == "wrong-head" else None,
+            dry_run=dry_run,
+        )
+
+    @pytest.mark.parametrize("anchor", [0, 1], ids=["first-manifest", "second-manifest"])
+    def test_expected_head_of_any_complete_manifest_repairs_a_cut_multi_seal_write(
+        self, tmp_path: Path, anchor: int
+    ) -> None:
+        audit_path, manifest_path, heads = _log_cut_mid_write(tmp_path)
+        before = _snapshot(tmp_path)
+        manifest_before = before["manifests.ndjson"]
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path, expected_head=heads[anchor])
+
+        # Only the fragment goes: run-b's complete manifest stays, so the log ends at its head.
+        assert _summary(removed) == _spans("manifest", manifest_before, [3])
+        assert manifest_path.read_bytes() == manifest_before[: manifest_before.rindex(b"\n") + 1]
+        assert audit_path.read_bytes() == before["audit.ndjson"]
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == heads[1]
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=heads[1])
+        assert [(manifest["run_id"], manifest["previous_manifest_hash"]) for manifest in manifests] == [
+            ("run-c", heads[1])
+        ]
+
+    def test_dry_run_accepts_the_expected_head_of_an_earlier_manifest(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, heads = _log_cut_mid_write(tmp_path)
+        before = _snapshot(tmp_path)
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path, expected_head=heads[0], dry_run=True)
+
+        assert _summary(removed) == _spans("manifest", before["manifests.ndjson"], [3])
+        assert _snapshot(tmp_path) == before
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    @pytest.mark.parametrize("anchor", ["unrelated", "cut-manifest"])
+    def test_expected_head_of_no_complete_manifest_is_not_repaired(
+        self, tmp_path: Path, anchor: str, dry_run: bool
+    ) -> None:
+        audit_path, manifest_path, heads = _log_cut_mid_write(tmp_path)
+
+        # The cut manifest's own hash is no complete manifest's hash: accepting it would drop a seal it anchors.
+        _assert_refused(
+            tmp_path,
+            audit_path,
+            manifest_path,
+            expected_head="0" * 64 if anchor == "unrelated" else heads[2],
+            dry_run=dry_run,
+        )
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    def test_a_signer_with_another_key_is_refused_whatever_the_expected_head(
+        self, tmp_path: Path, dry_run: bool
+    ) -> None:
+        audit_path, manifest_path, heads = _log_cut_mid_write(tmp_path)
+
+        _assert_refused(
+            tmp_path, audit_path, manifest_path, signer=_signer(_OTHER_KEY), expected_head=heads[0], dry_run=dry_run
+        )
+
+    def test_a_broken_chain_is_refused_even_with_the_head_of_a_manifest_before_the_break(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, _ = _torn_manifest_log(tmp_path)
+        lines = manifest_path.read_bytes().splitlines(keepends=True)
+        del lines[1]
+        manifest_path.write_bytes(b"".join(lines))
+
+        _assert_refused(tmp_path, audit_path, manifest_path, expected_head=manifest_hash(json.loads(lines[0])))
+
+    @pytest.mark.parametrize("anchor", ["unrelated", "sealed-manifest"])
+    def test_any_expected_head_is_refused_when_the_log_has_no_complete_manifest(
+        self, tmp_path: Path, anchor: str
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        first = manifest_path.read_bytes().splitlines(keepends=True)[0]
+        manifest_path.write_bytes(first[: len(first) // 2])
+
+        _assert_refused(
+            tmp_path,
+            audit_path,
+            manifest_path,
+            expected_head="0" * 64 if anchor == "unrelated" else manifest_hash(json.loads(first)),
+        )
+
+    def test_a_log_that_is_only_a_torn_fragment_is_truncated_to_empty(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        first = manifest_path.read_bytes().splitlines(keepends=True)[0]
+        manifest_path.write_bytes(first[: len(first) // 2])
+        manifest_before = manifest_path.read_bytes()
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert _summary(removed) == _spans("manifest", manifest_before, [1])
+        assert manifest_path.read_bytes() == b""
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) is None
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    def test_clean_files_return_nothing_and_change_nothing(self, tmp_path: Path, dry_run: bool) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _write_records(audit_path, [_record("run-d", 7)])
+        before = _snapshot(tmp_path)
+
+        assert _quarantine(tmp_path, audit_path, manifest_path, dry_run=dry_run) == []
+
+        assert _snapshot(tmp_path) == before
+
+    @pytest.mark.parametrize(
+        "tail",
+        [b'{"run_id": "run-d", "tenant', b"\xff\xfe", b'{"run_id": "run-d", "tenant": "\xc3'],
+        ids=["torn", "bad-utf8", "torn-mid-character"],
+    )
+    def test_unterminated_audit_tail_that_does_not_parse_is_removed(self, tmp_path: Path, tail: bytes) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        clean = audit_path.read_bytes()
+        _torn(audit_path, tail)
+        damaged = audit_path.read_bytes()
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert _summary(removed) == _spans("audit", damaged, [7])
+        assert removed[0].length == len(tail)
+        assert audit_path.read_bytes() == clean
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == head
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    @pytest.mark.parametrize(
+        "tail",
+        [_canonical(_record("run-d", 7)), b"[]", b"{}", b"null", b"5", b'"x"'],
+        ids=["complete-record", "array", "empty-object", "null", "number", "string"],
+    )
+    def test_unterminated_audit_tail_that_is_valid_json_is_not_repaired(
+        self, tmp_path: Path, tail: bytes, dry_run: bool
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        # A line the recovery would otherwise remove: the refusal covers the whole file.
+        _insert_line(audit_path, 3, b"[]\n")
+        _torn(audit_path, tail)
+
+        _assert_refused(tmp_path, audit_path, manifest_path, dry_run=dry_run)
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    def test_a_sealed_record_missing_only_its_newline_is_not_repaired(self, tmp_path: Path, dry_run: bool) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        audit_path.write_bytes(audit_path.read_bytes().removesuffix(b"\n"))
+
+        _assert_refused(tmp_path, audit_path, manifest_path, dry_run=dry_run)
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    def test_a_refused_audit_tail_also_stops_the_manifest_repair(self, tmp_path: Path, dry_run: bool) -> None:
+        audit_path, manifest_path, _ = _torn_manifest_log(tmp_path)
+        _torn(audit_path, b"[]")
+
+        _assert_refused(tmp_path, audit_path, manifest_path, dry_run=dry_run)
+
+    @pytest.mark.parametrize("damage", list(_DAMAGED_LINES.values()), ids=list(_DAMAGED_LINES))
+    def test_damaged_audit_line_is_removed_and_the_others_keep_their_bytes(self, tmp_path: Path, damage: bytes) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        clean = audit_path.read_bytes()
+        _insert_line(audit_path, 2, damage)
+        damaged = audit_path.read_bytes()
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert _summary(removed) == _spans("audit", damaged, [3])
+        assert all(item.reason for item in removed)
+        assert audit_path.read_bytes() == clean
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == head
+
+    def test_every_kind_of_damaged_audit_line_is_removed_in_file_order(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        clean = audit_path.read_bytes()
+        lines = clean.splitlines(keepends=True)
+        damages = list(_DAMAGED_LINES.values())
+        interleaved = [piece for pair in zip(lines, damages, strict=False) for piece in pair] + lines[len(damages) :]
+        audit_path.write_bytes(b"".join(interleaved))
+        damaged = audit_path.read_bytes()
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert _summary(removed) == _spans("audit", damaged, range(2, 2 * len(damages) + 1, 2))
+        assert audit_path.read_bytes() == clean
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == head
+
+    @pytest.mark.parametrize(
+        ("index", "damage", "run_id"),
+        [
+            (3, lambda line: b"garbled\n", "run-b"),
+            (5, lambda line: line[:20], "run-c"),
+        ],
+        ids=["garbled", "torn-last-line"],
+    )
+    def test_damaged_line_of_a_sealed_run_is_removed_but_verification_still_fails(
+        self, tmp_path: Path, index: int, damage: Any, run_id: str
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        lines = audit_path.read_bytes().splitlines(keepends=True)
+        lines[index] = damage(lines[index])
+        audit_path.write_bytes(b"".join(lines))
+        damaged = audit_path.read_bytes()
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        # The seal covers the exact bytes of the line, so removing it is never hidden, and the trace names it.
+        assert _summary(removed) == _spans("audit", damaged, [index + 1])
+        with pytest.raises(ManifestVerificationError, match=run_id):
+            verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+        assert base64.b64decode(_read_lines(_trace(tmp_path))[0]["raw_base64"]) == lines[index]
+
+    @pytest.mark.parametrize("run_id", [["x"], 5], ids=["list", "number"])
+    def test_audit_line_with_a_non_string_run_id_is_not_damage_and_still_fails_verification(
+        self, tmp_path: Path, run_id: Any
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _write_records(audit_path, [{**_record(), "run_id": run_id}])
+        kept = audit_path.read_bytes()
+        _append_line(audit_path, "")
+        damaged = audit_path.read_bytes()
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert _summary(removed) == _spans("audit", damaged, [8])
+        assert audit_path.read_bytes() == kept
+        with pytest.raises(ManifestVerificationError, match="run_id"):
+            verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    def test_missing_audit_file_is_nothing_to_repair_and_the_manifest_tail_is_still_repaired(
+        self, tmp_path: Path
+    ) -> None:
+        audit_path, manifest_path, _ = _torn_manifest_log(tmp_path)
+        audit_path.unlink()
+        manifest_before = manifest_path.read_bytes()
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert _summary(removed) == _spans("manifest", manifest_before, [4])
+        assert manifest_path.read_bytes() == manifest_before[: manifest_before.rindex(b"\n") + 1]
+        assert not audit_path.exists()
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    def test_neither_audit_file_nor_manifest_log_returns_nothing_and_creates_nothing(
+        self, tmp_path: Path, dry_run: bool
+    ) -> None:
+        audit_path, manifest_path = tmp_path / "audit.ndjson", tmp_path / "manifests.ndjson"
+
+        assert _quarantine(tmp_path, audit_path, manifest_path, dry_run=dry_run) == []
+
+        assert _snapshot(tmp_path) == {}
+
+    def test_audit_file_is_repaired_before_anything_was_sealed(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = tmp_path / "audit.ndjson", tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record("run-a", 1), _record("run-b", 2)])
+        clean = audit_path.read_bytes()
+        _torn(audit_path, b'{"run_id": "run-c", "tena')
+        damaged = audit_path.read_bytes()
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert _summary(removed) == _spans("audit", damaged, [3])
+        assert audit_path.read_bytes() == clean
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+        assert [manifest["run_id"] for manifest in manifests] == ["run-a", "run-b"]
+
+    def test_both_files_are_repaired_manifest_entry_first_and_sealing_works_again(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, head = _damaged_log(tmp_path)
+        before = _snapshot(tmp_path)
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path, expected_head=head)
+
+        assert _summary(removed) == [
+            *_spans("manifest", before["manifests.ndjson"], [4]),
+            *_spans("audit", before["audit.ndjson"], [4, 8]),
+        ]
+        entries = _read_lines(_trace(tmp_path))
+        assert [(entry["file"], entry["line"]) for entry in entries] == [("manifest", 4), ("audit", 4), ("audit", 8)]
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == head
+        _write_records(audit_path, [_record("run-d", 7)])
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
+        assert [(manifest["run_id"], manifest["previous_manifest_hash"]) for manifest in manifests] == [("run-d", head)]
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    def test_dry_run_returns_what_a_real_run_removes_and_changes_nothing(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        before = _snapshot(tmp_path)
+
+        planned = _quarantine(tmp_path, audit_path, manifest_path, dry_run=True)
+
+        assert len(planned) == 3
+        assert _snapshot(tmp_path) == before
+        assert planned == _quarantine(tmp_path, audit_path, manifest_path)
+
+    def test_dry_run_creates_no_file_when_the_manifest_log_does_not_exist(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        _write_records(audit_path, [_record("run-a", 1)])
+        _torn(audit_path, b'{"run_id": "run-a", "tena')
+        before = _snapshot(tmp_path)
+
+        removed = _quarantine(tmp_path, audit_path, tmp_path / "manifests.ndjson", dry_run=True)
+
+        assert _summary(removed) == _spans("audit", before["audit.ndjson"], [2])
+        assert _snapshot(tmp_path) == before
+
+    @pytest.mark.parametrize("mode", [0o600, 0o640], ids=["owner-only", "group-readable"])
+    def test_rewritten_audit_file_keeps_its_permission_bits_and_leaves_no_temporary_file(
+        self, tmp_path: Path, mode: int
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _insert_line(audit_path, 3, b"[]\n")
+        audit_path.chmod(mode)
+
+        _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert stat.S_IMODE(audit_path.stat().st_mode) == mode
+        assert sorted(_snapshot(tmp_path)) == ["audit.ndjson", "manifests.ndjson", "quarantine.ndjson"]
+
+    def test_failed_audit_replacement_keeps_the_trace_and_the_original_audit_file(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _insert_line(audit_path, 3, b"[]\n")
+        _insert_line(audit_path, 5, b"\n")
+        before = _snapshot(tmp_path)
+
+        with patch("os.replace", side_effect=OSError(errno.EIO, "replace failed")):
+            with pytest.raises(OSError, match="replace failed"):
+                _quarantine(tmp_path, audit_path, manifest_path)
+
+        after = _snapshot(tmp_path)
+        assert after.pop("quarantine.ndjson")
+        assert after == before
+        assert [(entry["file"], entry["line"]) for entry in _read_lines(_trace(tmp_path))] == [
+            ("audit", 4),
+            ("audit", 6),
+        ]
+
+    def test_failed_trace_write_leaves_both_files_untouched(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        before = _snapshot(tmp_path)
+
+        def disk_full(*args: Any, **kwargs: Any) -> None:
+            raise OSError(errno.ENOSPC, "disk full")
+
+        monkeypatch.setattr(run_manifest_module, "_append_records", disk_full)
+
+        with pytest.raises(OSError, match="disk full"):
+            _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert _snapshot(tmp_path) == before
+
+    @pytest.mark.parametrize("existing", [False, True], ids=["new-trace", "existing-trace"])
+    def test_failed_trace_append_is_rolled_back(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing: bool
+    ) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        if existing:
+            _trace(tmp_path).write_bytes(b'{"quarantine_version": 1}\n')
+        before = _snapshot(tmp_path)
+
+        def partial_append(path: str | Path, records: Any) -> None:
+            with open(path, "ab") as file:
+                file.write(b'{"quarantine_version": 1, "fi')
+            raise OSError(errno.ENOSPC, "disk full")
+
+        monkeypatch.setattr(run_manifest_module, "_append_records", partial_append)
+
+        with pytest.raises(OSError, match="disk full"):
+            _quarantine(tmp_path, audit_path, manifest_path)
+
+        # The partial bytes go, and a trace that did not exist is absent again; audit and manifest were never touched.
+        assert _snapshot(tmp_path) == before
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    def test_quarantine_log_without_a_final_newline_is_refused_and_nothing_changes(
+        self, tmp_path: Path, dry_run: bool
+    ) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        # An appended entry would run into this line and make both unreadable.
+        _trace(tmp_path).write_bytes(b'{"quarantine_version": 1, "fi')
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ManifestVerificationError, match=re.escape(str(_trace(tmp_path)))):
+            _quarantine(tmp_path, audit_path, manifest_path, dry_run=dry_run)
+
+        assert _snapshot(tmp_path) == before
+
+    def test_an_empty_quarantine_log_is_appended_to(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        _trace(tmp_path).write_bytes(b"")
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert len(removed) == len(_read_lines(_trace(tmp_path))) == 3
+
+    def test_trace_is_fsynced_before_either_file_is_modified(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        events: list[tuple[str, int]] = []
+        real_fsync, real_replace, real_truncate = os.fsync, os.replace, os.truncate
+
+        def spy_fsync(fd: int) -> None:
+            try:
+                is_trace = os.path.samestat(os.fstat(fd), _trace(tmp_path).stat())
+            except FileNotFoundError:
+                is_trace = False
+            if is_trace:
+                events.append(("fsync-trace", _trace(tmp_path).stat().st_size))
+            real_fsync(fd)
+
+        def spy_replace(*args: Any, **kwargs: Any) -> None:
+            if str(args[1]) == str(audit_path):
+                events.append(("replace-audit", 0))
+            real_replace(*args, **kwargs)
+
+        def spy_truncate(*args: Any, **kwargs: Any) -> None:
+            if str(args[0]) == str(manifest_path):
+                events.append(("truncate-manifest", 0))
+            real_truncate(*args, **kwargs)
+
+        monkeypatch.setattr(os, "fsync", spy_fsync)
+        monkeypatch.setattr(os, "replace", spy_replace)
+        monkeypatch.setattr(os, "truncate", spy_truncate)
+
+        _quarantine(tmp_path, audit_path, manifest_path)
+
+        names = [name for name, _ in events]
+        assert {"replace-audit", "truncate-manifest"} <= set(names)
+        modified = min(names.index("replace-audit"), names.index("truncate-manifest"))
+        # Every entry is in the file when it is fsynced, and that happens before either file changes.
+        assert ("fsync-trace", _trace(tmp_path).stat().st_size) in events[:modified]
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    @pytest.mark.parametrize("target", ["audit.ndjson", "manifests.ndjson"])
+    @pytest.mark.parametrize("spelling", ["same-path", "relative", "symlink"])
+    def test_quarantine_path_that_resolves_to_a_log_is_refused_with_a_plain_value_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spelling: str, target: str, dry_run: bool
+    ) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        quarantine_path: Path | str = tmp_path / target
+        if spelling == "relative":
+            monkeypatch.chdir(tmp_path)
+            quarantine_path = f"./{target}"
+        if spelling == "symlink":
+            quarantine_path = tmp_path / "trace-link.ndjson"
+            quarantine_path.symlink_to(tmp_path / target)
+        before = _snapshot(tmp_path)
+
+        # Trace lines appended to a log would brick it.
+        with pytest.raises(ValueError) as excinfo:
+            quarantine_damaged_lines(
+                audit_path, manifest_path, quarantine_path=quarantine_path, signer=_signer(), dry_run=dry_run
+            )
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
+        assert _snapshot(tmp_path) == before
+
+    def test_a_symlinked_audit_path_repairs_the_real_file_and_stays_a_symlink(self, tmp_path: Path) -> None:
+        real_dir = tmp_path / "real"
+        real_dir.mkdir()
+        real_audit, manifest_path = _sealed_log(real_dir)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        clean = real_audit.read_bytes()
+        _insert_line(real_audit, 3, b"[]\n")
+        damaged = real_audit.read_bytes()
+        link = tmp_path / "audit-link.ndjson"
+        link.symlink_to(real_audit)
+
+        removed = _quarantine(tmp_path, link, manifest_path)
+
+        assert _summary(removed) == _spans("audit", damaged, [4])
+        assert link.is_symlink()
+        assert link.resolve() == real_audit.resolve()
+        assert not real_audit.is_symlink()
+        assert real_audit.read_bytes() == clean
+        assert [entry["path"] for entry in _read_lines(_trace(tmp_path))] == [str(link)]
+        assert verify_ndjson_log(link, manifest_path, signer=_signer()) == head
+        assert sorted(path.name for path in real_dir.iterdir()) == ["audit.ndjson", "manifests.ndjson"]
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    def test_recovery_waits_for_a_sealer_holding_the_lock(self, tmp_path: Path, dry_run: bool) -> None:
+        fcntl = pytest.importorskip("fcntl")
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _insert_line(audit_path, 3, b"[]\n")
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            fd = os.open(manifest_path, os.O_RDONLY)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                future = pool.submit(_quarantine, tmp_path, audit_path, manifest_path, dry_run=dry_run)
+                done, _ = wait([future], timeout=0.3)
+            finally:
+                os.close(fd)
+
+            assert not done
+            assert len(future.result(timeout=10)) == 1
+
+    def test_dry_run_does_not_wait_for_a_reader_holding_a_shared_lock(self, tmp_path: Path) -> None:
+        fcntl = pytest.importorskip("fcntl")
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _insert_line(audit_path, 3, b"[]\n")
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            fd = os.open(manifest_path, os.O_RDONLY)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_SH)
+                future = pool.submit(_quarantine, tmp_path, audit_path, manifest_path, dry_run=True)
+                done, _ = wait([future], timeout=5)
+            finally:
+                os.close(fd)
+
+            assert done
+            assert len(future.result()) == 1
+
+    def test_recovery_holds_an_exclusive_lock_on_the_manifest_log_while_it_repairs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fcntl = pytest.importorskip("fcntl")
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        probes: list[tuple[str, bool]] = []
+        real_replace = os.replace
+
+        class _LockProbeSigner(HmacSha256Signer):
+            def sign(self, payload: bytes) -> str:
+                # Verifying the manifest log and signing the trace entries both sign.
+                probes.append(("sign", _lock_refused(manifest_path)))
+                return super().sign(payload)
+
+        def spy_append(*args: Any, **kwargs: Any) -> None:
+            probes.append(("append", _lock_refused(manifest_path)))
+            _append_records(*args, **kwargs)
+
+        def spy_replace(*args: Any, **kwargs: Any) -> None:
+            probes.append(("replace", _lock_refused(manifest_path)))
+            real_replace(*args, **kwargs)
+
+        monkeypatch.setattr(run_manifest_module, "_append_records", spy_append)
+        monkeypatch.setattr(os, "replace", spy_replace)
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path, signer=_LockProbeSigner(_KEY, "key-1"))
+
+        assert len(removed) == 3
+        assert {stage for stage, _ in probes} == {"sign", "append", "replace"}
+        assert all(refused for _, refused in probes)
+        fd = os.open(manifest_path, os.O_RDONLY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(fd)
 
 
 class TestRunManifestRunAll:
