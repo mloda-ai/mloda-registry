@@ -7,7 +7,8 @@ as expected_head, because removing the newest manifests or the whole log is othe
 Limits:
 - HMAC is symmetric: integrity, not non-repudiation.
 - Records without a usable run_id and unsealed runs sit outside every seal (verify_ndjson_log_coverage counts them).
-- One manifest log per audit file, with `previous_signers` covering rotation; sealers serialise on flock (POSIX).
+- One manifest log per audit file; sealers serialise on flock (POSIX). `previous_signers` is a migration window
+  for verifying manifests signed by a retired key, not a permanent trust set.
 - A torn or undecodable line fails sealing and verification until quarantine_damaged_lines repairs it. It repairs
   only a torn manifest tail and the audit lines the readers reject; anything else stays a hard failure.
 """
@@ -241,8 +242,8 @@ def verify_manifest(
     signer: ManifestSigner,
     previous_signers: Iterable[ManifestSigner] = (),
 ) -> None:
-    """Raise ManifestVerificationError unless signed by `signer` and matching `records`. `previous_signers` is a
-    migration window for verifying manifests signed by a retired key, not a permanent trust set."""
+    """Raise ManifestVerificationError unless signed by `signer` and matching `records`. `previous_signers` covers
+    a retired signing key during rotation (see module docstring)."""
     signers = _signer_map(signer, previous_signers)
     _verify_manifest_fields(manifest, signer, signers)
     _verify_digest(manifest, _digest_of(records))
@@ -408,12 +409,11 @@ def seal_ndjson_runs(
     run_id: str | None = None,
     expected_head: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Seal every unsealed run (or only `run_id`). Seal a run only once its writers have stopped: core has no
-    run-end hook, so sealing a run that is still being written fails its verification for good. The `run_id=None`
-    sweep is for an audit file no writer is appending to; pass `run_id` when other runs may still be live. Raises
-    RunAlreadySealedError for a sealed `run_id` (catch that, not ValueError, for an idempotent retry) and
-    RunNotPendingError when it has no records. `previous_signers` is a migration window for verifying manifests
-    signed by a retired key, not a permanent trust set."""
+    """Seal every unsealed run (or only `run_id`). Seal only after a run's writers stop: core has no run-end hook,
+    so sealing a still-live run fails its verification for good. Pass `run_id` when other runs may still be live;
+    omit it to sweep an audit file no writer is appending to. Raises RunAlreadySealedError for an already-sealed
+    `run_id` (catch that, not ValueError, for an idempotent retry) and RunNotPendingError when it has no records.
+    `previous_signers` covers a retired signing key during rotation (see module docstring)."""
     signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
     if run_id is not None and (not isinstance(run_id, str) or _is_blank(run_id)):
@@ -424,8 +424,8 @@ def seal_ndjson_runs(
         )
         if run_id is not None and run_id in sealed:
             raise RunAlreadySealedError(f"run_id {run_id!r} is already sealed in {manifest_path}")
-        # A durable manifest must not name audit records that never reached disk; a missing audit file
-        # is not sealing's problem to report, so let _digest_runs raise it as it always has.
+        # A manifest must not name records that never reached disk; a missing file is left for _digest_runs
+        # to raise, as before.
         with suppress(FileNotFoundError):
             _fsync(audit_path)
         digests = _digest_runs(
@@ -481,8 +481,7 @@ def verify_ndjson_log_coverage(
     expected_head: str | None = None,
 ) -> LogCoverage:
     """Verify like verify_ndjson_log; return a LogCoverage (head, sealed_runs, sealed_lines, unattributed_lines,
-    unsealed_lines). `previous_signers` is a migration window for verifying manifests signed by a retired key, not
-    a permanent trust set."""
+    unsealed_lines). `previous_signers` covers a retired signing key during rotation (see module docstring)."""
     signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
     # Log first: a run sealed after this read looks unsealed, not tampered.
@@ -514,8 +513,7 @@ def verify_ndjson_log(
 ) -> str | None:
     """Raise ManifestVerificationError unless every manifest matches the audit bytes of its run. Returns the head:
     anchor it outside the log and pass it back as `expected_head`, or a truncated log goes undetected.
-    `previous_signers` is a migration window for verifying manifests signed by a retired key, not a permanent
-    trust set."""
+    `previous_signers` covers a retired signing key during rotation (see module docstring)."""
     return verify_ndjson_log_coverage(
         audit_path, manifest_path, signer=signer, previous_signers=previous_signers, expected_head=expected_head
     ).head
@@ -621,8 +619,8 @@ def _require_terminated(path: str | Path) -> None:
 
 def _append_trace(path: str | Path, entries: list[dict[str, Any]], *, existed: bool) -> None:
     """Append and fsync under the caller's lock on `path`; a failure restores the file, or removes it if the lock
-    itself created it (`existed` must be captured before the lock is acquired, since the lock's open(O_CREAT)
-    would otherwise make it look pre-existing)."""
+    created it. Capture `existed` before acquiring the lock: its open(O_CREAT) would otherwise always find the
+    file already there."""
     size = os.path.getsize(path) if os.path.exists(path) else 0
     try:
         _append_and_fsync(path, entries)
@@ -663,17 +661,21 @@ def quarantine_damaged_lines(
     expected_head: str | None = None,
     dry_run: bool = False,
 ) -> list[QuarantinedLine]:
-    """Repair a torn manifest tail and the audit lines the readers reject; `dry_run` only reports.
+    """Repair a torn manifest tail and the audit lines the readers reject.
 
-    Every removed line goes first to the signed `quarantine_path` log, fsynced before either file is touched; the
-    repair itself is not atomic with that write, so an interrupted run can leave a line traced but still present,
-    and re-running it then appends a second trace entry for it. A repair creates `manifest_path` when it is
-    missing, since the exclusive lock needs a writable file; `dry_run` creates nothing. Stop every audit-file
-    writer first: the sink appends without a lock. A valid-JSON unterminated last line is refused in both files
-    (it may be a real seal or record). An anchored `expected_head` must match one of the complete manifests, which
-    bounds how far back the log can have been rewound; re-verify the repaired log against the freshest anchor you
-    track yourself. Anything else raises and changes nothing. `previous_signers` is a migration window for
-    verifying manifests signed by a retired key, not a permanent trust set."""
+    - `dry_run=True` only reports; nothing is repaired or written.
+    - A removed line is traced to the signed `quarantine_path` log first, fsynced before either file is touched.
+      That write is not atomic with the repair itself: an interrupted run can leave a line traced but still
+      present, and re-running it then appends a second trace entry for it.
+    - A repair creates `manifest_path` when it is missing, since the exclusive lock needs a writable file;
+      `dry_run` creates nothing.
+    - Stop every audit-file writer first: the sink appends without a lock.
+    - A valid-JSON unterminated last line is refused in both files (it may be a real seal or record).
+    - An anchored `expected_head` must match one of the complete manifests, which bounds how far back the log can
+      have been rewound; re-verify the repaired log against the freshest anchor you track yourself.
+    - Anything else raises and changes nothing.
+
+    `previous_signers` covers a retired signing key during rotation (see module docstring)."""
     signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path, quarantine_path=quarantine_path)
     if not (os.path.exists(audit_path) or os.path.exists(manifest_path)):
