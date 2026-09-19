@@ -15,8 +15,8 @@ verify_ndjson_log does, over the bytes of each audit line where verify_manifest 
 Limits:
 - HMAC is symmetric, so HmacSha256Signer proves integrity to key holders and not non-repudiation; an asymmetric
   or KMS signer plugs in through ManifestSigner.
-- Records without a usable run_id (null, absent, blank) and runs that are not sealed yet are outside every seal
-  and are not reported.
+- Records without a usable run_id (null, absent, blank) and runs that are not sealed yet are outside every seal;
+  verify_ndjson_log_coverage counts them.
 - Removing the newest manifests or the whole log cannot be detected from the files alone, and a truncated log
   lets the next sealing run re-seal altered records. Anchor the head outside the log (verify_ndjson_log returns
   it, manifest_hash of the last sealed manifest gives it) and pass it back as expected_head.
@@ -33,8 +33,10 @@ import hashlib
 import hmac
 import json
 import os
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -109,6 +111,15 @@ class _RunDigest:
     def add(self, canonical: bytes, record: Mapping[str, Any]) -> None:
         self.hashes.append(_sha256(canonical))
         self.compliant = self.compliant and record.get("compliant") is True
+
+
+class _Uncovered:
+    """The audit lines a scan leaves out of every digest: those without a usable run_id, and per run those `keep`
+    refused."""
+
+    def __init__(self) -> None:
+        self.unattributed = 0
+        self.by_run: Counter[str] = Counter()
 
 
 def _digest_of(records: Iterable[Mapping[str, Any]]) -> _RunDigest:
@@ -250,15 +261,24 @@ def _read_manifests(path: str | Path) -> list[dict[str, Any]]:
     return list(_iter_manifests(path))
 
 
-def _digest_runs(audit_path: str | Path, keep: Callable[[str], bool]) -> dict[str, _RunDigest]:
+def _digest_runs(
+    audit_path: str | Path, keep: Callable[[str], bool], uncovered: _Uncovered | None = None
+) -> dict[str, _RunDigest]:
     """Keyed in order of first appearance in the audit file, which is the sealing order. Streams the file, keeping
-    only the runs `keep` accepts; records without a usable run_id are outside every seal."""
+    only the runs `keep` accepts; records without a usable run_id are outside every seal. The lines it leaves out
+    are counted into `uncovered` when given."""
+    if uncovered is None:
+        uncovered = _Uncovered()
     digests: dict[str, _RunDigest] = {}
     for line, record in _read_ndjson(audit_path):
         run_id = record.get("run_id")
         if run_id is not None and not isinstance(run_id, str):
             raise ManifestVerificationError(f"audit record run_id {run_id!r} is neither a string nor null")
-        if run_id is None or _is_missing(run_id) or not keep(run_id):
+        if run_id is None or _is_missing(run_id):
+            uncovered.unattributed += 1
+            continue
+        if not keep(run_id):
+            uncovered.by_run[run_id] += 1
             continue
         # The raw line, not a re-serialisation: the seal covers the bytes that were written.
         digests.setdefault(run_id, _RunDigest()).add(line, record)
@@ -374,6 +394,49 @@ def seal_ndjson_runs(
         return manifests
 
 
+@dataclass(frozen=True)
+class LogCoverage:
+    """What a successful verification covered. head is what verify_ndjson_log returns; sealed_lines are the audit
+    lines of the sealed_runs. Every other line is outside every seal: unattributed_lines have a null, absent or
+    blank run_id, and unsealed_lines maps each run that is not sealed yet to its line count, in order of first
+    appearance."""
+
+    head: str | None
+    sealed_runs: int
+    sealed_lines: int
+    unattributed_lines: int
+    unsealed_lines: dict[str, int]
+
+
+def verify_ndjson_log_coverage(
+    audit_path: str | Path,
+    manifest_path: str | Path,
+    *,
+    signer: ManifestSigner,
+    expected_head: str | None = None,
+) -> LogCoverage:
+    """Verify exactly like verify_ndjson_log (same checks, errors and lock) and return the head together with
+    the counts of the audit lines the seals cover and leave out."""
+    # The log first, under a shared lock so no sealer is mid-append; a run sealed after this read then looks
+    # unsealed, where the reverse order would make it look like tampering.
+    with _flock(manifest_path, exclusive=False):
+        manifests = _read_manifests(manifest_path)
+    sealed = {manifest["run_id"] for manifest in manifests if isinstance(manifest.get("run_id"), str)}
+    uncovered = _Uncovered()
+    try:
+        digests = _digest_runs(audit_path, sealed.__contains__, uncovered)
+    except FileNotFoundError:
+        digests = {}
+    _, head = _verify_log(manifests, signer=signer, expected_head=expected_head, digests=digests)
+    return LogCoverage(
+        head=head,
+        sealed_runs=len(sealed),
+        sealed_lines=sum(len(digest.hashes) for digest in digests.values()),
+        unattributed_lines=uncovered.unattributed,
+        unsealed_lines=dict(uncovered.by_run),
+    )
+
+
 def verify_ndjson_log(
     audit_path: str | Path,
     manifest_path: str | Path,
@@ -384,15 +447,6 @@ def verify_ndjson_log(
     """Raise ManifestVerificationError unless every manifest verifies against the audit bytes of its run,
     chains to its predecessor and seals a run_id of its own; every failing run is named in the one error.
     Runs that are not sealed yet are ignored, and a missing audit file is treated as empty. Returns the head, the
-    manifest_hash of the last manifest (None for an empty or missing log), to anchor outside the log."""
-    # The log first, under a shared lock so no sealer is mid-append; a run sealed after this read then looks
-    # unsealed, where the reverse order would make it look like tampering.
-    with _flock(manifest_path, exclusive=False):
-        manifests = _read_manifests(manifest_path)
-    sealed = {manifest["run_id"] for manifest in manifests if isinstance(manifest.get("run_id"), str)}
-    try:
-        digests = _digest_runs(audit_path, sealed.__contains__)
-    except FileNotFoundError:
-        digests = {}
-    _, head = _verify_log(manifests, signer=signer, expected_head=expected_head, digests=digests)
-    return head
+    manifest_hash of the last manifest (None for an empty or missing log), to anchor outside the log;
+    verify_ndjson_log_coverage also reports how many lines the seals cover."""
+    return verify_ndjson_log_coverage(audit_path, manifest_path, signer=signer, expected_head=expected_head).head

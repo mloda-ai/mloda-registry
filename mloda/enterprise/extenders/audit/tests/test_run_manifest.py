@@ -4,6 +4,7 @@ NDJSON sealing and verification built on them; file tests write their audit reco
 from __future__ import annotations
 
 import copy
+import dataclasses
 import errno
 import hashlib
 import hmac
@@ -28,6 +29,7 @@ import mloda.enterprise.extenders.audit.run_manifest as run_manifest_module
 from mloda.enterprise.extenders.audit import (
     AuditExtender,
     HmacSha256Signer,
+    LogCoverage,
     ManifestSigner,
     ManifestVerificationError,
     NdjsonAuditSink,
@@ -38,6 +40,7 @@ from mloda.enterprise.extenders.audit import (
     seal_run,
     verify_manifest,
     verify_ndjson_log,
+    verify_ndjson_log_coverage,
 )
 from mloda.enterprise.extenders.audit.audit_extender import _append_records
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
@@ -193,6 +196,8 @@ class TestRunManifestPublicApi:
             "verify_manifest",
             "seal_ndjson_runs",
             "verify_ndjson_log",
+            "LogCoverage",
+            "verify_ndjson_log_coverage",
         } <= set(audit_package.__all__)
 
     def test_run_not_pending_error_is_a_value_error_but_not_a_verification_error(self) -> None:
@@ -1259,6 +1264,206 @@ class TestVerifyNdjsonLog:
 
         # The shared lock is best effort: a file system that cannot lock must not make verifying impossible.
         assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == head
+
+
+class TestVerifyNdjsonLogCoverage:
+    """verify_ndjson_log_coverage verifies exactly like verify_ndjson_log and also counts what the seals leave out."""
+
+    def test_fully_sealed_log_covers_every_line(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record("run-a", 1), _record("run-b", 2), _record("run-a", 3)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+        assert coverage == LogCoverage(
+            head=manifest_hash(_read_lines(manifest_path)[-1]),
+            sealed_runs=2,
+            sealed_lines=3,
+            unattributed_lines=0,
+            unsealed_lines={},
+        )
+
+    def test_head_is_what_verify_ndjson_log_returns(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+        assert coverage.head == verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+        assert coverage.head == manifest_hash(_read_lines(manifest_path)[-1])
+
+    @pytest.mark.parametrize(
+        ("run_id", "drop_key"),
+        [(None, False), ("", False), ("   ", False), (None, True)],
+        ids=["null", "empty", "blank", "absent"],
+    )
+    def test_lines_without_a_run_id_are_unattributed(self, tmp_path: Path, run_id: str | None, drop_key: bool) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        records = [_record(run_id, 1), _record("run-a", 2), _record(run_id, 3)]
+        if drop_key:
+            del records[0]["run_id"]
+            del records[2]["run_id"]
+        _write_records(audit_path, records)
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+        assert coverage == LogCoverage(
+            head=manifest_hash(_read_lines(manifest_path)[-1]),
+            sealed_runs=1,
+            sealed_lines=1,
+            unattributed_lines=2,
+            unsealed_lines={},
+        )
+
+    def test_lines_of_runs_that_are_not_sealed_yet_are_counted_per_run(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        # run-e appears first although run-d sorts first.
+        _write_records(
+            audit_path,
+            [_record("run-e", 7), _record("run-d", 8), _record("run-d", 9), _record("run-e", 10), _record("run-d", 11)],
+        )
+
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+        assert list(coverage.unsealed_lines.items()) == [("run-e", 2), ("run-d", 3)]
+
+    def test_mixed_log_counts_every_kind_of_line_once(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        absent = _record(None, 10)
+        del absent["run_id"]
+        _write_records(
+            audit_path,
+            [_record("run-d", 7), _record("   ", 8), _record("run-e", 9), absent, _record("run-d", 11)],
+        )
+
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+        assert coverage.head == manifest_hash(_read_lines(manifest_path)[-1])
+        assert coverage.sealed_runs == 3
+        assert coverage.sealed_lines == 5
+        assert coverage.unattributed_lines == 3
+        assert list(coverage.unsealed_lines.items()) == [("run-d", 2), ("run-e", 1)]
+        total = coverage.sealed_lines + coverage.unattributed_lines + sum(coverage.unsealed_lines.values())
+        assert total == len(_read_lines(audit_path))
+
+    @pytest.mark.parametrize("log_bytes", [None, b""], ids=["missing", "empty"])
+    def test_missing_or_empty_manifest_log_leaves_every_line_unsealed_or_unattributed(
+        self, tmp_path: Path, log_bytes: bytes | None
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record("run-a", 1), _record("run-a", 2), _record(None, 3), _record("run-b", 4)])
+        if log_bytes is not None:
+            manifest_path.write_bytes(log_bytes)
+
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+        assert coverage == LogCoverage(
+            head=None, sealed_runs=0, sealed_lines=0, unattributed_lines=1, unsealed_lines={"run-a": 2, "run-b": 1}
+        )
+        assert manifest_path.exists() == (log_bytes is not None)
+
+    @pytest.mark.parametrize("log_bytes", [None, b""], ids=["missing", "empty"])
+    def test_missing_audit_file_without_manifests_is_an_empty_coverage(
+        self, tmp_path: Path, log_bytes: bytes | None
+    ) -> None:
+        manifest_path = tmp_path / "manifests.ndjson"
+        if log_bytes is not None:
+            manifest_path.write_bytes(log_bytes)
+
+        coverage = verify_ndjson_log_coverage(tmp_path / "audit.ndjson", manifest_path, signer=_signer())
+
+        assert coverage == LogCoverage(
+            head=None, sealed_runs=0, sealed_lines=0, unattributed_lines=0, unsealed_lines={}
+        )
+
+    def test_untouched_log_with_a_matching_expected_head_returns_the_coverage(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer(), expected_head=head)
+
+        assert coverage.head == head
+        assert coverage.sealed_runs == 3
+
+    def test_edited_audit_line_of_a_sealed_run_fails(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        records = _read_lines(audit_path)
+        assert records[0]["run_id"] == "run-a"
+        records[0]["tenant_id"] = "tenant-other"
+        _rewrite_lines(audit_path, records)
+
+        with pytest.raises(ManifestVerificationError, match="record"):
+            verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+    def test_signer_with_a_different_key_fails(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+
+        with pytest.raises(ManifestVerificationError):
+            verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer(_OTHER_KEY))
+
+    def test_wrong_expected_head_fails(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+
+        with pytest.raises(ManifestVerificationError, match="head"):
+            verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer(), expected_head="ab" * 32)
+
+    def test_deleted_audit_file_fails_every_sealed_run(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        audit_path.unlink()
+
+        with pytest.raises(ManifestVerificationError, match="record"):
+            verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+    @pytest.mark.parametrize("run_id", [["x"], 5], ids=["list", "number"])
+    def test_audit_record_whose_run_id_is_neither_a_string_nor_null_fails(self, tmp_path: Path, run_id: Any) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _write_records(audit_path, [{**_record(), "run_id": run_id}])
+
+        with pytest.raises(ManifestVerificationError):
+            verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+    @pytest.mark.parametrize("file_name", ["audit.ndjson", "manifests.ndjson"])
+    def test_json_line_that_is_not_an_object_fails(self, tmp_path: Path, file_name: str) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _append_line(tmp_path / file_name, "[]")
+
+        with pytest.raises(ManifestVerificationError):
+            verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+    def test_verification_waits_for_a_sealer_holding_the_lock(self, tmp_path: Path) -> None:
+        fcntl = pytest.importorskip("fcntl")
+        audit_path, manifest_path = _sealed_log(tmp_path)
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            fd = os.open(manifest_path, os.O_RDONLY)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                future = pool.submit(verify_ndjson_log_coverage, audit_path, manifest_path, signer=_signer())
+                done, _ = wait([future], timeout=0.3)
+            finally:
+                os.close(fd)
+
+            assert not done
+            assert future.result(timeout=10).sealed_runs == 3
+
+    def test_verify_ndjson_log_still_returns_only_the_head(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _write_records(audit_path, [_record("run-d", 7), _record("", 8)])
+
+        head = verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+        assert isinstance(head, str)
+        assert head == verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer()).head
+
+    def test_log_coverage_is_frozen(self) -> None:
+        coverage = LogCoverage(head=None, sealed_runs=0, sealed_lines=0, unattributed_lines=0, unsealed_lines={})
+
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            coverage.sealed_runs = 1  # type: ignore[misc]
 
 
 class TestExpectedHead:
