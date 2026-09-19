@@ -4,6 +4,7 @@ NDJSON sealing and verification built on them; file tests write their audit reco
 from __future__ import annotations
 
 import copy
+import errno
 import hashlib
 import hmac
 import json
@@ -16,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from mloda.steward import verified_context
@@ -29,6 +31,7 @@ from mloda.enterprise.extenders.audit import (
     ManifestSigner,
     ManifestVerificationError,
     NdjsonAuditSink,
+    RunAlreadySealedError,
     RunNotPendingError,
     manifest_hash,
     seal_ndjson_runs,
@@ -36,6 +39,7 @@ from mloda.enterprise.extenders.audit import (
     verify_manifest,
     verify_ndjson_log,
 )
+from mloda.enterprise.extenders.audit.audit_extender import _append_records
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
 
 _KEY = b"k" * 32
@@ -152,6 +156,11 @@ def _truncated_log(directory: Path) -> tuple[Path, Path, str]:
     return audit_path, manifest_path, head
 
 
+def _flock_unsupported(fd: int, operation: int) -> None:
+    """The error flock raises on a file system without lock support, such as NFS without a lock manager."""
+    raise OSError(errno.ENOLCK, "no locks")
+
+
 class _PrefixSigner:
     """Minimal non-HMAC signer that inherits from nothing: sealing and verifying rely on the protocol only."""
 
@@ -178,6 +187,7 @@ class TestRunManifestPublicApi:
             "HmacSha256Signer",
             "ManifestVerificationError",
             "RunNotPendingError",
+            "RunAlreadySealedError",
             "seal_run",
             "manifest_hash",
             "verify_manifest",
@@ -189,6 +199,10 @@ class TestRunManifestPublicApi:
         # An idempotent `except RunNotPendingError` must not swallow a broken chain.
         assert issubclass(RunNotPendingError, ValueError)
         assert not issubclass(RunNotPendingError, ManifestVerificationError)
+
+    def test_run_already_sealed_error_is_a_run_not_pending_error(self) -> None:
+        # Catching RunNotPendingError still covers it; catching RunAlreadySealedError alone is the idempotent retry.
+        assert issubclass(RunAlreadySealedError, RunNotPendingError)
 
 
 class TestHmacSha256Signer:
@@ -702,20 +716,38 @@ class TestSealNdjsonRuns:
         manifest_path = tmp_path / "manifests.ndjson"
         _write_records(audit_path, [_record("run-a", 1)])
 
-        with pytest.raises(RunNotPendingError):
+        with pytest.raises(RunNotPendingError) as excinfo:
             seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-missing")
 
-    def test_explicit_run_id_already_sealed_raises_run_not_pending_error(self, tmp_path: Path) -> None:
+        # A caller retrying idempotently on RunAlreadySealedError must not swallow a run_id that never had records.
+        assert not isinstance(excinfo.value, RunAlreadySealedError)
+
+    def test_explicit_run_id_already_sealed_raises_run_already_sealed_error(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"
         manifest_path = tmp_path / "manifests.ndjson"
         _write_records(audit_path, [_record("run-a", 1), _record("run-b", 2)])
         seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-a")
         before = manifest_path.read_bytes()
 
-        with pytest.raises(RunNotPendingError):
+        with pytest.raises(RunAlreadySealedError):
             seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-a")
 
         assert manifest_path.read_bytes() == before
+
+    @pytest.mark.parametrize("run_id", ["", "   ", 123], ids=["empty", "blank", "non-str"])
+    def test_unusable_explicit_run_id_raises_value_error_and_creates_no_manifest_log(
+        self, tmp_path: Path, run_id: Any
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record("run-a", 1)])
+
+        with pytest.raises(ValueError, match="run_id") as excinfo:
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id=run_id)
+
+        # A usage error is not a run that is merely not pending, and it fails before the lock creates the log.
+        assert not isinstance(excinfo.value, RunNotPendingError)
+        assert not manifest_path.exists()
 
     @pytest.mark.parametrize("forged_run_id", ["run-d", "run-never-written"])
     def test_forged_unsigned_manifest_line_stops_sealing(self, tmp_path: Path, forged_run_id: str) -> None:
@@ -767,6 +799,35 @@ class TestSealNdjsonRuns:
         assert [manifest["run_id"] for manifest in manifests] == ["run-d", "run-e", "run-f"]
         verify_ndjson_log(audit_path, manifest_path, signer=_signer())
 
+    def test_failed_append_is_rolled_back_and_a_retry_seals_every_run(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        _write_records(audit_path, [_record("run-d", 7), _record("run-e", 8), _record("run-f", 9)])
+        before = manifest_path.read_bytes()
+        real_write = os.write
+        landed: list[int] = []
+
+        def disk_fills_after_the_first_manifest(fd: int, data: bytes | memoryview) -> int:
+            payload = bytes(data)
+            if b"record_hashes" not in payload:
+                return real_write(fd, data)
+            if landed:
+                raise OSError(errno.ENOSPC, "disk full")
+            # A short write: only the first manifest line reaches the file, then the disk is full.
+            landed.append(real_write(fd, payload[: payload.index(b"\n") + 1]))
+            return landed[0]
+
+        with patch("os.write", side_effect=disk_fills_after_the_first_manifest):
+            with pytest.raises(OSError):
+                seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
+
+        assert landed
+        # The sealer holds the lock and is the only writer, so it removes the partial bytes it left behind.
+        assert manifest_path.read_bytes() == before
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
+        assert [manifest["run_id"] for manifest in manifests] == ["run-d", "run-e", "run-f"]
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
     @pytest.mark.parametrize("file_name", ["manifests.ndjson", "audit.ndjson"])
     def test_unterminated_final_line_fails_and_leaves_both_files_untouched(
         self, tmp_path: Path, file_name: str
@@ -786,28 +847,44 @@ class TestSealNdjsonRuns:
         assert audit_path.read_bytes() == audit_before
         assert manifest_path.read_bytes() == manifest_before
 
-    def test_sealing_holds_an_exclusive_lock_on_the_manifest_log(self, tmp_path: Path) -> None:
+    def test_sealing_holds_an_exclusive_lock_on_the_manifest_log(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fcntl = pytest.importorskip("fcntl")
         audit_path, manifest_path = _sealed_log(tmp_path)
         _write_records(audit_path, [_record("run-d", 7)])
         refused: list[bool] = []
+        appends: list[bool] = []
+
+        def probe() -> bool:
+            # A second descriptor is a second lock owner, so it is refused while the sealer holds the lock.
+            fd = os.open(manifest_path, os.O_RDONLY)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return False
+            except BlockingIOError:
+                return True
+            finally:
+                os.close(fd)
 
         class _LockProbeSigner(HmacSha256Signer):
             def sign(self, payload: bytes) -> str:
-                # Verifying the sealed log signs too. A second descriptor is a second lock owner, so it is refused.
-                fd = os.open(manifest_path, os.O_RDONLY)
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    refused.append(False)
-                except BlockingIOError:
-                    refused.append(True)
-                finally:
-                    os.close(fd)
+                # Verifying the sealed log signs too.
+                refused.append(probe())
                 return super().sign(payload)
+
+        def spy(*args: Any, **kwargs: Any) -> None:
+            # The write itself must run under the lock, not only the signing before it.
+            refused.append(probe())
+            appends.append(True)
+            _append_records(*args, **kwargs)
+
+        monkeypatch.setattr(run_manifest_module, "_append_records", spy)
 
         manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_LockProbeSigner(_KEY, "key-1"))
 
         assert [manifest["run_id"] for manifest in manifests] == ["run-d"]
+        assert appends == [True]
         assert refused
         assert all(refused)
         fd = os.open(manifest_path, os.O_RDONLY)
@@ -828,6 +905,33 @@ class TestSealNdjsonRuns:
 
         assert [manifest["run_id"] for manifest in manifests] == ["run-a", "run-b"]
         assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == manifest_hash(manifests[-1])
+
+    def test_sealing_fails_when_the_exclusive_lock_is_unsupported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fcntl = pytest.importorskip("fcntl")
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _write_records(audit_path, [_record("run-d", 7)])
+        before = manifest_path.read_bytes()
+        monkeypatch.setattr(fcntl, "flock", _flock_unsupported)
+
+        # Sealing without the lock could fork the chain, so unlike verifying it never proceeds unlocked.
+        with pytest.raises(OSError) as excinfo:
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+        assert excinfo.value.errno == errno.ENOLCK
+        assert manifest_path.read_bytes() == before
+
+    def test_missing_audit_file_still_fails_sealing(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        audit_path.unlink()
+        before = manifest_path.read_bytes()
+
+        # A typo in the audit path must stay loud, unlike verification, which reads a missing file as empty.
+        with pytest.raises(FileNotFoundError):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+        assert manifest_path.read_bytes() == before
 
     def test_nothing_pending_on_a_fresh_manifest_path_leaves_an_empty_log(self, tmp_path: Path) -> None:
         pytest.importorskip("fcntl")  # The lock creates the log; where fcntl is missing there is none.
@@ -1040,6 +1144,54 @@ class TestVerifyNdjsonLog:
         assert "run-c" in message
         assert "run-b" not in message
 
+    def test_at_most_twenty_failing_runs_are_reported_and_the_rest_are_counted(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record(f"run-{number:02d}", number) for number in range(25)])
+        assert len(seal_ndjson_runs(audit_path, manifest_path, signer=_signer())) == 25
+        # Emptied, not deleted, so that only the cap is under test; a deleted file has its own test.
+        audit_path.write_bytes(b"")
+
+        with pytest.raises(ManifestVerificationError) as excinfo:
+            verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+        message = str(excinfo.value)
+        assert "and 5 more" in message
+        assert message.count("do not match the record_hashes") == 20
+
+    def test_a_head_mismatch_is_reported_even_when_more_than_twenty_runs_fail(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record(f"run-{number:02d}", number) for number in range(25)])
+        assert len(seal_ndjson_runs(audit_path, manifest_path, signer=_signer())) == 25
+        manifests = _read_lines(manifest_path)
+        head = manifest_hash(manifests[-1])
+        _rewrite_lines(manifest_path, manifests[:-1])
+        audit_path.write_bytes(b"")
+
+        with pytest.raises(ManifestVerificationError) as excinfo:
+            verify_ndjson_log(audit_path, manifest_path, signer=_signer(), expected_head=head)
+
+        # Only the head detects the cut log, so the 20 problem cap must never hide it: 24 records plus it is 25.
+        message = str(excinfo.value)
+        assert "expected head" in message
+        assert message.count("do not match the record_hashes") == 19
+        assert "and 5 more" in message
+
+    def test_deleted_audit_file_fails_every_sealed_run(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        audit_path.unlink()
+
+        # A missing audit file is an empty one: the seals stay and nothing backs them, which is a tamper alarm.
+        with pytest.raises(ManifestVerificationError, match="record") as excinfo:
+            verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+        message = str(excinfo.value)
+        assert all(run_id in message for run_id in ("run-a", "run-b", "run-c"))
+
+    def test_neither_audit_file_nor_manifest_log_returns_none(self, tmp_path: Path) -> None:
+        assert verify_ndjson_log(tmp_path / "audit.ndjson", tmp_path / "manifests.ndjson", signer=_signer()) is None
+
     def test_a_head_mismatch_is_reported_together_with_a_record_mismatch(self, tmp_path: Path) -> None:
         audit_path, manifest_path, head = _truncated_log(tmp_path)
         records = _read_lines(audit_path)
@@ -1096,6 +1248,17 @@ class TestVerifyNdjsonLog:
 
             assert not done
             assert future.result(timeout=10) == head
+
+    def test_verification_proceeds_unlocked_when_the_shared_lock_is_unsupported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fcntl = pytest.importorskip("fcntl")
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        monkeypatch.setattr(fcntl, "flock", _flock_unsupported)
+
+        # The shared lock is best effort: a file system that cannot lock must not make verifying impossible.
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == head
 
 
 class TestExpectedHead:

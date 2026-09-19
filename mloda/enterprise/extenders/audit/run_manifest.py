@@ -4,7 +4,7 @@ Sealing is a post-run step. Workers hold their own extender copy and records arr
 writers, so the chain cannot run through the records. It links per-run manifests instead, written by a sealer
 in the parent process after run_all returns. Sealers of one manifest log serialise on an exclusive flock (POSIX;
 the wait has no timeout). Where fcntl is missing they race and verify_ndjson_log reports a forked chain.
-Verifying takes a shared lock on the log.
+Verifying takes a shared lock on an existing log.
 
 A seal is final, so seal a run_id only once it is finished. Records that reach a sealed run later fail
 verification by design: a second session.run() on one prepared session reuses the run_id, and a run still in
@@ -20,7 +20,9 @@ Limits:
 - Removing the newest manifests or the whole log cannot be detected from the files alone, and a truncated log
   lets the next sealing run re-seal altered records. Anchor the head outside the log (verify_ndjson_log returns
   it, manifest_hash of the last sealed manifest gives it) and pass it back as expected_head.
-- A failed append can leave a torn last line; the log then fails closed and must be repaired by hand.
+- A failed append is rolled back; a crash mid-append can still leave a torn last line. An unterminated or
+  undecodable line in the manifest log or the audit file fails sealing and verification for every run until it
+  is repaired by hand, and a deleted audit file fails verification of every sealed run.
 - One key and one manifest log per audit file: the payload carries no log identity and a log cannot span a key
   rotation. Start a new audit file and manifest log for a new key.
 """
@@ -32,7 +34,7 @@ import hmac
 import json
 import os
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -42,6 +44,7 @@ _MANIFEST_VERSION = 1
 _HASH_ALGORITHM = "sha256"
 _MIN_KEY_BYTES = 32
 _SIGNATURE_KEYS = {"algorithm", "key_id", "value"}
+_MAX_PROBLEMS = 20
 
 
 class ManifestSigner(Protocol):
@@ -86,6 +89,10 @@ class ManifestVerificationError(ValueError):
 
 class RunNotPendingError(ValueError):
     """The run_id given to seal_ndjson_runs has no audit records or is already sealed."""
+
+
+class RunAlreadySealedError(RunNotPendingError):
+    """The run_id given to seal_ndjson_runs is already sealed."""
 
 
 def _sha256(payload: bytes) -> str:
@@ -231,22 +238,27 @@ def _read_ndjson(path: str | Path) -> Iterator[tuple[bytes, dict[str, Any]]]:
             yield line, obj
 
 
-def _read_manifests(path: str | Path) -> list[dict[str, Any]]:
+def _iter_manifests(path: str | Path) -> Iterator[dict[str, Any]]:
     try:
-        return [manifest for _, manifest in _read_ndjson(path)]
+        for _, manifest in _read_ndjson(path):
+            yield manifest
     except FileNotFoundError:
-        return []
+        return
 
 
-def _digest_runs(audit_path: str | Path, keep: Callable[[str], bool] | None = None) -> dict[str, _RunDigest]:
+def _read_manifests(path: str | Path) -> list[dict[str, Any]]:
+    return list(_iter_manifests(path))
+
+
+def _digest_runs(audit_path: str | Path, keep: Callable[[str], bool]) -> dict[str, _RunDigest]:
     """Keyed in order of first appearance in the audit file, which is the sealing order. Streams the file, keeping
-    only the runs `keep` accepts (all when None); records without a usable run_id are outside every seal."""
+    only the runs `keep` accepts; records without a usable run_id are outside every seal."""
     digests: dict[str, _RunDigest] = {}
     for line, record in _read_ndjson(audit_path):
         run_id = record.get("run_id")
         if run_id is not None and not isinstance(run_id, str):
             raise ManifestVerificationError(f"audit record run_id {run_id!r} is neither a string nor null")
-        if run_id is None or _is_missing(run_id) or (keep is not None and not keep(run_id)):
+        if run_id is None or _is_missing(run_id) or not keep(run_id):
             continue
         # The raw line, not a re-serialisation: the seal covers the bytes that were written.
         digests.setdefault(run_id, _RunDigest()).add(line, record)
@@ -255,21 +267,27 @@ def _digest_runs(audit_path: str | Path, keep: Callable[[str], bool] | None = No
 
 @contextmanager
 def _flock(path: str | Path, *, exclusive: bool) -> Iterator[None]:
-    """Block on an flock of `path`. Exclusive creates the file. No lock where fcntl is missing, nor for a shared
-    lock on a file that does not exist."""
+    """Block on an flock of `path`. Exclusive creates the file and raises when it cannot lock. No lock where fcntl
+    is missing, for a shared lock on a file that does not exist, nor for one the file system refuses (ENOLCK,
+    ENOSYS, EOPNOTSUPP)."""
     fd: int | None = None
     try:
         try:
             import fcntl
 
-            fd = os.open(path, os.O_RDONLY | (os.O_CREAT if exclusive else 0), 0o600)
+            # NFS needs a writable descriptor for an exclusive lock.
+            fd = os.open(path, (os.O_RDWR | os.O_CREAT) if exclusive else os.O_RDONLY, 0o600)
         except ImportError:
             pass
         except FileNotFoundError:
             if exclusive:
                 raise
         else:
-            fcntl.flock(fd, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            except OSError:
+                if exclusive:
+                    raise
         yield
     finally:
         if fd is not None:
@@ -284,8 +302,9 @@ def _verify_log(
     digests: Mapping[str, _RunDigest] | None = None,
 ) -> tuple[set[str], str | None]:
     """The one pass over a manifest log: every manifest, the chain, no repeated run_id and the head. Compares
-    the records as well when `digests` is given; record and head mismatches are collected into one error, a
-    structural failure raises at once. Returns the sealed run ids and the head."""
+    the records as well when `digests` is given; record and head mismatches are collected into one error (the
+    head first, so the problem cap never hides it), a structural failure raises at once. Returns the sealed run
+    ids and the head."""
     sealed: set[str] = set()
     head: str | None = None
     problems: list[str] = []
@@ -304,9 +323,12 @@ def _verify_log(
         sealed.add(run_id)
         head = manifest_hash(manifest)
     if expected_head is not None and head != expected_head:
-        problems.append(f"manifest log head {head!r} is not the expected head {expected_head!r}")
+        problems.insert(0, f"manifest log head {head!r} is not the expected head {expected_head!r}")
     if problems:
-        raise ManifestVerificationError("; ".join(problems))
+        message = "; ".join(problems[:_MAX_PROBLEMS])
+        if len(problems) > _MAX_PROBLEMS:
+            message += f"; and {len(problems) - _MAX_PROBLEMS} more"
+        raise ManifestVerificationError(message)
     return sealed, head
 
 
@@ -319,14 +341,17 @@ def seal_ndjson_runs(
     expected_head: str | None = None,
 ) -> list[dict[str, Any]]:
     """Seal every unsealed run of the audit file (or only `run_id`), in order of first appearance, and append
-    the manifests to the log in one write under an exclusive lock. All are signed before any is written. The log
-    is verified first; the records of sealed runs are not. Raises RunNotPendingError when `run_id` has no
-    records or is already sealed; catch it, not ValueError, for an idempotent retry (ManifestVerificationError
-    is a ValueError too)."""
+    the manifests to the log in one write under an exclusive lock, rolled back if the write fails. All are signed
+    before any is written. The log is verified first; the records of sealed runs are not. Raises
+    RunAlreadySealedError when `run_id` is already sealed: catch that, not ValueError, for an idempotent retry
+    (ManifestVerificationError is a ValueError too). Raises RunNotPendingError when `run_id` has no records,
+    usually a bug, and FileNotFoundError when the audit file is missing."""
+    if run_id is not None and (not isinstance(run_id, str) or _is_missing(run_id)):
+        raise ValueError("seal_ndjson_runs run_id must be a non-blank string")
     with _flock(manifest_path, exclusive=True):
-        sealed, head = _verify_log(_read_manifests(manifest_path), signer=signer, expected_head=expected_head)
+        sealed, head = _verify_log(_iter_manifests(manifest_path), signer=signer, expected_head=expected_head)
         if run_id is not None and run_id in sealed:
-            raise RunNotPendingError(f"run_id {run_id!r} is already sealed in {manifest_path}")
+            raise RunAlreadySealedError(f"run_id {run_id!r} is already sealed in {manifest_path}")
         digests = _digest_runs(
             audit_path, lambda candidate: candidate == run_id if run_id is not None else candidate not in sealed
         )
@@ -338,7 +363,14 @@ def seal_ndjson_runs(
             manifest = _seal(pending_run_id, digest, signer=signer, previous_manifest_hash=head)
             manifests.append(manifest)
             head = manifest_hash(manifest)
-        _append_records(manifest_path, manifests)
+        size = os.path.getsize(manifest_path) if os.path.exists(manifest_path) else 0
+        try:
+            _append_records(manifest_path, manifests)
+        except BaseException:
+            # The lock makes this sealer the only writer, so this removes only its own partial bytes.
+            with suppress(OSError):
+                os.truncate(manifest_path, size)
+            raise
         return manifests
 
 
@@ -351,13 +383,16 @@ def verify_ndjson_log(
 ) -> str | None:
     """Raise ManifestVerificationError unless every manifest verifies against the audit bytes of its run,
     chains to its predecessor and seals a run_id of its own; every failing run is named in the one error.
-    Runs that are not sealed yet are ignored. Returns the head, the manifest_hash of the last manifest (None for
-    an empty or missing log), to anchor outside the log."""
+    Runs that are not sealed yet are ignored, and a missing audit file is treated as empty. Returns the head, the
+    manifest_hash of the last manifest (None for an empty or missing log), to anchor outside the log."""
     # The log first, under a shared lock so no sealer is mid-append; a run sealed after this read then looks
     # unsealed, where the reverse order would make it look like tampering.
     with _flock(manifest_path, exclusive=False):
         manifests = _read_manifests(manifest_path)
     sealed = {manifest["run_id"] for manifest in manifests if isinstance(manifest.get("run_id"), str)}
-    digests = _digest_runs(audit_path, sealed.__contains__)
+    try:
+        digests = _digest_runs(audit_path, sealed.__contains__)
+    except FileNotFoundError:
+        digests = {}
     _, head = _verify_log(manifests, signer=signer, expected_head=expected_head, digests=digests)
     return head
