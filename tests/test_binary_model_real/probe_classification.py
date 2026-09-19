@@ -39,10 +39,18 @@ def classify_test_key_probe(result: "subprocess.CompletedProcess[bytes]") -> boo
         except (AssertionError, ValueError) as exc:
             raise AssertionError(f"unexpected probe exit code {result.returncode}, stderr={result.stderr!r}") from exc
         message = error.get("message", "")
+        if not isinstance(message, str):
+            raise AssertionError(f"unexpected probe exit code {result.returncode}, error object: {error!r}")
         if UNKNOWN_TEST_KEY_MESSAGE in message:
             return False
         raise AssertionError(f"unexpected LICENSE_INVALID rejection unrelated to an unknown test key: {message!r}")
     raise AssertionError(f"unexpected probe exit code {result.returncode}, stderr={result.stderr!r}")
+
+
+def probe_environment(license_key: str | None = None) -> dict[str, str]:
+    """Minimal probe environment: real PATH/locale/SYSTEMROOT from the caller's own environment,
+    plus only the given test license_key, never the caller's own license variables."""
+    return minimal_environment(license_file="", license_key=license_key or "")
 
 
 def probe_accepts_test_key(cmd: list[str]) -> bool:
@@ -56,6 +64,6 @@ def probe_accepts_test_key(cmd: list[str]) -> bool:
             {"input_columns": ["col_a"], "operation": "hash", "parameters": {}, "output_columns": {"result": "out"}},
         )
         input_bytes = arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["alpha"]})
-        env = minimal_environment(license_key=valid_license_token([_PLUGIN_ID]), source_env={})
+        env = probe_environment(valid_license_token([_PLUGIN_ID]))
         result = run_binary(cmd, ["run", "--config", str(config_path)], env, input_bytes)
     return classify_test_key_probe(result)

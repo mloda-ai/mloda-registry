@@ -31,7 +31,7 @@ package-dir = {"" = "../../../.."}
 packages = ["mloda.enterprise.feature_groups.binary_example"]
 
 [tool.uv.sources]
-mloda-example-binary = { index = "testpypi" }
+"mloda-example-binary" = { index = "testpypi" }
 
 [[tool.uv.index]]
 name = "testpypi"

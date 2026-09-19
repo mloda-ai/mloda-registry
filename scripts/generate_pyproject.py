@@ -206,6 +206,14 @@ def resolve_optional_dependencies(
     }
 
 
+def normalize_dependency_name(dep: str) -> str | None:
+    """PEP 503 normalize a dependency spec's leading package name, or None if it has no name."""
+    match = DEP_NAME_RE.match(dep)
+    if not match:
+        return None
+    return normalize_package_name(match.group(1))
+
+
 def sibling_dependency_name(
     dep: str,
     all_packages: dict[str, dict[str, Any]],
@@ -713,26 +721,41 @@ def generate_pyproject(
     gets_default_dev_deps = not skips_default_optional_dependencies(pkg_name)
 
     uv_source_lines: list[str] = []
+    workspace_names: list[str] = []
     if "workspace_deps" in pkg_config:
-        uv_source_lines.extend(
-            f"{quote_toml_basic_string(dep, key=True)} = {{ workspace = true }}" for dep in pkg_config["workspace_deps"]
-        )
+        workspace_names = list(pkg_config["workspace_deps"])
     elif depth <= 2:
         # uv resolves a workspace dependency of a top-level member, runtime or extra, only through a source entry.
         extra_deps = [dep for group_deps in merged_opt_deps.values() for dep in group_deps]
         source_names = set(sibling_dependency_names([*runtime_deps, *extra_deps], all_packages))
         if gets_default_dev_deps:
             source_names.add("mloda-testing")
-        uv_source_lines.extend(
-            f"{quote_toml_basic_string(source_name, key=True)} = {{ workspace = true }}"
-            for source_name in sorted(source_names)
-        )
+        workspace_names = sorted(source_names)
+    uv_source_lines.extend(
+        f"{quote_toml_basic_string(name, key=True)} = {{ workspace = true }}" for name in workspace_names
+    )
 
     # Explicit external indexes (e.g. TestPyPI for a wheel not yet on production PyPI).
     index_deps: dict[str, str] = pkg_config.get("optional_dependency_indexes", {})
     uv_indexes: dict[str, Any] = defaults.get("uv_indexes", {})
+
+    # An optional_dependency_indexes key equal (after PEP 503 normalization, consistent with Guard
+    # 6 above) to an existing workspace source name would otherwise emit a duplicate TOML key.
+    normalized_workspace_names = {normalize_dependency_name(name) for name in workspace_names}
+    for dep_name in index_deps:
+        normalized = normalize_dependency_name(dep_name)
+        if normalized in normalized_workspace_names:
+            raise ValueError(
+                f"{pkg_name}: optional_dependency_indexes key {dep_name!r} collides with an existing "
+                f"[tool.uv.sources] workspace entry for {normalized!r}"
+            )
+
+    # The key must be both PEP 503 normalized and quoted: a dotted/underscored spelling is a legal
+    # equivalent (Guard 6 above already accepts it), but an unquoted dot in a bare TOML key is a
+    # nested-table separator, which would leave no flat entry for the real dependency name.
     uv_source_lines.extend(
-        f"{quote_toml_basic_string(dep_name, key=True)} = {{ index = {quote_toml_basic_string(index_name)} }}"
+        f"{quote_toml_basic_string(normalize_dependency_name(dep_name) or dep_name)} = "
+        f"{{ index = {quote_toml_basic_string(index_name)} }}"
         for dep_name, index_name in index_deps.items()
     )
 
