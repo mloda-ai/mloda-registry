@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import json
 import os
+import pickle  # nosec
 import re
 import stat
 import sys
@@ -25,6 +26,7 @@ from mloda.steward import verified_context
 from mloda.user import ParallelizationMode
 
 import mloda.enterprise.extenders.audit as audit_package
+import mloda.enterprise.extenders.audit.audit_extender as audit_extender_module
 import mloda.enterprise.extenders.audit.run_manifest as run_manifest_module
 from mloda.enterprise.extenders.audit import (
     AuditExtender,
@@ -331,6 +333,17 @@ class TestRunManifestPublicApi:
 
     def test_run_already_sealed_error_is_a_run_not_pending_error(self) -> None:
         assert issubclass(RunAlreadySealedError, RunNotPendingError)
+
+    def test_append_records_and_canonical_json_come_from_one_shared_private_records_module(self) -> None:
+        import mloda.enterprise.extenders.audit._records as records_module
+
+        # getattr: run_manifest and audit_extender import these, they do not define them.
+        assert getattr(run_manifest_module, "_append_records") is records_module._append_records
+        assert getattr(run_manifest_module, "_canonical_json") is records_module._canonical_json
+        assert getattr(audit_extender_module, "_append_records") is records_module._append_records
+        assert getattr(audit_extender_module, "_canonical_json") is records_module._canonical_json
+        assert records_module._is_blank("") is True
+        assert records_module._is_blank("value") is False
 
 
 class TestHmacSha256Signer:
@@ -1539,6 +1552,48 @@ class TestVerifyNdjsonLogCoverage:
 
         with pytest.raises(dataclasses.FrozenInstanceError):
             coverage.sealed_runs = 1  # type: ignore[misc]
+
+    def test_coverage_is_hashable_and_hash_respects_equality(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+
+        first = verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+        second = verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+        hash(first)
+        assert first == second
+        assert hash(first) == hash(second)
+        assert len({first, second}) == 1
+
+    def test_coverage_survives_dataclasses_asdict(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+        as_dict = dataclasses.asdict(coverage)
+
+        assert as_dict["head"] == coverage.head
+        assert as_dict["unsealed_lines"] == coverage.unsealed_lines
+
+    def test_coverage_survives_a_deepcopy(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+        assert copy.deepcopy(coverage) == coverage
+
+    def test_coverage_survives_a_pickle_round_trip(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+        assert pickle.loads(pickle.dumps(coverage)) == coverage  # nosec
+
+    def test_unsealed_lines_returned_is_a_private_copy(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+        coverage.unsealed_lines["run-z"] = 999
+
+        again = verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+        assert "run-z" not in again.unsealed_lines
 
 
 class TestExpectedHead:

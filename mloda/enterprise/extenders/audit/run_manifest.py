@@ -28,7 +28,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from mloda.enterprise.extenders.audit.audit_extender import _append_records, _canonical_json, _is_missing, _utc_now
+from mloda.enterprise.extenders.audit._records import _append_records, _canonical_json, _is_blank, _utc_now
 
 _MANIFEST_VERSION = 1
 _QUARANTINE_VERSION = 1
@@ -259,7 +259,7 @@ def _digest_runs(
         run_id = record.get("run_id")
         if run_id is not None and not isinstance(run_id, str):
             raise ManifestVerificationError(f"audit record run_id {run_id!r} is neither a string nor null")
-        if run_id is None or _is_missing(run_id):
+        if run_id is None or _is_blank(run_id):
             uncovered.unattributed += 1
             continue
         if not keep(run_id):
@@ -342,7 +342,7 @@ def seal_ndjson_runs(
 ) -> list[dict[str, Any]]:
     """Seal every unsealed run (or only `run_id`). Raises RunAlreadySealedError for a sealed `run_id` (catch that, not
     ValueError, for an idempotent retry) and RunNotPendingError when it has no records."""
-    if run_id is not None and (not isinstance(run_id, str) or _is_missing(run_id)):
+    if run_id is not None and (not isinstance(run_id, str) or _is_blank(run_id)):
         raise ValueError("seal_ndjson_runs run_id must be a non-blank string")
     with _flock(manifest_path, exclusive=True):
         sealed, head = _verify_log(_iter_manifests(manifest_path), signer=signer, expected_head=expected_head)
@@ -379,6 +379,17 @@ class LogCoverage:
     sealed_lines: int
     unattributed_lines: int
     unsealed_lines: dict[str, int]
+
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self.head,
+                self.sealed_runs,
+                self.sealed_lines,
+                self.unattributed_lines,
+                tuple(sorted(self.unsealed_lines.items())),
+            )
+        )
 
 
 def verify_ndjson_log_coverage(
@@ -433,7 +444,7 @@ class QuarantinedLine:
     reason: str
 
 
-_Damage = list[tuple[QuarantinedLine, bytes]]
+_Damage = list[tuple[QuarantinedLine, bytes, Path]]
 
 
 def _refuse_json_tail(path: str | Path, number: int, tail: bytes) -> None:
@@ -453,7 +464,7 @@ def _damaged_lines(file: str, path: str | Path, raws: Iterable[bytes], *, number
         except ManifestVerificationError as exc:
             if not raw.endswith(b"\n"):
                 _refuse_json_tail(path, number, raw)
-            damage.append((QuarantinedLine(file, number, offset, len(raw), _sha256(raw), str(exc)), raw))
+            damage.append((QuarantinedLine(file, number, offset, len(raw), _sha256(raw), str(exc)), raw, Path(path)))
         number += 1
         offset += len(raw)
     return damage
@@ -578,10 +589,9 @@ def quarantine_damaged_lines(
             return []
         _require_terminated(quarantine_path)
         if not dry_run:
-            paths = {"manifest": manifest_path, "audit": audit_path}
-            _append_trace(quarantine_path, [_trace_entry(item, raw, paths[item.file], signer) for item, raw in damage])
+            _append_trace(quarantine_path, [_trace_entry(item, raw, path, signer) for item, raw, path in damage])
             if audit_damage:
-                _rewrite_without(audit_path, {item.line for item, _ in audit_damage})
+                _rewrite_without(audit_path, {item.line for item, _, _ in audit_damage})
             if manifest_damage:
                 os.truncate(manifest_path, manifest_damage[0][0].offset)
-        return [item for item, _ in damage]
+        return [item for item, _, _ in damage]
