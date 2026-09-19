@@ -1,32 +1,21 @@
-"""Unit tests for the pure exit-code classification behind
-``test_real_wheel.py::_probe_accepts_test_key``.
-
-Today that function does ``if result.returncode != LICENSE_INVALID: return True``, so a crash, an
-unrelated non-zero exit, or any wrong exit code gets misclassified as "this build accepts the
-test key" -- which would then incorrectly un-skip ``test_real_binary_end_to_end_with_valid_test_
-license``. ``test_real_wheel.py`` is entirely ``pytest.importorskip("example_binary")``-gated, so
-it cannot exercise this logic without the real wheel installed; these tests exercise the
-classification directly against fake ``subprocess.CompletedProcess`` results instead, independent
-of the wheel.
-
-``tests.test_binary_model_real.probe_classification`` does not exist yet (Green phase adds it,
-and refactors ``_probe_accepts_test_key`` to delegate to it): every test below fails with
-``ModuleNotFoundError`` until it defines ``classify_test_key_probe(result) -> bool``:
-
-- returns ``True`` for the expected success outcome (exit 0);
-- returns ``False`` for the expected rejection (exit ``LICENSE_INVALID`` with an "unknown license
-  key id" message -- a release build trusting only ``PRODUCTION_KEYS``);
-- raises ``AssertionError`` naming the actual exit code/stderr for anything else (a crash, a
-  wrong exit code, or a ``LICENSE_INVALID`` for an unrelated reason).
+"""Tests for ``probe_classification.py``: the exit-code classification, tested with synthetic
+``subprocess.CompletedProcess`` results, and the probe itself, run against the simulated binary.
+``test_real_wheel.py`` is ``pytest.importorskip("example_binary")``-gated, so this module must
+never import from it, or the import would propagate that module-level skip here.
 """
 
 from __future__ import annotations
 
 import subprocess  # nosec
+import sys
 
 import pytest
 
-from tests.test_binary_model_real.probe_classification import classify_test_key_probe
+from tests.test_binary_model_real.probe_classification import classify_test_key_probe, probe_accepts_test_key
+
+# Same spelling as mloda/enterprise/tests/test_licensing_invariants.py and
+# mloda/enterprise/feature_groups/binary_example/tests/test_binary_example_feature_group.py.
+STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
 
 
 def _completed_process(
@@ -62,4 +51,32 @@ def test_classify_test_key_probe_raises_on_license_invalid_for_an_unrelated_reas
     stderr = b'{"code": 3, "message": "license expired"}\n'
     result = _completed_process(3, stderr=stderr)
     with pytest.raises(AssertionError, match="license expired"):
+        classify_test_key_probe(result)
+
+
+def test_probe_accepts_test_key_true_for_accepting_binary() -> None:
+    assert probe_accepts_test_key(STUB_CMD) is True
+
+
+def test_probe_accepts_test_key_ignores_ambient_license_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MLODA_LICENSE_KEY", "not-a-real-key")
+    monkeypatch.setenv("MLODA_LICENSE_FILE", "/nonexistent/license/file")
+
+    assert probe_accepts_test_key(STUB_CMD) is True
+
+
+def test_classify_test_key_probe_raises_on_unparseable_stderr_at_exit_3() -> None:
+    """Invalid JSON in stderr must still raise AssertionError, not a raw JSON decode error."""
+    result = _completed_process(3, stderr=b"not json at all\n")
+    with pytest.raises(AssertionError, match="3"):
+        classify_test_key_probe(result)
+    with pytest.raises(AssertionError, match="not json at all"):
+        classify_test_key_probe(result)
+
+
+def test_classify_test_key_probe_raises_on_empty_stderr_at_exit_3() -> None:
+    result = _completed_process(3, stderr=b"")
+    with pytest.raises(AssertionError, match="3"):
+        classify_test_key_probe(result)
+    with pytest.raises(AssertionError, match=r"b''"):
         classify_test_key_probe(result)

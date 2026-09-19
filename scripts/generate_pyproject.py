@@ -294,6 +294,18 @@ def generate_pyproject(
     default_opt_deps = {} if skip_defaults else defaults.get("optional_dependencies", {})
     pkg_opt_deps = expand_published_children(pkg_config, all_packages)
     merged_opt_deps = {**default_opt_deps, **pkg_opt_deps}
+
+    # An optional_dependency_indexes key that names no declared dependency is a typo: the real
+    # dependency it should have pinned resolves from the default index instead, the
+    # dependency-confusion vector this file already guards against.
+    declared_opt_dep_names = {normalize_dependency_name(dep) for deps in merged_opt_deps.values() for dep in deps}
+    for index_key in pkg_config.get("optional_dependency_indexes", {}):
+        if normalize_dependency_name(index_key) not in declared_opt_dep_names:
+            raise ValueError(
+                f"{pkg_name}: optional_dependency_indexes key {index_key!r} does not match any "
+                "declared optional dependency"
+            )
+
     if merged_opt_deps:
         lines.append("[project.optional-dependencies]")
         for group, deps in merged_opt_deps.items():

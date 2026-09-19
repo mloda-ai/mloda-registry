@@ -182,6 +182,9 @@ resolution too, but a standalone (non-workspace) build of just that package need
 declared in its own `pyproject.toml` as well, so co-locating it there works in both cases.
 Every referenced index must declare `explicit = true`; without it uv's first-index strategy
 would let the index shadow PyPI for other packages too, not just the dependency naming it.
+This index scoping is uv-only: under pip, a dependency named in `optional_dependency_indexes`
+resolves against production PyPI instead (see the pip caveat in
+[Pattern 28's Packaging Rules](guides/feature-group-patterns/28-binary-backed-features.md#packaging-rules)).
 
 ## Common workflows
 

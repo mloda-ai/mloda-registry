@@ -22,9 +22,12 @@ else:
     import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
+from tests.script_loader import load_script
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
+
+gen = load_script("generate_pyproject", _REPO_ROOT / "scripts" / "generate_pyproject.py")
 
 _GROUP_ATTR: dict[str, str] = {
     "mloda.feature_groups": "FEATURE_GROUPS",
@@ -41,8 +44,10 @@ def _load_toml(path: Path) -> dict[str, Any]:
 
 
 def _dep_name(spec: str) -> str:
-    """Extract the bare package name from a PEP 508 requirement string."""
-    return re.split(r"[<>=!~;\s\[(@]", spec.strip(), maxsplit=1)[0]
+    """PEP 503 normalized bare package name of a PEP 508 requirement string. Falls back to the
+    stripped spec itself for a ``{...}`` template placeholder, which never normalizes to a name
+    and so never equals a real distribution name."""
+    return gen.normalize_dependency_name(spec) or spec.strip()
 
 
 def _is_community_or_enterprise_path(path: str) -> bool:
@@ -81,58 +86,128 @@ def _licensed_plugin_classes_by_package(
     return result
 
 
+def _assert_binary_wheel_distribution(name: str, cls: type[BinaryModelMixin]) -> str:
+    assert hasattr(cls, "BINARY_WHEEL_DISTRIBUTION"), f"{name}: {cls.__name__} must declare BINARY_WHEEL_DISTRIBUTION"
+    return cls.BINARY_WHEEL_DISTRIBUTION
+
+
 def _licensed_plugin_wheel_distribution_names(packages: dict[str, dict[str, Any]]) -> set[str]:
     """PyPI distribution names (``BINARY_WHEEL_DISTRIBUTION``) for every binary wheel a
     BinaryModelMixin subclass needs, across every enterprise manifest."""
-    return {cls.BINARY_WHEEL_DISTRIBUTION for _name, _cfg, cls in _licensed_plugin_classes_by_package(packages)}
+    return {
+        _assert_binary_wheel_distribution(name, cls)
+        for name, _cfg, cls in _licensed_plugin_classes_by_package(packages)
+    }
 
 
-def test_no_community_or_enterprise_package_depends_on_mloda_testing_or_a_binary_wheel() -> None:
-    packages: dict[str, dict[str, Any]] = _load_toml(_PACKAGES_CONFIG).get("packages", {})
-    wheel_names = _licensed_plugin_wheel_distribution_names(packages)
-    assert wheel_names, "expected at least one BINARY_PLUGIN_ID-derived wheel name; check is vacuous"
-
+def _community_or_enterprise_wheel_or_testing_dependency_violations(
+    packages: dict[str, dict[str, Any]], wheel_names: set[str]
+) -> list[str]:
+    normalized_wheel_names = {_dep_name(wheel_name) for wheel_name in wheel_names}
     violations: list[str] = []
     for name, cfg in packages.items():
         if not _is_community_or_enterprise_path(cfg.get("path", "")):
             continue
         for dep in cfg.get("dependencies", []):
             dep_name = _dep_name(dep)
-            if dep.startswith("mloda-testing") or dep_name in wheel_names:
+            if dep.startswith("mloda-testing") or dep_name in normalized_wheel_names:
                 violations.append(f"{name}: {dep}")
+    return violations
+
+
+def test_no_community_or_enterprise_package_depends_on_mloda_testing_or_a_binary_wheel() -> None:
+    packages: dict[str, dict[str, Any]] = _load_toml(_PACKAGES_CONFIG).get("packages", {})
+    wheel_names = _licensed_plugin_wheel_distribution_names(packages)
+    assert wheel_names, "expected at least one BINARY_WHEEL_DISTRIBUTION-derived wheel name; check is vacuous"
+
+    violations = _community_or_enterprise_wheel_or_testing_dependency_violations(packages, wheel_names)
     assert not violations, (
         f"community/enterprise packages must not depend on mloda-testing or a binary wheel: {violations}"
     )
 
 
+def test_hard_dependency_violation_detected_for_an_underscore_spelled_distribution() -> None:
+    """PEP 503 normalisation must fold an underscore-spelled hard dependency onto its wheel distribution."""
+    packages = {
+        "mloda-sandbox-enterprise-plugin": {
+            "path": "mloda/enterprise/feature_groups/sandbox",
+            "dependencies": ["mloda_example_binary>=0.1.0"],
+        },
+    }
+    violations = _community_or_enterprise_wheel_or_testing_dependency_violations(packages, {"mloda-example-binary"})
+    assert violations == ["mloda-sandbox-enterprise-plugin: mloda_example_binary>=0.1.0"], violations
+
+
 def test_binary_wheel_distribution_is_an_optional_dependency_with_a_version_specifier() -> None:
     """Every enterprise package whose FeatureGroup(s) mix in BinaryModelMixin must declare
     BINARY_WHEEL_DISTRIBUTION as a version-pinned optional dependency, never a hard one, never
-    exposed only through the ``dev`` extra (tox's ``[testenv] extras = dev`` and ``uv sync
-    --all-extras`` both install it by default -- see ``_assert_wheel_optional_dependency_is_safe``
-    below), and with a real version specifier living before any environment marker (``;``)."""
+    exposed only through the ``dev`` extra (dev is what developer and CI flows install wholesale,
+    so a wheel declared there is not meaningfully optional -- see
+    ``_assert_wheel_optional_dependency_is_safe`` below), and with a real version specifier living
+    before any environment marker (``;``)."""
     packages: dict[str, dict[str, Any]] = _load_toml(_PACKAGES_CONFIG).get("packages", {})
     entries = _licensed_plugin_classes_by_package(packages)
     assert entries, "expected at least one BinaryModelMixin-derived enterprise plugin; check is vacuous"
 
     for name, cfg, cls in entries:
-        distribution = cls.BINARY_WHEEL_DISTRIBUTION
+        distribution = _assert_binary_wheel_distribution(name, cls)
         hard_dep_names = {_dep_name(dep) for dep in cfg.get("dependencies", [])}
-        assert distribution not in hard_dep_names, f"{name}: {distribution} must not be a hard dependency"
+        assert _dep_name(distribution) not in hard_dep_names, f"{name}: {distribution} must not be a hard dependency"
 
         _assert_wheel_optional_dependency_is_safe(name, distribution, cfg.get("optional_dependencies", {}))
+
+
+class _MissingWheelDistributionModel(BinaryModelMixin):
+    """Subclass omitting BINARY_WHEEL_DISTRIBUTION, the required ClassVar with no default."""
+
+
+def test_licensed_plugin_wheel_distribution_names_reports_missing_attribute_actionably(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A BinaryModelMixin subclass omitting BINARY_WHEEL_DISTRIBUTION must fail with an
+    AssertionError naming the class and the attribute, not a bare AttributeError."""
+    fake_entries: list[tuple[str, dict[str, Any], type[BinaryModelMixin]]] = [
+        ("mloda-sandbox-enterprise-plugin", {}, _MissingWheelDistributionModel)
+    ]
+    monkeypatch.setattr(sys.modules[__name__], "_licensed_plugin_classes_by_package", lambda packages: fake_entries)
+
+    with pytest.raises(AssertionError, match="_MissingWheelDistributionModel") as exc_info:
+        _licensed_plugin_wheel_distribution_names({})
+    assert "BINARY_WHEEL_DISTRIBUTION" in str(exc_info.value)
+
+
+def test_binary_wheel_distribution_test_reports_missing_attribute_actionably(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The BINARY_WHEEL_DISTRIBUTION read inside the version-specifier test must also fail with
+    an actionable AssertionError, not a bare AttributeError."""
+    fake_entries: list[tuple[str, dict[str, Any], type[BinaryModelMixin]]] = [
+        ("mloda-sandbox-enterprise-plugin", {}, _MissingWheelDistributionModel)
+    ]
+    monkeypatch.setattr(sys.modules[__name__], "_licensed_plugin_classes_by_package", lambda packages: fake_entries)
+
+    with pytest.raises(AssertionError, match="_MissingWheelDistributionModel") as exc_info:
+        test_binary_wheel_distribution_is_an_optional_dependency_with_a_version_specifier()
+    assert "BINARY_WHEEL_DISTRIBUTION" in str(exc_info.value)
+
+
+_VERSION_OPERATOR_RE = re.compile(r"===|~=|==|<=|>=|!=|<|>")
+_UPPER_BOUND_OPERATORS = frozenset({"<", "<=", "==", "===", "~="})
 
 
 def _assert_wheel_optional_dependency_is_safe(
     name: str, distribution: str, optional_dependencies: dict[str, list[str]]
 ) -> None:
     """Assert `distribution` is declared as an optional dependency: at least one extra names it,
-    ``dev`` is never one of the declaring extras (tox's ``[testenv] extras = dev`` and ``uv sync
-    --all-extras`` both install it by default, so a wheel declared there is never truly optional),
-    and every declaring requirement string carries a real version specifier in the portion before
-    any environment marker (``;``)."""
+    ``dev`` is never one of the declaring extras (dev is what developer and CI flows install
+    wholesale, so a wheel declared there is not meaningfully optional), and every declaring
+    requirement string carries a version specifier with an upper bound before any environment
+    marker (``;``)."""
+    distribution_name = _dep_name(distribution)
     declaring_extras = [
-        extra for extra, deps in optional_dependencies.items() if any(_dep_name(dep) == distribution for dep in deps)
+        extra
+        for extra, deps in optional_dependencies.items()
+        if any(_dep_name(dep) == distribution_name for dep in deps)
     ]
     assert declaring_extras, (
         f"{name}: expected an optional_dependencies extra declaring {distribution!r}, got {optional_dependencies!r}"
@@ -140,12 +215,17 @@ def _assert_wheel_optional_dependency_is_safe(
     assert "dev" not in declaring_extras, (
         f"{name}: {distribution} must not be declared under the 'dev' extra, got {declaring_extras!r}"
     )
-    matches = [dep for deps in optional_dependencies.values() for dep in deps if _dep_name(dep) == distribution]
+    matches = [dep for deps in optional_dependencies.values() for dep in deps if _dep_name(dep) == distribution_name]
     for dep in matches:
         pre_marker = dep.split(";", 1)[0]
-        assert re.search(r"[<>=!~]", pre_marker), (
+        operators = [m.group() for clause in pre_marker.split(",") if (m := _VERSION_OPERATOR_RE.search(clause))]
+        assert operators, (
             f"{name}: {distribution} optional dependency entries must carry a version specifier before any "
             f"environment marker, got {dep!r}"
+        )
+        assert any(op in _UPPER_BOUND_OPERATORS for op in operators), (
+            f"{name}: {distribution} optional dependency entries must carry a version specifier with an upper "
+            f"bound before any environment marker, got {dep!r}"
         )
 
 
@@ -161,8 +241,8 @@ class TestWheelOptionalDependencyIsSafe:
         _assert_wheel_optional_dependency_is_safe("pkg", "mloda-example-binary", optional_dependencies)
 
     def test_rejects_a_dependency_declared_only_under_dev(self) -> None:
-        """tox's `[testenv] extras = dev` and `uv sync --all-extras` both install the dev extra by
-        default, so a wheel declared only there is never truly optional."""
+        """dev is what developer and CI flows install wholesale, so a wheel declared only there is
+        never truly optional."""
         optional_dependencies = {"dev": ["mloda-example-binary>=0.1.0,<0.2.0"]}
         with pytest.raises(AssertionError, match="dev"):
             _assert_wheel_optional_dependency_is_safe("pkg", "mloda-example-binary", optional_dependencies)
@@ -177,6 +257,102 @@ class TestWheelOptionalDependencyIsSafe:
     def test_rejects_when_the_distribution_is_declared_nowhere(self) -> None:
         with pytest.raises(AssertionError, match="expected an optional_dependencies extra"):
             _assert_wheel_optional_dependency_is_safe("pkg", "mloda-example-binary", {})
+
+    def test_rejects_a_lower_bound_only_dependency(self) -> None:
+        """A lower bound alone is not a version range; an upper bound is required."""
+        optional_dependencies = {"wheel": ["mloda-example-binary>=0.1.0"]}
+        with pytest.raises(AssertionError, match="upper bound"):
+            _assert_wheel_optional_dependency_is_safe("pkg", "mloda-example-binary", optional_dependencies)
+
+    def test_accepts_an_exact_version_pin(self) -> None:
+        optional_dependencies = {"wheel": ["mloda-example-binary==0.1.0"]}
+        _assert_wheel_optional_dependency_is_safe("pkg", "mloda-example-binary", optional_dependencies)
+
+    def test_accepts_a_compatible_release_pin(self) -> None:
+        optional_dependencies = {"wheel": ["mloda-example-binary~=0.1.0"]}
+        _assert_wheel_optional_dependency_is_safe("pkg", "mloda-example-binary", optional_dependencies)
+
+    def test_accepts_an_arbitrary_equality_pin(self) -> None:
+        optional_dependencies = {"wheel": ["mloda-example-binary===0.1.0"]}
+        _assert_wheel_optional_dependency_is_safe("pkg", "mloda-example-binary", optional_dependencies)
+
+    def test_accepts_an_underscore_spelling_as_the_same_distribution(self) -> None:
+        """PEP 503 folds `_`, `-` and `.` together; the underscore spelling is the same distribution."""
+        optional_dependencies = {"wheel": ["mloda_example_binary>=0.1.0,<0.2.0"]}
+        _assert_wheel_optional_dependency_is_safe("pkg", "mloda-example-binary", optional_dependencies)
+
+
+def _assert_no_published_package_exposes_an_index_pinned_distribution(
+    packages: dict[str, dict[str, Any]],
+) -> None:
+    """A built wheel's metadata carries only the bare requirement string, so a `published` package
+    must not declare, in any extra, a distribution some package pins to a non-default index via
+    `optional_dependency_indexes`."""
+    index_pinned_names = {
+        _dep_name(dep_name) for cfg in packages.values() for dep_name in cfg.get("optional_dependency_indexes", {})
+    }
+    for name, cfg in packages.items():
+        if not cfg.get("published"):
+            continue
+        for extra, deps in cfg.get("optional_dependencies", {}).items():
+            for dep in deps:
+                assert _dep_name(dep) not in index_pinned_names, (
+                    f"{name}: published package's {extra!r} extra declares {dep!r}, which is pinned to a "
+                    "non-default index by another package's optional_dependency_indexes"
+                )
+
+
+class TestNoPublishedPackageExposesAnIndexPinnedDistribution:
+    """Exercises `_assert_no_published_package_exposes_an_index_pinned_distribution` against
+    synthetic data, so a regression is caught even when the real config is already compliant."""
+
+    def test_rejects_a_published_package_exposing_an_index_pinned_distribution(self) -> None:
+        packages: dict[str, dict[str, Any]] = {
+            "mloda-sandbox-index-owner": {
+                "path": "mloda/enterprise/feature_groups/sandbox_owner",
+                "dependencies": ["{core_dependency}"],
+                "optional_dependency_indexes": {"mloda-example-binary": "testpypi"},
+            },
+            "mloda-sandbox-published-bundle": {
+                "path": "mloda/enterprise",
+                "published": True,
+                "optional_dependencies": {"wheel": ["mloda-example-binary>=0.1.0,<0.2.0"]},
+            },
+        }
+        with pytest.raises(AssertionError, match="mloda-example-binary"):
+            _assert_no_published_package_exposes_an_index_pinned_distribution(packages)
+
+    def test_accepts_a_published_package_with_a_non_index_pinned_dependency(self) -> None:
+        packages: dict[str, dict[str, Any]] = {
+            "mloda-sandbox-index-owner": {
+                "path": "mloda/enterprise/feature_groups/sandbox_owner",
+                "dependencies": ["{core_dependency}"],
+                "optional_dependency_indexes": {"mloda-example-binary": "testpypi"},
+            },
+            "mloda-sandbox-published-bundle": {
+                "path": "mloda/enterprise",
+                "published": True,
+                "optional_dependencies": {"all": ["pyarrow>=25"]},
+            },
+        }
+        _assert_no_published_package_exposes_an_index_pinned_distribution(packages)
+
+    def test_accepts_a_non_published_package_exposing_the_index_pinned_distribution(self) -> None:
+        """Mirrors mloda-enterprise-binary-example: not published, owns the index pin, and
+        declares the distribution in its own wheel extra."""
+        packages = {
+            "mloda-sandbox-binary-example": {
+                "path": "mloda/enterprise/feature_groups/binary_example",
+                "dependencies": ["{core_dependency}"],
+                "optional_dependencies": {"wheel": ["mloda-example-binary>=0.1.0,<0.2.0"]},
+                "optional_dependency_indexes": {"mloda-example-binary": "testpypi"},
+            },
+        }
+        _assert_no_published_package_exposes_an_index_pinned_distribution(packages)
+
+    def test_real_config_has_no_published_package_exposing_an_index_pinned_distribution(self) -> None:
+        packages = _load_toml(_PACKAGES_CONFIG).get("packages", {})
+        _assert_no_published_package_exposes_an_index_pinned_distribution(packages)
 
 
 def test_new_binary_packages_are_registered_with_dev_extra() -> None:

@@ -27,3 +27,28 @@ def test_complete_example_sets_binary_wheel_distribution() -> None:
         "the Complete Example code block must also set BINARY_WHEEL_DISTRIBUTION, not just mention "
         "it elsewhere in the guide (e.g. the Key Characteristic table or Packaging Rules prose)"
     )
+
+
+def _section(content: str, heading: str, boundary_markers: tuple[str, ...]) -> str:
+    """The text of the section under ``heading``, up to the closest of ``boundary_markers``."""
+    start = content.index(heading)
+    remainder = content[start + len(heading) :]
+    boundaries = [pos for pos in (remainder.find(marker) for marker in boundary_markers) if pos != -1]
+    end = min(boundaries) if boundaries else -1
+    return remainder if end == -1 else remainder[:end]
+
+
+def test_against_the_real_wheel_section_names_the_opt_in() -> None:
+    """A reader following the "### Against the real wheel" subsection must find MLODA_REAL_WHEEL
+    named there, not hit an unrelated precondition failure naming an undocumented variable."""
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    section = _section(content, "### Against the real wheel", ("\n## ", "\n### "))
+    assert "MLODA_REAL_WHEEL" in section, 'the "Against the real wheel" section must name MLODA_REAL_WHEEL'
+
+
+def test_packaging_rules_section_states_the_pip_caveat() -> None:
+    """The index scoping is uv-only: under pip, `mloda-example-binary` resolves against production
+    PyPI instead of TestPyPI, so the Packaging Rules section must state that caveat."""
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    section = _section(content, "## Packaging Rules", ("\n## ",))
+    assert "pip" in section, "the Packaging Rules section must state that the index scoping is uv-only"

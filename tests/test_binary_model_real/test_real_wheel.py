@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import re
-import tempfile
 from pathlib import Path
 
 import pyarrow as pa
@@ -23,35 +22,27 @@ example_binary = pytest.importorskip("example_binary")
 
 from mloda.community.feature_groups.binary_model.binary import CONTRACT_VERSION
 from mloda.community.feature_groups.binary_model.errors import LicenseInvalidError, LicenseMissingError
+from mloda.community.feature_groups.binary_model.transport import minimal_environment
 from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
 from mloda.provider import ApiInputDataFeature, FeatureSet
-from mloda.testing.binary_model.conformance import run_binary, write_json
+from mloda.testing.binary_model.conformance import run_binary
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
 from mloda.testing.binary_model.license_vectors import valid_license_token
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
-from tests.test_binary_model_real.probe_classification import UNKNOWN_TEST_KEY_MESSAGE, classify_test_key_probe
+from tests.test_binary_model_real.probe_classification import UNKNOWN_TEST_KEY_MESSAGE, probe_accepts_test_key
 
 _BINARY_PATH: Path = example_binary.binary_path()
 _PLUGIN_ID = BinaryExampleFeatureGroup.BINARY_PLUGIN_ID
 
-
-def _probe_accepts_test_key(binary_path: Path) -> bool:
-    """True if ``binary_path`` accepts the shared test-signed vectors from ``license_vectors``;
-    False for a release build, which trusts only ``PRODUCTION_KEYS`` (currently empty, so a
-    test-signed token is always an unknown ``kid``). Delegates exit-code/message interpretation to
-    ``classify_test_key_probe``, which raises loudly for anything else."""
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        config_path = write_json(
-            Path(tmp_dir) / "config.json",
-            {"input_columns": ["col_a"], "operation": "hash", "parameters": {}, "output_columns": {"result": "out"}},
-        )
-        env = {"MLODA_LICENSE_KEY": valid_license_token([_PLUGIN_ID])}
-        result = run_binary([str(binary_path)], ["run", "--config", str(config_path)], env)
-    return classify_test_key_probe(result)
+_accepts_test_key: bool | None = None
 
 
-_ACCEPTS_TEST_KEY = _probe_accepts_test_key(_BINARY_PATH)
+def _get_accepts_test_key() -> bool:
+    global _accepts_test_key
+    if _accepts_test_key is None:
+        _accepts_test_key = probe_accepts_test_key([str(_BINARY_PATH)])
+    return _accepts_test_key
 
 
 def _single_hash_feature(columns: list[str]) -> tuple[Feature, FeatureSet]:
@@ -73,14 +64,14 @@ class _RealWheelTestLicense(BinaryExampleFeatureGroup):
 
 
 def test_version_probe_succeeds_and_matches_plugin_id_and_semver() -> None:
-    result = run_binary([str(_BINARY_PATH)], ["--version"], {})
+    result = run_binary([str(_BINARY_PATH)], ["--version"], minimal_environment(source_env={}))
     assert result.returncode == 0, f"stderr={result.stderr!r}"
     line = result.stdout.decode("utf-8").strip()
     assert re.fullmatch(rf"{re.escape(_PLUGIN_ID)} \d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?", line), line
 
 
 def test_capabilities_reports_contract_and_plugin_id() -> None:
-    result = run_binary([str(_BINARY_PATH)], ["--capabilities"], {})
+    result = run_binary([str(_BINARY_PATH)], ["--capabilities"], minimal_environment(source_env={}))
     assert result.returncode == 0, f"stderr={result.stderr!r}"
     payload = json.loads(result.stdout.decode("utf-8").strip())
     assert payload.get("contract") == CONTRACT_VERSION
@@ -103,7 +94,7 @@ def test_test_signed_license_is_rejected_or_accepted_depending_on_the_installed_
     rows: dict[str, list[str]] = {"col_a": ["alpha", "beta"]}
     table = pa.table(rows)
     _, feature_set = _single_hash_feature(["col_a"])
-    if _ACCEPTS_TEST_KEY:
+    if _get_accepts_test_key():
         result = _RealWheelTestLicense.calculate_feature(table, feature_set)
         assert result.column("hashed").to_pylist() == compute_expected_hash_column(rows, ["col_a"], None)
     else:
@@ -116,15 +107,13 @@ def test_test_signed_license_is_rejected_or_accepted_depending_on_the_installed_
 # -------------------------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(
-    not _ACCEPTS_TEST_KEY,
-    reason=(
-        "test-key build not installed: this real wheel rejects the shared test-signed license "
-        "vectors as unknown-kid (PRODUCTION_KEYS is currently empty), so no license from "
-        "license_vectors can drive a full run"
-    ),
-)
 def test_real_binary_end_to_end_with_valid_test_license() -> None:
+    if not _get_accepts_test_key():
+        pytest.skip(
+            "test-key build not installed: this real wheel rejects the shared test-signed license "
+            "vectors as unknown-kid (PRODUCTION_KEYS is currently empty), so no license from "
+            "license_vectors can drive a full run"
+        )
     rows: dict[str, list[str]] = {"col_a": ["alpha", "beta", "gamma"]}
     feature, _ = _single_hash_feature(["col_a"])
     results = mloda.run_all(
