@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import pickle  # nosec
 import stat
 from collections.abc import Mapping
@@ -350,6 +351,40 @@ class TestNdjsonAuditSink:
         lines = path.read_text(encoding="utf-8").splitlines()
         assert len(lines) == 1
         assert json.loads(lines[0]) == record
+
+    def test_short_writes_are_finished_and_the_lines_land_exact(self, tmp_path: Path) -> None:
+        path = tmp_path / "audit.ndjson"
+        sink = NdjsonAuditSink(path)
+        records = [{"a": "x" * 40}, {"b": "y" * 40}]
+        real_write = os.write
+
+        def short_write(fd: int, data: bytes | memoryview) -> int:
+            return real_write(fd, data[:7])
+
+        with patch("os.write", side_effect=short_write) as mock_write:
+            for record in records:
+                sink.write(record)
+
+        assert path.read_text(encoding="utf-8") == "".join(json.dumps(r, sort_keys=True) + "\n" for r in records)
+        assert mock_write.call_count > len(records)
+
+    def test_zero_byte_write_raises_os_error(self, tmp_path: Path) -> None:
+        sink = NdjsonAuditSink(tmp_path / "audit.ndjson")
+
+        with patch("os.write", return_value=0):
+            with pytest.raises(OSError):
+                sink.write({"a": 1})
+
+    def test_small_record_is_one_write_carrying_the_whole_line(self, tmp_path: Path) -> None:
+        path = tmp_path / "audit.ndjson"
+        sink = NdjsonAuditSink(path)
+        line = json.dumps({"a": 1}, sort_keys=True).encode("utf-8") + b"\n"
+
+        with patch("os.write", wraps=os.write) as mock_write:
+            sink.write({"a": 1})
+
+        assert [bytes(call.args[1]) for call in mock_write.call_args_list].count(line) == 1
+        assert path.read_bytes() == line
 
 
 class TestAuditExtenderRunAll:

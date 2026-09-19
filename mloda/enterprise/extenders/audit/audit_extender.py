@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
@@ -28,21 +28,43 @@ def _is_missing(value: str | None) -> bool:
     return value is None or not value.strip()
 
 
+def _canonical_json(record: Mapping[str, Any]) -> bytes:
+    """The bytes NdjsonAuditSink writes for a record, without the newline."""
+    return json.dumps(record, sort_keys=True).encode("utf-8")
+
+
+def _utc_now() -> str:
+    # Audit records require the explicit Z, unlike OpenLineage's +00:00 offset.
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _append_records(path: str | Path, records: Sequence[Mapping[str, Any]]) -> None:
+    """Append one canonical line per record through one O_APPEND descriptor."""
+    data = b"".join(_canonical_json(record) + b"\n" for record in records)
+    if not data:
+        return
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    try:
+        view = memoryview(data)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise OSError(f"os.write wrote no bytes to {path}")
+            view = view[written:]
+    finally:
+        os.close(fd)
+
+
 class NdjsonAuditSink:
     """One os.write per record to an O_APPEND descriptor keeps concurrent writers from interleaving
     a line, and the file is created owner-only. Opens per write, so it pickles and holds no buffer a
-    terminated worker could lose; ordering across writers is not guaranteed."""
+    terminated worker could lose; ordering across writers is not guaranteed. A short write may interleave."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
 
     def write(self, record: Mapping[str, Any]) -> None:
-        line = (json.dumps(record, sort_keys=True) + "\n").encode("utf-8")
-        fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-        try:
-            os.write(fd, line)
-        finally:
-            os.close(fd)
+        _append_records(self.path, [record])
 
 
 class AuditExtender(Extender):
@@ -107,8 +129,7 @@ class AuditExtender(Extender):
         missing = [name for name in self.required_identity if _is_missing(getattr(context, name))]
         return {
             "record_version": 1,
-            # Audit records require the explicit Z, unlike OpenLineage's +00:00 offset.
-            "event_time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "event_time": _utc_now(),
             "run_id": context.run_id,
             "tenant_id": context.tenant_id,
             "project_id": context.project_id,
