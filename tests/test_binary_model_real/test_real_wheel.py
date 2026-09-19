@@ -22,7 +22,6 @@ example_binary = pytest.importorskip("example_binary")
 
 from mloda.community.feature_groups.binary_model.binary import CONTRACT_VERSION
 from mloda.community.feature_groups.binary_model.errors import LicenseInvalidError, LicenseMissingError
-from mloda.community.feature_groups.binary_model.transport import minimal_environment
 from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
 from mloda.provider import ApiInputDataFeature, FeatureSet
 from mloda.testing.binary_model.conformance import run_binary
@@ -30,7 +29,11 @@ from mloda.testing.binary_model.hash_reference import compute_expected_hash_colu
 from mloda.testing.binary_model.license_vectors import valid_license_token
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
-from tests.test_binary_model_real.probe_classification import UNKNOWN_TEST_KEY_MESSAGE, probe_accepts_test_key
+from tests.test_binary_model_real.probe_classification import (
+    UNKNOWN_TEST_KEY_MESSAGE,
+    probe_accepts_test_key,
+    probe_environment,
+)
 
 _BINARY_PATH: Path = example_binary.binary_path()
 _PLUGIN_ID = BinaryExampleFeatureGroup.BINARY_PLUGIN_ID
@@ -64,14 +67,14 @@ class _RealWheelTestLicense(BinaryExampleFeatureGroup):
 
 
 def test_version_probe_succeeds_and_matches_plugin_id_and_semver() -> None:
-    result = run_binary([str(_BINARY_PATH)], ["--version"], minimal_environment(source_env={}))
+    result = run_binary([str(_BINARY_PATH)], ["--version"], probe_environment())
     assert result.returncode == 0, f"stderr={result.stderr!r}"
     line = result.stdout.decode("utf-8").strip()
     assert re.fullmatch(rf"{re.escape(_PLUGIN_ID)} \d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?", line), line
 
 
 def test_capabilities_reports_contract_and_plugin_id() -> None:
-    result = run_binary([str(_BINARY_PATH)], ["--capabilities"], minimal_environment(source_env={}))
+    result = run_binary([str(_BINARY_PATH)], ["--capabilities"], probe_environment())
     assert result.returncode == 0, f"stderr={result.stderr!r}"
     payload = json.loads(result.stdout.decode("utf-8").strip())
     assert payload.get("contract") == CONTRACT_VERSION

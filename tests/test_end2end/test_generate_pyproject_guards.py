@@ -1,7 +1,7 @@
 """Robustness guards for scripts/generate_pyproject.py.
 
 The generator is the single source of truth for every package's
-``pyproject.toml`` and for the root mloda-core pin. Six silent-failure modes
+``pyproject.toml`` and for the root mloda-core pin. Eight silent-failure modes
 must be turned into loud failures:
 
 Guard 1 -- a missing ``[defaults].core_dependency`` must raise, not silently
@@ -23,6 +23,15 @@ Guard 6 -- an ``optional_dependency_indexes`` key naming no declared optional
 dependency must raise, instead of leaving the real dependency to resolve from
 the default index.
 
+Guard 7 -- a dotted spelling of an ``optional_dependency_indexes`` key must
+still emit a flat ``[tool.uv.sources]`` entry, instead of an unquoted dot
+turning it into a nested TOML table with no source entry for the real
+dependency.
+
+Guard 8 -- an ``optional_dependency_indexes`` key colliding with an existing
+``[tool.uv.sources]`` workspace entry must raise, naming the collision,
+instead of emitting a duplicate TOML key.
+
 The generator lives at ``scripts/generate_pyproject.py`` (a script, not an
 installed package), so it is loaded here by file path.
 """
@@ -39,11 +48,24 @@ import pytest
 
 from tests.script_loader import load_script
 
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
 _ROOT_PYPROJECT = _REPO_ROOT / "pyproject.toml"
 
 gen = load_script("generate_pyproject", _GEN_PATH)
+
+
+def _tool_uv_table(content: str) -> dict[str, Any]:
+    """Parse ``content`` with tomllib and return its ``[tool.uv]`` table, or ``{}`` if absent."""
+    parsed: dict[str, Any] = tomllib.loads(content)
+    tool: dict[str, Any] = parsed.get("tool", {})
+    uv_table: dict[str, Any] = tool.get("uv", {})
+    return uv_table
 
 
 def test_generate_raises_when_core_dependency_missing() -> None:
@@ -191,7 +213,8 @@ def test_generate_accepts_published_package_without_optional_dependency_indexes(
     all_packages: dict[str, dict[str, Any]] = {**packages, "mloda-sandbox-published-plain": pkg_config}
 
     content = gen.generate_pyproject("mloda-sandbox-published-plain", pkg_config, shared, all_packages)
-    assert "[project]" in content, content
+    uv_table = _tool_uv_table(content)
+    assert "index" not in uv_table, uv_table
 
 
 def test_generate_raises_when_optional_dependency_indexes_key_is_not_declared_in_any_extra() -> None:
@@ -225,7 +248,10 @@ def test_generate_accepts_optional_dependency_indexes_key_normalised_against_und
     all_packages: dict[str, dict[str, Any]] = {**packages, "mloda-sandbox-normalised-index": pkg_config}
 
     content = gen.generate_pyproject("mloda-sandbox-normalised-index", pkg_config, shared, all_packages)
-    assert "[project]" in content, content
+    uv_table = _tool_uv_table(content)
+    assert uv_table.get("sources", {}).get("mloda-example-binary") == {"index": "testpypi"}, uv_table
+    testpypi_url = shared["defaults"]["uv_indexes"]["testpypi"]["url"]
+    assert {"name": "testpypi", "url": testpypi_url, "explicit": True} in uv_table.get("index", []), uv_table
 
 
 def test_generate_accepts_optional_dependency_indexes_key_declared_only_via_shared_defaults() -> None:
@@ -241,7 +267,10 @@ def test_generate_accepts_optional_dependency_indexes_key_declared_only_via_shar
     all_packages: dict[str, dict[str, Any]] = {**packages, "mloda-sandbox-default-index": pkg_config}
 
     content = gen.generate_pyproject("mloda-sandbox-default-index", pkg_config, shared, all_packages)
-    assert "[project]" in content, content
+    uv_table = _tool_uv_table(content)
+    assert uv_table.get("sources", {}).get("pytest") == {"index": "testpypi"}, uv_table
+    testpypi_url = shared["defaults"]["uv_indexes"]["testpypi"]["url"]
+    assert {"name": "testpypi", "url": testpypi_url, "explicit": True} in uv_table.get("index", []), uv_table
 
 
 def test_generate_accepts_optional_dependency_indexes_key_declared_only_via_published_children() -> None:
@@ -260,7 +289,49 @@ def test_generate_accepts_optional_dependency_indexes_key_declared_only_via_publ
     all_packages: dict[str, dict[str, Any]] = {**packages, "mloda-community-data-operations": pkg_config}
 
     content = gen.generate_pyproject("mloda-community-data-operations", pkg_config, shared, all_packages)
-    assert "[project]" in content, content
+    uv_table = _tool_uv_table(content)
+    assert uv_table.get("sources", {}).get("mloda-community-aggregation") == {"index": "testpypi"}, uv_table
+    testpypi_url = shared["defaults"]["uv_indexes"]["testpypi"]["url"]
+    assert {"name": "testpypi", "url": testpypi_url, "explicit": True} in uv_table.get("index", []), uv_table
+
+
+def test_generate_dotted_index_key_produces_a_flat_uv_source_entry() -> None:
+    """A PEP 503 dotted spelling of the index key must still emit a single flat [tool.uv.sources]
+    entry for the real dependency name, not a nested TOML table from the unquoted dots."""
+    shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+    pkg_config: dict[str, Any] = {
+        "description": "synthetic package pointing an index at a dotted-spelled dependency name",
+        "path": "mloda/sandbox_dotted_index",
+        "dependencies": ["{core_dependency}"],
+        "optional_dependencies": {"wheel": ["mloda-example-binary>=0.1.0,<0.2.0"]},
+        "optional_dependency_indexes": {"mloda.example.binary": "testpypi"},
+    }
+    all_packages: dict[str, dict[str, Any]] = {**packages, "mloda-sandbox-dotted-index": pkg_config}
+
+    content = gen.generate_pyproject("mloda-sandbox-dotted-index", pkg_config, shared, all_packages)
+
+    uv_table = _tool_uv_table(content)
+    sources = uv_table.get("sources", {})
+    assert sources.get("mloda-example-binary") == {"index": "testpypi"}, sources
+    assert "mloda" not in sources, sources
+
+
+def test_generate_raises_when_index_key_collides_with_a_workspace_source_name() -> None:
+    """An optional_dependency_indexes key equal to an existing [tool.uv.sources] workspace entry
+    must raise, naming the colliding name, instead of emitting a duplicate TOML key."""
+    shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+    pkg_config: dict[str, Any] = {
+        "description": "synthetic unpublished package pointing an index at a name already used by a workspace source",
+        "path": "mloda/sandbox_collision_index",
+        "dependencies": ["{core_dependency}"],
+        "optional_dependency_indexes": {"mloda-testing": "testpypi"},
+    }
+    all_packages: dict[str, dict[str, Any]] = {**packages, "mloda-sandbox-collision-index": pkg_config}
+
+    with pytest.raises(ValueError, match="mloda-testing"):
+        gen.generate_pyproject("mloda-sandbox-collision-index", pkg_config, shared, all_packages)
 
 
 def test_real_config_optional_dependency_indexes_reference_a_declared_dependency() -> None:
@@ -273,7 +344,10 @@ def test_real_config_optional_dependency_indexes_reference_a_declared_dependency
     )
 
     content = gen.generate_pyproject("mloda-enterprise-binary-example", pkg_config, shared, packages)
-    assert "[project]" in content, content
+    uv_table = _tool_uv_table(content)
+    assert uv_table.get("sources", {}).get("mloda-example-binary") == {"index": "testpypi"}, uv_table
+    testpypi_url = shared["defaults"]["uv_indexes"]["testpypi"]["url"]
+    assert {"name": "testpypi", "url": testpypi_url, "explicit": True} in uv_table.get("index", []), uv_table
 
 
 def test_uv_index_blocks_raises_when_explicit_is_missing() -> None:

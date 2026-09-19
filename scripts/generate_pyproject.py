@@ -376,17 +376,35 @@ def generate_pyproject(
     depth = len(pkg_path.parts)
 
     uv_source_lines: list[str] = []
+    workspace_names: list[str] = []
     if "workspace_deps" in pkg_config:
-        uv_source_lines.extend(f"{dep} = {{ workspace = true }}" for dep in pkg_config["workspace_deps"])
+        workspace_names = list(pkg_config["workspace_deps"])
     elif depth <= 2:
-        uv_source_lines.extend(
-            f"{name} = {{ workspace = true }}" for name in workspace_source_names(pkg_name, pkg_config, all_packages)
-        )
+        workspace_names = workspace_source_names(pkg_name, pkg_config, all_packages)
+    uv_source_lines.extend(f"{name} = {{ workspace = true }}" for name in workspace_names)
 
     # Explicit external indexes (e.g. TestPyPI for a wheel not yet on production PyPI).
     index_deps: dict[str, str] = pkg_config.get("optional_dependency_indexes", {})
     uv_indexes: dict[str, Any] = defaults.get("uv_indexes", {})
-    uv_source_lines.extend(f'{dep_name} = {{ index = "{index_name}" }}' for dep_name, index_name in index_deps.items())
+
+    # An optional_dependency_indexes key equal (after PEP 503 normalization, consistent with Guard
+    # 6 above) to an existing workspace source name would otherwise emit a duplicate TOML key.
+    normalized_workspace_names = {normalize_dependency_name(name) for name in workspace_names}
+    for dep_name in index_deps:
+        normalized = normalize_dependency_name(dep_name)
+        if normalized in normalized_workspace_names:
+            raise ValueError(
+                f"{pkg_name}: optional_dependency_indexes key {dep_name!r} collides with an existing "
+                f"[tool.uv.sources] workspace entry for {normalized!r}"
+            )
+
+    # The key must be both PEP 503 normalized and quoted: a dotted/underscored spelling is a legal
+    # equivalent (Guard 6 above already accepts it), but an unquoted dot in a bare TOML key is a
+    # nested-table separator, which would leave no flat entry for the real dependency name.
+    uv_source_lines.extend(
+        f'"{normalize_dependency_name(dep_name)}" = {{ index = "{index_name}" }}'
+        for dep_name, index_name in index_deps.items()
+    )
 
     if uv_source_lines:
         lines.append("[tool.uv.sources]")

@@ -6,11 +6,14 @@ never import from it, or the import would propagate that module-level skip here.
 
 from __future__ import annotations
 
+import os
 import subprocess  # nosec
 import sys
 
 import pytest
 
+from mloda.testing.binary_model.license_vectors import valid_license_token
+from tests.test_binary_model_real import probe_classification
 from tests.test_binary_model_real.probe_classification import classify_test_key_probe, probe_accepts_test_key
 
 # Same spelling as mloda/enterprise/tests/test_licensing_invariants.py and
@@ -80,3 +83,64 @@ def test_classify_test_key_probe_raises_on_empty_stderr_at_exit_3() -> None:
         classify_test_key_probe(result)
     with pytest.raises(AssertionError, match=r"b''"):
         classify_test_key_probe(result)
+
+
+def test_classify_test_key_probe_raises_assertion_error_for_null_message() -> None:
+    """A null ``message`` at exit 3 must raise AssertionError naming the offending error object,
+    never a bare TypeError from treating None as a container."""
+    stderr = b'{"code": 3, "message": null}\n'
+    result = _completed_process(3, stderr=stderr)
+    with pytest.raises(AssertionError, match="3"):
+        classify_test_key_probe(result)
+    with pytest.raises(AssertionError, match="None"):
+        classify_test_key_probe(result)
+
+
+def test_classify_test_key_probe_raises_assertion_error_for_non_string_message() -> None:
+    """A non-string, non-null ``message`` at exit 3 must also raise AssertionError naming the
+    offending error object, never a bare TypeError."""
+    stderr = b'{"code": 3, "message": 42}\n'
+    result = _completed_process(3, stderr=stderr)
+    with pytest.raises(AssertionError, match="3"):
+        classify_test_key_probe(result)
+    with pytest.raises(AssertionError, match="42"):
+        classify_test_key_probe(result)
+
+
+def test_probe_environment_carries_real_path() -> None:
+    """The caller's real PATH is forwarded, never os.defpath."""
+    env = probe_classification.probe_environment()
+    assert env["PATH"] == os.environ["PATH"]
+
+
+def test_probe_environment_sets_no_license_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Neither license variable is set, even with junk ambient values."""
+    monkeypatch.setenv("MLODA_LICENSE_FILE", "/nonexistent/license/file")
+    monkeypatch.setenv("MLODA_LICENSE_KEY", "not-a-real-key")
+    env = probe_classification.probe_environment()
+    assert "MLODA_LICENSE_FILE" not in env
+    assert "MLODA_LICENSE_KEY" not in env
+
+
+def test_probe_environment_with_license_key_sets_only_that_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A supplied license_key sets MLODA_LICENSE_KEY to that value and still no license file."""
+    monkeypatch.setenv("MLODA_LICENSE_FILE", "/nonexistent/license/file")
+    license_value = valid_license_token(["example_binary"])
+    env = probe_classification.probe_environment(license_key=license_value)
+    assert env["MLODA_LICENSE_KEY"] == license_value
+    assert "MLODA_LICENSE_FILE" not in env
+
+
+def test_probe_environment_forwards_systemroot_on_nt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SYSTEMROOT is forwarded when os.name is "nt"."""
+    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setenv("SYSTEMROOT", "C:\\Windows")
+    env = probe_classification.probe_environment()
+    assert env.get("SYSTEMROOT") == "C:\\Windows"
+
+
+def test_probe_environment_omits_systemroot_off_nt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SYSTEMROOT is absent off Windows, even if set ambiently."""
+    monkeypatch.setenv("SYSTEMROOT", "C:\\Windows")
+    env = probe_classification.probe_environment()
+    assert "SYSTEMROOT" not in env
