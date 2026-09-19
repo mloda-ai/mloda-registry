@@ -233,6 +233,7 @@ class BinaryModelMixin:
     Invocation, Capabilities, Data, Configuration, License, Data handling, Errors)."""
 
     BINARY_PLUGIN_ID: ClassVar[str]
+    BINARY_WHEEL_DISTRIBUTION: ClassVar[str]
     BINARY_COMMAND_OVERRIDE: ClassVar[Sequence[str] | str | None] = None
     LICENSE_FILE_OVERRIDE: ClassVar[str | None] = None
     LICENSE_KEY_OVERRIDE: ClassVar[str | None] = None

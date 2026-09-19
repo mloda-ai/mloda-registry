@@ -6,13 +6,14 @@ Run a compiled binary (a model shipped as a wheel, usually license-gated) as the
 **When**: The model is a black box built outside Python (Rust, C++), and the vendor gates it with a license.
 **Why**: One mixin owns the process envelope (binary resolution, minimal environment, transport, error mapping), so a plugin only declares options and maps the result.
 **Where**: Mixin in `mloda.community.feature_groups.binary_model` (Apache-2.0); the template for a paid plugin in `mloda.enterprise.feature_groups.binary_example`.
-**How**: Subclass `BinaryModelMixin` next to `FeatureGroup`, set `BINARY_PLUGIN_ID`, call `run_binary_model()` from `calculate_feature()`.
+**How**: Subclass `BinaryModelMixin` next to `FeatureGroup`, set `BINARY_PLUGIN_ID` and `BINARY_WHEEL_DISTRIBUTION`, call `run_binary_model()` from `calculate_feature()`.
 
 ## Key Characteristic
 
 | Class attribute | Meaning |
 |-----------------|---------|
 | `BINARY_PLUGIN_ID` | Import package of the wheel that ships the binary (`from <id> import binary_path`); also the id the license entitles |
+| `BINARY_WHEEL_DISTRIBUTION` | The wheel's PyPI distribution name, distinct from `BINARY_PLUGIN_ID` (the import name); used in `packages.toml` |
 | `BINARY_COMMAND_OVERRIDE` | Explicit argv prefix or path used instead of the wheel; tests point it at the simulated binary. No environment variable can redirect the binary |
 | `LICENSE_FILE_OVERRIDE`, `LICENSE_KEY_OVERRIDE` | Values for `MLODA_LICENSE_FILE` / `MLODA_LICENSE_KEY` in the binary's environment; unset, the caller's own values are forwarded |
 | `BINARY_TIMEOUT_SECONDS` | Wall-clock limit per call; the process is terminated and `BinaryTerminatedError` raised |
@@ -47,6 +48,7 @@ class BinaryExampleFeatureGroup(BinaryModelMixin, FeatureGroup):
     """Keyed hash of the configured columns, computed by the ``example_binary`` wheel."""
 
     BINARY_PLUGIN_ID = "example_binary"
+    BINARY_WHEEL_DISTRIBUTION = "mloda-example-binary"
     OUTPUT_KEY = "result"
     OPERATION = "binary_operation"
     INPUT_COLUMNS = "binary_input_columns"
@@ -136,11 +138,23 @@ class StubExample(BinaryExampleFeatureGroup):
 
 Expected values come from `mloda.testing.binary_model.hash_reference.compute_expected_hash_column`. Cover the three levels of the [testing guide](10-testing-guide.md); at level 3 pass `compute_frameworks={PyArrowTable}` and `PluginCollector.enabled_feature_groups({StubExample, ApiInputDataFeature})` (the `api_data` reader must stay enabled alongside your class). The production class without an override must raise `BinaryUnavailableError`, and a run without a license `LicenseMissingError`.
 
+### Against the real wheel
+
+The stub above stays the fast-tests path; a suite that needs the actual compiled binary points the production class at it directly, no `BINARY_COMMAND_OVERRIDE`:
+
+```python
+class RealWheelExample(BinaryExampleFeatureGroup):
+    LICENSE_KEY_OVERRIDE = valid_license_token(["example_binary"])
+```
+
+See `tests/test_binary_model_real/` for the full suite (skipped unless the wheel is installed). It needs a test-key build, not the release build: a release build trusts only `PRODUCTION_KEYS` and rejects the shared test-signed vectors as an unknown key id. The full expired/in-grace/valid license state machine is already covered against the real compiled binary in the mloda-binary-wrapper repo's own CI across multiple platforms, and is deliberately not duplicated here. A CI job that installs the real wheel in this repo, and the full production-license end-to-end path, are intentionally deferred follow-up work, not omissions.
+
 ## Packaging Rules
 
 - `mloda-testing[binary-model]` (the stub, Arrow helpers, license vectors) is a `dev` extra only; nothing under `mloda/community/` or `mloda/enterprise/` imports `mloda.testing` at runtime.
 - The wheel is never a hard dependency of the plugin package; without it the call rejects, discovery still works.
 - A binary that implements the contract is verified with `mloda.testing.binary_model.conformance.BinaryModelConformanceBase`, the same kit the simulated binary passes.
+- The wheel's distribution (`BINARY_WHEEL_DISTRIBUTION`) is declared under `optional_dependencies`, pinned with a version range, never under `dependencies`. `mloda-example-binary` resolves from an explicit TestPyPI index (`optional_dependency_indexes` in `packages.toml`) until it ships on production PyPI.
 
 ## Combines With
 

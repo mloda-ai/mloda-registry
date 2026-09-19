@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
+import os
 import re
 import subprocess  # nosec
 import sys
@@ -26,6 +27,7 @@ import pytest
 from mloda.community.feature_groups.binary_model.binary import clear_capability_cache
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError, LicenseMissingError
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
+from mloda.enterprise.tests.wheel_presence import unexpected_wheel_plugin_ids
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
@@ -102,10 +104,24 @@ class TestEveryEnterpriseManifestImportsWithoutTheWheel:
             importlib.import_module(f"{dotted}.manifest")
 
     def test_no_binary_plugin_id_is_installed_as_a_wheel(self) -> None:
+        """Skips only when every installed wheel was deliberately opted into
+        (``MLODA_REAL_WHEEL=1``, e.g. running tests/test_binary_model_real/); an unexpected install
+        fails loudly instead of skipping, checked across every licensed plugin class rather than
+        stopping at the first installed one."""
         licensed = _licensed_plugin_classes()
         assert licensed, "expected at least one licensed plugin class"
-        for cls in licensed:
-            assert importlib.util.find_spec(cls.BINARY_PLUGIN_ID) is None
+        opt_in = os.environ.get("MLODA_REAL_WHEEL") == "1"
+        entries = [
+            (cls.BINARY_PLUGIN_ID, importlib.util.find_spec(cls.BINARY_PLUGIN_ID) is not None) for cls in licensed
+        ]
+        unexpected = unexpected_wheel_plugin_ids(entries, opt_in)
+        assert not unexpected, f"installed as a real wheel without MLODA_REAL_WHEEL=1 set: {unexpected!r}"
+        if opt_in and any(spec_present for _plugin_id, spec_present in entries):
+            pytest.skip(
+                "a real wheel is installed with MLODA_REAL_WHEEL=1 set; expected only when running "
+                "tests/test_binary_model_real/, not the default wheel-absent run this precondition "
+                "otherwise guards"
+            )
 
     def test_importing_every_manifest_never_imports_a_binary_wheel(self) -> None:
         plugin_ids = {cls.BINARY_PLUGIN_ID for cls in _licensed_plugin_classes()}
