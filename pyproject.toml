@@ -119,7 +119,7 @@ skips = [
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = { mloda = false, uv = false }
+exclude-newer-package = { mloda = false, uv = false, mloda-example-binary = false }
 
 # AUTO-GENERATED workspace members from config/packages.toml
 # Do not edit manually - run: python scripts/generate_pyproject.py

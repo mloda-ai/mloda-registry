@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import os
 import sys
 from collections.abc import Sequence
 from typing import Any
@@ -22,6 +23,7 @@ from mloda.community.feature_groups.binary_model.binary import clear_capability_
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError, LicenseMissingError
 from mloda.enterprise.feature_groups.binary_example import manifest as binary_example_manifest
 from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
+from mloda.enterprise.tests.wheel_presence import classify_wheel_presence
 from mloda.testing.base import FeatureGroupTestBase
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
 from mloda.testing.binary_model.license_vectors import valid_license_token
@@ -196,7 +198,22 @@ class TestManifest:
         assert binary_example_manifest.FEATURE_GROUPS == [BinaryExampleFeatureGroup]
 
     def test_wheel_is_not_installed_precondition(self) -> None:
-        assert importlib.util.find_spec("example_binary") is None
+        """Skips only when the wheel install was deliberately opted into (``MLODA_REAL_WHEEL=1``,
+        e.g. running tests/test_binary_model_real/); otherwise an installed wheel fails this test
+        instead of skipping it, so an accidental install (e.g. moved into the ``dev`` extra) is
+        caught rather than silently skipped."""
+        spec = importlib.util.find_spec("example_binary")
+        opt_in = os.environ.get("MLODA_REAL_WHEEL") == "1"
+        classification = classify_wheel_presence(spec_present=spec is not None, opt_in=opt_in)
+        if classification == "opted_in":
+            pytest.skip(
+                "example_binary is installed as a real wheel with MLODA_REAL_WHEEL=1 set; expected "
+                "only when running tests/test_binary_model_real/, not the default wheel-absent run "
+                "this precondition otherwise guards"
+            )
+        assert classification == "absent", (
+            f"example_binary is installed as a real wheel without MLODA_REAL_WHEEL=1 set: {classification!r}"
+        )
 
     def test_importing_the_manifest_never_imports_the_binary_wheel(self) -> None:
         importlib.import_module("mloda.enterprise.feature_groups.binary_example.manifest")

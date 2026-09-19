@@ -142,6 +142,91 @@ def test_meta_package_without_py_typed_still_generates() -> None:
     assert "package-data" not in content, content
 
 
+def test_generate_raises_when_a_published_package_uses_optional_dependency_indexes() -> None:
+    """Guard 4 -- ``published`` and ``optional_dependency_indexes`` must be mutually exclusive.
+
+    A built wheel's metadata carries only the bare requirement (e.g.
+    ``mloda-example-binary>=0.1.0,<0.2.0``); uv's own index configuration does not survive into
+    it. If a *published* package also points an extra at a non-default index (TestPyPI, say),
+    ``pip install pkg[extra]`` from a real install resolves that bare name against production
+    PyPI instead, which may be empty or squatted: a dependency-confusion vector. Today
+    ``generate_pyproject`` accepts this combination silently.
+    """
+    shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+    pkg_config: dict[str, Any] = {
+        "description": "synthetic published package pointing an extra at a non-default index",
+        "path": "mloda/sandbox_published_with_index",
+        "dependencies": ["{core_dependency}"],
+        "published": True,
+        "optional_dependencies": {"wheel": ["mloda-example-binary>=0.1.0,<0.2.0"]},
+        "optional_dependency_indexes": {"mloda-example-binary": "testpypi"},
+    }
+    all_packages: dict[str, dict[str, Any]] = {**packages, "mloda-sandbox-published-with-index": pkg_config}
+
+    with pytest.raises(ValueError, match="published"):
+        gen.generate_pyproject("mloda-sandbox-published-with-index", pkg_config, shared, all_packages)
+
+
+def test_generate_accepts_published_package_without_optional_dependency_indexes() -> None:
+    """Guard 4 fires on the ``published`` + ``optional_dependency_indexes`` combination only."""
+    shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+    pkg_config: dict[str, Any] = {
+        "description": "synthetic published package with no index dependency",
+        "path": "mloda/sandbox_published_plain",
+        "dependencies": ["{core_dependency}"],
+        "published": True,
+    }
+    all_packages: dict[str, dict[str, Any]] = {**packages, "mloda-sandbox-published-plain": pkg_config}
+
+    content = gen.generate_pyproject("mloda-sandbox-published-plain", pkg_config, shared, all_packages)
+    assert "[project]" in content, content
+
+
+def test_uv_index_blocks_raises_when_explicit_is_missing() -> None:
+    """Guard 5 -- an index config missing ``explicit = true`` must be rejected.
+
+    ``explicit = true`` is the actual dependency-confusion safeguard: without it, uv's
+    first-index strategy lets the index shadow PyPI for *other* packages too, not just the one
+    dependency naming it via ``[tool.uv.sources]``. Today ``uv_index_blocks`` only emits the line
+    when the config happens to set it, without requiring it.
+    """
+    index_deps = {"mloda-example-binary": "testpypi"}
+    uv_indexes: dict[str, Any] = {"testpypi": {"url": "https://test.pypi.org/simple/"}}
+
+    with pytest.raises(ValueError, match="explicit"):
+        gen.uv_index_blocks("mloda-sandbox", index_deps, uv_indexes)
+
+
+def test_uv_index_blocks_raises_when_explicit_is_false() -> None:
+    """Guard 5 -- an index config with ``explicit = false`` is rejected the same as a missing key."""
+    index_deps = {"mloda-example-binary": "testpypi"}
+    uv_indexes: dict[str, Any] = {"testpypi": {"url": "https://test.pypi.org/simple/", "explicit": False}}
+
+    with pytest.raises(ValueError, match="explicit"):
+        gen.uv_index_blocks("mloda-sandbox", index_deps, uv_indexes)
+
+
+def test_uv_index_blocks_accepts_explicit_true() -> None:
+    """Guard 5 fires on the missing/false case only; a correctly configured index is accepted."""
+    index_deps = {"mloda-example-binary": "testpypi"}
+    uv_indexes: dict[str, Any] = {"testpypi": {"url": "https://test.pypi.org/simple/", "explicit": True}}
+
+    lines = gen.uv_index_blocks("mloda-sandbox", index_deps, uv_indexes)
+    assert "explicit = true" in lines, lines
+
+
+def test_real_shared_toml_uv_indexes_all_declare_explicit_true() -> None:
+    """Regression guard on the real config: every configured uv index in config/shared.toml must
+    declare explicit = true, not merely something Guard 5 could theoretically enforce."""
+    shared, _packages_config = gen.load_configs()
+    uv_indexes: dict[str, Any] = shared.get("defaults", {}).get("uv_indexes", {})
+    assert uv_indexes, "expected at least one configured uv index; check is vacuous"
+    for name, index_cfg in uv_indexes.items():
+        assert index_cfg.get("explicit") is True, f"{name}: uv index must declare explicit = true, got {index_cfg!r}"
+
+
 def test_discover_packages_excludes_real_egg_info_dirs(tmp_path: Path) -> None:
     """A planted ``<package>.egg-info/__init__.py`` must not be discovered as a package.
 

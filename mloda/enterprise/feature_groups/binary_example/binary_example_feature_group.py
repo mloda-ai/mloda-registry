@@ -31,6 +31,7 @@ class BinaryExampleFeatureGroup(BinaryModelMixin, FeatureGroup):
     """Keyed hash of the configured columns, computed by the ``example_binary`` wheel."""
 
     BINARY_PLUGIN_ID = "example_binary"
+    BINARY_WHEEL_DISTRIBUTION = "mloda-example-binary"
     OUTPUT_KEY = "result"
     OPERATION = "binary_operation"
     INPUT_COLUMNS = "binary_input_columns"

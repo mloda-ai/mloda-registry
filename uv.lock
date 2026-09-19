@@ -17,6 +17,7 @@ exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
 uv = false
+mloda-example-binary = false
 mloda = false
 
 [manifest]
@@ -1544,15 +1545,19 @@ dev = [
 pyarrow = [
     { name = "pyarrow" },
 ]
+wheel = [
+    { name = "mloda-example-binary" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "mloda-community-binary-model", specifier = ">=0.4.5" },
+    { name = "mloda-example-binary", marker = "extra == 'wheel'", specifier = ">=0.1.0,<0.2.0", index = "https://test.pypi.org/simple/" },
     { name = "mloda-testing", extras = ["binary-model"], marker = "extra == 'dev'" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=25" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
-provides-extras = ["dev", "pyarrow"]
+provides-extras = ["dev", "pyarrow", "wheel"]
 
 [[package]]
 name = "mloda-enterprise-compute-frameworks-example"
@@ -1619,6 +1624,18 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "mloda-example-binary"
+version = "0.1.0"
+source = { registry = "https://test.pypi.org/simple/" }
+wheels = [
+    { url = "https://test-files.pythonhosted.org/packages/59/67/3d5b648d8915af85fd420820fb7de54eaec857791a0372054da87fc2b81d/mloda_example_binary-0.1.0-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:f69e8c96303096bbe9aafa326811174e2403b275f7467c392a1eec6eba77c86b", size = 654901, upload-time = "2026-09-19T16:52:47.715Z" },
+    { url = "https://test-files.pythonhosted.org/packages/47/a1/ef2979631f477eeab2419362d0718632db7c0d9db70cfc53bc9979ddfa6d/mloda_example_binary-0.1.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:717af6ce5616709b90ffe446d225cfde6e8a21be2351445a0e76f5d3ca33913d", size = 563731, upload-time = "2026-09-19T16:52:49.566Z" },
+    { url = "https://test-files.pythonhosted.org/packages/e7/2e/3f0f85967728f09fdadda7cf3351b82a15e1254b574c0872778980838639/mloda_example_binary-0.1.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:23e4508bd33e58691fae174b1a36e0e6414b54faad2182af671aabe32f989e53", size = 607139, upload-time = "2026-09-19T16:52:51.085Z" },
+    { url = "https://test-files.pythonhosted.org/packages/84/40/c9504d3dd6986d2ce5e19f27a8c3800c62b354bd97164477a3c93d713696/mloda_example_binary-0.1.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f30476bee44d43ea1bae80d313037ba9a46539aabe0536396af22d6e287a26e8", size = 685853, upload-time = "2026-09-19T16:52:52.42Z" },
+    { url = "https://test-files.pythonhosted.org/packages/f8/9e/cfcf4668713f98d1ef41e12a90503a778239b36e00bd77b4c0b0cee5a5a8/mloda_example_binary-0.1.0-py3-none-win_amd64.whl", hash = "sha256:889dbad15adf65b043a4ce678e87a9b5f2ecce3fcf795012dbed76502e6cc48d", size = 575893, upload-time = "2026-09-19T16:52:54.468Z" },
+]
 
 [[package]]
 name = "mloda-registry"
