@@ -7,9 +7,10 @@ either.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Literal
 
 
-def classify_wheel_presence(spec_present: bool, opt_in: bool) -> str:
+def classify_wheel_presence(spec_present: bool, opt_in: bool) -> Literal["absent", "opted_in", "unexpected"]:
     """``"absent"`` if no wheel is installed; otherwise ``"opted_in"`` when the
     ``MLODA_REAL_WHEEL=1`` opt-in was set deliberately, ``"unexpected"`` when it was not."""
     if not spec_present:

@@ -4,31 +4,28 @@ test_wheel_is_not_installed_precondition`` and
 ``test_licensing_invariants.py::TestEveryEnterpriseManifestImportsWithoutTheWheel.
 test_no_binary_plugin_id_is_installed_as_a_wheel``).
 
-Both currently ``pytest.skip()`` whenever the wheel happens to be importable, and otherwise
-assert it is not -- so the check can only pass or skip, never fail, and a regression that makes
-the wheel install by default (e.g. moved into the ``dev`` extra) would silently skip instead of
-being caught.
-
-``mloda.enterprise.tests.wheel_presence`` does not exist yet (Green phase adds it): every test
-below fails with ``ModuleNotFoundError``/``NameError`` until it defines:
-
-- ``classify_wheel_presence(spec_present: bool, opt_in: bool) -> str``, returning one of:
-    - ``"absent"``     -- no wheel installed; the guard holds trivially.
-    - ``"opted_in"``   -- a wheel is installed AND the ``MLODA_REAL_WHEEL=1`` opt-in was
-      deliberately set (e.g. running ``tests/test_binary_model_real/`` on purpose); the caller
-      should ``pytest.skip()``.
-    - ``"unexpected"`` -- a wheel is installed WITHOUT the opt-in: an accidental install: the
-      caller must fail loudly (``assert``), never skip.
-- ``unexpected_wheel_plugin_ids(entries, opt_in) -> list[str]``, given an iterable of
-  ``(plugin_id, spec_present)`` pairs, returning every ``plugin_id`` classified ``"unexpected"``.
-  Must check every entry -- no early return -- so a regression that only inspects the first
-  installed plugin_id is caught even though today's registry has a single BinaryModelMixin
-  subclass.
+An installed wheel is classified as a deliberate opt-in (``MLODA_REAL_WHEEL=1``, skip) or an
+unexpected install (fail loudly) -- never silently either -- so a regression that makes the wheel
+install by default (e.g. moved into the ``dev`` extra) is caught rather than skipped. Also checks
+that every installed plugin_id is inspected, not just the first, and that ``MLODA_REAL_WHEEL`` is
+in ``tox.ini``'s ``[testenv] passenv`` so the opt-in survives into every gate environment.
 """
 
 from __future__ import annotations
 
+import configparser
+from pathlib import Path
+
 from mloda.enterprise.tests.wheel_presence import classify_wheel_presence, unexpected_wheel_plugin_ids
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_TOX_INI = _REPO_ROOT / "tox.ini"
+
+
+def _testenv_passenv() -> list[str]:
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read(_TOX_INI)
+    return parser["testenv"]["passenv"].split()
 
 
 class TestClassifyWheelPresence:
@@ -62,3 +59,10 @@ class TestUnexpectedWheelPluginIds:
     def test_empty_when_nothing_is_installed(self) -> None:
         entries = [("plugin_a", False), ("plugin_b", False)]
         assert unexpected_wheel_plugin_ids(entries, opt_in=False) == []
+
+
+class TestPassenvCarriesTheOptIn:
+    def test_mloda_real_wheel_is_in_testenv_passenv(self) -> None:
+        """[testenv:binary-model] and every pythonNNN env inherit [testenv], so this one entry
+        covers every gate environment MLODA_REAL_WHEEL must survive into."""
+        assert "MLODA_REAL_WHEEL" in _testenv_passenv()

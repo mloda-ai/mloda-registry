@@ -1,7 +1,7 @@
 """Robustness guards for scripts/generate_pyproject.py.
 
 The generator is the single source of truth for every package's
-``pyproject.toml`` and for the root mloda-core pin. Three silent-failure modes
+``pyproject.toml`` and for the root mloda-core pin. Six silent-failure modes
 must be turned into loud failures:
 
 Guard 1 -- a missing ``[defaults].core_dependency`` must raise, not silently
@@ -13,12 +13,23 @@ entry cannot be synced, instead of returning 0 and leaving a stale pin.
 Guard 3 -- a meta-package (``workspace_deps``) flagged ``py_typed`` must raise,
 instead of emitting ``packages = []`` and a wheel without its PEP 561 marker.
 
+Guard 4 -- ``published`` and ``optional_dependency_indexes`` must be mutually
+exclusive, since a built wheel's metadata carries no uv index scoping.
+
+Guard 5 -- an ``optional_dependency_indexes`` entry missing ``explicit = true``
+must raise, instead of letting the index shadow PyPI for other packages too.
+
+Guard 6 -- an ``optional_dependency_indexes`` key naming no declared optional
+dependency must raise, instead of leaving the real dependency to resolve from
+the default index.
+
 The generator lives at ``scripts/generate_pyproject.py`` (a script, not an
 installed package), so it is loaded here by file path.
 """
 
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -218,8 +229,7 @@ def test_generate_raises_when_a_published_package_uses_optional_dependency_index
     ``mloda-example-binary>=0.1.0,<0.2.0``); uv's own index configuration does not survive into
     it. If a *published* package also points an extra at a non-default index (TestPyPI, say),
     ``pip install pkg[extra]`` from a real install resolves that bare name against production
-    PyPI instead, which may be empty or squatted: a dependency-confusion vector. Today
-    ``generate_pyproject`` accepts this combination silently.
+    PyPI instead, which may be empty or squatted: a dependency-confusion vector.
     """
     shared, packages_config = gen.load_configs()
     packages: dict[str, dict[str, Any]] = packages_config["packages"]
@@ -253,13 +263,94 @@ def test_generate_accepts_published_package_without_optional_dependency_indexes(
     assert "[project]" in content, content
 
 
+def test_generate_raises_when_optional_dependency_indexes_key_is_not_declared_in_any_extra() -> None:
+    """A typo'd optional_dependency_indexes key names a dependency absent from every extra."""
+    shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+    pkg_config: dict[str, Any] = {
+        "description": "synthetic package pointing an index at a mistyped dependency name",
+        "path": "mloda/sandbox_typo_index",
+        "dependencies": ["{core_dependency}"],
+        "optional_dependencies": {"wheel": ["mloda-example-binary>=0.1.0,<0.2.0"]},
+        "optional_dependency_indexes": {"mloda-exampl-binary": "testpypi"},
+    }
+    all_packages: dict[str, dict[str, Any]] = {**packages, "mloda-sandbox-typo-index": pkg_config}
+
+    with pytest.raises(ValueError, match=re.escape("mloda-exampl-binary")):
+        gen.generate_pyproject("mloda-sandbox-typo-index", pkg_config, shared, all_packages)
+
+
+def test_generate_accepts_optional_dependency_indexes_key_normalised_against_underscore_extra() -> None:
+    """A PEP 503 equivalent spelling (underscore extra entry, hyphenated index key) is not a typo."""
+    shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+    pkg_config: dict[str, Any] = {
+        "description": "synthetic package pointing an index at an underscore-spelled extra entry",
+        "path": "mloda/sandbox_normalised_index",
+        "dependencies": ["{core_dependency}"],
+        "optional_dependencies": {"wheel": ["mloda_example_binary>=0.1.0,<0.2.0"]},
+        "optional_dependency_indexes": {"mloda-example-binary": "testpypi"},
+    }
+    all_packages: dict[str, dict[str, Any]] = {**packages, "mloda-sandbox-normalised-index": pkg_config}
+
+    content = gen.generate_pyproject("mloda-sandbox-normalised-index", pkg_config, shared, all_packages)
+    assert "[project]" in content, content
+
+
+def test_generate_accepts_optional_dependency_indexes_key_declared_only_via_shared_defaults() -> None:
+    """The declared-dependency check runs against the merged extras, including the shared dev default."""
+    shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+    pkg_config: dict[str, Any] = {
+        "description": "synthetic package pointing an index at a dependency contributed only by the shared default",
+        "path": "mloda/sandbox_default_index",
+        "dependencies": ["{core_dependency}"],
+        "optional_dependency_indexes": {"pytest": "testpypi"},
+    }
+    all_packages: dict[str, dict[str, Any]] = {**packages, "mloda-sandbox-default-index": pkg_config}
+
+    content = gen.generate_pyproject("mloda-sandbox-default-index", pkg_config, shared, all_packages)
+    assert "[project]" in content, content
+
+
+def test_generate_accepts_optional_dependency_indexes_key_declared_only_via_published_children() -> None:
+    """The declared-dependency check runs against the merged extras, after {published_children} expansion."""
+    shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+    real_data_operations = packages["mloda-community-data-operations"]
+    assert real_data_operations.get("optional_dependencies", {}).get("all") == [gen.PUBLISHED_CHILDREN], (
+        "fixture assumption: mloda-community-data-operations 'all' extra uses the {published_children} placeholder"
+    )
+    pkg_config: dict[str, Any] = {
+        **real_data_operations,
+        "published": False,
+        "optional_dependency_indexes": {"mloda-community-aggregation": "testpypi"},
+    }
+    all_packages: dict[str, dict[str, Any]] = {**packages, "mloda-community-data-operations": pkg_config}
+
+    content = gen.generate_pyproject("mloda-community-data-operations", pkg_config, shared, all_packages)
+    assert "[project]" in content, content
+
+
+def test_real_config_optional_dependency_indexes_reference_a_declared_dependency() -> None:
+    """The real mloda-enterprise-binary-example wheel extra satisfies the declared-dependency guard."""
+    shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+    pkg_config = packages["mloda-enterprise-binary-example"]
+    assert pkg_config.get("optional_dependency_indexes") == {"mloda-example-binary": "testpypi"}, (
+        "fixture assumption: mloda-enterprise-binary-example pins mloda-example-binary to testpypi"
+    )
+
+    content = gen.generate_pyproject("mloda-enterprise-binary-example", pkg_config, shared, packages)
+    assert "[project]" in content, content
+
+
 def test_uv_index_blocks_raises_when_explicit_is_missing() -> None:
     """Guard 5 -- an index config missing ``explicit = true`` must be rejected.
 
     ``explicit = true`` is the actual dependency-confusion safeguard: without it, uv's
     first-index strategy lets the index shadow PyPI for *other* packages too, not just the one
-    dependency naming it via ``[tool.uv.sources]``. Today ``uv_index_blocks`` only emits the line
-    when the config happens to set it, without requiring it.
+    dependency naming it via ``[tool.uv.sources]``.
     """
     index_deps = {"mloda-example-binary": "testpypi"}
     uv_indexes: dict[str, Any] = {"testpypi": {"url": "https://test.pypi.org/simple/"}}
