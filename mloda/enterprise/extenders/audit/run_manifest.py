@@ -7,7 +7,7 @@ as expected_head, because removing the newest manifests or the whole log is othe
 Limits:
 - HMAC is symmetric: integrity, not non-repudiation.
 - Records without a usable run_id and unsealed runs sit outside every seal (verify_ndjson_log_coverage counts them).
-- One key and one manifest log per audit file; sealers serialise on flock (POSIX).
+- One manifest log per audit file, with `previous_signers` covering rotation; sealers serialise on flock (POSIX).
 - A torn or undecodable line fails sealing and verification until quarantine_damaged_lines repairs it. It repairs
   only a torn manifest tail and the audit lines the readers reject; anything else stays a hard failure.
 """
@@ -160,18 +160,37 @@ def manifest_hash(manifest: Mapping[str, Any]) -> str:
     return _sha256(_canonical_json(manifest))
 
 
-def _verify_manifest_fields(manifest: Mapping[str, Any], signer: ManifestSigner) -> None:
+def _signer_map(signer: ManifestSigner, previous_signers: Iterable[ManifestSigner]) -> dict[str, ManifestSigner]:
+    """Map key_id to signer, from `signer` plus `previous_signers`; raise ValueError for a shared key_id."""
+    signers: dict[str, ManifestSigner] = {signer.key_id: signer}
+    for previous in previous_signers:
+        if previous.key_id in signers:
+            raise ValueError(f"previous_signers repeats key_id {previous.key_id!r}")
+        signers[previous.key_id] = previous
+    return signers
+
+
+def _verify_manifest_fields(
+    manifest: Mapping[str, Any], signer: ManifestSigner, signers: Mapping[str, ManifestSigner]
+) -> None:
     signature = manifest.get("signature")
     # The block is unsigned, so an unknown member could carry anything.
     if not isinstance(signature, Mapping) or set(signature) != _SIGNATURE_KEYS:
         raise ManifestVerificationError(f"manifest signature block must have exactly {sorted(_SIGNATURE_KEYS)}")
-    for field in ("algorithm", "key_id"):
-        if signature[field] != getattr(signer, field):
-            raise ManifestVerificationError(
-                f"signature {field} {signature[field]!r} is not the signer's {getattr(signer, field)!r}"
-            )
+    key_id = signature["key_id"]
+    resolved: ManifestSigner | None
+    try:
+        resolved = signers.get(key_id)
+    except TypeError:
+        resolved = None
+    if resolved is None:
+        raise ManifestVerificationError(f"signature key_id {key_id!r} is not the signer's {signer.key_id!r}")
+    if signature["algorithm"] != resolved.algorithm:
+        raise ManifestVerificationError(
+            f"signature algorithm {signature['algorithm']!r} is not the signer's {resolved.algorithm!r}"
+        )
     value = signature["value"]
-    if not isinstance(value, str) or not signer.verify(_canonical_json(_unsigned(manifest)), value):
+    if not isinstance(value, str) or not resolved.verify(_canonical_json(_unsigned(manifest)), value):
         raise ManifestVerificationError("signature does not match the manifest")
     # type() is int: True and 1.0 equal 1.
     version = manifest.get("manifest_version")
@@ -214,10 +233,16 @@ def _verify_digest(manifest: Mapping[str, Any], digest: _RunDigest) -> None:
 
 
 def verify_manifest(
-    manifest: Mapping[str, Any], records: Iterable[Mapping[str, Any]], *, signer: ManifestSigner
+    manifest: Mapping[str, Any],
+    records: Iterable[Mapping[str, Any]],
+    *,
+    signer: ManifestSigner,
+    previous_signers: Iterable[ManifestSigner] = (),
 ) -> None:
-    """Raise ManifestVerificationError unless signed by `signer` and matching `records`."""
-    _verify_manifest_fields(manifest, signer)
+    """Raise ManifestVerificationError unless signed by `signer` and matching `records`. `previous_signers` is a
+    migration window for verifying manifests signed by a retired key, not a permanent trust set."""
+    signers = _signer_map(signer, previous_signers)
+    _verify_manifest_fields(manifest, signer, signers)
     _verify_digest(manifest, _digest_of(records))
 
 
@@ -327,6 +352,7 @@ def _verify_log(
     log: Iterable[Mapping[str, Any]],
     *,
     signer: ManifestSigner,
+    signers: Mapping[str, ManifestSigner],
     expected_head: str | None,
     digests: Mapping[str, _RunDigest] | None = None,
 ) -> tuple[set[str], str | None]:
@@ -334,9 +360,15 @@ def _verify_log(
     sealed: set[str] = set()
     head: str | None = None
     problems: list[str] = []
+    current_key_seen = False
     for manifest in log:
-        _verify_manifest_fields(manifest, signer)
+        _verify_manifest_fields(manifest, signer, signers)
         run_id: str = manifest["run_id"]
+        # A retired key must not sign at the head once the current key has sealed here.
+        if manifest["signature"]["key_id"] == signer.key_id:
+            current_key_seen = True
+        elif current_key_seen:
+            raise ManifestVerificationError(f"run_id {run_id!r} is signed by a retired key after the current key")
         if manifest.get("previous_manifest_hash") != head:
             raise ManifestVerificationError(f"manifest chain is broken at run_id {run_id!r}")
         if run_id in sealed:
@@ -370,6 +402,7 @@ def seal_ndjson_runs(
     manifest_path: str | Path,
     *,
     signer: ManifestSigner,
+    previous_signers: Iterable[ManifestSigner] = (),
     run_id: str | None = None,
     expected_head: str | None = None,
 ) -> list[dict[str, Any]]:
@@ -377,12 +410,16 @@ def seal_ndjson_runs(
     run-end hook, so sealing a run that is still being written fails its verification for good. The `run_id=None`
     sweep is for an audit file no writer is appending to; pass `run_id` when other runs may still be live. Raises
     RunAlreadySealedError for a sealed `run_id` (catch that, not ValueError, for an idempotent retry) and
-    RunNotPendingError when it has no records."""
+    RunNotPendingError when it has no records. `previous_signers` is a migration window for verifying manifests
+    signed by a retired key, not a permanent trust set."""
+    signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
     if run_id is not None and (not isinstance(run_id, str) or _is_blank(run_id)):
         raise ValueError("seal_ndjson_runs run_id must be a non-blank string")
     with _flock(manifest_path, exclusive=True):
-        sealed, head = _verify_log(_iter_manifests(manifest_path), signer=signer, expected_head=expected_head)
+        sealed, head = _verify_log(
+            _iter_manifests(manifest_path), signer=signer, signers=signers, expected_head=expected_head
+        )
         if run_id is not None and run_id in sealed:
             raise RunAlreadySealedError(f"run_id {run_id!r} is already sealed in {manifest_path}")
         # A durable manifest must not name audit records that never reached disk; a missing audit file
@@ -438,10 +475,13 @@ def verify_ndjson_log_coverage(
     manifest_path: str | Path,
     *,
     signer: ManifestSigner,
+    previous_signers: Iterable[ManifestSigner] = (),
     expected_head: str | None = None,
 ) -> LogCoverage:
     """Verify like verify_ndjson_log; return a LogCoverage (head, sealed_runs, sealed_lines, unattributed_lines,
-    unsealed_lines)."""
+    unsealed_lines). `previous_signers` is a migration window for verifying manifests signed by a retired key, not
+    a permanent trust set."""
+    signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
     # Log first: a run sealed after this read looks unsealed, not tampered.
     with _flock(manifest_path, exclusive=False):
@@ -452,7 +492,7 @@ def verify_ndjson_log_coverage(
         digests = _digest_runs(audit_path, sealed.__contains__, uncovered)
     except FileNotFoundError:
         digests = {}
-    _, head = _verify_log(manifests, signer=signer, expected_head=expected_head, digests=digests)
+    _, head = _verify_log(manifests, signer=signer, signers=signers, expected_head=expected_head, digests=digests)
     return LogCoverage(
         head=head,
         sealed_runs=len(sealed),
@@ -467,11 +507,16 @@ def verify_ndjson_log(
     manifest_path: str | Path,
     *,
     signer: ManifestSigner,
+    previous_signers: Iterable[ManifestSigner] = (),
     expected_head: str | None = None,
 ) -> str | None:
     """Raise ManifestVerificationError unless every manifest matches the audit bytes of its run. Returns the head:
-    anchor it outside the log and pass it back as `expected_head`, or a truncated log goes undetected."""
-    return verify_ndjson_log_coverage(audit_path, manifest_path, signer=signer, expected_head=expected_head).head
+    anchor it outside the log and pass it back as `expected_head`, or a truncated log goes undetected.
+    `previous_signers` is a migration window for verifying manifests signed by a retired key, not a permanent
+    trust set."""
+    return verify_ndjson_log_coverage(
+        audit_path, manifest_path, signer=signer, previous_signers=previous_signers, expected_head=expected_head
+    ).head
 
 
 @dataclass(frozen=True)
@@ -520,7 +565,9 @@ def _damaged_audit_lines(path: str | Path) -> _Damage:
         return []
 
 
-def _damaged_manifest_tail(path: str | Path, *, signer: ManifestSigner, expected_head: str | None) -> _Damage:
+def _damaged_manifest_tail(
+    path: str | Path, *, signer: ManifestSigner, signers: Mapping[str, ManifestSigner], expected_head: str | None
+) -> _Damage:
     """`expected_head` may be any complete manifest's head: a torn multi-seal write leaves complete ones past it."""
     try:
         with open(path, "rb") as file:
@@ -529,7 +576,7 @@ def _damaged_manifest_tail(path: str | Path, *, signer: ManifestSigner, expected
         lines = []
     tail = lines.pop() if lines and not lines[-1].endswith(b"\n") else b""
     manifests = [_parse_ndjson_line(path, number, raw)[1] for number, raw in enumerate(lines, start=1)]
-    _, head = _verify_log(manifests, signer=signer, expected_head=None)
+    _, head = _verify_log(manifests, signer=signer, signers=signers, expected_head=None)
     if expected_head is not None and expected_head not in {manifest_hash(manifest) for manifest in manifests}:
         raise ManifestVerificationError(
             f"manifest log head {head!r} is not the expected head {expected_head!r}, and no earlier manifest has it"
@@ -610,6 +657,7 @@ def quarantine_damaged_lines(
     *,
     quarantine_path: str | Path,
     signer: ManifestSigner,
+    previous_signers: Iterable[ManifestSigner] = (),
     expected_head: str | None = None,
     dry_run: bool = False,
 ) -> list[QuarantinedLine]:
@@ -618,12 +666,16 @@ def quarantine_damaged_lines(
     Every removed line goes first to the signed `quarantine_path` log. Stop every audit-file writer first: the sink
     appends without a lock. A valid-JSON unterminated last line is refused in both files (it may be a real seal or
     record). Without an anchored `expected_head`, truncating a torn manifest tail is indistinguishable from cutting
-    the newest manifest. Anything else raises and changes nothing."""
+    the newest manifest. Anything else raises and changes nothing. `previous_signers` is a migration window for
+    verifying manifests signed by a retired key, not a permanent trust set."""
+    signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path, quarantine_path=quarantine_path)
     if not (os.path.exists(audit_path) or os.path.exists(manifest_path)):
         return []
     with _flock(manifest_path, exclusive=not dry_run):
-        manifest_damage = _damaged_manifest_tail(manifest_path, signer=signer, expected_head=expected_head)
+        manifest_damage = _damaged_manifest_tail(
+            manifest_path, signer=signer, signers=signers, expected_head=expected_head
+        )
         audit_damage = _damaged_audit_lines(audit_path)
         damage = manifest_damage + audit_damage
         if not damage:

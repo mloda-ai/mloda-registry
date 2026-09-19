@@ -88,8 +88,8 @@ _DAMAGED_LINES: dict[str, bytes] = {
 }
 
 
-def _signer(key: bytes = _KEY) -> HmacSha256Signer:
-    return HmacSha256Signer(key, "key-1")
+def _signer(key: bytes = _KEY, key_id: str = "key-1") -> HmacSha256Signer:
+    return HmacSha256Signer(key, key_id)
 
 
 def _record(run_id: str | None = "run-1", second: int = 0, *, tenant_id: str | None = "tenant-1") -> dict[str, Any]:
@@ -735,6 +735,47 @@ class TestVerifyManifest:
         with pytest.raises(ManifestVerificationError, match=field):
             verify_manifest(_resigned(manifest, **{field: value}), records, signer=_signer())
 
+    def test_previous_signers_verifies_a_manifest_signed_by_an_old_key(self) -> None:
+        records = [_record(second=second) for second in range(3)]
+        old_signer = _signer()
+        manifest = seal_run(records, run_id="run-1", signer=old_signer)
+        new_signer = _signer(_OTHER_KEY, "key-2")
+
+        verify_manifest(manifest, records, signer=new_signer, previous_signers=[old_signer])
+
+    def test_previous_signers_accepts_any_manifest_signer_protocol_implementation(self) -> None:
+        records = [_record()]
+        old_signer = _PrefixSigner()
+        manifest = seal_run(records, run_id="run-1", signer=old_signer)
+        new_signer = _signer(_OTHER_KEY, "key-2")
+
+        verify_manifest(manifest, records, signer=new_signer, previous_signers=[old_signer])
+
+    def test_unknown_key_id_fails_the_signature_check_and_names_it(self) -> None:
+        records = [_record(second=second) for second in range(3)]
+        manifest = seal_run(records, run_id="run-1", signer=_signer(b"u" * 32, "key-unknown"))
+
+        with pytest.raises(ManifestVerificationError, match="signature") as excinfo:
+            verify_manifest(manifest, records, signer=_signer(_OTHER_KEY, "key-2"), previous_signers=[_signer()])
+
+        assert "key-unknown" in str(excinfo.value)
+
+    @pytest.mark.parametrize(
+        "previous_signers",
+        [[_signer()], [_signer(key_id="key-3"), _signer(_OTHER_KEY, "key-3")]],
+        ids=["signer-and-previous", "two-previous"],
+    )
+    def test_previous_signers_with_a_duplicate_key_id_is_a_value_error(
+        self, previous_signers: list[ManifestSigner]
+    ) -> None:
+        records = [_record()]
+        manifest = seal_run(records, run_id="run-1", signer=_signer())
+
+        with pytest.raises(ValueError) as excinfo:
+            verify_manifest(manifest, records, signer=_signer(_OTHER_KEY), previous_signers=previous_signers)
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
+
 
 class TestSealNdjsonRuns:
     def test_seals_every_run_of_the_audit_file(self, tmp_path: Path) -> None:
@@ -1152,6 +1193,39 @@ class TestSealNdjsonRuns:
         assert manifest_path.read_bytes() == b""
         assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) is None
 
+    def test_seal_after_rotation_chains_onto_the_old_key_manifest_and_signs_with_the_new_key(
+        self, tmp_path: Path
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        old_signer = _signer()
+        new_signer = _signer(_OTHER_KEY, "key-2")
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        _write_records(audit_path, [_record("run-d", 7)])
+
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+        assert [manifest["run_id"] for manifest in manifests] == ["run-d"]
+        assert manifests[0]["previous_manifest_hash"] == head
+        assert manifests[0]["signature"]["key_id"] == "key-2"
+
+    @pytest.mark.parametrize(
+        "previous_signers",
+        [[_signer()], [_signer(key_id="key-3"), _signer(_OTHER_KEY, "key-3")]],
+        ids=["signer-and-previous", "two-previous"],
+    )
+    def test_previous_signers_with_a_duplicate_key_id_is_a_value_error(
+        self, tmp_path: Path, previous_signers: list[ManifestSigner]
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _write_records(audit_path, [_record("run-d", 7)])
+        before = manifest_path.read_bytes()
+
+        with pytest.raises(ValueError) as excinfo:
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer(_OTHER_KEY), previous_signers=previous_signers)
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
+        assert manifest_path.read_bytes() == before
+
 
 class TestVerifyNdjsonLog:
     def test_untouched_log_verifies(self, tmp_path: Path) -> None:
@@ -1189,6 +1263,71 @@ class TestVerifyNdjsonLog:
 
         with pytest.raises(ManifestVerificationError):
             verify_ndjson_log(audit_path, manifest_path, signer=_signer(_OTHER_KEY))
+
+    def test_previous_signers_verifies_a_log_sealed_before_rotation(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        old_signer = _signer()
+        new_signer = _signer(_OTHER_KEY, "key-2")
+        expected_head = manifest_hash(_read_lines(manifest_path)[-1])
+
+        head = verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+        assert head == expected_head
+
+    def test_mixed_key_log_verifies_after_a_further_seal_with_the_new_key(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        old_signer = _signer()
+        new_signer = _signer(_OTHER_KEY, "key-2")
+        _write_records(audit_path, [_record("run-d", 7)])
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+        expected_head = manifest_hash(manifests[-1])
+
+        head = verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+        assert head == expected_head
+
+    def test_rotated_log_fails_without_the_old_signer_in_previous_signers(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        old_signer = _signer()
+        new_signer = _signer(_OTHER_KEY, "key-2")
+        _write_records(audit_path, [_record("run-d", 7)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+        with pytest.raises(ManifestVerificationError):
+            verify_ndjson_log(audit_path, manifest_path, signer=new_signer)
+
+    def test_a_previous_key_manifest_appended_after_the_current_key_is_rejected(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        old_signer = _signer()
+        new_signer = _signer(_OTHER_KEY, "key-2")
+        _write_records(audit_path, [_record("run-a", 1)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=old_signer)
+        _write_records(audit_path, [_record("run-b", 2)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        record = _record("run-c", 3)
+        _write_records(audit_path, [record])
+        forged = seal_run([record], run_id="run-c", signer=old_signer, previous_manifest_hash=head)
+        _write_records(manifest_path, [forged])
+
+        with pytest.raises(ManifestVerificationError, match="run-c"):
+            verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+    @pytest.mark.parametrize(
+        "previous_signers",
+        [[_signer()], [_signer(key_id="key-3"), _signer(_OTHER_KEY, "key-3")]],
+        ids=["signer-and-previous", "two-previous"],
+    )
+    def test_previous_signers_with_a_duplicate_key_id_is_a_value_error(
+        self, tmp_path: Path, previous_signers: list[ManifestSigner]
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+
+        with pytest.raises(ValueError) as excinfo:
+            verify_ndjson_log(audit_path, manifest_path, signer=_signer(_OTHER_KEY), previous_signers=previous_signers)
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
 
     def test_edited_audit_line_of_a_sealed_run_fails(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
@@ -1597,6 +1736,36 @@ class TestVerifyNdjsonLogCoverage:
 
         with pytest.raises(ManifestVerificationError):
             verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer(_OTHER_KEY))
+
+    def test_previous_signers_verifies_coverage_of_a_log_sealed_before_rotation(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        old_signer = _signer()
+        new_signer = _signer(_OTHER_KEY, "key-2")
+        expected_head = manifest_hash(_read_lines(manifest_path)[-1])
+
+        coverage = verify_ndjson_log_coverage(
+            audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer]
+        )
+
+        assert coverage.head == expected_head
+        assert coverage.sealed_runs == 3
+
+    @pytest.mark.parametrize(
+        "previous_signers",
+        [[_signer()], [_signer(key_id="key-3"), _signer(_OTHER_KEY, "key-3")]],
+        ids=["signer-and-previous", "two-previous"],
+    )
+    def test_previous_signers_with_a_duplicate_key_id_is_a_value_error(
+        self, tmp_path: Path, previous_signers: list[ManifestSigner]
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+
+        with pytest.raises(ValueError) as excinfo:
+            verify_ndjson_log_coverage(
+                audit_path, manifest_path, signer=_signer(_OTHER_KEY), previous_signers=previous_signers
+            )
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
 
     def test_wrong_expected_head_fails(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
@@ -2091,6 +2260,46 @@ class TestQuarantineDamagedLines:
         _assert_refused(
             tmp_path, audit_path, manifest_path, signer=_signer(_OTHER_KEY), expected_head=heads[0], dry_run=dry_run
         )
+
+    def test_previous_signers_repairs_a_torn_tail_signed_by_an_old_key(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, head = _torn_manifest_log(tmp_path)
+        old_signer = _signer()
+        new_signer = _signer(_OTHER_KEY, "key-2")
+        manifest_before = manifest_path.read_bytes()
+
+        removed = quarantine_damaged_lines(
+            audit_path,
+            manifest_path,
+            quarantine_path=_trace(tmp_path),
+            signer=new_signer,
+            previous_signers=[old_signer],
+            expected_head=head,
+        )
+
+        assert _summary(removed) == _spans("manifest", manifest_before, [4])
+        verified = verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+        assert verified == head
+
+    @pytest.mark.parametrize(
+        "previous_signers",
+        [[_signer()], [_signer(key_id="key-3"), _signer(_OTHER_KEY, "key-3")]],
+        ids=["signer-and-previous", "two-previous"],
+    )
+    def test_previous_signers_with_a_duplicate_key_id_is_a_value_error(
+        self, tmp_path: Path, previous_signers: list[ManifestSigner]
+    ) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+
+        with pytest.raises(ValueError) as excinfo:
+            quarantine_damaged_lines(
+                audit_path,
+                manifest_path,
+                quarantine_path=_trace(tmp_path),
+                signer=_signer(_OTHER_KEY),
+                previous_signers=previous_signers,
+            )
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
 
     def test_a_broken_chain_is_refused_even_with_the_head_of_a_manifest_before_the_break(self, tmp_path: Path) -> None:
         audit_path, manifest_path, _ = _torn_manifest_log(tmp_path)
