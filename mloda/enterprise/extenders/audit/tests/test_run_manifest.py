@@ -1,5 +1,4 @@
-"""Tests for run_manifest: HmacSha256Signer, the pure seal_run / manifest_hash / verify_manifest trio and the
-NDJSON sealing and verification built on them; file tests write their audit records through NdjsonAuditSink."""
+"""Tests for run_manifest and the NDJSON sealing built on it."""
 
 from __future__ import annotations
 
@@ -77,7 +76,6 @@ _EXPECTED_QUARANTINE_KEYS = {
     "signature",
 }
 
-# Lines both readers reject; the last is the one that raises RecursionError.
 _DAMAGED_LINES: dict[str, bytes] = {
     "blank": b"\n",
     "bad-utf8": b"\xff\xfe\n",
@@ -93,8 +91,6 @@ def _signer(key: bytes = _KEY) -> HmacSha256Signer:
 
 
 def _record(run_id: str | None = "run-1", second: int = 0, *, tenant_id: str | None = "tenant-1") -> dict[str, Any]:
-    """A plausible slice of an AuditExtender record; `second` keeps the records of one run distinct and a
-    missing tenant_id makes it a deny record."""
     compliant = tenant_id is not None
     return {
         "record_version": 1,
@@ -111,7 +107,7 @@ def _record(run_id: str | None = "run-1", second: int = 0, *, tenant_id: str | N
 
 
 def _canonical(obj: Mapping[str, Any]) -> bytes:
-    """The canonical JSON the spec pins: exactly the line NdjsonAuditSink writes, without the newline."""
+    """The bytes NdjsonAuditSink writes, without the newline."""
     return json.dumps(obj, sort_keys=True).encode("utf-8")
 
 
@@ -134,26 +130,23 @@ def _read_lines(path: Path) -> list[dict[str, Any]]:
 
 
 def _rewrite_lines(path: Path, objects: Iterable[Mapping[str, Any]]) -> None:
-    """Replace the file's content, keeping the one-sorted-JSON-object-per-line shape of NdjsonAuditSink."""
     path.write_text("".join(json.dumps(obj, sort_keys=True) + "\n" for obj in objects), encoding="utf-8")
 
 
 def _append_line(path: Path, line: str | bytes) -> None:
-    """Append raw text or bytes, for a line json.dumps cannot produce or NdjsonAuditSink would never write."""
     data = line.encode("utf-8") if isinstance(line, str) else line
     with open(path, "ab") as file:
         file.write(data + b"\n")
 
 
 def _resigned(manifest: Mapping[str, Any], **changes: Any) -> dict[str, Any]:
-    """`manifest` with `changes` applied and a fresh valid signature, so only a check of the content can reject it."""
     changed = {**_unsigned(manifest), **changes}
     changed["signature"] = {**manifest["signature"], "value": _signer().sign(_canonical(changed))}
     return changed
 
 
 def _sealed_log(directory: Path) -> tuple[Path, Path]:
-    """Write three runs (plus one record without a run_id) into an audit file and seal them all."""
+    """Three runs plus one record without a run_id, all sealed."""
     audit_path = directory / "audit.ndjson"
     manifest_path = directory / "manifests.ndjson"
     _write_records(
@@ -173,8 +166,7 @@ def _sealed_log(directory: Path) -> tuple[Path, Path]:
 
 
 def _truncated_log(directory: Path) -> tuple[Path, Path, str]:
-    """The tail truncation attack: seal runs a, b and c, note the head, cut the log back to its first line and
-    edit a run-b record, which now looks like the record of a run that was never sealed."""
+    """Seal runs a, b, c, cut the log to its first line, edit a run-b record; returns the head before the cut."""
     audit_path, manifest_path = _sealed_log(directory)
     manifests = _read_lines(manifest_path)
     head = manifest_hash(manifests[-1])
@@ -187,19 +179,17 @@ def _truncated_log(directory: Path) -> tuple[Path, Path, str]:
 
 
 def _torn(path: Path, tail: bytes) -> None:
-    """Append `tail` without a newline, as a crash mid-append leaves it."""
     path.write_bytes(path.read_bytes() + tail)
 
 
 def _insert_line(path: Path, index: int, line: bytes) -> None:
-    """Put `line` before the 0-based line `index`; every other byte of the file stays as it was."""
     lines = path.read_bytes().splitlines(keepends=True)
     lines.insert(index, line)
     path.write_bytes(b"".join(lines))
 
 
 def _torn_manifest_log(directory: Path) -> tuple[Path, Path, str]:
-    """A sealed log whose manifest log ends in half of a manifest line (line 4), and the head before the damage."""
+    """A manifest log ending in half a manifest line (line 4); returns the head before the damage."""
     audit_path, manifest_path = _sealed_log(directory)
     head = manifest_hash(_read_lines(manifest_path)[-1])
     last = manifest_path.read_bytes().splitlines(keepends=True)[-1]
@@ -216,8 +206,7 @@ def _damaged_log(directory: Path) -> tuple[Path, Path, str]:
 
 
 def _log_cut_mid_write(directory: Path) -> tuple[Path, Path, list[str]]:
-    """Seal run-a alone, then run-b and run-c in one write that a crash cut inside run-c's line (line 3). Returns the
-    heads after a, b and c; the log keeps the first two manifests and half of the third."""
+    """Seal run-a, then run-b and run-c in one write cut inside run-c's line; returns the three heads."""
     audit_path = directory / "audit.ndjson"
     manifest_path = directory / "manifests.ndjson"
     _write_records(audit_path, [_record("run-a", 1)])
@@ -231,7 +220,6 @@ def _log_cut_mid_write(directory: Path) -> tuple[Path, Path, list[str]]:
 
 
 def _trace(directory: Path) -> Path:
-    """Where `_quarantine` writes the quarantine log."""
     return directory / "quarantine.ndjson"
 
 
@@ -255,12 +243,11 @@ def _quarantine(
 
 
 def _snapshot(directory: Path) -> dict[str, bytes]:
-    """Every file of `directory` with its bytes: equal snapshots mean nothing was changed, created or left behind."""
     return {path.name: path.read_bytes() for path in sorted(directory.iterdir())}
 
 
 def _spans(file: str, data: bytes, numbers: Iterable[int]) -> list[tuple[str, int, int, int, str]]:
-    """What a recovery reports for the 1-based lines `numbers` of a file holding `data`, worked out from the bytes."""
+    """What a recovery reports for the 1-based lines `numbers` of `data`."""
     lines = data.splitlines(keepends=True)
     return [(file, n, len(b"".join(lines[: n - 1])), len(lines[n - 1]), _sha256(lines[n - 1])) for n in numbers]
 
@@ -278,7 +265,7 @@ def _assert_refused(
     expected_head: str | None = None,
     dry_run: bool = False,
 ) -> None:
-    """Recovery must raise ManifestVerificationError and leave the directory exactly as it was."""
+    """Recovery raises ManifestVerificationError and changes nothing."""
     before = _snapshot(directory)
 
     with pytest.raises(ManifestVerificationError):
@@ -288,7 +275,6 @@ def _assert_refused(
 
 
 def _lock_refused(path: Path) -> bool:
-    """Whether a second descriptor is refused an exclusive lock on `path`, so another owner holds a lock on it."""
     fcntl = pytest.importorskip("fcntl")
     fd = os.open(path, os.O_RDONLY)
     try:
@@ -301,12 +287,11 @@ def _lock_refused(path: Path) -> bool:
 
 
 def _flock_unsupported(fd: int, operation: int) -> None:
-    """The error flock raises on a file system without lock support, such as NFS without a lock manager."""
     raise OSError(errno.ENOLCK, "no locks")
 
 
 class _PrefixSigner:
-    """Minimal non-HMAC signer that inherits from nothing: sealing and verifying rely on the protocol only."""
+    """A signer that inherits from nothing, so only the protocol is relied on."""
 
     algorithm = "TEST-SHA256"
     key_id = "test-key"
@@ -315,7 +300,6 @@ class _PrefixSigner:
         return _sha256(b"prefix:" + payload)
 
     def verify(self, payload: bytes, signature: str) -> bool:
-        # The protocol's contract: a signature that cannot be compared is a wrong one, never an exception.
         try:
             return hmac.compare_digest(self.sign(payload).encode("ascii"), signature.encode("ascii"))
         except (AttributeError, UnicodeEncodeError):
@@ -323,8 +307,6 @@ class _PrefixSigner:
 
 
 class TestRunManifestPublicApi:
-    """The package root exports every run_manifest name; a missing one already fails this module's import."""
-
     def test_run_manifest_names_are_in_the_package_all(self) -> None:
         assert {
             "ManifestSigner",
@@ -344,18 +326,14 @@ class TestRunManifestPublicApi:
         } <= set(audit_package.__all__)
 
     def test_run_not_pending_error_is_a_value_error_but_not_a_verification_error(self) -> None:
-        # An idempotent `except RunNotPendingError` must not swallow a broken chain.
         assert issubclass(RunNotPendingError, ValueError)
         assert not issubclass(RunNotPendingError, ManifestVerificationError)
 
     def test_run_already_sealed_error_is_a_run_not_pending_error(self) -> None:
-        # Catching RunNotPendingError still covers it; catching RunAlreadySealedError alone is the idempotent retry.
         assert issubclass(RunAlreadySealedError, RunNotPendingError)
 
 
 class TestHmacSha256Signer:
-    """HmacSha256Signer signs with HMAC-SHA256, validates its key material and never shows the key."""
-
     def test_algorithm_and_key_id(self) -> None:
         signer = HmacSha256Signer(_KEY, "key-2026-01")
 
@@ -391,7 +369,6 @@ class TestHmacSha256Signer:
 
     @pytest.mark.parametrize("signature", ["é" * 64, chr(0xD800)], ids=["non-ascii", "lone-surrogate"])
     def test_verify_returns_false_for_a_signature_it_cannot_compare(self, signature: str) -> None:
-        # json.loads hands both to a verifier: compare_digest refuses non-ASCII text, utf-8 a lone surrogate.
         assert _signer().verify(b"payload", signature) is False
 
     @pytest.mark.parametrize("key", [b"", b"k" * 31])
@@ -422,8 +399,6 @@ class TestHmacSha256Signer:
 
 
 class TestSealRun:
-    """seal_run turns the records of one run into a signed, order-independent manifest."""
-
     def test_manifest_has_exactly_the_expected_keys(self) -> None:
         manifest = seal_run([_record()], run_id="run-1", signer=_signer())
 
@@ -540,8 +515,6 @@ class TestSealRun:
 
 
 class TestManifestHash:
-    """manifest_hash covers the whole manifest, signature included."""
-
     def test_is_the_sha256_of_the_full_canonical_manifest(self) -> None:
         manifest = seal_run([_record()], run_id="run-1", signer=_signer())
 
@@ -561,8 +534,6 @@ class TestManifestHash:
 
 
 class TestVerifyManifest:
-    """verify_manifest accepts an untouched manifest with its records and names what broke otherwise."""
-
     def test_manifest_verification_error_is_a_value_error(self) -> None:
         assert issubclass(ManifestVerificationError, ValueError)
 
@@ -623,7 +594,6 @@ class TestVerifyManifest:
     def test_non_ascii_signature_value_fails_the_signature_check(self) -> None:
         records = [_record(second=second) for second in range(3)]
         manifest = seal_run(records, run_id="run-1", signer=_signer())
-        # hmac.compare_digest raises TypeError on a non-ASCII str; tampered input must not surface as one.
         tampered = {**manifest, "signature": {**manifest["signature"], "value": "é" * 64}}
 
         with pytest.raises(ManifestVerificationError, match="signature"):
@@ -634,7 +604,6 @@ class TestVerifyManifest:
         records = [_record(second=second) for second in range(3)]
         manifest = seal_run(records, run_id="run-1", signer=_signer())
         assert manifest["signature"][field] != value
-        # key_id and algorithm sit outside the signed payload: only a comparison with the signer exposes them.
         tampered = {**manifest, "signature": {**manifest["signature"], field: value}}
 
         with pytest.raises(ManifestVerificationError, match="signature"):
@@ -650,7 +619,6 @@ class TestVerifyManifest:
     def test_extra_key_in_the_signature_block_fails_the_signature_check(self) -> None:
         records = [_record(second=second) for second in range(3)]
         manifest = seal_run(records, run_id="run-1", signer=_signer())
-        # The block sits outside the signed payload, so an unknown member could carry anything unnoticed.
         tampered = {**manifest, "signature": {**manifest["signature"], "note": "never signed"}}
 
         with pytest.raises(ManifestVerificationError, match="signature"):
@@ -699,7 +667,6 @@ class TestVerifyManifest:
     def test_correctly_signed_manifest_with_an_unacceptable_field_fails(self, field: str, value: Any) -> None:
         records = [_record(second=second) for second in range(3)]
         manifest = seal_run(records, run_id="run-1", signer=_signer())
-        # Re-signed: the signature holds and the records still match, so only the check of this field can object.
         resigned = _resigned(manifest, **{field: value})
 
         with pytest.raises(ManifestVerificationError, match=field):
@@ -718,7 +685,6 @@ class TestVerifyManifest:
     def test_correctly_signed_manifest_with_a_non_int_number_fails(self, field: str, value: Any) -> None:
         records = [_record()]
         manifest = seal_run(records, run_id="run-1", signer=_signer())
-        # Equal to the expected 1, so only a type check can object.
         assert manifest[field] == value
 
         with pytest.raises(ManifestVerificationError, match=field):
@@ -726,8 +692,6 @@ class TestVerifyManifest:
 
 
 class TestSealNdjsonRuns:
-    """seal_ndjson_runs seals every unsealed run of an audit file into a hash-chained manifest log."""
-
     def test_seals_every_run_of_the_audit_file(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"
         _write_records(audit_path, [_record("run-a", 1), _record("run-b", 2), _record("run-a", 3)])
@@ -741,7 +705,6 @@ class TestSealNdjsonRuns:
 
     def test_runs_are_sealed_in_order_of_first_appearance_in_the_audit_file(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"
-        # run-b appears first, although run-a sorts first by name and by every event_time.
         _write_records(audit_path, [_record("run-b", 5), _record("run-a", 1), _record("run-b", 6)])
 
         manifests = seal_ndjson_runs(audit_path, tmp_path / "manifests.ndjson", signer=_signer())
@@ -867,7 +830,6 @@ class TestSealNdjsonRuns:
         with pytest.raises(RunNotPendingError) as excinfo:
             seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-missing")
 
-        # A caller retrying idempotently on RunAlreadySealedError must not swallow a run_id that never had records.
         assert not isinstance(excinfo.value, RunAlreadySealedError)
 
     def test_explicit_run_id_already_sealed_raises_run_already_sealed_error(self, tmp_path: Path) -> None:
@@ -893,7 +855,6 @@ class TestSealNdjsonRuns:
         with pytest.raises(ValueError, match="run_id") as excinfo:
             seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id=run_id)
 
-        # A usage error is not a run that is merely not pending, and it fails before the lock creates the log.
         assert not isinstance(excinfo.value, RunNotPendingError)
         assert not manifest_path.exists()
 
@@ -901,7 +862,6 @@ class TestSealNdjsonRuns:
     def test_forged_unsigned_manifest_line_stops_sealing(self, tmp_path: Path, forged_run_id: str) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
         _write_records(audit_path, [_record("run-d", 7)])
-        # Unverified, the first line would pass run-d off as sealed and the second would be chained onto.
         _write_records(manifest_path, [{"run_id": forged_run_id}])
         before = manifest_path.read_bytes()
 
@@ -918,8 +878,6 @@ class TestSealNdjsonRuns:
         records[0]["tenant_id"] = "tenant-other"
         _rewrite_lines(audit_path, [*records, _record("run-d", 7)])
 
-        # The sealer checks the manifest log, not the records of runs it signs nothing about: sealing on top
-        # of the edit makes nothing worse, and verification still reports it.
         manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
 
         assert [(manifest["run_id"], manifest["previous_manifest_hash"]) for manifest in manifests] == [("run-d", head)]
@@ -934,7 +892,7 @@ class TestSealNdjsonRuns:
 
         class _FailingSigner(HmacSha256Signer):
             def sign(self, payload: bytes) -> str:
-                # Fails on the last new manifest; verifying the sealed log signs too but never meets run-f.
+                # Fails on run-f, which only sealing meets.
                 if json.loads(payload).get("run_id") == "run-f":
                     raise RuntimeError("signing boom")
                 return super().sign(payload)
@@ -961,7 +919,6 @@ class TestSealNdjsonRuns:
                 return real_write(fd, data)
             if landed:
                 raise OSError(errno.ENOSPC, "disk full")
-            # A short write: only the first manifest line reaches the file, then the disk is full.
             landed.append(real_write(fd, payload[: payload.index(b"\n") + 1]))
             return landed[0]
 
@@ -970,7 +927,6 @@ class TestSealNdjsonRuns:
                 seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
 
         assert landed
-        # The sealer holds the lock and is the only writer, so it removes the partial bytes it left behind.
         assert manifest_path.read_bytes() == before
         manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
         assert [manifest["run_id"] for manifest in manifests] == ["run-d", "run-e", "run-f"]
@@ -981,7 +937,6 @@ class TestSealNdjsonRuns:
         self, tmp_path: Path, file_name: str
     ) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
-        # Pending run-d: sealing it would concatenate its JSON onto an unterminated manifest line.
         _write_records(audit_path, [_record("run-d", 7)])
         path = tmp_path / file_name
         path.write_bytes(path.read_bytes().removesuffix(b"\n"))
@@ -1005,7 +960,6 @@ class TestSealNdjsonRuns:
         appends: list[bool] = []
 
         def probe() -> bool:
-            # A second descriptor is a second lock owner, so it is refused while the sealer holds the lock.
             fd = os.open(manifest_path, os.O_RDONLY)
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -1017,12 +971,11 @@ class TestSealNdjsonRuns:
 
         class _LockProbeSigner(HmacSha256Signer):
             def sign(self, payload: bytes) -> str:
-                # Verifying the sealed log signs too.
+                # Verifying signs too.
                 refused.append(probe())
                 return super().sign(payload)
 
         def spy(*args: Any, **kwargs: Any) -> None:
-            # The write itself must run under the lock, not only the signing before it.
             refused.append(probe())
             appends.append(True)
             _append_records(*args, **kwargs)
@@ -1063,7 +1016,6 @@ class TestSealNdjsonRuns:
         before = manifest_path.read_bytes()
         monkeypatch.setattr(fcntl, "flock", _flock_unsupported)
 
-        # Sealing without the lock could fork the chain, so unlike verifying it never proceeds unlocked.
         with pytest.raises(OSError) as excinfo:
             seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
 
@@ -1075,7 +1027,6 @@ class TestSealNdjsonRuns:
         audit_path.unlink()
         before = manifest_path.read_bytes()
 
-        # A typo in the audit path must stay loud, unlike verification, which reads a missing file as empty.
         with pytest.raises(FileNotFoundError):
             seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
 
@@ -1094,8 +1045,6 @@ class TestSealNdjsonRuns:
 
 
 class TestVerifyNdjsonLog:
-    """verify_ndjson_log checks every sealed run, the manifest chain and the uniqueness of each run_id."""
-
     def test_untouched_log_verifies(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
 
@@ -1162,20 +1111,17 @@ class TestVerifyNdjsonLog:
 
     def test_record_appended_to_a_sealed_run_fails_and_the_run_is_never_resealed(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
-        # By design: a second session.run() on one prepared session writes the sealed run_id again.
         _write_records(audit_path, [_record("run-a", 9)])
         before = manifest_path.read_bytes()
 
         with pytest.raises(ManifestVerificationError):
             verify_ndjson_log(audit_path, manifest_path, signer=_signer())
-        # The sealer neither absorbs the late record nor refuses to go on: a benign rerun must not brick the log.
         assert seal_ndjson_runs(audit_path, manifest_path, signer=_signer()) == []
         assert manifest_path.read_bytes() == before
 
     def test_edited_last_manifest_line_fails(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
         manifests = _read_lines(manifest_path)
-        # Only the signature can expose an edit of the last line; no later manifest chains to it yet.
         manifests[-1]["compliant"] = not manifests[-1]["compliant"]
         _rewrite_lines(manifest_path, manifests)
 
@@ -1186,8 +1132,6 @@ class TestVerifyNdjsonLog:
         audit_path, manifest_path = _sealed_log(tmp_path)
         manifests = _read_lines(manifest_path)
         assert manifests[0]["run_id"] == "run-a"
-        # A JSON list parses to an unhashable value; looking the run up must not surface as a TypeError.
-        # Re-signed, so the run_id guard is reached and not the signature check.
         manifests[0] = _resigned(manifests[0], run_id=["run-a"])
         _rewrite_lines(manifest_path, manifests)
 
@@ -1208,7 +1152,6 @@ class TestVerifyNdjsonLog:
         audit_path, manifest_path = _sealed_log(tmp_path)
         manifests = _read_lines(manifest_path)
         assert manifests[1]["run_id"] == "run-b"
-        # By design: with the manifest and the records both gone, only the chain still remembers run-b.
         _rewrite_lines(manifest_path, [manifests[0], manifests[2]])
         _rewrite_lines(audit_path, [record for record in _read_lines(audit_path) if record["run_id"] != "run-b"])
 
@@ -1230,7 +1173,6 @@ class TestVerifyNdjsonLog:
         manifest_path = tmp_path / "manifests.ndjson"
         records = [_record("run-a", 1), _record("run-a", 2)]
         _write_records(audit_path, records)
-        # Both manifests are correctly signed, chained and match the records; only the repeated run_id is wrong.
         first = seal_run(records, run_id="run-a", signer=_signer())
         second = seal_run(records, run_id="run-a", signer=_signer(), previous_manifest_hash=manifest_hash(first))
         _write_records(manifest_path, [first, second])
@@ -1248,7 +1190,6 @@ class TestVerifyNdjsonLog:
         lines = audit_path.read_text(encoding="utf-8").splitlines()
         original = json.loads(lines[0])
         assert original["run_id"] == "run-a"
-        # The same JSON value in other bytes: the seal covers the bytes the sink wrote.
         reformatted = json.dumps(dict(reversed(original.items())), **dump_options)
         assert reformatted != lines[0]
         assert json.loads(reformatted) == original
@@ -1281,7 +1222,6 @@ class TestVerifyNdjsonLog:
         records = _read_lines(audit_path)
         assert records[5]["run_id"] == "run-c"
         records[5]["tenant_id"] = "tenant-other"
-        # A late record on run-a and an edit on run-c: the first failure must not hide the second.
         _rewrite_lines(audit_path, [*records, _record("run-a", 9)])
 
         with pytest.raises(ManifestVerificationError) as excinfo:
@@ -1297,7 +1237,6 @@ class TestVerifyNdjsonLog:
         manifest_path = tmp_path / "manifests.ndjson"
         _write_records(audit_path, [_record(f"run-{number:02d}", number) for number in range(25)])
         assert len(seal_ndjson_runs(audit_path, manifest_path, signer=_signer())) == 25
-        # Emptied, not deleted, so that only the cap is under test; a deleted file has its own test.
         audit_path.write_bytes(b"")
 
         with pytest.raises(ManifestVerificationError) as excinfo:
@@ -1320,7 +1259,6 @@ class TestVerifyNdjsonLog:
         with pytest.raises(ManifestVerificationError) as excinfo:
             verify_ndjson_log(audit_path, manifest_path, signer=_signer(), expected_head=head)
 
-        # Only the head detects the cut log, so the 20 problem cap must never hide it: 24 records plus it is 25.
         message = str(excinfo.value)
         assert "expected head" in message
         assert message.count("do not match the record_hashes") == 19
@@ -1330,7 +1268,6 @@ class TestVerifyNdjsonLog:
         audit_path, manifest_path = _sealed_log(tmp_path)
         audit_path.unlink()
 
-        # A missing audit file is an empty one: the seals stay and nothing backs them, which is a tamper alarm.
         with pytest.raises(ManifestVerificationError, match="record") as excinfo:
             verify_ndjson_log(audit_path, manifest_path, signer=_signer())
 
@@ -1367,11 +1304,10 @@ class TestVerifyNdjsonLog:
 
         verify_ndjson_log(audit_path, manifest_path, signer=_signer())
 
-        # A run sealed between the two reads must not look like tampering: the log has to be the older snapshot.
+        # Log first: a run sealed in between looks unsealed, not tampered.
         assert reads == ["manifests.ndjson", "audit.ndjson"]
 
     def test_edited_audit_line_without_a_run_id_still_verifies(self, tmp_path: Path) -> None:
-        # Documents the limit: a record without a run_id is outside every seal.
         audit_path, manifest_path = _sealed_log(tmp_path)
         records = _read_lines(audit_path)
         assert records[2]["run_id"] is None
@@ -1405,13 +1341,10 @@ class TestVerifyNdjsonLog:
         head = manifest_hash(_read_lines(manifest_path)[-1])
         monkeypatch.setattr(fcntl, "flock", _flock_unsupported)
 
-        # The shared lock is best effort: a file system that cannot lock must not make verifying impossible.
         assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == head
 
 
 class TestVerifyNdjsonLogCoverage:
-    """verify_ndjson_log_coverage verifies exactly like verify_ndjson_log and also counts what the seals leave out."""
-
     def test_fully_sealed_log_covers_every_line(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"
         manifest_path = tmp_path / "manifests.ndjson"
@@ -1463,7 +1396,6 @@ class TestVerifyNdjsonLogCoverage:
 
     def test_lines_of_runs_that_are_not_sealed_yet_are_counted_per_run(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
-        # run-e appears first although run-d sorts first.
         _write_records(
             audit_path,
             [_record("run-e", 7), _record("run-d", 8), _record("run-d", 9), _record("run-e", 10), _record("run-d", 11)],
@@ -1610,7 +1542,7 @@ class TestVerifyNdjsonLogCoverage:
 
 
 class TestExpectedHead:
-    """expected_head anchors the log outside itself, the only defence against cutting manifests off its end."""
+    """expected_head anchors the log outside itself."""
 
     def test_matching_expected_head_verifies_and_lets_sealing_continue(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
@@ -1638,21 +1570,20 @@ class TestExpectedHead:
         assert manifest_path.read_bytes() == before
 
     def test_truncated_log_verifies_without_an_expected_head(self, tmp_path: Path) -> None:
-        # Documents the limit: nothing inside the log can tell that its newest manifests were cut off.
         audit_path, manifest_path, _ = _truncated_log(tmp_path)
 
         verify_ndjson_log(audit_path, manifest_path, signer=_signer())
 
 
 class TestMalformedNdjsonLines:
-    """A line that is ambiguous, or is not the object it should be, is a verification error in both readers."""
+    """Ambiguous or non-object lines fail verification in both readers."""
 
     @pytest.mark.parametrize(("file_name", "key"), [("audit.ndjson", "tenant_id"), ("manifests.ndjson", "run_id")])
     def test_line_with_a_duplicate_json_key_fails_verification(self, tmp_path: Path, file_name: str, key: str) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
         path = tmp_path / file_name
         lines = path.read_text(encoding="utf-8").splitlines()
-        # Raw text, json.dumps cannot write it: Python keeps the last duplicate, a first-wins reader sees EVIL.
+        # Raw text: json.dumps cannot write a duplicate key.
         lines[0] = f'{{"{key}": "EVIL", {lines[0][1:]}'
         path.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
         assert json.loads(lines[0])[key] != "EVIL"
@@ -1695,7 +1626,6 @@ class TestMalformedNdjsonLines:
         audit_path, manifest_path = _sealed_log(tmp_path)
         path = tmp_path / file_name
         _append_line(path, line)
-        # The first line after what _sealed_log wrote.
         location = re.escape(f"{path} line {line_number}")
 
         with pytest.raises(ManifestVerificationError, match=location):
@@ -1705,9 +1635,6 @@ class TestMalformedNdjsonLines:
 
 
 class TestQuarantineDamagedLines:
-    """quarantine_damaged_lines removes what the readers reject from the audit file and a torn tail from the manifest
-    log, records every removed byte in a signed quarantine log first, and refuses any repair a seal could hide."""
-
     def test_quarantined_line_is_frozen(self) -> None:
         line = QuarantinedLine(file="audit", line=1, offset=0, length=1, sha256="0" * 64, reason="not valid JSON")
 
@@ -1770,7 +1697,6 @@ class TestQuarantineDamagedLines:
             assert entry["quarantine_version"] == 1
             assert entry["path"] == str(manifest_path if item.file == "manifest" else audit_path)
             assert entry["reason"] == item.reason
-        # Written through _append_records, so a line is the canonical JSON of its entry.
         assert _trace(tmp_path).read_bytes() == b"".join(_canonical(entry) + b"\n" for entry in entries)
 
     def test_trace_keeps_the_removed_bytes_so_they_can_be_inspected_or_restored(self, tmp_path: Path) -> None:
@@ -1911,7 +1837,6 @@ class TestQuarantineDamagedLines:
 
         removed = _quarantine(tmp_path, audit_path, manifest_path, expected_head=heads[anchor])
 
-        # Only the fragment goes: run-b's complete manifest stays, so the log ends at its head.
         assert _summary(removed) == _spans("manifest", manifest_before, [3])
         assert manifest_path.read_bytes() == manifest_before[: manifest_before.rindex(b"\n") + 1]
         assert audit_path.read_bytes() == before["audit.ndjson"]
@@ -1937,7 +1862,6 @@ class TestQuarantineDamagedLines:
     ) -> None:
         audit_path, manifest_path, heads = _log_cut_mid_write(tmp_path)
 
-        # The cut manifest's own hash is no complete manifest's hash: accepting it would drop a seal it anchors.
         _assert_refused(
             tmp_path,
             audit_path,
@@ -2030,7 +1954,6 @@ class TestQuarantineDamagedLines:
         self, tmp_path: Path, tail: bytes, dry_run: bool
     ) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
-        # A line the recovery would otherwise remove: the refusal covers the whole file.
         _insert_line(audit_path, 3, b"[]\n")
         _torn(audit_path, tail)
 
@@ -2100,7 +2023,6 @@ class TestQuarantineDamagedLines:
 
         removed = _quarantine(tmp_path, audit_path, manifest_path)
 
-        # The seal covers the exact bytes of the line, so removing it is never hidden, and the trace names it.
         assert _summary(removed) == _spans("audit", damaged, [index + 1])
         with pytest.raises(ManifestVerificationError, match=run_id):
             verify_ndjson_log(audit_path, manifest_path, signer=_signer())
@@ -2265,7 +2187,6 @@ class TestQuarantineDamagedLines:
         with pytest.raises(OSError, match="disk full"):
             _quarantine(tmp_path, audit_path, manifest_path)
 
-        # The partial bytes go, and a trace that did not exist is absent again; audit and manifest were never touched.
         assert _snapshot(tmp_path) == before
 
     @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
@@ -2273,7 +2194,6 @@ class TestQuarantineDamagedLines:
         self, tmp_path: Path, dry_run: bool
     ) -> None:
         audit_path, manifest_path, _ = _damaged_log(tmp_path)
-        # An appended entry would run into this line and make both unreadable.
         _trace(tmp_path).write_bytes(b'{"quarantine_version": 1, "fi')
         before = _snapshot(tmp_path)
 
@@ -2325,7 +2245,6 @@ class TestQuarantineDamagedLines:
         names = [name for name, _ in events]
         assert {"replace-audit", "truncate-manifest"} <= set(names)
         modified = min(names.index("replace-audit"), names.index("truncate-manifest"))
-        # Every entry is in the file when it is fsynced, and that happens before either file changes.
         assert ("fsync-trace", _trace(tmp_path).stat().st_size) in events[:modified]
 
     @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
@@ -2344,7 +2263,6 @@ class TestQuarantineDamagedLines:
             quarantine_path.symlink_to(tmp_path / target)
         before = _snapshot(tmp_path)
 
-        # Trace lines appended to a log would brick it.
         with pytest.raises(ValueError) as excinfo:
             quarantine_damaged_lines(
                 audit_path, manifest_path, quarantine_path=quarantine_path, signer=_signer(), dry_run=dry_run
@@ -2420,7 +2338,7 @@ class TestQuarantineDamagedLines:
 
         class _LockProbeSigner(HmacSha256Signer):
             def sign(self, payload: bytes) -> str:
-                # Verifying the manifest log and signing the trace entries both sign.
+                # Verifying and the trace both sign.
                 probes.append(("sign", _lock_refused(manifest_path)))
                 return super().sign(payload)
 
@@ -2448,7 +2366,7 @@ class TestQuarantineDamagedLines:
 
 
 class TestRunManifestRunAll:
-    """run_all round trips: the audit file a real run leaves behind seals into one verifiable manifest."""
+    """A real run's audit file seals into one verifiable manifest."""
 
     @pytest.mark.parametrize(
         "mode",
@@ -2459,7 +2377,7 @@ class TestRunManifestRunAll:
     ) -> None:
         audit_path = tmp_path / "audit.ndjson"
         manifest_path = tmp_path / "manifests.ndjson"
-        # Only MULTIPROCESSING needs (and pays for) the repo-wide flight_server fixture, as in the shared contract.
+        # Only MULTIPROCESSING needs the flight_server fixture.
         flight_server = (
             request.getfixturevalue("flight_server") if mode == ParallelizationMode.MULTIPROCESSING else None
         )

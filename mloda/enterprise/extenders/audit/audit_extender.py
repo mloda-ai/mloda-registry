@@ -29,7 +29,7 @@ def _is_missing(value: str | None) -> bool:
 
 
 def _canonical_json(record: Mapping[str, Any]) -> bytes:
-    """The bytes NdjsonAuditSink writes for a record, without the newline; run manifests hash and sign these."""
+    """The bytes NdjsonAuditSink writes for a record, without the newline."""
     return json.dumps(record, sort_keys=True).encode("utf-8")
 
 
@@ -39,7 +39,7 @@ def _utc_now() -> str:
 
 
 def _append_records(path: str | Path, records: Sequence[Mapping[str, Any]]) -> None:
-    """Append one canonical line per record through a single O_APPEND descriptor, created owner-only."""
+    """Append one canonical line per record through one O_APPEND descriptor."""
     data = b"".join(_canonical_json(record) + b"\n" for record in records)
     if not data:
         return
@@ -58,8 +58,7 @@ def _append_records(path: str | Path, records: Sequence[Mapping[str, Any]]) -> N
 class NdjsonAuditSink:
     """One os.write per record to an O_APPEND descriptor keeps concurrent writers from interleaving
     a line, and the file is created owner-only. Opens per write, so it pickles and holds no buffer a
-    terminated worker could lose; ordering across writers is not guaranteed. A short write is finished
-    with further writes, which may interleave."""
+    terminated worker could lose; ordering across writers is not guaranteed. A short write may interleave."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
