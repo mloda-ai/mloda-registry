@@ -760,6 +760,26 @@ class TestVerifyManifest:
 
         assert "key-unknown" in str(excinfo.value)
 
+    def test_unknown_key_id_with_previous_signers_names_no_known_key(self) -> None:
+        records = [_record(second=second) for second in range(3)]
+        manifest = seal_run(records, run_id="run-1", signer=_signer(b"u" * 32, "key-unknown"))
+
+        with pytest.raises(ManifestVerificationError, match="signature") as excinfo:
+            verify_manifest(manifest, records, signer=_signer(_OTHER_KEY, "key-2"), previous_signers=[_signer()])
+
+        message = str(excinfo.value)
+        assert "key-unknown" in message
+        assert "is not the signer's" not in message
+
+    def test_unknown_key_id_without_previous_signers_keeps_the_exact_wording(self) -> None:
+        records = [_record(second=second) for second in range(3)]
+        manifest = seal_run(records, run_id="run-1", signer=_signer(b"u" * 32, "key-unknown"))
+
+        with pytest.raises(ManifestVerificationError) as excinfo:
+            verify_manifest(manifest, records, signer=_signer())
+
+        assert str(excinfo.value) == "signature key_id 'key-unknown' is not the signer's 'key-1'"
+
     @pytest.mark.parametrize(
         "previous_signers",
         [[_signer()], [_signer(key_id="key-3"), _signer(_OTHER_KEY, "key-3")]],

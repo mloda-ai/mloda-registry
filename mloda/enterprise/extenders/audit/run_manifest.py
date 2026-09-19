@@ -184,6 +184,8 @@ def _verify_manifest_fields(
     except TypeError:
         resolved = None
     if resolved is None:
+        if len(signers) > 1:
+            raise ManifestVerificationError(f"signature key_id {key_id!r} matches no known key")
         raise ManifestVerificationError(f"signature key_id {key_id!r} is not the signer's {signer.key_id!r}")
     if signature["algorithm"] != resolved.algorithm:
         raise ManifestVerificationError(
@@ -663,10 +665,14 @@ def quarantine_damaged_lines(
 ) -> list[QuarantinedLine]:
     """Repair a torn manifest tail and the audit lines the readers reject; `dry_run` only reports.
 
-    Every removed line goes first to the signed `quarantine_path` log. Stop every audit-file writer first: the sink
-    appends without a lock. A valid-JSON unterminated last line is refused in both files (it may be a real seal or
-    record). Without an anchored `expected_head`, truncating a torn manifest tail is indistinguishable from cutting
-    the newest manifest. Anything else raises and changes nothing. `previous_signers` is a migration window for
+    Every removed line goes first to the signed `quarantine_path` log, fsynced before either file is touched; the
+    repair itself is not atomic with that write, so an interrupted run can leave a line traced but still present,
+    and re-running it then appends a second trace entry for it. A repair creates `manifest_path` when it is
+    missing, since the exclusive lock needs a writable file; `dry_run` creates nothing. Stop every audit-file
+    writer first: the sink appends without a lock. A valid-JSON unterminated last line is refused in both files
+    (it may be a real seal or record). An anchored `expected_head` must match one of the complete manifests, which
+    bounds how far back the log can have been rewound; re-verify the repaired log against the freshest anchor you
+    track yourself. Anything else raises and changes nothing. `previous_signers` is a migration window for
     verifying manifests signed by a retired key, not a permanent trust set."""
     signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path, quarantine_path=quarantine_path)
