@@ -31,6 +31,9 @@ dev = [
     "pandas",
     "polars",
     "pyarrow",
+    # Ed25519 for the binary-model license token vectors and the stub's verifier
+    # (mloda-testing's binary-model extra declares the same dependency).
+    "cryptography",
     # Deliberate: exercises the pytz-style tzinfo path in cross-framework DST tests
     # explicitly, rather than leaving it to whatever pyarrow's ambient dependency set produces.
     "pytz",
@@ -128,7 +131,7 @@ skips = [
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = { mloda = false, uv = false }
+exclude-newer-package = { mloda = false, uv = false, mloda-example-binary = false }
 
 # AUTO-GENERATED workspace members from config/packages.toml
 # Do not edit manually - run: python scripts/generate_pyproject.py
@@ -140,6 +143,7 @@ members = [
     "mloda/community/extenders/openlineage",
     "mloda/community/extenders/otel",
     "mloda/community/extenders/shared",
+    "mloda/community/feature_groups/binary_model",
     "mloda/community/feature_groups/data_operations",
     "mloda/community/feature_groups/data_operations/aggregation",
     "mloda/community/feature_groups/data_operations/row_changing/resample",
@@ -165,6 +169,7 @@ members = [
     "mloda/enterprise/compute_frameworks/example",
     "mloda/enterprise/extenders/audit",
     "mloda/enterprise/extenders/example",
+    "mloda/enterprise/feature_groups/binary_example",
     "mloda/enterprise/feature_groups/example",
     "mloda/registry",
     "mloda/testing",

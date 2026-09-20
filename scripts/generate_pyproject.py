@@ -164,6 +164,33 @@ def resolve_optional_dependencies(
     }
 
 
+# Bundle and dev-utility packages that never receive the shared default dev deps
+# (and therefore never get an implicit mloda-testing workspace source entry).
+NO_DEFAULT_DEV_DEPS = ("mloda-testing", "mloda-community", "mloda-enterprise")
+
+
+def normalize_dependency_name(dep: str) -> str | None:
+    """PEP 503 normalize a dependency spec's leading package name, or None if it has no name."""
+    match = DEP_NAME_RE.match(dep)
+    if not match:
+        return None
+    return normalize_package_name(match.group(1))
+
+
+def workspace_source_names(
+    pkg_name: str,
+    pkg_config: dict[str, Any],
+    all_packages: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Sorted, deduplicated configured-package names a top-level package's [tool.uv.sources] table needs."""
+    names = {"mloda-testing"} if pkg_name not in NO_DEFAULT_DEV_DEPS else set()
+    for dep in pkg_config.get("dependencies", []):
+        normalized = normalize_dependency_name(dep)
+        if normalized and normalized != pkg_name and normalized in all_packages:
+            names.add(normalized)
+    return sorted(names)
+
+
 def nested_package_names(pkg_path: str, all_packages: dict[str, dict[str, Any]]) -> list[str]:
     """Return the configured packages whose path is nested under ``pkg_path``, in config order."""
     prefix = pkg_path.rstrip("/") + "/"
@@ -364,7 +391,7 @@ def generate_pyproject(
 
     # Optional dependencies - merge defaults with package-specific
     # Skip defaults for specific packages
-    skip_defaults = pkg_name in ("mloda-testing", "mloda-community", "mloda-enterprise")
+    skip_defaults = pkg_name in NO_DEFAULT_DEV_DEPS
     default_opt_deps = {} if skip_defaults else defaults.get("optional_dependencies", {})
     pkg_opt_deps = expand_published_children(pkg_config, all_packages)
     merged_opt_deps = resolve_optional_dependencies(
@@ -439,20 +466,22 @@ def generate_pyproject(
     lines.append("")
 
     # UV sources for workspace deps
-    # Also add mloda-testing for top-level packages that get it from defaults
+    # Also add mloda-testing and configured-package dependencies for top-level packages
     pkg_path = Path(pkg_config["path"])
     depth = len(pkg_path.parts)
-    gets_default_dev_deps = pkg_name not in ("mloda-testing", "mloda-community", "mloda-enterprise")
 
     if "workspace_deps" in pkg_config:
         lines.append("[tool.uv.sources]")
         for dep in pkg_config["workspace_deps"]:
             lines.append(f"{quote_toml_basic_string(dep, key=True)} = {{ workspace = true }}")
         lines.append("")
-    elif gets_default_dev_deps and depth <= 2:
-        lines.append("[tool.uv.sources]")
-        lines.append(f"{quote_toml_basic_string('mloda-testing', key=True)} = {{ workspace = true }}")
-        lines.append("")
+    elif depth <= 2:
+        source_names = workspace_source_names(pkg_name, pkg_config, all_packages)
+        if source_names:
+            lines.append("[tool.uv.sources]")
+            for name in source_names:
+                lines.append(f"{quote_toml_basic_string(name, key=True)} = {{ workspace = true }}")
+            lines.append("")
 
     return "\n".join(lines)
 
