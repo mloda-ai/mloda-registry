@@ -1,4 +1,5 @@
-"""AuditExtender: writes one audit record per FEATURE_GROUP_CALCULATE_FEATURE invocation."""
+"""AuditExtender: writes one audit record per FEATURE_GROUP_CALCULATE_FEATURE invocation.
+With fail_closed=True it also refuses at FEATURE_GROUP_MATCHED, writing a deny record."""
 
 from __future__ import annotations
 
@@ -52,7 +53,8 @@ class AuditExtender(Extender):
     runs. With raise_on_error=True (default), a sink failure after a successful calculation fails
     the run; when the calculation itself fails, its exception wins and the sink failure is only logged.
     With fail_closed=True (needs raise_on_error=True), a missing identity writes the deny record and
-    raises IdentityRequiredError before the wrapped call, also at FEATURE_GROUP_MATCHED."""
+    raises IdentityRequiredError before the wrapped call, also at FEATURE_GROUP_MATCHED, and runs
+    outermost (priority 0)."""
 
     def __init__(
         self,
@@ -84,6 +86,9 @@ class AuditExtender(Extender):
         self.required_identity = required_identity
         self.raise_on_error = raise_on_error
         self.fail_closed = fail_closed
+        if fail_closed:
+            # Core runs the lowest priority outermost; a lower-priority peer would otherwise run before the gate.
+            self.priority = 0
 
     def wraps(self) -> set[ExtenderHook]:
         if self.fail_closed:
@@ -98,10 +103,12 @@ class AuditExtender(Extender):
         if self.fail_closed:
             missing = self._missing_identity(context)
             if missing:
-                refusal = IdentityRequiredError(f"AuditExtender refused the call: missing required identity {missing}")
-                # Unguarded on purpose: a sink failure must propagate instead of the refusal.
-                self.sink.write(self._build_record(context, status="error", error_type=_error_type(refusal)))
-                raise refusal
+                try:
+                    raise IdentityRequiredError(f"AuditExtender refused the call: missing required identity {missing}")
+                except IdentityRequiredError as refusal:
+                    # Unguarded on purpose: a sink failure must propagate (chained to the refusal), never be swallowed.
+                    self.sink.write(self._build_record(context, status="error", error_type=_error_type(refusal)))
+                    raise
             if context.hook is ExtenderHook.FEATURE_GROUP_MATCHED:
                 return func(*args, **kwargs)
 

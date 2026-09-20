@@ -120,12 +120,12 @@ with verified_context(tenant_id="tenant-42", project_id="project-7", principal="
     results = mloda.run_all(features=["my_feature"], function_extender={MyExtender()})
 ```
 
-`AuditExtender(sink, fail_closed=True)` (`mloda-enterprise-audit`) turns a missing required identity into a refusal: it writes the deny record, then raises `IdentityRequiredError` before the wrapped call runs, so no data is loaded. It gates two hooks:
+`AuditExtender(sink, fail_closed=True)` (`mloda-enterprise-audit`) turns a missing required identity into a refusal: it writes the deny record, then raises `IdentityRequiredError` before the wrapped call runs, so no feature is calculated. It sets `priority = 0` so the gate runs outermost; an extender with a lower priority would still run outside it. It gates two hooks:
 
-- `FEATURE_GROUP_MATCHED` reads `verified_context` at plan time, so `prepare`, `explain` and `diagnose` need the scope too, not only `run`.
-- `FEATURE_GROUP_CALCULATE_FEATURE` reads it at `run()` time. It is the only gate for an extender passed only to `run()`, and it catches a session prepared inside the scope but run outside it.
+- `FEATURE_GROUP_MATCHED` reads `verified_context` at plan time, so `prepare`, `explain` and `diagnose` need the scope too, not only `run`. It writes a record only when it refuses.
+- `FEATURE_GROUP_CALCULATE_FEATURE` reads it at `run()` or `stream_run()` time. It is the only gate for an extender passed only to `run()`, and it catches a session prepared inside the scope but run outside it.
 
-The refusal record has `decision="deny"`, `status="error"` and an `error_type` naming `IdentityRequiredError`; a match-time refusal leaves the feature-group fields empty. The constructor rejects `fail_closed=True` with `raise_on_error=False` or an empty `required_identity`; do not set `raise_on_error = False` afterwards, as only the constructor checks it. Two paths still fail open: a call made outside a core run (no hook context), and an extender that registry strict mode `on` drops as unregistered.
+The refusal record has `decision="deny"`, `status="error"` and an `error_type` naming `IdentityRequiredError`; a match-time refusal leaves the feature-group fields empty. It is only as durable as the sink, so use a synchronous one such as `NdjsonAuditSink` under `MULTIPROCESSING` (see [Pickle Compatibility](#pickle-compatibility)). The constructor rejects `fail_closed=True` with `raise_on_error=False` or an empty `required_identity`; do not change `raise_on_error` or `fail_closed` afterwards, as only the constructor checks them. Two paths still fail open: a call made outside a core run (no hook context), and an extender that registry strict mode `strict` (`MLODA_PLUGIN_REGISTRY_STRICT`) drops as unregistered.
 
 ## Testing
 
@@ -268,6 +268,6 @@ The mixin pins:
 |------|-------------|
 | [otel_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/otel/otel_extender.py) | OpenTelemetry spans, metadata-only by default; inert until a `tracer_provider` is injected or `use_sdk_defaults=True` (`mloda-community-otel`) |
 | [openlineage_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/openlineage/openlineage_extender.py) | OpenLineage RunEvents with schema, data-source and parent-run facets; inert until a `client` is injected or `use_sdk_defaults=True` (`mloda-community-openlineage`) |
-| [audit_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/enterprise/extenders/audit/audit_extender.py) | Tenant-scoped audit record per calculation with an identity presence gate (`fail_closed=True` refuses an unidentified run before any data is loaded); a sink failure after a successful calculation fails the run by default; `seal_ndjson_runs` seals a finished run into a signed, hash-chained manifest that `verify_ndjson_log` checks, and `quarantine_damaged_lines` is the repair path for a torn log (`mloda-enterprise-audit`, license required) |
+| [audit_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/enterprise/extenders/audit/audit_extender.py) | Tenant-scoped audit record per calculation with an identity presence gate (`fail_closed=True` refuses an unidentified run before any feature is calculated); a sink failure after a successful calculation fails the run by default; `seal_ndjson_runs` seals a finished run into a signed, hash-chained manifest that `verify_ndjson_log` checks, and `quarantine_damaged_lines` is the repair path for a torn log (`mloda-enterprise-audit`, license required) |
 | [contract.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/testing/extenders/contract.py) | Extender contract test mixin (mloda-testing) |
 | [test_composite_extender.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/extender/test_composite_extender.py) | Chaining tests |

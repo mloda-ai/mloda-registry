@@ -150,10 +150,12 @@ class TestAuditExtenderConstruction:
         with pytest.raises(ValueError):
             AuditExtender(sink=InMemoryAuditSink(), fail_closed=True, **kwargs)
 
-    def test_fail_closed_with_defaults_is_accepted_and_also_wraps_the_matched_hook(self) -> None:
+    def test_fail_closed_with_defaults_is_accepted_wraps_the_matched_hook_and_sorts_outermost(self) -> None:
         extender = AuditExtender(sink=InMemoryAuditSink(), fail_closed=True)
 
         assert extender.wraps() == {ExtenderHook.FEATURE_GROUP_MATCHED, ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+        assert extender.priority == 0
+        assert AuditExtender(sink=InMemoryAuditSink()).priority == 100
 
 
 class TestAuditExtenderRecord:
@@ -429,10 +431,11 @@ class TestAuditExtenderFailClosed:
         call = _CountingCall()
 
         with make_hook_context(hook=hook).activate():
-            with pytest.raises(OSError, match="disk full"):
+            with pytest.raises(OSError, match="disk full") as excinfo:
                 extender(call)
 
         assert call.calls == 0
+        assert isinstance(excinfo.value.__context__, IdentityRequiredError)
 
 
 class TestNdjsonAuditSink:
@@ -567,24 +570,37 @@ class TestAuditExtenderRunAll:
         assert record["decision"] == "deny"
         assert counting.calls == 0
 
-    def test_run_all_fail_closed_refuses_at_calculate_when_identity_is_gone_by_run_time(self) -> None:
-        sink = InMemoryAuditSink()
+    @pytest.mark.parametrize(
+        "mode", [ParallelizationMode.SYNC, ParallelizationMode.THREADING, ParallelizationMode.MULTIPROCESSING]
+    )
+    def test_run_all_fail_closed_refuses_at_calculate_when_identity_is_gone_by_run_time(
+        self, mode: ParallelizationMode, tmp_path: Path, request: pytest.FixtureRequest
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
         counting = CountingExtender()
+        # Lower than the default 100: it runs outside the gate unless the gate sorts itself outermost.
+        counting.priority = 50
+        # Only MULTIPROCESSING needs the flight_server fixture.
+        flight_server = (
+            request.getfixturevalue("flight_server") if mode == ParallelizationMode.MULTIPROCESSING else None
+        )
 
         with verified_context(tenant_id="t"):
             session = mloda.prepare(
                 ["value_int"],
                 compute_frameworks={PyArrowTable},
                 plugin_collector=PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator}),
-                function_extender={AuditExtender(sink=sink, fail_closed=True), counting},
-                parallelization_modes={ParallelizationMode.SYNC},
+                function_extender={AuditExtender(sink=NdjsonAuditSink(audit_path), fail_closed=True), counting},
+                parallelization_modes={mode},
             )
 
         with pytest.raises(IdentityRequiredError):
-            session.run()
+            session.run(parallelization_modes={mode}, flight_server=flight_server)
 
-        assert len(sink.records) == 1
-        record = sink.records[0]
+        records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+        assert len(records) == 1
+        record = records[0]
         assert record["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name
         assert record["decision"] == "deny"
+        assert record["status"] == "error"
         assert counting.calls == 0
