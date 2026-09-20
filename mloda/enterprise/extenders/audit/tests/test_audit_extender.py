@@ -79,7 +79,7 @@ class InMemoryAuditSink:
 
 
 class _CountingCall:
-    """A wrapped call returning 42 that counts how often it ran."""
+    """A wrapped call that counts how often it ran."""
 
     def __init__(self) -> None:
         self.calls = 0

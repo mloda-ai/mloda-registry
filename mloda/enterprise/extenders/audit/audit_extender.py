@@ -1,5 +1,4 @@
-"""AuditExtender: writes one audit record per FEATURE_GROUP_CALCULATE_FEATURE invocation (fail_closed also
-wraps FEATURE_GROUP_MATCHED)."""
+"""AuditExtender: writes one audit record per FEATURE_GROUP_CALCULATE_FEATURE invocation."""
 
 from __future__ import annotations
 

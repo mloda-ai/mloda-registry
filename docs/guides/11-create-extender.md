@@ -125,7 +125,7 @@ with verified_context(tenant_id="tenant-42", project_id="project-7", principal="
 - `FEATURE_GROUP_MATCHED` reads `verified_context` at plan time, so `prepare`, `explain` and `diagnose` need the scope too, not only `run`.
 - `FEATURE_GROUP_CALCULATE_FEATURE` reads it at `run()` time. It is the only gate for an extender passed only to `run()`, and it catches a session prepared inside the scope but run outside it.
 
-The refusal record has `decision="deny"`, `status="error"` and an `error_type` naming `IdentityRequiredError`; a match-time refusal leaves the feature-group fields empty. The constructor rejects `fail_closed=True` with `raise_on_error=False` or an empty `required_identity`; do not set `raise_on_error = False` afterwards, the guard only runs there. Two paths still fail open: a call made outside a core run (no hook context), and an extender that registry strict mode `on` drops as unregistered.
+The refusal record has `decision="deny"`, `status="error"` and an `error_type` naming `IdentityRequiredError`; a match-time refusal leaves the feature-group fields empty. The constructor rejects `fail_closed=True` with `raise_on_error=False` or an empty `required_identity`; do not set `raise_on_error = False` afterwards, as only the constructor checks it. Two paths still fail open: a call made outside a core run (no hook context), and an extender that registry strict mode `on` drops as unregistered.
 
 ## Testing
 
