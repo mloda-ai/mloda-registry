@@ -237,9 +237,9 @@ uv sync --all-packages --extra dev
 
 Declare it in the package's `optional_dependencies.dev` in `config/packages.toml`,
 regenerate, then run `uv lock` and commit `uv.lock`. tox syncs every workspace
-member's `dev` extra (`--all-packages` plus `extras = dev`), so root `pyproject.toml` never repeats
-the entry; but it installs the lock with `--frozen`, so a dependency missing
-from `uv.lock` is not installed.
+member's `dev` extra (`--all-packages` plus `extras = dev`), so root
+`pyproject.toml` never repeats the entry; but it installs the lock with
+`--frozen`, so a dependency missing from `uv.lock` is not installed.
 
 ### Add a variant to an existing plugin
 

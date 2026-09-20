@@ -112,7 +112,7 @@ source .venv/bin/activate
 uv sync --all-packages --extra dev
 ```
 
-These are the tox gate's flags; `--all-extras` also installs the real `mloda-example-binary` wheel (the `wheel` extra), which the suites assume is absent.
+These are the tox gate's flags minus `--frozen`; `--all-extras` also installs the real `mloda-example-binary` wheel (the `wheel` extra), which the suites assume is absent.
 
 ## Tox Usage
 

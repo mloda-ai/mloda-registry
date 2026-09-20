@@ -118,6 +118,16 @@ def test_against_the_real_wheel_section_shows_the_tox_env_command() -> None:
     )
 
 
+def test_against_the_real_wheel_section_shows_the_setup_command() -> None:
+    """The "### Against the real wheel" section shows the dev setup command that keeps the real wheel out."""
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    section = _section(content, "### Against the real wheel", ("\n## ", "\n### "))
+    assert "uv sync --all-packages --extra dev" in section, (
+        'the "Against the real wheel" section must contain `uv sync --all-packages --extra dev`; section was:\n'
+        + section
+    )
+
+
 def test_documented_uv_sync_commands_use_the_gate_flags_not_all_extras() -> None:
     """Documented ``uv sync`` commands must use the gate's flags (``--all-packages --extra dev``): ``--all-extras``
     also installs the real ``mloda-example-binary`` wheel (the ``wheel`` extra), which the suites assume is absent."""
@@ -127,5 +137,8 @@ def test_documented_uv_sync_commands_use_the_gate_flags_not_all_extras() -> None
         commands = [line for line in lines if line.startswith("uv sync")]
         assert commands, f"{name} must document the dev setup as a line starting with `uv sync`"
         for command in commands:
-            assert "--all-extras" not in command, f"{name}: `{command}` uses `--all-extras`; use `--extra dev`"
-            assert "--extra dev" in command, f"{name}: `{command}` lacks `--extra dev`"
+            tokens = shlex.split(command)
+            extras = [tokens[i + 1] for i, token in enumerate(tokens[:-1]) if token == "--extra"]
+            assert "--all-extras" not in tokens, f"{name}: `{command}` uses `--all-extras`; use `--extra dev`"
+            assert "--all-packages" in tokens, f"{name}: `{command}` lacks `--all-packages`"
+            assert extras == ["dev"], f"{name}: `{command}` requests extras {extras}; expected exactly ['dev']"
