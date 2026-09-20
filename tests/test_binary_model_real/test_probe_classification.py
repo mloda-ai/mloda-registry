@@ -141,6 +141,7 @@ def test_probe_environment_forwards_systemroot_on_nt(monkeypatch: pytest.MonkeyP
 
 def test_probe_environment_omits_systemroot_off_nt(monkeypatch: pytest.MonkeyPatch) -> None:
     """SYSTEMROOT is absent off Windows, even if set ambiently."""
+    monkeypatch.setattr(os, "name", "posix")
     monkeypatch.setenv("SYSTEMROOT", "C:\\Windows")
     env = probe_classification.probe_environment()
     assert "SYSTEMROOT" not in env
