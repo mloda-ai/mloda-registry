@@ -9,8 +9,9 @@ repo's other suites assume the wheel is absent and are not supported with it ins
 
 The full expired/in-grace/valid license state machine is already covered against the real compiled
 binary in the mloda-binary-wrapper repo's own CI across multiple platforms, and is deliberately not
-duplicated here. The full production-license end-to-end path (it needs a test-key build, which is never
-published) and the other platforms are intentionally deferred follow-up work, not omissions.
+duplicated here. The end-to-end test needs a test-key build (never published), so it skips against the
+release wheel; a full run with a production license and the other platforms are intentionally deferred
+follow-up work, not omissions.
 """
 
 from __future__ import annotations
