@@ -8,8 +8,9 @@ Limits:
 - HMAC is symmetric: integrity only. Ed25519Signer adds non-repudiation: only the private key holder can seal. A
   public-key signer (`Ed25519Signer.from_public_key`) verifies but cannot seal, rotate or repair
   (`quarantine_damaged_lines(dry_run=True)` works). HMAC-era seals stay repudiable, and moving a log from HMAC to
-  Ed25519 needs a new key_id. Distributing the public key is out of scope. A KMS-backed signer plugs in through the
-  unchanged `ManifestSigner` protocol.
+  Ed25519 needs a new key_id. A log that began under an HMAC key still needs that retired key in `previous_signers` on
+  every verifying host, so its verifier holds an HMAC secret. Distributing the public key is out of scope. A
+  KMS-backed signer plugs in through the unchanged `ManifestSigner` protocol.
 - Records without a usable run_id and unsealed runs sit outside every seal (verify_ndjson_log_coverage counts them).
 - One manifest log per audit file; sealers serialise on flock (POSIX), but not at all where fcntl is missing, so
   concurrent sealers, rotations and recoveries then race. `previous_signers` verifies manifests a retired key sealed
@@ -73,9 +74,9 @@ class ManifestSigner(Protocol):
     def verify(self, payload: bytes, signature: str) -> bool: ...
 
 
-def _check_key_id(signer: str, key_id: object) -> None:
+def _check_key_id(owner: str, key_id: object) -> None:
     if not isinstance(key_id, str) or not key_id.strip():
-        raise ValueError(f"{signer} key_id must be a non-blank string")
+        raise ValueError(f"{owner} key_id must be a non-blank string")
 
 
 class HmacSha256Signer:
@@ -150,7 +151,7 @@ class Ed25519Signer:
         return self._private.sign(payload).hex()
 
     def verify(self, payload: bytes, signature: str) -> bool:
-        if not _ED25519_SIGNATURE.fullmatch(signature):
+        if not isinstance(signature, str) or not _ED25519_SIGNATURE.fullmatch(signature):
             return False
         from cryptography.exceptions import InvalidSignature
 
@@ -878,14 +879,12 @@ def quarantine_damaged_lines(
             return []
         # Captured before the lock: an exclusive _flock opens O_CREAT, so afterwards the file always exists.
         existed = os.path.exists(quarantine_path)
+        # Signed before the quarantine lock: a signing failure must not leave the file it creates; a dry run never signs.
+        entries = [] if dry_run else [_trace_entry(item, raw, path, signer) for item, raw, path in damage]
         with _flock(quarantine_path, exclusive=not dry_run):
             _require_terminated(quarantine_path)
             if not dry_run:
-                _append_with_rollback(
-                    quarantine_path,
-                    [_trace_entry(item, raw, path, signer) for item, raw, path in damage],
-                    existed=existed,
-                )
+                _append_with_rollback(quarantine_path, entries, existed=existed)
         if not dry_run:
             if audit_damage:
                 _rewrite_without(audit_path, {item.line for item, _, _ in audit_damage})

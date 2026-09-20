@@ -741,6 +741,14 @@ _MANGLED_SIGNATURES: dict[str, Callable[[str], str]] = {
     "lone-surrogate": lambda signature: chr(0xD800) * len(signature),
 }
 
+# Signatures that are not a str at all, one of which is the valid signature as bytes.
+_NON_STR_SIGNATURES: dict[str, Callable[[str], Any]] = {
+    "none": lambda signature: None,
+    "bytes": lambda signature: signature.encode("ascii"),
+    "int": lambda signature: 123,
+    "list": lambda signature: ["a"],
+}
+
 _not_a_32_byte_key = pytest.mark.parametrize(
     "key", [b"", b"k" * 31, b"k" * 33, "k" * 32], ids=["empty", "31-bytes", "33-bytes", "str"]
 )
@@ -783,6 +791,18 @@ class TestEd25519Signer:
         assert mangled != signature
 
         assert signer.verify(b"payload", mangled) is False
+
+    @pytest.mark.parametrize("public_only", [False, True], ids=["private", "public-only"])
+    @pytest.mark.parametrize("make", list(_NON_STR_SIGNATURES.values()), ids=list(_NON_STR_SIGNATURES))
+    def test_verify_returns_false_and_never_raises_for_a_signature_that_is_not_a_str(
+        self, make: Callable[[str], Any], public_only: bool
+    ) -> None:
+        signature = Ed25519Signer(_KEY, "key-1").sign(b"payload")
+        signer = _verify_only() if public_only else Ed25519Signer(_KEY, "key-1")
+        # Control: the original verifies.
+        assert signer.verify(b"payload", signature) is True
+
+        assert signer.verify(b"payload", make(signature)) is False
 
     @_not_a_32_byte_key
     def test_a_private_key_that_is_not_32_bytes_raises_value_error(self, key: Any) -> None:
@@ -4191,7 +4211,7 @@ class TestEd25519PublicKeyOnly:
         # Control: the sealing key's public key verifies.
         verify_ndjson_log(audit_path, manifest_path, signer=_verify_only())
 
-        with pytest.raises(ManifestVerificationError, match="signature"):
+        with pytest.raises(ManifestVerificationError, match=re.escape(_BAD_SIGNATURE)):
             verify_ndjson_log(audit_path, manifest_path, signer=_verify_only(_OTHER_KEY))
 
     def test_a_dry_run_quarantine_reports_the_damage_and_changes_nothing(self, tmp_path: Path) -> None:
@@ -4205,13 +4225,12 @@ class TestEd25519PublicKeyOnly:
 
     def test_a_repair_cannot_sign_its_trace_so_it_raises_and_leaves_both_logs_alone(self, tmp_path: Path) -> None:
         audit_path, manifest_path, _ = _torn_manifest_log(tmp_path)
-        audit_before, manifest_before = audit_path.read_bytes(), manifest_path.read_bytes()
+        before = _snapshot(tmp_path)
 
         with pytest.raises(ValueError, match="public key"):
             _quarantine(tmp_path, audit_path, manifest_path, signer=_verify_only())
 
-        assert audit_path.read_bytes() == audit_before
-        assert manifest_path.read_bytes() == manifest_before
+        assert _snapshot(tmp_path) == before
 
     def test_sealing_a_pending_run_raises_value_error_and_writes_nothing(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
