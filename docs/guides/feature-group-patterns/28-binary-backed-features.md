@@ -15,7 +15,7 @@ Run a compiled binary (a model shipped as a wheel, usually license-gated) as the
 | `BINARY_PLUGIN_ID` | Import package of the wheel that ships the binary (`from <id> import binary_path`); also the id the license entitles |
 | `BINARY_WHEEL_DISTRIBUTION` | The wheel's PyPI distribution name, distinct from `BINARY_PLUGIN_ID` (the import name); used in `packages.toml` |
 | `BINARY_COMMAND_OVERRIDE` | Explicit argv prefix or path used instead of the wheel; tests point it at the simulated binary. No environment variable can redirect the binary |
-| `LICENSE_FILE_OVERRIDE`, `LICENSE_KEY_OVERRIDE` | Values for `MLODA_LICENSE_FILE` / `MLODA_LICENSE_KEY` in the binary's environment; unset, the caller's own values are forwarded |
+| `LICENSE_FILE_OVERRIDE`, `LICENSE_KEY_OVERRIDE` | Values for `MLODA_LICENSE_FILE` / `MLODA_LICENSE_KEY` in the binary's environment; unset, the caller's own values are forwarded, and an empty string suppresses that forwarding |
 | `BINARY_TIMEOUT_SECONDS` | Wall-clock limit per call; the process is terminated and `BinaryTerminatedError` raised |
 | `FILE_TRANSPORT_THRESHOLD_BYTES` | Inputs above it travel through `--input` / `--output` files instead of stdin / stdout |
 | `MAX_BATCH_BYTES` | Upper bound per record batch sent to the binary; oversized batches are split until they fit, keeping `utf8` arrays clear of the 2 GiB offset limit |
@@ -106,7 +106,7 @@ feature = Feature(
 
 Before the binary runs, in this order: resolves and probes the binary (`--version`, `--capabilities`; a wrong `contract`, a missing wheel or a non-executable path is `BinaryUnavailableError`), rejects an input column absent from the frame or a written name that collides with any frame column (`BinaryUsageError`), an operation the binary does not list or a column type outside `int64`, `float64`, `utf8`, `boolean` (`UnsupportedError`), and a single string cell of 2 GiB or more (`DataError`). Nothing is ever computed in Python instead.
 
-Then it projects the frame to the input columns, strips Arrow metadata, casts `large_string` and `string_view` to `utf8`, writes the config to a file in a private per-invocation directory under `<temp>/mloda-binary/`, runs the binary with a minimal environment (the two license variables, `PATH`, a fixed `C.UTF-8` locale), and verifies the answer: output column set, types and row count, else `OutputContractError`. `utf8` outputs are cast back to `large_string` when the frame uses it. The directory is removed on every exit path.
+Then it projects the frame to the input columns, strips Arrow metadata, casts `large_string` and `string_view` to `utf8`, writes the config to a file in a private per-invocation directory under `<temp>/mloda-binary/`, runs the binary with a minimal environment (the two license variables, `PATH`, a fixed `C.UTF-8` locale, and `SYSTEMROOT` on Windows), and verifies the answer: output column set, types and row count, else `OutputContractError`. `utf8` outputs are cast back to `large_string` when the frame uses it. The directory is removed on every exit path.
 
 | Raised | Exit code | Meaning |
 |--------|-----------|---------|

@@ -50,7 +50,7 @@ def classify_test_key_probe(result: "subprocess.CompletedProcess[bytes]") -> boo
 def probe_environment(license_key: str | None = None) -> dict[str, str]:
     """Minimal probe environment: real PATH/locale/SYSTEMROOT from the caller's own environment,
     plus only the given test license_key, never the caller's own license variables."""
-    return minimal_environment(license_file="", license_key=license_key or "")
+    return minimal_environment(inherit_license=False, license_key=license_key)
 
 
 def probe_accepts_test_key(cmd: list[str]) -> bool:

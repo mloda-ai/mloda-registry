@@ -39,13 +39,18 @@ def minimal_environment(
     license_file: str | None = None,
     license_key: str | None = None,
     source_env: Mapping[str, str] | None = None,
+    inherit_license: bool = True,
 ) -> dict[str, str]:
     """Build the minimal environment passed to the binary (contract: Data handling): ``PATH``, a
     fixed UTF-8 locale on POSIX, ``SYSTEMROOT`` on Windows when present, and the license
-    variables (an explicit argument wins over ``source_env``, which itself defaults to
-    ``os.environ``). ``MLODA_LICENSE_FILE`` is absolutized against the caller's own cwd, since the
+    variables (an explicit argument wins over the value inherited from ``source_env``, which
+    itself defaults to ``os.environ``). ``source_env`` also supplies ``PATH`` and ``SYSTEMROOT``,
+    so ``source_env={}`` drops them too; ``inherit_license=False`` (the canonical spelling; an
+    explicit empty ``license_file`` / ``license_key`` does the same) suppresses only the license
+    variables. ``MLODA_LICENSE_FILE`` is absolutized against the caller's own cwd, since the
     binary itself runs with its private invocation directory as its cwd."""
     source = os.environ if source_env is None else source_env
+    inherited: Mapping[str, str] = source if inherit_license else {}
     env: dict[str, str] = {"PATH": source.get("PATH") or os.defpath}
 
     if os.name == "nt":
@@ -56,11 +61,11 @@ def minimal_environment(
         env["LC_ALL"] = "C.UTF-8"
         env["LANG"] = "C.UTF-8"
 
-    resolved_file = license_file if license_file is not None else source.get("MLODA_LICENSE_FILE")
+    resolved_file = license_file if license_file is not None else inherited.get("MLODA_LICENSE_FILE")
     if resolved_file:
         env["MLODA_LICENSE_FILE"] = os.path.abspath(resolved_file)
 
-    resolved_key = license_key if license_key is not None else source.get("MLODA_LICENSE_KEY")
+    resolved_key = license_key if license_key is not None else inherited.get("MLODA_LICENSE_KEY")
     if resolved_key:
         env["MLODA_LICENSE_KEY"] = resolved_key
 
