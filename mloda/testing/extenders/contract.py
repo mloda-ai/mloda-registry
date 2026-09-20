@@ -55,7 +55,7 @@ class ExtenderContractTestMixin:
 
     @classmethod
     def context_identity(cls) -> dict[str, str]:
-        """tenant_id, project_id and principal every contract context and run carries, for identity-gated extenders."""
+        """Identity (tenant_id, project_id, principal) carried by every contract context; empty by default."""
         return {}
 
     def pickled_copy_environment(self) -> AbstractContextManager[Any]:
