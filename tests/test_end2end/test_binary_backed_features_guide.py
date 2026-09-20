@@ -38,13 +38,6 @@ def _section(content: str, heading: str, boundary_markers: tuple[str, ...]) -> s
     return remainder if end == -1 else remainder[:end]
 
 
-def test_against_the_real_wheel_section_names_the_opt_in() -> None:
-    """The "### Against the real wheel" subsection documents the MLODA_REAL_WHEEL opt-in."""
-    content = _GUIDE_PATH.read_text(encoding="utf-8")
-    section = _section(content, "### Against the real wheel", ("\n## ", "\n### "))
-    assert "MLODA_REAL_WHEEL" in section, 'the "Against the real wheel" section must name MLODA_REAL_WHEEL'
-
-
 def test_packaging_rules_section_states_how_to_install_the_wheel() -> None:
     """The Packaging Rules section gives the plain install command for the wheel."""
     content = _GUIDE_PATH.read_text(encoding="utf-8")

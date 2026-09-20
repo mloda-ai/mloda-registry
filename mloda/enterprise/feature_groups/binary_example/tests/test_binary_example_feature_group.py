@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
-import os
 import sys
 from collections.abc import Sequence
 from typing import Any
@@ -23,7 +22,6 @@ from mloda.community.feature_groups.binary_model.binary import clear_capability_
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError, LicenseMissingError
 from mloda.enterprise.feature_groups.binary_example import manifest as binary_example_manifest
 from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
-from mloda.enterprise.tests.wheel_presence import classify_wheel_presence
 from mloda.testing.base import FeatureGroupTestBase
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
 from mloda.testing.binary_model.license_vectors import valid_license_token
@@ -199,22 +197,10 @@ class TestManifest:
 
     def test_wheel_is_not_installed_precondition(self) -> None:
         """Fails when the wheel is installed, because the suites assume it is absent, so an accidental
-        install (e.g. moved into the ``dev`` extra) is caught rather than silently skipped.
-        ``MLODA_REAL_WHEEL=1`` turns this guard into a skip, and other wheel-absent tests still fail.
-        Running tests/test_binary_model_real/ alone does not need the opt-in."""
-        spec = importlib.util.find_spec("example_binary")
-        opt_in = os.environ.get("MLODA_REAL_WHEEL") == "1"
-        classification = classify_wheel_presence(spec_present=spec is not None, opt_in=opt_in)
-        if classification == "opted_in":
-            pytest.skip(
-                "example_binary is installed as a real wheel with MLODA_REAL_WHEEL=1 set, so this "
-                "wheel-absent guard is skipped; the repo's other suites are not supported with the "
-                "wheel installed"
-            )
-        assert classification == "absent", (
+        install (e.g. moved into the ``dev`` extra) is caught rather than silently skipped."""
+        assert importlib.util.find_spec("example_binary") is None, (
             "example_binary is installed as a real wheel, but the repo's suites assume it is absent: "
-            "uninstall it or run only tests/test_binary_model_real/. MLODA_REAL_WHEEL=1 skips only this "
-            f"guard: {classification!r}"
+            "uninstall it or run only tests/test_binary_model_real/"
         )
 
     def test_importing_the_manifest_never_imports_the_binary_wheel(self) -> None:
