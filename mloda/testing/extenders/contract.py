@@ -35,7 +35,7 @@ class ExtenderContractTestMixin:
         raise NotImplementedError
 
     def own_failure(self) -> AbstractContextManager[Any]:
-        """A context manager making the extender's OWN instrumentation raise RuntimeError on a run_all path."""
+        """A context manager making the extender's OWN instrumentation raise RuntimeError, direct and via run_all."""
         raise NotImplementedError
 
     @classmethod

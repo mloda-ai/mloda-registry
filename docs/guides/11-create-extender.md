@@ -169,7 +169,7 @@ class TestMyExtenderContract(ExtenderContractTestMixin):
 
 Observability extenders that default to warning-only override `raise_on_error_default()` to return False.
 
-`extender_class` names the class under test. `make_extender` returns an instance wired to an in-memory backend, never a real network sink. `own_failure` makes the extender's own code fail (not the wrapped function) so the fallback path is exercised; it must fault a path `run_all` reaches, not only a direct call.
+`extender_class` names the class under test. `make_extender` returns an instance wired to an in-memory backend, never a real network sink. `own_failure` makes the extender's own code fail (not the wrapped function) so the fallback path is exercised; it must fault both a direct call and a path `run_all` reaches.
 
 An autouse fixture enters `verified_context` with `context_identity` around every test (a no-op when empty); host tests that build their own hook context use `contract_context()`, which carries the same identity. The OTel and OpenLineage mixin tests still build some hook contexts without it, so an identity-gated extender cannot host those mixins yet.
 
@@ -180,7 +180,8 @@ The mixin pins:
 - a call returns the wrapped result unchanged, with or without an ambient `HookContext`
 - a wrapped failure propagates and runs the wrapped function exactly once
 - the extender's own failure falls back with a warning when `raise_on_error` is `False`, and propagates when `True`
-- own failure is contained: a chained extender still runs, and a `run_all` round trip still completes with the warning-only fallback; with `raise_on_error=True` (breaking-only hosts included) it propagates out of a `run_all` round trip
+- own failure is contained: a chained extender still runs, and a `run_all` round trip still completes with the warning-only fallback
+- with `raise_on_error=True` (breaking-only hosts included), the extender's own failure propagates out of a `run_all` round trip
 - the extender survives a pickle round trip, and a pickled copy still wraps a call
 - when `supports_pickled_sink_capture()` is `True`: a picklable injected sink survives pickling and the pickled copy still emits into it
 - when `supports_unpicklable_sink_degrade()` is `True`: an unpicklable injected sink is dropped and warned about exactly once across repeated pickling, and the resulting copy still wraps a call
