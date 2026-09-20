@@ -548,6 +548,7 @@ class TestExtenderContractTestMixinShape:
             "test_contract_pickled_copy_still_wraps",
             "test_contract_own_failure_does_not_stop_chained_extender",
             "test_contract_run_all_own_failure_falls_back_when_raise_on_error_false",
+            "test_contract_run_all_own_failure_propagates_when_raise_on_error_true",
             "test_contract_run_all_emits_into_the_exact_injected_sink",
             "test_contract_real_worker_multiprocessing_emits_into_the_exact_injected_sink",
             "test_contract_real_worker_multiprocessing_unpicklable_sink_degrades_gracefully",

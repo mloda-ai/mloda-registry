@@ -35,7 +35,7 @@ class ExtenderContractTestMixin:
         raise NotImplementedError
 
     def own_failure(self) -> AbstractContextManager[Any]:
-        """A context manager making the extender's OWN instrumentation raise RuntimeError."""
+        """A context manager making the extender's OWN instrumentation raise RuntimeError on a run_all path."""
         raise NotImplementedError
 
     @classmethod
@@ -360,6 +360,12 @@ class ExtenderContractTestMixin:
         assert any(name in message for message in warnings), (
             f"{name}: own_failure() did not fault the extender's own code (see docs/guides/11-create-extender.md)"
         )
+
+    def test_contract_run_all_own_failure_propagates_when_raise_on_error_true(self) -> None:
+        extender = self.make_extender(raise_on_error=True)
+        with self.own_failure():
+            with pytest.raises(RuntimeError):
+                run_value_int(extender)
 
     def test_contract_unconfigured_extender_emits_nothing(self) -> None:
         if not self.has_backend_sink():

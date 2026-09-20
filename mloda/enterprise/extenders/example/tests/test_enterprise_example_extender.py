@@ -47,7 +47,7 @@ class TestEnterpriseExampleExtenderContract(ExtenderContractTestMixin):
 
 
 class TestEnterpriseExampleExtenderRunAll:
-    """The one raise_on_error semantic the shared contract does not pin."""
+    """run_all semantics for the example extender beyond the shared contract."""
 
     def test_failing_extender_breaks_run_by_default(self) -> None:
         """raise_on_error=True (default): the extender failure propagates out of run_all."""
