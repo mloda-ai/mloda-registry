@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import logging
 import pickle  # nosec
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from typing import Any
 
 import pytest
-from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext
+from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext, verified_context
 from mloda.user import ParallelizationMode
 
 from mloda.testing.extenders.hook_context import make_hook_context
@@ -52,6 +52,11 @@ class ExtenderContractTestMixin:
     def expected_hooks(cls) -> set[ExtenderHook] | None:
         """None skips the exact-set check; override to pin the exact hooks wraps() returns."""
         return None
+
+    @classmethod
+    def context_identity(cls) -> dict[str, str]:
+        """tenant_id, project_id and principal every contract context and run carries, for identity-gated extenders."""
+        return {}
 
     def pickled_copy_environment(self) -> AbstractContextManager[Any]:
         """Context active around a call made through a pickled copy; default is a no-op."""
@@ -149,6 +154,22 @@ class ExtenderContractTestMixin:
             return ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE
         return min(wraps, key=lambda hook: hook.value)
 
+    def contract_context(self) -> HookContext:
+        identity = self.context_identity()
+        return make_hook_context(
+            hook=self.context_hook(),
+            tenant_id=identity.get("tenant_id"),
+            project_id=identity.get("project_id"),
+            principal=identity.get("principal"),
+        )
+
+    @pytest.fixture(autouse=True)
+    def _contract_identity_scope(self) -> Iterator[None]:
+        identity = self.context_identity()
+        scope: AbstractContextManager[Any] = verified_context(**identity) if identity else nullcontext()
+        with scope:
+            yield
+
     def test_contract_extender_pickles(self) -> None:
         extender = self.make_extender()
         copy = pickle.loads(pickle.dumps(extender))  # nosec
@@ -174,7 +195,7 @@ class ExtenderContractTestMixin:
             calls += 1
             return a + b
 
-        with make_hook_context(hook=self.context_hook()).activate():
+        with self.contract_context().activate():
             assert self.make_extender()(func, 3, 4) == 7
         assert calls == 1
 
@@ -186,7 +207,7 @@ class ExtenderContractTestMixin:
             calls += 1
             raise RuntimeError("inner boom")
 
-        with make_hook_context(hook=self.context_hook()).activate():
+        with self.contract_context().activate():
             with pytest.raises(RuntimeError, match="inner boom"):
                 self.make_extender()(func, 3, 4)
         assert calls == 1
@@ -197,7 +218,7 @@ class ExtenderContractTestMixin:
         extender = self.make_extender(raise_on_error=False)
         assert extender.raise_on_error is False
         composite = CompositeExtender([extender])
-        with make_hook_context(hook=self.context_hook()).activate():
+        with self.contract_context().activate():
             with self.own_failure():
                 with caplog.at_level(logging.WARNING):
                     result = composite(lambda a, b: a + b, 3, 4)
@@ -210,7 +231,7 @@ class ExtenderContractTestMixin:
 
     def test_contract_own_failure_propagates_when_raise_on_error_true(self) -> None:
         composite = CompositeExtender([self.make_extender(raise_on_error=True)])
-        with make_hook_context(hook=self.context_hook()).activate():
+        with self.contract_context().activate():
             with self.own_failure():
                 with pytest.raises(RuntimeError):
                     composite(lambda a, b: a + b, 3, 4)
@@ -220,8 +241,9 @@ class ExtenderContractTestMixin:
 
     def test_contract_run_all_wrapped_failure_propagates_and_runs_once(self) -> None:
         fg = failing_feature_group(f"{self.extender_class().__name__.lower()}_boom_feature")
+        extender = self.make_extender(raise_on_error=False) if self.supports_warning_only() else self.make_extender()
         with pytest.raises(Exception, match="inner boom"):
-            run_failing_feature(fg, self.make_extender(raise_on_error=False))
+            run_failing_feature(fg, extender)
         assert fg.calls == 1
 
     def test_contract_wraps_expected_hooks(self) -> None:
@@ -252,7 +274,7 @@ class ExtenderContractTestMixin:
     def test_contract_pickled_copy_still_wraps(self) -> None:
         copy = pickle.loads(pickle.dumps(self.make_extender()))  # nosec
         with self.pickled_copy_environment():
-            with make_hook_context(hook=self.context_hook()).activate():
+            with self.contract_context().activate():
                 assert copy(lambda a, b: a + b, 3, 4) == 7
 
     def test_contract_pickled_copy_with_picklable_sink_still_emits(self, caplog: pytest.LogCaptureFixture) -> None:
@@ -262,7 +284,7 @@ class ExtenderContractTestMixin:
             with self.injected_sink_capture() as captured:
                 copy = pickle.loads(pickle.dumps(self.make_extender()))  # nosec
                 with self.pickled_copy_environment():
-                    with make_hook_context(hook=self.context_hook()).activate():
+                    with self.contract_context().activate():
                         assert copy(lambda a, b: a + b, 3, 4) == 7
                 assert captured  # the pickled copy actually emitted into the shared/captured sink
 
@@ -299,7 +321,7 @@ class ExtenderContractTestMixin:
             assert any(noun in message for message in warnings), warnings
 
         with self.pickled_copy_environment():
-            with make_hook_context(hook=self.context_hook()).activate():
+            with self.contract_context().activate():
                 assert copy(lambda a, b: a + b, 3, 4) == 7
 
     def test_contract_own_failure_does_not_stop_chained_extender(self, caplog: pytest.LogCaptureFixture) -> None:
@@ -309,7 +331,7 @@ class ExtenderContractTestMixin:
         assert extender.raise_on_error is False
         counting = CountingExtender()
         composite = CompositeExtender([extender, counting])
-        with make_hook_context(hook=self.context_hook()).activate():
+        with self.contract_context().activate():
             with self.own_failure():
                 with caplog.at_level(logging.WARNING):
                     assert composite(lambda a, b: a + b, 3, 4) == 7
@@ -350,7 +372,7 @@ class ExtenderContractTestMixin:
             return a + b
 
         with self.ambient_sink_environment(), self.sink_resolution_spy() as spy:
-            with make_hook_context(hook=self.context_hook()).activate():
+            with self.contract_context().activate():
                 assert extender(func, 3, 4) == 7
             assert spy == []
         assert calls == 1
@@ -370,7 +392,7 @@ class ExtenderContractTestMixin:
         extender = self.make_sdk_defaults_extender()
 
         with self.ambient_sink_environment(), self.sink_resolution_spy() as spy:
-            with make_hook_context(hook=self.context_hook()).activate():
+            with self.contract_context().activate():
                 extender(lambda: None)
             assert spy != []
 
@@ -380,7 +402,7 @@ class ExtenderContractTestMixin:
         copy = pickle.loads(pickle.dumps(self.make_injected_and_sdk_defaults_extender()))  # nosec
         with self.ambient_sink_environment(), self.sink_resolution_spy() as spy:
             with self.pickled_copy_environment():
-                with make_hook_context(hook=self.context_hook()).activate():
+                with self.contract_context().activate():
                     copy(lambda: None)
             if self.injected_and_sdk_defaults_sink_survives_pickling():
                 # The injected sink survived pickling and the copy kept using it directly (never
@@ -397,7 +419,7 @@ class ExtenderContractTestMixin:
         extender = self.make_extender()
 
         with self.ambient_sink_environment(), self.sink_resolution_spy() as spy:
-            with make_hook_context(hook=self.context_hook()).activate():
+            with self.contract_context().activate():
                 extender(lambda: None)
             assert spy == []
 
@@ -407,7 +429,7 @@ class ExtenderContractTestMixin:
         extender = self.make_injected_and_sdk_defaults_extender()
 
         with self.ambient_sink_environment(), self.sink_resolution_spy() as spy:
-            with make_hook_context(hook=self.context_hook()).activate():
+            with self.contract_context().activate():
                 with self.own_failure():
                     with pytest.raises(RuntimeError):
                         extender(lambda: None)

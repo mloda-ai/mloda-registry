@@ -92,6 +92,8 @@ class _CountingCall:
 class TestAuditExtenderContract(ExtenderContractTestMixin):
     """AuditExtender satisfies the shared Extender contract."""
 
+    fail_closed = False
+
     @classmethod
     def extender_class(cls) -> type[Extender]:
         return AuditExtender
@@ -111,15 +113,33 @@ class TestAuditExtenderContract(ExtenderContractTestMixin):
     def make_extender(self, *, raise_on_error: bool | None = None) -> AuditExtender:
         sink = InMemoryAuditSink()
         if raise_on_error is None:
-            return AuditExtender(sink=sink)
-        return AuditExtender(sink=sink, raise_on_error=raise_on_error)
+            return AuditExtender(sink=sink, fail_closed=self.fail_closed)
+        return AuditExtender(sink=sink, raise_on_error=raise_on_error, fail_closed=self.fail_closed)
 
     def own_failure(self) -> AbstractContextManager[Any]:
         return patch.object(InMemoryAuditSink, "write", side_effect=RuntimeError("extender boom"))
 
     def make_real_worker_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
         marker_path = tmp_path / "audit.ndjson"
-        return AuditExtender(sink=NdjsonAuditSink(marker_path)), marker_path
+        return AuditExtender(sink=NdjsonAuditSink(marker_path), fail_closed=self.fail_closed), marker_path
+
+
+class TestAuditExtenderFailClosedContract(TestAuditExtenderContract):
+    """The fail_closed posture satisfies the same Extender contract, under a present identity."""
+
+    fail_closed = True
+
+    @classmethod
+    def supports_warning_only(cls) -> bool:
+        return False
+
+    @classmethod
+    def expected_hooks(cls) -> set[ExtenderHook] | None:
+        return {ExtenderHook.FEATURE_GROUP_MATCHED, ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+    @classmethod
+    def context_identity(cls) -> dict[str, str]:
+        return {"tenant_id": _TENANT}
 
 
 class TestAuditExtenderConstruction:

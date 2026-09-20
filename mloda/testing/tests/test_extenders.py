@@ -481,6 +481,21 @@ class TestExtenderContractTestMixinShape:
     def test_expected_hooks_defaults_to_none(self) -> None:
         assert ExtenderContractTestMixin.expected_hooks() is None
 
+    def test_context_identity_defaults_to_empty(self) -> None:
+        assert ExtenderContractTestMixin.context_identity() == {}
+
+    def test_contract_context_carries_host_identity_and_hook(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        host = TestValidateOnlyProbeContract()
+        bare = host.contract_context()
+        assert (bare.tenant_id, bare.project_id, bare.principal) == (None, None, None)
+
+        identity = classmethod(lambda cls: {"tenant_id": "tenant-1", "principal": "user-1"})
+        monkeypatch.setattr(TestValidateOnlyProbeContract, "context_identity", identity)
+        context = host.contract_context()
+
+        assert (context.tenant_id, context.project_id, context.principal) == ("tenant-1", None, "user-1")
+        assert context.hook == host.context_hook() == ExtenderHook.VALIDATE_OUTPUT_FEATURE
+
     def test_pickled_copy_environment_is_a_context_manager(self) -> None:
         with ExtenderContractTestMixin().pickled_copy_environment():
             pass
