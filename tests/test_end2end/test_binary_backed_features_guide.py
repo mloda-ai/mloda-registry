@@ -18,7 +18,7 @@ _README = _REPO_ROOT / "README.md"
 _CONTRIBUTING = _REPO_ROOT / "CONTRIBUTING.md"
 _CLAUDE_MD = _REPO_ROOT / "CLAUDE.md"
 _PACKAGING_DOC = _REPO_ROOT / "docs" / "packaging.md"
-# AGENTS.md is a byte-identical copy of CLAUDE.md, already covered by tests/test_end2end/test_agent_guidance.py.
+# AGENTS.md is a byte-identical copy of CLAUDE.md, covered by test_agent_guidance.py.
 _SETUP_COMMAND_DOCS = (_README, _CONTRIBUTING, _CLAUDE_MD, _PACKAGING_DOC)
 
 
@@ -119,26 +119,13 @@ def test_against_the_real_wheel_section_shows_the_tox_env_command() -> None:
 
 
 def test_documented_uv_sync_commands_use_the_gate_flags_not_all_extras() -> None:
-    """Every documented ``uv sync`` setup command uses the gate's flags (``--all-packages --extra dev``). With
-    ``--all-extras`` uv also installs the ``wheel`` extra of ``mloda-enterprise-binary-example``, i.e. the real
-    ``mloda-example-binary`` wheel, and the suites assume that wheel is absent (two tripwire tests fail if it is
-    installed), so a fresh checkout that follows the docs would get red tests."""
+    """Documented ``uv sync`` commands must use the gate's flags (``--all-packages --extra dev``): ``--all-extras``
+    also installs the real ``mloda-example-binary`` wheel (the ``wheel`` extra), which the suites assume is absent."""
     for path in _SETUP_COMMAND_DOCS:
         name = path.relative_to(_REPO_ROOT).as_posix()
         lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines()]
         commands = [line for line in lines if line.startswith("uv sync")]
-        assert commands, (
-            f"{name} must document the dev setup as a line starting with `uv sync` (a reworded or removed "
-            "command would otherwise pass this guard vacuously)"
-        )
+        assert commands, f"{name} must document the dev setup as a line starting with `uv sync`"
         for command in commands:
-            assert "--all-extras" not in command, (
-                f"{name}: `{command}` uses `--all-extras`, which installs the real binary wheel (the `wheel` "
-                "extra) into the venv, but the suites assume it is absent; use the gate's own flags "
-                "`--all-packages --extra dev`"
-            )
-            assert "--extra dev" in command, (
-                f"{name}: `{command}` must contain `--extra dev`; `--all-extras` would install the real binary "
-                "wheel (the `wheel` extra) into the venv, but the suites assume it is absent; use the gate's "
-                "own flags `--all-packages --extra dev`"
-            )
+            assert "--all-extras" not in command, f"{name}: `{command}` uses `--all-extras`; use `--extra dev`"
+            assert "--extra dev" in command, f"{name}: `{command}` lacks `--extra dev`"

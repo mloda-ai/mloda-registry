@@ -46,8 +46,8 @@ points are registered and `PluginLoader.all()` discovers this repository's
 plugins in this venv. `--extra dev` adds each member's own `dev` extra, which is
 how a test-only dependency declared in `config/packages.toml` reaches the venv
 (tests select plugins with `PluginCollector.enabled_feature_groups(...)`, which
-needs no entry points). These are the tox gate's flags; `--all-extras` is avoided
-because it would also install the real `mloda-example-binary` wheel, which the
+needs no entry points). These are the tox gate's flags; `--all-extras` also
+installs the real `mloda-example-binary` wheel (the `wheel` extra), which the
 suites assume is absent.
 
 ## Code Style
