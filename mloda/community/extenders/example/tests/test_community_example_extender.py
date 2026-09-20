@@ -47,7 +47,7 @@ class TestCommunityExampleExtenderContract(ExtenderContractTestMixin):
 
 
 class TestCommunityExampleExtenderRunAll:
-    """run_all semantics for the example extender beyond the shared contract."""
+    """run_all behavior of the example extender."""
 
     def test_failing_extender_breaks_run_by_default(self) -> None:
         """raise_on_error=True (default): the extender failure propagates out of run_all."""
