@@ -1,6 +1,7 @@
-"""Doc-drift guard for ``docs/guides/feature-group-patterns/28-binary-backed-features.md`` and for the tox.ini and
-ci.yaml wiring of the real-wheel suite. No mktestdocs/sybil-style execution of guide code fences is wired in
-this repo (confirmed), so these are lightweight grep-based checks instead of executed doctests."""
+"""Doc-drift guard for ``docs/guides/feature-group-patterns/28-binary-backed-features.md``, for the tox.ini and
+ci.yaml wiring of the real-wheel suite, and for the documented ``uv sync`` setup commands. No mktestdocs/sybil-style
+execution of guide code fences is wired in this repo (confirmed), so these are lightweight grep-based checks
+instead of executed doctests."""
 
 from __future__ import annotations
 
@@ -13,6 +14,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GUIDE_PATH = _REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "28-binary-backed-features.md"
 _TOX_INI = _REPO_ROOT / "tox.ini"
 _CI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "ci.yaml"
+_README = _REPO_ROOT / "README.md"
+_CONTRIBUTING = _REPO_ROOT / "CONTRIBUTING.md"
+_CLAUDE_MD = _REPO_ROOT / "CLAUDE.md"
+_PACKAGING_DOC = _REPO_ROOT / "docs" / "packaging.md"
+# AGENTS.md is a byte-identical copy of CLAUDE.md, covered by test_agent_guidance.py.
+_SETUP_COMMAND_DOCS = (_README, _CONTRIBUTING, _CLAUDE_MD, _PACKAGING_DOC)
 
 
 def test_complete_example_sets_binary_wheel_distribution() -> None:
@@ -109,3 +116,29 @@ def test_against_the_real_wheel_section_shows_the_tox_env_command() -> None:
     assert "tox -e real-wheel" in section, (
         'the "Against the real wheel" section must contain `tox -e real-wheel`; section was:\n' + section
     )
+
+
+def test_against_the_real_wheel_section_shows_the_setup_command() -> None:
+    """The "### Against the real wheel" section shows the dev setup command that keeps the real wheel out."""
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    section = _section(content, "### Against the real wheel", ("\n## ", "\n### "))
+    assert "uv sync --all-packages --extra dev" in section, (
+        'the "Against the real wheel" section must contain `uv sync --all-packages --extra dev`; section was:\n'
+        + section
+    )
+
+
+def test_documented_uv_sync_commands_use_the_gate_flags_not_all_extras() -> None:
+    """Documented ``uv sync`` commands must use the gate's flags (``--all-packages --extra dev``): ``--all-extras``
+    also installs the real ``mloda-example-binary`` wheel (the ``wheel`` extra), which the suites assume is absent."""
+    for path in _SETUP_COMMAND_DOCS:
+        name = path.relative_to(_REPO_ROOT).as_posix()
+        lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines()]
+        commands = [line for line in lines if line.startswith("uv sync")]
+        assert commands, f"{name} must document the dev setup as a line starting with `uv sync`"
+        for command in commands:
+            tokens = shlex.split(command)
+            extras = [tokens[i + 1] for i, arg in enumerate(tokens[:-1]) if arg == "--extra"]
+            assert "--all-extras" not in tokens, f"{name}: `{command}` uses `--all-extras`; use `--extra dev`"
+            assert "--all-packages" in tokens, f"{name}: `{command}` lacks `--all-packages`"
+            assert extras == ["dev"], f"{name}: `{command}` requests extras {extras}; expected exactly ['dev']"

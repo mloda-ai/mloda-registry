@@ -102,15 +102,17 @@ uv venv
 source .venv/bin/activate
 
 # 4. Install dependencies
-uv sync --all-extras --all-packages
+uv sync --all-packages --extra dev
 ```
 
 For subsequent sessions, just activate and sync:
 
 ```bash
 source .venv/bin/activate
-uv sync --all-extras --all-packages
+uv sync --all-packages --extra dev
 ```
+
+These are the tox gate's flags minus `--frozen`; `--all-extras` also installs the real `mloda-example-binary` wheel (the `wheel` extra), which the suites assume is absent.
 
 ## Tox Usage
 
