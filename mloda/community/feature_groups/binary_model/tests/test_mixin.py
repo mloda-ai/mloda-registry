@@ -651,6 +651,19 @@ class TestLicenseOverrides:
         result = _OverrideBeatsEnvModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
         assert result.num_rows == 1
 
+    def test_empty_license_overrides_suppress_ambient_license_variables(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MLODA_LICENSE_FILE", "/ambient/license.txt")
+        monkeypatch.setenv("MLODA_LICENSE_KEY", "ambient-key")
+
+        class _SuppressedLicenseModel(BinaryModelMixin):
+            BINARY_PLUGIN_ID = PLUGIN_ID
+            LICENSE_FILE_OVERRIDE = ""
+            LICENSE_KEY_OVERRIDE = ""
+
+        env = _SuppressedLicenseModel.binary_environment()
+        assert "MLODA_LICENSE_FILE" not in env
+        assert "MLODA_LICENSE_KEY" not in env
+
 
 # -------------------------------------------------------------------------------------------
 # 16. Logging

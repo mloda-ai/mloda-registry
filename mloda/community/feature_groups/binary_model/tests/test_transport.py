@@ -150,6 +150,44 @@ class TestMinimalEnvironment:
         assert os.path.isabs(result["MLODA_LICENSE_FILE"])
         assert result["MLODA_LICENSE_FILE"] == str(Path("license.txt").resolve())
 
+    def test_inherit_license_false_drops_ambient_license_variables(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PATH", "/from/os/environ")
+        monkeypatch.setenv("MLODA_LICENSE_FILE", "/ambient/license.txt")
+        monkeypatch.setenv("MLODA_LICENSE_KEY", "ambient-key")
+        result = minimal_environment(inherit_license=False)
+        assert result["PATH"] == "/from/os/environ"
+        assert "MLODA_LICENSE_FILE" not in result
+        assert "MLODA_LICENSE_KEY" not in result
+
+    def test_inherit_license_false_keeps_path_and_systemroot_on_nt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PATH", "C:\\Windows\\System32")
+        monkeypatch.setenv("SYSTEMROOT", "C:\\Windows")
+        monkeypatch.setenv("MLODA_LICENSE_FILE", "C:\\ambient\\license.txt")
+        monkeypatch.setenv("MLODA_LICENSE_KEY", "ambient-key")
+        monkeypatch.setattr(os, "name", "nt")
+        result = minimal_environment(inherit_license=False)
+        assert result["PATH"] == "C:\\Windows\\System32"
+        assert result["SYSTEMROOT"] == "C:\\Windows"
+        assert "MLODA_LICENSE_FILE" not in result
+        assert "MLODA_LICENSE_KEY" not in result
+
+    def test_explicit_license_file_applies_when_inherit_license_is_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MLODA_LICENSE_KEY", "ambient-key")
+        result = minimal_environment(license_file="/f/license.txt", inherit_license=False)
+        assert result["MLODA_LICENSE_FILE"] == "/f/license.txt"
+        assert "MLODA_LICENSE_KEY" not in result
+
+    def test_empty_explicit_license_values_suppress_ambient_license_variables(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PATH", "/from/os/environ")
+        monkeypatch.setenv("MLODA_LICENSE_FILE", "/ambient/license.txt")
+        monkeypatch.setenv("MLODA_LICENSE_KEY", "ambient-key")
+        result = minimal_environment(license_file="", license_key="")
+        assert result["PATH"] == "/from/os/environ"
+        assert "MLODA_LICENSE_FILE" not in result
+        assert "MLODA_LICENSE_KEY" not in result
+
 
 class TestPidIsAlive:
     def test_current_pid_is_alive(self) -> None:
