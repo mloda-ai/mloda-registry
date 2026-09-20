@@ -50,6 +50,22 @@ _BOUNDED_REPR.maxother = 30
 
 _NOOP_TRACER_PROVIDER = trace.NoOpTracerProvider()
 
+# ProxyTracerProvider is returned while no global provider is set; NoOpTracerProvider only if installed deliberately.
+_API_DEFAULT_PROVIDER_TYPES = (trace.ProxyTracerProvider, trace.NoOpTracerProvider)
+
+_INERT_MESSAGE = (
+    "OtelExtender is inert: no injected tracer_provider and use_sdk_defaults is False; no spans will be "
+    "emitted. Inject a tracer_provider, or pass use_sdk_defaults=True and configure an OpenTelemetry SDK "
+    "tracer provider, to enable emission."
+)
+
+_NO_SDK_PROVIDER_MESSAGE = (
+    "OtelExtender found no OpenTelemetry SDK tracer provider while use_sdk_defaults is True; no spans will "
+    "be exported. Configure an SDK TracerProvider with an exporter via opentelemetry.trace.set_tracer_provider "
+    "(install opentelemetry-sdk if missing; under MULTIPROCESSING, in each worker via child_bootstrap), "
+    "or inject a tracer_provider."
+)
+
 _SPAN_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: "mloda.calculate",
     ExtenderHook.VALIDATE_INPUT_FEATURE: "mloda.validate.input",
@@ -65,7 +81,8 @@ _OPERATION_NAMES: dict[ExtenderHook, str] = {
 
 class OtelExtender(Extender):
     """Emits one OpenTelemetry span per wrapped hook invocation, populated from the ambient HookContext.
-    Sink resolution: injected tracer_provider wins, else use_sdk_defaults, else inert (no-op span).
+    Sink resolution: injected tracer_provider wins, else use_sdk_defaults (warns once if no SDK provider is set),
+    else inert (no-op span).
     An injected tracer_provider that can't survive pickling (e.g. the real SDK TracerProvider, which
     holds locks) is dropped by a trial-pickle probe when a copy is made (worker processes under
     ParallelizationMode.MULTIPROCESSING), falling back to the resolution rule above; a picklable
@@ -84,27 +101,27 @@ class OtelExtender(Extender):
         self.mask = mask
         self._tracer_provider = tracer_provider
         self.use_sdk_defaults = use_sdk_defaults
-        self._logged_inert = False
+        self._logged_inert = False  # one-shot flag shared by the inert and no-SDK warnings
         self._logged_inert_lock = threading.Lock()
         self._logged_pickle_drop = False
 
-    def _resolve_tracer_provider(self) -> TracerProvider | None:
+    def _resolve_tracer_provider(self) -> TracerProvider:
         if self._tracer_provider is not None:
             return self._tracer_provider
         if self.use_sdk_defaults:
-            return None
-        self._log_inert_once()
+            provider = trace.get_tracer_provider()
+            if isinstance(provider, _API_DEFAULT_PROVIDER_TYPES):
+                self._warn_once(_NO_SDK_PROVIDER_MESSAGE)
+            return provider
+        self._warn_once(_INERT_MESSAGE)
         return _NOOP_TRACER_PROVIDER
 
-    def _log_inert_once(self) -> None:
+    def _warn_once(self, message: str) -> None:
         if self._logged_inert:
             return
         with self._logged_inert_lock:
             if not self._logged_inert:
-                logger.warning(
-                    "OtelExtender is inert: no injected tracer_provider and use_sdk_defaults is False; no spans "
-                    "will be emitted. Inject a tracer_provider or pass use_sdk_defaults=True to enable emission."
-                )
+                logger.warning(message)
                 self._logged_inert = True
 
     def __getstate__(self) -> dict[str, Any]:

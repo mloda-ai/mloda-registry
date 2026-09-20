@@ -89,8 +89,10 @@ Extender code runs inline with the wrapped call: a blocking sink stalls every ca
 Adding an extender opts a pipeline into instrumentation, not into ambient configuration. `use_sdk_defaults` is the explicit opt-in for that. Resolution order, strict:
 
 1. An injected client/provider wins. No other sink is resolved alongside it.
-2. Else `use_sdk_defaults=True` delegates fully to the vendor SDK's own resolution (globals, env vars, config files, console fallback included).
+2. Else `use_sdk_defaults=True` delegates fully to the vendor SDK's own resolution (globals, env vars, config files, and a console fallback where the SDK has one).
 3. Else the extender is inert: no vendor configuration consulted, no backend constructed, nothing emitted. The wrapped call still runs and its result is returned unchanged. Logged once per instance at WARNING, including after a pickle round trip that drops an injected sink.
+
+`mloda-community-otel` ships `opentelemetry-api` only, whose default tracer provider is a no-op with no console fallback, so `OtelExtender(use_sdk_defaults=True)` exports nothing until an SDK `TracerProvider` with an exporter is configured. Install `opentelemetry-sdk` and call `opentelemetry.trace.set_tracer_provider` (under `MULTIPROCESSING`, in each worker via `child_bootstrap`). With only the API default present it logs one WARNING per instance (per copy after pickling); to run without an SDK on purpose, inject `opentelemetry.trace.NoOpTracerProvider()` as `tracer_provider`. Any extender whose `use_sdk_defaults` can resolve to a vendor no-op should warn once the same way.
 
 ## Usage
 
@@ -271,7 +273,7 @@ The mixin pins:
 
 | File | Description |
 |------|-------------|
-| [otel_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/otel/otel_extender.py) | OpenTelemetry spans, metadata-only by default; inert until a `tracer_provider` is injected or `use_sdk_defaults=True` (`mloda-community-otel`) |
+| [otel_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/otel/otel_extender.py) | OpenTelemetry spans, metadata-only by default; inert until a `tracer_provider` is injected or `use_sdk_defaults=True` with an SDK tracer provider configured (`mloda-community-otel`) |
 | [openlineage_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/openlineage/openlineage_extender.py) | OpenLineage RunEvents with schema, data-source and parent-run facets; inert until a `client` is injected or `use_sdk_defaults=True` (`mloda-community-openlineage`) |
 | [audit_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/enterprise/extenders/audit/audit_extender.py) | Tenant-scoped audit record per calculation with an identity presence gate (`fail_closed=True` refuses an unidentified run before any feature is calculated); a sink failure after a successful calculation fails the run by default; `seal_ndjson_runs` seals a finished run into a signed, hash-chained manifest that `verify_ndjson_log` checks, `rotate_manifest_key` records a key change, and `quarantine_damaged_lines` is the repair path for a torn log; `Ed25519Signer` (extra `mloda-enterprise[ed25519]`) makes seals non-repudiable and verifiable with the public key alone, and the unchanged `ManifestSigner` protocol lets a KMS-backed signer plug in later (none ships yet) (`mloda-enterprise-audit`, license required) |
 | [contract.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/testing/extenders/contract.py) | Extender contract test mixin (mloda-testing) |

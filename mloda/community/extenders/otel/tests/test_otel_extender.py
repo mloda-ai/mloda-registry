@@ -1,5 +1,6 @@
 """Tests for OtelExtender: contract compliance via OtelExtenderTestMixin, plus otel-specific
-attribute, content-capture, mask, preview-cost and sdk-import checks not covered by the mixin.
+attribute, content-capture, mask, preview-cost, sdk-import and provider-resolution warning (use_sdk_defaults
+with only the API default provider) checks not covered by the mixin.
 
 Direct __call__ tests below wrap calls in a manually built HookContext.activate() scope; each
 gets its own isolated (TracerProvider, InMemorySpanExporter) pair via the otel_capture fixture.
@@ -20,6 +21,7 @@ from typing import Any
 import pytest
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
 from mloda.steward import Extender, ExtenderHook
+from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
@@ -31,12 +33,15 @@ from mloda.testing.extenders.otel import (
     OtelExtenderTestMixin,
     RebuildingSpanCaptureProvider,
     make_span_capture,
+    single_span,
     single_span_attributes,
 )
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
 
 # The one attribute key that MUST carry content preview.
 _CONTENT_ATTRIBUTE = "mloda.content.preview"
+
+_NO_SDK_PROVIDER_MARKER = "found no OpenTelemetry SDK tracer provider"
 
 
 @pytest.fixture
@@ -45,6 +50,30 @@ def otel_capture() -> Iterator[tuple[TracerProvider, InMemorySpanExporter]]:
     provider, exporter = make_span_capture()
     yield provider, exporter
     provider.shutdown()
+
+
+class _AmbientProvider:
+    """What the patched opentelemetry.trace.get_tracer_provider returns; reassign .provider to switch mid-test."""
+
+    def __init__(self) -> None:
+        self.provider: trace.TracerProvider = trace.ProxyTracerProvider()
+
+
+@pytest.fixture
+def ambient_provider(monkeypatch: pytest.MonkeyPatch) -> _AmbientProvider:
+    """Patch get_tracer_provider (span creation resolves through it too) so no test installs a real global provider."""
+    holder = _AmbientProvider()
+    monkeypatch.setattr(trace, "get_tracer_provider", lambda: holder.provider)
+    return holder
+
+
+def _call_once(otel: OtelExtender) -> Any:
+    with make_hook_context().activate():
+        return otel(lambda: 42)
+
+
+def _marker_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if _NO_SDK_PROVIDER_MARKER in r.getMessage()]
 
 
 class TestOtelExtenderContract(OtelExtenderTestMixin):
@@ -154,23 +183,38 @@ class TestOtelExtenderPickledInertLogging:
 
         assert result == 42
         warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
-        assert any("OtelExtender" in r.message and "inert" in r.message.lower() for r in warning_records), (
-            warning_records
-        )
+        # The pickle-drop warning also says "inert"; the guidance substrings only appear in the copy's own warning.
+        assert any(
+            "OtelExtender" in r.message
+            and "inert" in r.message.lower()
+            and "use_sdk_defaults=True and configure" in r.message
+            and "SDK tracer provider" in r.message
+            for r in warning_records
+        ), warning_records
+        assert _marker_records(caplog) == [], caplog.records
 
 
 class TestOtelExtenderConcurrentInertLogging:
+    @pytest.mark.parametrize("use_sdk_defaults", [False, True], ids=["inert", "sdk_defaults"])
     def test_concurrent_first_calls_log_exactly_once(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        ambient_provider: _AmbientProvider,
+        use_sdk_defaults: bool,
     ) -> None:
-        otel = OtelExtender()
-        original_info = otel_extender_module.logger.info
+        # ambient_provider defaults to the API default provider, so the sdk_defaults case warns.
+        otel = OtelExtender(use_sdk_defaults=use_sdk_defaults)
+        original_warning = otel_extender_module.logger.warning
+        warning_calls: list[str] = []
 
-        def slow_info(msg: str, *args: Any, **kwargs: Any) -> None:
+        # Slow the one-shot warning to widen the check-then-log race window.
+        def slow_warning(msg: str, *args: Any, **kwargs: Any) -> None:
+            warning_calls.append(msg)
             time.sleep(0.05)
-            original_info(msg, *args, **kwargs)
+            original_warning(msg, *args, **kwargs)
 
-        monkeypatch.setattr(otel_extender_module.logger, "info", slow_info)
+        monkeypatch.setattr(otel_extender_module.logger, "warning", slow_warning)
 
         thread_count = 32
         barrier = threading.Barrier(thread_count)
@@ -181,14 +225,152 @@ class TestOtelExtenderConcurrentInertLogging:
                 otel(lambda: None)
 
         threads = [threading.Thread(target=worker, daemon=True) for _ in range(thread_count)]
-        with caplog.at_level(logging.INFO):
+        with caplog.at_level(logging.WARNING):
             for thread in threads:
                 thread.start()
             for thread in threads:
                 thread.join()
 
-        inert_records = [r for r in caplog.records if "OtelExtender" in r.message and "inert" in r.message.lower()]
-        assert len(inert_records) == 1, inert_records
+        if use_sdk_defaults:
+            matching_records = [r for r in caplog.records if _NO_SDK_PROVIDER_MARKER in r.message]
+        else:
+            matching_records = [
+                r for r in caplog.records if "OtelExtender" in r.message and "inert" in r.message.lower()
+            ]
+        assert len(matching_records) == 1, matching_records
+        # Self-check: the slow_warning patch was actually hit.
+        assert len(warning_calls) == 1, warning_calls
+
+
+class TestOtelExtenderNoSdkProviderWarning:
+    """Local to this extender, deliberately not in the published OtelExtenderTestMixin (binds third-party hosts)."""
+
+    @pytest.mark.parametrize("default_provider_class", [trace.ProxyTracerProvider, trace.NoOpTracerProvider])
+    def test_warns_once_per_instance_when_ambient_provider_is_the_api_default(
+        self,
+        ambient_provider: _AmbientProvider,
+        caplog: pytest.LogCaptureFixture,
+        default_provider_class: type[trace.TracerProvider],
+    ) -> None:
+        ambient_provider.provider = default_provider_class()
+        otel = OtelExtender(use_sdk_defaults=True)
+
+        with caplog.at_level(logging.WARNING):
+            first_result = _call_once(otel)
+            second_result = _call_once(otel)
+
+            records = _marker_records(caplog)
+            assert len(records) == 1, caplog.records
+            assert records[0].levelno == logging.WARNING
+            assert records[0].name == otel_extender_module.logger.name
+            message = records[0].getMessage()
+            assert "opentelemetry-sdk" in message
+            assert "inert" not in message.lower()
+
+            _call_once(OtelExtender(use_sdk_defaults=True))
+
+        assert first_result == 42
+        assert second_result == 42
+        assert len(_marker_records(caplog)) == 2, caplog.records
+
+    def test_warns_when_the_unpatched_api_default_provider_is_in_effect(self, caplog: pytest.LogCaptureFixture) -> None:
+        if not isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider):
+            pytest.skip("global provider already installed in this process")
+        otel = OtelExtender(use_sdk_defaults=True)
+
+        with caplog.at_level(logging.WARNING):
+            _call_once(otel)
+
+        assert len(_marker_records(caplog)) == 1, caplog.records
+
+    @pytest.mark.parametrize(
+        "install_before_construction", [True, False], ids=["before_construction", "after_construction"]
+    )
+    def test_real_ambient_provider_does_not_warn_and_receives_the_span(
+        self,
+        ambient_provider: _AmbientProvider,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        caplog: pytest.LogCaptureFixture,
+        install_before_construction: bool,
+    ) -> None:
+        provider, exporter = otel_capture
+        if install_before_construction:
+            ambient_provider.provider = provider
+        otel = OtelExtender(use_sdk_defaults=True)
+        if not install_before_construction:
+            ambient_provider.provider = provider
+
+        with caplog.at_level(logging.WARNING):
+            result = _call_once(otel)
+
+        assert result == 42
+        assert _marker_records(caplog) == []
+        assert single_span(exporter).name == "mloda.calculate"
+
+    def test_switching_to_a_real_provider_after_the_warning_emits_spans_without_warning_again(
+        self,
+        ambient_provider: _AmbientProvider,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(use_sdk_defaults=True)
+
+        with caplog.at_level(logging.WARNING):
+            _call_once(otel)
+            assert len(_marker_records(caplog)) == 1, caplog.records
+
+            ambient_provider.provider = provider
+            _call_once(otel)
+
+        assert len(_marker_records(caplog)) == 1, caplog.records
+        assert single_span(exporter).name == "mloda.calculate"
+
+    def test_pickled_copy_warns_again(
+        self, ambient_provider: _AmbientProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        otel = OtelExtender(use_sdk_defaults=True)
+
+        with caplog.at_level(logging.WARNING):
+            _call_once(otel)
+            assert len(_marker_records(caplog)) == 1, caplog.records
+
+            copy = pickle.loads(pickle.dumps(otel))  # nosec
+            _call_once(copy)
+
+        assert len(_marker_records(caplog)) == 2, caplog.records
+
+    def test_pickled_copy_that_dropped_its_injected_provider_warns(
+        self,
+        ambient_provider: _AmbientProvider,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        provider, _ = otel_capture
+        # The SDK TracerProvider holds locks, so pickling drops it; the copy then resolves the ambient provider.
+        otel = OtelExtender(tracer_provider=provider, use_sdk_defaults=True)
+
+        with caplog.at_level(logging.WARNING):
+            _call_once(otel)
+            assert _marker_records(caplog) == [], caplog.records
+
+            copy = pickle.loads(pickle.dumps(otel))  # nosec
+            assert copy._tracer_provider is None
+            _call_once(copy)
+
+        assert len(_marker_records(caplog)) == 1, caplog.records
+
+    def test_inert_instance_does_not_log_the_marker(
+        self, ambient_provider: _AmbientProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        otel = OtelExtender()
+
+        with caplog.at_level(logging.WARNING):
+            result = _call_once(otel)
+
+        assert result == 42
+        assert any("inert" in r.getMessage().lower() for r in caplog.records), caplog.records
+        assert _marker_records(caplog) == []
 
 
 class TestOtelExtenderInertContentCapture:
