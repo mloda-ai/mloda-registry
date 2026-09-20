@@ -138,7 +138,7 @@ def test_documented_uv_sync_commands_use_the_gate_flags_not_all_extras() -> None
         assert commands, f"{name} must document the dev setup as a line starting with `uv sync`"
         for command in commands:
             tokens = shlex.split(command)
-            extras = [tokens[i + 1] for i, token in enumerate(tokens[:-1]) if token == "--extra"]
+            extras = [tokens[i + 1] for i, arg in enumerate(tokens[:-1]) if arg == "--extra"]
             assert "--all-extras" not in tokens, f"{name}: `{command}` uses `--all-extras`; use `--extra dev`"
             assert "--all-packages" in tokens, f"{name}: `{command}` lacks `--all-packages`"
             assert extras == ["dev"], f"{name}: `{command}` requests extras {extras}; expected exactly ['dev']"
