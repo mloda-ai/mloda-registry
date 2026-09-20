@@ -284,6 +284,19 @@ class BinaryModelConformanceBase:
 
     missing_plugins_claim_text: ClassVar[str] = license_vectors.missing_plugins_claim_token()
 
+    # ``in_grace_license_text`` is time-relative: an override must return a token currently inside its grace window.
+    @property
+    def in_grace_license_text(self) -> str:
+        return license_vectors.in_grace_license_token([self.plugin_id])
+
+    @property
+    def not_yet_valid_license_text(self) -> str:
+        return license_vectors.not_yet_valid_license_token([self.plugin_id])
+
+    @property
+    def unknown_kid_license_text(self) -> str:
+        return license_vectors.unknown_kid_license_token([self.plugin_id])
+
     # -- Overridable helpers for building a generically-valid config/data case --
 
     def make_config(
@@ -611,7 +624,7 @@ class BinaryModelConformanceBase:
         """A token past ``exp`` but still inside its ``grace_days`` window proceeds past the
         license check; whatever happens next is never code 2 or 3 (spec: Verification step 6;
         contract: License)."""
-        env = self.platform_env({"MLODA_LICENSE_KEY": license_vectors.in_grace_license_token([self.plugin_id])})
+        env = self.platform_env({"MLODA_LICENSE_KEY": self.in_grace_license_text})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -620,7 +633,7 @@ class BinaryModelConformanceBase:
     def test_license_not_yet_valid_is_invalid(self, valid_config_path: Path) -> None:
         """A token whose ``nbf`` lies in the future: exit 3, not yet valid (spec: Verification
         step 6; contract: License)."""
-        env = self.platform_env({"MLODA_LICENSE_KEY": license_vectors.not_yet_valid_license_token([self.plugin_id])})
+        env = self.platform_env({"MLODA_LICENSE_KEY": self.not_yet_valid_license_text})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
@@ -629,7 +642,7 @@ class BinaryModelConformanceBase:
     def test_license_unknown_kid_is_invalid(self, valid_config_path: Path) -> None:
         """A well-signed token under a ``kid`` the verifier's key map does not contain: exit 3
         (spec: Verification step 3; contract: License)."""
-        env = self.platform_env({"MLODA_LICENSE_KEY": license_vectors.unknown_kid_license_token([self.plugin_id])})
+        env = self.platform_env({"MLODA_LICENSE_KEY": self.unknown_kid_license_text})
         result = run_binary(
             self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
         )
