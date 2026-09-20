@@ -8,6 +8,7 @@ import dataclasses
 import errno
 import hashlib
 import hmac
+import importlib
 import json
 import os
 import pickle  # nosec
@@ -18,6 +19,7 @@ from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 from unittest.mock import patch
 
@@ -30,6 +32,7 @@ import mloda.enterprise.extenders.audit.audit_extender as audit_extender_module
 import mloda.enterprise.extenders.audit.run_manifest as run_manifest_module
 from mloda.enterprise.extenders.audit import (
     AuditExtender,
+    Ed25519Signer,
     HmacSha256Signer,
     IdentityRequiredError,
     KeyAlreadyCurrentError,
@@ -51,9 +54,22 @@ from mloda.enterprise.extenders.audit import (
 )
 from mloda.enterprise.extenders.audit.audit_extender import _append_records
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
+from mloda.testing.import_isolation import block_root, evict_package
 
 _KEY = b"k" * 32
 _OTHER_KEY = b"o" * 32
+_THIRD_KEY = b"t" * 32
+
+# RFC 8032 section 7.1, test 1: an empty message.
+_RFC8032_SEED = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
+_RFC8032_PUBLIC_KEY = bytes.fromhex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
+_RFC8032_SIGNATURE = (
+    "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555"
+    "fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+)
+
+# The signing algorithm `_signer` builds; the `algorithm` fixture flips it for a test.
+_ALGORITHM = "hmac"
 
 _EXPECTED_MANIFEST_KEYS = {
     "manifest_version",
@@ -103,9 +119,54 @@ _current_key_required = pytest.mark.parametrize(
     "call", [verify_ndjson_log, verify_ndjson_log_coverage, seal_ndjson_runs], ids=["verify", "coverage", "seal"]
 )
 
+# Runs a class once per algorithm; the classes without it do not depend on the signer's algorithm.
+_both_algorithms = pytest.mark.usefixtures("algorithm")
+# With `_both_algorithms`, narrows a class to Ed25519: the classes that need a signer only it can be.
+_ed25519_only = pytest.mark.parametrize("algorithm", ["ed25519"], indirect=True)
 
-def _signer(key: bytes = _KEY, key_id: str = "key-1") -> HmacSha256Signer:
-    return HmacSha256Signer(key, key_id)
+
+@pytest.fixture(params=["hmac", "ed25519"])
+def algorithm(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys.modules[__name__], "_ALGORITHM", request.param)
+
+
+def _signer_class() -> type[HmacSha256Signer] | type[Ed25519Signer]:
+    """The signer class of the current algorithm."""
+    classes: dict[str, type[HmacSha256Signer] | type[Ed25519Signer]] = {
+        "hmac": HmacSha256Signer,
+        "ed25519": Ed25519Signer,
+    }
+    return classes[_ALGORITHM]
+
+
+def _signer(key: bytes = _KEY, key_id: str = "key-1") -> ManifestSigner:
+    return _signer_class()(key, key_id)
+
+
+def _reference_signature(key: bytes, payload: bytes) -> str:
+    """The signature of `payload` under `key`, recomputed without the signer under test."""
+    if _ALGORITHM == "ed25519":
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        signature: bytes = Ed25519PrivateKey.from_private_bytes(key).sign(payload)
+        return signature.hex()
+    assert _ALGORITHM == "hmac", _ALGORITHM
+    return hmac.new(key, payload, hashlib.sha256).hexdigest()
+
+
+def _public_key(private_key: bytes) -> bytes:
+    """The raw public key of an Ed25519 private key, derived without the signer under test."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+    public_key = Ed25519PrivateKey.from_private_bytes(private_key).public_key()
+    raw: bytes = public_key.public_bytes(Encoding.Raw, PublicFormat.Raw)
+    return raw
+
+
+def _verify_only(private_key: bytes = _KEY, key_id: str = "key-1") -> Ed25519Signer:
+    """The public half of the Ed25519 signer `_signer(private_key, key_id)` builds."""
+    return Ed25519Signer.from_public_key(_public_key(private_key), key_id)
 
 
 def _record(run_id: str | None = "run-1", second: int = 0, *, tenant_id: str | None = "tenant-1") -> dict[str, Any]:
@@ -286,11 +347,11 @@ def _rotate(manifest_path: Path, signer: ManifestSigner, *previous_signers: Mani
 
 def _rotated_three_key_log(
     directory: Path, *, seal_between: bool = True
-) -> tuple[Path, Path, HmacSha256Signer, HmacSha256Signer, HmacSha256Signer]:
+) -> tuple[Path, Path, ManifestSigner, ManifestSigner, ManifestSigner]:
     """One run each sealed by three keys in turn, with two rotations; `seal_between=False` skips the key-2 run."""
     audit_path = directory / "audit.ndjson"
     manifest_path = directory / "manifests.ndjson"
-    key_1, key_2, key_3 = _signer(key_id="key-1"), _signer(_OTHER_KEY, "key-2"), _signer(b"t" * 32, "key-3")
+    key_1, key_2, key_3 = _signer(key_id="key-1"), _signer(_OTHER_KEY, "key-2"), _signer(_THIRD_KEY, "key-3")
     _write_records(audit_path, [_record("run-a", 1)])
     seal_ndjson_runs(audit_path, manifest_path, signer=key_1)
     _rotate(manifest_path, key_2, key_1)
@@ -303,11 +364,34 @@ def _rotated_three_key_log(
     return audit_path, manifest_path, key_1, key_2, key_3
 
 
+def _mixed_algorithm_log(directory: Path) -> tuple[Path, Path, ManifestSigner, ManifestSigner, ManifestSigner]:
+    """One run each sealed by HMAC key-1, Ed25519 key-2 and HMAC key-3 in turn, with two rotations."""
+    audit_path = directory / "audit.ndjson"
+    manifest_path = directory / "manifests.ndjson"
+    key_1 = HmacSha256Signer(_KEY, "key-1")
+    key_2 = Ed25519Signer(_OTHER_KEY, "key-2")
+    key_3 = HmacSha256Signer(_THIRD_KEY, "key-3")
+    _write_records(audit_path, [_record("run-a", 1)])
+    seal_ndjson_runs(audit_path, manifest_path, signer=key_1)
+    _rotate(manifest_path, key_2, key_1)
+    _write_records(audit_path, [_record("run-b", 2)])
+    seal_ndjson_runs(audit_path, manifest_path, signer=key_2, previous_signers=[key_1])
+    _rotate(manifest_path, key_3, key_1, key_2)
+    _write_records(audit_path, [_record("run-c", 3)])
+    seal_ndjson_runs(audit_path, manifest_path, signer=key_3, previous_signers=[key_1, key_2])
+    return audit_path, manifest_path, key_1, key_2, key_3
+
+
+def _unwrapped(signer: ManifestSigner) -> ManifestSigner:
+    return signer
+
+
 def _pending_write(
     directory: Path, writer: str
 ) -> tuple[Path, Callable[..., list[dict[str, Any]]], Callable[[], str | None]]:
     """A sealed log with one pending write ("seal": runs d, e, f; "rotate": key-1 to key-2). Returns the manifest path,
-    `write(signer_type)` (the appended lines; the type lets a test spy on signing) and `verify()` (the new head)."""
+    `write(wrap)` (the appended lines; `wrap` maps each signer, so a test can spy on signing) and `verify()` (the new
+    head)."""
     audit_path, manifest_path = _sealed_log(directory)
     head = manifest_hash(_read_lines(manifest_path)[-1])
     key, key_id = (_KEY, "key-1") if writer == "seal" else (_OTHER_KEY, "key-2")
@@ -316,11 +400,11 @@ def _pending_write(
             audit_path, [_record(f"run-{name}", second) for name, second in zip("def", (7, 8, 9), strict=True)]
         )
 
-    def write(signer_type: type[HmacSha256Signer] = HmacSha256Signer) -> list[dict[str, Any]]:
-        signer = signer_type(key, key_id)
+    def write(wrap: Callable[[ManifestSigner], ManifestSigner] = _unwrapped) -> list[dict[str, Any]]:
+        signer = wrap(_signer(key, key_id))
         if writer == "seal":
             return seal_ndjson_runs(audit_path, manifest_path, signer=signer, expected_head=head)
-        old_signer = signer_type(_KEY, "key-1")
+        old_signer = wrap(_signer(_KEY, "key-1"))
         return [rotate_manifest_key(manifest_path, signer=signer, previous_signers=[old_signer], expected_head=head)]
 
     def verify() -> str | None:
@@ -491,11 +575,39 @@ class _PrefixSigner:
             return False
 
 
+class _HookedSigner:
+    """Delegates to `inner`, running a hook first; unlike a subclass it works over any algorithm."""
+
+    def __init__(
+        self,
+        inner: ManifestSigner,
+        *,
+        on_sign: Callable[[bytes], None] | None = None,
+        on_verify: Callable[[bytes], None] | None = None,
+    ) -> None:
+        self._inner = inner
+        self._on_sign = on_sign
+        self._on_verify = on_verify
+        self.algorithm = inner.algorithm
+        self.key_id = inner.key_id
+
+    def sign(self, payload: bytes) -> str:
+        if self._on_sign is not None:
+            self._on_sign(payload)
+        return self._inner.sign(payload)
+
+    def verify(self, payload: bytes, signature: str) -> bool:
+        if self._on_verify is not None:
+            self._on_verify(payload)
+        return self._inner.verify(payload, signature)
+
+
 class TestRunManifestPublicApi:
     def test_run_manifest_names_are_in_the_package_all(self) -> None:
         assert {
             "ManifestSigner",
             "HmacSha256Signer",
+            "Ed25519Signer",
             "ManifestVerificationError",
             "RunNotPendingError",
             "RunAlreadySealedError",
@@ -540,17 +652,9 @@ class TestRunManifestPublicApi:
         assert records_module._is_blank("value") is False
 
 
-class TestHmacSha256Signer:
-    def test_algorithm_and_key_id(self) -> None:
-        signer = HmacSha256Signer(_KEY, "key-2026-01")
-
-        assert signer.algorithm == "HMAC-SHA256"
-        assert signer.key_id == "key-2026-01"
-
-    def test_sign_is_the_lowercase_hex_hmac_sha256(self) -> None:
-        payload = b'{"a": 1}'
-
-        assert _signer().sign(payload) == hmac.new(_KEY, payload, hashlib.sha256).hexdigest()
+@_both_algorithms
+class TestManifestSignerContract:
+    """What every signer does, whatever its algorithm."""
 
     def test_verify_accepts_its_own_signature(self) -> None:
         signer = _signer()
@@ -578,6 +682,36 @@ class TestHmacSha256Signer:
     def test_verify_returns_false_for_a_signature_it_cannot_compare(self, signature: str) -> None:
         assert _signer().verify(b"payload", signature) is False
 
+    @pytest.mark.parametrize("key_id", ["", "   ", "\t\n"])
+    def test_blank_key_id_raises_value_error(self, key_id: str) -> None:
+        with pytest.raises(ValueError):
+            _signer_class()(_KEY, key_id)
+
+    def test_non_str_key_id_raises_value_error(self) -> None:
+        with pytest.raises(ValueError):
+            _signer_class()(_KEY, None)  # type: ignore[arg-type]
+
+    def test_repr_does_not_contain_the_key(self) -> None:
+        key = b"do-not-print-this-signing-key-01"
+        signer = _signer_class()(key, "key-1")
+
+        for text in (repr(signer), str(signer)):
+            assert key.decode("utf-8") not in text
+            assert key.hex() not in text
+
+
+class TestHmacSha256Signer:
+    def test_algorithm_and_key_id(self) -> None:
+        signer = HmacSha256Signer(_KEY, "key-2026-01")
+
+        assert signer.algorithm == "HMAC-SHA256"
+        assert signer.key_id == "key-2026-01"
+
+    def test_sign_is_the_lowercase_hex_hmac_sha256(self) -> None:
+        payload = b'{"a": 1}'
+
+        assert _signer().sign(payload) == hmac.new(_KEY, payload, hashlib.sha256).hexdigest()
+
     @pytest.mark.parametrize("key", [b"", b"k" * 31])
     def test_short_key_raises_value_error(self, key: bytes) -> None:
         with pytest.raises(ValueError):
@@ -586,15 +720,6 @@ class TestHmacSha256Signer:
     def test_non_bytes_key_raises_value_error(self) -> None:
         with pytest.raises(ValueError):
             HmacSha256Signer("k" * 32, "key-1")  # type: ignore[arg-type]
-
-    @pytest.mark.parametrize("key_id", ["", "   ", "\t\n"])
-    def test_blank_key_id_raises_value_error(self, key_id: str) -> None:
-        with pytest.raises(ValueError):
-            HmacSha256Signer(_KEY, key_id)
-
-    def test_non_str_key_id_raises_value_error(self) -> None:
-        with pytest.raises(ValueError):
-            HmacSha256Signer(_KEY, None)  # type: ignore[arg-type]
 
     def test_repr_does_not_contain_the_key(self) -> None:
         key = b"do-not-print-this-signing-key-0123456789"
@@ -605,6 +730,119 @@ class TestHmacSha256Signer:
             assert key.hex() not in text
 
 
+# Forms of a valid signature that verify must refuse; some decode to the same bytes under a lenient hex parser.
+_MANGLED_SIGNATURES: dict[str, Callable[[str], str]] = {
+    "uppercase": str.upper,
+    "leading-space": lambda signature: " " + signature,
+    "trailing-newline": lambda signature: signature + "\n",
+    "spaced-byte-pairs": lambda signature: " ".join(signature[i : i + 2] for i in range(0, len(signature), 2)),
+    "127-chars": lambda signature: signature[:-1],
+    "129-chars": lambda signature: signature + "0",
+    "non-hex": lambda signature: "g" + signature[1:],
+    "trailing-spaces-at-128": lambda signature: signature[:-2] + "  ",
+    "empty": lambda signature: "",
+    "non-ascii": lambda signature: "é" * len(signature),
+    "lone-surrogate": lambda signature: chr(0xD800) * len(signature),
+}
+
+_not_a_32_byte_key = pytest.mark.parametrize(
+    "key", [b"", b"k" * 31, b"k" * 33, "k" * 32], ids=["empty", "31-bytes", "33-bytes", "str"]
+)
+
+
+class TestEd25519Signer:
+    def test_algorithm_and_key_id(self) -> None:
+        signer = Ed25519Signer(_KEY, "key-2026-01")
+
+        assert signer.algorithm == "Ed25519"
+        assert signer.key_id == "key-2026-01"
+
+    def test_sign_matches_the_rfc_8032_test_vector(self) -> None:
+        signer = Ed25519Signer(_RFC8032_SEED, "rfc-8032")
+
+        assert signer.sign(b"") == _RFC8032_SIGNATURE
+        assert signer.verify(b"", _RFC8032_SIGNATURE) is True
+
+    def test_a_public_key_signer_verifies_the_rfc_8032_test_vector(self) -> None:
+        verifier = Ed25519Signer.from_public_key(_RFC8032_PUBLIC_KEY, "rfc-8032")
+
+        assert verifier.verify(b"", _RFC8032_SIGNATURE) is True
+        assert verifier.verify(b"tampered", _RFC8032_SIGNATURE) is False
+
+    def test_sign_returns_128_lowercase_hex_characters(self) -> None:
+        signature = Ed25519Signer(_KEY, "key-1").sign(b"payload")
+
+        assert re.fullmatch(r"[0-9a-f]{128}", signature)
+
+    @pytest.mark.parametrize("public_only", [False, True], ids=["private", "public-only"])
+    @pytest.mark.parametrize("mangle", list(_MANGLED_SIGNATURES.values()), ids=list(_MANGLED_SIGNATURES))
+    def test_verify_returns_false_for_anything_but_128_lowercase_hex_characters(
+        self, mangle: Callable[[str], str], public_only: bool
+    ) -> None:
+        signature = Ed25519Signer(_KEY, "key-1").sign(b"payload")
+        signer = _verify_only() if public_only else Ed25519Signer(_KEY, "key-1")
+        mangled = mangle(signature)
+        # The control: the untouched signature verifies, and this form really differs from it.
+        assert signer.verify(b"payload", signature) is True
+        assert mangled != signature
+
+        assert signer.verify(b"payload", mangled) is False
+
+    @_not_a_32_byte_key
+    def test_a_private_key_that_is_not_32_bytes_raises_value_error(self, key: Any) -> None:
+        with pytest.raises(ValueError):
+            Ed25519Signer(key, "key-1")
+
+    @pytest.mark.parametrize("key_id", ["", "   ", "\t\n"])
+    def test_a_blank_key_id_raises_value_error_for_a_public_key_too(self, key_id: str) -> None:
+        with pytest.raises(ValueError):
+            Ed25519Signer.from_public_key(_RFC8032_PUBLIC_KEY, key_id)
+
+    def test_a_non_str_key_id_raises_value_error_for_a_public_key_too(self) -> None:
+        with pytest.raises(ValueError):
+            Ed25519Signer.from_public_key(_RFC8032_PUBLIC_KEY, None)  # type: ignore[arg-type]
+
+    @_not_a_32_byte_key
+    def test_a_public_key_that_is_not_32_bytes_raises_value_error(self, key: Any) -> None:
+        with pytest.raises(ValueError):
+            Ed25519Signer.from_public_key(key, "key-1")
+
+    def test_a_public_key_signer_has_the_algorithm_and_key_id(self) -> None:
+        verifier = Ed25519Signer.from_public_key(_RFC8032_PUBLIC_KEY, "key-2026-01")
+
+        assert verifier.algorithm == "Ed25519"
+        assert verifier.key_id == "key-2026-01"
+
+    def test_a_public_key_signer_verifies_the_signature_of_the_matching_private_signer(self) -> None:
+        signature = Ed25519Signer(_KEY, "key-1").sign(b"payload")
+        verifier = _verify_only()
+
+        assert verifier.verify(b"payload", signature) is True
+        assert verifier.verify(b"payload-tampered", signature) is False
+        assert _verify_only(_OTHER_KEY).verify(b"payload", signature) is False
+
+    def test_a_public_key_signer_cannot_sign(self) -> None:
+        with pytest.raises(ValueError, match="public key"):
+            _verify_only().sign(b"payload")
+
+    def test_repr_shows_the_key_id_and_no_key_material(self) -> None:
+        signer = Ed25519Signer(_KEY, "key-1")
+
+        for text in (repr(signer), str(signer)):
+            assert "key-1" in text
+            assert _KEY.decode("utf-8") not in text
+            assert _KEY.hex() not in text
+            assert _public_key(_KEY).hex() not in text
+
+    def test_a_public_key_signer_repr_shows_the_key_id_and_no_key_material(self) -> None:
+        verifier = _verify_only()
+
+        for text in (repr(verifier), str(verifier)):
+            assert "key-1" in text
+            assert _public_key(_KEY).hex() not in text
+
+
+@_both_algorithms
 class TestSealRun:
     def test_manifest_has_exactly_the_expected_keys(self) -> None:
         manifest = seal_run([_record()], run_id="run-1", signer=_signer())
@@ -688,7 +926,7 @@ class TestSealRun:
 
         payload = _canonical(_unsigned(manifest))
         assert signer.verify(payload, manifest["signature"]["value"]) is True
-        assert manifest["signature"]["value"] == hmac.new(_KEY, payload, hashlib.sha256).hexdigest()
+        assert manifest["signature"]["value"] == _reference_signature(_KEY, payload)
 
     def test_any_manifest_signer_can_seal(self) -> None:
         signer: ManifestSigner = _PrefixSigner()
@@ -740,6 +978,7 @@ class TestManifestHash:
         assert manifest_hash({**manifest, "signature": "tampered"}) != manifest_hash(manifest)
 
 
+@_both_algorithms
 class TestVerifyManifest:
     def test_manifest_verification_error_is_a_value_error(self) -> None:
         assert issubclass(ManifestVerificationError, ValueError)
@@ -1007,6 +1246,7 @@ class TestVerifyManifest:
             verify_manifest(_rotation_entry(_signer(), None), [_record()], signer=_signer())
 
 
+@_both_algorithms
 class TestSealNdjsonRuns:
     def test_seals_every_run_of_the_audit_file(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"
@@ -1206,15 +1446,15 @@ class TestSealNdjsonRuns:
         _write_records(audit_path, [_record("run-d", 7), _record("run-e", 8), _record("run-f", 9)])
         before = manifest_path.read_bytes()
 
-        class _FailingSigner(HmacSha256Signer):
-            def sign(self, payload: bytes) -> str:
-                # Fails on run-f, which only sealing meets.
-                if json.loads(payload).get("run_id") == "run-f":
-                    raise RuntimeError("signing boom")
-                return super().sign(payload)
+        def fail_on_run_f(payload: bytes) -> None:
+            # Fails on run-f, which only sealing meets.
+            if json.loads(payload).get("run_id") == "run-f":
+                raise RuntimeError("signing boom")
+
+        failing = _HookedSigner(_signer(), on_sign=fail_on_run_f)
 
         with pytest.raises(RuntimeError, match="signing boom"):
-            seal_ndjson_runs(audit_path, manifest_path, signer=_FailingSigner(_KEY, "key-1"), expected_head=head)
+            seal_ndjson_runs(audit_path, manifest_path, signer=failing, expected_head=head)
 
         assert manifest_path.read_bytes() == before
         manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
@@ -1437,11 +1677,8 @@ class TestSealNdjsonRuns:
             finally:
                 os.close(fd)
 
-        class _LockProbeSigner(HmacSha256Signer):
-            def sign(self, payload: bytes) -> str:
-                # Verifying signs too.
-                refused.append(probe())
-                return super().sign(payload)
+        def probe_signing(payload: bytes) -> None:
+            refused.append(probe())
 
         def spy(*args: Any, **kwargs: Any) -> None:
             refused.append(probe())
@@ -1450,7 +1687,8 @@ class TestSealNdjsonRuns:
 
         monkeypatch.setattr(run_manifest_module, "_append_records", spy)
 
-        appended = write(_LockProbeSigner)
+        # The wrapper probes verify as well as sign: its verify does not call its sign.
+        appended = write(lambda signer: _HookedSigner(signer, on_sign=probe_signing, on_verify=probe_signing))
 
         assert [line.get("run_id") for line in appended] == _PENDING_RUN_IDS[writer]
         assert appends == [True]
@@ -1545,6 +1783,7 @@ class TestSealNdjsonRuns:
         assert manifest_path.read_bytes() == before
 
 
+@_both_algorithms
 class TestRotateManifestKey:
     """Lock, fsync and rollback are covered in TestSealNdjsonRuns."""
 
@@ -1574,7 +1813,7 @@ class TestRotateManifestKey:
         signature = entry["signature"]
         assert set(signature) == {"algorithm", "key_id", "value"}
         assert (signature["algorithm"], signature["key_id"]) == (new_signer.algorithm, "key-2")
-        assert signature["value"] == hmac.new(_OTHER_KEY, _canonical(_unsigned(entry)), hashlib.sha256).hexdigest()
+        assert signature["value"] == _reference_signature(_OTHER_KEY, _canonical(_unsigned(entry)))
 
     def test_entry_chains_onto_the_head_and_is_the_only_line_appended(self, tmp_path: Path) -> None:
         _, manifest_path = _sealed_log(tmp_path)
@@ -1758,12 +1997,7 @@ class TestRotateManifestKey:
         _, manifest_path = _sealed_log(tmp_path)
         verified: list[bytes] = []
 
-        class _CountingSigner(HmacSha256Signer):
-            def verify(self, payload: bytes, signature: str) -> bool:
-                verified.append(payload)
-                return super().verify(payload, signature)
-
-        _rotate(manifest_path, _signer(_OTHER_KEY, "key-2"), _CountingSigner(_KEY, "key-1"))
+        _rotate(manifest_path, _signer(_OTHER_KEY, "key-2"), _HookedSigner(_signer(), on_verify=verified.append))
 
         assert len(verified) == len(_read_lines(manifest_path)) - 1
 
@@ -1776,6 +2010,7 @@ class TestRotateManifestKey:
         assert verify() == manifest_hash(entry)
 
 
+@_both_algorithms
 class TestVerifyNdjsonLog:
     def test_untouched_log_verifies(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
@@ -2209,6 +2444,7 @@ class TestVerifyNdjsonLog:
         assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == head
 
 
+@_both_algorithms
 class TestVerifyNdjsonLogCoverage:
     def test_fully_sealed_log_covers_every_line(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"
@@ -2497,6 +2733,7 @@ class TestVerifyNdjsonLogCoverage:
         assert "run-z" not in again.unsealed_lines
 
 
+@_both_algorithms
 class TestKeyRotationEntries:
     """Key order comes from the log's rotation entries, not from previous_signers."""
 
@@ -2601,6 +2838,7 @@ class TestKeyRotationEntries:
         assert manifest_path.read_bytes() == before
 
 
+@_both_algorithms
 class TestCurrentKeyRequirement:
     """Sealing and verifying need the log's current key to be the signer."""
 
@@ -2667,6 +2905,7 @@ class TestCurrentKeyRequirement:
         verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
 
 
+@_both_algorithms
 class TestExpectedHead:
     """expected_head anchors the log outside itself."""
 
@@ -2864,6 +3103,7 @@ class TestPathAliasingGuards:
         assert _snapshot(tmp_path) == before
 
 
+@_both_algorithms
 class TestQuarantineDamagedLines:
     def test_quarantined_line_is_frozen(self) -> None:
         line = QuarantinedLine(file="audit", line=1, offset=0, length=1, sha256="0" * 64, reason="not valid JSON")
@@ -2953,7 +3193,7 @@ class TestQuarantineDamagedLines:
             payload = _canonical(_unsigned(entry))
             assert set(signature) == {"algorithm", "key_id", "value"}
             assert (signature["algorithm"], signature["key_id"]) == (_signer().algorithm, _signer().key_id)
-            assert signature["value"] == hmac.new(_KEY, payload, hashlib.sha256).hexdigest()
+            assert signature["value"] == _reference_signature(_KEY, payload)
             tampered = _canonical(_unsigned({**entry, "line": entry["line"] + 1}))
             assert _signer().verify(tampered, signature["value"]) is False
 
@@ -3816,11 +4056,8 @@ class TestQuarantineDamagedLines:
         probes: list[tuple[str, bool]] = []
         real_replace = os.replace
 
-        class _LockProbeSigner(HmacSha256Signer):
-            def sign(self, payload: bytes) -> str:
-                # Verifying and the trace both sign.
-                probes.append(("sign", _lock_refused(manifest_path)))
-                return super().sign(payload)
+        def probe_signing(payload: bytes) -> None:
+            probes.append(("sign", _lock_refused(manifest_path)))
 
         def spy_append(*args: Any, **kwargs: Any) -> None:
             probes.append(("append", _lock_refused(manifest_path)))
@@ -3833,7 +4070,9 @@ class TestQuarantineDamagedLines:
         monkeypatch.setattr(run_manifest_module, "_append_records", spy_append)
         monkeypatch.setattr(os, "replace", spy_replace)
 
-        removed = _quarantine(tmp_path, audit_path, manifest_path, signer=_LockProbeSigner(_KEY, "key-1"))
+        # Verifying and the trace both use the signer, so the wrapper probes both hooks.
+        probing = _HookedSigner(_signer(), on_sign=probe_signing, on_verify=probe_signing)
+        removed = _quarantine(tmp_path, audit_path, manifest_path, signer=probing)
 
         assert len(removed) == 3
         assert {stage for stage, _ in probes} == {"sign", "append", "replace"}
@@ -3930,6 +4169,316 @@ class TestQuarantineDamagedLines:
         assert manifest_path.read_bytes() == manifest_before[: manifest_before.rindex(b"\n") + 1]
         assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == head
         assert len(_read_lines(_trace(tmp_path))) == 1
+
+
+@_both_algorithms
+@_ed25519_only
+class TestEd25519PublicKeyOnly:
+    """A host that holds only public keys can verify and inspect a log, and can never write to it."""
+
+    def test_a_whole_rotated_log_verifies_with_public_keys_alone_and_returns_the_same_head(
+        self, tmp_path: Path
+    ) -> None:
+        audit_path, manifest_path, key_1, key_2, key_3 = _rotated_three_key_log(tmp_path)
+        head = verify_ndjson_log(audit_path, manifest_path, signer=key_3, previous_signers=[key_1, key_2])
+        current = _verify_only(_THIRD_KEY, "key-3")
+        previous = [_verify_only(_KEY, "key-1"), _verify_only(_OTHER_KEY, "key-2")]
+
+        assert verify_ndjson_log(audit_path, manifest_path, signer=current, previous_signers=previous) == head
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=current, previous_signers=previous)
+        assert coverage.head == head
+        assert coverage.sealed_runs == 3
+        assert head == manifest_hash(_read_lines(manifest_path)[-1])
+
+    def test_a_public_key_that_is_not_the_sealing_keys_is_rejected(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        # The control: the sealing key's own public key verifies.
+        verify_ndjson_log(audit_path, manifest_path, signer=_verify_only())
+
+        with pytest.raises(ManifestVerificationError, match="signature"):
+            verify_ndjson_log(audit_path, manifest_path, signer=_verify_only(_OTHER_KEY))
+
+    def test_a_dry_run_quarantine_reports_the_damage_and_changes_nothing(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, _ = _torn_manifest_log(tmp_path)
+        before = _snapshot(tmp_path)
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path, signer=_verify_only(), dry_run=True)
+
+        assert _summary(removed) == _spans("manifest", before["manifests.ndjson"], [4])
+        assert _snapshot(tmp_path) == before
+
+    def test_a_repair_cannot_sign_its_trace_so_it_raises_and_leaves_both_logs_alone(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, _ = _torn_manifest_log(tmp_path)
+        audit_before, manifest_before = audit_path.read_bytes(), manifest_path.read_bytes()
+
+        with pytest.raises(ValueError, match="public key"):
+            _quarantine(tmp_path, audit_path, manifest_path, signer=_verify_only())
+
+        assert audit_path.read_bytes() == audit_before
+        assert manifest_path.read_bytes() == manifest_before
+
+    def test_sealing_a_pending_run_raises_value_error_and_writes_nothing(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _write_records(audit_path, [_record("run-d", 7)])
+        before = manifest_path.read_bytes()
+
+        with pytest.raises(ValueError, match="public key"):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_verify_only())
+
+        assert manifest_path.read_bytes() == before
+
+    def test_rotating_to_a_new_public_key_raises_value_error_and_writes_nothing(self, tmp_path: Path) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        before = manifest_path.read_bytes()
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+
+        with pytest.raises(ValueError, match="public key") as excinfo:
+            rotate_manifest_key(
+                manifest_path,
+                signer=_verify_only(_OTHER_KEY, "key-2"),
+                previous_signers=[_signer()],
+                expected_head=head,
+            )
+
+        assert not isinstance(excinfo.value, (ManifestVerificationError, KeyAlreadyCurrentError))
+        assert manifest_path.read_bytes() == before
+
+    def test_a_public_key_as_a_retired_key_still_lets_the_private_signer_seal(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        old_public, new_signer = _verify_only(), _signer(_OTHER_KEY, "key-2")
+        _rotate(manifest_path, new_signer, old_public)
+        _write_records(audit_path, [_record("run-d", 7)])
+
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=new_signer, previous_signers=[old_public])
+
+        assert [manifest["run_id"] for manifest in manifests] == ["run-d"]
+        head = verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_public])
+        assert head == manifest_hash(manifests[-1])
+
+
+class TestMixedAlgorithmRotation:
+    """A log can mix algorithms: each key_id resolves to one signer, and a signature's algorithm must be its own."""
+
+    def test_a_log_rotated_from_an_hmac_key_to_an_ed25519_key_seals_and_verifies(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        hmac_key, ed25519_key = HmacSha256Signer(_KEY, "key-1"), Ed25519Signer(_OTHER_KEY, "key-2")
+        _write_records(audit_path, [_record("run-a", 1)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=hmac_key)
+        _rotate(manifest_path, ed25519_key, hmac_key)
+        _write_records(audit_path, [_record("run-b", 2)])
+
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=ed25519_key, previous_signers=[hmac_key])
+
+        assert [line["signature"]["algorithm"] for line in _read_lines(manifest_path)] == [
+            "HMAC-SHA256",
+            "Ed25519",
+            "Ed25519",
+        ]
+        head = verify_ndjson_log(audit_path, manifest_path, signer=ed25519_key, previous_signers=[hmac_key])
+        assert head == manifest_hash(manifests[-1])
+
+    def test_the_log_then_rotates_back_to_a_new_hmac_key_and_verifies_with_the_full_keyring(
+        self, tmp_path: Path
+    ) -> None:
+        audit_path, manifest_path, key_1, key_2, key_3 = _mixed_algorithm_log(tmp_path)
+
+        assert [line["signature"]["algorithm"] for line in _read_lines(manifest_path)] == [
+            "HMAC-SHA256",
+            "Ed25519",
+            "Ed25519",
+            "HMAC-SHA256",
+            "HMAC-SHA256",
+        ]
+        head = verify_ndjson_log(audit_path, manifest_path, signer=key_3, previous_signers=[key_1, key_2])
+        assert head == manifest_hash(_read_lines(manifest_path)[-1])
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=key_3, previous_signers=[key_1, key_2])
+        assert (coverage.head, coverage.sealed_runs) == (head, 3)
+
+    @pytest.mark.parametrize("retired", [0, 1], ids=["hmac-key", "ed25519-key"])
+    def test_a_retired_key_cannot_seal_after_its_rotation_entry(self, tmp_path: Path, retired: int) -> None:
+        audit_path, manifest_path, *keys = _mixed_algorithm_log(tmp_path)
+        _write_records(audit_path, [_record("run-d", 4)])
+        before = _snapshot(tmp_path)
+        others = [key for index, key in enumerate(keys) if index != retired]
+
+        with pytest.raises(ManifestVerificationError, match=_under_key("key-3", keys[retired].key_id)):
+            seal_ndjson_runs(audit_path, manifest_path, signer=keys[retired], previous_signers=others)
+
+        assert _snapshot(tmp_path) == before
+
+    @pytest.mark.parametrize("retired", [0, 1], ids=["hmac-key", "ed25519-key"])
+    def test_a_seal_by_a_retired_key_after_the_last_rotation_fails_verification(
+        self, tmp_path: Path, retired: int
+    ) -> None:
+        audit_path, manifest_path, *keys = _mixed_algorithm_log(tmp_path)
+        record = _record("run-d", 4)
+        _write_records(audit_path, [record])
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        _write_records(
+            manifest_path,
+            [seal_run([record], run_id="run-d", signer=keys[retired], previous_manifest_hash=head)],
+        )
+
+        with pytest.raises(ManifestVerificationError, match="run-d") as excinfo:
+            verify_ndjson_log(audit_path, manifest_path, signer=keys[2], previous_signers=keys[:2])
+
+        _assert_names(excinfo, keys[retired].key_id, "key-3")
+
+    @pytest.mark.parametrize("retired", [0, 1], ids=["hmac-key", "ed25519-key"])
+    def test_rotating_back_to_a_retired_key_is_refused_whatever_its_algorithm(
+        self, tmp_path: Path, retired: int
+    ) -> None:
+        _, manifest_path, *keys = _mixed_algorithm_log(tmp_path)
+        target = keys[retired]
+        before = manifest_path.read_bytes()
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+
+        with pytest.raises(ManifestVerificationError, match=target.key_id):
+            rotate_manifest_key(
+                manifest_path,
+                signer=target,
+                previous_signers=[key for key in keys if key is not target],
+                expected_head=head,
+            )
+
+        assert manifest_path.read_bytes() == before
+
+    @_current_key_required
+    def test_an_ed25519_key_listed_beside_an_hmac_key_of_the_same_key_id_is_a_value_error(
+        self, tmp_path: Path, call: Callable[..., Any]
+    ) -> None:
+        audit_path, manifest_path, key_1, key_2, key_3 = _mixed_algorithm_log(tmp_path)
+        _write_records(audit_path, [_record("run-d", 4)])
+        before = _snapshot(tmp_path)
+        clash = Ed25519Signer(_THIRD_KEY, "key-1")
+
+        with pytest.raises(ValueError, match="previous_signers repeats key_id 'key-1'") as excinfo:
+            call(audit_path, manifest_path, signer=key_3, previous_signers=[key_1, key_2, clash])
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
+        assert _snapshot(tmp_path) == before
+
+    def test_rotating_to_an_ed25519_key_listed_beside_the_hmac_key_of_the_same_key_id_is_a_value_error(
+        self, tmp_path: Path
+    ) -> None:
+        _, manifest_path = _build_log(tmp_path, ("seal", HmacSha256Signer(_KEY, "key-1")))
+        before = manifest_path.read_bytes()
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+
+        with pytest.raises(ValueError, match="previous_signers repeats key_id 'key-1'") as excinfo:
+            rotate_manifest_key(
+                manifest_path,
+                signer=Ed25519Signer(_OTHER_KEY, "key-1"),
+                previous_signers=[HmacSha256Signer(_KEY, "key-1")],
+                expected_head=head,
+            )
+
+        assert not isinstance(excinfo.value, (ManifestVerificationError, KeyAlreadyCurrentError))
+        assert manifest_path.read_bytes() == before
+
+    @_current_key_required
+    def test_an_ed25519_signer_reusing_the_key_id_of_an_hmac_sealed_log_fails_on_the_algorithm(
+        self, tmp_path: Path, call: Callable[..., Any]
+    ) -> None:
+        audit_path, manifest_path = _build_log(tmp_path, ("seal", HmacSha256Signer(_KEY, "key-1")))
+        _write_records(audit_path, [_record("run-d", 7)])
+        before = _snapshot(tmp_path)
+        mismatch = "signature algorithm 'HMAC-SHA256' is not the signer's 'Ed25519'"
+
+        with pytest.raises(ManifestVerificationError, match=re.escape(mismatch)):
+            call(audit_path, manifest_path, signer=Ed25519Signer(_KEY, "key-1"))
+
+        assert _snapshot(tmp_path) == before
+
+    def test_rotating_an_hmac_sealed_log_to_an_ed25519_key_of_the_same_key_id_fails_on_the_algorithm(
+        self, tmp_path: Path
+    ) -> None:
+        _, manifest_path = _build_log(tmp_path, ("seal", HmacSha256Signer(_KEY, "key-1")))
+        before = manifest_path.read_bytes()
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        mismatch = "signature algorithm 'HMAC-SHA256' is not the signer's 'Ed25519'"
+
+        with pytest.raises(ManifestVerificationError, match=re.escape(mismatch)):
+            rotate_manifest_key(
+                manifest_path, signer=Ed25519Signer(_OTHER_KEY, "key-1"), previous_signers=[], expected_head=head
+            )
+
+        assert manifest_path.read_bytes() == before
+
+    @pytest.mark.parametrize("public_only", [False, True], ids=["private", "public-only"])
+    def test_a_manifest_hmac_signed_under_the_public_key_is_rejected_by_the_ed25519_signer(
+        self, public_only: bool
+    ) -> None:
+        """An attacker who knows only the public key HMACs with it and claims the Ed25519 key_id."""
+        records = [_record()]
+        verifier = _verify_only() if public_only else Ed25519Signer(_KEY, "key-1")
+        forged = seal_run(records, run_id="run-1", signer=HmacSha256Signer(_public_key(_KEY), "key-1"))
+        assert forged["signature"]["algorithm"] == "HMAC-SHA256"
+
+        with pytest.raises(ManifestVerificationError, match="algorithm"):
+            verify_manifest(forged, records, signer=verifier)
+
+    def test_an_ed25519_manifest_is_rejected_by_an_hmac_signer_of_the_same_key_id(self) -> None:
+        records = [_record()]
+        manifest = seal_run(records, run_id="run-1", signer=Ed25519Signer(_KEY, "key-1"))
+
+        with pytest.raises(ManifestVerificationError, match="algorithm"):
+            verify_manifest(manifest, records, signer=HmacSha256Signer(_KEY, "key-1"))
+
+
+_ED25519_EXTRA = re.escape("mloda-enterprise[ed25519]")
+
+
+def _audit_package_without_cryptography(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """The audit package, cold-imported while `cryptography` cannot be imported."""
+    block_root(monkeypatch, "cryptography")
+    evict_package(monkeypatch, "mloda.enterprise.extenders.audit")
+    return importlib.import_module("mloda.enterprise.extenders.audit")
+
+
+class TestEd25519WithoutCryptography:
+    """cryptography is an optional extra: only building an Ed25519Signer needs it."""
+
+    def test_the_package_imports_and_hmac_signing_still_works(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        package = _audit_package_without_cryptography(monkeypatch)
+        signer = package.HmacSha256Signer(_KEY, "key-1")
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record("run-a", 1)])
+
+        manifests = package.seal_ndjson_runs(audit_path, manifest_path, signer=signer)
+
+        assert package.verify_ndjson_log(audit_path, manifest_path, signer=signer) == manifest_hash(manifests[-1])
+        assert "Ed25519Signer" in package.__all__
+
+    def test_building_an_ed25519_signer_raises_import_error_naming_the_extra(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        package = _audit_package_without_cryptography(monkeypatch)
+
+        with pytest.raises(ImportError, match=_ED25519_EXTRA):
+            package.Ed25519Signer(_KEY, "k")
+        with pytest.raises(ImportError, match=_ED25519_EXTRA):
+            package.Ed25519Signer.from_public_key(_RFC8032_PUBLIC_KEY, "k")
+
+    def test_the_import_is_not_cached_so_building_works_again_once_cryptography_is_back(self) -> None:
+        public_key = _public_key(_KEY)
+        # Built once before the block: a cached import would let the blocked builds below through.
+        Ed25519Signer(_KEY, "k")
+        Ed25519Signer.from_public_key(public_key, "k")
+
+        with pytest.MonkeyPatch.context() as blocked:
+            block_root(blocked, "cryptography")
+            with pytest.raises(ImportError, match=_ED25519_EXTRA):
+                Ed25519Signer(_KEY, "k")
+            with pytest.raises(ImportError, match=_ED25519_EXTRA):
+                Ed25519Signer.from_public_key(public_key, "k")
+
+        signature = Ed25519Signer(_KEY, "k").sign(b"payload")
+        assert Ed25519Signer.from_public_key(public_key, "k").verify(b"payload", signature) is True
 
 
 class TestRunManifestRunAll:

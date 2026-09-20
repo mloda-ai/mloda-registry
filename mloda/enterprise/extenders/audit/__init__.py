@@ -7,6 +7,7 @@ from mloda.enterprise.extenders.audit.audit_extender import (
     NdjsonAuditSink,
 )
 from mloda.enterprise.extenders.audit.run_manifest import (
+    Ed25519Signer,
     HmacSha256Signer,
     KeyAlreadyCurrentError,
     LogCoverage,
@@ -28,6 +29,7 @@ from mloda.enterprise.extenders.audit.run_manifest import (
 __all__ = [
     "AuditExtender",
     "AuditSink",
+    "Ed25519Signer",
     "HmacSha256Signer",
     "IdentityRequiredError",
     "KeyAlreadyCurrentError",

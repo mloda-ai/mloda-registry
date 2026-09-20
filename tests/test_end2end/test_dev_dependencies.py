@@ -14,6 +14,7 @@ import pytest
 # here.  Adding a new compute-framework backend with importorskip-guarded
 # tests?  Add its import name to this list so CI catches missing deps early.
 REQUIRED_TEST_DEPENDENCIES = [
+    "cryptography",
     "duckdb",
     "openlineage.client",
     "opentelemetry.sdk",
