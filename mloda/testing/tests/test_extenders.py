@@ -71,6 +71,21 @@ class _BreakingProbeExtender(Extender):
         return result
 
 
+class _GatedProbeExtender(_BreakingProbeExtender):
+    """Breaking-only probe that refuses an active HookContext with a blank tenant_id."""
+
+    def __init__(self, sink: list[str], raise_on_error: bool = True) -> None:
+        if not raise_on_error:
+            raise ValueError("gated probe has no raise_on_error=False mode")
+        super().__init__(sink, raise_on_error)
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        context = HookContext.current()
+        if context is not None and not (context.tenant_id or "").strip():
+            raise RuntimeError("gated probe requires a tenant_id")
+        return super().__call__(func, *args, **kwargs)
+
+
 class _ValidateOnlyProbeExtender(Extender):
     """Wraps VALIDATE_OUTPUT_FEATURE only; records the active HookContext.hook on every call."""
 
@@ -346,6 +361,34 @@ class TestBreakingProbeExtenderContract(ExtenderContractTestMixin):
         return patch.object(_BreakingProbeExtender, "explode", True, create=True)
 
 
+class TestGatedProbeExtenderContract(ExtenderContractTestMixin):
+    """Self-test: a breaking-only, identity-gated probe pinning context_identity() and supports_warning_only()."""
+
+    @classmethod
+    def extender_class(cls) -> type[Extender]:
+        return _GatedProbeExtender
+
+    @classmethod
+    def supports_warning_only(cls) -> bool:
+        return False
+
+    @classmethod
+    def context_identity(cls) -> dict[str, str]:
+        return {"tenant_id": "tenant-1"}
+
+    @classmethod
+    def has_backend_sink(cls) -> bool:
+        return False
+
+    def make_extender(self, *, raise_on_error: bool | None = None) -> _GatedProbeExtender:
+        if raise_on_error is None:
+            return _GatedProbeExtender(sink=[])
+        return _GatedProbeExtender(sink=[], raise_on_error=raise_on_error)
+
+    def own_failure(self) -> AbstractContextManager[Any]:
+        return patch.object(_GatedProbeExtender, "explode", True, create=True)
+
+
 class TestValidateOnlyProbeContract(ExtenderContractTestMixin):
     """Self-test: a probe wrapping only VALIDATE_OUTPUT_FEATURE, pinning context_hook()."""
 
@@ -371,7 +414,7 @@ class TestValidateOnlyProbeContract(ExtenderContractTestMixin):
 
     def test_contract_context_uses_wrapped_hook(self) -> None:
         extender = self.make_extender()
-        with make_hook_context(hook=self.context_hook()).activate():
+        with self.contract_context().activate():
             extender(lambda: None)
         assert extender.sink[-1] == ExtenderHook.VALIDATE_OUTPUT_FEATURE
 
@@ -484,17 +527,13 @@ class TestExtenderContractTestMixinShape:
     def test_context_identity_defaults_to_empty(self) -> None:
         assert ExtenderContractTestMixin.context_identity() == {}
 
-    def test_contract_context_carries_host_identity_and_hook(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        host = TestValidateOnlyProbeContract()
-        bare = host.contract_context()
+    def test_contract_context_carries_host_identity_and_hook(self) -> None:
+        gated = TestGatedProbeExtenderContract().contract_context()
+        assert (gated.tenant_id, gated.project_id, gated.principal) == ("tenant-1", None, None)
+
+        bare = TestValidateOnlyProbeContract().contract_context()
         assert (bare.tenant_id, bare.project_id, bare.principal) == (None, None, None)
-
-        identity = classmethod(lambda cls: {"tenant_id": "tenant-1", "principal": "user-1"})
-        monkeypatch.setattr(TestValidateOnlyProbeContract, "context_identity", identity)
-        context = host.contract_context()
-
-        assert (context.tenant_id, context.project_id, context.principal) == ("tenant-1", None, "user-1")
-        assert context.hook == host.context_hook() == ExtenderHook.VALIDATE_OUTPUT_FEATURE
+        assert bare.hook == ExtenderHook.VALIDATE_OUTPUT_FEATURE
 
     def test_pickled_copy_environment_is_a_context_manager(self) -> None:
         with ExtenderContractTestMixin().pickled_copy_environment():

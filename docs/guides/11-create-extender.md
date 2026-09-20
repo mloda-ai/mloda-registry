@@ -171,7 +171,7 @@ Observability extenders that default to warning-only override `raise_on_error_de
 
 `extender_class` names the class under test. `make_extender` returns an instance wired to an in-memory backend, never a real network sink. `own_failure` makes the extender's own code fail (not the wrapped function) so the fallback path is exercised.
 
-An autouse fixture enters `verified_context` with `context_identity` around every test (a no-op when empty). The hook contexts that the OTel and OpenLineage mixin tests build themselves do not carry it. `AuditExtender` hosts the contract in both its default and `fail_closed=True` postures.
+An autouse fixture enters `verified_context` with `context_identity` around every test (a no-op when empty); host tests that build their own hook context use `contract_context()`, which carries the same identity. The OTel and OpenLineage mixin tests still build some hook contexts without it, so an identity-gated extender cannot host those mixins yet.
 
 The mixin pins:
 

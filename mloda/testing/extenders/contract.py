@@ -155,6 +155,7 @@ class ExtenderContractTestMixin:
         return min(wraps, key=lambda hook: hook.value)
 
     def contract_context(self) -> HookContext:
+        """HookContext for context_hook() carrying context_identity()."""
         identity = self.context_identity()
         return make_hook_context(
             hook=self.context_hook(),
