@@ -48,6 +48,7 @@ from mloda.enterprise.extenders.audit import (
     TeeAuditSink,
     manifest_hash,
     quarantine_damaged_lines,
+    quarantine_from_rotation_entry,
     rotate_manifest_key,
     seal_ndjson_runs,
     seal_run,
@@ -334,6 +335,22 @@ _FORGED_ENTRY_REASONS: dict[str, str] = {
     "manifest-with-kind": _BAD_SHAPE,
 }
 
+_NOT_AN_ENTRY = "is not a key rotation entry"
+_UNTERMINATED = "does not end with a newline"
+# The message fragment of the error each refusal of quarantine_from_rotation_entry must raise, so none passes for the
+# wrong reason.
+_REFUSAL_REASONS: dict[str, str] = {
+    "anchor-not-in-the-log": "has the head",
+    "first-dropped-line-is-a-seal": _NOT_AN_ENTRY,
+    "first-dropped-line-is-torn": _UNTERMINATED,
+    "first-dropped-line-is-an-unterminated-entry": _UNTERMINATED,
+    "first-dropped-line-is-not-json": "is not valid JSON",
+    "first-dropped-line-is-not-an-entry": _NOT_AN_ENTRY,
+    "signer-is-not-current-at-the-anchor": "not the signer's",
+    "prefix-does-not-verify": _BAD_SIGNATURE,
+    "quarantine-log-without-a-final-newline": _UNTERMINATED,
+}
+
 
 def _sealed_log(directory: Path) -> tuple[Path, Path]:
     """Three runs plus one record without a run_id, all sealed."""
@@ -492,6 +509,15 @@ def _log_cut_mid_write(directory: Path) -> tuple[Path, Path, list[str]]:
     return audit_path, manifest_path, heads
 
 
+def _log_with_rotation_entry(directory: Path) -> tuple[Path, Path, str]:
+    """Two key-1 seals, a key-2 rotation entry (line 3) and a key-2 seal (line 4); returns the head before the entry."""
+    key_1, key_2 = _signer(), _signer(_OTHER_KEY, "key-2")
+    audit_path, manifest_path = _build_log(
+        directory, ("seal", key_1), ("seal", key_1), ("rotate", key_2), ("seal", key_2)
+    )
+    return audit_path, manifest_path, manifest_hash(_read_lines(manifest_path)[1])
+
+
 def _trace(directory: Path) -> Path:
     return directory / "quarantine.ndjson"
 
@@ -517,6 +543,49 @@ def _quarantine(
     )
 
 
+def _quarantine_from_entry(
+    directory: Path,
+    manifest_path: Path,
+    *,
+    expected_head: str,
+    signer: ManifestSigner | None = None,
+    previous_signers: Iterable[ManifestSigner] = (),
+    dry_run: bool = False,
+) -> list[QuarantinedLine]:
+    return quarantine_from_rotation_entry(
+        manifest_path,
+        quarantine_path=_trace(directory),
+        signer=signer or _signer(),
+        previous_signers=previous_signers,
+        expected_head=expected_head,
+        dry_run=dry_run,
+    )
+
+
+# The hook of each recovery function for the tests both share: builds a log with something to drop under a directory,
+# and returns the manifest log the repair cuts, the repair (given the directory for its quarantine log) and how many
+# lines it drops.
+_Repair = Callable[[Path], list[QuarantinedLine]]
+_Recovery = Callable[[Path], tuple[Path, _Repair, int]]
+
+
+def _damaged_lines_recovery(directory: Path) -> tuple[Path, _Repair, int]:
+    audit_path, manifest_path, _ = _damaged_log(directory)
+    return manifest_path, lambda trace_dir: _quarantine(trace_dir, audit_path, manifest_path), 3
+
+
+def _rotation_entry_recovery(directory: Path) -> tuple[Path, _Repair, int]:
+    _, manifest_path, anchor = _log_with_rotation_entry(directory)
+    return manifest_path, lambda trace_dir: _quarantine_from_entry(trace_dir, manifest_path, expected_head=anchor), 2
+
+
+_RECOVERIES: dict[str, _Recovery] = {
+    "damaged-lines": _damaged_lines_recovery,
+    "rotation-entry": _rotation_entry_recovery,
+}
+_both_recoveries = pytest.mark.parametrize("recovery", list(_RECOVERIES.values()), ids=list(_RECOVERIES))
+
+
 def _snapshot(directory: Path) -> dict[str, bytes]:
     return {path.name: path.read_bytes() for path in sorted(directory.iterdir())}
 
@@ -540,6 +609,19 @@ def _summary(removed: Iterable[QuarantinedLine]) -> list[tuple[str, int, int, in
     return [(item.file, item.line, item.offset, item.length, item.sha256) for item in removed]
 
 
+def _assert_raises_and_unchanged(
+    directory: Path, call: Callable[[], object]
+) -> pytest.ExceptionInfo[ManifestVerificationError]:
+    """`call` raises ManifestVerificationError and changes nothing in `directory`."""
+    before = _snapshot(directory)
+
+    with pytest.raises(ManifestVerificationError) as excinfo:
+        call()
+
+    assert _snapshot(directory) == before
+    return excinfo
+
+
 def _assert_refused(
     directory: Path,
     audit_path: Path,
@@ -550,12 +632,45 @@ def _assert_refused(
     dry_run: bool = False,
 ) -> None:
     """Recovery raises ManifestVerificationError and changes nothing."""
-    before = _snapshot(directory)
+    _assert_raises_and_unchanged(
+        directory,
+        lambda: _quarantine(
+            directory, audit_path, manifest_path, signer=signer, expected_head=expected_head, dry_run=dry_run
+        ),
+    )
 
-    with pytest.raises(ManifestVerificationError):
-        _quarantine(directory, audit_path, manifest_path, signer=signer, expected_head=expected_head, dry_run=dry_run)
 
-    assert _snapshot(directory) == before
+def _assert_traced(
+    directory: Path,
+    manifest_path: Path,
+    manifest_before: bytes,
+    removed: list[QuarantinedLine],
+    signer: ManifestSigner | None = None,
+    *,
+    audit: tuple[Path, bytes] | None = None,
+) -> None:
+    """The trace holds one entry per dropped line: its report, its raw bytes and a signature by `signer`.
+    `audit` is the audit file and its bytes before the recovery, if the recovery may drop audit lines."""
+    signer = signer or _signer()
+    logs = {"manifest": (manifest_path, manifest_before)}
+    if audit:
+        logs["audit"] = audit
+    entries = _read_lines(_trace(directory))
+    assert len(entries) == len(removed)
+    assert _trace(directory).read_bytes() == b"".join(_canonical(entry) + b"\n" for entry in entries)
+    for entry, item in zip(entries, removed, strict=True):
+        path, before = logs[item.file]
+        raw = base64.b64decode(entry["raw_base64"], validate=True)
+        assert set(entry) == _EXPECTED_QUARANTINE_KEYS
+        assert entry["quarantine_version"] == 1
+        assert entry["path"] == str(path)
+        assert {field: entry[field] for field in dataclasses.asdict(item)} == dataclasses.asdict(item)
+        assert raw == before.splitlines(keepends=True)[item.line - 1]
+        assert entry["sha256"] == _sha256(raw)
+        signature = entry["signature"]
+        assert set(signature) == {"algorithm", "key_id", "value"}
+        assert (signature["algorithm"], signature["key_id"]) == (signer.algorithm, signer.key_id)
+        assert signature["value"] == signer.sign(_canonical(_unsigned(entry)))
 
 
 def _lock_refused(path: Path) -> bool:
@@ -636,6 +751,7 @@ class TestRunManifestPublicApi:
             "verify_ndjson_log_coverage",
             "QuarantinedLine",
             "quarantine_damaged_lines",
+            "quarantine_from_rotation_entry",
             "IdentityRequiredError",
             "KeyAlreadyCurrentError",
             "rotate_manifest_key",
@@ -2082,6 +2198,27 @@ class TestRotateManifestKey:
 
         assert verify() == manifest_hash(entry)
 
+    def test_rotating_to_a_fresh_key_restores_a_log_wedged_by_a_forged_rotation_entry(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        key_1, key_2, key_3 = _signer(), _signer(_OTHER_KEY, "key-2"), _signer(b"t" * 32, "key-3")
+        _append_line(manifest_path, _canonical(_key_2_entry(manifest_hash(_read_lines(manifest_path)[-1]))))
+        _write_records(audit_path, [_record("run-d", 7)])
+        # The complete forged entry moves the log to key-2: the honest key-1 can neither verify nor seal.
+        with pytest.raises(ManifestVerificationError, match=_under_key("key-2", "key-1")):
+            verify_ndjson_log(audit_path, manifest_path, signer=key_1, previous_signers=[key_2])
+        with pytest.raises(ManifestVerificationError, match=_under_key("key-2", "key-1")):
+            seal_ndjson_runs(audit_path, manifest_path, signer=key_1, previous_signers=[key_2])
+
+        head = manifest_hash(_rotate(manifest_path, key_3, key_1, key_2))
+
+        assert verify_ndjson_log(audit_path, manifest_path, signer=key_3, previous_signers=[key_1, key_2]) == head
+        manifests = seal_ndjson_runs(
+            audit_path, manifest_path, signer=key_3, previous_signers=[key_1, key_2], expected_head=head
+        )
+        assert [(manifest["run_id"], manifest["previous_manifest_hash"]) for manifest in manifests] == [("run-d", head)]
+        verified = verify_ndjson_log(audit_path, manifest_path, signer=key_3, previous_signers=[key_1, key_2])
+        assert verified == manifest_hash(manifests[-1])
+
 
 @_both_algorithms
 class TestVerifyNdjsonLog:
@@ -3175,6 +3312,22 @@ class TestPathAliasingGuards:
         assert not isinstance(excinfo.value, ManifestVerificationError)
         assert _snapshot(tmp_path) == before
 
+    @pytest.mark.parametrize("spelling", ["same-path", "symlink"])
+    def test_quarantine_from_rotation_entry_refuses_an_aliased_manifest_and_quarantine_path(
+        self, tmp_path: Path, spelling: str
+    ) -> None:
+        _, manifest_path, head = _log_with_rotation_entry(tmp_path)
+        quarantine_path = _aliased(tmp_path, manifest_path, spelling)
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ValueError) as excinfo:
+            quarantine_from_rotation_entry(
+                manifest_path, quarantine_path=quarantine_path, signer=_signer(), expected_head=head
+            )
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
+        assert _snapshot(tmp_path) == before
+
 
 @_both_algorithms
 class TestQuarantineDamagedLines:
@@ -3235,20 +3388,21 @@ class TestQuarantineDamagedLines:
             *_spans("manifest", before["manifests.ndjson"], [4]),
             *_spans("audit", before["audit.ndjson"], [4, 8]),
         ]
-        for entry, item in zip(entries, removed, strict=True):
-            assert set(entry) == _EXPECTED_QUARANTINE_KEYS
-            assert entry["quarantine_version"] == 1
-            assert entry["path"] == str(manifest_path if item.file == "manifest" else audit_path)
-            assert entry["reason"] == item.reason
-        assert _trace(tmp_path).read_bytes() == b"".join(_canonical(entry) + b"\n" for entry in entries)
+        _assert_traced(
+            tmp_path, manifest_path, before["manifests.ndjson"], removed, audit=(audit_path, before["audit.ndjson"])
+        )
 
     def test_trace_keeps_the_removed_bytes_so_they_can_be_inspected_or_restored(self, tmp_path: Path) -> None:
         audit_path, manifest_path, _ = _damaged_log(tmp_path)
-        audit_lines = audit_path.read_bytes().splitlines(keepends=True)
-        manifest_lines = manifest_path.read_bytes().splitlines(keepends=True)
+        before = _snapshot(tmp_path)
+        audit_lines = before["audit.ndjson"].splitlines(keepends=True)
+        manifest_lines = before["manifests.ndjson"].splitlines(keepends=True)
 
-        _quarantine(tmp_path, audit_path, manifest_path)
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
 
+        _assert_traced(
+            tmp_path, manifest_path, before["manifests.ndjson"], removed, audit=(audit_path, before["audit.ndjson"])
+        )
         entries = _read_lines(_trace(tmp_path))
         removed_bytes = [manifest_lines[3], audit_lines[3], audit_lines[7]]
         assert [base64.b64decode(entry["raw_base64"], validate=True) for entry in entries] == removed_bytes
@@ -3256,19 +3410,22 @@ class TestQuarantineDamagedLines:
 
     def test_trace_signature_covers_the_entry_without_its_signature(self, tmp_path: Path) -> None:
         audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        before = _snapshot(tmp_path)
 
-        _quarantine(tmp_path, audit_path, manifest_path)
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
 
-        entries = _read_lines(_trace(tmp_path))
-        assert entries
-        for entry in entries:
-            signature = entry["signature"]
+        assert removed
+        _assert_traced(
+            tmp_path, manifest_path, before["manifests.ndjson"], removed, audit=(audit_path, before["audit.ndjson"])
+        )
+        for entry in _read_lines(_trace(tmp_path)):
             payload = _canonical(_unsigned(entry))
+            signature = entry["signature"]
             assert set(signature) == {"algorithm", "key_id", "value"}
             assert (signature["algorithm"], signature["key_id"]) == (_signer().algorithm, _signer().key_id)
             assert signature["value"] == _reference_signature(_KEY, payload)
             tampered = _canonical(_unsigned({**entry, "line": entry["line"] + 1}))
-            assert _signer().verify(tampered, signature["value"]) is False
+            assert _signer().verify(tampered, entry["signature"]["value"]) is False
 
     def test_quarantined_at_is_rfc3339_utc(self, tmp_path: Path) -> None:
         audit_path, manifest_path, _ = _damaged_log(tmp_path)
@@ -4003,42 +4160,51 @@ class TestQuarantineDamagedLines:
 
         assert len(removed) == len(_read_lines(_trace(tmp_path))) == 3
 
-    def test_trace_is_fsynced_before_either_file_is_modified(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @_both_recoveries
+    def test_trace_is_fsynced_before_any_file_is_modified_and_the_manifest_and_its_directory_after_the_cut(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recovery: _Recovery
     ) -> None:
-        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        manifest_path, repair, dropped = recovery(tmp_path)
+        trace_dir = tmp_path / "trace"
+        trace_dir.mkdir()
+        trace_path = _trace(trace_dir)
         events: list[tuple[str, int]] = []
         real_fsync, real_replace, real_truncate = os.fsync, os.replace, os.truncate
 
         def spy_fsync(fd: int) -> None:
-            try:
-                is_trace = os.path.samestat(os.fstat(fd), _trace(tmp_path).stat())
-            except FileNotFoundError:
-                is_trace = False
-            if is_trace:
-                events.append(("fsync-trace", _trace(tmp_path).stat().st_size))
+            for name, target in (("trace", trace_path), ("manifest", manifest_path), ("manifest-dir", tmp_path)):
+                try:
+                    if os.path.samestat(os.fstat(fd), target.stat()):
+                        events.append((f"fsync-{name}", target.stat().st_size))
+                except FileNotFoundError:
+                    pass
             real_fsync(fd)
 
         def spy_replace(*args: Any, **kwargs: Any) -> None:
-            if str(args[1]) == str(audit_path):
-                events.append(("replace-audit", 0))
+            events.append(("replace", 0))
             real_replace(*args, **kwargs)
 
-        def spy_truncate(*args: Any, **kwargs: Any) -> None:
-            if str(args[0]) == str(manifest_path):
-                events.append(("truncate-manifest", 0))
-            real_truncate(*args, **kwargs)
+        def spy_truncate(path: str | Path, length: int) -> None:
+            events.append(("truncate", length))
+            real_truncate(path, length)
 
         monkeypatch.setattr(os, "fsync", spy_fsync)
         monkeypatch.setattr(os, "replace", spy_replace)
         monkeypatch.setattr(os, "truncate", spy_truncate)
 
-        _quarantine(tmp_path, audit_path, manifest_path)
+        removed = repair(trace_dir)
 
+        assert len(removed) == dropped
         names = [name for name, _ in events]
-        assert {"replace-audit", "truncate-manifest"} <= set(names)
-        modified = min(names.index("replace-audit"), names.index("truncate-manifest"))
-        assert ("fsync-trace", _trace(tmp_path).stat().st_size) in events[:modified]
+        # The manifest log is cut, and the audit file replaced if the repair dropped audit lines.
+        modifications = {"truncate" if item.file == "manifest" else "replace" for item in removed}
+        assert "truncate" in modifications
+        assert modifications <= set(names)
+        first = min(names.index(name) for name in modifications)
+        assert ("fsync-trace", trace_path.stat().st_size) in events[:first]
+        cut = names.index("truncate")
+        assert "fsync-manifest" in names[cut:]
+        assert "fsync-manifest-dir" in names[cut:]
 
     @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
     @pytest.mark.parametrize("target", ["audit.ndjson", "manifests.ndjson"])
@@ -4187,11 +4353,12 @@ class TestQuarantineDamagedLines:
         assert "fsync-manifest" in events
         assert "fsync-manifest-dir" in events
 
+    @_both_recoveries
     def test_recovery_holds_an_exclusive_lock_on_the_quarantine_log_during_the_trace_append(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recovery: _Recovery
     ) -> None:
         pytest.importorskip("fcntl")
-        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        _, repair, dropped = recovery(tmp_path)
         quarantine_path = _trace(tmp_path)
         quarantine_path.write_bytes(b"")
         refused: list[bool] = []
@@ -4202,9 +4369,9 @@ class TestQuarantineDamagedLines:
 
         monkeypatch.setattr(run_manifest_module, "_append_records", spy_append)
 
-        removed = _quarantine(tmp_path, audit_path, manifest_path)
+        removed = repair(tmp_path)
 
-        assert len(removed) == 3
+        assert len(removed) == dropped
         assert refused
         assert all(refused)
 
@@ -4554,6 +4721,300 @@ class TestEd25519WithoutCryptography:
 
 
 # (mode, fail_closed) combos for TestRunManifestRunAll.
+class TestQuarantineFromRotationEntry:
+    """Drops a rotation entry and everything after it, anchored on the head just before the entry."""
+
+    def test_the_entry_and_everything_after_it_are_dropped_and_the_honest_key_continues(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, anchor = _log_with_rotation_entry(tmp_path)
+        # The control: the entry wedges the log for the honest key.
+        with pytest.raises(ManifestVerificationError, match=_under_key("key-2", "key-1")):
+            verify_ndjson_log(
+                audit_path, manifest_path, signer=_signer(), previous_signers=[_signer(_OTHER_KEY, "key-2")]
+            )
+        before = _snapshot(tmp_path)
+        manifest_before = before["manifests.ndjson"]
+
+        removed = _quarantine_from_entry(tmp_path, manifest_path, expected_head=anchor)
+
+        assert _summary(removed) == _spans("manifest", manifest_before, [3, 4])
+        assert all("line 3" in item.reason for item in removed)
+        assert manifest_path.read_bytes() == manifest_before[: removed[0].offset]
+        assert audit_path.read_bytes() == before["audit.ndjson"]
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == anchor
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+        assert coverage.unsealed_lines == {"run-4": 1}
+        _write_records(audit_path, [_record("run-5", 9)])
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=anchor, run_id="run-5")
+        assert [(manifest["run_id"], manifest["previous_manifest_hash"]) for manifest in manifests] == [
+            ("run-5", anchor)
+        ]
+
+    def test_trace_has_one_signed_entry_per_dropped_line_with_its_raw_bytes(self, tmp_path: Path) -> None:
+        _, manifest_path, anchor = _log_with_rotation_entry(tmp_path)
+        manifest_before = manifest_path.read_bytes()
+
+        removed = _quarantine_from_entry(tmp_path, manifest_path, expected_head=anchor)
+
+        assert len(removed) == 2
+        _assert_traced(tmp_path, manifest_path, manifest_before, removed)
+
+    @pytest.mark.parametrize("forge", list(_FORGED_ENTRIES.values()), ids=list(_FORGED_ENTRIES))
+    def test_an_entry_is_dropped_whatever_is_wrong_with_it(
+        self, tmp_path: Path, forge: Callable[[str], dict[str, Any]]
+    ) -> None:
+        audit_path, manifest_path = _build_log(tmp_path, ("seal", _signer()), ("seal", _signer()))
+        anchor = manifest_hash(_read_lines(manifest_path)[-1])
+        _append_line(manifest_path, _canonical(forge(anchor)))
+        before = _snapshot(tmp_path)
+
+        removed = _quarantine_from_entry(tmp_path, manifest_path, expected_head=anchor)
+
+        assert _summary(removed) == _spans("manifest", before["manifests.ndjson"], [3])
+        assert manifest_path.read_bytes() == before["manifests.ndjson"][: removed[0].offset]
+        _assert_traced(tmp_path, manifest_path, before["manifests.ndjson"], removed)
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == anchor
+
+    @pytest.mark.parametrize(
+        "after",
+        [*_DAMAGED_LINES.values(), b'{"run_id": "run-x", "sig', b'{"run_id": "run-x"}'],
+        ids=[*_DAMAGED_LINES, "unterminated-torn", "unterminated-valid-json"],
+    )
+    def test_a_line_after_the_entry_is_dropped_whatever_it_holds(self, tmp_path: Path, after: bytes) -> None:
+        steps = [("seal", _signer()), ("seal", _signer()), ("rotate", _signer(_OTHER_KEY, "key-2"))]
+        audit_path, manifest_path = _build_log(tmp_path, *steps)
+        anchor = manifest_hash(_read_lines(manifest_path)[1])
+        _torn(manifest_path, after)
+        before = _snapshot(tmp_path)
+
+        removed = _quarantine_from_entry(tmp_path, manifest_path, expected_head=anchor)
+
+        assert _summary(removed) == _spans("manifest", before["manifests.ndjson"], [3, 4])
+        assert removed[1].length == len(after)
+        assert manifest_path.read_bytes() == before["manifests.ndjson"][: removed[0].offset]
+        _assert_traced(tmp_path, manifest_path, before["manifests.ndjson"], removed)
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == anchor
+
+    def test_previous_signers_verify_a_prefix_sealed_by_retired_keys(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, key_1, key_2, _ = _rotated_three_key_log(tmp_path)
+        anchor = manifest_hash(_read_lines(manifest_path)[2])
+        before = _snapshot(tmp_path)
+
+        removed = _quarantine_from_entry(
+            tmp_path, manifest_path, signer=key_2, previous_signers=[key_1], expected_head=anchor
+        )
+
+        assert _summary(removed) == _spans("manifest", before["manifests.ndjson"], [4, 5])
+        assert manifest_path.read_bytes() == before["manifests.ndjson"][: removed[0].offset]
+        _assert_traced(tmp_path, manifest_path, before["manifests.ndjson"], removed, key_2)
+        assert verify_ndjson_log(audit_path, manifest_path, signer=key_2, previous_signers=[key_1]) == anchor
+
+    def test_a_retired_key_can_drop_the_honest_rotations_and_seals_after_its_own(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, key_1, *_ = _rotated_three_key_log(tmp_path)
+        anchor = manifest_hash(_read_lines(manifest_path)[0])
+        before = _snapshot(tmp_path)
+
+        # The documented hazard: a retired key with write access drops honest lines too.
+        removed = _quarantine_from_entry(tmp_path, manifest_path, signer=key_1, expected_head=anchor)
+
+        assert _summary(removed) == _spans("manifest", before["manifests.ndjson"], [2, 3, 4, 5])
+        assert manifest_path.read_bytes() == before["manifests.ndjson"][: removed[0].offset]
+        _assert_traced(tmp_path, manifest_path, before["manifests.ndjson"], removed, key_1)
+        assert verify_ndjson_log(audit_path, manifest_path, signer=key_1) == anchor
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=key_1)
+        assert coverage.unsealed_lines == {"run-b": 1, "run-c": 1}
+
+    def test_failed_trace_write_leaves_the_manifest_untouched(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _, manifest_path, anchor = _log_with_rotation_entry(tmp_path)
+        before = _snapshot(tmp_path)
+
+        def disk_full(*args: Any, **kwargs: Any) -> None:
+            raise OSError(errno.ENOSPC, "disk full")
+
+        monkeypatch.setattr(run_manifest_module, "_append_records", disk_full)
+
+        with pytest.raises(OSError, match="disk full"):
+            _quarantine_from_entry(tmp_path, manifest_path, expected_head=anchor)
+
+        assert _snapshot(tmp_path) == before
+
+    def test_dry_run_returns_what_a_real_run_drops_and_changes_nothing(self, tmp_path: Path) -> None:
+        _, manifest_path, anchor = _log_with_rotation_entry(tmp_path)
+        before = _snapshot(tmp_path)
+
+        planned = _quarantine_from_entry(tmp_path, manifest_path, expected_head=anchor, dry_run=True)
+
+        assert _summary(planned) == _spans("manifest", before["manifests.ndjson"], [3, 4])
+        assert _snapshot(tmp_path) == before
+        assert planned == _quarantine_from_entry(tmp_path, manifest_path, expected_head=anchor)
+
+    def test_dry_run_does_not_wait_for_a_reader_holding_a_shared_lock(self, tmp_path: Path) -> None:
+        fcntl = pytest.importorskip("fcntl")
+        _audit_path, manifest_path, anchor = _log_with_rotation_entry(tmp_path)
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            fd = os.open(manifest_path, os.O_RDONLY)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_SH)
+                future = pool.submit(
+                    _quarantine_from_entry, tmp_path, manifest_path, expected_head=anchor, dry_run=True
+                )
+                done, _ = wait([future], timeout=5)
+            finally:
+                os.close(fd)
+
+            assert done
+            assert len(future.result()) == 2
+
+    def test_a_real_run_holds_an_exclusive_lock_on_the_manifest_log_while_it_repairs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fcntl = pytest.importorskip("fcntl")
+        _, manifest_path, anchor = _log_with_rotation_entry(tmp_path)
+        probes: list[tuple[str, bool]] = []
+        real_truncate = os.truncate
+
+        class _LockProbeSigner(HmacSha256Signer):
+            def sign(self, payload: bytes) -> str:
+                # Verifying and the trace both sign.
+                probes.append(("sign", _lock_refused(manifest_path)))
+                return super().sign(payload)
+
+        def spy_append(*args: Any, **kwargs: Any) -> None:
+            probes.append(("append", _lock_refused(manifest_path)))
+            _append_records(*args, **kwargs)
+
+        def spy_truncate(*args: Any, **kwargs: Any) -> None:
+            probes.append(("truncate", _lock_refused(manifest_path)))
+            real_truncate(*args, **kwargs)
+
+        monkeypatch.setattr(run_manifest_module, "_append_records", spy_append)
+        monkeypatch.setattr(os, "truncate", spy_truncate)
+
+        removed = _quarantine_from_entry(
+            tmp_path, manifest_path, signer=_LockProbeSigner(_KEY, "key-1"), expected_head=anchor
+        )
+
+        assert len(removed) == 2
+        assert {stage for stage, _ in probes} == {"sign", "append", "truncate"}
+        assert all(refused for _, refused in probes)
+        fd = os.open(manifest_path, os.O_RDONLY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(fd)
+
+    def test_drops_the_entry_where_fcntl_is_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setitem(sys.modules, "fcntl", None)
+        audit_path, manifest_path, anchor = _log_with_rotation_entry(tmp_path)
+        manifest_before = manifest_path.read_bytes()
+        assert not _trace(tmp_path).exists()
+
+        removed = _quarantine_from_entry(tmp_path, manifest_path, expected_head=anchor)
+
+        assert _summary(removed) == _spans("manifest", manifest_before, [3, 4])
+        assert manifest_path.read_bytes() == manifest_before[: removed[0].offset]
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == anchor
+        assert len(_read_lines(_trace(tmp_path))) == 2
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    def test_an_anchor_with_nothing_after_it_returns_nothing_and_creates_no_trace(
+        self, tmp_path: Path, dry_run: bool
+    ) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        before = _snapshot(tmp_path)
+
+        assert _quarantine_from_entry(tmp_path, manifest_path, expected_head=head, dry_run=dry_run) == []
+
+        assert _snapshot(tmp_path) == before
+        assert not _trace(tmp_path).exists()
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    @pytest.mark.parametrize("refusal", list(_REFUSAL_REASONS))
+    def test_a_log_that_cannot_be_dropped_from_is_refused_and_nothing_changes(
+        self, tmp_path: Path, refusal: str, dry_run: bool
+    ) -> None:
+        _, manifest_path, anchor = _log_with_rotation_entry(tmp_path)
+        lines = manifest_path.read_bytes().splitlines(keepends=True)
+        prefix, entry = b"".join(lines[:2]), lines[2]
+        signer: ManifestSigner = _signer()
+        previous_signers: list[ManifestSigner] = []
+        names: list[str] = []
+        if refusal == "anchor-not-in-the-log":
+            anchor = "0" * 64
+            names = [anchor]
+        if refusal == "first-dropped-line-is-a-seal":
+            anchor = manifest_hash(json.loads(lines[0]))
+        if refusal == "first-dropped-line-is-torn":
+            manifest_path.write_bytes(prefix + entry[: len(entry) // 2])
+        if refusal == "first-dropped-line-is-an-unterminated-entry":
+            manifest_path.write_bytes(prefix + entry.removesuffix(b"\n"))
+        if refusal == "first-dropped-line-is-not-json":
+            manifest_path.write_bytes(prefix + b"garbage\n" + entry)
+        if refusal == "first-dropped-line-is-not-an-entry":
+            manifest_path.write_bytes(prefix + b'{"run_id": "run-x"}\n' + entry)
+        if refusal == "signer-is-not-current-at-the-anchor":
+            signer = _signer(_OTHER_KEY, "key-2")
+            previous_signers = [_signer()]
+            names = ["key-1", "key-2"]
+        if refusal == "prefix-does-not-verify":
+            edited = lines[0].replace(b'"compliant": true', b'"compliant": false')
+            assert edited != lines[0]
+            manifest_path.write_bytes(edited + b"".join(lines[1:]))
+        if refusal == "quarantine-log-without-a-final-newline":
+            _trace(tmp_path).write_bytes(b'{"quarantine_version": 1, "fi')
+            names = [str(_trace(tmp_path))]
+
+        excinfo = _assert_raises_and_unchanged(
+            tmp_path,
+            lambda: _quarantine_from_entry(
+                tmp_path,
+                manifest_path,
+                signer=signer,
+                previous_signers=previous_signers,
+                expected_head=anchor,
+                dry_run=dry_run,
+            ),
+        )
+
+        _assert_names(excinfo, _REFUSAL_REASONS[refusal], *names)
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    def test_a_missing_manifest_log_is_refused_and_no_file_is_created(self, tmp_path: Path, dry_run: bool) -> None:
+        _assert_raises_and_unchanged(
+            tmp_path,
+            lambda: _quarantine_from_entry(
+                tmp_path, tmp_path / "manifests.ndjson", expected_head="0" * 64, dry_run=dry_run
+            ),
+        )
+
+        assert _snapshot(tmp_path) == {}
+
+    def test_omitting_expected_head_is_a_type_error(self, tmp_path: Path) -> None:
+        manifest_path = _log_with_rotation_entry(tmp_path)[1]
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(TypeError):
+            quarantine_from_rotation_entry(  # type: ignore[call-arg]
+                manifest_path, quarantine_path=_trace(tmp_path), signer=_signer()
+            )
+
+        assert _snapshot(tmp_path) == before
+
+    @pytest.mark.parametrize("expected_head", [None, b"0" * 64], ids=["none", "bytes"])
+    def test_a_non_string_expected_head_is_a_plain_value_error(self, tmp_path: Path, expected_head: Any) -> None:
+        manifest_path = _log_with_rotation_entry(tmp_path)[1]
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ValueError) as excinfo:
+            _quarantine_from_entry(tmp_path, manifest_path, expected_head=expected_head)
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
+        assert _snapshot(tmp_path) == before
+
+
 _RUN_ALL_MODE_AND_FAIL_CLOSED = [
     (ParallelizationMode.SYNC, False),
     (ParallelizationMode.THREADING, False),

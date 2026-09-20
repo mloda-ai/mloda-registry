@@ -19,8 +19,13 @@ Limits:
   Rotate every log when changing keys; seals under the retired key before its entry stay valid. Anchor
   `expected_head` on every rotation. Keep retired keys while their seals must verify (rotating verifies the log with
   them too). Any keyring key can append a complete rotation entry, which wedges the log for the real current key
-  (availability only, not integrity). Quarantine repairs only a torn tail, so recovery is truncating the log back to
-  an anchored head.
+  (availability only, not integrity). Recover by rotating forward to a fresh key when that entry's key is in the
+  keyring; use quarantine_from_rotation_entry for an entry signed outside it or to keep the honest current key, then
+  re-seal with seal_ndjson_runs(expected_head=<anchor>) and replace any external anchor recorded past it. The same
+  repair lets any key that was current at an anchored head, even one retired since, drop the honest lines after it.
+  Still a hand repair (truncate the log back to an anchored head): a terminated undecodable or duplicate-key line
+  mid-log, a rotation entry lacking only its newline, a seal signed by a non-current keyring key, and a rotation
+  entry as the first line (no anchored head to go back to).
 - Sealing and verifying need the log's current key to be `signer` (an archived log verifies with its current key).
   The check is load-bearing: it stops an unused keyring key from taking the log over.
 - verify_manifest on a single manifest cannot order keys.
@@ -604,7 +609,8 @@ def rotate_manifest_key(
     (`previous_signers` must hold its retired keys) and writes nothing on failure. Raises ValueError for a log with no
     manifests, KeyAlreadyCurrentError when `signer` is already current (a retry needs `expected_head=None` or the
     post-rotation head) and ManifestVerificationError when `signer` is retired. Pass the anchored head as
-    `expected_head`: the entry chains onto it, so it commits to every earlier line."""
+    `expected_head`: the entry chains onto it, so it commits to every earlier line. A wrongly appended entry is
+    dropped with quarantine_from_rotation_entry."""
     signers = _signer_map(signer, previous_signers)
     nothing_to_rotate = f"{manifest_path} has no manifests to rotate; the first seal defines the key"
     # Checked before the lock: an exclusive _flock would create the file.
@@ -753,7 +759,7 @@ def verify_ndjson_log(
 
 @dataclass(frozen=True)
 class QuarantinedLine:
-    """A line removed by quarantine_damaged_lines; line (1-based) and offset are from before the repair."""
+    """A line removed by a quarantine repair; line (1-based) and offset are from before the repair."""
 
     file: str
     line: int
@@ -763,7 +769,12 @@ class QuarantinedLine:
     reason: str
 
 
-_Damage = list[tuple[QuarantinedLine, bytes, Path]]
+_DamageEntry = tuple[QuarantinedLine, bytes, Path]
+_Damage = list[_DamageEntry]
+
+
+def _damage_entry(file: str, path: str | Path, number: int, offset: int, raw: bytes, reason: str) -> _DamageEntry:
+    return QuarantinedLine(file, number, offset, len(raw), _sha256(raw), reason), raw, Path(path)
 
 
 def _refuse_json_tail(path: str | Path, number: int, tail: bytes) -> None:
@@ -783,7 +794,7 @@ def _damaged_lines(file: str, path: str | Path, raws: Iterable[bytes], *, number
         except ManifestVerificationError as exc:
             if not raw.endswith(b"\n"):
                 _refuse_json_tail(path, number, raw)
-            damage.append((QuarantinedLine(file, number, offset, len(raw), _sha256(raw), str(exc)), raw, Path(path)))
+            damage.append(_damage_entry(file, path, number, offset, raw, str(exc)))
         number += 1
         offset += len(raw)
     return damage
@@ -797,17 +808,29 @@ def _damaged_audit_lines(path: str | Path) -> _Damage:
         return []
 
 
-def _damaged_manifest_tail(
-    path: str | Path, *, signer: ManifestSigner, signers: Mapping[str, ManifestSigner], expected_head: str | None
-) -> _Damage:
-    """`expected_head` may be any complete manifest's head: a torn multi-seal write leaves complete ones past it."""
+def _split_unterminated_tail(path: str | Path) -> tuple[list[bytes], bytes]:
+    """The terminated raw lines of `path` (none if it is missing), and its unterminated last line (empty if none)."""
     try:
         with open(path, "rb") as file:
             lines = list(file)
     except FileNotFoundError:
         lines = []
     tail = lines.pop() if lines and not lines[-1].endswith(b"\n") else b""
-    manifests = [_parse_ndjson_line(path, number, raw)[1] for number, raw in enumerate(lines, start=1)]
+    return lines, tail
+
+
+def _parsed_manifests(path: str | Path, lines: Iterable[bytes]) -> Iterator[dict[str, Any]]:
+    """Parse `lines` lazily, so a caller that stops early never parses the lines after."""
+    for number, raw in enumerate(lines, start=1):
+        yield _parse_ndjson_line(path, number, raw)[1]
+
+
+def _damaged_manifest_tail(
+    path: str | Path, *, signer: ManifestSigner, signers: Mapping[str, ManifestSigner], expected_head: str | None
+) -> _Damage:
+    """`expected_head` may be any complete manifest's head: a torn multi-seal write leaves complete ones past it."""
+    lines, tail = _split_unterminated_tail(path)
+    manifests = list(_parsed_manifests(path, lines))
     head = _verify_log(manifests, signer=signer, signers=signers, expected_head=None).head
     if expected_head is not None and expected_head not in {manifest_hash(manifest) for manifest in manifests}:
         raise ManifestVerificationError(
@@ -838,6 +861,12 @@ def _fsync(path: str | Path) -> None:
         os.close(fd)
 
 
+def _truncate_durably(path: str | Path, length: int) -> None:
+    os.truncate(path, length)
+    _fsync(path)
+    _fsync(Path(path).parent)
+
+
 def _require_terminated(path: str | Path) -> None:
     try:
         with open(path, "rb") as file:
@@ -863,10 +892,20 @@ def _append_with_rollback(path: str | Path, entries: Sequence[Mapping[str, Any]]
                 os.unlink(path)
                 _fsync(Path(path).parent)
             else:
-                os.truncate(path, size)
-                _fsync(path)
-                _fsync(Path(path).parent)
+                _truncate_durably(path, size)
         raise
+
+
+def _trace_damage(damage: _Damage, *, quarantine_path: str | Path, signer: ManifestSigner, dry_run: bool) -> None:
+    """Trace `damage` to the signed `quarantine_path` log; a dry run only checks that log is terminated."""
+    # Captured before the lock: an exclusive _flock opens O_CREAT, so afterwards the file always exists.
+    existed = os.path.exists(quarantine_path)
+    # Signed before the quarantine lock: a signing failure must not leave the file it creates; a dry run never signs.
+    entries = [] if dry_run else [_trace_entry(item, raw, path, signer) for item, raw, path in damage]
+    with _flock(quarantine_path, exclusive=not dry_run):
+        _require_terminated(quarantine_path)
+        if not dry_run:
+            _append_with_rollback(quarantine_path, entries, existed=existed)
 
 
 def _rewrite_without(path: str | Path, drop: set[int]) -> None:
@@ -909,7 +948,8 @@ def quarantine_damaged_lines(
     - A valid-JSON unterminated last line is refused in both files (it may be a real seal or record).
     - An anchored `expected_head` must match one of the complete manifests, which bounds how far back the log can
       have been rewound; re-verify the repaired log against the freshest anchor you track yourself.
-    - A torn rotation entry is a torn manifest tail; call rotate_manifest_key again after the repair.
+    - A torn rotation entry is a torn manifest tail; call rotate_manifest_key again after the repair. A complete but
+      wrongly appended one is quarantine_from_rotation_entry's job.
     - Anything else raises and changes nothing.
 
     `previous_signers` covers a retired signing key during rotation (see module docstring)."""
@@ -925,19 +965,77 @@ def quarantine_damaged_lines(
         damage = manifest_damage + audit_damage
         if not damage:
             return []
-        # Captured before the lock: an exclusive _flock opens O_CREAT, so afterwards the file always exists.
-        existed = os.path.exists(quarantine_path)
-        # Signed before the quarantine lock: a signing failure must not leave the file it creates; a dry run never signs.
-        entries = [] if dry_run else [_trace_entry(item, raw, path, signer) for item, raw, path in damage]
-        with _flock(quarantine_path, exclusive=not dry_run):
-            _require_terminated(quarantine_path)
-            if not dry_run:
-                _append_with_rollback(quarantine_path, entries, existed=existed)
+        _trace_damage(damage, quarantine_path=quarantine_path, signer=signer, dry_run=dry_run)
         if not dry_run:
             if audit_damage:
                 _rewrite_without(audit_path, {item.line for item, _, _ in audit_damage})
             if manifest_damage:
-                os.truncate(manifest_path, manifest_damage[0][0].offset)
-                _fsync(manifest_path)
-                _fsync(Path(manifest_path).parent)
+                _truncate_durably(manifest_path, manifest_damage[0][0].offset)
+        return [item for item, _, _ in damage]
+
+
+def _manifests_through(path: str | Path, lines: Sequence[bytes], head: str) -> list[dict[str, Any]]:
+    """Parse `lines` up to and including the manifest whose hash is `head`; raise if none has it."""
+    manifests: list[dict[str, Any]] = []
+    for manifest in _parsed_manifests(path, lines):
+        manifests.append(manifest)
+        if manifest_hash(manifest) == head:
+            return manifests
+    raise ManifestVerificationError(f"no complete manifest in {path} has the head {head!r}")
+
+
+def quarantine_from_rotation_entry(
+    manifest_path: str | Path,
+    *,
+    quarantine_path: str | Path,
+    signer: ManifestSigner,
+    previous_signers: Iterable[ManifestSigner] = (),
+    expected_head: str,
+    dry_run: bool = False,
+) -> list[QuarantinedLine]:
+    """Drop a key rotation entry and everything after it from the manifest log; return the dropped lines.
+
+    - `expected_head`: everything after this head is dropped, so dry-run first. It is the head of the line just before
+      the entry (the entry's own `previous_manifest_hash` only if its chain is intact); an older head is refused
+      unless a rotation entry follows it. `signer` must be the key current there, and the prefix must verify;
+      re-verify the repaired log against the freshest anchor you track yourself.
+    - The first dropped line must be a terminated JSON object with a `kind` field (what the log reads as a rotation
+      entry); a torn tail is quarantine_damaged_lines' job. Neither its signature nor any later line is verified, so
+      an entry signed outside the keyring can be dropped.
+    - Each dropped line is traced to the signed `quarantine_path` log (its own file) before the manifest log is cut,
+      and survives only there: keep that log on separate or append-only storage. A retired key with write access
+      can drop honest seals too. The interrupted-run caveat of quarantine_damaged_lines applies.
+    - Runs sealed by a dropped line are unsealed again: review them against the trace before re-sealing with
+      `seal_ndjson_runs(expected_head=<anchor>)`, and replace any external anchor recorded past `expected_head`.
+    - `dry_run=True` only reports; nothing is written.
+    - Anything else raises and changes nothing.
+
+    `previous_signers` covers a retired signing key during rotation (see module docstring)."""
+    signers = _signer_map(signer, previous_signers)
+    if not isinstance(expected_head, str):
+        raise ValueError("quarantine_from_rotation_entry expected_head must be a string")
+    _reject_aliased_paths(manifest_path=manifest_path, quarantine_path=quarantine_path)
+    # Checked before the lock: an exclusive _flock would create the file.
+    if not os.path.exists(manifest_path):
+        raise ManifestVerificationError(f"{manifest_path} does not exist, so there is no head to anchor on")
+    with _flock(manifest_path, exclusive=not dry_run):
+        lines, tail = _split_unterminated_tail(manifest_path)
+        prefix = _manifests_through(manifest_path, lines, expected_head)
+        _verify_log(prefix, signer=signer, signers=signers, expected_head=None, require_current=True)
+        dropped = [*lines[len(prefix) :], *([tail] if tail else [])]
+        if not dropped:
+            return []
+        number, offset = len(prefix) + 1, sum(map(len, lines[: len(prefix)]))
+        # Parsing refuses an unterminated first line; later lines, even a valid-JSON tail, are dropped unread.
+        if "kind" not in _parse_ndjson_line(manifest_path, number, dropped[0])[1]:
+            raise ManifestVerificationError(f"{manifest_path} line {number} is not a key rotation entry")
+        reason = f"dropped from the key rotation entry at {manifest_path} line {number}"
+        damage: _Damage = []
+        for raw in dropped:
+            damage.append(_damage_entry("manifest", manifest_path, number, offset, raw, reason))
+            number += 1
+            offset += len(raw)
+        _trace_damage(damage, quarantine_path=quarantine_path, signer=signer, dry_run=dry_run)
+        if not dry_run:
+            _truncate_durably(manifest_path, damage[0][0].offset)
         return [item for item, _, _ in damage]
