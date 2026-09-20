@@ -195,6 +195,22 @@ def test_meta_package_without_py_typed_still_generates() -> None:
     assert "package-data" not in content, content
 
 
+def test_generate_emits_flat_workspace_source_for_dotted_package_name() -> None:
+    """An unquoted dot in a workspace source key would parse as a nested table."""
+    shared, _packages_config = gen.load_configs()
+    pkg_config = _meta_package_config()
+    pkg_config["workspace_deps"] = ["mloda.foo", "mloda-registry"]
+    all_packages: dict[str, dict[str, Any]] = {"mloda-meta": pkg_config}
+
+    content: str = gen.generate_pyproject("mloda-meta", pkg_config, shared, all_packages)
+    parsed = tomllib.loads(content)
+
+    assert parsed["tool"]["uv"]["sources"] == {
+        "mloda.foo": {"workspace": True},
+        "mloda-registry": {"workspace": True},
+    }, content
+
+
 def test_discover_packages_excludes_real_egg_info_dirs(tmp_path: Path) -> None:
     """A planted ``<package>.egg-info/__init__.py`` must not be discovered as a package.
 
