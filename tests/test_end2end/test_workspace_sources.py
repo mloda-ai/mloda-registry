@@ -27,9 +27,9 @@ gen = load_script("generate_pyproject", _GEN_PATH)
 _SANDBOX_NAME = "mloda-sandbox"
 _MIXED_DEPENDENCIES = [
     "{core_dependency}",
-    "Mloda_Community>=0.4.5",
+    "Mloda_Community>={version}",
     "opentelemetry-api>=1.30,<2",
-    "mloda-registry[all]>=0.4.0 ; python_version >= '3.10'",
+    "mloda-registry[all]>={version} ; python_version >= '3.10'",
 ]
 
 
@@ -121,7 +121,7 @@ def test_synthetic_mloda_testing_package_gets_no_self_entry() -> None:
     cfg: dict[str, Any] = {
         "description": "sandbox mloda-testing",
         "path": "mloda/sandbox_testing",
-        "dependencies": ["{core_dependency}", "mloda-registry"],
+        "dependencies": ["{core_dependency}", "mloda-registry>={version}"],
     }
     all_packages = _all_packages_with("mloda-testing", cfg)
 

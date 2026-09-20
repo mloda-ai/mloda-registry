@@ -9,7 +9,6 @@ from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
 import pyarrow as pa
-
 from mloda.provider import ComputeFramework, FeatureGroup, FeatureSet, property_spec
 from mloda.user import Feature, FeatureName, Options
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable

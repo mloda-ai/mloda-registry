@@ -42,8 +42,9 @@ from mloda.testing.binary_model import (
     MESSAGE_MAX_BYTES,
     UNSUPPORTED,
     USAGE_ERROR,
+    hash_reference,
+    license_vectors,
 )
-from mloda.testing.binary_model import hash_reference, license_vectors
 from mloda.testing.binary_model.arrow import (
     arrow_file_format_bytes,
     arrow_stream_bytes,

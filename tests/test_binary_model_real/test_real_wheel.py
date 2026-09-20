@@ -23,15 +23,16 @@ import pytest
 
 example_binary = pytest.importorskip("example_binary")
 
+from mloda.provider import ApiInputDataFeature, FeatureSet
+from mloda.user import Feature, Options, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+
 from mloda.community.feature_groups.binary_model.binary import CONTRACT_VERSION
 from mloda.community.feature_groups.binary_model.errors import LicenseInvalidError, LicenseMissingError
 from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
-from mloda.provider import ApiInputDataFeature, FeatureSet
 from mloda.testing.binary_model.conformance import run_binary
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
 from mloda.testing.binary_model.license_vectors import valid_license_token
-from mloda.user import Feature, Options, PluginCollector, mloda
-from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from tests.test_binary_model_real.probe_classification import (
     UNKNOWN_TEST_KEY_MESSAGE,
     probe_accepts_test_key,

@@ -13,7 +13,6 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
-
 from mloda.provider import ApiInputDataFeature, FeatureSet, PropertySpec, property_spec
 from mloda.user import Feature, FeatureName, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
