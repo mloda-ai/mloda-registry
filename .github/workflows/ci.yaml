@@ -62,3 +62,22 @@ jobs:
         uv tool install tox --with tox-uv
     - name: Lint docs
       run: tox -e lint-docs
+
+  # Linux x86_64 only for now; the wheel is the PyPI release build pinned in uv.lock, so no secret is needed.
+  real-wheel:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install tox
+      run: |
+        python -m pip install --upgrade pip
+        # Pinned: uv reads the committed uv.lock, and a lockfile serialization change across minors invalidates it.
+        python -m pip install "uv>=0.12,<0.13"
+        uv tool install tox --with tox-uv
+    - name: Test against the real wheel
+      run: tox -e real-wheel
+      timeout-minutes: 3

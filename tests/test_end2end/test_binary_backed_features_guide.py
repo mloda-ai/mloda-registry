@@ -6,10 +6,14 @@ tool is wired in), so this is a lightweight grep-based check instead of an execu
 
 from __future__ import annotations
 
+import configparser
+import re
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GUIDE_PATH = _REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "28-binary-backed-features.md"
+_TOX_INI = _REPO_ROOT / "tox.ini"
+_CI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "ci.yaml"
 
 
 def test_complete_example_sets_binary_wheel_distribution() -> None:
@@ -64,4 +68,34 @@ def test_against_the_real_wheel_section_shows_the_uv_install_command() -> None:
     assert "uv pip install mloda-example-binary" in section, (
         'the "Against the real wheel" section must contain `uv pip install mloda-example-binary`; section was:\n'
         + section
+    )
+
+
+def test_real_wheel_tox_env_installs_the_wheel_and_probes_the_import() -> None:
+    """The real-wheel env installs the wheel extra and probes the import before pytest, so it cannot pass skipped."""
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read(_TOX_INI)
+    assert parser.has_section("testenv:real-wheel"), (
+        "tox.ini must define [testenv:real-wheel] to run tests/test_binary_model_real against the real wheel"
+    )
+    env = parser["testenv:real-wheel"]
+    extras = re.split(r"[\s,]+", env.get("extras", ""))
+    assert "wheel" in extras, f"[testenv:real-wheel] must install the `wheel` extra; extras were: {extras}"
+    commands = env.get("commands", "").splitlines()
+    probe = next((i for i, line in enumerate(commands) if "import example_binary" in line), None)
+    run = next((i for i, line in enumerate(commands) if "pytest" in line), None)
+    assert probe is not None, f"[testenv:real-wheel] must probe `import example_binary`; commands were: {commands}"
+    assert run is not None and probe < run, (
+        f"the `import example_binary` probe must run before the pytest line; commands were: {commands}"
+    )
+
+
+def test_real_wheel_job_and_guide_name_the_tox_env() -> None:
+    """The CI workflow and the guide's "Against the real wheel" section both name `tox -e real-wheel`."""
+    workflow = _CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "tox -e real-wheel" in workflow, "ci.yaml must define a real-wheel job that runs `tox -e real-wheel`"
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    section = _section(content, "### Against the real wheel", ("\n## ", "\n### "))
+    assert "tox -e real-wheel" in section, (
+        'the "Against the real wheel" section must contain `tox -e real-wheel`; section was:\n' + section
     )
