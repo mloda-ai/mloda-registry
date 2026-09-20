@@ -1,6 +1,11 @@
 """Enterprise Audit Extender package."""
 
-from mloda.enterprise.extenders.audit.audit_extender import AuditExtender, AuditSink, NdjsonAuditSink
+from mloda.enterprise.extenders.audit.audit_extender import (
+    AuditExtender,
+    AuditSink,
+    IdentityRequiredError,
+    NdjsonAuditSink,
+)
 from mloda.enterprise.extenders.audit.run_manifest import (
     HmacSha256Signer,
     LogCoverage,
@@ -22,6 +27,7 @@ __all__ = [
     "AuditExtender",
     "AuditSink",
     "HmacSha256Signer",
+    "IdentityRequiredError",
     "LogCoverage",
     "ManifestSigner",
     "ManifestVerificationError",

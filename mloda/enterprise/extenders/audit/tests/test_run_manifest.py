@@ -31,6 +31,7 @@ import mloda.enterprise.extenders.audit.run_manifest as run_manifest_module
 from mloda.enterprise.extenders.audit import (
     AuditExtender,
     HmacSha256Signer,
+    IdentityRequiredError,
     LogCoverage,
     ManifestSigner,
     ManifestVerificationError,
@@ -350,11 +351,16 @@ class TestRunManifestPublicApi:
             "verify_ndjson_log_coverage",
             "QuarantinedLine",
             "quarantine_damaged_lines",
+            "IdentityRequiredError",
         } <= set(audit_package.__all__)
 
     def test_run_not_pending_error_is_a_value_error_but_not_a_verification_error(self) -> None:
         assert issubclass(RunNotPendingError, ValueError)
         assert not issubclass(RunNotPendingError, ManifestVerificationError)
+
+    def test_identity_required_error_is_a_runtime_error_but_not_a_value_error(self) -> None:
+        assert issubclass(IdentityRequiredError, RuntimeError)
+        assert not issubclass(IdentityRequiredError, ValueError)
 
     def test_run_already_sealed_error_is_a_run_not_pending_error(self) -> None:
         assert issubclass(RunAlreadySealedError, RunNotPendingError)
@@ -3215,11 +3221,16 @@ class TestRunManifestRunAll:
     """A real run's audit file seals into one verifiable manifest."""
 
     @pytest.mark.parametrize(
-        "mode",
-        [ParallelizationMode.SYNC, ParallelizationMode.THREADING, ParallelizationMode.MULTIPROCESSING],
+        ("mode", "fail_closed"),
+        [
+            (ParallelizationMode.SYNC, False),
+            (ParallelizationMode.THREADING, False),
+            (ParallelizationMode.MULTIPROCESSING, False),
+            (ParallelizationMode.MULTIPROCESSING, True),
+        ],
     )
     def test_run_all_audit_file_seals_and_verifies(
-        self, mode: ParallelizationMode, tmp_path: Path, request: pytest.FixtureRequest
+        self, mode: ParallelizationMode, fail_closed: bool, tmp_path: Path, request: pytest.FixtureRequest
     ) -> None:
         audit_path = tmp_path / "audit.ndjson"
         manifest_path = tmp_path / "manifests.ndjson"
@@ -3227,7 +3238,7 @@ class TestRunManifestRunAll:
         flight_server = (
             request.getfixturevalue("flight_server") if mode == ParallelizationMode.MULTIPROCESSING else None
         )
-        extender = AuditExtender(sink=NdjsonAuditSink(audit_path))
+        extender = AuditExtender(sink=NdjsonAuditSink(audit_path), fail_closed=fail_closed)
 
         with verified_context(tenant_id="tenant-42", project_id="project-7", principal="svc"):
             values = run_value_int(extender, parallelization_modes={mode}, flight_server=flight_server)
@@ -3251,6 +3262,23 @@ class TestRunManifestRunAll:
         values = run_value_int(AuditExtender(sink=NdjsonAuditSink(audit_path)))
 
         assert values == expected_value_int()
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+        assert len(manifests) == 1
+        assert manifests[0]["compliant"] is False
+
+    def test_run_all_fail_closed_refusal_seals_a_non_compliant_manifest(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+
+        with pytest.raises(IdentityRequiredError):
+            run_value_int(AuditExtender(sink=NdjsonAuditSink(audit_path), fail_closed=True))
+
+        records = _read_lines(audit_path)
+        assert len(records) == 1
+        assert records[0]["decision"] == "deny"
+        assert records[0]["hook"] == "FEATURE_GROUP_MATCHED"
         manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
         verify_ndjson_log(audit_path, manifest_path, signer=_signer())
 

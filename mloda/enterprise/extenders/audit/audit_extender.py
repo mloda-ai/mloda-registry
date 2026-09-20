@@ -1,4 +1,5 @@
-"""AuditExtender: writes one audit record per FEATURE_GROUP_CALCULATE_FEATURE invocation."""
+"""AuditExtender: writes one audit record per FEATURE_GROUP_CALCULATE_FEATURE invocation (fail_closed also
+wraps FEATURE_GROUP_MATCHED)."""
 
 from __future__ import annotations
 
@@ -38,17 +39,28 @@ class NdjsonAuditSink:
         _append_records(self.path, [record])
 
 
+class IdentityRequiredError(RuntimeError):
+    """Raised by AuditExtender(fail_closed=True) when a required identity is missing."""
+
+
+def _error_type(exc: BaseException) -> str:
+    return f"{type(exc).__module__}.{type(exc).__qualname__}"
+
+
 class AuditExtender(Extender):
     """Records tenant-scoped audit metadata (never values or exception messages) for every
     calculation. A missing required identity yields a deny record while the calculation still
     runs. With raise_on_error=True (default), a sink failure after a successful calculation fails
-    the run; when the calculation itself fails, its exception wins and the sink failure is only logged."""
+    the run; when the calculation itself fails, its exception wins and the sink failure is only logged.
+    With fail_closed=True (needs raise_on_error=True), a missing identity writes the deny record and
+    raises IdentityRequiredError before the wrapped call, also at FEATURE_GROUP_MATCHED."""
 
     def __init__(
         self,
         sink: AuditSink,
         required_identity: tuple[str, ...] = ("tenant_id",),
         raise_on_error: bool = True,
+        fail_closed: bool = False,
     ) -> None:
         unknown = [name for name in required_identity if name not in _ALLOWED_IDENTITY_NAMES]
         if unknown:
@@ -60,11 +72,23 @@ class AuditExtender(Extender):
             raise ValueError(f"AuditExtender required_identity has duplicate name(s): {required_identity}")
         if not callable(getattr(sink, "write", None)):
             raise ValueError("AuditExtender sink must implement the AuditSink protocol: a callable write(record)")
+        if fail_closed and not raise_on_error:
+            raise ValueError(
+                "AuditExtender fail_closed=True requires raise_on_error=True: with raise_on_error=False core "
+                "would log the refusal and still run the wrapped call"
+            )
+        if fail_closed and not required_identity:
+            raise ValueError(
+                "AuditExtender fail_closed=True needs a non-empty required_identity, else nothing is refused"
+            )
         self.sink = sink
         self.required_identity = required_identity
         self.raise_on_error = raise_on_error
+        self.fail_closed = fail_closed
 
     def wraps(self) -> set[ExtenderHook]:
+        if self.fail_closed:
+            return {ExtenderHook.FEATURE_GROUP_MATCHED, ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
@@ -72,12 +96,20 @@ class AuditExtender(Extender):
         if context is None:
             return func(*args, **kwargs)
 
+        if self.fail_closed:
+            missing = self._missing_identity(context)
+            if missing:
+                refusal = IdentityRequiredError(f"AuditExtender refused the call: missing required identity {missing}")
+                # Unguarded on purpose: a sink failure must propagate instead of the refusal.
+                self.sink.write(self._build_record(context, status="error", error_type=_error_type(refusal)))
+                raise refusal
+            if context.hook is ExtenderHook.FEATURE_GROUP_MATCHED:
+                return func(*args, **kwargs)
+
         try:
             result = func(*args, **kwargs)
         except BaseException as exc:
-            record = self._build_record(
-                context, status="error", error_type=f"{type(exc).__module__}.{type(exc).__qualname__}"
-            )
+            record = self._build_record(context, status="error", error_type=_error_type(exc))
             try:
                 self.sink.write(record)
             except Exception as sink_exc:
@@ -96,8 +128,11 @@ class AuditExtender(Extender):
         self.sink.write(record)
         return result
 
+    def _missing_identity(self, context: HookContext) -> list[str]:
+        return [name for name in self.required_identity if _is_blank(getattr(context, name))]
+
     def _build_record(self, context: HookContext, *, status: str | None, error_type: str | None) -> dict[str, Any]:
-        missing = [name for name in self.required_identity if _is_blank(getattr(context, name))]
+        missing = self._missing_identity(context)
         return {
             "record_version": 1,
             "event_time": _utc_now(),
