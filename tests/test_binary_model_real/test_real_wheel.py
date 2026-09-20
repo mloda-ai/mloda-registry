@@ -1,7 +1,10 @@
 """Real-wheel system test: exercises the ``example_binary`` distribution (``mloda-example-binary``
-on PyPI/TestPyPI) actually installed, instead of the simulated binary from
+on PyPI) actually installed, instead of the simulated binary from
 ``mloda-testing[binary-model]``. Skipped by default -- the wheel is never installed in CI; see
 ``docs/guides/feature-group-patterns/28-binary-backed-features.md``.
+
+Run this directory on its own with ``pytest tests/test_binary_model_real/``; it needs no opt-in. The
+repo's other suites assume the wheel is absent and are not supported with it installed.
 
 The full expired/in-grace/valid license state machine is already covered against the real compiled
 binary in the mloda-binary-wrapper repo's own CI across multiple platforms, and is deliberately not
@@ -113,9 +116,9 @@ def test_test_signed_license_is_rejected_or_accepted_depending_on_the_installed_
 def test_real_binary_end_to_end_with_valid_test_license() -> None:
     if not _get_accepts_test_key():
         pytest.skip(
-            "test-key build not installed: this real wheel rejects the shared test-signed license "
-            "vectors as unknown-kid (PRODUCTION_KEYS is currently empty), so no license from "
-            "license_vectors can drive a full run"
+            "test-key build not installed: this real wheel is a release build, which trusts only "
+            "production keys and rejects the shared test-signed license vectors as unknown-kid, so no "
+            "license from license_vectors can drive a full run"
         )
     rows: dict[str, list[str]] = {"col_a": ["alpha", "beta", "gamma"]}
     feature, _ = _single_hash_feature(["col_a"])

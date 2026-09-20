@@ -240,35 +240,6 @@ def sibling_dependency_names(deps: list[str], all_packages: dict[str, dict[str, 
     return sorted(names)
 
 
-def uv_index_blocks(pkg_name: str, index_deps: dict[str, str], uv_indexes: dict[str, Any]) -> list[str]:
-    """``[[tool.uv.index]]`` TOML lines for every distinct uv index ``index_deps`` references,
-    sorted by name; empty if none are used. A root-declared index is honored for in-workspace
-    resolution too, but co-locating the declaration here also covers a standalone (non-workspace)
-    build of this package, which needs it in its own pyproject.toml. Every referenced index must
-    declare ``explicit = true``: without it, uv's first-index strategy lets the index shadow PyPI
-    for other packages too, not just the dependency naming it via ``[tool.uv.sources]`` -- this is
-    a required safeguard, never a silent default."""
-    lines: list[str] = []
-    for name in sorted(set(index_deps.values())):
-        if name not in uv_indexes:
-            raise ValueError(
-                f"{pkg_name}: optional_dependency_indexes names unknown uv index {name!r}; "
-                "add it under [defaults.uv_indexes] in config/shared.toml"
-            )
-        index_cfg = uv_indexes[name]
-        if not index_cfg.get("explicit"):
-            raise ValueError(
-                f"{pkg_name}: uv index {name!r} must declare explicit = true in [defaults.uv_indexes] "
-                f"of config/shared.toml, got {index_cfg!r}"
-            )
-        lines.append("[[tool.uv.index]]")
-        lines.append(f'name = "{name}"')
-        lines.append(f'url = "{index_cfg["url"]}"')
-        lines.append("explicit = true")
-        lines.append("")
-    return lines
-
-
 def nested_package_names(pkg_path: str, all_packages: dict[str, dict[str, Any]]) -> list[str]:
     """Return the configured packages whose path is nested under ``pkg_path``, in config order."""
     prefix = pkg_path.rstrip("/") + "/"
@@ -593,13 +564,6 @@ def generate_pyproject(
     deps = resolve_dependencies(pkg_name, pkg_config.get("dependencies", []), shared, all_packages, nested_siblings)
     runtime_deps = list(deps)  # `deps` is rebound by the optional-dependencies loop below
 
-    # A built wheel's metadata carries only the bare requirement string; uv's own index
-    # configuration does not survive into it. Pointing a published package's extra at a
-    # non-default index is a dependency-confusion risk (`pip install pkg[extra]` resolves the
-    # bare name against production PyPI, which may be empty or squatted).
-    if pkg_config.get("published") and pkg_config.get("optional_dependency_indexes"):
-        raise ValueError(f"{pkg_name}: published and optional_dependency_indexes are mutually exclusive")
-
     lines = [HEADER]
 
     # Build system
@@ -645,18 +609,6 @@ def generate_pyproject(
         all_packages,
         nested_siblings,
     )
-
-    # An optional_dependency_indexes key that names no declared dependency is a typo: the real
-    # dependency it should have pinned resolves from the default index instead, the
-    # dependency-confusion vector this file already guards against.
-    declared_opt_dep_names = {normalize_dependency_name(dep) for deps in merged_opt_deps.values() for dep in deps}
-    for index_key in pkg_config.get("optional_dependency_indexes", {}):
-        if normalize_dependency_name(index_key) not in declared_opt_dep_names:
-            raise ValueError(
-                f"{pkg_name}: optional_dependency_indexes key {index_key!r} does not match any "
-                "declared optional dependency"
-            )
-
     if merged_opt_deps:
         lines.append("[project.optional-dependencies]")
         for group, deps in merged_opt_deps.items():
@@ -720,51 +672,22 @@ def generate_pyproject(
     depth = len(pkg_path.parts)
     gets_default_dev_deps = not skips_default_optional_dependencies(pkg_name)
 
-    uv_source_lines: list[str] = []
-    workspace_names: list[str] = []
     if "workspace_deps" in pkg_config:
-        workspace_names = list(pkg_config["workspace_deps"])
+        lines.append("[tool.uv.sources]")
+        for dep in pkg_config["workspace_deps"]:
+            lines.append(f"{quote_toml_basic_string(dep, key=True)} = {{ workspace = true }}")
+        lines.append("")
     elif depth <= 2:
         # uv resolves a workspace dependency of a top-level member, runtime or extra, only through a source entry.
         extra_deps = [dep for group_deps in merged_opt_deps.values() for dep in group_deps]
         source_names = set(sibling_dependency_names([*runtime_deps, *extra_deps], all_packages))
         if gets_default_dev_deps:
             source_names.add("mloda-testing")
-        workspace_names = sorted(source_names)
-    uv_source_lines.extend(
-        f"{quote_toml_basic_string(name, key=True)} = {{ workspace = true }}" for name in workspace_names
-    )
-
-    # Explicit external indexes (e.g. TestPyPI for a wheel not yet on production PyPI).
-    index_deps: dict[str, str] = pkg_config.get("optional_dependency_indexes", {})
-    uv_indexes: dict[str, Any] = defaults.get("uv_indexes", {})
-
-    # An optional_dependency_indexes key equal (after PEP 503 normalization, consistent with Guard
-    # 6 above) to an existing workspace source name would otherwise emit a duplicate TOML key.
-    normalized_workspace_names = {normalize_dependency_name(name) for name in workspace_names}
-    for dep_name in index_deps:
-        normalized = normalize_dependency_name(dep_name)
-        if normalized in normalized_workspace_names:
-            raise ValueError(
-                f"{pkg_name}: optional_dependency_indexes key {dep_name!r} collides with an existing "
-                f"[tool.uv.sources] workspace entry for {normalized!r}"
-            )
-
-    # The key must be both PEP 503 normalized and quoted: a dotted/underscored spelling is a legal
-    # equivalent (Guard 6 above already accepts it), but an unquoted dot in a bare TOML key is a
-    # nested-table separator, which would leave no flat entry for the real dependency name.
-    uv_source_lines.extend(
-        f"{quote_toml_basic_string(normalize_dependency_name(dep_name) or dep_name)} = "
-        f"{{ index = {quote_toml_basic_string(index_name)} }}"
-        for dep_name, index_name in index_deps.items()
-    )
-
-    if uv_source_lines:
-        lines.append("[tool.uv.sources]")
-        lines.extend(uv_source_lines)
-        lines.append("")
-
-    lines.extend(uv_index_blocks(pkg_name, index_deps, uv_indexes))
+        if source_names:
+            lines.append("[tool.uv.sources]")
+            for source_name in sorted(source_names):
+                lines.append(f"{quote_toml_basic_string(source_name, key=True)} = {{ workspace = true }}")
+            lines.append("")
 
     return "\n".join(lines)
 

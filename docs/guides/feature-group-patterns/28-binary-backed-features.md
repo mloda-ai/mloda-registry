@@ -140,22 +140,28 @@ Expected values come from `mloda.testing.binary_model.hash_reference.compute_exp
 
 ### Against the real wheel
 
-The stub above stays the fast-tests path; a suite that needs the actual compiled binary points the production class at it directly, no `BINARY_COMMAND_OVERRIDE`:
+The stub above stays the fast-tests path; a suite that needs the actual compiled binary points the production class at it directly, no `BINARY_COMMAND_OVERRIDE`. The shared test-signed license is accepted only by a test-key build:
 
 ```python
 class RealWheelExample(BinaryExampleFeatureGroup):
     LICENSE_KEY_OVERRIDE = valid_license_token(["example_binary"])
 ```
 
-See `tests/test_binary_model_real/` for the full suite (skipped unless the wheel is installed). Running it against the real wheel takes two steps: build a test-key wheel via the [mloda-binary-wrapper repo's build steps](https://github.com/mloda-ai/mloda-binary-wrapper) and install it, then run with `MLODA_REAL_WHEEL=1` set (the "wheel is absent" preconditions read that opt-in to tell a deliberate install from an accidental one). A test-key build is required because a release build trusts only `PRODUCTION_KEYS` and rejects the shared test-signed vectors as an unknown key id. The full expired/in-grace/valid license state machine is already covered against the real compiled binary in the mloda-binary-wrapper repo's own CI across multiple platforms, so it is not duplicated here. No CI job here installs the wheel, so the suite stays skipped by default; the probe's own logic is instead covered unconditionally against the simulated binary by `tests/test_binary_model_real/test_probe_classification.py`. Installing the real wheel in CI, and the full production-license end-to-end path, remain deferred follow-up work.
+See `tests/test_binary_model_real/` for the full suite.
+
+In the checkout, `uv pip install mloda-example-binary` gives the release build from PyPI (the dev venv has no `pip`, and `uv sync` removes the wheel again). It trusts only production keys, so it rejects the shared test-signed license vectors as an unknown key id. Run the suite on its own, in the dev environment, with `pytest tests/test_binary_model_real/`. Against the release build it covers the version and capabilities probes and both license error paths; the end-to-end test skips. That test needs a test-key build, made with the [mloda-binary-wrapper repo's build steps](https://github.com/mloda-ai/mloda-binary-wrapper). Test-key wheels are never published, because they accept a publicly known signing key.
+
+Keep the rest of the repo's suite out of a run that has the wheel: it assumes the wheel is absent. `MLODA_REAL_WHEEL=1` is an escape hatch for the two accidental-install guards (it turns them into skips), not a workflow; other wheel-absent tests still fail with the wheel installed.
+
+The full expired/in-grace/valid license state machine is covered against the real compiled binary in the mloda-binary-wrapper repo's own CI across platforms, so it is not duplicated here. No CI job here installs the wheel, so the suite stays skipped by default; the probe's own logic is covered unconditionally against the simulated binary by `tests/test_binary_model_real/test_probe_classification.py`. Installing the real wheel in this repo's CI, and the full production-license end-to-end path, remain deferred follow-up work.
 
 ## Packaging Rules
 
 - `mloda-testing[binary-model]` (the stub, Arrow helpers, license vectors) is a `dev` extra only; nothing under `mloda/community/` or `mloda/enterprise/` imports `mloda.testing` at runtime.
 - The wheel is never a hard dependency of the plugin package; without it the call rejects, discovery still works.
 - A binary that implements the contract is verified with `mloda.testing.binary_model.conformance.BinaryModelConformanceBase`, the same kit the simulated binary passes.
-- The wheel's distribution (`BINARY_WHEEL_DISTRIBUTION`) is declared under `optional_dependencies`, pinned with a version range, never under `dependencies`. `mloda-example-binary` resolves from an explicit TestPyPI index (`optional_dependency_indexes` in `packages.toml`) until it ships on production PyPI. That index scoping (`[tool.uv.sources]` / `[[tool.uv.index]]`, see [UV workspace sources](../../packaging.md#uv-workspace-sources)) is uv-only: `pip install '<path>[wheel]'` from a checkout resolves the bare `mloda-example-binary` name against production PyPI instead.
-- The published `mloda-enterprise` bundle does not expose the `wheel` extra: a built wheel's metadata carries only the bare requirement, so a published package pointing an extra at a non-default index is a dependency-confusion vector, which is why `scripts/generate_pyproject.py` refuses `published` together with `optional_dependency_indexes`.
+- The wheel's distribution (`BINARY_WHEEL_DISTRIBUTION`) is declared under `optional_dependencies` with a version range, never under `dependencies` or `dev`; install it with `pip install mloda-example-binary`.
+- The `wheel` extra lives on `mloda-enterprise-binary-example`, which ships inside the `mloda-enterprise` bundle. The bundle does not re-export the extra, so install the wheel directly.
 
 ## Combines With
 

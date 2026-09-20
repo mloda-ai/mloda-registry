@@ -198,21 +198,23 @@ class TestManifest:
         assert binary_example_manifest.FEATURE_GROUPS == [BinaryExampleFeatureGroup]
 
     def test_wheel_is_not_installed_precondition(self) -> None:
-        """Skips only when the wheel install was deliberately opted into (``MLODA_REAL_WHEEL=1``,
-        e.g. running tests/test_binary_model_real/); otherwise an installed wheel fails this test
-        instead of skipping it, so an accidental install (e.g. moved into the ``dev`` extra) is
-        caught rather than silently skipped."""
+        """Fails when the wheel is installed, because the suites assume it is absent, so an accidental
+        install (e.g. moved into the ``dev`` extra) is caught rather than silently skipped.
+        ``MLODA_REAL_WHEEL=1`` turns this guard into a skip, and other wheel-absent tests still fail.
+        Running tests/test_binary_model_real/ alone does not need the opt-in."""
         spec = importlib.util.find_spec("example_binary")
         opt_in = os.environ.get("MLODA_REAL_WHEEL") == "1"
         classification = classify_wheel_presence(spec_present=spec is not None, opt_in=opt_in)
         if classification == "opted_in":
             pytest.skip(
-                "example_binary is installed as a real wheel with MLODA_REAL_WHEEL=1 set; expected "
-                "only when running tests/test_binary_model_real/, not the default wheel-absent run "
-                "this precondition otherwise guards"
+                "example_binary is installed as a real wheel with MLODA_REAL_WHEEL=1 set, so this "
+                "wheel-absent guard is skipped; the repo's other suites are not supported with the "
+                "wheel installed"
             )
         assert classification == "absent", (
-            f"example_binary is installed as a real wheel without MLODA_REAL_WHEEL=1 set: {classification!r}"
+            "example_binary is installed as a real wheel, but the repo's suites assume it is absent: "
+            "uninstall it or run only tests/test_binary_model_real/. MLODA_REAL_WHEEL=1 skips only this "
+            f"guard: {classification!r}"
         )
 
     def test_importing_the_manifest_never_imports_the_binary_wheel(self) -> None:

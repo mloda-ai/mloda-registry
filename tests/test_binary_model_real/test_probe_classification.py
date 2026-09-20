@@ -35,7 +35,7 @@ def test_classify_test_key_probe_true_on_expected_success() -> None:
 
 def test_classify_test_key_probe_false_on_expected_license_invalid() -> None:
     """Exit 3 with an "unknown license key id" message is the expected rejection: a release build
-    trusting only PRODUCTION_KEYS (currently empty)."""
+    trusting only production keys rejects a test-signed token as an unknown key id."""
     stderr = b'{"code": 3, "message": "unknown license key id: test-kid"}\n'
     result = _completed_process(3, stderr=stderr)
     assert classify_test_key_probe(result) is False

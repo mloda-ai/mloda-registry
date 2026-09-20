@@ -55,8 +55,8 @@ def probe_environment(license_key: str | None = None) -> dict[str, str]:
 
 def probe_accepts_test_key(cmd: list[str]) -> bool:
     """True if ``cmd`` accepts the shared test-signed license vectors from ``license_vectors``;
-    False for a release build, which trusts only ``PRODUCTION_KEYS`` (currently empty, so a
-    test-signed token is always an unknown ``kid``). Delegates exit-code/message interpretation to
+    False for a release build, which trusts only production keys and so rejects a test-signed
+    token as an unknown ``kid``. Delegates exit-code/message interpretation to
     ``classify_test_key_probe``, which raises loudly for anything else."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         config_path = write_json(
