@@ -1,6 +1,7 @@
-"""Doc-drift guard for ``docs/guides/feature-group-patterns/28-binary-backed-features.md`` and for the tox.ini and
-ci.yaml wiring of the real-wheel suite. No mktestdocs/sybil-style execution of guide code fences is wired in
-this repo (confirmed), so these are lightweight grep-based checks instead of executed doctests."""
+"""Doc-drift guard for ``docs/guides/feature-group-patterns/28-binary-backed-features.md``, for the tox.ini and
+ci.yaml wiring of the real-wheel suite, and for the documented ``uv sync`` setup commands. No mktestdocs/sybil-style
+execution of guide code fences is wired in this repo (confirmed), so these are lightweight grep-based checks
+instead of executed doctests."""
 
 from __future__ import annotations
 
@@ -13,6 +14,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GUIDE_PATH = _REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "28-binary-backed-features.md"
 _TOX_INI = _REPO_ROOT / "tox.ini"
 _CI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "ci.yaml"
+_README = _REPO_ROOT / "README.md"
+_CONTRIBUTING = _REPO_ROOT / "CONTRIBUTING.md"
+_CLAUDE_MD = _REPO_ROOT / "CLAUDE.md"
+_PACKAGING_DOC = _REPO_ROOT / "docs" / "packaging.md"
+# AGENTS.md is a byte-identical copy of CLAUDE.md, already covered by tests/test_end2end/test_agent_guidance.py.
+_SETUP_COMMAND_DOCS = (_README, _CONTRIBUTING, _CLAUDE_MD, _PACKAGING_DOC)
 
 
 def test_complete_example_sets_binary_wheel_distribution() -> None:
@@ -109,3 +116,29 @@ def test_against_the_real_wheel_section_shows_the_tox_env_command() -> None:
     assert "tox -e real-wheel" in section, (
         'the "Against the real wheel" section must contain `tox -e real-wheel`; section was:\n' + section
     )
+
+
+def test_documented_uv_sync_commands_use_the_gate_flags_not_all_extras() -> None:
+    """Every documented ``uv sync`` setup command uses the gate's flags (``--all-packages --extra dev``). With
+    ``--all-extras`` uv also installs the ``wheel`` extra of ``mloda-enterprise-binary-example``, i.e. the real
+    ``mloda-example-binary`` wheel, and the suites assume that wheel is absent (two tripwire tests fail if it is
+    installed), so a fresh checkout that follows the docs would get red tests."""
+    for path in _SETUP_COMMAND_DOCS:
+        name = path.relative_to(_REPO_ROOT).as_posix()
+        lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines()]
+        commands = [line for line in lines if line.startswith("uv sync")]
+        assert commands, (
+            f"{name} must document the dev setup as a line starting with `uv sync` (a reworded or removed "
+            "command would otherwise pass this guard vacuously)"
+        )
+        for command in commands:
+            assert "--all-extras" not in command, (
+                f"{name}: `{command}` uses `--all-extras`, which installs the real binary wheel (the `wheel` "
+                "extra) into the venv, but the suites assume it is absent; use the gate's own flags "
+                "`--all-packages --extra dev`"
+            )
+            assert "--extra dev" in command, (
+                f"{name}: `{command}` must contain `--extra dev`; `--all-extras` would install the real binary "
+                "wheel (the `wheel` extra) into the venv, but the suites assume it is absent; use the gate's "
+                "own flags `--all-packages --extra dev`"
+            )

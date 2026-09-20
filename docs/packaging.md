@@ -230,14 +230,14 @@ python scripts/generate_pyproject.py    # Regenerate
 
 ```bash
 python scripts/generate_pyproject.py
-uv sync --all-extras --all-packages
+uv sync --all-packages --extra dev
 ```
 
 ### Add a test-only dependency
 
 Declare it in the package's `optional_dependencies.dev` in `config/packages.toml`,
 regenerate, then run `uv lock` and commit `uv.lock`. tox syncs every workspace
-member's `dev` extra (`--all-packages`), so root `pyproject.toml` never repeats
+member's `dev` extra (`--all-packages` plus `extras = dev`), so root `pyproject.toml` never repeats
 the entry; but it installs the lock with `--frozen`, so a dependency missing
 from `uv.lock` is not installed.
 

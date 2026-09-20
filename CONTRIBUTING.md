@@ -32,7 +32,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```bash
 uv venv
 source .venv/bin/activate
-uv sync --all-extras --all-packages
+uv sync --all-packages --extra dev
 ```
 
 4. Verify your setup by running the full check suite:
@@ -43,10 +43,12 @@ uv run tox
 
 `--all-packages` installs every workspace member editable, so their plugin entry
 points are registered and `PluginLoader.all()` discovers this repository's
-plugins in this venv. It also installs each member's own `dev` extra, which is
+plugins in this venv. `--extra dev` adds each member's own `dev` extra, which is
 how a test-only dependency declared in `config/packages.toml` reaches the venv
 (tests select plugins with `PluginCollector.enabled_feature_groups(...)`, which
-needs no entry points).
+needs no entry points). These are the tox gate's flags; `--all-extras` is avoided
+because it would also install the real `mloda-example-binary` wheel, which the
+suites assume is absent.
 
 ## Code Style
 
