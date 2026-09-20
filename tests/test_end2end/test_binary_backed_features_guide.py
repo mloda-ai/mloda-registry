@@ -39,16 +39,36 @@ def _section(content: str, heading: str, boundary_markers: tuple[str, ...]) -> s
 
 
 def test_against_the_real_wheel_section_names_the_opt_in() -> None:
-    """A reader following the "### Against the real wheel" subsection must find MLODA_REAL_WHEEL
-    named there, not hit an unrelated precondition failure naming an undocumented variable."""
+    """The "### Against the real wheel" subsection documents the MLODA_REAL_WHEEL opt-in."""
     content = _GUIDE_PATH.read_text(encoding="utf-8")
     section = _section(content, "### Against the real wheel", ("\n## ", "\n### "))
     assert "MLODA_REAL_WHEEL" in section, 'the "Against the real wheel" section must name MLODA_REAL_WHEEL'
 
 
-def test_packaging_rules_section_states_the_pip_caveat() -> None:
-    """The index scoping is uv-only: under pip, `mloda-example-binary` resolves against production
-    PyPI instead of TestPyPI, so the Packaging Rules section must state that caveat."""
+def test_packaging_rules_section_states_how_to_install_the_wheel() -> None:
+    """The Packaging Rules section gives the plain install command for the wheel."""
     content = _GUIDE_PATH.read_text(encoding="utf-8")
     section = _section(content, "## Packaging Rules", ("\n## ",))
-    assert "pip" in section, "the Packaging Rules section must state that the index scoping is uv-only"
+    assert "pip install mloda-example-binary" in section, (
+        "the Packaging Rules section must contain `pip install mloda-example-binary`; section was:\n" + section
+    )
+
+
+def test_against_the_real_wheel_section_shows_the_standalone_suite_command() -> None:
+    """The "### Against the real wheel" section shows the command that runs the real-wheel suite on its own."""
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    section = _section(content, "### Against the real wheel", ("\n## ", "\n### "))
+    assert "pytest tests/test_binary_model_real" in section, (
+        'the "Against the real wheel" section must contain `pytest tests/test_binary_model_real`; section was:\n'
+        + section
+    )
+
+
+def test_against_the_real_wheel_section_shows_the_uv_install_command() -> None:
+    """The "### Against the real wheel" section gives the uv form of the install, as the dev venv has no pip."""
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    section = _section(content, "### Against the real wheel", ("\n## ", "\n### "))
+    assert "uv pip install mloda-example-binary" in section, (
+        'the "Against the real wheel" section must contain `uv pip install mloda-example-binary`; section was:\n'
+        + section
+    )

@@ -19,10 +19,3 @@ build-backend = "setuptools.build_meta"
 license = "Apache-2.0"
 core_dependency = "mloda>=0.11.1,<0.12.0"
 optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
-
-# Named uv indexes a package's optional_dependency_indexes can reference (see packages.toml).
-# explicit = true means the index is used only for a dependency naming it explicitly via
-# [tool.uv.sources], never as a general fallback.
-[defaults.uv_indexes.testpypi]
-url = "https://test.pypi.org/simple/"
-explicit = true

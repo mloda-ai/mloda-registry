@@ -1,7 +1,9 @@
 """Pure classification for the "wheel is absent" precondition shared by
 ``binary_example/tests/test_binary_example_feature_group.py`` and ``test_licensing_invariants.py``:
 an installed wheel is either a deliberate opt-in (skip) or unexpected (fail), never silently
-either.
+either. ``MLODA_REAL_WHEEL=1`` marks a deliberate wheel install and skips only these wheel-absent
+guards; ``tests/test_binary_model_real/`` run alone does not need it, and the repo's other suites are
+not supported with the wheel installed.
 """
 
 from __future__ import annotations

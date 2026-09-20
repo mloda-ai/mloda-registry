@@ -60,7 +60,6 @@ optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 | `published` | No | `true` ships the distribution standalone on PyPI. Single source of the released set, read through `scripts/published_packages.py`. Must be a boolean, and governs the released set only, never wheel contents |
 | `dependencies` | By convention | Runtime deps; use `"{core_dependency}"` for the mloda floor. The generator defaults it to empty rather than failing, but every package declares it |
 | `optional_dependencies` | No | Merged with defaults. The entry `"{published_children}"` expands to every published package nested under this package's path, in config order |
-| `optional_dependency_indexes` | No | `{ "<dependency>" = "<index name>" }`, pinning an optional dependency to a named index from `[defaults.uv_indexes]` (see [UV workspace sources](#uv-workspace-sources)), for a dependency not published on the default index |
 | `has_readme` | No | `true` points the package at its own `README.md` |
 | `workspace_deps` | No | Marks a meta-package whose deps are workspace siblings. Mutually exclusive with `py_typed`; unused today |
 | `entry_point_groups` | No | List of mloda entry-point groups the package's `manifest.py` populates (`mloda.feature_groups`, `mloda.compute_frameworks`, `mloda.extenders`) |
@@ -173,18 +172,6 @@ and for every runtime dependency naming a configured package (so a bundle can de
 a sibling bundle, as `mloda-enterprise` does on `mloda-community`). Nested packages
 cannot use workspace sources due to uv resolution limits; they get dev deps but rely on
 root workspace resolution.
-
-A package's own `optional_dependency_indexes` (any depth) instead emits `[tool.uv.sources]`
-with `{ index = "<name>" }`, plus a matching `[[tool.uv.index]]` block naming the URL from
-`[defaults.uv_indexes]` in `config/shared.toml`. Both are generated into that package's own
-`pyproject.toml`, not just the root's: a root-declared index is honored for in-workspace
-resolution too, but a standalone (non-workspace) build of just that package needs the index
-declared in its own `pyproject.toml` as well, so co-locating it there works in both cases.
-Every referenced index must declare `explicit = true`; without it uv's first-index strategy
-would let the index shadow PyPI for other packages too, not just the dependency naming it.
-This index scoping is uv-only: under pip, a dependency named in `optional_dependency_indexes`
-resolves against production PyPI instead (see the pip caveat in
-[Pattern 28's Packaging Rules](guides/feature-group-patterns/28-binary-backed-features.md#packaging-rules)).
 
 ## Common workflows
 

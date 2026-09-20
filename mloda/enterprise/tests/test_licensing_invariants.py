@@ -104,10 +104,10 @@ class TestEveryEnterpriseManifestImportsWithoutTheWheel:
             importlib.import_module(f"{dotted}.manifest")
 
     def test_no_binary_plugin_id_is_installed_as_a_wheel(self) -> None:
-        """Skips only when every installed wheel was deliberately opted into
-        (``MLODA_REAL_WHEEL=1``, e.g. running tests/test_binary_model_real/); an unexpected install
-        fails loudly instead of skipping, checked across every licensed plugin class rather than
-        stopping at the first installed one."""
+        """Fails when a binary plugin's wheel is installed, because the suites assume it is absent;
+        checked across every licensed plugin class rather than stopping at the first installed one.
+        ``MLODA_REAL_WHEEL=1`` turns this guard into a skip, and other wheel-absent tests still fail.
+        Running tests/test_binary_model_real/ alone does not need the opt-in."""
         licensed = _licensed_plugin_classes()
         assert licensed, "expected at least one licensed plugin class"
         opt_in = os.environ.get("MLODA_REAL_WHEEL") == "1"
@@ -115,12 +115,14 @@ class TestEveryEnterpriseManifestImportsWithoutTheWheel:
             (cls.BINARY_PLUGIN_ID, importlib.util.find_spec(cls.BINARY_PLUGIN_ID) is not None) for cls in licensed
         ]
         unexpected = unexpected_wheel_plugin_ids(entries, opt_in)
-        assert not unexpected, f"installed as a real wheel without MLODA_REAL_WHEEL=1 set: {unexpected!r}"
+        assert not unexpected, (
+            "installed as a real wheel, but the repo's suites assume the wheel is absent: uninstall it "
+            f"or run only tests/test_binary_model_real/. MLODA_REAL_WHEEL=1 skips only this guard: {unexpected!r}"
+        )
         if opt_in and any(spec_present for _plugin_id, spec_present in entries):
             pytest.skip(
-                "a real wheel is installed with MLODA_REAL_WHEEL=1 set; expected only when running "
-                "tests/test_binary_model_real/, not the default wheel-absent run this precondition "
-                "otherwise guards"
+                "a real wheel is installed with MLODA_REAL_WHEEL=1 set, so this wheel-absent guard is "
+                "skipped; the repo's other suites are not supported with the wheel installed"
             )
 
     def test_importing_every_manifest_never_imports_a_binary_wheel(self) -> None:

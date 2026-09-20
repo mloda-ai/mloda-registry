@@ -69,10 +69,8 @@ optional_dependencies = { pyarrow = ["pyarrow>=25"], dev = ["mloda-testing[binar
 description = "Example enterprise FeatureGroup backed by a licensed binary model"
 dependencies = ["mloda-community-binary-model>=0.4.5"]
 path = "mloda/enterprise/feature_groups/binary_example"
-# mloda-example-binary is on TestPyPI only today (not yet published to production PyPI); the
-# "testpypi" index below is explicit = true, so it is never used except for this named dependency.
+# The wheel is an optional extra from the mloda-binary-wrapper repo, never a hard dependency.
 optional_dependencies = { pyarrow = ["pyarrow>=25"], wheel = ["mloda-example-binary>=0.1.0,<0.2.0"], dev = ["mloda-testing[binary-model]", "pytest>=9.0.3"] }
-optional_dependency_indexes = { "mloda-example-binary" = "testpypi" }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-example-a]

@@ -1552,7 +1552,7 @@ wheel = [
 [package.metadata]
 requires-dist = [
     { name = "mloda-community-binary-model", specifier = ">=0.4.5" },
-    { name = "mloda-example-binary", marker = "extra == 'wheel'", specifier = ">=0.1.0,<0.2.0", index = "https://test.pypi.org/simple/" },
+    { name = "mloda-example-binary", marker = "extra == 'wheel'", specifier = ">=0.1.0,<0.2.0" },
     { name = "mloda-testing", extras = ["binary-model"], marker = "extra == 'dev'" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=25" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
@@ -1628,13 +1628,13 @@ provides-extras = ["dev"]
 [[package]]
 name = "mloda-example-binary"
 version = "0.1.0"
-source = { registry = "https://test.pypi.org/simple/" }
+source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/59/67/3d5b648d8915af85fd420820fb7de54eaec857791a0372054da87fc2b81d/mloda_example_binary-0.1.0-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:f69e8c96303096bbe9aafa326811174e2403b275f7467c392a1eec6eba77c86b", size = 654901, upload-time = "2026-09-19T16:52:47.715Z" },
-    { url = "https://test-files.pythonhosted.org/packages/47/a1/ef2979631f477eeab2419362d0718632db7c0d9db70cfc53bc9979ddfa6d/mloda_example_binary-0.1.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:717af6ce5616709b90ffe446d225cfde6e8a21be2351445a0e76f5d3ca33913d", size = 563731, upload-time = "2026-09-19T16:52:49.566Z" },
-    { url = "https://test-files.pythonhosted.org/packages/e7/2e/3f0f85967728f09fdadda7cf3351b82a15e1254b574c0872778980838639/mloda_example_binary-0.1.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:23e4508bd33e58691fae174b1a36e0e6414b54faad2182af671aabe32f989e53", size = 607139, upload-time = "2026-09-19T16:52:51.085Z" },
-    { url = "https://test-files.pythonhosted.org/packages/84/40/c9504d3dd6986d2ce5e19f27a8c3800c62b354bd97164477a3c93d713696/mloda_example_binary-0.1.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f30476bee44d43ea1bae80d313037ba9a46539aabe0536396af22d6e287a26e8", size = 685853, upload-time = "2026-09-19T16:52:52.42Z" },
-    { url = "https://test-files.pythonhosted.org/packages/f8/9e/cfcf4668713f98d1ef41e12a90503a778239b36e00bd77b4c0b0cee5a5a8/mloda_example_binary-0.1.0-py3-none-win_amd64.whl", hash = "sha256:889dbad15adf65b043a4ce678e87a9b5f2ecce3fcf795012dbed76502e6cc48d", size = 575893, upload-time = "2026-09-19T16:52:54.468Z" },
+    { url = "https://files.pythonhosted.org/packages/49/c3/07dd8ec204d92678f9293698d58df2c54cf4ce9922855da8b2fb68781369/mloda_example_binary-0.1.0-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:3276d3c287e58e6a5002755e874224071d8602107a468517876fdaacf5e8076e", size = 654898, upload-time = "2026-09-20T12:59:14.695Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/52/0af8657fefa1e26093c0a24a09d80278cf9c8b7d0bff08f5655a55e2a80d/mloda_example_binary-0.1.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:91eb8240294c69ad6345fb2411abf4dec0b6892d308c980105459652fbe3a81f", size = 563729, upload-time = "2026-09-20T12:59:16.599Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/36/6fc5e359c58a52b3afab950cdfe7a6e9a5ba8c9416cfdc04643e751236c6/mloda_example_binary-0.1.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:37dc5ca60d6ba313bdaa27aabfea50e45ee67b17dfec3efdb346b79f2e7be63e", size = 607140, upload-time = "2026-09-20T12:59:18.031Z" },
+    { url = "https://files.pythonhosted.org/packages/48/ad/76940c274c36455a711e4164df71ccd2a744b340ad4cfadace9c931a4229/mloda_example_binary-0.1.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:aa24045f08090712cbb9af01a2793a875104976e8f64a6c75a6eb99927d44d50", size = 685855, upload-time = "2026-09-20T12:59:19.632Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/b5/c80b4fec9cafc7c05be79773b747c38581d3b3bf8b970aa0b8fb4f21f525/mloda_example_binary-0.1.0-py3-none-win_amd64.whl", hash = "sha256:59c5aa1c7735863fcc86887611e30e29a9bf145abecb52d3f66198d1ec0080dc", size = 575897, upload-time = "2026-09-20T12:59:21.16Z" },
 ]
 
 [[package]]

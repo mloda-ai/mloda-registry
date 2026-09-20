@@ -29,11 +29,3 @@ mloda-enterprise-binary-example = "mloda.enterprise.feature_groups.binary_exampl
 [tool.setuptools]
 package-dir = {"" = "../../../.."}
 packages = ["mloda.enterprise.feature_groups.binary_example"]
-
-[tool.uv.sources]
-"mloda-example-binary" = { index = "testpypi" }
-
-[[tool.uv.index]]
-name = "testpypi"
-url = "https://test.pypi.org/simple/"
-explicit = true

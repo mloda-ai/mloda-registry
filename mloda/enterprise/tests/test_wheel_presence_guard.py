@@ -6,7 +6,9 @@ test_no_binary_plugin_id_is_installed_as_a_wheel``).
 
 An installed wheel is classified as a deliberate opt-in (``MLODA_REAL_WHEEL=1``, skip) or an
 unexpected install (fail loudly) -- never silently either -- so a regression that makes the wheel
-install by default (e.g. moved into the ``dev`` extra) is caught rather than skipped. Also checks
+install by default (e.g. moved into the ``dev`` extra) is caught rather than skipped. The opt-in
+skips only these wheel-absent guards; ``tests/test_binary_model_real/`` run alone does not need it,
+and the repo's other suites are not supported with the wheel installed. Also checks
 that every installed plugin_id is inspected, not just the first, and that ``MLODA_REAL_WHEEL`` is
 in ``tox.ini``'s ``[testenv] passenv`` so the opt-in survives into every gate environment.
 """
