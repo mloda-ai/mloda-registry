@@ -14,7 +14,7 @@ import pickle  # nosec
 import re
 import stat
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
@@ -32,6 +32,7 @@ from mloda.enterprise.extenders.audit import (
     AuditExtender,
     HmacSha256Signer,
     IdentityRequiredError,
+    KeyAlreadyCurrentError,
     LogCoverage,
     ManifestSigner,
     ManifestVerificationError,
@@ -41,6 +42,7 @@ from mloda.enterprise.extenders.audit import (
     RunNotPendingError,
     manifest_hash,
     quarantine_damaged_lines,
+    rotate_manifest_key,
     seal_ndjson_runs,
     seal_run,
     verify_manifest,
@@ -65,6 +67,8 @@ _EXPECTED_MANIFEST_KEYS = {
     "signature",
 }
 
+_EXPECTED_ROTATION_KEYS = {"manifest_version", "kind", "rotated_at", "previous_manifest_hash", "signature"}
+
 _EXPECTED_QUARANTINE_KEYS = {
     "quarantine_version",
     "quarantined_at",
@@ -87,6 +91,18 @@ _DAMAGED_LINES: dict[str, bytes] = {
     "duplicate-key": b'{"run_id": "run-d", "run_id": "run-e"}\n',
     "deep-nesting": b"[" * 100000 + b"\n",
 }
+
+# The two writers of the manifest log, and the run_id of each line they append (a rotation entry has none).
+_WRITERS = ["seal", "rotate"]
+_PENDING_RUN_IDS: dict[str, list[str | None]] = {"seal": ["run-d", "run-e", "run-f"], "rotate": [None]}
+
+# A `_rotation_entry` change of this value drops the key instead of setting it.
+_MISSING: Any = object()
+
+# The entry points that require the log's current key to be the signer.
+_current_key_required = pytest.mark.parametrize(
+    "call", [verify_ndjson_log, verify_ndjson_log_coverage, seal_ndjson_runs], ids=["verify", "coverage", "seal"]
+)
 
 
 def _signer(key: bytes = _KEY, key_id: str = "key-1") -> HmacSha256Signer:
@@ -148,6 +164,84 @@ def _resigned(manifest: Mapping[str, Any], **changes: Any) -> dict[str, Any]:
     return changed
 
 
+def _rotation_entry(signer: ManifestSigner, previous_manifest_hash: str | None, **changes: Any) -> dict[str, Any]:
+    """A rotation entry signed by any `signer`, for forgeries; `changes` are applied before signing."""
+    entry: dict[str, Any] = {
+        "manifest_version": 1,
+        "kind": "key_rotation",
+        "rotated_at": "2026-01-01T00:00:00.000000Z",
+        "previous_manifest_hash": previous_manifest_hash,
+        **changes,
+    }
+    entry = {key: value for key, value in entry.items() if value is not _MISSING}
+    entry["signature"] = {
+        "algorithm": signer.algorithm,
+        "key_id": signer.key_id,
+        "value": signer.sign(_canonical(entry)),
+    }
+    return entry
+
+
+def _build_log(directory: Path, *steps: tuple[str, ManifestSigner]) -> tuple[Path, Path]:
+    """Hand-build a manifest log with no library writer. Step N is ("seal", signer), which seals a new run-N under
+    `signer`, or ("rotate", signer), which appends a rotation entry to `signer`."""
+    audit_path = directory / "audit.ndjson"
+    manifest_path = directory / "manifests.ndjson"
+    head: str | None = None
+    for number, (action, signer) in enumerate(steps, start=1):
+        if action == "seal":
+            record = _record(f"run-{number}", number)
+            _write_records(audit_path, [record])
+            line = seal_run([record], run_id=f"run-{number}", signer=signer, previous_manifest_hash=head)
+        else:
+            line = _rotation_entry(signer, head)
+        _write_records(manifest_path, [line])
+        head = manifest_hash(line)
+    return audit_path, manifest_path
+
+
+def _under_key(current: str, signer: str) -> str:
+    """A `match` pattern for exactly the error of a log whose current key is not the signer's."""
+    return "^" + re.escape(f"manifest log is under key '{current}', not the signer's '{signer}'") + "$"
+
+
+def _assert_names(excinfo: pytest.ExceptionInfo[ManifestVerificationError], *names: str) -> None:
+    message = str(excinfo.value)
+    assert all(name in message for name in names), message
+
+
+def _key_2_entry(head: str, **changes: Any) -> dict[str, Any]:
+    return _rotation_entry(_signer(_OTHER_KEY, "key-2"), head, **changes)
+
+
+# Rotation entries that must not verify, each built from the head it should chain onto.
+_FORGED_ENTRIES: dict[str, Callable[[str], dict[str, Any]]] = {
+    "wrong-key-material": lambda head: _rotation_entry(_signer(b"x" * 32, "key-2"), head),
+    "unknown-key-id": lambda head: _rotation_entry(_signer(b"u" * 32, "key-unknown"), head),
+    "wrong-chain": lambda head: _key_2_entry("0" * 64),
+    "tampered-rotated-at": lambda head: {**_key_2_entry(head), "rotated_at": "2030-01-01T00:00:00.000000Z"},
+    "wrong-algorithm": lambda head: {
+        **_key_2_entry(head),
+        "signature": {**_key_2_entry(head)["signature"], "algorithm": "OTHER"},
+    },
+    "wrong-version": lambda head: _key_2_entry(head, manifest_version=2),
+    "extra-key": lambda head: _key_2_entry(head, run_id="run-x"),
+    "missing-key": lambda head: _key_2_entry(head, rotated_at=_MISSING),
+    "unknown-kind": lambda head: _key_2_entry(head, kind="seal"),
+    "null-kind": lambda head: _key_2_entry(head, kind=None),
+    "unhashable-kind": lambda head: _key_2_entry(head, kind=["key_rotation"]),
+    "manifest-with-kind": lambda head: _key_2_entry(
+        head,
+        run_id="run-1",
+        sealed_at="2026-01-01T00:00:00.000000Z",
+        hash_algorithm="sha256",
+        record_count=0,
+        record_hashes=[],
+        compliant=True,
+    ),
+}
+
+
 def _sealed_log(directory: Path) -> tuple[Path, Path]:
     """Three runs plus one record without a run_id, all sealed."""
     audit_path = directory / "audit.ndjson"
@@ -168,20 +262,58 @@ def _sealed_log(directory: Path) -> tuple[Path, Path]:
     return audit_path, manifest_path
 
 
+def _rotate(manifest_path: Path, signer: ManifestSigner, *previous_signers: ManifestSigner) -> dict[str, Any]:
+    """Rotate the log to `signer`, anchored on its current head."""
+    head = manifest_hash(_read_lines(manifest_path)[-1])
+    return rotate_manifest_key(manifest_path, signer=signer, previous_signers=previous_signers, expected_head=head)
+
+
 def _rotated_three_key_log(
-    directory: Path,
+    directory: Path, *, seal_between: bool = True
 ) -> tuple[Path, Path, HmacSha256Signer, HmacSha256Signer, HmacSha256Signer]:
-    """One run each sealed by three keys in turn: two rotations."""
+    """One run each sealed by three keys in turn, rotating in between (two rotations). Without `seal_between` the
+    key-2 run is skipped, so the two rotation entries are back to back."""
     audit_path = directory / "audit.ndjson"
     manifest_path = directory / "manifests.ndjson"
     key_1, key_2, key_3 = _signer(key_id="key-1"), _signer(_OTHER_KEY, "key-2"), _signer(b"t" * 32, "key-3")
     _write_records(audit_path, [_record("run-a", 1)])
     seal_ndjson_runs(audit_path, manifest_path, signer=key_1)
-    _write_records(audit_path, [_record("run-b", 2)])
-    seal_ndjson_runs(audit_path, manifest_path, signer=key_2, previous_signers=[key_1])
+    _rotate(manifest_path, key_2, key_1)
+    if seal_between:
+        _write_records(audit_path, [_record("run-b", 2)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=key_2, previous_signers=[key_1])
+    _rotate(manifest_path, key_3, key_1, key_2)
     _write_records(audit_path, [_record("run-c", 3)])
     seal_ndjson_runs(audit_path, manifest_path, signer=key_3, previous_signers=[key_1, key_2])
     return audit_path, manifest_path, key_1, key_2, key_3
+
+
+def _pending_write(
+    directory: Path, writer: str
+) -> tuple[Path, Callable[..., list[dict[str, Any]]], Callable[[], str | None]]:
+    """A sealed log with one manifest-log write pending: "seal" seals runs d, e and f under key-1, "rotate" moves the
+    log from key-1 to key-2. Returns the manifest path, `write(signer_type)` (the lines it appended; the signer type
+    lets a test spy on signing) and `verify()` (the head of the log under the writer's key)."""
+    audit_path, manifest_path = _sealed_log(directory)
+    head = manifest_hash(_read_lines(manifest_path)[-1])
+    key, key_id = (_KEY, "key-1") if writer == "seal" else (_OTHER_KEY, "key-2")
+    if writer == "seal":
+        _write_records(
+            audit_path, [_record(f"run-{name}", second) for name, second in zip("def", (7, 8, 9), strict=True)]
+        )
+
+    def write(signer_type: type[HmacSha256Signer] = HmacSha256Signer) -> list[dict[str, Any]]:
+        signer = signer_type(key, key_id)
+        if writer == "seal":
+            return seal_ndjson_runs(audit_path, manifest_path, signer=signer, expected_head=head)
+        old_signer = signer_type(_KEY, "key-1")
+        return [rotate_manifest_key(manifest_path, signer=signer, previous_signers=[old_signer], expected_head=head)]
+
+    def verify() -> str | None:
+        previous = [] if writer == "seal" else [_signer()]
+        return verify_ndjson_log(audit_path, manifest_path, signer=_signer(key, key_id), previous_signers=previous)
+
+    return manifest_path, write, verify
 
 
 def _truncated_log(directory: Path) -> tuple[Path, Path, str]:
@@ -213,6 +345,15 @@ def _torn_manifest_log(directory: Path) -> tuple[Path, Path, str]:
     head = manifest_hash(_read_lines(manifest_path)[-1])
     last = manifest_path.read_bytes().splitlines(keepends=True)[-1]
     _torn(manifest_path, last[: len(last) // 2])
+    return audit_path, manifest_path, head
+
+
+def _torn_rotation_log(directory: Path) -> tuple[Path, Path, str]:
+    """A manifest log ending in half a key-2 rotation entry (line 4); returns the head before the damage."""
+    audit_path, manifest_path = _sealed_log(directory)
+    head = manifest_hash(_read_lines(manifest_path)[-1])
+    entry = _canonical(_rotation_entry(_signer(_OTHER_KEY, "key-2"), head)) + b"\n"
+    _torn(manifest_path, entry[: len(entry) // 2])
     return audit_path, manifest_path, head
 
 
@@ -248,6 +389,7 @@ def _quarantine(
     manifest_path: Path,
     *,
     signer: ManifestSigner | None = None,
+    previous_signers: Iterable[ManifestSigner] = (),
     expected_head: str | None = None,
     dry_run: bool = False,
 ) -> list[QuarantinedLine]:
@@ -256,6 +398,7 @@ def _quarantine(
         manifest_path,
         quarantine_path=_trace(directory),
         signer=signer or _signer(),
+        previous_signers=previous_signers,
         expected_head=expected_head,
         dry_run=dry_run,
     )
@@ -352,11 +495,17 @@ class TestRunManifestPublicApi:
             "QuarantinedLine",
             "quarantine_damaged_lines",
             "IdentityRequiredError",
+            "KeyAlreadyCurrentError",
+            "rotate_manifest_key",
         } <= set(audit_package.__all__)
 
     def test_run_not_pending_error_is_a_value_error_but_not_a_verification_error(self) -> None:
         assert issubclass(RunNotPendingError, ValueError)
         assert not issubclass(RunNotPendingError, ManifestVerificationError)
+
+    def test_key_already_current_error_is_a_value_error_but_not_a_verification_error(self) -> None:
+        assert issubclass(KeyAlreadyCurrentError, ValueError)
+        assert not issubclass(KeyAlreadyCurrentError, ManifestVerificationError)
 
     def test_identity_required_error_is_a_runtime_error_but_not_a_value_error(self) -> None:
         assert issubclass(IdentityRequiredError, RuntimeError)
@@ -839,6 +988,10 @@ class TestVerifyManifest:
 
         assert not isinstance(excinfo.value, ManifestVerificationError)
 
+    def test_a_rotation_entry_is_not_a_run_manifest_and_fails_without_crashing(self) -> None:
+        with pytest.raises(ManifestVerificationError):
+            verify_manifest(_rotation_entry(_signer(), None), [_record()], signer=_signer())
+
 
 class TestSealNdjsonRuns:
     def test_seals_every_run_of_the_audit_file(self, tmp_path: Path) -> None:
@@ -1054,35 +1207,37 @@ class TestSealNdjsonRuns:
         assert [manifest["run_id"] for manifest in manifests] == ["run-d", "run-e", "run-f"]
         verify_ndjson_log(audit_path, manifest_path, signer=_signer())
 
-    def test_failed_append_is_rolled_back_and_a_retry_seals_every_run(self, tmp_path: Path) -> None:
-        audit_path, manifest_path = _sealed_log(tmp_path)
-        head = manifest_hash(_read_lines(manifest_path)[-1])
-        _write_records(audit_path, [_record("run-d", 7), _record("run-e", 8), _record("run-f", 9)])
+    # Sealing and key rotation are the two writers of the manifest log and share one append path, so the tests of
+    # that path below run against both (`_pending_write`).
+    @pytest.mark.parametrize("writer", _WRITERS)
+    def test_failed_append_is_rolled_back_and_a_retry_appends_every_pending_line(
+        self, tmp_path: Path, writer: str
+    ) -> None:
+        manifest_path, write, verify = _pending_write(tmp_path, writer)
         before = manifest_path.read_bytes()
         real_write = os.write
 
         def disk_is_full(fd: int, data: bytes | memoryview) -> int:
-            if b"record_hashes" in bytes(data):
+            # Every line the writers append, a manifest or a rotation entry, carries the chain link.
+            if b"previous_manifest_hash" in bytes(data):
                 raise OSError(errno.ENOSPC, "disk full")
             return real_write(fd, data)
 
         with patch("os.write", side_effect=disk_is_full):
             with pytest.raises(OSError):
-                seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
+                write()
 
         assert manifest_path.read_bytes() == before
-        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
-        assert [manifest["run_id"] for manifest in manifests] == ["run-d", "run-e", "run-f"]
-        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+        assert [line.get("run_id") for line in write()] == _PENDING_RUN_IDS[writer]
+        verify()
 
-    def test_failed_append_with_a_genuine_short_write_is_rolled_back_and_a_retry_seals_every_run(
-        self, tmp_path: Path
+    @pytest.mark.parametrize("writer", _WRITERS)
+    def test_failed_append_with_a_genuine_short_write_is_rolled_back_and_a_retry_appends_every_pending_line(
+        self, tmp_path: Path, writer: str
     ) -> None:
         """Unlike the raise-based case above, os.write here really writes a truncated prefix and returns the
         short count: bytes land on disk before _append_records raises, so only the truncate saves the log."""
-        audit_path, manifest_path = _sealed_log(tmp_path)
-        head = manifest_hash(_read_lines(manifest_path)[-1])
-        _write_records(audit_path, [_record("run-d", 7), _record("run-e", 8), _record("run-f", 9)])
+        manifest_path, write, verify = _pending_write(tmp_path, writer)
         before = manifest_path.read_bytes()
         real_write = os.write
 
@@ -1091,21 +1246,41 @@ class TestSealNdjsonRuns:
 
         with patch("os.write", side_effect=short_write):
             with pytest.raises(OSError):
-                seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
+                write()
 
         assert manifest_path.read_bytes() == before
-        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
-        assert [manifest["run_id"] for manifest in manifests] == ["run-d", "run-e", "run-f"]
-        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+        assert [line.get("run_id") for line in write()] == _PENDING_RUN_IDS[writer]
+        verify()
 
-    def test_failed_append_fsyncs_the_manifest_log_and_its_directory_after_the_rollback_truncate(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("fcntl_available", [True, False], ids=["fcntl", "no-fcntl"])
+    def test_failed_first_append_leaves_the_new_manifest_log_as_an_empty_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fcntl_available: bool
     ) -> None:
-        """The rollback truncate must be durable: a crash right after it must not resurrect the manifests this
-        sealer already reported as failed via the raised OSError."""
-        audit_path, manifest_path = _sealed_log(tmp_path)
-        head = manifest_hash(_read_lines(manifest_path)[-1])
-        _write_records(audit_path, [_record("run-d", 7), _record("run-e", 8), _record("run-f", 9)])
+        if fcntl_available:
+            pytest.importorskip("fcntl")
+        else:
+            monkeypatch.setitem(sys.modules, "fcntl", None)
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record("run-a", 1)])
+        real_write = os.write
+
+        def short_write(fd: int, data: bytes | memoryview) -> int:
+            return real_write(fd, data[:7])
+
+        with patch("os.write", side_effect=short_write):
+            with pytest.raises(OSError):
+                seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+        assert manifest_path.read_bytes() == b""
+
+    @pytest.mark.parametrize("writer", _WRITERS)
+    def test_failed_append_fsyncs_the_manifest_log_and_its_directory_after_the_rollback_truncate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer: str
+    ) -> None:
+        """The rollback truncate must be durable: a crash right after it must not resurrect the lines this
+        writer already reported as failed via the raised OSError."""
+        manifest_path, write, _ = _pending_write(tmp_path, writer)
         real_write = os.write
         real_truncate = os.truncate
         real_fsync = os.fsync
@@ -1136,7 +1311,7 @@ class TestSealNdjsonRuns:
 
         with patch("os.write", side_effect=short_write):
             with pytest.raises(OSError):
-                seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
+                write()
 
         assert "truncate" in events
         assert "fsync-manifest" in events
@@ -1144,11 +1319,11 @@ class TestSealNdjsonRuns:
         assert events.index("truncate") < events.index("fsync-manifest")
         assert events.index("truncate") < events.index("fsync-manifest-dir")
 
-    def test_seal_fsyncs_the_manifest_log_and_its_directory(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("writer", _WRITERS)
+    def test_append_fsyncs_the_manifest_log_and_its_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer: str
     ) -> None:
-        audit_path, manifest_path = _sealed_log(tmp_path)
-        _write_records(audit_path, [_record("run-d", 7)])
+        manifest_path, write, _ = _pending_write(tmp_path, writer)
         fsynced: list[Path] = []
         real_fsync = run_manifest_module._fsync
 
@@ -1158,18 +1333,16 @@ class TestSealNdjsonRuns:
 
         monkeypatch.setattr(run_manifest_module, "_fsync", spy)
 
-        seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+        write()
 
         assert manifest_path in fsynced
         assert manifest_path.parent in fsynced
 
-    def test_seal_fsync_failure_rolls_back_the_new_manifests(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("writer", _WRITERS)
+    def test_append_fsync_failure_rolls_back_the_new_lines(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer: str
     ) -> None:
-        audit_path, manifest_path = _sealed_log(tmp_path)
-        _write_records(audit_path, [_record("run-d", 7)])
-        seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
-        _write_records(audit_path, [_record("run-e", 8)])
+        manifest_path, write, _ = _pending_write(tmp_path, writer)
         before = _snapshot(tmp_path)
         real_fsync = run_manifest_module._fsync
 
@@ -1181,7 +1354,7 @@ class TestSealNdjsonRuns:
         monkeypatch.setattr(run_manifest_module, "_fsync", fsync_boom)
 
         with pytest.raises(OSError, match="fsync failed"):
-            seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+            write()
 
         assert _snapshot(tmp_path) == before
 
@@ -1232,19 +1405,20 @@ class TestSealNdjsonRuns:
         assert audit_path.read_bytes() == audit_before
         assert manifest_path.read_bytes() == manifest_before
 
-    def test_sealing_holds_an_exclusive_lock_on_the_manifest_log(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("writer", _WRITERS)
+    def test_appending_holds_an_exclusive_lock_on_the_manifest_log(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer: str
     ) -> None:
         fcntl = pytest.importorskip("fcntl")
-        audit_path, manifest_path = _sealed_log(tmp_path)
-        _write_records(audit_path, [_record("run-d", 7)])
+        manifest_path, write, _ = _pending_write(tmp_path, writer)
         refused: list[bool] = []
         appends: list[bool] = []
 
         def probe() -> bool:
+            # A shared request: only an exclusive holder refuses it, so a reader waits for the writer.
             fd = os.open(manifest_path, os.O_RDONLY)
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 return False
             except BlockingIOError:
                 return True
@@ -1264,9 +1438,9 @@ class TestSealNdjsonRuns:
 
         monkeypatch.setattr(run_manifest_module, "_append_records", spy)
 
-        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_LockProbeSigner(_KEY, "key-1"))
+        appended = write(_LockProbeSigner)
 
-        assert [manifest["run_id"] for manifest in manifests] == ["run-d"]
+        assert [line.get("run_id") for line in appended] == _PENDING_RUN_IDS[writer]
         assert appends == [True]
         assert refused
         assert all(refused)
@@ -1289,17 +1463,17 @@ class TestSealNdjsonRuns:
         assert [manifest["run_id"] for manifest in manifests] == ["run-a", "run-b"]
         assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == manifest_hash(manifests[-1])
 
-    def test_sealing_fails_when_the_exclusive_lock_is_unsupported(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("writer", _WRITERS)
+    def test_appending_fails_when_the_exclusive_lock_is_unsupported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer: str
     ) -> None:
         fcntl = pytest.importorskip("fcntl")
-        audit_path, manifest_path = _sealed_log(tmp_path)
-        _write_records(audit_path, [_record("run-d", 7)])
+        manifest_path, write, _ = _pending_write(tmp_path, writer)
         before = manifest_path.read_bytes()
         monkeypatch.setattr(fcntl, "flock", _flock_unsupported)
 
         with pytest.raises(OSError) as excinfo:
-            seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+            write()
 
         assert excinfo.value.errno == errno.ENOLCK
         assert manifest_path.read_bytes() == before
@@ -1325,13 +1499,13 @@ class TestSealNdjsonRuns:
         assert manifest_path.read_bytes() == b""
         assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) is None
 
-    def test_seal_after_rotation_chains_onto_the_old_key_manifest_and_signs_with_the_new_key(
+    def test_seal_after_rotation_chains_onto_the_rotation_entry_and_signs_with_the_new_key(
         self, tmp_path: Path
     ) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
         old_signer = _signer()
         new_signer = _signer(_OTHER_KEY, "key-2")
-        head = manifest_hash(_read_lines(manifest_path)[-1])
+        head = manifest_hash(_rotate(manifest_path, new_signer, old_signer))
         _write_records(audit_path, [_record("run-d", 7)])
 
         manifests = seal_ndjson_runs(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
@@ -1357,6 +1531,208 @@ class TestSealNdjsonRuns:
 
         assert not isinstance(excinfo.value, ManifestVerificationError)
         assert manifest_path.read_bytes() == before
+
+
+class TestRotateManifestKey:
+    """The lock, fsync and rollback behaviour it shares with sealing is covered in TestSealNdjsonRuns."""
+
+    def test_entry_has_exactly_the_expected_keys_kind_and_version(self, tmp_path: Path) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+
+        entry = _rotate(manifest_path, _signer(_OTHER_KEY, "key-2"), _signer())
+
+        assert set(entry) == _EXPECTED_ROTATION_KEYS
+        assert entry["manifest_version"] == 1
+        assert entry["kind"] == "key_rotation"
+
+    def test_rotated_at_is_rfc3339_utc(self, tmp_path: Path) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+
+        rotated_at = _rotate(manifest_path, _signer(_OTHER_KEY, "key-2"), _signer())["rotated_at"]
+
+        assert rotated_at.endswith("Z")
+        datetime.fromisoformat(rotated_at.removesuffix("Z"))
+
+    def test_entry_is_signed_by_the_new_key_over_the_unsigned_entry(self, tmp_path: Path) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        new_signer = _signer(_OTHER_KEY, "key-2")
+
+        entry = _rotate(manifest_path, new_signer, _signer())
+
+        signature = entry["signature"]
+        assert set(signature) == {"algorithm", "key_id", "value"}
+        assert (signature["algorithm"], signature["key_id"]) == (new_signer.algorithm, "key-2")
+        assert signature["value"] == hmac.new(_OTHER_KEY, _canonical(_unsigned(entry)), hashlib.sha256).hexdigest()
+
+    def test_entry_chains_onto_the_head_and_is_the_only_line_appended(self, tmp_path: Path) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        before = _read_lines(manifest_path)
+
+        entry = _rotate(manifest_path, _signer(_OTHER_KEY, "key-2"), _signer())
+
+        assert entry["previous_manifest_hash"] == manifest_hash(before[-1])
+        assert _read_lines(manifest_path) == [*before, entry]
+
+    @pytest.mark.parametrize("log_bytes", [None, b""], ids=["missing", "empty"])
+    def test_a_log_without_manifests_raises_value_error_and_creates_no_file(
+        self, tmp_path: Path, log_bytes: bytes | None
+    ) -> None:
+        manifest_path = tmp_path / "manifests.ndjson"
+        if log_bytes is not None:
+            manifest_path.write_bytes(log_bytes)
+
+        with pytest.raises(ValueError):
+            rotate_manifest_key(
+                manifest_path, signer=_signer(_OTHER_KEY, "key-2"), previous_signers=[_signer()], expected_head=None
+            )
+
+        assert manifest_path.exists() == (log_bytes is not None)
+
+    @pytest.mark.parametrize("rotated_before", [False, True], ids=["fresh-log", "retry-after-rotation"])
+    def test_a_log_already_under_the_signer_raises_key_already_current_error_and_writes_nothing(
+        self, tmp_path: Path, rotated_before: bool
+    ) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        old_signer, new_signer = _signer(), _signer(_OTHER_KEY, "key-2")
+        signer, previous_signers = (new_signer, [old_signer]) if rotated_before else (old_signer, [])
+        if rotated_before:
+            _rotate(manifest_path, new_signer, old_signer)
+        before = manifest_path.read_bytes()
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+
+        with pytest.raises(KeyAlreadyCurrentError) as excinfo:
+            rotate_manifest_key(manifest_path, signer=signer, previous_signers=previous_signers, expected_head=head)
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
+        assert manifest_path.read_bytes() == before
+
+    @pytest.mark.parametrize("seal_between", [True, False], ids=["seal-between", "back-to-back"])
+    @pytest.mark.parametrize("retired", [0, 1], ids=["oldest-key", "middle-key"])
+    def test_rotating_back_to_a_retired_key_raises_manifest_verification_error_and_writes_nothing(
+        self, tmp_path: Path, retired: int, seal_between: bool
+    ) -> None:
+        _, manifest_path, *keys = _rotated_three_key_log(tmp_path, seal_between=seal_between)
+        target = keys[retired]
+        before = manifest_path.read_bytes()
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+
+        with pytest.raises(ManifestVerificationError, match=target.key_id):
+            rotate_manifest_key(
+                manifest_path,
+                signer=target,
+                previous_signers=[key for key in keys if key is not target],
+                expected_head=head,
+            )
+
+        assert manifest_path.read_bytes() == before
+
+    @pytest.mark.parametrize(
+        "previous_signers",
+        [[_signer()], [_signer(key_id="key-3"), _signer(_OTHER_KEY, "key-3")]],
+        ids=["signer-and-previous", "two-previous"],
+    )
+    def test_previous_signers_with_a_duplicate_key_id_is_a_value_error(
+        self, tmp_path: Path, previous_signers: list[ManifestSigner]
+    ) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        before = manifest_path.read_bytes()
+
+        with pytest.raises(ValueError) as excinfo:
+            rotate_manifest_key(
+                manifest_path, signer=_signer(_OTHER_KEY), previous_signers=previous_signers, expected_head=None
+            )
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
+        assert manifest_path.read_bytes() == before
+
+    @pytest.mark.parametrize("anchor", ["unrelated", "older-manifest"])
+    def test_an_expected_head_that_is_not_the_head_raises_and_writes_nothing(self, tmp_path: Path, anchor: str) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        expected_head = "0" * 64 if anchor == "unrelated" else manifest_hash(_read_lines(manifest_path)[0])
+        before = manifest_path.read_bytes()
+
+        with pytest.raises(ManifestVerificationError, match="head"):
+            rotate_manifest_key(
+                manifest_path,
+                signer=_signer(_OTHER_KEY, "key-2"),
+                previous_signers=[_signer()],
+                expected_head=expected_head,
+            )
+
+        assert manifest_path.read_bytes() == before
+
+    def test_expected_head_none_means_no_anchor_and_is_accepted(self, tmp_path: Path) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+
+        entry = rotate_manifest_key(
+            manifest_path, signer=_signer(_OTHER_KEY, "key-2"), previous_signers=[_signer()], expected_head=None
+        )
+
+        assert entry["previous_manifest_hash"] == head
+
+    def test_omitting_expected_head_is_a_type_error(self, tmp_path: Path) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        before = manifest_path.read_bytes()
+
+        with pytest.raises(TypeError):
+            rotate_manifest_key(  # type: ignore[call-arg]
+                manifest_path, signer=_signer(_OTHER_KEY, "key-2"), previous_signers=[_signer()]
+            )
+
+        assert manifest_path.read_bytes() == before
+
+    @pytest.mark.parametrize("damage", ["torn-tail", "edited-manifest"])
+    def test_a_torn_or_tampered_log_raises_manifest_verification_error_and_writes_nothing(
+        self, tmp_path: Path, damage: str
+    ) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        if damage == "torn-tail":
+            _torn(manifest_path, b'{"run_id": "run-d"')
+        else:
+            manifests = _read_lines(manifest_path)
+            manifests[0]["compliant"] = not manifests[0]["compliant"]
+            _rewrite_lines(manifest_path, manifests)
+        before = manifest_path.read_bytes()
+
+        with pytest.raises(ManifestVerificationError):
+            rotate_manifest_key(
+                manifest_path, signer=_signer(_OTHER_KEY, "key-2"), previous_signers=[_signer()], expected_head=None
+            )
+
+        assert manifest_path.read_bytes() == before
+
+    def test_rotating_without_the_retired_signer_raises_manifest_verification_error_and_writes_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        before = manifest_path.read_bytes()
+
+        with pytest.raises(ManifestVerificationError):
+            rotate_manifest_key(manifest_path, signer=_signer(_OTHER_KEY, "key-2"), expected_head=None)
+
+        assert manifest_path.read_bytes() == before
+
+    def test_the_existing_log_is_verified_only_once(self, tmp_path: Path) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        verified: list[bytes] = []
+
+        class _CountingSigner(HmacSha256Signer):
+            def verify(self, payload: bytes, signature: str) -> bool:
+                verified.append(payload)
+                return super().verify(payload, signature)
+
+        _rotate(manifest_path, _signer(_OTHER_KEY, "key-2"), _CountingSigner(_KEY, "key-1"))
+
+        assert len(verified) == len(_read_lines(manifest_path)) - 1
+
+    def test_rotating_works_where_fcntl_is_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setitem(sys.modules, "fcntl", None)
+        _, write, verify = _pending_write(tmp_path, "rotate")
+
+        (entry,) = write()
+
+        assert verify() == manifest_hash(entry)
 
 
 class TestVerifyNdjsonLog:
@@ -1400,7 +1776,7 @@ class TestVerifyNdjsonLog:
         audit_path, manifest_path = _sealed_log(tmp_path)
         old_signer = _signer()
         new_signer = _signer(_OTHER_KEY, "key-2")
-        expected_head = manifest_hash(_read_lines(manifest_path)[-1])
+        expected_head = manifest_hash(_rotate(manifest_path, new_signer, old_signer))
 
         head = verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
 
@@ -1410,6 +1786,7 @@ class TestVerifyNdjsonLog:
         audit_path, manifest_path = _sealed_log(tmp_path)
         old_signer = _signer()
         new_signer = _signer(_OTHER_KEY, "key-2")
+        _rotate(manifest_path, new_signer, old_signer)
         _write_records(audit_path, [_record("run-d", 7)])
         manifests = seal_ndjson_runs(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
         expected_head = manifest_hash(manifests[-1])
@@ -1422,6 +1799,7 @@ class TestVerifyNdjsonLog:
         audit_path, manifest_path = _sealed_log(tmp_path)
         old_signer = _signer()
         new_signer = _signer(_OTHER_KEY, "key-2")
+        _rotate(manifest_path, new_signer, old_signer)
         _write_records(audit_path, [_record("run-d", 7)])
         seal_ndjson_runs(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
 
@@ -1435,6 +1813,7 @@ class TestVerifyNdjsonLog:
         new_signer = _signer(_OTHER_KEY, "key-2")
         _write_records(audit_path, [_record("run-a", 1)])
         seal_ndjson_runs(audit_path, manifest_path, signer=old_signer)
+        _rotate(manifest_path, new_signer, old_signer)
         _write_records(audit_path, [_record("run-b", 2)])
         seal_ndjson_runs(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
         head = manifest_hash(_read_lines(manifest_path)[-1])
@@ -1454,10 +1833,25 @@ class TestVerifyNdjsonLog:
     def test_three_key_rotation_rejects_a_retired_key_named_as_the_current_signer(self, tmp_path: Path) -> None:
         audit_path, manifest_path, key_1, key_2, key_3 = _rotated_three_key_log(tmp_path)
 
-        with pytest.raises(ManifestVerificationError, match="run-b") as excinfo:
+        with pytest.raises(ManifestVerificationError, match=_under_key("key-3", "key-1")):
             verify_ndjson_log(audit_path, manifest_path, signer=key_1, previous_signers=[key_2, key_3])
 
-        assert "retired key after the current key" in str(excinfo.value)
+    @pytest.mark.parametrize("seal_between", [True, False], ids=["seal-between", "back-to-back"])
+    @pytest.mark.parametrize("retired", [0, 1], ids=["oldest-key", "middle-key"])
+    def test_three_key_rotation_rejects_a_retired_key_manifest_after_the_last_rotation(
+        self, tmp_path: Path, retired: int, seal_between: bool
+    ) -> None:
+        audit_path, manifest_path, *keys = _rotated_three_key_log(tmp_path, seal_between=seal_between)
+        record = _record("run-d", 4)
+        _write_records(audit_path, [record])
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        forged = seal_run([record], run_id="run-d", signer=keys[retired], previous_manifest_hash=head)
+        _write_records(manifest_path, [forged])
+
+        with pytest.raises(ManifestVerificationError, match="run-d") as excinfo:
+            verify_ndjson_log(audit_path, manifest_path, signer=keys[2], previous_signers=keys[:2])
+
+        _assert_names(excinfo, keys[retired].key_id, "key-3")
 
     def test_previous_signer_with_a_different_algorithm_verifies_against_its_own_algorithm(
         self, tmp_path: Path
@@ -1468,6 +1862,7 @@ class TestVerifyNdjsonLog:
         new_signer = _signer(_OTHER_KEY, "key-2")
         _write_records(audit_path, [_record("run-a", 1)])
         seal_ndjson_runs(audit_path, manifest_path, signer=old_signer)
+        _rotate(manifest_path, new_signer, old_signer)
 
         verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
 
@@ -1478,8 +1873,10 @@ class TestVerifyNdjsonLog:
         new_signer = _signer(_OTHER_KEY, "key-2")
         _write_records(audit_path, [_record("run-a", 1)])
         manifests = seal_ndjson_runs(audit_path, manifest_path, signer=old_signer)
+        # Forged after rotating: rotating verifies the log first.
+        entry = _rotate(manifest_path, new_signer, old_signer)
         forged = {**manifests[0], "signature": {**manifests[0]["signature"], "algorithm": "HMAC-SHA256"}}
-        _rewrite_lines(manifest_path, [forged])
+        _rewrite_lines(manifest_path, [forged, entry])
 
         with pytest.raises(ManifestVerificationError, match="algorithm"):
             verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
@@ -1911,7 +2308,7 @@ class TestVerifyNdjsonLogCoverage:
         audit_path, manifest_path = _sealed_log(tmp_path)
         old_signer = _signer()
         new_signer = _signer(_OTHER_KEY, "key-2")
-        expected_head = manifest_hash(_read_lines(manifest_path)[-1])
+        expected_head = manifest_hash(_rotate(manifest_path, new_signer, old_signer))
 
         coverage = verify_ndjson_log_coverage(
             audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer]
@@ -1919,6 +2316,25 @@ class TestVerifyNdjsonLogCoverage:
 
         assert coverage.head == expected_head
         assert coverage.sealed_runs == 3
+
+    @pytest.mark.parametrize(
+        ("seal_between", "sealed_runs"), [(True, 3), (False, 2)], ids=["seal-between", "back-to-back"]
+    )
+    def test_rotation_entries_are_not_sealed_runs_and_never_unsealed(
+        self, tmp_path: Path, seal_between: bool, sealed_runs: int
+    ) -> None:
+        audit_path, manifest_path, key_1, key_2, key_3 = _rotated_three_key_log(tmp_path, seal_between=seal_between)
+        _write_records(audit_path, [_record("run-z", 9)])
+
+        coverage = verify_ndjson_log_coverage(audit_path, manifest_path, signer=key_3, previous_signers=[key_1, key_2])
+
+        assert coverage == LogCoverage(
+            head=manifest_hash(_read_lines(manifest_path)[-1]),
+            sealed_runs=sealed_runs,
+            sealed_lines=sealed_runs,
+            unattributed_lines=0,
+            unsealed_lines={"run-z": 1},
+        )
 
     @pytest.mark.parametrize(
         "previous_signers",
@@ -2040,6 +2456,172 @@ class TestVerifyNdjsonLogCoverage:
         assert "run-z" not in again.unsealed_lines
 
 
+class TestKeyRotationEntries:
+    """The order of keys comes from the rotation entries in the log, never from the order of previous_signers."""
+
+    @pytest.mark.parametrize("trailing_seal", [False, True], ids=["ends-with-entry", "seal-after-entry"])
+    def test_a_hand_built_rotation_entry_verifies_and_the_next_line_chains_to_it(
+        self, tmp_path: Path, trailing_seal: bool
+    ) -> None:
+        old_signer, new_signer = _signer(), _signer(_OTHER_KEY, "key-2")
+        steps = [("seal", old_signer), ("rotate", new_signer), *([("seal", new_signer)] if trailing_seal else [])]
+        audit_path, manifest_path = _build_log(tmp_path, *steps)
+
+        head = verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+        assert head == manifest_hash(_read_lines(manifest_path)[-1])
+
+    def test_a_new_key_manifest_without_a_rotation_entry_is_rejected(self, tmp_path: Path) -> None:
+        old_signer, new_signer = _signer(), _signer(_OTHER_KEY, "key-2")
+        audit_path, manifest_path = _build_log(tmp_path, ("seal", old_signer), ("seal", new_signer))
+
+        with pytest.raises(ManifestVerificationError, match="run-2") as excinfo:
+            verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+        _assert_names(excinfo, "key-2", "key-1")
+
+    def test_a_retired_key_manifest_after_a_rotation_is_rejected_before_the_new_key_ever_sealed(
+        self, tmp_path: Path
+    ) -> None:
+        old_signer, new_signer = _signer(), _signer(_OTHER_KEY, "key-2")
+        steps = [("seal", old_signer), ("rotate", new_signer), ("seal", old_signer)]
+        audit_path, manifest_path = _build_log(tmp_path, *steps)
+
+        with pytest.raises(ManifestVerificationError, match="run-3") as excinfo:
+            verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+        _assert_names(excinfo, "key-1", "key-2")
+
+    @pytest.mark.parametrize("seal_between", [True, False], ids=["seal-between", "back-to-back"])
+    @pytest.mark.parametrize("newest_first", [False, True], ids=["oldest-first", "newest-first"])
+    def test_the_order_of_previous_signers_does_not_matter(
+        self, tmp_path: Path, seal_between: bool, newest_first: bool
+    ) -> None:
+        audit_path, manifest_path, key_1, key_2, key_3 = _rotated_three_key_log(tmp_path, seal_between=seal_between)
+        previous_signers = [key_2, key_1] if newest_first else [key_1, key_2]
+
+        head = verify_ndjson_log(audit_path, manifest_path, signer=key_3, previous_signers=previous_signers)
+
+        assert head == manifest_hash(_read_lines(manifest_path)[-1])
+
+    @pytest.mark.parametrize("signed_by", ["active", "retired"])
+    def test_a_rotation_entry_signed_by_the_active_or_a_retired_key_is_rejected(
+        self, tmp_path: Path, signed_by: str
+    ) -> None:
+        old_signer, new_signer = _signer(), _signer(_OTHER_KEY, "key-2")
+        signer = new_signer if signed_by == "active" else old_signer
+        steps = [("seal", old_signer), ("rotate", new_signer), ("rotate", signer)]
+        audit_path, manifest_path = _build_log(tmp_path, *steps)
+
+        with pytest.raises(ManifestVerificationError, match=signer.key_id):
+            verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+    def test_a_rotation_entry_as_the_first_line_is_rejected(self, tmp_path: Path) -> None:
+        old_signer, new_signer = _signer(), _signer(_OTHER_KEY, "key-2")
+        audit_path, manifest_path = _build_log(tmp_path, ("seal", old_signer), ("rotate", new_signer))
+        # The control: after a seal, a rotation entry is fine.
+        verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+        _rewrite_lines(manifest_path, [_rotation_entry(new_signer, None)])
+
+        with pytest.raises(ManifestVerificationError):
+            verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+    @pytest.mark.parametrize("forge", list(_FORGED_ENTRIES.values()), ids=list(_FORGED_ENTRIES))
+    def test_a_forged_rotation_entry_is_rejected_and_never_skipped(
+        self, tmp_path: Path, forge: Callable[[str], dict[str, Any]]
+    ) -> None:
+        old_signer, new_signer = _signer(), _signer(_OTHER_KEY, "key-2")
+        audit_path, manifest_path = _build_log(tmp_path, ("seal", old_signer), ("rotate", new_signer))
+        # The control: the unforged entry verifies.
+        verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+        seal, entry = _read_lines(manifest_path)
+        _rewrite_lines(manifest_path, [seal, forge(entry["previous_manifest_hash"])])
+        before = manifest_path.read_bytes()
+
+        with pytest.raises(ManifestVerificationError):
+            verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+        with pytest.raises(ManifestVerificationError):
+            seal_ndjson_runs(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+        assert manifest_path.read_bytes() == before
+
+    def test_sealing_skips_rotation_entries_like_sealed_runs(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, key_1, key_2, key_3 = _rotated_three_key_log(tmp_path)
+        before = manifest_path.read_bytes()
+
+        assert seal_ndjson_runs(audit_path, manifest_path, signer=key_3, previous_signers=[key_1, key_2]) == []
+        with pytest.raises(RunAlreadySealedError):
+            seal_ndjson_runs(audit_path, manifest_path, signer=key_3, previous_signers=[key_1, key_2], run_id="run-a")
+
+        assert manifest_path.read_bytes() == before
+
+
+class TestCurrentKeyRequirement:
+    """Sealing and verifying need the log's current key to be the signer, whatever previous_signers holds."""
+
+    @_current_key_required
+    def test_a_log_under_the_old_key_is_rejected_for_the_new_signer_even_with_the_old_key_as_previous_signer(
+        self, tmp_path: Path, call: Callable[..., Any]
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _write_records(audit_path, [_record("run-d", 7)])
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ManifestVerificationError, match=_under_key("key-1", "key-2")):
+            call(audit_path, manifest_path, signer=_signer(_OTHER_KEY, "key-2"), previous_signers=[_signer()])
+
+        assert _snapshot(tmp_path) == before
+
+    @pytest.mark.parametrize("call", [verify_ndjson_log, verify_ndjson_log_coverage], ids=["verify", "coverage"])
+    def test_the_check_is_raised_before_the_collected_record_and_head_problems(
+        self, tmp_path: Path, call: Callable[..., Any]
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        records = _read_lines(audit_path)
+        records[0]["tenant_id"] = "tenant-other"
+        _rewrite_lines(audit_path, records)
+
+        with pytest.raises(ManifestVerificationError, match=_under_key("key-1", "key-2")):
+            call(
+                audit_path,
+                manifest_path,
+                signer=_signer(_OTHER_KEY, "key-2"),
+                previous_signers=[_signer()],
+                expected_head="0" * 64,
+            )
+
+    @_current_key_required
+    def test_an_entry_to_a_keyring_key_the_log_never_used_does_not_take_the_log_over(
+        self, tmp_path: Path, call: Callable[..., Any]
+    ) -> None:
+        old_signer, new_signer, extra_signer = _signer(), _signer(_OTHER_KEY, "key-2"), _signer(b"x" * 32, "key-x")
+        steps = [("seal", old_signer), ("rotate", new_signer), ("seal", new_signer), ("rotate", extra_signer)]
+        audit_path, manifest_path = _build_log(tmp_path, *steps)
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ManifestVerificationError, match=_under_key("key-x", "key-2")):
+            call(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer, extra_signer])
+
+        assert _snapshot(tmp_path) == before
+
+    @pytest.mark.parametrize("log_bytes", [None, b""], ids=["missing", "empty"])
+    def test_an_empty_log_has_no_current_key_and_the_first_seal_defines_it(
+        self, tmp_path: Path, log_bytes: bytes | None
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record("run-a", 1)])
+        if log_bytes is not None:
+            manifest_path.write_bytes(log_bytes)
+        old_signer, new_signer = _signer(), _signer(_OTHER_KEY, "key-2")
+
+        assert verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer]) is None
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+        assert manifests[0]["signature"]["key_id"] == "key-2"
+        verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+
 class TestExpectedHead:
     """expected_head anchors the log outside itself."""
 
@@ -2072,6 +2654,28 @@ class TestExpectedHead:
         audit_path, manifest_path, _ = _truncated_log(tmp_path)
 
         verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    def test_after_a_rotation_the_entry_hash_anchors_and_an_older_head_does_not(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        old_signer, new_signer = _signer(), _signer(_OTHER_KEY, "key-2")
+        old_head = manifest_hash(_read_lines(manifest_path)[-1])
+        entry_head = manifest_hash(_rotate(manifest_path, new_signer, old_signer))
+        _write_records(audit_path, [_record("run-d", 7)])
+
+        assert (
+            verify_ndjson_log(
+                audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer], expected_head=entry_head
+            )
+            == entry_head
+        )
+        with pytest.raises(ManifestVerificationError, match="head"):
+            verify_ndjson_log(
+                audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer], expected_head=old_head
+            )
+        manifests = seal_ndjson_runs(
+            audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer], expected_head=entry_head
+        )
+        assert [manifest["previous_manifest_hash"] for manifest in manifests] == [entry_head]
 
 
 class TestMalformedNdjsonLines:
@@ -2619,8 +3223,74 @@ class TestQuarantineDamagedLines:
         )
 
         assert _summary(removed) == _spans("manifest", manifest_before, [4])
+        # The repair does not rotate: the log is still under the old key.
+        assert verify_ndjson_log(audit_path, manifest_path, signer=old_signer) == head
+        with pytest.raises(ManifestVerificationError, match=_under_key("key-1", "key-2")):
+            verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+
+    def test_torn_rotation_entry_tail_is_reported_by_a_dry_run_and_nothing_changes(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, _ = _torn_rotation_log(tmp_path)
+        before = _snapshot(tmp_path)
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path, dry_run=True)
+
+        assert _summary(removed) == _spans("manifest", before["manifests.ndjson"], [4])
+        assert _snapshot(tmp_path) == before
+
+    def test_torn_rotation_entry_tail_is_quarantined_and_rotating_again_restores_the_new_key(
+        self, tmp_path: Path
+    ) -> None:
+        audit_path, manifest_path, head = _torn_rotation_log(tmp_path)
+        old_signer, new_signer = _signer(), _signer(_OTHER_KEY, "key-2")
+        manifest_before = manifest_path.read_bytes()
+
+        removed = _quarantine(
+            tmp_path, audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer], expected_head=head
+        )
+
+        assert _summary(removed) == _spans("manifest", manifest_before, [4])
+        assert manifest_path.read_bytes() == manifest_before[: manifest_before.rindex(b"\n") + 1]
+        with pytest.raises(ManifestVerificationError, match=_under_key("key-1", "key-2")):
+            verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+        with pytest.raises(ManifestVerificationError, match=_under_key("key-1", "key-2")):
+            seal_ndjson_runs(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
+        entry = rotate_manifest_key(manifest_path, signer=new_signer, previous_signers=[old_signer], expected_head=head)
+        assert verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer]) == (
+            manifest_hash(entry)
+        )
+
+    @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry-run"])
+    def test_unterminated_rotation_entry_tail_that_is_valid_json_is_not_repaired(
+        self, tmp_path: Path, dry_run: bool
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        _torn(manifest_path, _canonical(_rotation_entry(_signer(_OTHER_KEY, "key-2"), head)))
+
+        _assert_refused(tmp_path, audit_path, manifest_path, dry_run=dry_run)
+
+    def test_expected_head_of_a_rotation_entry_repairs_a_torn_seal_after_it(self, tmp_path: Path) -> None:
+        old_signer, new_signer = _signer(), _signer(_OTHER_KEY, "key-2")
+        audit_path, manifest_path = _build_log(tmp_path, ("seal", old_signer), ("rotate", new_signer))
+        entry_head = manifest_hash(_read_lines(manifest_path)[-1])
+        record = _record("run-3", 3)
+        _write_records(audit_path, [record])
+        seal = _canonical(seal_run([record], run_id="run-3", signer=new_signer, previous_manifest_hash=entry_head))
+        _torn(manifest_path, seal[: len(seal) // 2])
+        manifest_before = manifest_path.read_bytes()
+
+        removed = _quarantine(
+            tmp_path,
+            audit_path,
+            manifest_path,
+            signer=new_signer,
+            previous_signers=[old_signer],
+            expected_head=entry_head,
+        )
+
+        assert _summary(removed) == _spans("manifest", manifest_before, [3])
         verified = verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
-        assert verified == head
+        assert verified == entry_head
 
     @pytest.mark.parametrize(
         "previous_signers",

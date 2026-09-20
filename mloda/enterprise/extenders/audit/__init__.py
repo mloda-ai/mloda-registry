@@ -8,6 +8,7 @@ from mloda.enterprise.extenders.audit.audit_extender import (
 )
 from mloda.enterprise.extenders.audit.run_manifest import (
     HmacSha256Signer,
+    KeyAlreadyCurrentError,
     LogCoverage,
     ManifestSigner,
     ManifestVerificationError,
@@ -16,6 +17,7 @@ from mloda.enterprise.extenders.audit.run_manifest import (
     RunNotPendingError,
     manifest_hash,
     quarantine_damaged_lines,
+    rotate_manifest_key,
     seal_ndjson_runs,
     seal_run,
     verify_manifest,
@@ -28,6 +30,7 @@ __all__ = [
     "AuditSink",
     "HmacSha256Signer",
     "IdentityRequiredError",
+    "KeyAlreadyCurrentError",
     "LogCoverage",
     "ManifestSigner",
     "ManifestVerificationError",
@@ -37,6 +40,7 @@ __all__ = [
     "RunNotPendingError",
     "manifest_hash",
     "quarantine_damaged_lines",
+    "rotate_manifest_key",
     "seal_ndjson_runs",
     "seal_run",
     "verify_manifest",
