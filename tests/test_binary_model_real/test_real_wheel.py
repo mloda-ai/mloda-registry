@@ -1,6 +1,7 @@
 """Real-wheel system test: exercises the ``example_binary`` distribution (``mloda-example-binary``
 on PyPI) actually installed, instead of the simulated binary from
-``mloda-testing[binary-model]``. Skipped by default -- the wheel is never installed in CI; see
+``mloda-testing[binary-model]``. Skipped unless the wheel is installed; the ``real-wheel`` CI job
+(``tox -e real-wheel``) installs the release wheel from the lock. See
 ``docs/guides/feature-group-patterns/28-binary-backed-features.md``.
 
 Run this directory on its own with ``pytest tests/test_binary_model_real/``; it needs no opt-in. The
@@ -8,8 +9,9 @@ repo's other suites assume the wheel is absent and are not supported with it ins
 
 The full expired/in-grace/valid license state machine is already covered against the real compiled
 binary in the mloda-binary-wrapper repo's own CI across multiple platforms, and is deliberately not
-duplicated here. A CI job that installs the real wheel in this repo, and the full production-license
-end-to-end path, are intentionally deferred follow-up work, not omissions.
+duplicated here. The end-to-end test needs a test-key build (never published), so it skips against the
+release wheel; a full run with a production license and the other platforms are intentionally deferred
+follow-up work, not omissions.
 """
 
 from __future__ import annotations

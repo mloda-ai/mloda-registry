@@ -1,15 +1,18 @@
-"""Doc-drift guard for ``docs/guides/feature-group-patterns/28-binary-backed-features.md``.
-
-There is no mktestdocs/sybil-style execution of guide code fences in this repo (confirmed: no such
-tool is wired in), so this is a lightweight grep-based check instead of an executed doctest.
-"""
+"""Doc-drift guard for ``docs/guides/feature-group-patterns/28-binary-backed-features.md`` and for the tox.ini and
+ci.yaml wiring of the real-wheel suite. No mktestdocs/sybil-style execution of guide code fences is wired in
+this repo (confirmed), so these are lightweight grep-based checks instead of executed doctests."""
 
 from __future__ import annotations
 
+import configparser
+import re
+import shlex
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GUIDE_PATH = _REPO_ROOT / "docs" / "guides" / "feature-group-patterns" / "28-binary-backed-features.md"
+_TOX_INI = _REPO_ROOT / "tox.ini"
+_CI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "ci.yaml"
 
 
 def test_complete_example_sets_binary_wheel_distribution() -> None:
@@ -64,4 +67,45 @@ def test_against_the_real_wheel_section_shows_the_uv_install_command() -> None:
     assert "uv pip install mloda-example-binary" in section, (
         'the "Against the real wheel" section must contain `uv pip install mloda-example-binary`; section was:\n'
         + section
+    )
+
+
+def test_real_wheel_tox_env_installs_the_wheel_and_probes_the_import() -> None:
+    """The real-wheel env installs the wheel extra, probes the import first and runs the whole suite directory."""
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read(_TOX_INI)
+    assert parser.has_section("testenv:real-wheel"), (
+        "tox.ini must define [testenv:real-wheel] to run tests/test_binary_model_real against the real wheel"
+    )
+    env = parser["testenv:real-wheel"]
+    extras = re.split(r"[\s,]+", env.get("extras", ""))
+    assert "wheel" in extras, f"[testenv:real-wheel] must install the `wheel` extra; extras were: {extras}"
+    commands = env.get("commands", "").splitlines()
+    probe = next((i for i, line in enumerate(commands) if "import example_binary" in line), None)
+    run = next((i for i, line in enumerate(commands) if "pytest" in line), None)
+    assert probe is not None, f"[testenv:real-wheel] must probe `import example_binary`; commands were: {commands}"
+    assert run is not None and probe < run, (
+        f"the `import example_binary` probe must run before the pytest line; commands were: {commands}"
+    )
+    tokens = shlex.split(commands[run])
+    assert "tests/test_binary_model_real/" in tokens or "tests/test_binary_model_real" in tokens, (
+        f"the pytest line must run the whole suite directory tests/test_binary_model_real/, not a single file; "
+        f"pytest line was: {commands[run]}"
+    )
+
+
+def test_ci_runs_the_real_wheel_tox_env() -> None:
+    """ci.yaml has a non-comment `run: tox -e real-wheel` line, so the job cannot be commented out unnoticed."""
+    workflow = _CI_WORKFLOW.read_text(encoding="utf-8")
+    assert re.search(r"^\s*(?:-\s+)?run:\s*tox -e real-wheel\s*$", workflow, re.MULTILINE), (
+        "ci.yaml must have a non-comment step that runs `tox -e real-wheel`"
+    )
+
+
+def test_against_the_real_wheel_section_shows_the_tox_env_command() -> None:
+    """The "### Against the real wheel" section shows the tox env that runs the real-wheel suite."""
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    section = _section(content, "### Against the real wheel", ("\n## ", "\n### "))
+    assert "tox -e real-wheel" in section, (
+        'the "Against the real wheel" section must contain `tox -e real-wheel`; section was:\n' + section
     )

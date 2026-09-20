@@ -153,7 +153,7 @@ In the checkout, `uv pip install mloda-example-binary` gives the release build f
 
 Keep the rest of the repo's suite out of a run that has the wheel: it assumes the wheel is absent, and two guards fail loudly if the wheel is installed by accident. Running only `tests/test_binary_model_real/` never hits them.
 
-The full expired/in-grace/valid license state machine is covered against the real compiled binary in the mloda-binary-wrapper repo's own CI across platforms, so it is not duplicated here. No CI job here installs the wheel, so the suite stays skipped by default; the probe's own logic is covered unconditionally against the simulated binary by `tests/test_binary_model_real/test_probe_classification.py`. Installing the real wheel in this repo's CI, and the full production-license end-to-end path, remain deferred follow-up work.
+The full expired/in-grace/valid license state machine is covered against the real compiled binary in the mloda-binary-wrapper repo's own CI across platforms, so it is not duplicated here. The plain `tox` gate never installs the wheel, so the suite is skipped there; the `real-wheel` CI job installs the release wheel from `uv.lock` and runs the suite on Linux x86_64, and `tox -e real-wheel` reproduces that locally in its own environment, leaving the dev `.venv` untouched. The probe's own logic is covered unconditionally against the simulated binary by `tests/test_binary_model_real/test_probe_classification.py`. The full production-license end-to-end path and the other platforms remain deferred follow-up work.
 
 ## Packaging Rules
 
