@@ -17,6 +17,8 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
+import pytest
+
 from tests.script_loader import load_script
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -140,3 +142,23 @@ def test_sources_table_is_emitted_once_and_entries_are_sorted() -> None:
     registry_idx = content.index("mloda-registry = { workspace = true }")
     testing_idx = content.index("mloda-testing = { workspace = true }")
     assert community_idx < registry_idx < testing_idx, content
+
+
+def test_computed_source_names_are_emitted_as_flat_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Forced dotted name (normalization rules it out in real config): an unquoted dot would parse as a nested table."""
+
+    def dotted_source_names(
+        pkg_name: str,
+        pkg_config: dict[str, Any],
+        all_packages: dict[str, dict[str, Any]],
+    ) -> list[str]:
+        return ["mloda-registry", "mloda.foo"]
+
+    monkeypatch.setattr(gen, "workspace_source_names", dotted_source_names)
+
+    content = _sandbox_content(["{core_dependency}"])
+
+    assert _sources(content) == {
+        "mloda.foo": {"workspace": True},
+        "mloda-registry": {"workspace": True},
+    }, content
