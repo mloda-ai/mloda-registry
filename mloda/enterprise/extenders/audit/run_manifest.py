@@ -10,15 +10,12 @@ Limits:
 - One manifest log per audit file; sealers serialise on flock (POSIX), but not at all where fcntl is missing, so
   concurrent sealers and recoveries then race. `previous_signers` is a migration window for verifying manifests
   signed by a retired key, not a permanent trust set.
-- Key rotation is an event in the log: rotate_manifest_key appends a signed entry, and the order of keys comes from
-  the entries, never from `previous_signers`. Rotate every log when flipping the config (flag day); seals made
-  under the retired key before its entry stay valid. Rotating blesses everything the old key sealed before the
-  entry, so anchor `expected_head` on every rotation: only an anchor catches a log rewound to before the entry.
-  Rotate before destroying the old key, since rotating verifies the log with the retired signer.
-- Sealing and verifying need the log's current key to be `signer`, so an archived log verifies with the signer that
-  is its current key (the error names it). That check is load-bearing: without it, any keyring key the log never
-  used could take the log over with a rotation entry.
-- verify_manifest on a single manifest cannot order keys: the guarantee is log-level.
+- Key rotation is an entry in the log (rotate_manifest_key): key order comes from the entries, not `previous_signers`.
+  Rotate every log when changing keys; seals under the retired key before its entry stay valid. Anchor
+  `expected_head` on every rotation. Rotate before destroying the old key.
+- Sealing and verifying need the log's current key to be `signer` (an archived log verifies with its current key).
+  The check is load-bearing: it stops an unused keyring key from taking the log over.
+- verify_manifest on a single manifest cannot order keys.
 - A torn or undecodable line fails sealing and verification until quarantine_damaged_lines repairs it. It repairs
   only a torn manifest tail and the audit lines the readers reject; anything else stays a hard failure.
 """
@@ -188,7 +185,7 @@ def _signer_map(signer: ManifestSigner, previous_signers: Iterable[ManifestSigne
 
 
 def _verify_signed(manifest: Mapping[str, Any], signer: ManifestSigner, signers: Mapping[str, ManifestSigner]) -> None:
-    """The signature and manifest_version checks shared by run manifests and key rotation entries."""
+    """The signature and manifest_version checks shared by manifests and rotation entries."""
     signature = manifest.get("signature")
     # The block is unsigned, so an unknown member could carry anything.
     if not isinstance(signature, Mapping) or set(signature) != _SIGNATURE_KEYS:
@@ -241,7 +238,7 @@ def _verify_rotation_fields(
 
 
 def _rotation_transition(key_id: str, active: str | None, retired: frozenset[str]) -> tuple[str, frozenset[str]]:
-    """The (active, retired) keys after a rotation entry signed by `key_id`; raise if the log may not rotate to it."""
+    """The (active, retired) keys after a rotation to `key_id`; raises if the log may not rotate to it."""
     if active is None:
         raise ManifestVerificationError("a key rotation entry has no earlier manifest to rotate from")
     if key_id == active or key_id in retired:
@@ -393,8 +390,6 @@ def _flock(path: str | Path, *, exclusive: bool) -> Iterator[None]:
 
 @dataclass(frozen=True)
 class _LogState:
-    """What a verified manifest log ends in: its sealed run_ids, head, current key and retired keys."""
-
     sealed: set[str]
     head: str | None
     active: str | None
@@ -411,7 +406,7 @@ def _verify_log(
     require_current: bool = False,
 ) -> _LogState:
     """Record and head mismatches are collected into one error (head first); a structural failure raises at once.
-    The order of keys comes from the log: the first line's key is current until a rotation entry replaces it."""
+    The first line's key is current until a rotation entry replaces it."""
     sealed: set[str] = set()
     head: str | None = None
     problems: list[str] = []
@@ -483,11 +478,10 @@ def rotate_manifest_key(
     expected_head: str | None,
     previous_signers: Iterable[ManifestSigner] = (),
 ) -> dict[str, Any]:
-    """Append a signed key rotation entry making `signer` the log's current key; return it. Verifies the log first
-    (`previous_signers` must hold its retired keys) and writes nothing on failure. Raises ValueError when the log has
-    no manifests (its first seal defines the key), KeyAlreadyCurrentError when `signer` is already current (a safe
-    retry) and ManifestVerificationError when `signer` is a retired key. Pass the anchored head as `expected_head`
-    (None for no anchor): the entry blesses everything the old key sealed before it."""
+    """Append a signed rotation entry making `signer` the log's current key; return it. Verifies the log first
+    (`previous_signers` must hold its retired keys) and writes nothing on failure. Raises ValueError for a log with no
+    manifests, KeyAlreadyCurrentError when `signer` is already current (a safe retry) and ManifestVerificationError
+    when `signer` is retired. Pass the anchored head as `expected_head`: the entry blesses all earlier seals."""
     signers = _signer_map(signer, previous_signers)
     nothing_to_rotate = f"{manifest_path} has no manifests to rotate; the first seal defines the key"
     # Checked before the lock: an exclusive _flock would create the file.
@@ -518,7 +512,7 @@ def seal_ndjson_runs(
     so sealing a still-live run fails its verification for good. Pass `run_id` when other runs may still be live;
     omit it to sweep an audit file no writer is appending to. Raises RunAlreadySealedError for an already-sealed
     `run_id` (catch that, not ValueError, for an idempotent retry) and RunNotPendingError when it has no records.
-    The log's current key must be `signer`: after changing keys call rotate_manifest_key first.
+    `signer` must be the log's current key: call rotate_manifest_key after a key change.
     `previous_signers` covers a retired signing key during rotation (see module docstring)."""
     signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
@@ -586,7 +580,7 @@ def verify_ndjson_log_coverage(
     expected_head: str | None = None,
 ) -> LogCoverage:
     """Verify like verify_ndjson_log; return a LogCoverage (head, sealed_runs, sealed_lines, unattributed_lines,
-    unsealed_lines). The log's current key must be `signer`: after changing keys call rotate_manifest_key first.
+    unsealed_lines). `signer` must be the log's current key: call rotate_manifest_key after a key change.
     `previous_signers` covers a retired signing key during rotation (see module docstring)."""
     signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
@@ -621,7 +615,7 @@ def verify_ndjson_log(
 ) -> str | None:
     """Raise ManifestVerificationError unless every manifest matches the audit bytes of its run. Returns the head:
     anchor it outside the log and pass it back as `expected_head`, or a truncated log goes undetected.
-    The log's current key must be `signer`: after changing keys call rotate_manifest_key first.
+    `signer` must be the log's current key: call rotate_manifest_key after a key change.
     `previous_signers` covers a retired signing key during rotation (see module docstring)."""
     return verify_ndjson_log_coverage(
         audit_path, manifest_path, signer=signer, previous_signers=previous_signers, expected_head=expected_head
@@ -727,9 +721,9 @@ def _require_terminated(path: str | Path) -> None:
 
 
 def _append_with_rollback(path: str | Path, entries: Sequence[Mapping[str, Any]], *, existed: bool) -> None:
-    """Append and fsync under the caller's lock on `path`; a failure restores the file (under the lock only this
-    writer's partial bytes go), or removes it if the lock created it. Capture `existed` before acquiring the lock:
-    its open(O_CREAT) would otherwise always find the file already there."""
+    """Append and fsync under the caller's lock on `path`; a failure restores the file, or removes it if the lock
+    created it. Capture `existed` before acquiring the lock: its open(O_CREAT) would otherwise always find the
+    file already there."""
     size = os.path.getsize(path) if os.path.exists(path) else 0
     try:
         _append_and_fsync(path, entries)
@@ -785,8 +779,7 @@ def quarantine_damaged_lines(
     - A valid-JSON unterminated last line is refused in both files (it may be a real seal or record).
     - An anchored `expected_head` must match one of the complete manifests, which bounds how far back the log can
       have been rewound; re-verify the repaired log against the freshest anchor you track yourself.
-    - A torn key rotation entry is a torn manifest tail: the log reverts to before it, so call rotate_manifest_key
-      again.
+    - A torn rotation entry is a torn manifest tail; call rotate_manifest_key again after the repair.
     - Anything else raises and changes nothing.
 
     `previous_signers` covers a retired signing key during rotation (see module docstring)."""

@@ -92,14 +92,13 @@ _DAMAGED_LINES: dict[str, bytes] = {
     "deep-nesting": b"[" * 100000 + b"\n",
 }
 
-# The two writers of the manifest log, and the run_id of each line they append (a rotation entry has none).
+# The manifest log's writers and the run_id of each line they append (None for a rotation entry).
 _WRITERS = ["seal", "rotate"]
 _PENDING_RUN_IDS: dict[str, list[str | None]] = {"seal": ["run-d", "run-e", "run-f"], "rotate": [None]}
 
-# A `_rotation_entry` change of this value drops the key instead of setting it.
+# As a `_rotation_entry` change, drops the key.
 _MISSING: Any = object()
 
-# The entry points that require the log's current key to be the signer.
 _current_key_required = pytest.mark.parametrize(
     "call", [verify_ndjson_log, verify_ndjson_log_coverage, seal_ndjson_runs], ids=["verify", "coverage", "seal"]
 )
@@ -165,7 +164,7 @@ def _resigned(manifest: Mapping[str, Any], **changes: Any) -> dict[str, Any]:
 
 
 def _rotation_entry(signer: ManifestSigner, previous_manifest_hash: str | None, **changes: Any) -> dict[str, Any]:
-    """A rotation entry signed by any `signer`, for forgeries; `changes` are applied before signing."""
+    """A rotation entry signed by any `signer`, for forgeries; `changes` apply before signing."""
     entry: dict[str, Any] = {
         "manifest_version": 1,
         "kind": "key_rotation",
@@ -183,8 +182,7 @@ def _rotation_entry(signer: ManifestSigner, previous_manifest_hash: str | None, 
 
 
 def _build_log(directory: Path, *steps: tuple[str, ManifestSigner]) -> tuple[Path, Path]:
-    """Hand-build a manifest log with no library writer. Step N is ("seal", signer), which seals a new run-N under
-    `signer`, or ("rotate", signer), which appends a rotation entry to `signer`."""
+    """Hand-build a manifest log: ("seal", signer) seals a new run-N, ("rotate", signer) appends a rotation entry."""
     audit_path = directory / "audit.ndjson"
     manifest_path = directory / "manifests.ndjson"
     head: str | None = None
@@ -201,7 +199,7 @@ def _build_log(directory: Path, *steps: tuple[str, ManifestSigner]) -> tuple[Pat
 
 
 def _under_key(current: str, signer: str) -> str:
-    """A `match` pattern for exactly the error of a log whose current key is not the signer's."""
+    """A `match` pattern for the log-under-another-key error."""
     return "^" + re.escape(f"manifest log is under key '{current}', not the signer's '{signer}'") + "$"
 
 
@@ -271,8 +269,7 @@ def _rotate(manifest_path: Path, signer: ManifestSigner, *previous_signers: Mani
 def _rotated_three_key_log(
     directory: Path, *, seal_between: bool = True
 ) -> tuple[Path, Path, HmacSha256Signer, HmacSha256Signer, HmacSha256Signer]:
-    """One run each sealed by three keys in turn, rotating in between (two rotations). Without `seal_between` the
-    key-2 run is skipped, so the two rotation entries are back to back."""
+    """One run each sealed by three keys in turn, with two rotations; `seal_between=False` skips the key-2 run."""
     audit_path = directory / "audit.ndjson"
     manifest_path = directory / "manifests.ndjson"
     key_1, key_2, key_3 = _signer(key_id="key-1"), _signer(_OTHER_KEY, "key-2"), _signer(b"t" * 32, "key-3")
@@ -291,9 +288,8 @@ def _rotated_three_key_log(
 def _pending_write(
     directory: Path, writer: str
 ) -> tuple[Path, Callable[..., list[dict[str, Any]]], Callable[[], str | None]]:
-    """A sealed log with one manifest-log write pending: "seal" seals runs d, e and f under key-1, "rotate" moves the
-    log from key-1 to key-2. Returns the manifest path, `write(signer_type)` (the lines it appended; the signer type
-    lets a test spy on signing) and `verify()` (the head of the log under the writer's key)."""
+    """A sealed log with one pending write ("seal": runs d, e, f; "rotate": key-1 to key-2). Returns the manifest path,
+    `write(signer_type)` (the appended lines; the type lets a test spy on signing) and `verify()` (the new head)."""
     audit_path, manifest_path = _sealed_log(directory)
     head = manifest_hash(_read_lines(manifest_path)[-1])
     key, key_id = (_KEY, "key-1") if writer == "seal" else (_OTHER_KEY, "key-2")
@@ -349,7 +345,7 @@ def _torn_manifest_log(directory: Path) -> tuple[Path, Path, str]:
 
 
 def _torn_rotation_log(directory: Path) -> tuple[Path, Path, str]:
-    """A manifest log ending in half a key-2 rotation entry (line 4); returns the head before the damage."""
+    """A manifest log ending in half a key-2 rotation entry; returns the head before the damage."""
     audit_path, manifest_path = _sealed_log(directory)
     head = manifest_hash(_read_lines(manifest_path)[-1])
     entry = _canonical(_rotation_entry(_signer(_OTHER_KEY, "key-2"), head)) + b"\n"
@@ -1207,8 +1203,7 @@ class TestSealNdjsonRuns:
         assert [manifest["run_id"] for manifest in manifests] == ["run-d", "run-e", "run-f"]
         verify_ndjson_log(audit_path, manifest_path, signer=_signer())
 
-    # Sealing and key rotation are the two writers of the manifest log and share one append path, so the tests of
-    # that path below run against both (`_pending_write`).
+    # Sealing and rotation share one append path, so its tests run against both (`_pending_write`).
     @pytest.mark.parametrize("writer", _WRITERS)
     def test_failed_append_is_rolled_back_and_a_retry_appends_every_pending_line(
         self, tmp_path: Path, writer: str
@@ -1218,7 +1213,7 @@ class TestSealNdjsonRuns:
         real_write = os.write
 
         def disk_is_full(fd: int, data: bytes | memoryview) -> int:
-            # Every line the writers append, a manifest or a rotation entry, carries the chain link.
+            # Every appended line carries the chain link.
             if b"previous_manifest_hash" in bytes(data):
                 raise OSError(errno.ENOSPC, "disk full")
             return real_write(fd, data)
@@ -1278,8 +1273,7 @@ class TestSealNdjsonRuns:
     def test_failed_append_fsyncs_the_manifest_log_and_its_directory_after_the_rollback_truncate(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer: str
     ) -> None:
-        """The rollback truncate must be durable: a crash right after it must not resurrect the lines this
-        writer already reported as failed via the raised OSError."""
+        """The rollback truncate must be durable: a crash after it must not resurrect lines reported as failed."""
         manifest_path, write, _ = _pending_write(tmp_path, writer)
         real_write = os.write
         real_truncate = os.truncate
@@ -1415,7 +1409,7 @@ class TestSealNdjsonRuns:
         appends: list[bool] = []
 
         def probe() -> bool:
-            # A shared request: only an exclusive holder refuses it, so a reader waits for the writer.
+            # A shared request is refused only by an exclusive holder.
             fd = os.open(manifest_path, os.O_RDONLY)
             try:
                 fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
@@ -1534,7 +1528,7 @@ class TestSealNdjsonRuns:
 
 
 class TestRotateManifestKey:
-    """The lock, fsync and rollback behaviour it shares with sealing is covered in TestSealNdjsonRuns."""
+    """Lock, fsync and rollback are covered in TestSealNdjsonRuns."""
 
     def test_entry_has_exactly_the_expected_keys_kind_and_version(self, tmp_path: Path) -> None:
         _, manifest_path = _sealed_log(tmp_path)
@@ -2457,7 +2451,7 @@ class TestVerifyNdjsonLogCoverage:
 
 
 class TestKeyRotationEntries:
-    """The order of keys comes from the rotation entries in the log, never from the order of previous_signers."""
+    """Key order comes from the log's rotation entries, not from previous_signers."""
 
     @pytest.mark.parametrize("trailing_seal", [False, True], ids=["ends-with-entry", "seal-after-entry"])
     def test_a_hand_built_rotation_entry_verifies_and_the_next_line_chains_to_it(
@@ -2557,7 +2551,7 @@ class TestKeyRotationEntries:
 
 
 class TestCurrentKeyRequirement:
-    """Sealing and verifying need the log's current key to be the signer, whatever previous_signers holds."""
+    """Sealing and verifying need the log's current key to be the signer."""
 
     @_current_key_required
     def test_a_log_under_the_old_key_is_rejected_for_the_new_signer_even_with_the_old_key_as_previous_signer(
