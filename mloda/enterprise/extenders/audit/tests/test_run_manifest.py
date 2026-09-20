@@ -239,6 +239,24 @@ _FORGED_ENTRIES: dict[str, Callable[[str], dict[str, Any]]] = {
     ),
 }
 
+_BAD_SIGNATURE = "signature does not match the manifest"
+_BAD_SHAPE = "must be a 'key_rotation' entry with exactly"
+# The `match` fragment of the error each forged entry must raise, so none passes for the wrong reason.
+_FORGED_ENTRY_REASONS: dict[str, str] = {
+    "wrong-key-material": _BAD_SIGNATURE,
+    "unknown-key-id": "signature key_id 'key-unknown' matches no known key",
+    "wrong-chain": "manifest chain is broken at a key rotation entry",
+    "tampered-rotated-at": _BAD_SIGNATURE,
+    "wrong-algorithm": "signature algorithm 'OTHER' is not the signer's",
+    "wrong-version": "unsupported manifest_version 2",
+    "extra-key": _BAD_SHAPE,
+    "missing-key": _BAD_SHAPE,
+    "unknown-kind": _BAD_SHAPE,
+    "null-kind": _BAD_SHAPE,
+    "unhashable-kind": _BAD_SHAPE,
+    "manifest-with-kind": _BAD_SHAPE,
+}
+
 
 def _sealed_log(directory: Path) -> tuple[Path, Path]:
     """Three runs plus one record without a run_id, all sealed."""
@@ -985,7 +1003,7 @@ class TestVerifyManifest:
         assert not isinstance(excinfo.value, ManifestVerificationError)
 
     def test_a_rotation_entry_is_not_a_run_manifest_and_fails_without_crashing(self) -> None:
-        with pytest.raises(ManifestVerificationError):
+        with pytest.raises(ManifestVerificationError, match="unsupported hash_algorithm"):
             verify_manifest(_rotation_entry(_signer(), None), [_record()], signer=_signer())
 
 
@@ -1575,11 +1593,12 @@ class TestRotateManifestKey:
         if log_bytes is not None:
             manifest_path.write_bytes(log_bytes)
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError) as excinfo:
             rotate_manifest_key(
                 manifest_path, signer=_signer(_OTHER_KEY, "key-2"), previous_signers=[_signer()], expected_head=None
             )
 
+        assert not isinstance(excinfo.value, (ManifestVerificationError, KeyAlreadyCurrentError))
         assert manifest_path.exists() == (log_bytes is not None)
 
     @pytest.mark.parametrize("rotated_before", [False, True], ids=["fresh-log", "retry-after-rotation"])
@@ -1598,6 +1617,34 @@ class TestRotateManifestKey:
             rotate_manifest_key(manifest_path, signer=signer, previous_signers=previous_signers, expected_head=head)
 
         assert not isinstance(excinfo.value, ManifestVerificationError)
+        assert manifest_path.read_bytes() == before
+
+    @pytest.mark.parametrize("anchor", ["pre-rotation-head", "none", "post-rotation-head"])
+    def test_a_retry_after_a_rotation_fails_on_a_stale_head_and_is_current_otherwise(
+        self, tmp_path: Path, anchor: str
+    ) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        old_signer, new_signer = _signer(), _signer(_OTHER_KEY, "key-2")
+        pre_rotation_head = manifest_hash(_read_lines(manifest_path)[-1])
+        _rotate(manifest_path, new_signer, old_signer)
+        heads = {
+            "pre-rotation-head": pre_rotation_head,
+            "none": None,
+            "post-rotation-head": manifest_hash(_read_lines(manifest_path)[-1]),
+        }
+        before = manifest_path.read_bytes()
+        stale = anchor == "pre-rotation-head"
+
+        with pytest.raises(
+            ManifestVerificationError if stale else KeyAlreadyCurrentError,
+            match="is not the expected head" if stale else "already under key",
+        ) as excinfo:
+            rotate_manifest_key(
+                manifest_path, signer=new_signer, previous_signers=[old_signer], expected_head=heads[anchor]
+            )
+
+        assert isinstance(excinfo.value, ManifestVerificationError) is stale
+        assert isinstance(excinfo.value, KeyAlreadyCurrentError) is not stale
         assert manifest_path.read_bytes() == before
 
     @pytest.mark.parametrize("seal_between", [True, False], ids=["seal-between", "back-to-back"])
@@ -2517,12 +2564,16 @@ class TestKeyRotationEntries:
         verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
         _rewrite_lines(manifest_path, [_rotation_entry(new_signer, None)])
 
-        with pytest.raises(ManifestVerificationError):
+        with pytest.raises(ManifestVerificationError, match="has no earlier manifest to rotate from"):
             verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
 
-    @pytest.mark.parametrize("forge", list(_FORGED_ENTRIES.values()), ids=list(_FORGED_ENTRIES))
+    @pytest.mark.parametrize(
+        ("forge", "reason"),
+        [(forge, _FORGED_ENTRY_REASONS[name]) for name, forge in _FORGED_ENTRIES.items()],
+        ids=list(_FORGED_ENTRIES),
+    )
     def test_a_forged_rotation_entry_is_rejected_and_never_skipped(
-        self, tmp_path: Path, forge: Callable[[str], dict[str, Any]]
+        self, tmp_path: Path, forge: Callable[[str], dict[str, Any]], reason: str
     ) -> None:
         old_signer, new_signer = _signer(), _signer(_OTHER_KEY, "key-2")
         audit_path, manifest_path = _build_log(tmp_path, ("seal", old_signer), ("rotate", new_signer))
@@ -2532,9 +2583,9 @@ class TestKeyRotationEntries:
         _rewrite_lines(manifest_path, [seal, forge(entry["previous_manifest_hash"])])
         before = manifest_path.read_bytes()
 
-        with pytest.raises(ManifestVerificationError):
+        with pytest.raises(ManifestVerificationError, match=reason):
             verify_ndjson_log(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
-        with pytest.raises(ManifestVerificationError):
+        with pytest.raises(ManifestVerificationError, match=reason):
             seal_ndjson_runs(audit_path, manifest_path, signer=new_signer, previous_signers=[old_signer])
 
         assert manifest_path.read_bytes() == before

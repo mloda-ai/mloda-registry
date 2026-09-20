@@ -8,11 +8,14 @@ Limits:
 - HMAC is symmetric: integrity, not non-repudiation.
 - Records without a usable run_id and unsealed runs sit outside every seal (verify_ndjson_log_coverage counts them).
 - One manifest log per audit file; sealers serialise on flock (POSIX), but not at all where fcntl is missing, so
-  concurrent sealers and recoveries then race. `previous_signers` is a migration window for verifying manifests
-  signed by a retired key, not a permanent trust set.
+  concurrent sealers, rotations and recoveries then race. `previous_signers` verifies manifests a retired key sealed
+  before its rotation entry (it cannot seal after it).
 - Key rotation is an entry in the log (rotate_manifest_key): key order comes from the entries, not `previous_signers`.
   Rotate every log when changing keys; seals under the retired key before its entry stay valid. Anchor
-  `expected_head` on every rotation. Rotate before destroying the old key.
+  `expected_head` on every rotation. Keep retired keys while their seals must verify (rotating verifies the log with
+  them too). Any keyring key can append a complete rotation entry, which wedges the log for the real current key
+  (availability only, not integrity). Quarantine repairs only a torn tail, so recovery is truncating the log back to
+  an anchored head.
 - Sealing and verifying need the log's current key to be `signer` (an archived log verifies with its current key).
   The check is load-bearing: it stops an unused keyring key from taking the log over.
 - verify_manifest on a single manifest cannot order keys.
@@ -388,7 +391,7 @@ def _flock(path: str | Path, *, exclusive: bool) -> Iterator[None]:
             os.close(fd)
 
 
-@dataclass(frozen=True)
+@dataclass
 class _LogState:
     sealed: set[str]
     head: str | None
@@ -480,8 +483,9 @@ def rotate_manifest_key(
 ) -> dict[str, Any]:
     """Append a signed rotation entry making `signer` the log's current key; return it. Verifies the log first
     (`previous_signers` must hold its retired keys) and writes nothing on failure. Raises ValueError for a log with no
-    manifests, KeyAlreadyCurrentError when `signer` is already current (a safe retry) and ManifestVerificationError
-    when `signer` is retired. Pass the anchored head as `expected_head`: the entry blesses all earlier seals."""
+    manifests, KeyAlreadyCurrentError when `signer` is already current (a retry needs `expected_head=None` or the
+    post-rotation head) and ManifestVerificationError when `signer` is retired. Pass the anchored head as
+    `expected_head`: the entry chains onto it, so it commits to every earlier line."""
     signers = _signer_map(signer, previous_signers)
     nothing_to_rotate = f"{manifest_path} has no manifests to rotate; the first seal defines the key"
     # Checked before the lock: an exclusive _flock would create the file.
@@ -493,6 +497,7 @@ def rotate_manifest_key(
             raise ValueError(nothing_to_rotate)
         if state.active == signer.key_id:
             raise KeyAlreadyCurrentError(f"manifest log is already under key {signer.key_id!r}")
+        # Called for its raise only: it raises when `signer` is a retired key.
         _rotation_transition(signer.key_id, state.active, state.retired)
         entry = _rotation_entry(signer, state.head)
         _append_with_rollback(manifest_path, [entry], existed=True)
@@ -723,7 +728,8 @@ def _require_terminated(path: str | Path) -> None:
 def _append_with_rollback(path: str | Path, entries: Sequence[Mapping[str, Any]], *, existed: bool) -> None:
     """Append and fsync under the caller's lock on `path`; a failure restores the file, or removes it if the lock
     created it. Capture `existed` before acquiring the lock: its open(O_CREAT) would otherwise always find the
-    file already there."""
+    file already there. Sealing and rotation pass `existed=True`, so a failed append leaves the log file (truncated)
+    instead of removing it."""
     size = os.path.getsize(path) if os.path.exists(path) else 0
     try:
         _append_and_fsync(path, entries)
