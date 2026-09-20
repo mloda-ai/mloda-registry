@@ -73,7 +73,7 @@ Options such as `partition_by` and `order_by`, plus the shared contracts, are in
 
 `opentelemetry-api` and `openlineage-python` are optional now, behind the `[otel]`, `[openlineage]`, and `[all]` extras. When the dependency is missing, PluginLoader skips the entry point with a WARNING and plugin discovery never registers the extender; importing `OtelExtender` or `OpenLineageExtender` from the package still raises `ModuleNotFoundError`.
 
-`cryptography`, behind `[ed25519]`, differs: the audit extender still loads without it, and only constructing `Ed25519Signer` raises `ImportError`.
+`cryptography`, behind `[ed25519]`, behaves differently: the audit extender still loads without it, and only constructing `Ed25519Signer` raises `ImportError`.
 
 The remaining example packages are not on PyPI; install them from git, replacing the subdirectory with the package `path` from `config/packages.toml`:
 

@@ -119,9 +119,9 @@ _current_key_required = pytest.mark.parametrize(
     "call", [verify_ndjson_log, verify_ndjson_log_coverage, seal_ndjson_runs], ids=["verify", "coverage", "seal"]
 )
 
-# Runs a class once per algorithm; the classes without it do not depend on the signer's algorithm.
+# Runs a class once per algorithm.
 _both_algorithms = pytest.mark.usefixtures("algorithm")
-# With `_both_algorithms`, narrows a class to Ed25519: the classes that need a signer only it can be.
+# With `_both_algorithms`, narrows a class to Ed25519 (public-key signers exist only there).
 _ed25519_only = pytest.mark.parametrize("algorithm", ["ed25519"], indirect=True)
 
 
@@ -131,7 +131,6 @@ def algorithm(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -
 
 
 def _signer_class() -> type[HmacSha256Signer] | type[Ed25519Signer]:
-    """The signer class of the current algorithm."""
     classes: dict[str, type[HmacSha256Signer] | type[Ed25519Signer]] = {
         "hmac": HmacSha256Signer,
         "ed25519": Ed25519Signer,
@@ -144,7 +143,7 @@ def _signer(key: bytes = _KEY, key_id: str = "key-1") -> ManifestSigner:
 
 
 def _reference_signature(key: bytes, payload: bytes) -> str:
-    """The signature of `payload` under `key`, recomputed without the signer under test."""
+    """The signature recomputed without the signer under test."""
     if _ALGORITHM == "ed25519":
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -155,7 +154,7 @@ def _reference_signature(key: bytes, payload: bytes) -> str:
 
 
 def _public_key(private_key: bytes) -> bytes:
-    """The raw public key of an Ed25519 private key, derived without the signer under test."""
+    """The raw public key, derived without the signer under test."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
@@ -165,7 +164,7 @@ def _public_key(private_key: bytes) -> bytes:
 
 
 def _verify_only(private_key: bytes = _KEY, key_id: str = "key-1") -> Ed25519Signer:
-    """The public half of the Ed25519 signer `_signer(private_key, key_id)` builds."""
+    """The public-key signer matching `_signer(private_key, key_id)`."""
     return Ed25519Signer.from_public_key(_public_key(private_key), key_id)
 
 
@@ -390,8 +389,7 @@ def _pending_write(
     directory: Path, writer: str
 ) -> tuple[Path, Callable[..., list[dict[str, Any]]], Callable[[], str | None]]:
     """A sealed log with one pending write ("seal": runs d, e, f; "rotate": key-1 to key-2). Returns the manifest path,
-    `write(wrap)` (the appended lines; `wrap` maps each signer, so a test can spy on signing) and `verify()` (the new
-    head)."""
+    `write(wrap)` (the appended lines; `wrap` maps each signer, to spy on signing) and `verify()` (the new head)."""
     audit_path, manifest_path = _sealed_log(directory)
     head = manifest_hash(_read_lines(manifest_path)[-1])
     key, key_id = (_KEY, "key-1") if writer == "seal" else (_OTHER_KEY, "key-2")
@@ -576,7 +574,7 @@ class _PrefixSigner:
 
 
 class _HookedSigner:
-    """Delegates to `inner`, running a hook first; unlike a subclass it works over any algorithm."""
+    """Delegates to `inner` after running a hook, so it wraps any algorithm."""
 
     def __init__(
         self,
@@ -654,8 +652,6 @@ class TestRunManifestPublicApi:
 
 @_both_algorithms
 class TestManifestSignerContract:
-    """What every signer does, whatever its algorithm."""
-
     def test_verify_accepts_its_own_signature(self) -> None:
         signer = _signer()
 
@@ -730,7 +726,7 @@ class TestHmacSha256Signer:
             assert key.hex() not in text
 
 
-# Forms of a valid signature that verify must refuse; some decode to the same bytes under a lenient hex parser.
+# Forms of a valid signature that verify must refuse, some of which a lenient hex parser would accept.
 _MANGLED_SIGNATURES: dict[str, Callable[[str], str]] = {
     "uppercase": str.upper,
     "leading-space": lambda signature: " " + signature,
@@ -782,7 +778,7 @@ class TestEd25519Signer:
         signature = Ed25519Signer(_KEY, "key-1").sign(b"payload")
         signer = _verify_only() if public_only else Ed25519Signer(_KEY, "key-1")
         mangled = mangle(signature)
-        # The control: the untouched signature verifies, and this form really differs from it.
+        # Control: the original verifies and the mangled form differs.
         assert signer.verify(b"payload", signature) is True
         assert mangled != signature
 
@@ -4192,7 +4188,7 @@ class TestEd25519PublicKeyOnly:
 
     def test_a_public_key_that_is_not_the_sealing_keys_is_rejected(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
-        # The control: the sealing key's own public key verifies.
+        # Control: the sealing key's public key verifies.
         verify_ndjson_log(audit_path, manifest_path, signer=_verify_only())
 
         with pytest.raises(ManifestVerificationError, match="signature"):

@@ -5,12 +5,11 @@ later fail verification by design. verify_ndjson_log returns the head: anchor it
 as expected_head, because removing the newest manifests or the whole log is otherwise undetectable.
 
 Limits:
-- HMAC is symmetric (integrity only). Ed25519Signer gives non-repudiation: only the private key holder can seal, and a
-  verifier holds just the public key (`Ed25519Signer.from_public_key`), which cannot seal, rotate or repair
-  (`quarantine_damaged_lines(dry_run=True)` works), so it cannot wedge the log with a rotation entry either. Seals
-  made under an HMAC key stay repudiable, and moving a log from HMAC to Ed25519 needs a new key_id. Getting the public
-  key to verifiers is out of scope (trust it out of band). Any other signer, such as a KMS-backed one, plugs in
-  through the unchanged `ManifestSigner` protocol.
+- HMAC is symmetric: integrity only. Ed25519Signer adds non-repudiation: only the private key holder can seal. A
+  public-key signer (`Ed25519Signer.from_public_key`) verifies but cannot seal, rotate or repair
+  (`quarantine_damaged_lines(dry_run=True)` works). HMAC-era seals stay repudiable, and moving a log from HMAC to
+  Ed25519 needs a new key_id. Distributing the public key is out of scope. A KMS-backed signer plugs in through the
+  unchanged `ManifestSigner` protocol.
 - Records without a usable run_id and unsealed runs sit outside every seal (verify_ndjson_log_coverage counts them).
 - One manifest log per audit file; sealers serialise on flock (POSIX), but not at all where fcntl is missing, so
   concurrent sealers, rotations and recoveries then race. `previous_signers` verifies manifests a retired key sealed
@@ -103,7 +102,7 @@ class HmacSha256Signer:
 
 
 def _ed25519() -> ModuleType:
-    """The cryptography ed25519 module, imported per call: the extra is optional and nothing is cached."""
+    """The cryptography ed25519 module, imported per call because the extra is optional."""
     try:
         from cryptography.hazmat.primitives.asymmetric import ed25519
     except ImportError as exc:
@@ -119,7 +118,7 @@ def _check_ed25519_key(name: str, key: object) -> None:
 
 
 class Ed25519Signer:
-    """Ed25519 over raw keys (`Ed25519PrivateKey.private_bytes_raw()`, `public_bytes_raw()`); needs extra `ed25519`."""
+    """Ed25519 over raw 32-byte keys (`private_bytes_raw()`, `public_bytes_raw()`); needs the `ed25519` extra."""
 
     algorithm = "Ed25519"
 

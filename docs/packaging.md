@@ -118,8 +118,8 @@ mloda-community (bundled)
 
 A bundled plugin whose runtime dependency is heavy sits behind a bundle extra instead of a
 hard dependency (today `mloda-community[otel]` and `mloda-community[openlineage]`, or both
-together via `mloda-community[all]`, and `mloda-enterprise[ed25519]`, whose plugin still loads
-without it), and its manifest must import cleanly without that dependency installed so
+together via `mloda-community[all]`; also `mloda-enterprise[ed25519]`, though its plugin still
+loads without it), and its manifest must import cleanly without that dependency installed so
 entry-point loading of the rest of the bundle stays intact.
 
 Moving a dependency behind an extra changes existing installs: when the dependency is missing,
