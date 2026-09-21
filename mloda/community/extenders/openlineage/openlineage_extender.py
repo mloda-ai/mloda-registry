@@ -8,6 +8,7 @@ import threading
 import time
 import uuid
 import weakref
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -75,6 +76,7 @@ class OpenLineageExtender(Extender):
     terminated without a flush, so a synchronous transport is needed there."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
+    producer: str = _PRODUCER
 
     def __init__(
         self,
@@ -213,6 +215,9 @@ class OpenLineageExtender(Extender):
         if context is None:
             return func(*args, **kwargs)
 
+        return self._dispatch(context, func, args, kwargs)
+
+    def _dispatch(self, context: HookContext, func: Any, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
         if context.hook == ExtenderHook.INPUT_DATA_LOAD:
             return self._call_input_data_load(context, func, *args, **kwargs)
         return self._call_calculate_feature(context, func, *args, **kwargs)
@@ -231,7 +236,7 @@ class OpenLineageExtender(Extender):
                         name=context.data_access_identity,
                         facets={
                             "dataSource": datasource_dataset.DatasourceDatasetFacet(
-                                name=context.data_access_identity, producer=_PRODUCER
+                                name=context.data_access_identity, producer=self.producer
                             )
                         },
                     )
@@ -240,38 +245,69 @@ class OpenLineageExtender(Extender):
             logger.debug("OpenLineageExtender: INPUT_DATA_LOAD has no enclosing open calculate invocation to attach to")
         return func(*args, **kwargs)
 
-    def _call_calculate_feature(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
-        run_facets: dict[str, Any] = {}
+    def _calculate_run_facets(self, context: HookContext, func: Any, args: tuple[Any, ...]) -> dict[str, Any]:
+        facets: dict[str, Any] = {}
         if context.run_id is not None:
-            run_facets["parent"] = parent_run.ParentRunFacet(
+            facets["parent"] = parent_run.ParentRunFacet(
                 run=parent_run.Run(runId=context.run_id),
                 job=parent_run.Job(namespace=self.job_namespace, name=self.root_job_name),
-                producer=_PRODUCER,
+                producer=self.producer,
             )
-        job = Job(namespace=self.job_namespace, name=context.feature_group_class)
-        run = Run(runId=str(uuid.uuid4()), facets=run_facets)
-        invocation = _OpenCalculateInvocation(
-            run_id=run.runId,
-            job=job,
-            inputs=[
+        return facets
+
+    def _calculate_output_facets(
+        self, context: HookContext, func: Any, args: tuple[Any, ...], name: str
+    ) -> dict[str, Any]:
+        return {}
+
+    def _call_calculate_feature(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
+        def build_outputs() -> list[OutputDataset]:
+            fields = _schema_dataset_fields(context.output_schema)
+            return [
+                _build_output_dataset(
+                    self.dataset_namespace,
+                    name,
+                    fields,
+                    self.producer,
+                    self._calculate_output_facets(context, func, args, name),
+                )
+                for name in context.feature_names
+            ]
+
+        return self._run_with_events(
+            func,
+            args,
+            kwargs,
+            job=Job(namespace=self.job_namespace, name=context.feature_group_class),
+            run_facets=self._calculate_run_facets(context, func, args),
+            declared_inputs=[
                 InputDataset(namespace=self.dataset_namespace, name=name)
                 for name in sorted(context.input_features or ())
             ],
+            build_outputs=build_outputs,
         )
+
+    def _run_with_events(
+        self,
+        func: Any,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        *,
+        job: Job,
+        run_facets: dict[str, Any],
+        declared_inputs: list[InputDataset],
+        build_inputs: Callable[[list[InputDataset], BaseException | None], list[InputDataset]] | None = None,
+        build_outputs: Callable[[], list[OutputDataset]] | None = None,
+    ) -> Any:
+        """One Run: START, func inside an open invocation, then FAIL/ABORT or COMPLETE. build_inputs receives the
+        inputs gathered so far plus the raised exception (None on success) and build_outputs runs on success only,
+        both after the outcome is known and inside the guarded block."""
+        run = Run(runId=str(uuid.uuid4()), facets=run_facets)
+        invocation = _OpenCalculateInvocation(run_id=run.runId, job=job, inputs=declared_inputs)
 
         # Unguarded on purpose: this call must propagate naturally so CompositeExtender's
         # raise_on_error fallback machinery sees the real failure and never double-invokes func.
-        self._emit(
-            RunEvent(
-                eventType=RunState.START,
-                eventTime=_now_iso(),
-                run=run,
-                job=job,
-                producer=_PRODUCER,
-                inputs=[],
-                outputs=[],
-            )
-        )
+        self._emit_event(RunState.START, run, job, [], [])
 
         try:
             with _open_invocations.open(self, invocation):
@@ -280,17 +316,8 @@ class OpenLineageExtender(Extender):
             event_state = RunState.FAIL if isinstance(exc, Exception) else RunState.ABORT
             # Guarded: a transport error on the FAIL/ABORT path must not mask the wrapped function's exception.
             try:
-                self._emit(
-                    RunEvent(
-                        eventType=event_state,
-                        eventTime=_now_iso(),
-                        run=run,
-                        job=job,
-                        producer=_PRODUCER,
-                        inputs=list(invocation.inputs),
-                        outputs=[],
-                    )
-                )
+                inputs = build_inputs(invocation.inputs, exc) if build_inputs else list(invocation.inputs)
+                self._emit_event(event_state, run, job, inputs, [])
             except Exception as emit_exc:
                 logger.warning(
                     "OpenLineageExtender failed to emit %s event: %s: %s",
@@ -304,23 +331,28 @@ class OpenLineageExtender(Extender):
 
         # Guarded: a bug in this post-success block must never corrupt func's already-computed result.
         try:
-            fields = _schema_dataset_fields(context.output_schema)
-            outputs = [_build_output_dataset(self.dataset_namespace, name, fields) for name in context.feature_names]
-            self._emit(
-                RunEvent(
-                    eventType=RunState.COMPLETE,
-                    eventTime=_now_iso(),
-                    run=run,
-                    job=job,
-                    producer=_PRODUCER,
-                    inputs=list(invocation.inputs),
-                    outputs=outputs,
-                )
-            )
+            inputs = build_inputs(invocation.inputs, None) if build_inputs else list(invocation.inputs)
+            outputs = build_outputs() if build_outputs else []
+            self._emit_event(RunState.COMPLETE, run, job, inputs, outputs)
         except Exception as exc:
             logger.warning("OpenLineageExtender post-call instrumentation failed: %s: %s", type(exc).__name__, exc)
 
         return result
+
+    def _emit_event(
+        self, state: RunState, run: Run, job: Job, inputs: list[InputDataset], outputs: list[OutputDataset]
+    ) -> None:
+        self._emit(
+            RunEvent(
+                eventType=state,
+                eventTime=_now_iso(),
+                run=run,
+                job=job,
+                producer=self.producer,
+                inputs=inputs,
+                outputs=outputs,
+            )
+        )
 
 
 def _now_iso() -> str:
@@ -328,12 +360,17 @@ def _now_iso() -> str:
 
 
 def _build_output_dataset(
-    namespace: str, name: str, fields: list[schema_dataset.SchemaDatasetFacetFields]
+    namespace: str,
+    name: str,
+    fields: list[schema_dataset.SchemaDatasetFacetFields],
+    producer: str,
+    extra_facets: dict[str, Any],
 ) -> OutputDataset:
     facets: dict[str, Any] = {}
     first_match = next((f for f in fields if f.name == name), None)
     if first_match is not None:
-        facets["schema"] = schema_dataset.SchemaDatasetFacet(fields=[first_match], producer=_PRODUCER)
+        facets["schema"] = schema_dataset.SchemaDatasetFacet(fields=[first_match], producer=producer)
+    facets.update(extra_facets)
     return OutputDataset(namespace=namespace, name=name, facets=facets)
 
 

@@ -248,7 +248,7 @@ Helpers: `make_span_capture`, `make_picklable_span_capture`, `single_span`, `sin
 
 ### OpenLineageExtenderTestMixin
 
-Install `mloda-testing[openlineage]`. Host provides `extender_class` and `make_openlineage_extender(client, *, raise_on_error=None)`. It supplies `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`, `ambient_sink_captured`), so a host needs no extra code for the sink-resolution tests. It also sets `supports_pickled_sink_capture()` to `True` and supplies `injected_sink_capture`, exercising `OpenLineageExtender`'s picklable-injected-client preservation.
+Install `mloda-testing[openlineage]`. Host provides `extender_class` and `make_openlineage_extender(client, *, raise_on_error=None)`. It supplies `make_extender`, `own_failure`, and the sink-resolution hooks (`has_backend_sink`, `ambient_sink_environment`, `sink_resolution_spy`, `ambient_sink_captured`), so a host needs no extra code for the sink-resolution tests. It also sets `supports_pickled_sink_capture()` to `True` and supplies `injected_sink_capture`, exercising `OpenLineageExtender`'s picklable-injected-client preservation. Optional: `calculate_run_events(events)` (identity by default) returns only the events of the calculate runs; override it in a host that also emits other runs, such as nested validation runs, so the `run_all` tests that count COMPLETE events or inputs ignore them.
 
 ```python
 from openlineage.client.client import OpenLineageClient

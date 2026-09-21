@@ -4,6 +4,7 @@ own_failure() detects a fault."""
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -14,8 +15,10 @@ pytest.importorskip("openlineage.client")
 
 from mloda.steward import Extender, ExtenderHook, HookContext
 from openlineage.client.client import OpenLineageClient
-from openlineage.client.event_v2 import Job, Run, RunEvent, RunState
+from openlineage.client.event_v2 import InputDataset, Job, Run, RunEvent, RunState
+from openlineage.client.facet_v2 import parent_run
 
+from mloda.community.extenders.openlineage import OpenLineageExtender
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.openlineage import (
     FileTransport,
@@ -25,6 +28,7 @@ from mloda.testing.extenders.openlineage import (
 )
 
 _PRODUCER = "mloda-testing-probe-openlineage"
+_NESTED_JOB_SUFFIX = ".validate_output_feature"
 
 
 def _now_iso() -> str:
@@ -125,6 +129,13 @@ class TestOpenLineageExtenderTestMixinShape:
         assert mixin.ambient_sink_captured([transport]) == [event]
         assert mixin.ambient_sink_captured([RecordingTransport()]) == []
 
+    def test_calculate_run_events_defaults_to_identity(self) -> None:
+        events = [_build_run_event(), _build_run_event()]
+
+        mixin = OpenLineageExtenderTestMixin()
+        assert mixin.calculate_run_events(events) == events
+        assert mixin.calculate_run_events([]) == []
+
 
 class _DirectTransportProbeOpenLineageExtender(Extender):
     """Emits straight to the RecordingTransport, bypassing OpenLineageClient.emit entirely."""
@@ -191,3 +202,99 @@ class TestOwnFailureDefaultDetectsNoFault:
 
         with pytest.raises(AssertionError, match="own_failure"):
             _Host().test_contract_own_failure_does_not_stop_chained_extender(caplog)
+
+
+class _NestedRunProbeOpenLineageExtender(Extender):
+    """Delegates to OpenLineageExtender and, after every calculate run, emits one extra nested run (its own parent
+    run id, a COMPLETE with an input), the way a validation run would."""
+
+    def __init__(self, client: OpenLineageClient, raise_on_error: bool = False) -> None:
+        self.raise_on_error = raise_on_error
+        self._client = client
+        self._emitter = OpenLineageExtender(client=client, raise_on_error=raise_on_error)
+
+    def wraps(self) -> set[ExtenderHook]:
+        return self._emitter.wraps()
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        context = HookContext.current()
+        result = self._emitter(func, *args, **kwargs)
+        if context is not None and context.hook == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
+            self._emit_nested_run(context)
+        return result
+
+    def _emit_nested_run(self, context: HookContext) -> None:
+        job = Job(namespace="mloda", name=f"{context.feature_group_class}{_NESTED_JOB_SUFFIX}")
+        parent = parent_run.ParentRunFacet(
+            run=parent_run.Run(runId=str(uuid.uuid4())),
+            job=parent_run.Job(namespace="mloda", name="probe.nested_parent"),
+            producer=_PRODUCER,
+        )
+        run = Run(runId=str(uuid.uuid4()), facets={"parent": parent})
+        for state, inputs in (
+            (RunState.START, []),
+            (RunState.COMPLETE, [InputDataset(namespace="mloda", name="nested_probe_input")]),
+        ):
+            self._client.emit(
+                RunEvent(
+                    eventType=state,
+                    eventTime=_now_iso(),
+                    run=run,
+                    job=job,
+                    producer=_PRODUCER,
+                    inputs=inputs,
+                    outputs=[],
+                )
+            )
+
+
+class _NestedRunHost(OpenLineageExtenderTestMixin):
+    """Keeps the default calculate_run_events, so the probe's nested run is counted by the mixin assertions."""
+
+    @classmethod
+    def extender_class(cls) -> type[Extender]:
+        return _NestedRunProbeOpenLineageExtender
+
+    def make_openlineage_extender(self, client: OpenLineageClient, *, raise_on_error: bool | None = None) -> Extender:
+        if raise_on_error is None:
+            return _NestedRunProbeOpenLineageExtender(client=client)
+        return _NestedRunProbeOpenLineageExtender(client=client, raise_on_error=raise_on_error)
+
+
+class _FilteringNestedRunHost(_NestedRunHost):
+    def calculate_run_events(self, events: list[RunEvent]) -> list[RunEvent]:
+        return [event for event in events if not event.job.name.endswith(_NESTED_JOB_SUFFIX)]
+
+
+_COUNT_SENSITIVE_MIXIN_TESTS: list[Any] = [
+    pytest.param(
+        lambda host, tmp_path: host.test_openlineage_run_all_derived_feature_reports_input_feature(),
+        id="derived-feature-reports-input-feature",
+    ),
+    pytest.param(
+        lambda host, tmp_path: host.test_openlineage_run_all_reader_backed_feature_reports_input_dataset(tmp_path),
+        id="reader-backed-feature-reports-input-dataset",
+    ),
+    pytest.param(
+        lambda host, tmp_path: host.test_openlineage_run_all_events_share_one_parent_run_id(),
+        id="events-share-one-parent-run-id",
+    ),
+]
+
+
+class TestCalculateRunEventsHook:
+    """calculate_run_events lets a host drop the events of non-calculate runs before the three count-sensitive
+    run_all assertions read them."""
+
+    @pytest.mark.parametrize("mixin_test", _COUNT_SENSITIVE_MIXIN_TESTS)
+    def test_nested_run_breaks_the_assertion_without_a_filtering_override(
+        self, mixin_test: Callable[[OpenLineageExtenderTestMixin, Path], None], tmp_path: Path
+    ) -> None:
+        with pytest.raises(AssertionError):
+            mixin_test(_NestedRunHost(), tmp_path)
+
+    @pytest.mark.parametrize("mixin_test", _COUNT_SENSITIVE_MIXIN_TESTS)
+    def test_filtering_override_restores_the_assertion(
+        self, mixin_test: Callable[[OpenLineageExtenderTestMixin, Path], None], tmp_path: Path
+    ) -> None:
+        mixin_test(_FilteringNestedRunHost(), tmp_path)

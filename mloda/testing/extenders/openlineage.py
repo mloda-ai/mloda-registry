@@ -229,6 +229,10 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
     def sink_probe_expected_content(self) -> set[str] | None:
         return {"START", "COMPLETE"}
 
+    def calculate_run_events(self, events: list[RunEvent]) -> list[RunEvent]:
+        """The events of the calculate runs only; override to drop the events of any other run the host emits."""
+        return events
+
     def own_failure(self) -> AbstractContextManager[Any]:
         return patch.object(OpenLineageClient, "emit", side_effect=RuntimeError("openlineage instrumentation boom"))
 
@@ -602,11 +606,12 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         client, transport = make_recording_client()
         run_two_features(self.make_openlineage_extender(client))
 
-        start_events = [event for event in transport.events if event.eventType == RunState.START]
+        events = self.calculate_run_events(transport.events)
+        start_events = [event for event in events if event.eventType == RunState.START]
         assert len(start_events) >= 2
 
         parent_run_ids = set()
-        for event in transport.events:
+        for event in events:
             run_facets = event.run.facets or {}
             parent = run_facets.get("parent")
             assert isinstance(parent, parent_run.ParentRunFacet)
@@ -627,7 +632,9 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         csv_paths = list(tmp_path.glob("*.csv"))
         assert len(csv_paths) == 1
 
-        complete_events = [event for event in transport.events if event.eventType == RunState.COMPLETE]
+        complete_events = [
+            event for event in self.calculate_run_events(transport.events) if event.eventType == RunState.COMPLETE
+        ]
         assert len(complete_events) == 1
         complete_event = complete_events[0]
         assert complete_event.inputs is not None
@@ -638,7 +645,9 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         client, transport = make_recording_client()
         run_two_features(self.make_openlineage_extender(client))
 
-        complete_events = [event for event in transport.events if event.eventType == RunState.COMPLETE]
+        complete_events = [
+            event for event in self.calculate_run_events(transport.events) if event.eventType == RunState.COMPLETE
+        ]
         assert len(complete_events) == 2
         derived_events = [event for event in complete_events if event.inputs]
         assert len(derived_events) == 1

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import atexit
 import gc
+import json
 import logging
 import pickle  # nosec
 import threading
@@ -23,7 +24,7 @@ from typing import Any, cast
 import pyarrow as pa
 import pytest
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.steward import CompositeExtender, Extender, ExtenderHook
+from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext
 
 from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
@@ -39,8 +40,12 @@ from mloda.testing.extenders.openlineage import (
 from mloda.testing.extenders.runners import run_value_int
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import RunState
-from openlineage.client.facet_v2 import parent_run, schema_dataset
+from openlineage.client.facet_v2 import documentation_dataset, nominal_time_run, parent_run, schema_dataset
+from openlineage.client.serde import Serde
 from openlineage.client.transport.transport import Config, Transport
+
+_DEFAULT_PRODUCER = "https://github.com/mloda-ai/mloda-registry/tree/main/mloda/community/extenders/openlineage"
+_CUSTOM_PRODUCER = "https://example.invalid/custom-lineage-producer"
 
 
 class _IncompleteFlushTransport(Transport):
@@ -116,6 +121,63 @@ class _SlottedDuckTypeClient:
     def close(self, timeout: float = -1.0) -> bool:
         self.close_calls.append(timeout)
         return True
+
+
+class _CustomProducerExtender(OpenLineageExtender):
+    producer = _CUSTOM_PRODUCER
+
+
+class _RecordingDispatchExtender(OpenLineageExtender):
+    """Records every _dispatch call, then routes it through the default dispatch."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.dispatched: list[tuple[HookContext, Any, tuple[Any, ...], dict[str, Any]]] = []
+
+    def _dispatch(self, context: HookContext, func: Any, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
+        self.dispatched.append((context, func, args, kwargs))
+        return super()._dispatch(context, func, args, kwargs)
+
+
+class _RunFacetExtender(OpenLineageExtender):
+    """Adds one run facet next to the default parent facet and records what the seam received."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.run_facet_calls: list[tuple[HookContext, Any, tuple[Any, ...]]] = []
+
+    def _calculate_run_facets(self, context: HookContext, func: Any, args: tuple[Any, ...]) -> dict[str, Any]:
+        self.run_facet_calls.append((context, func, args))
+        facets = super()._calculate_run_facets(context, func, args)
+        facets["probe"] = nominal_time_run.NominalTimeRunFacet(
+            nominalStartTime="2026-01-01T00:00:00+00:00", producer=self.producer
+        )
+        return facets
+
+
+class _OutputFacetExtender(OpenLineageExtender):
+    """Adds one dataset facet to every output and records what the seam received."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.output_facet_calls: list[tuple[HookContext, Any, tuple[Any, ...], str]] = []
+
+    def _calculate_output_facets(
+        self, context: HookContext, func: Any, args: tuple[Any, ...], name: str
+    ) -> dict[str, Any]:
+        self.output_facet_calls.append((context, func, args, name))
+        return {
+            "probe": documentation_dataset.DocumentationDatasetFacet(
+                description=f"probe:{name}", producer=self.producer
+            )
+        }
+
+
+class _FailingOutputFacetExtender(OpenLineageExtender):
+    def _calculate_output_facets(
+        self, context: HookContext, func: Any, args: tuple[Any, ...], name: str
+    ) -> dict[str, Any]:
+        raise RuntimeError("output facet boom")
 
 
 @pytest.fixture
@@ -1393,3 +1455,200 @@ class TestOpenLineageExtenderRunAll:
         # yields exactly "int" via the dict-interchange path; a silent regression to the arrow-schema
         # path (e.g. "int64") or to a garbage/empty type must fail loudly, not pass on a loose substring.
         assert schema_types == ["int"]
+
+
+class TestOpenLineageExtenderSubclassSeams:
+    """The protected seams a subclass builds on: producer, _dispatch, _calculate_run_facets and
+    _calculate_output_facets. Each default reproduces the community emitter's behavior unchanged."""
+
+    def test_default_producer_is_the_community_package_url(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+
+        with make_hook_context().activate():
+            OpenLineageExtender(client=client)(lambda: None)
+
+        assert OpenLineageExtender.producer == _DEFAULT_PRODUCER
+        assert transport.events
+        assert all(event.producer == _DEFAULT_PRODUCER for event in transport.events)
+
+    def test_producer_override_reaches_events_and_every_facet_the_class_builds(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = _CustomProducerExtender(client=client)
+        inner_context = make_hook_context(
+            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="s3://bucket/key.parquet"
+        )
+
+        def outer_func() -> None:
+            with inner_context.activate():
+                extender(lambda: "loaded-data")
+
+        with make_hook_context(run_id=str(uuid.uuid4()), output_schema=(("value_int", "int64"),)).activate():
+            extender(outer_func)
+
+        start_payload, complete_payload = (json.loads(Serde.to_json(event)) for event in transport.events)
+        assert start_payload["producer"] == _CUSTOM_PRODUCER
+        assert complete_payload["producer"] == _CUSTOM_PRODUCER
+        assert start_payload["run"]["facets"]["parent"]["_producer"] == _CUSTOM_PRODUCER
+        assert complete_payload["run"]["facets"]["parent"]["_producer"] == _CUSTOM_PRODUCER
+        assert complete_payload["inputs"][0]["facets"]["dataSource"]["_producer"] == _CUSTOM_PRODUCER
+        assert complete_payload["outputs"][0]["facets"]["schema"]["_producer"] == _CUSTOM_PRODUCER
+
+    def test_producer_override_reaches_the_fail_event(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = _CustomProducerExtender(client=client)
+
+        def failing_body() -> None:
+            raise RuntimeError("calculate boom")
+
+        with make_hook_context(run_id=str(uuid.uuid4())).activate():
+            with pytest.raises(RuntimeError, match="calculate boom"):
+                extender(failing_body)
+
+        fail_payload = json.loads(Serde.to_json(transport.events[-1]))
+        assert fail_payload["eventType"] == "FAIL"
+        assert fail_payload["producer"] == _CUSTOM_PRODUCER
+        assert fail_payload["run"]["facets"]["parent"]["_producer"] == _CUSTOM_PRODUCER
+
+    def test_dispatch_runs_only_after_the_inert_and_no_context_guards(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, _ = ol_capture
+        inert = _RecordingDispatchExtender()
+        live = _RecordingDispatchExtender(client=client)
+
+        with make_hook_context().activate():
+            assert inert(lambda: 1) == 1
+        assert live(lambda: 2) == 2
+
+        assert inert.dispatched == []
+        assert live.dispatched == []
+
+        with make_hook_context().activate():
+            assert live(lambda: 3) == 3
+        assert len(live.dispatched) == 1
+
+    def test_dispatch_receives_the_ambient_context_and_the_call_unpacked(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, _ = ol_capture
+        extender = _RecordingDispatchExtender(client=client)
+        context = make_hook_context()
+
+        def func(*args: Any, **kwargs: Any) -> tuple[tuple[Any, ...], dict[str, Any]]:
+            return args, kwargs
+
+        with context.activate():
+            result = extender(func, "positional", keyword="value")
+
+        assert result == (("positional",), {"keyword": "value"})
+        assert extender.dispatched == [(context, func, ("positional",), {"keyword": "value"})]
+
+    @pytest.mark.parametrize("hook", [hook for hook in ExtenderHook if hook != ExtenderHook.INPUT_DATA_LOAD])
+    def test_default_dispatch_routes_every_hook_but_input_data_load_to_the_calculate_lifecycle(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], hook: ExtenderHook
+    ) -> None:
+        client, transport = ol_capture
+        extender = _RecordingDispatchExtender(client=client)
+
+        with make_hook_context(hook=hook).activate():
+            extender(lambda: None)
+
+        assert [context.hook for context, *_ in extender.dispatched] == [hook]
+        assert [event.eventType for event in transport.events] == [RunState.START, RunState.COMPLETE]
+
+    def test_default_dispatch_routes_input_data_load_to_the_open_calculate_invocation(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = _RecordingDispatchExtender(client=client)
+        inner_context = make_hook_context(
+            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="s3://bucket/key.parquet"
+        )
+
+        def outer_func() -> None:
+            with inner_context.activate():
+                extender(lambda: "loaded-data")
+
+        with make_hook_context().activate():
+            extender(outer_func)
+
+        hooks = [context.hook for context, *_ in extender.dispatched]
+        assert hooks == [ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD]
+        assert [event.eventType for event in transport.events] == [RunState.START, RunState.COMPLETE]
+        assert [i.name for i in transport.events[-1].inputs or []] == ["s3://bucket/key.parquet"]
+
+    def test_calculate_run_facets_adds_a_facet_next_to_parent_on_start_and_terminal_events(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        run_id = str(uuid.uuid4())
+        extender = _RunFacetExtender(client=client)
+        context = make_hook_context(run_id=run_id)
+
+        def func(*args: Any) -> str:
+            return "result"
+
+        with context.activate():
+            result = extender(func, "positional")
+
+        assert result == "result"
+        assert extender.run_facet_calls == [(context, func, ("positional",))]
+        assert [event.eventType for event in transport.events] == [RunState.START, RunState.COMPLETE]
+        for event in transport.events:
+            facets = event.run.facets or {}
+            parent = facets.get("parent")
+            assert isinstance(parent, parent_run.ParentRunFacet)
+            assert parent.run.runId == run_id
+            assert isinstance(facets.get("probe"), nominal_time_run.NominalTimeRunFacet)
+
+    def test_calculate_output_facets_merge_next_to_schema_on_each_complete_output(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = _OutputFacetExtender(client=client)
+        context = make_hook_context(
+            feature_names=("value_int", "value_str"),
+            output_schema=(("value_int", "int64"), ("value_str", "string")),
+        )
+
+        def func(*args: Any) -> None:
+            return None
+
+        with context.activate():
+            extender(func, "positional")
+
+        assert extender.output_facet_calls == [
+            (context, func, ("positional",), "value_int"),
+            (context, func, ("positional",), "value_str"),
+        ]
+        complete_event = transport.events[-1]
+        assert complete_event.eventType == RunState.COMPLETE
+        assert complete_event.outputs is not None
+        assert [output.name for output in complete_event.outputs] == ["value_int", "value_str"]
+        for output in complete_event.outputs:
+            facets = output.facets or {}
+            assert isinstance(facets.get("schema"), schema_dataset.SchemaDatasetFacet)
+            probe = facets.get("probe")
+            assert isinstance(probe, documentation_dataset.DocumentationDatasetFacet)
+            assert probe.description == f"probe:{output.name}"
+
+    def test_output_facets_seam_failure_never_corrupts_the_result(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        client, transport = ol_capture
+        extender = _FailingOutputFacetExtender(client=client)
+
+        with make_hook_context().activate():
+            with caplog.at_level(logging.WARNING):
+                result = extender(lambda: 42)
+
+        assert result == 42
+        assert [event.eventType for event in transport.events] == [RunState.START]
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("OpenLineageExtender" in message and "output facet boom" in message for message in warnings)
