@@ -1,9 +1,8 @@
-"""Self-tests for mloda.testing.extenders.openlineage helpers, plus a minimal probe extender that
-exercises the full OpenLineageExtenderTestMixin contract independently of the real registry extender."""
+"""Self-tests for mloda.testing.extenders.openlineage helpers, plus a negative test proving the mixin's default
+own_failure() detects a fault."""
 
 from __future__ import annotations
 
-import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,8 +14,7 @@ pytest.importorskip("openlineage.client")
 
 from mloda.steward import Extender, ExtenderHook, HookContext
 from openlineage.client.client import OpenLineageClient
-from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
-from openlineage.client.facet_v2 import parent_run
+from openlineage.client.event_v2 import Job, Run, RunEvent, RunState
 
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.openlineage import (
@@ -25,8 +23,6 @@ from mloda.testing.extenders.openlineage import (
     RecordingTransport,
     make_recording_client,
 )
-
-logger = logging.getLogger(__name__)
 
 _PRODUCER = "mloda-testing-probe-openlineage"
 
@@ -45,139 +41,6 @@ def _build_run_event() -> RunEvent:
         inputs=[],
         outputs=[],
     )
-
-
-class _ProbeOpenLineageExtender(Extender):
-    """Minimal OpenLineage probe: START/COMPLETE|FAIL|ABORT per calculate, correlating nested input loads and
-    input features."""
-
-    def __init__(
-        self,
-        client: OpenLineageClient | None = None,
-        raise_on_error: bool = False,
-        use_sdk_defaults: bool = False,
-    ) -> None:
-        self.raise_on_error = raise_on_error
-        self.use_sdk_defaults = use_sdk_defaults
-        self._client = client
-        self._open_inputs: list[InputDataset] | None = None
-        self._logged_inert = False
-
-    def _get_client(self) -> OpenLineageClient:
-        if self._client is None:
-            self._client = OpenLineageClient()
-        return self._client
-
-    def __getstate__(self) -> dict[str, Any]:
-        state = dict(self.__dict__)
-        state["_open_inputs"] = None
-        return state
-
-    def wraps(self) -> set[ExtenderHook]:
-        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}
-
-    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
-        if self._client is None and not self.use_sdk_defaults:
-            if not self._logged_inert:
-                logger.info("_ProbeOpenLineageExtender is inert: no injected client and use_sdk_defaults is False")
-                self._logged_inert = True
-            return func(*args, **kwargs)
-
-        context = HookContext.current()
-        if context is None:
-            return func(*args, **kwargs)
-        if context.hook == ExtenderHook.INPUT_DATA_LOAD:
-            return self._call_input_data_load(context, func, *args, **kwargs)
-        return self._call_calculate(context, func, *args, **kwargs)
-
-    def _call_input_data_load(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
-        if self._open_inputs is not None and context.data_access_identity is not None:
-            already_present = any(i.name == context.data_access_identity for i in self._open_inputs)
-            if not already_present:
-                self._open_inputs.append(InputDataset(namespace="probe", name=context.data_access_identity))
-        return func(*args, **kwargs)
-
-    def _call_calculate(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
-        run_facets: dict[str, Any] = {}
-        if context.run_id is not None:
-            run_facets["parent"] = parent_run.ParentRunFacet(
-                run=parent_run.Run(runId=context.run_id),
-                job=parent_run.Job(namespace="probe", name="probe.run_all"),
-                producer=_PRODUCER,
-            )
-        job = Job(namespace="probe", name=context.feature_group_class)
-        run = Run(runId=str(uuid.uuid4()), facets=run_facets)
-
-        # Unguarded on purpose: this must propagate naturally so CompositeExtender's raise_on_error
-        # fallback machinery sees the real failure and never double-invokes func.
-        self._get_client().emit(
-            RunEvent(
-                eventType=RunState.START,
-                eventTime=_now_iso(),
-                run=run,
-                job=job,
-                producer=_PRODUCER,
-                inputs=[],
-                outputs=[],
-            )
-        )
-
-        previous_inputs = self._open_inputs
-        self._open_inputs = [
-            InputDataset(namespace="probe", name=name) for name in sorted(context.input_features or ())
-        ]
-        current_inputs: list[InputDataset] = []
-        try:
-            result = func(*args, **kwargs)
-            current_inputs = list(self._open_inputs)
-        except BaseException as exc:
-            event_state = RunState.FAIL if isinstance(exc, Exception) else RunState.ABORT
-            try:
-                self._get_client().emit(
-                    RunEvent(
-                        eventType=event_state,
-                        eventTime=_now_iso(),
-                        run=run,
-                        job=job,
-                        producer=_PRODUCER,
-                        inputs=list(self._open_inputs),
-                        outputs=[],
-                    )
-                )
-            except Exception as emit_exc:
-                logger.warning(
-                    "_ProbeOpenLineageExtender failed to emit %s event: %s: %s",
-                    event_state.name,
-                    type(emit_exc).__name__,
-                    emit_exc,
-                )
-            outcome = "failure" if event_state == RunState.FAIL else "abort"
-            logger.warning(
-                "_ProbeOpenLineageExtender observed %s %s: %s: %s", job.name, outcome, type(exc).__name__, exc
-            )
-            raise
-        finally:
-            self._open_inputs = previous_inputs
-
-        try:
-            outputs = [OutputDataset(namespace="probe", name=name) for name in context.feature_names]
-            self._get_client().emit(
-                RunEvent(
-                    eventType=RunState.COMPLETE,
-                    eventTime=_now_iso(),
-                    run=run,
-                    job=job,
-                    producer=_PRODUCER,
-                    inputs=current_inputs,
-                    outputs=outputs,
-                )
-            )
-        except Exception as exc:
-            logger.warning(
-                "_ProbeOpenLineageExtender post-call instrumentation failed: %s: %s", type(exc).__name__, exc
-            )
-
-        return result
 
 
 class TestRecordingTransport:
@@ -252,28 +115,6 @@ class TestOpenLineageExtenderTestMixinShape:
 
     def test_raise_on_error_default_is_false(self) -> None:
         assert OpenLineageExtenderTestMixin.raise_on_error_default() is False
-
-
-class TestProbeOpenLineageExtenderContract(OpenLineageExtenderTestMixin):
-    """Self-test: _ProbeOpenLineageExtender must satisfy every OpenLineage contract test the mixin defines."""
-
-    @classmethod
-    def extender_class(cls) -> type[Extender]:
-        return _ProbeOpenLineageExtender
-
-    def make_openlineage_extender(self, client: OpenLineageClient, *, raise_on_error: bool | None = None) -> Extender:
-        if raise_on_error is None:
-            return _ProbeOpenLineageExtender(client=client)
-        return _ProbeOpenLineageExtender(client=client, raise_on_error=raise_on_error)
-
-    @classmethod
-    def expected_hooks(cls) -> set[ExtenderHook] | None:
-        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}
-
-    @classmethod
-    def supports_unpicklable_sink_degrade(cls) -> bool:
-        """_ProbeOpenLineageExtender is a minimal fake; it doesn't implement the drop-and-warn degrade."""
-        return False
 
 
 class _DirectTransportProbeOpenLineageExtender(Extender):

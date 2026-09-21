@@ -1,9 +1,8 @@
-"""Self-tests for mloda.testing.extenders.otel helpers, plus a minimal probe extender that
-exercises the full OtelExtenderTestMixin contract independently of the real registry extender."""
+"""Self-tests for mloda.testing.extenders.otel helpers, plus a negative test proving the mixin's default
+own_failure() detects a fault."""
 
 from __future__ import annotations
 
-import logging
 import pickle  # nosec
 import re
 import uuid
@@ -31,8 +30,6 @@ from mloda.testing.extenders.otel import (
 
 _TRACEPARENT_PATTERN = re.compile(r"^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$")
 
-logger = logging.getLogger(__name__)
-
 _SPAN_NAME = "probe.calculate"
 # Fixed, nonzero placeholder span id: only the derived trace_id matters for a synthesized parent.
 _PARENT_SPAN_ID = 0x0000000000000001
@@ -53,50 +50,6 @@ def _parent_context(context: HookContext | None) -> Context | None:
         )
         return set_span_in_context(NonRecordingSpan(span_context))
     return None
-
-
-class _ProbeOtelExtender(Extender):
-    """Minimal OTel probe: one span per call, parented from carrier/run_id, error status on failure."""
-
-    def __init__(
-        self,
-        tracer_provider: TracerProvider | None = None,
-        raise_on_error: bool = False,
-        use_sdk_defaults: bool = False,
-    ) -> None:
-        self.raise_on_error = raise_on_error
-        self.use_sdk_defaults = use_sdk_defaults
-        self._tracer_provider = tracer_provider
-        self._logged_inert = False
-
-    def __getstate__(self) -> dict[str, Any]:
-        state = dict(self.__dict__)
-        state["_tracer_provider"] = None
-        return state
-
-    def wraps(self) -> set[ExtenderHook]:
-        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
-
-    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
-        if self._tracer_provider is None and not self.use_sdk_defaults:
-            if not self._logged_inert:
-                logger.info("_ProbeOtelExtender is inert: no injected tracer_provider and use_sdk_defaults is False")
-                self._logged_inert = True
-            return func(*args, **kwargs)
-
-        context = HookContext.current()
-        parent = _parent_context(context)
-        tracer = trace.get_tracer("mloda-testing-probe-otel", tracer_provider=self._tracer_provider)
-        with tracer.start_as_current_span(
-            _SPAN_NAME, record_exception=False, context=parent, set_status_on_exception=False
-        ) as span:
-            try:
-                return func(*args, **kwargs)
-            except BaseException as exc:
-                span.set_status(Status(StatusCode.ERROR))
-                span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
-                logger.warning("_ProbeOtelExtender %s failed: %s: %s", _SPAN_NAME, type(exc).__name__, exc)
-                raise
 
 
 class TestMakeSpanCapture:
@@ -197,39 +150,8 @@ class TestOtelExtenderTestMixinShape:
         assert OtelExtenderTestMixin.expected_span_names() is None
 
 
-class TestProbeOtelExtenderContract(OtelExtenderTestMixin):
-    """Self-test: _ProbeOtelExtender must satisfy every OTel contract test the mixin defines."""
-
-    @classmethod
-    def extender_class(cls) -> type[Extender]:
-        return _ProbeOtelExtender
-
-    def make_otel_extender(self, tracer_provider: TracerProvider, *, raise_on_error: bool | None = None) -> Extender:
-        if raise_on_error is None:
-            return _ProbeOtelExtender(tracer_provider=tracer_provider)
-        return _ProbeOtelExtender(tracer_provider=tracer_provider, raise_on_error=raise_on_error)
-
-    @classmethod
-    def expected_hooks(cls) -> set[ExtenderHook] | None:
-        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
-
-    @classmethod
-    def expected_span_names(cls) -> dict[ExtenderHook, str] | None:
-        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: _SPAN_NAME}
-
-    @classmethod
-    def supports_pickled_sink_capture(cls) -> bool:
-        """_ProbeOtelExtender unconditionally drops its tracer_provider on pickle."""
-        return False
-
-    @classmethod
-    def supports_unpicklable_sink_degrade(cls) -> bool:
-        """_ProbeOtelExtender is a minimal fake; it never logs a drop warning."""
-        return False
-
-
 class _CachedTracerProbeOtelExtender(Extender):
-    """Copy of _ProbeOtelExtender that resolves its tracer once in __init__ and never calls get_tracer again."""
+    """Minimal OTel probe that resolves its tracer once in __init__ and never calls get_tracer again."""
 
     def __init__(self, tracer_provider: TracerProvider | None = None, raise_on_error: bool = False) -> None:
         self.raise_on_error = raise_on_error
