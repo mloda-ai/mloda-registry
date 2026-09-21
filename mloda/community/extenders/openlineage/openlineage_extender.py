@@ -75,7 +75,7 @@ class OpenLineageExtender(Extender):
     worker; an injected client that can't survive pickling is dropped by a trial-pickle probe and falls back to the
     resolution rule above, while a picklable injected client is pickled as-is. Workers are
     terminated without a flush, so a synchronous transport is needed there. Data-access identities are sanitized
-    as in the audit extender, so published dataset names carry no URI query."""
+    as in the audit extender, so dataset names taken from them carry no URI query."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
     producer: str = _PRODUCER
