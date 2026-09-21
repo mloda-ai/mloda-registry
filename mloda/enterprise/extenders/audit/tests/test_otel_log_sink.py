@@ -504,7 +504,8 @@ class TestOtelLogAuditSinkMapping:
         assert len({hashes[0], hashes[1], hashes[3]}) == 3
 
     def test_an_explicit_none_key_keeps_the_plain_sha256(self, log_exporter: InMemoryLogRecordExporter) -> None:
-        log = _write_one(log_exporter, _audit_record(tenant_id="tenant-1"), key=None)
+        OtelLogAuditSink(user_hash_key=None).write(_audit_record(tenant_id="tenant-1"))
+        log = _single_log(log_exporter)
 
         assert _attributes(log)["user.hash"] == _sha256(_PRINCIPAL)
 

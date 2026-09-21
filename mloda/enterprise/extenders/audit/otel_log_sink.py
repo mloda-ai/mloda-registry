@@ -49,7 +49,7 @@ def _epoch_ns(event_time: str) -> int:
     return calendar.timegm(parsed.utctimetuple()) * 10**9 + parsed.microsecond * 1000
 
 
-def _attributes(record: Mapping[str, Any], key: bytes | None = None) -> dict[str, Any]:
+def _attributes(record: Mapping[str, Any], key: bytes | None) -> dict[str, Any]:
     attributes: dict[str, Any] = {}
     for record_key, name in _STR_ATTRIBUTES.items():
         value = record.get(record_key)
