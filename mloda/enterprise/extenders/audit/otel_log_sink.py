@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import calendar
 import hashlib
+import hmac
 import logging
 import threading
 from collections.abc import Mapping
@@ -11,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from mloda.enterprise.extenders.audit._records import _is_blank
+from mloda.enterprise.extenders.audit.run_manifest import _MIN_KEY_BYTES
 
 logger = logging.getLogger(__name__)
 
@@ -47,15 +49,18 @@ def _epoch_ns(event_time: str) -> int:
     return calendar.timegm(parsed.utctimetuple()) * 10**9 + parsed.microsecond * 1000
 
 
-def _attributes(record: Mapping[str, Any]) -> dict[str, Any]:
+def _attributes(record: Mapping[str, Any], key: bytes | None = None) -> dict[str, Any]:
     attributes: dict[str, Any] = {}
-    for key, name in _STR_ATTRIBUTES.items():
-        value = record.get(key)
+    for record_key, name in _STR_ATTRIBUTES.items():
+        value = record.get(record_key)
         if not _is_blank(value):
             attributes[name] = value
     principal: Any = record.get("principal")
     if not _is_blank(principal):
-        attributes[_PRINCIPAL_ATTRIBUTE] = hashlib.sha256(principal.encode("utf-8")).hexdigest()
+        data = principal.encode("utf-8")
+        attributes[_PRINCIPAL_ATTRIBUTE] = (
+            hashlib.sha256(data).hexdigest() if key is None else hmac.new(key, data, hashlib.sha256).hexdigest()
+        )
     feature_names = record.get("feature_names")
     if feature_names:
         attributes[_FEATURE_NAMES_ATTRIBUTE] = list(feature_names)
@@ -75,15 +80,21 @@ def _warn_once_without_sdk(provider: object) -> None:
 
 
 class OtelLogAuditSink:
-    """Emits one OTel log record per audit record, best effort; the principal is exported only as its sha256."""
+    """Emits one OTel log record per audit record, best effort; the principal is exported only hashed."""
 
-    def __init__(self) -> None:
+    def __init__(self, user_hash_key: bytes | None = None) -> None:
         try:
             import opentelemetry._logs  # noqa: F401
         except ImportError as exc:
             raise ImportError(
                 "OtelLogAuditSink needs the 'opentelemetry-api' package: pip install mloda-enterprise[otel]"
             ) from exc
+        if user_hash_key is not None and (not isinstance(user_hash_key, bytes) or len(user_hash_key) < _MIN_KEY_BYTES):
+            raise ValueError(f"OtelLogAuditSink user_hash_key must be bytes of at least {_MIN_KEY_BYTES} bytes")
+        self._user_hash_key = user_hash_key
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}()"
 
     def write(self, record: Mapping[str, Any]) -> None:
         try:
@@ -99,7 +110,7 @@ class OtelLogAuditSink:
                     severity_number=SeverityNumber.WARN if deny else SeverityNumber.INFO,
                     severity_text="WARN" if deny else "INFO",
                     body=record.get("decision"),
-                    attributes=_attributes(record),
+                    attributes=_attributes(record, self._user_hash_key),
                 )
             )
         except Exception as exc:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import calendar
 import hashlib
+import hmac
 import importlib
 import io
 import json
@@ -47,6 +48,7 @@ from mloda.enterprise.extenders.audit import (
     TeeAuditSink,
 )
 from mloda.enterprise.extenders.audit import otel_log_sink as otel_log_sink_module
+from mloda.enterprise.extenders.audit import run_manifest as run_manifest_module
 from mloda.enterprise.extenders.audit.tests.test_audit_extender import (
     _IDENTITY_REQUIRED_ERROR_TYPE,
     _MISSING_IDENTITY_CASES,
@@ -101,6 +103,39 @@ _PRINCIPAL_HASH_CASES = [
         "12e76f92790454204ea2601beb3c2dabdf4d68a77a5f85cbc0ed80094d321b8e",
         id="non_ascii_utf8",
     ),
+]
+
+_KEY = b"k" * 32
+_OTHER_KEY = b"o" * 32
+# Distinctive ASCII so a leak of the key, as text or as a bytes repr, is findable.
+_LEAK_KEY = b"key-marker-7f3a-0123456789abcdef-xyz"
+
+_RFC_4231_CASE_6_KEY = b"\xaa" * 131
+_RFC_4231_CASE_6_MESSAGE = "Test Using Larger Than Block-Size Key - Hash Key First"
+_RFC_4231_CASE_6_DIGEST = "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"
+
+
+def _hmac_sha256(key: bytes, value: str) -> str:
+    return hmac.new(key, value.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+_KEYED_PRINCIPAL_HASH_CASES = [
+    pytest.param(
+        _RFC_4231_CASE_6_KEY, _RFC_4231_CASE_6_MESSAGE, _RFC_4231_CASE_6_DIGEST, id="rfc_4231_case_6_long_key"
+    ),
+    pytest.param(_KEY, _PRINCIPAL, _hmac_sha256(_KEY, _PRINCIPAL), id="ascii_min_length_key"),
+    pytest.param(_OTHER_KEY, _PRINCIPAL, _hmac_sha256(_OTHER_KEY, _PRINCIPAL), id="ascii_other_key"),
+    pytest.param(_KEY, "prïncipal-é", _hmac_sha256(_KEY, "prïncipal-é"), id="non_ascii_utf8"),
+]
+
+_INVALID_KEYS = [
+    pytest.param("k" * 32, id="str_key"),
+    pytest.param(b"", id="empty_bytes"),
+    pytest.param(b"k" * 31, id="31_bytes"),
+    pytest.param(bytearray(b"k" * 32), id="bytearray"),
+    pytest.param(memoryview(b"k" * 32), id="memoryview"),
+    pytest.param(12345, id="int"),
+    pytest.param(["k"] * 32, id="list"),
 ]
 
 _EVENT_TIME = re.compile(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?Z")
@@ -165,8 +200,13 @@ def _single_log(exporter: InMemoryLogRecordExporter) -> Any:
     return logs[0]
 
 
-def _write_one(exporter: InMemoryLogRecordExporter, record: dict[str, Any]) -> Any:
-    OtelLogAuditSink().write(record)
+def _make_sink(key: bytes | None) -> OtelLogAuditSink:
+    """No key means the constructor default, so the default-path tests do not depend on the new keyword."""
+    return OtelLogAuditSink() if key is None else OtelLogAuditSink(user_hash_key=key)
+
+
+def _write_one(exporter: InMemoryLogRecordExporter, record: dict[str, Any], key: bytes | None = None) -> Any:
+    _make_sink(key).write(record)
     return _single_log(exporter)
 
 
@@ -204,12 +244,12 @@ def _module_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
     ]
 
 
-def _emit_through_console(*records: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+def _emit_through_console(*records: dict[str, Any], key: bytes | None = None) -> tuple[str, list[dict[str, Any]]]:
     """The console exporter's raw text and the JSON object it printed per log (pretty-printed, so decoded in turn)."""
     provider, out = make_console_capture()
     with patch(_GET_LOGGER_PROVIDER, return_value=provider):
         for record in records:
-            OtelLogAuditSink().write(record)
+            _make_sink(key).write(record)
     text = out.getvalue()
     decoder = json.JSONDecoder()
     logs: list[dict[str, Any]] = []
@@ -287,6 +327,13 @@ class TestOtelLogAuditSinkWithoutOpentelemetry:
 
         with pytest.raises(ImportError, match=_OTEL_EXTRA):
             package.OtelLogAuditSink()
+
+    @pytest.mark.parametrize("key", ["short", b"k" * 31, b"k" * 32], ids=["str", "short", "valid"])
+    def test_the_import_error_wins_over_a_bad_or_valid_key(self, monkeypatch: pytest.MonkeyPatch, key: Any) -> None:
+        package = _audit_package_without_opentelemetry(monkeypatch)
+
+        with pytest.raises(ImportError, match=_OTEL_EXTRA):
+            package.OtelLogAuditSink(user_hash_key=key)
 
 
 class TestOtelLogAuditSinkProvider:
@@ -433,6 +480,53 @@ class TestOtelLogAuditSinkMapping:
         assert re.fullmatch(r"[0-9a-f]{64}", attributes["user.hash"])
         assert "principal" not in attributes
 
+    @pytest.mark.parametrize(("key", "principal", "expected_hash"), _KEYED_PRINCIPAL_HASH_CASES)
+    def test_a_keyed_principal_is_the_lowercase_hmac_sha256_hex_of_its_utf8_bytes(
+        self, log_exporter: InMemoryLogRecordExporter, key: bytes, principal: str, expected_hash: str
+    ) -> None:
+        log = _write_one(log_exporter, _audit_record(tenant_id="tenant-1", principal=principal), key=key)
+
+        attributes = _attributes(log)
+        assert attributes["user.hash"] == expected_hash
+        assert attributes["user.hash"] != _sha256(principal)
+        assert re.fullmatch(r"[0-9a-f]{64}", attributes["user.hash"])
+        assert "principal" not in attributes
+
+    def test_the_key_changes_the_hash_and_the_same_key_is_stable(self, log_exporter: InMemoryLogRecordExporter) -> None:
+        record = _audit_record(tenant_id="tenant-1")
+
+        hashes = []
+        for key in (None, _KEY, _KEY, _OTHER_KEY):
+            log_exporter.clear()
+            hashes.append(_attributes(_write_one(log_exporter, record, key=key))["user.hash"])
+
+        assert hashes[1] == hashes[2]
+        assert len({hashes[0], hashes[1], hashes[3]}) == 3
+
+    def test_an_explicit_none_key_keeps_the_plain_sha256(self, log_exporter: InMemoryLogRecordExporter) -> None:
+        log = _write_one(log_exporter, _audit_record(tenant_id="tenant-1"), key=None)
+
+        assert _attributes(log)["user.hash"] == _sha256(_PRINCIPAL)
+
+    def test_a_key_does_not_change_the_other_attributes(self, log_exporter: InMemoryLogRecordExporter) -> None:
+        record = _audit_record(tenant_id="tenant-1", project_id="project-1", run_id="run-123")
+        plain = _attributes(_write_one(log_exporter, record))
+        log_exporter.clear()
+
+        keyed = _attributes(_write_one(log_exporter, record, key=_KEY))
+
+        assert {k: v for k, v in keyed.items() if k != "user.hash"} == {
+            k: v for k, v in plain.items() if k != "user.hash"
+        }
+
+    @pytest.mark.parametrize("blank", [None, "", "   "], ids=["none", "empty", "whitespace"])
+    def test_a_blank_principal_leaves_user_hash_out_with_a_key(
+        self, log_exporter: InMemoryLogRecordExporter, blank: str | None
+    ) -> None:
+        log = _write_one(log_exporter, {"decision": "deny", "principal": blank}, key=_KEY)
+
+        assert "user.hash" not in _attributes(log)
+
     def test_a_record_with_only_a_decision_emits_only_that_attribute(
         self, log_exporter: InMemoryLogRecordExporter
     ) -> None:
@@ -519,6 +613,66 @@ class TestOtelLogAuditSinkMapping:
             for marker in markers:
                 assert str(marker) not in haystack
 
+    def test_with_a_key_neither_the_raw_principal_nor_the_key_appears_anywhere(
+        self, log_exporter: InMemoryLogRecordExporter
+    ) -> None:
+        record = {
+            **_audit_record(tenant_id=_TENANT, project_id=_PROJECT, principal=_PRINCIPAL, run_id="run-123"),
+            **_UNFORWARDED,
+        }
+
+        log = _write_one(log_exporter, record, key=_LEAK_KEY)
+
+        attributes = _attributes(log)
+        assert set(attributes) <= _ALLOWED_ATTRIBUTES
+        assert attributes["user.hash"] == _hmac_sha256(_LEAK_KEY, _PRINCIPAL)
+        haystack = _everything(log)
+        assert _PRINCIPAL not in haystack
+        assert _LEAK_KEY.decode("ascii") not in haystack
+        assert repr(_LEAK_KEY) not in haystack
+
+
+class TestOtelLogAuditSinkUserHashKey:
+    """user_hash_key switches user.hash to a keyed HMAC-SHA256; it must be bytes of at least 32 bytes."""
+
+    @pytest.mark.parametrize("key", _INVALID_KEYS)
+    def test_an_invalid_key_is_rejected_naming_the_sink(self, key: Any) -> None:
+        with pytest.raises(ValueError, match="OtelLogAuditSink"):
+            OtelLogAuditSink(user_hash_key=key)
+
+    @pytest.mark.parametrize("key", [None, b"k" * 32, b"k" * 33, b"\xaa" * 131], ids=["none", "32", "33", "131"])
+    def test_none_and_bytes_of_at_least_32_bytes_are_accepted(self, key: bytes | None) -> None:
+        assert isinstance(OtelLogAuditSink(user_hash_key=key), OtelLogAuditSink)
+
+    def test_the_minimum_is_the_one_the_run_manifest_signer_uses(self) -> None:
+        minimum = run_manifest_module._MIN_KEY_BYTES
+
+        OtelLogAuditSink(user_hash_key=b"k" * minimum)
+        with pytest.raises(ValueError, match="OtelLogAuditSink"):
+            OtelLogAuditSink(user_hash_key=b"k" * (minimum - 1))
+
+    def test_the_repr_does_not_print_the_key(self) -> None:
+        sink = OtelLogAuditSink(user_hash_key=_LEAK_KEY)
+
+        text = f"{sink!r} {sink}"
+        assert _LEAK_KEY.decode("ascii") not in text
+        assert repr(_LEAK_KEY) not in text
+        assert _LEAK_KEY.hex() not in text
+
+    def test_a_failing_emit_logs_neither_the_key_nor_the_raw_principal(
+        self, log_exporter: InMemoryLogRecordExporter, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        record = _audit_record(tenant_id="tenant-1", principal=_PRINCIPAL)
+
+        with patch.object(SdkLogger, "emit", side_effect=RuntimeError("boom-marker")):
+            with caplog.at_level(logging.DEBUG):
+                OtelLogAuditSink(user_hash_key=_LEAK_KEY).write(record)
+
+        assert len(_module_warnings(caplog)) == 1
+        assert _LEAK_KEY.decode("ascii") not in caplog.text
+        assert repr(_LEAK_KEY) not in caplog.text
+        assert _PRINCIPAL not in caplog.text
+
 
 class TestOtelLogAuditSinkMatchTimeRefusal:
     """A fail_closed refusal at FEATURE_GROUP_MATCHED still reaches the log channel."""
@@ -599,6 +753,16 @@ class TestOtelLogAuditSinkRealExporter:
             "error.type": _IDENTITY_REQUIRED_ERROR_TYPE,
         }
         assert _PRINCIPAL not in text
+
+    def test_a_keyed_record_is_serialised_with_the_hmac_and_without_the_key_or_principal(self) -> None:
+        record = _audit_record(tenant_id="tenant-1", project_id="project-1", principal=_PRINCIPAL)
+
+        text, logs = _emit_through_console(record, key=_LEAK_KEY)
+
+        assert len(logs) == 1
+        assert logs[0]["attributes"]["user.hash"] == _hmac_sha256(_LEAK_KEY, _PRINCIPAL)
+        assert _PRINCIPAL not in text
+        assert _LEAK_KEY.decode("ascii") not in text
 
 
 class TestOtelLogAuditSinkFailureIsolation:
@@ -724,6 +888,21 @@ class TestOtelLogAuditSinkPickle:
 
         assert isinstance(copy, OtelLogAuditSink)
         assert len(log_exporter.get_finished_logs()) == 2
+
+    def test_a_pickled_keyed_copy_emits_the_same_user_hash_as_the_original(
+        self, log_exporter: InMemoryLogRecordExporter
+    ) -> None:
+        sink = OtelLogAuditSink(user_hash_key=_KEY)
+        record = _audit_record(tenant_id="tenant-1")
+        sink.write(record)
+
+        copy = pickle.loads(pickle.dumps(sink))  # nosec
+        copy.write(record)
+
+        original_log, copy_log = log_exporter.get_finished_logs()
+        assert _attributes(copy_log)["user.hash"] == _attributes(original_log)["user.hash"]
+        assert _attributes(copy_log)["user.hash"] == _hmac_sha256(_KEY, _PRINCIPAL)
+        assert _attributes(copy_log)["user.hash"] != _sha256(_PRINCIPAL)
 
 
 class TestOtelLogAuditSinkRunAll:
