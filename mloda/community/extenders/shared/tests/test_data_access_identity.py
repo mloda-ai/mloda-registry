@@ -29,6 +29,12 @@ from mloda.community.extenders.shared.data_access_identity import (
         pytest.param("https://b.com/x&sig=SECRET", "https://b.com/x", id="ampersand_tail_in_path"),
         pytest.param("https://b.com&token=SECRET", "https://b.com", id="authority_leak"),
         pytest.param("jdbc:postgresql://h/db?password=SECRET", "jdbc:postgresql://h/db", id="compound_scheme"),
+        pytest.param(
+            "postgresql://user:pa?ss@host:5432/db", "postgresql://host:5432/db", id="query_marker_in_password"
+        ),
+        pytest.param("sftp://user:p@ss?word@host/f", "sftp://host/f", id="at_and_query_marker_in_password"),
+        pytest.param("postgresql://user:pa#ss@host/db", "postgresql://host/db", id="fragment_marker_in_password"),
+        pytest.param("https://host?x=1@evil/y", "https://evil/y", id="query_with_at_sign_matches_core_greedy"),
     ],
 )
 def test_sanitize_data_access_identity(identity: str, expected: str) -> None:

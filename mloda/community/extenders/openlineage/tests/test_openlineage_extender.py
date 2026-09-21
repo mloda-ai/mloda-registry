@@ -1243,17 +1243,35 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         assert data_source_facet.name == "s3://bucket/key.parquet"
 
     @pytest.mark.parametrize(
-        ("raw_arg", "context_identity", "expected_name"),
+        ("raw_arg", "context_identity", "expected_name", "secrets"),
         [
             pytest.param(
-                None, "https://user:pw@host/p/a?sig=SECRET#frag", "https://host/p/a", id="userinfo_query_fragment"
+                None,
+                "https://user:pw@host/p/a?sig=SECRET#frag",
+                "https://host/p/a",
+                ("user:pw", "SECRET", "frag"),
+                id="userinfo_query_fragment",
             ),
-            pytest.param(None, "s3://bucket/key.parquet?versionId=SECRET", "s3://bucket/key.parquet", id="query"),
+            pytest.param(
+                None,
+                "s3://bucket/key.parquet?versionId=SECRET",
+                "s3://bucket/key.parquet",
+                ("SECRET",),
+                id="query",
+            ),
             pytest.param(
                 "https://host/p?email=a@b.com/x&sig=SECRET",
                 "https://b.com/x&sig=SECRET",
                 "https://host/p",
+                ("SECRET", "a@b.com"),
                 id="raw_first_arg_wins_over_lossy_context_identity",
+            ),
+            pytest.param(
+                "postgresql://user:pa?ss@host:5432/db",
+                "postgresql://user:pa",
+                "postgresql://host:5432/db",
+                ("user:pa", "pa?ss", "user:"),
+                id="query_marker_inside_userinfo",
             ),
         ],
     )
@@ -1263,6 +1281,7 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         raw_arg: str | None,
         context_identity: str,
         expected_name: str,
+        secrets: tuple[str, ...],
     ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
@@ -1286,7 +1305,19 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         input_dataset = complete_event.inputs[0]
         assert input_dataset.name == expected_name
         assert input_dataset.facets is not None
-        assert input_dataset.facets["dataSource"].name == expected_name  # type: ignore[attr-defined]
+
+        from openlineage.client.facet_v2 import datasource_dataset
+
+        data_source_facet = input_dataset.facets["dataSource"]
+        assert isinstance(data_source_facet, datasource_dataset.DatasourceDatasetFacet)
+        assert data_source_facet.name == expected_name
+
+        from openlineage.client.serde import Serde
+
+        for event in transport.events:
+            serialized = Serde.to_json(event)
+            for secret in secrets:
+                assert secret not in serialized
 
     def test_input_data_load_without_enclosing_calculate_does_not_raise_or_emit(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
