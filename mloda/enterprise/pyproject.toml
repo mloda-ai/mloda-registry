@@ -17,6 +17,7 @@ requires-python = ">=3.10,<3.15"
 [project.optional-dependencies]
 ed25519 = ["cryptography>=42"]
 otel = ["opentelemetry-api>=1.37,<2"]
+openlineage = ["mloda-community-openlineage>=0.4.7"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
@@ -31,13 +32,15 @@ mloda-enterprise-compute-frameworks-example = "mloda.enterprise.compute_framewor
 [project.entry-points."mloda.extenders"]
 mloda-enterprise-audit = "mloda.enterprise.extenders.audit.manifest:EXTENDERS"
 mloda-enterprise-extenders-example = "mloda.enterprise.extenders.example.manifest:EXTENDERS"
+mloda-enterprise-lineage = "mloda.enterprise.extenders.lineage.manifest:EXTENDERS"
 
 [tool.setuptools]
 package-dir = {"" = "../.."}
-packages = ["mloda.enterprise", "mloda.enterprise.compute_frameworks.example", "mloda.enterprise.extenders.audit", "mloda.enterprise.extenders.example", "mloda.enterprise.feature_groups.example"]
+packages = ["mloda.enterprise", "mloda.enterprise.compute_frameworks.example", "mloda.enterprise.extenders.audit", "mloda.enterprise.extenders.example", "mloda.enterprise.extenders.lineage", "mloda.enterprise.feature_groups.example"]
 
 [tool.setuptools.package-data]
 "mloda.enterprise" = ["py.typed"]
 
 [tool.uv.sources]
 mloda-community-extenders-shared = { workspace = true }
+mloda-community-openlineage = { workspace = true }

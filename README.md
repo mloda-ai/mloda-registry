@@ -67,13 +67,15 @@ Options such as `partition_by` and `order_by`, plus the shared contracts, are in
 | `mloda-community-<plugin>` | One plugin from the table above | Apache 2.0 | `pip install "mloda-community-rank[pandas]"` |
 | `mloda-registry` | Plugin discovery and search | Apache 2.0 | `pip install mloda-registry` |
 | `mloda-testing` | Test utilities for plugin development | Apache 2.0 | `pip install mloda-testing` |
-| `mloda-enterprise` | All enterprise plugins (bundle) | [Source-available](mloda/enterprise/LICENSE) ([Get license](https://mloda.ai/enterprise)) | `pip install mloda-enterprise` (add `[ed25519]` for the Ed25519 manifest signer, `[otel]` for the OTel audit log sink) |
+| `mloda-enterprise` | All enterprise plugins (bundle) | [Source-available](mloda/enterprise/LICENSE) ([Get license](https://mloda.ai/enterprise)) | `pip install mloda-enterprise` (add `[ed25519]` for the Ed25519 manifest signer, `[otel]` for the OTel audit log sink, `[openlineage]` for the lineage facets extender) |
 
 > **Note:** Only `mloda/enterprise/` and its PyPI package require a license. Everything else in this repository is Apache 2.0 (see [LICENSE](LICENSE)).
 
 `opentelemetry-api` and `openlineage-python` are optional now, behind the `[otel]`, `[openlineage]`, and `[all]` extras. When the dependency is missing, PluginLoader skips the entry point with a WARNING and plugin discovery never registers the extender; importing `OtelExtender` or `OpenLineageExtender` from the package still raises `ModuleNotFoundError`.
 
 `cryptography`, behind `[ed25519]`, behaves differently: the audit extender still loads without it, and only constructing `Ed25519Signer` raises `ImportError`. `opentelemetry-api`, behind `mloda-enterprise[otel]`, behaves the same way: only constructing `OtelLogAuditSink` raises `ImportError`.
+
+`mloda-community-openlineage`, behind `mloda-enterprise[openlineage]`, is what the lineage facets extender (`mloda-enterprise-lineage`) builds on. Without the extra the entry point loads and registers nothing.
 
 The remaining example packages are not on PyPI; install them from git, replacing the subdirectory with the package `path` from `config/packages.toml`:
 

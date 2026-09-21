@@ -122,6 +122,9 @@ def test_bundle_aggregates_child_entry_points() -> None:
         'mloda-enterprise-extenders-example = "mloda.enterprise.extenders.example.manifest:EXTENDERS"' in enterprise
     ), enterprise
     assert 'mloda-enterprise-audit = "mloda.enterprise.extenders.audit.manifest:EXTENDERS"' in enterprise, enterprise
+    assert 'mloda-enterprise-lineage = "mloda.enterprise.extenders.lineage.manifest:EXTENDERS"' in enterprise, (
+        enterprise
+    )
 
 
 @pytest.mark.parametrize(

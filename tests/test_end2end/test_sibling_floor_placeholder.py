@@ -446,6 +446,54 @@ def test_nested_package_gets_no_workspace_source_for_a_sibling_dependency(path: 
     assert sources == {}, f"a nested package must emit no [tool.uv.sources] entries, got {sources!r}"
 
 
+@pytest.mark.parametrize("entry_point_bundle", [True, False], ids=["bundle", "plain"])
+@pytest.mark.parametrize("dependency", [f"{_DEP}>={{version}}", _DEP], ids=["floor", "bare"])
+def test_top_level_package_gets_a_workspace_source_for_a_sibling_only_in_an_extra(
+    dependency: str, entry_point_bundle: bool
+) -> None:
+    """A sibling named only in a top-level package's extra (none in runtime dependencies) needs a source too."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_packages_with_dependent(
+        _TOP_LEVEL_PATH,
+        ["{core_dependency}"],
+        optional_dependencies={"sibling": [dependency]},
+        entry_point_bundle=entry_point_bundle,
+    )
+
+    sources = _generated_uv_sources(_DEPENDENT, packages, shared)
+
+    assert sources.get(_DEP) == _WORKSPACE, f"expected sources[{_DEP!r}] == {_WORKSPACE!r}, got {sources!r}"
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["mloda/community/synthetic_dependent", "mloda/community/feature_groups/synthetic_dependent"],
+    ids=["depth-3", "depth-4"],
+)
+def test_nested_package_gets_no_workspace_source_for_a_sibling_only_in_an_extra(path: str) -> None:
+    """Nested members (path depth > 2) resolve a sibling without a source, extras included."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_packages_with_dependent(
+        path, ["{core_dependency}"], optional_dependencies={"sibling": [f"{_DEP}>={{version}}"]}
+    )
+
+    sources = _generated_uv_sources(_DEPENDENT, packages, shared)
+
+    assert sources == {}, f"a nested package must emit no [tool.uv.sources] entries, got {sources!r}"
+
+
+def test_top_level_package_gets_no_workspace_source_for_a_third_party_extra_entry() -> None:
+    """An extra naming no sibling package adds no source, so only the default ``mloda-testing`` is listed."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_packages_with_dependent(
+        _TOP_LEVEL_PATH, ["{core_dependency}"], optional_dependencies={"pandas": ["pandas>=2.2"]}
+    )
+
+    sources = _generated_uv_sources(_DEPENDENT, packages, shared)
+
+    assert sources == {"mloda-testing": _WORKSPACE}, f"expected only the mloda-testing source, got {sources!r}"
+
+
 def test_top_level_package_with_default_dev_deps_lists_mloda_testing_and_its_sibling_in_one_table() -> None:
     """Default dev deps keep the ``mloda-testing`` source beside the sibling sources, which stay sorted."""
     shared, _packages_config = gen.load_configs()

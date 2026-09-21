@@ -462,8 +462,9 @@ def generate_pyproject(
             lines.append(f"{quote_toml_basic_string(dep, key=True)} = {{ workspace = true }}")
         lines.append("")
     elif depth <= 2:
-        # uv resolves a workspace dependency of a top-level member only through a source entry.
-        source_names = set(sibling_dependency_names(runtime_deps, all_packages))
+        # uv resolves a workspace dependency of a top-level member, runtime or extra, only through a source entry.
+        extra_deps = [dep for group_deps in merged_opt_deps.values() for dep in group_deps]
+        source_names = set(sibling_dependency_names([*runtime_deps, *extra_deps], all_packages))
         if gets_default_dev_deps:
             source_names.add("mloda-testing")
         if source_names:

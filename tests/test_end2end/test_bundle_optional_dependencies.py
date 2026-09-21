@@ -1,6 +1,8 @@
 """mloda-community must not hard-require an optional plugin's own third-party dependency
 (openlineage-python, opentelemetry-api, ...); each ships as its own bundle extra, pinned in
-exactly one place: the leaf package's own dependency.
+exactly one place: the leaf package's own dependency. mloda-enterprise[openlineage] does the same for a
+first-party sibling (mloda-community-openlineage, used by mloda-enterprise-lineage), whose floor is spelled
+once in the extra and equally in the leaf's dev entry.
 """
 
 from __future__ import annotations
@@ -30,7 +32,12 @@ _PLUGIN_LOADER_LOGGER = "mloda.core.abstract_plugins.plugin_loader.plugin_loader
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
 _COMMUNITY_PYPROJECT = _REPO_ROOT / "mloda" / "community" / "pyproject.toml"
+_ENTERPRISE_PYPROJECT = _REPO_ROOT / "mloda" / "enterprise" / "pyproject.toml"
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
+
+# The extra mloda-enterprise offers for mloda-enterprise-lineage: a first-party sibling, so written with the
+# {version} placeholder and equal to the leaf's dev entry.
+_LINEAGE_EMITTER_FLOOR = "mloda-community-openlineage>={version}"
 
 # One row per mloda-community extra-only dependency: (extra name, distribution name, leaf
 # package name, import root, exposed extender names). Extend this when the bundle gains another
@@ -119,12 +126,10 @@ def test_mloda_community_declares_extra_matching_pin_source(
     )
 
 
-def test_bundle_extra_floor_matches_leaf_dev_entry() -> None:
-    """A bundle extra's floor for an external dependency must equal the same dependency's entry in the
-    ``dev`` extra of every nested leaf that lists it, so the two places cannot drift apart."""
-    packages = _packages()
-    checked = 0
-
+def _bundle_extra_leaf_dev_pairs(packages: dict[str, dict[str, Any]]) -> list[tuple[str, str, str, str, str]]:
+    """``(bundle, extra, extra spec, leaf, dev spec)`` for every entry of a bundle's non-``all``/``dev``
+    extra that a nested leaf lists, by the same distribution name, in its own ``dev`` extra."""
+    pairs: list[tuple[str, str, str, str, str]] = []
     for bundle_name, bundle_cfg in packages.items():
         if bundle_cfg.get("entry_point_bundle") is not True:
             continue
@@ -133,28 +138,105 @@ def test_bundle_extra_floor_matches_leaf_dev_entry() -> None:
         for extra_name, extra_deps in bundle_cfg.get("optional_dependencies", {}).items():
             if extra_name in ("all", "dev"):
                 continue
-            external = _external_dependency_names(extra_deps, packages)
             for extra_spec in extra_deps:
-                name = _dep_name(extra_spec)
-                if name not in external:
-                    continue
                 for leaf_name, leaf_cfg in packages.items():
                     if not leaf_cfg["path"].startswith(prefix):
                         continue
                     for dev_spec in leaf_cfg.get("optional_dependencies", {}).get("dev", []):
-                        if _dep_name(dev_spec) != name:
-                            continue
-                        checked += 1
-                        assert extra_spec == dev_spec, (
-                            f"the {name} floor must match: packages.{bundle_name}.optional_dependencies."
-                            f"{extra_name} ({extra_spec!r}) must equal packages.{leaf_name}."
-                            f"optional_dependencies.dev ({dev_spec!r})"
-                        )
+                        if _dep_name(dev_spec) == _dep_name(extra_spec):
+                            pairs.append((bundle_name, extra_name, extra_spec, leaf_name, dev_spec))
+    return pairs
+
+
+def test_bundle_extra_floor_matches_leaf_dev_entry() -> None:
+    """A bundle extra's floor for an external dependency must equal the same dependency's entry in the
+    ``dev`` extra of every nested leaf that lists it, so the two places cannot drift apart."""
+    packages = _packages()
+    checked = 0
+
+    for bundle_name, extra_name, extra_spec, leaf_name, dev_spec in _bundle_extra_leaf_dev_pairs(packages):
+        if not _external_dependency_names([extra_spec], packages):
+            continue
+        checked += 1
+        assert extra_spec == dev_spec, (
+            f"the {_dep_name(extra_spec)} floor must match: packages.{bundle_name}.optional_dependencies."
+            f"{extra_name} ({extra_spec!r}) must equal packages.{leaf_name}."
+            f"optional_dependencies.dev ({dev_spec!r})"
+        )
 
     assert checked, (
         "expected at least one bundle extra dependency that a nested leaf also lists in its dev extra "
         "(e.g. mloda-enterprise[ed25519] / mloda-enterprise-audit)"
     )
+
+
+def test_bundle_extra_sibling_floor_matches_leaf_dev_entry() -> None:
+    """The floor guard above skips first-party siblings (they resolve to a configured package), so the
+    same pairing is enforced here for a sibling a bundle extra pulls in: the ``{version}`` spelling in
+    the extra and in the leaf's ``dev`` entry cannot drift apart."""
+    packages = _packages()
+    checked = 0
+
+    for bundle_name, extra_name, extra_spec, leaf_name, dev_spec in _bundle_extra_leaf_dev_pairs(packages):
+        if _dep_name(extra_spec) not in packages:
+            continue
+        checked += 1
+        assert extra_spec == dev_spec, (
+            f"the {_dep_name(extra_spec)} floor must match: packages.{bundle_name}.optional_dependencies."
+            f"{extra_name} ({extra_spec!r}) must equal packages.{leaf_name}."
+            f"optional_dependencies.dev ({dev_spec!r})"
+        )
+
+    assert checked, (
+        "expected at least one bundle extra sibling that a nested leaf also lists in its dev extra "
+        "(e.g. mloda-enterprise[openlineage] / mloda-enterprise-lineage)"
+    )
+
+
+def test_mloda_enterprise_openlineage_extra_carries_the_community_emitter_for_the_lineage_leaf() -> None:
+    """mloda-enterprise-lineage is bundle-only and loads without the community emitter, so the bundle
+    offers the emitter as an extra and never as a hard dependency, and the leaf's dev extra matches it."""
+    packages = _packages()
+
+    extra = packages["mloda-enterprise"].get("optional_dependencies", {}).get("openlineage")
+    assert extra == [_LINEAGE_EMITTER_FLOOR], (
+        f"packages.mloda-enterprise.optional_dependencies.openlineage must be [{_LINEAGE_EMITTER_FLOOR!r}], "
+        f"got {extra!r}"
+    )
+
+    hard_deps = packages["mloda-enterprise"].get("dependencies", [])
+    offending = [dep for dep in hard_deps if _dep_name(dep) in ("mloda-community-openlineage", "openlineage-python")]
+    assert not offending, (
+        f"packages.mloda-enterprise.dependencies must not pin the openlineage emitter directly, found "
+        f"{offending!r}; it belongs in optional_dependencies.openlineage instead"
+    )
+
+    lineage_dev = packages["mloda-enterprise-lineage"].get("optional_dependencies", {}).get("dev", [])
+    assert lineage_dev.count(_LINEAGE_EMITTER_FLOOR) == 1, (
+        f"packages.mloda-enterprise-lineage.optional_dependencies.dev must list {_LINEAGE_EMITTER_FLOOR!r} "
+        f"exactly once so the leaf's own tests run against the emitter, got {lineage_dev!r}"
+    )
+
+
+def test_mloda_enterprise_pyproject_lists_the_openlineage_extra_with_the_shared_floor() -> None:
+    """Both the generator's output and the committed pyproject.toml carry the extra, its ``{version}``
+    placeholder expanded to the shared project version (``tox -e check-generated`` is not in this gate)."""
+    shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+    expected = [f"mloda-community-openlineage>={shared['project']['version']}"]
+
+    generated = tomllib.loads(
+        gen.generate_pyproject("mloda-enterprise", packages["mloda-enterprise"], shared, packages)
+    )
+    assert _ENTERPRISE_PYPROJECT.is_file(), f"committed pyproject not found at {_ENTERPRISE_PYPROJECT}"
+    committed = _load_toml(_ENTERPRISE_PYPROJECT)
+
+    for source, project in (("generated", generated["project"]), ("committed", committed["project"])):
+        actual = project.get("optional-dependencies", {}).get("openlineage")
+        assert actual == expected, (
+            f"the {source} mloda-enterprise pyproject must declare optional-dependencies.openlineage = "
+            f"{expected!r}, got {actual!r} (run scripts/generate_pyproject.py)"
+        )
 
 
 @pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)

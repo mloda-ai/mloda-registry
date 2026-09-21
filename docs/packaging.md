@@ -120,8 +120,9 @@ mloda-community (bundled)
 
 A bundled plugin whose runtime dependency is heavy sits behind a bundle extra instead of a
 hard dependency (today `mloda-community[otel]` and `mloda-community[openlineage]`, or both
-together via `mloda-community[all]`; also `mloda-enterprise[ed25519]` and
-`mloda-enterprise[otel]`, though its plugin still loads without them), and its manifest must
+together via `mloda-community[all]`; also `mloda-enterprise[ed25519]`,
+`mloda-enterprise[otel]` and `mloda-enterprise[openlineage]`, though the audit plugin still loads
+without the first two), and its manifest must
 import cleanly without that dependency installed so entry-point loading of the rest of the
 bundle stays intact. The config steps are in
 [Add an optional runtime dependency to a bundle-only plugin](#add-an-optional-runtime-dependency-to-a-bundle-only-plugin).
@@ -160,6 +161,7 @@ py_typed = true
 | `pip install mloda-community[all]` | The bundle plus every extender's dependency |
 | `pip install mloda-enterprise[ed25519]` | The bundle plus the Ed25519 manifest signer's dependency |
 | `pip install mloda-enterprise[otel]` | The bundle plus the OTel audit log sink's dependency |
+| `pip install mloda-enterprise[openlineage]` | The bundle plus the OpenLineage emitter the lineage facets extender builds on |
 | `pip install mloda-community-example` | Base example only |
 | `pip install mloda-community-example[all]` | Base + all variants |
 | `pip install mloda-community-example-a` | Variant A + base |
@@ -208,7 +210,7 @@ Conventions:
 
 The generator adds `mloda-testing = { workspace = true }` only for top-level packages
 (depth <= 2) that receive default dev deps, plus one such entry for each sibling in a
-top-level package's runtime `dependencies` (uv will not lock without it). Nested
+top-level package's runtime `dependencies` or extras (uv will not lock without it). Nested
 packages cannot use workspace sources due to uv resolution limits; they get dev deps
 but rely on root workspace resolution.
 
@@ -266,6 +268,13 @@ dependency (today `cryptography` behind `mloda-enterprise[ed25519]` and `opentel
 
 Keep the floor in the bundle extra and in the leaf `dev` entry equal. `test_bundle_extra_floor_matches_leaf_dev_entry`
 enforces that pair.
+
+The dependency can also be a first-party sibling (`mloda-community-openlineage` behind
+`mloda-enterprise[openlineage]`, used by `mloda-enterprise-lineage`). Spell its floor `{version}` in both
+places (`test_bundle_extra_sibling_floor_matches_leaf_dev_entry` enforces the pair); the generator adds the
+bundle's workspace source. Because PluginLoader re-raises a missing module whose root equals the entry
+point's own root (`mloda`), such a leaf's manifest catches the missing sibling itself instead of relying on
+a `mloda.optional_dependencies` marker.
 
 ### Add a variant to an existing plugin
 

@@ -54,6 +54,7 @@ members = [
     "mloda-enterprise-compute-frameworks-example",
     "mloda-enterprise-example",
     "mloda-enterprise-extenders-example",
+    "mloda-enterprise-lineage",
     "mloda-registry",
     "mloda-registry-workspace",
     "mloda-testing",
@@ -1845,6 +1846,9 @@ dependencies = [
 ed25519 = [
     { name = "cryptography" },
 ]
+openlineage = [
+    { name = "mloda-community-openlineage" },
+]
 otel = [
     { name = "opentelemetry-api" },
 ]
@@ -1854,9 +1858,10 @@ requires-dist = [
     { name = "cryptography", marker = "extra == 'ed25519'", specifier = ">=42" },
     { name = "mloda", specifier = ">=0.13.0,<0.14.0" },
     { name = "mloda-community-extenders-shared", editable = "mloda/community/extenders/shared" },
+    { name = "mloda-community-openlineage", marker = "extra == 'openlineage'", editable = "mloda/community/extenders/openlineage" },
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.37,<2" },
 ]
-provides-extras = ["ed25519", "otel"]
+provides-extras = ["ed25519", "otel", "openlineage"]
 
 [[package]]
 name = "mloda-enterprise-audit"
@@ -1948,6 +1953,32 @@ dev = [
 requires-dist = [
     { name = "mloda", specifier = ">=0.13.0,<0.14.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "mloda-enterprise-lineage"
+version = "0.4.7"
+source = { editable = "mloda/enterprise/extenders/lineage" }
+dependencies = [
+    { name = "mloda" },
+    { name = "mloda-community-extenders-shared" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "mloda-community-openlineage" },
+    { name = "mloda-testing", extra = ["openlineage"] },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mloda", specifier = ">=0.13.0,<0.14.0" },
+    { name = "mloda-community-extenders-shared", specifier = ">=0.4.7" },
+    { name = "mloda-community-openlineage", marker = "extra == 'dev'", specifier = ">=0.4.7" },
+    { name = "mloda-testing", extras = ["openlineage"], marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev"]

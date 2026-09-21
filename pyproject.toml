@@ -165,6 +165,7 @@ members = [
     "mloda/enterprise/compute_frameworks/example",
     "mloda/enterprise/extenders/audit",
     "mloda/enterprise/extenders/example",
+    "mloda/enterprise/extenders/lineage",
     "mloda/enterprise/feature_groups/example",
     "mloda/registry",
     "mloda/testing",
