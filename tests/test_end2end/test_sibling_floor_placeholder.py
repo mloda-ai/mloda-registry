@@ -549,7 +549,7 @@ def test_bundle_dependency_on_a_nested_package_with_entry_point_groups_is_reject
     """A nested dependency that declares entry_point_groups would be registered twice (its wheel and the bundle)."""
     shared, _packages_config = gen.load_configs()
     packages = _synthetic_bundle(["{core_dependency}", f"{_LEAF}>={{version}}"])
-    packages[_LEAF]["entry_point_groups"] = ["mloda.feature_group"]
+    packages[_LEAF]["entry_point_groups"] = ["mloda.feature_groups"]
 
     with pytest.raises(ValueError) as exc_info:
         gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
@@ -557,3 +557,16 @@ def test_bundle_dependency_on_a_nested_package_with_entry_point_groups_is_reject
     message = str(exc_info.value)
     assert _DEPENDENT in message, f"error message must name the bundle {_DEPENDENT!r}, got: {message}"
     assert _LEAF in message, f"error message must name the nested dependency {_LEAF!r}, got: {message}"
+
+
+def test_bundle_dependency_on_a_nested_package_with_its_own_nested_packages_is_rejected() -> None:
+    """A nested dependency that itself has packages nested under it would leave those without an owner."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_bundle(["{core_dependency}", f"{_DEP}>={{version}}"])
+
+    with pytest.raises(ValueError) as exc_info:
+        gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
+
+    message = str(exc_info.value)
+    assert _DEPENDENT in message, f"error message must name the bundle {_DEPENDENT!r}, got: {message}"
+    assert _DEP in message, f"error message must name the nested dependency {_DEP!r}, got: {message}"

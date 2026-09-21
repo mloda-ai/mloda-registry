@@ -74,6 +74,8 @@ leaves the already-uploaded leaves uninstallable until the rerun completes. `mlo
 also requires `mloda-community-extenders-shared` at the same version, so a partial upload
 leaves it uninstallable until that package is uploaded too.
 
+After upgrading from a pre-fix `mloda-community`, run `pip install --force-reinstall mloda-community-extenders-shared`, because pip may remove the shared files when it uninstalls the old bundle.
+
 Not every package ships standalone. Most demo and example packages reach users inside the
 `mloda-community` / `mloda-enterprise` bundle wheels instead; `mloda-community-example`
 and `mloda-community-example-a` are the exceptions, published to keep end-to-end PyPI

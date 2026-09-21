@@ -168,6 +168,7 @@ def test_main_leaves_no_build_dirs_after_a_successful_run(tmp_path: Path, monkey
     monkeypatch.setattr(vb, "verify_wheel_version", _version_matches)
     for verifier in (
         "verify_dependency_relationships",
+        "verify_shared_wheel_has_single_owner",
         "verify_wheel_metadata",
         "verify_entry_points",
         "verify_py_typed_markers",

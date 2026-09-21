@@ -60,7 +60,7 @@ optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 |-------|----------|-------------|
 | `description` | Yes | PyPI description |
 | `path` | Yes | Package directory |
-| `published` | No | `true` ships the distribution standalone on PyPI. Single source of the released set, read through `scripts/published_packages.py`. Must be a boolean, and governs the released set only, never wheel contents |
+| `published` | No | `true` ships the distribution standalone on PyPI. Single source of the released set, read through `scripts/published_packages.py`. Must be a boolean. It governs the released set, and also wheel contents through the bundle dependency guard: a bundle never ships a nested published package it lists in its own `dependencies` |
 | `dependencies` | By convention | Runtime deps; use `"{core_dependency}"` for the mloda floor, `"<sibling>>={version}"` for a sibling package (see [Sibling dependency floors](#sibling-dependency-floors)). The generator defaults it to empty rather than failing, but every package declares it |
 | `optional_dependencies` | No | Merged with defaults. The entry `"{published_children}"` expands to every published package nested under this package's path, in config order. A test-only third-party dependency goes in `dev` here; see [Add a test-only dependency](#add-a-test-only-dependency) |
 | `has_readme` | No | `true` points the package at its own `README.md` |
@@ -118,7 +118,7 @@ mloda-community (bundled)
   └── includes: mloda.community.*
         ├── feature_groups/*
         ├── compute_frameworks/*
-        └── extenders/*
+        └── extenders/*   (except extenders/shared, owned by mloda-community-extenders-shared)
 ```
 
 A bundled plugin whose runtime dependency is heavy sits behind a bundle extra instead of a

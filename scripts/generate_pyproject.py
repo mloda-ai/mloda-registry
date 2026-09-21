@@ -402,10 +402,14 @@ def generate_pyproject(
             if dep_name not in nested_names:
                 continue
             dep_config = all_packages[dep_name]
-            if not dep_config.get("published") or dep_config.get("entry_point_groups"):
+            if (
+                not dep_config.get("published")
+                or dep_config.get("entry_point_groups")
+                or nested_package_names(dep_config["path"], all_packages)
+            ):
                 raise ValueError(
                     f"Bundle {pkg_name} depends on nested package {dep_name}, which must be "
-                    "published = true and declare no entry_point_groups"
+                    "published = true, declare no entry_point_groups and have no packages nested under it"
                 )
             bundle_owned_dependencies.append(dep_name)
 

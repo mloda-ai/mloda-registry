@@ -44,13 +44,17 @@ _TOX_INI = _REPO_ROOT / "tox.ini"
 # The bundle distributions, always part of the released set.
 _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterprise"]
 
-# The released set, in config order: bundles, examples kept for PyPI resolution coverage,
-# the otel and openlineage extenders, and the data-operations base plus its plugin packages.
+# The released set, in config order: registry and testing, the shared extenders package ahead of the bundles
+# that depend on it, the bundles, examples kept for PyPI resolution coverage, the otel and openlineage
+# extenders, and the data-operations base plus its plugin packages.
 _EXPECTED_PUBLISHED = [
-    *_BUNDLES,
+    "mloda-registry",
+    "mloda-testing",
+    "mloda-community-extenders-shared",
+    "mloda-community",
+    "mloda-enterprise",
     "mloda-community-example",
     "mloda-community-example-a",
-    "mloda-community-extenders-shared",
     "mloda-community-otel",
     "mloda-community-openlineage",
     "mloda-community-data-operations",
