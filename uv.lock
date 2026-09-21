@@ -742,6 +742,7 @@ version = "0.4.7"
 source = { editable = "mloda/community" }
 dependencies = [
     { name = "mloda" },
+    { name = "mloda-community-extenders-shared" },
 ]
 
 [package.optional-dependencies]
@@ -759,6 +760,7 @@ otel = [
 [package.metadata]
 requires-dist = [
     { name = "mloda", specifier = ">=0.13.0,<0.14.0" },
+    { name = "mloda-community-extenders-shared", editable = "mloda/community/extenders/shared" },
     { name = "openlineage-python", marker = "extra == 'all'", specifier = ">=1.20,<2" },
     { name = "openlineage-python", marker = "extra == 'openlineage'", specifier = ">=1.20,<2" },
     { name = "opentelemetry-api", marker = "extra == 'all'", specifier = ">=1.30,<2" },

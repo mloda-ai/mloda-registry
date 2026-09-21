@@ -70,7 +70,9 @@ workflow can pace or retry around. See
 [pypi/support#10572](https://github.com/pypi/support/issues/10572) and
 [this monorepo release thread](https://discuss.python.org/t/request-temporary-new-project-rate-limit-lift-on-pypi-for-a-coordinated-monorepo-release-user-pace/108030).
 Because every leaf requires its base at the same version, a rejected, partial upload also
-leaves the already-uploaded leaves uninstallable until the rerun completes.
+leaves the already-uploaded leaves uninstallable until the rerun completes. `mloda-community`
+also requires `mloda-community-extenders-shared` at the same version, so a partial upload
+leaves it uninstallable until that package is uploaded too.
 
 Not every package ships standalone. Most demo and example packages reach users inside the
 `mloda-community` / `mloda-enterprise` bundle wheels instead; `mloda-community-example`

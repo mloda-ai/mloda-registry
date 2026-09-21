@@ -394,6 +394,21 @@ def generate_pyproject(
         lines.append(f"{quote_toml_basic_string(key, key=True)} = {quote_toml_basic_string(value)}")
     lines.append("")
 
+    # A bundle does not ship a nested package it lists in its own dependencies; that package owns it.
+    bundle_owned_dependencies: list[str] = []
+    if pkg_config.get("entry_point_bundle"):
+        nested_names = nested_package_names(pkg_config["path"], all_packages)
+        for dep_name in sibling_dependency_names(runtime_deps, all_packages):
+            if dep_name not in nested_names:
+                continue
+            dep_config = all_packages[dep_name]
+            if not dep_config.get("published") or dep_config.get("entry_point_groups"):
+                raise ValueError(
+                    f"Bundle {pkg_name} depends on nested package {dep_name}, which must be "
+                    "published = true and declare no entry_point_groups"
+                )
+            bundle_owned_dependencies.append(dep_name)
+
     # Entry points - mloda plugin discovery (issue #271). Emit groups in the
     # stable ENTRY_POINT_ATTRS insertion order; entry-point labels are
     # distribution names containing hyphens, which are valid bare TOML keys.
@@ -419,10 +434,13 @@ def generate_pyproject(
 
         # Wheel boundaries come from the configured layout, not the released set: a nested
         # package belongs to its own wheel, published or not. Optional deps are excluded too,
-        # since an extra may name a package that is not nested. Bundles ship all nested code.
+        # since an extra may name a package that is not nested. Bundles ship all nested code
+        # except the packages they depend on (see bundle_owned_dependencies).
         excluded_pkg_names = {dep for deps in pkg_opt_deps.values() for dep in deps}
         if not pkg_config.get("entry_point_bundle"):
             excluded_pkg_names |= set(nested_package_names(pkg_config["path"], all_packages))
+        else:
+            excluded_pkg_names |= set(bundle_owned_dependencies)
 
         exclude_paths = sorted(
             all_packages[dep_name]["path"] for dep_name in excluded_pkg_names if dep_name in all_packages

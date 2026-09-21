@@ -795,12 +795,28 @@ def test_shrinking_an_extra_keeps_a_configured_child_out_of_the_base_wheel() -> 
     )
 
 
+def _bundle_dependency_names(bundle: str, packages: dict[str, dict[str, Any]]) -> set[str]:
+    """Configured packages (normalized name to config name) the bundle names in its own ``dependencies``."""
+    configured = {_normalize_dep_name(name): name for name in packages}
+    named = set()
+    for dep in packages[bundle].get("dependencies", []):
+        parsed = _parse_dependency(dep)
+        if parsed is not None and parsed[0] in configured:
+            named.add(configured[parsed[0]])
+    return named
+
+
 @pytest.mark.parametrize("bundle", _ENTRY_POINT_BUNDLES)
 def test_bundle_wheel_still_ships_every_nested_package(bundle: str) -> None:
-    """Bundles are the deliberate exception to the layout rule: they ship all nested code, published or not."""
+    """Bundles ship all nested code, published or not, except a nested package the bundle itself depends on."""
     packages = _packages()
     prefix = packages[bundle]["path"] + "/"
-    nested = {name: cfg["path"].replace("/", ".") for name, cfg in packages.items() if cfg["path"].startswith(prefix)}
+    depended_on = _bundle_dependency_names(bundle, packages)
+    nested = {
+        name: cfg["path"].replace("/", ".")
+        for name, cfg in packages.items()
+        if cfg["path"].startswith(prefix) and name not in depended_on
+    }
     assert nested, f"fixture assumption: {bundle} has configured packages nested under {prefix}"
 
     listed = _wheel_packages(bundle, packages)
@@ -808,8 +824,62 @@ def test_bundle_wheel_still_ships_every_nested_package(bundle: str) -> None:
     missing = sorted(name for name, dotted in nested.items() if dotted not in listed)
     assert missing == [], (
         f"the generated {bundle} wheel no longer ships nested packages {missing}; a package flagged "
-        "'entry_point_bundle = true' must keep including every nested module."
+        "'entry_point_bundle = true' must keep including every nested module it does not depend on."
     )
+
+
+_SHARED_EXTENDERS = "mloda-community-extenders-shared"
+_COMMUNITY_BUNDLE = "mloda-community"
+_ENTERPRISE_BUNDLE = "mloda-enterprise"
+
+
+def test_community_bundle_wheel_leaves_the_shared_extenders_to_their_own_wheel() -> None:
+    """mloda-community depends on the shared package, so only the shared wheel ships mloda.community.extenders.shared."""
+    packages = _packages()
+    shared_dotted = _dotted_path(_SHARED_EXTENDERS)
+
+    bundle_entries = _entries_under(_wheel_packages(_COMMUNITY_BUNDLE, packages), shared_dotted)
+    shared_entries = _entries_under(_wheel_packages(_SHARED_EXTENDERS, packages), shared_dotted)
+
+    assert bundle_entries == [], f"the {_COMMUNITY_BUNDLE} wheel must not ship {shared_dotted}, lists {bundle_entries}"
+    assert shared_dotted in shared_entries, f"the {_SHARED_EXTENDERS} wheel must ship {shared_dotted}"
+
+
+@pytest.mark.parametrize("bundle", _ENTRY_POINT_BUNDLES)
+def test_bundle_dependencies_on_nested_packages_are_published_and_absent_from_the_bundle_wheel(bundle: str) -> None:
+    """Every nested package a bundle names in its own dependencies owns its files: published, not in the bundle wheel."""
+    packages = _packages()
+    nested_dependencies = sorted(set(_nested_under(bundle, packages)) & _bundle_dependency_names(bundle, packages))
+    listed = _wheel_packages(bundle, packages)
+
+    unpublished = [name for name in nested_dependencies if packages[name].get("published") is not True]
+    leaked = {name: _entries_under(listed, _dotted_path(name)) for name in nested_dependencies}
+    leaked = {name: entries for name, entries in leaked.items() if entries}
+
+    assert unpublished == [], f"{bundle} depends on nested packages that are not published: {unpublished}"
+    assert leaked == {}, f"the {bundle} wheel ships nested packages it declares as dependencies: {leaked}"
+
+
+def test_community_bundle_depends_on_the_nested_shared_extenders() -> None:
+    """Guard the two tests above against passing vacuously: the community bundle names the nested shared package."""
+    packages = _packages()
+
+    assert _SHARED_EXTENDERS in _nested_under(_COMMUNITY_BUNDLE, packages)
+    assert _SHARED_EXTENDERS in _bundle_dependency_names(_COMMUNITY_BUNDLE, packages), (
+        f"{_COMMUNITY_BUNDLE} must list {_SHARED_EXTENDERS}>={{version}} in its own dependencies"
+    )
+
+
+def test_enterprise_bundle_wheel_is_unchanged_by_its_shared_extenders_dependency() -> None:
+    """The shared package is not nested under mloda/enterprise, so the enterprise wheel never shipped it."""
+    packages = _packages()
+    assert _SHARED_EXTENDERS not in _nested_under(_ENTERPRISE_BUNDLE, packages)
+
+    listed = _wheel_packages(_ENTERPRISE_BUNDLE, packages)
+    nested = [_dotted_path(name) for name in _nested_under(_ENTERPRISE_BUNDLE, packages)]
+
+    assert _entries_under(listed, _dotted_path(_SHARED_EXTENDERS)) == []
+    assert all(dotted in listed for dotted in nested), f"the enterprise wheel must ship every nested package {nested}"
 
 
 def test_bundle_declares_every_nested_leaf_external_runtime_dependency() -> None:

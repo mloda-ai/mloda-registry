@@ -22,7 +22,7 @@ py_typed = true
 
 [packages.mloda-community]
 description = "All community plugins for mloda"
-dependencies = ["{core_dependency}"]
+dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version}"]
 path = "mloda/community"
 published = true
 entry_point_bundle = true

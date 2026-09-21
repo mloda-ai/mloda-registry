@@ -95,7 +95,8 @@ configured sibling package; any other use of `{version}` fails generation.
 - `license` from path (`mloda/enterprise/*` → proprietary, else default)
 - `packages` from filesystem (scans for `__init__.py`, excludes `tests/`, `build/`, etc.)
 - wheel boundaries from the layout: a nested package stays out of its parent's wheel,
-  published or not; `entry_point_bundle` packages ship all nested code
+  published or not; `entry_point_bundle` packages ship all nested code except a nested
+  package listed in their own `dependencies`, which that package owns
 
 **Default dev deps skipped for:** `mloda-testing`, `mloda-community`, `mloda-enterprise`
 
@@ -106,9 +107,11 @@ configured sibling package; any other use of `{version}` fails generation.
 `mloda-community` and `mloda-enterprise` include all sub-package code directly, so
 one install gets every plugin and nothing depends on an unpublished sub-package.
 Many sub-packages can also be published separately for granular installs, but not
-all are; see [Releasing](releasing.md). A bundle's wheel ships only its own path, so a
-nested plugin that imports a sibling outside that path (`mloda-enterprise-audit` uses
-`mloda-community-extenders-shared`) needs that sibling in the bundle's own `dependencies`.
+all are; see [Releasing](releasing.md). A nested plugin that imports a sibling outside the
+bundle's path (`mloda-enterprise-audit` uses `mloda-community-extenders-shared`) needs that
+sibling in the bundle's own `dependencies`. If the sibling is nested in the bundle (as for
+`mloda-community`), it must be `published = true` with no `entry_point_groups`, and its own
+wheel ships it instead of the bundle's.
 
 ```text
 mloda-community (bundled)
