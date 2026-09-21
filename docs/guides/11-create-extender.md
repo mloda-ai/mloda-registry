@@ -152,16 +152,29 @@ extender = AuditExtender(sink, fail_closed=True)
 
 - `columnLineage` on each output dataset: DIRECT edges from the step's declared input features; root steps have none.
 - `masking` on those edges, only when declared (see below).
-- `dataQualityAssertions` on nested validation runs: one assertion named after the validator, `success` true or false.
+- `dataQualityAssertions` on validation runs: one assertion named after the validator, `success` true or false.
 - a `mloda` run facet: `featureGroupVersion`, `pluginVersion`, `computeFramework`, `maskedFeatures` and `structureHash`.
 
 Masking is declared, never inferred: set the class attribute `masking = True` on the feature group, or the option `masking=True` in the feature's own `context`. It must be the boolean `True`; a `group` key, the string `"true"` and a context key forwarded from another step do not count. It is unrelated to core's `mask`.
 
 Column-lineage edges are step-level declared inputs. A step with several outputs cannot say which input feeds which, so every output lists every input (an over-approximation) and the transformation `description` reads `step-level declared inputs`.
 
-Validation is reported only for a feature group that overrides `validate_input_features` or `validate_output_features`. Each overridden validator is its own nested run per step (job `<feature group>.<method>`, START then COMPLETE, FAIL or ABORT), so it adds one extra run and two events per step. The terminal event carries one input dataset per validated feature. A failing validator is re-raised and its message is never emitted. Root steps skip validate-input (no data yet), and core's own `EmptyResultError` and `DataTypeValidator` failures happen outside the hook, so they produce no assertion.
+Validation is reported only for a feature group that overrides `validate_input_features` or `validate_output_features`. Each overridden validator is its own run per step, a sibling of the calculate run and both under the root run (job `<feature group>.<method>`, START then COMPLETE, FAIL or ABORT), so it adds one extra run and two events per step. The terminal event carries one input dataset per validated feature. Validate-input is skipped when the step has no data yet (root steps); when data exists it runs and the validated datasets fall back to the feature names if no inputs are declared. Core's own `EmptyResultError` and `DataTypeValidator` failures happen outside the hook, so they produce no assertion.
 
-`structureHash` is the sha256 of the feature group class, versions, compute framework, feature names, declared inputs and masked features. It holds no run id or time, so it is stable across runs and changes only when the structure does.
+A failing validator is re-raised and marks every validated dataset `success=false`, because the failing one is unknown. Its message can reach the WARNING log, as a calculate failure message already does, but never an event.
+
+Validation runs carry the parent facet only, not the `mloda` facet. Tie one to a calculate run through the job name and the run id.
+
+Validate-output assertions ride on input datasets of the `<feature group>.validate_output_features` job, the only spec-legal home for `dataQualityAssertions`.
+
+`structureHash` is the sha256 of the feature group class, versions, compute framework, feature names, declared inputs and masked features. It holds no run id or time, so it is stable across runs. It also changes with the feature group source and the mloda version, because both are part of `feature_group_version`.
+
+Option-declared masking has two limits:
+
+- When an ancestor feature propagates the `masking` key through `propagate_context_keys`, a step that also declares it counts as inherited and reports no masking.
+- When `input_features()` returns `Feature(name, options=options)`, sharing the consumer's own Options object, the upstream step reports masking.
+
+Declare `masking = True` on the feature group class for a per-feature-group guarantee.
 
 The `mloda` facet's schema URL points at its module in this repository; it is not a hosted JSON schema.
 

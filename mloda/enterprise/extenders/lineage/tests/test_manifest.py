@@ -21,8 +21,8 @@ _EXTENDER_NAME = "LineageFacetsExtender"
 _COMMUNITY = "mloda.community.extenders.openlineage"
 _SHARED = "mloda.community.extenders.shared"
 
-# Community emitter unavailable: its package is missing, or openlineage-python is.
-_MISSING_ROOTS = [_COMMUNITY, "openlineage"]
+# Community emitter unavailable: its package is missing, or openlineage-python (or attr, only installed through it) is.
+_MISSING_ROOTS = [_COMMUNITY, "openlineage", "attr"]
 
 # Hand-built so the discovery test needs neither installed metadata nor the community entry point.
 _ENTRY_POINT = importlib.metadata.EntryPoint(

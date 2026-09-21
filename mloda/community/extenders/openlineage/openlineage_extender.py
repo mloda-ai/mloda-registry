@@ -264,16 +264,20 @@ class OpenLineageExtender(Extender):
         return {}
 
     def _call_calculate_feature(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
+        def output_facets(name: str) -> dict[str, Any]:
+            # A raising seam costs that output its extra facets, never the COMPLETE event.
+            try:
+                return self._calculate_output_facets(context, func, args, name)
+            except Exception as exc:
+                logger.warning(
+                    "%s output facets failed for %s: %s: %s", type(self).__name__, name, type(exc).__name__, exc
+                )
+                return {}
+
         def build_outputs() -> list[OutputDataset]:
             fields = _schema_dataset_fields(context.output_schema)
             return [
-                _build_output_dataset(
-                    self.dataset_namespace,
-                    name,
-                    fields,
-                    self.producer,
-                    self._calculate_output_facets(context, func, args, name),
-                )
+                _build_output_dataset(self.dataset_namespace, name, fields, self.producer, output_facets(name))
                 for name in context.feature_names
             ]
 

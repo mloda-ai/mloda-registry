@@ -19,6 +19,9 @@ if TYPE_CHECKING:
     from mloda.user import Options
 
 _PRODUCER = "https://github.com/mloda-ai/mloda-registry/tree/main/mloda/enterprise/extenders/lineage"
+_SCHEMA_URL = (
+    "https://github.com/mloda-ai/mloda-registry/blob/main/mloda/enterprise/extenders/lineage/lineage_extender.py"
+)
 _STEP_LEVEL_DESCRIPTION = "step-level declared inputs"
 _MASKING = "masking"
 _VALIDATOR_METHODS: dict[ExtenderHook, str] = {
@@ -38,7 +41,7 @@ class MlodaRunFacet(RunFacet):
     @staticmethod
     def _get_schema() -> str:
         # The module in this repo, not a hosted JSON schema.
-        return f"{_PRODUCER}/lineage_extender.py"
+        return _SCHEMA_URL
 
 
 class LineageFacetsExtender(OpenLineageExtender):

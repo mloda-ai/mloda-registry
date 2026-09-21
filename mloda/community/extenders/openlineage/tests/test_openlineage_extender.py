@@ -1641,15 +1641,21 @@ class TestOpenLineageExtenderSubclassSeams:
     def test_output_facets_seam_failure_never_corrupts_the_result(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
     ) -> None:
+        """A raising seam is logged, not fatal: COMPLETE is still emitted with the base (schema) facets only."""
         client, transport = ol_capture
         extender = _FailingOutputFacetExtender(client=client)
+        context = make_hook_context(feature_names=("value_int",), output_schema=(("value_int", "int64"),))
 
-        with make_hook_context().activate():
+        with context.activate():
             with caplog.at_level(logging.WARNING):
                 result = extender(lambda: 42)
 
         assert result == 42
-        assert [event.eventType for event in transport.events] == [RunState.START]
+        assert [event.eventType for event in transport.events] == [RunState.START, RunState.COMPLETE]
+        complete_event = transport.events[-1]
+        assert [output.name for output in complete_event.outputs or []] == ["value_int"]
+        for output in complete_event.outputs or []:
+            assert set(output.facets or {}) == {"schema"}
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert any(type(extender).__name__ in message and "output facet boom" in message for message in warnings)
 

@@ -9,11 +9,12 @@ import logging
 import re
 import uuid
 from collections.abc import Callable, Iterator, Sequence
+from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
 from mloda.provider import ComputeFramework, DataCreator, FeatureGroup, FeatureSet
-from mloda.steward import ExtenderHook
+from mloda.steward import Extender, ExtenderHook
 from mloda.user import Feature, FeatureName, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from openlineage.client.client import OpenLineageClient
@@ -23,7 +24,12 @@ from openlineage.client.serde import Serde
 
 from mloda.enterprise.extenders.lineage.lineage_extender import LineageFacetsExtender, MlodaRunFacet
 from mloda.testing.extenders.hook_context import make_hook_context
-from mloda.testing.extenders.openlineage import OpenLineageExtenderTestMixin, RecordingTransport, make_recording_client
+from mloda.testing.extenders.openlineage import (
+    FileTransport,
+    OpenLineageExtenderTestMixin,
+    RecordingTransport,
+    make_recording_client,
+)
 
 _LINEAGE_PRODUCER = "https://github.com/mloda-ai/mloda-registry/tree/main/mloda/enterprise/extenders/lineage"
 _CUSTOM_PRODUCER = "https://example.invalid/custom-lineage-producer"
@@ -94,6 +100,29 @@ class _MaskedByAttribute(_Derived):
 class _MaskedByStringAttribute(_Derived):
     outputs = ("lineage_facets_masked_string_attribute",)
     masking = "true"
+
+
+class _MidStep(_Derived):
+    outputs = ("lineage_facets_limit_mid",)
+
+
+class _TopRequestingMaskedMid(_Derived):
+    """Requests its mid-step input with the same own `masking` context key the top feature propagates."""
+
+    outputs = ("lineage_facets_limit_top",)
+    inputs = _MidStep.outputs
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        return {Feature(name, options=Options(context={"masking": True})) for name in self.inputs}
+
+
+class _SharingOptionsWithInputs(_Derived):
+    """Hands its own Options object to its input features instead of a fresh one."""
+
+    outputs = ("lineage_facets_limit_shared",)
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        return {Feature(name, options=options) for name in self.inputs}
 
 
 class _PassingValidators(_Derived):
@@ -292,6 +321,16 @@ class TestLineageFacetsExtenderContract(OpenLineageExtenderTestMixin):
     def emits_schema_facets(cls) -> bool:
         return True
 
+    @classmethod
+    def supports_real_worker_sink(cls) -> bool:
+        return True
+
+    def make_real_worker_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
+        marker_path = tmp_path / "lineage_real_worker_events.txt"
+        client = OpenLineageClient(transport=FileTransport(marker_path))
+        extender = self.make_openlineage_extender(client)
+        return extender, marker_path
+
     def calculate_run_events(self, events: list[RunEvent]) -> list[RunEvent]:
         return _calculate_run_events(events)
 
@@ -469,6 +508,45 @@ class TestLineageFacetsMasking:
         assert [t.masking for t in _transformations(derived_events[-1], name)] == [True]
         assert all(_run_facet(event).maskedFeatures == [name] for event in derived_events)
         assert all(_run_facet(event).maskedFeatures == [] for event in _events_for(transport.events, _job(_Root)))
+
+    def test_option_masking_limit_an_own_key_equal_to_the_propagated_one_counts_as_inherited(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        """Documented limit: core marks a propagated key inherited even when the child already held the same value,
+        so a mid step that declares masking itself reports none while an ancestor propagates the key."""
+        client, transport = ol_capture
+        top = _TopRequestingMaskedMid.outputs[0]
+        mid = _MidStep.outputs[0]
+        options = Options(context={"masking": True}, propagate_context_keys=frozenset({"masking"}))
+
+        _run(LineageFacetsExtender(client=client), [Feature(top, options=options)], _TopRequestingMaskedMid, _MidStep)
+
+        mid_events = _events_for(transport.events, _job(_MidStep))
+        assert [event.eventType for event in mid_events] == [RunState.START, RunState.COMPLETE]
+        assert all(_run_facet(event).maskedFeatures == [] for event in mid_events)
+        assert [t.masking for t in _transformations(mid_events[-1], mid)] == [None]
+        top_events = _events_for(transport.events, _job(_TopRequestingMaskedMid))
+        assert all(_run_facet(event).maskedFeatures == [top] for event in top_events)
+
+    def test_option_masking_limit_input_features_sharing_the_consumer_options_mask_the_upstream_step(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        """Documented limit: core's inherit_from is a no-op for a child sharing the consumer's own Options object, so
+        nothing is marked inherited and the upstream step reports the consumer's masking as its own."""
+        client, transport = ol_capture
+        name = _SharingOptionsWithInputs.outputs[0]
+
+        _run(
+            LineageFacetsExtender(client=client),
+            [Feature(name, options=Options(context={"masking": True}))],
+            _SharingOptionsWithInputs,
+        )
+
+        root_events = _events_for(transport.events, _job(_Root))
+        assert [event.eventType for event in root_events] == [RunState.START, RunState.COMPLETE]
+        assert all(_run_facet(event).maskedFeatures == [_ROOT] for event in root_events)
+        shared_events = _events_for(transport.events, _job(_SharingOptionsWithInputs))
+        assert all(_run_facet(event).maskedFeatures == [name] for event in shared_events)
 
     def test_masking_is_declared_per_feature_within_a_step(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]

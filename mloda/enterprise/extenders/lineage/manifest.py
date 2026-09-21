@@ -8,7 +8,8 @@ from mloda.steward import Extender
 
 logger = logging.getLogger(__name__)
 
-_MISSING_ROOTS = ("openlineage", "mloda.community.extenders.openlineage")
+# attr is listed because lineage_extender.py imports it and only openlineage-python installs it.
+_MISSING_ROOTS = ("openlineage", "attr", "mloda.community.extenders.openlineage")
 
 EXTENDERS: list[type[Extender]]
 
