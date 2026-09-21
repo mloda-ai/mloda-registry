@@ -169,7 +169,8 @@ def _find_offending_parameter_key(config: Mapping[str, Any]) -> str | None:
 def _terminate_timed_out_process(proc: subprocess.Popen[bytes]) -> None:
     """Terminate a hung binary after ``communicate`` times out (contract: Errors, Data handling):
     on POSIX, the whole process group started with the child, via ``start_new_session=True``, so a
-    descendant it spawned does not outlive it; on Windows, the child process alone."""
+    descendant it spawned does not outlive it (SIGKILL always follows SIGTERM); on Windows, the child
+    process alone."""
     if os.name == "nt":
         proc.terminate()
         try:
@@ -181,16 +182,17 @@ def _terminate_timed_out_process(proc: subprocess.Popen[bytes]) -> None:
 
     try:
         os.killpg(proc.pid, signal.SIGTERM)
-    except ProcessLookupError:
+    except OSError:
         pass
     try:
         proc.wait(timeout=1.0)
     except subprocess.TimeoutExpired:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        proc.wait()
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    proc.wait()
 
 
 def run_binary(

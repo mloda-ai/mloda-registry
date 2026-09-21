@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime
 import logging
 import os
+import signal
 import sys
 import tempfile
 import time
@@ -880,10 +881,21 @@ class TestRelativeLicenseFileIsAbsolutized:
 # -------------------------------------------------------------------------------------------
 
 
+def _pid_running(pid: int) -> bool:
+    """Alive and not a zombie (a killed process awaiting reaping counts as dead)."""
+    if not pid_is_alive(pid):
+        return False
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return True
+    return stat.rsplit(")", 1)[-1].split()[0] != "Z"
+
+
 class TestTimeoutTerminatesPosixDescendants:
     """A hung binary that has spawned a child of its own must not leave that child running after
-    ``BinaryTerminatedError`` is raised (contract: Errors, Data handling): today, only the binary
-    itself is terminated, not its process group, so a descendant it started keeps running."""
+    ``BinaryTerminatedError`` is raised (contract: Errors, Data handling): the whole process group is
+    terminated, so no descendant it started survives."""
 
     @pytest.mark.skipif(os.name != "posix", reason="process-group termination is POSIX-only")
     def test_hanging_binary_with_a_child_process_leaves_no_live_descendant(self, tmp_path: Path) -> None:
@@ -897,3 +909,27 @@ class TestTimeoutTerminatesPosixDescendants:
         while pid_is_alive(child_pid) and time.monotonic() < deadline:
             time.sleep(0.05)
         assert not pid_is_alive(child_pid)
+
+    @pytest.mark.skipif(os.name != "posix", reason="process-group termination is POSIX-only")
+    @pytest.mark.skipif(not os.path.exists("/proc/self/stat"), reason="zombie check reads /proc")
+    def test_descendant_ignoring_sigterm_is_killed_when_the_leader_exits_on_sigterm(self, tmp_path: Path) -> None:
+        pid_file = tmp_path / "child.pid"
+        model = _faulty_model("hang_with_sigterm_ignoring_child", BINARY_TIMEOUT_SECONDS=5.0)
+        table = pa.table({"col_a": ["alpha"]})
+        child_pid: int | None = None
+        try:
+            with pytest.raises(BinaryTerminatedError):
+                model.run_binary_model(table, ["col_a"], "hash", {"pid_file": str(pid_file)}, {"result": "col_a_hash"})
+            child_pid = int(pid_file.read_text(encoding="utf-8"))
+            deadline = time.monotonic() + 2.0
+            while _pid_running(child_pid) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert not _pid_running(child_pid)
+        finally:
+            if child_pid is None and pid_file.exists():
+                child_pid = int(pid_file.read_text(encoding="utf-8"))
+            if child_pid is not None and _pid_running(child_pid):
+                try:
+                    os.kill(child_pid, signal.SIGKILL)
+                except OSError:
+                    pass
