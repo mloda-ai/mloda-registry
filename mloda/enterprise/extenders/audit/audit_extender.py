@@ -6,13 +6,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
 from mloda.steward import Extender, ExtenderHook, HookContext
 
+from mloda.community.extenders.shared.data_access_identity import resolve_data_access_identity
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.enterprise.extenders.audit._records import _append_records as _append_records
 from mloda.enterprise.extenders.audit._records import _canonical_json as _canonical_json
@@ -23,11 +23,6 @@ logger = logging.getLogger(__name__)
 _ALLOWED_IDENTITY_NAMES = ("tenant_id", "project_id", "principal")
 
 _open_calculates: OpenInvocationStack[list[tuple[str, str | None]]] = OpenInvocationStack("audit_open_calculates")
-
-_URI_SCHEME = re.compile(r"[A-Za-z][\w+.:-]*")
-_QUERY_OR_FRAGMENT = re.compile(r"[?#]")
-_PATH_PARAMS = re.compile(r"[;&]")
-_AUTHORITY_LEAK = re.compile(r"[;&=\s]")
 
 
 class AuditSink(Protocol):
@@ -82,21 +77,6 @@ def _error_type(exc: BaseException) -> str:
 def _gate_fingerprint(fail_closed: bool, required_identity: tuple[str, ...]) -> str:
     gate = {"fail_closed": fail_closed, "required_identity": sorted(required_identity)}
     return hashlib.sha256(json.dumps(gate, sort_keys=True).encode("utf-8")).hexdigest()[:12]
-
-
-def _sanitize_data_access_identity(identity: str) -> str:
-    # Core's own userinfo strip is greedy and can leave query text in the string, so the authority and path
-    # are cut at leak markers too. Userinfo goes first: ; and & are valid inside it.
-    scheme, separator, rest = identity.partition("://")
-    if not separator or not _URI_SCHEME.fullmatch(scheme):
-        return identity
-    rest = _QUERY_OR_FRAGMENT.split(rest, maxsplit=1)[0].rpartition("@")[2]
-    authority, slash, path = rest.partition("/")
-    path = _PATH_PARAMS.split(path, maxsplit=1)[0]
-    cut_authority = _AUTHORITY_LEAK.split(authority, maxsplit=1)[0]
-    if cut_authority != authority:
-        return f"{scheme}://{cut_authority}"
-    return f"{scheme}://{authority}{slash}{path}"
 
 
 class AuditExtender(Extender):
@@ -213,11 +193,10 @@ class AuditExtender(Extender):
         if loads is None:
             logger.debug("AuditExtender: INPUT_DATA_LOAD has no enclosing open calculate invocation to attach to")
             return
-        if context.data_access_identity is None:
+        identity = resolve_data_access_identity(args, context.data_access_identity)
+        if identity is None:
             return
-        # Core passes the raw data_access first; using it avoids core's lossy greedy strip.
-        raw = args[0] if args and isinstance(args[0], str) else context.data_access_identity
-        entry = (_sanitize_data_access_identity(raw), context.data_access_format)
+        entry = (identity, context.data_access_format)
         if entry not in loads:
             loads.append(entry)
 

@@ -15,6 +15,7 @@ from typing import Any
 
 from mloda.steward import Extender, ExtenderHook, HookContext, OutputSchema
 
+from mloda.community.extenders.shared.data_access_identity import resolve_data_access_identity
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.pickle_safety import pickle_failure_reason
 from openlineage.client.client import OpenLineageClient
@@ -73,7 +74,8 @@ class OpenLineageExtender(Extender):
     delays every wrapped calculation. close() flushes the client and is terminal. A self-built client is rebuilt per
     worker; an injected client that can't survive pickling is dropped by a trial-pickle probe and falls back to the
     resolution rule above, while a picklable injected client is pickled as-is. Workers are
-    terminated without a flush, so a synchronous transport is needed there."""
+    terminated without a flush, so a synchronous transport is needed there. Data-access identities are sanitized
+    as in the audit extender, so published dataset names carry no URI query."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
     producer: str = _PRODUCER
@@ -225,20 +227,18 @@ class OpenLineageExtender(Extender):
 
     def _call_input_data_load(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
         invocation = _open_invocations.find(self)
-        if invocation is not None and context.data_access_identity is not None:
+        identity = resolve_data_access_identity(args, context.data_access_identity)
+        if invocation is not None and identity is not None:
             already_present = any(
-                i.namespace == self.dataset_namespace and i.name == context.data_access_identity
-                for i in invocation.inputs
+                i.namespace == self.dataset_namespace and i.name == identity for i in invocation.inputs
             )
             if not already_present:
                 invocation.inputs.append(
                     InputDataset(
                         namespace=self.dataset_namespace,
-                        name=context.data_access_identity,
+                        name=identity,
                         facets={
-                            "dataSource": datasource_dataset.DatasourceDatasetFacet(
-                                name=context.data_access_identity, producer=self.producer
-                            )
+                            "dataSource": datasource_dataset.DatasourceDatasetFacet(name=identity, producer=self.producer)
                         },
                     )
                 )

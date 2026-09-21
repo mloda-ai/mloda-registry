@@ -1242,6 +1242,52 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         assert isinstance(data_source_facet, datasource_dataset.DatasourceDatasetFacet)
         assert data_source_facet.name == "s3://bucket/key.parquet"
 
+    @pytest.mark.parametrize(
+        ("raw_arg", "context_identity", "expected_name"),
+        [
+            pytest.param(
+                None, "https://user:pw@host/p/a?sig=SECRET#frag", "https://host/p/a", id="userinfo_query_fragment"
+            ),
+            pytest.param(None, "s3://bucket/key.parquet?versionId=SECRET", "s3://bucket/key.parquet", id="query"),
+            pytest.param(
+                "https://host/p?email=a@b.com/x&sig=SECRET",
+                "https://b.com/x&sig=SECRET",
+                "https://host/p",
+                id="raw_first_arg_wins_over_lossy_context_identity",
+            ),
+        ],
+    )
+    def test_recorded_input_and_data_source_names_are_stripped_of_uri_secrets(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        raw_arg: str | None,
+        context_identity: str,
+        expected_name: str,
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity)
+        load_args = () if raw_arg is None else (raw_arg,)
+
+        def inner_func(*_: Any) -> str:
+            return "loaded-data"
+
+        def outer_func() -> str:
+            with inner_context.activate():
+                extender(inner_func, *load_args)
+            return "calculate-result"
+
+        with make_hook_context().activate():
+            extender(outer_func)
+
+        complete_event = transport.events[1]
+        assert complete_event.inputs is not None
+        assert len(complete_event.inputs) == 1
+        input_dataset = complete_event.inputs[0]
+        assert input_dataset.name == expected_name
+        assert input_dataset.facets is not None
+        assert input_dataset.facets["dataSource"].name == expected_name  # type: ignore[attr-defined]
+
     def test_input_data_load_without_enclosing_calculate_does_not_raise_or_emit(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -1384,6 +1430,29 @@ class TestOpenLineageExtenderInputDedupe:
         assert complete_event.eventType == RunState.COMPLETE
         assert complete_event.inputs is not None
         assert len(complete_event.inputs) == 1
+
+    def test_identities_differing_only_in_query_produce_single_input(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+
+        def load(identity: str) -> None:
+            with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity).activate():
+                extender(lambda: "loaded")
+
+        def calculate_body() -> str:
+            load("https://host/p?token=AAA")
+            load("https://host/p?token=BBB")
+            return "calculated"
+
+        with make_hook_context().activate():
+            extender(calculate_body)
+
+        complete_event = transport.events[-1]
+        assert complete_event.eventType == RunState.COMPLETE
+        assert complete_event.inputs is not None
+        assert [i.name for i in complete_event.inputs] == ["https://host/p"]
 
     def test_input_feature_matching_a_data_load_identity_is_reported_once(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]

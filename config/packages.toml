@@ -21,7 +21,7 @@ optional_dependencies = { dev = ["pytest>=9.0.3"], otel = ["opentelemetry-sdk>=1
 py_typed = true
 
 [packages.mloda-community-extenders-shared]
-description = "Pickle-safety and open-invocation helpers shared by mloda extenders"
+description = "Pickle-safety, open-invocation and identity helpers shared by mloda extenders"
 dependencies = ["{core_dependency}"]
 path = "mloda/community/extenders/shared"
 published = true
