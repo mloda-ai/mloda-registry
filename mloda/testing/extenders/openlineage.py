@@ -519,12 +519,14 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
 
         def outer_func() -> None:
             with inner_context.activate():
+                # Core passes the raw data access as arg 0; the shipped extender prefers it over the context value.
                 extender(lambda *_: "loaded-data", identity)
 
         with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
             extender(outer_func)
 
-        assert any(event.inputs for event in transport.events), "the data load was not attributed as an input"
+        input_names = [dataset.name for event in transport.events for dataset in event.inputs or []]
+        assert any("key.parquet" in name for name in input_names), "the data load was not attributed as an input"
         for event in transport.events:
             assert marker not in Serde.to_json(event), "URI query string reached an event"
 

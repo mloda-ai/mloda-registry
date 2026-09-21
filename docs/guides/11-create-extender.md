@@ -313,12 +313,12 @@ The mixin pins:
 - no event ever leaks the exception message
 - the parent facet ties the run to the ambient `run_id`
 - a nested `INPUT_DATA_LOAD` call becomes an input, on both COMPLETE and FAIL, when the extender wraps that hook; the input is attributed before the load runs, so a failing load still appears on the FAIL event, and inputs mean attempted reads
-- the URI query string of a nested `INPUT_DATA_LOAD` identity reaches no event when the extender wraps that hook, so strip it before recording; a host that drops the identity instead fails too, since inputs mean attempted reads; user information is deliberately not pinned (core already strips it from the context identity)
+- the URI query string of a nested `INPUT_DATA_LOAD` identity reaches no event when the extender wraps that hook; user information is not pinned
 - the calculate context's declared `input_features` become inputs too, on both COMPLETE and FAIL, so a host must report them
 - a START emit failure under warning-only mode never prevents the wrapped call from running
 - `run_all` events share one parent run id
 
-The query-string rule is enforced on every host wrapping `INPUT_DATA_LOAD` because a presigned URL or SAS token in a published dataset name is a credential leak; a host that must publish the raw URI overrides `test_openlineage_input_data_load_query_string_never_reaches_events` by name.
+Strip the query before recording: a host that drops the identity instead also fails, since inputs mean attempted reads. The rule is enforced on every host wrapping `INPUT_DATA_LOAD` because a presigned URL or SAS token in a published dataset name is a credential leak; a host that must publish the raw URI overrides `test_openlineage_input_data_load_query_string_never_reaches_events` by name.
 
 `RecordingTransport`, `LockHoldingTransport`, `FileTransport` (writes emitted event types to a marker file, for `make_real_worker_extender_and_marker`) and `make_recording_client` live in `mloda.testing.extenders.openlineage`.
 
