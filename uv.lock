@@ -1854,7 +1854,7 @@ requires-dist = [
     { name = "cryptography", marker = "extra == 'ed25519'", specifier = ">=42" },
     { name = "mloda", specifier = ">=0.13.0,<0.14.0" },
     { name = "mloda-community-extenders-shared", editable = "mloda/community/extenders/shared" },
-    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.30,<2" },
+    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.37,<2" },
 ]
 provides-extras = ["ed25519", "otel"]
 
@@ -1881,7 +1881,7 @@ requires-dist = [
     { name = "mloda", specifier = ">=0.13.0,<0.14.0" },
     { name = "mloda-community-extenders-shared", specifier = ">=0.4.7" },
     { name = "mloda-testing", extras = ["otel"], marker = "extra == 'dev'" },
-    { name = "opentelemetry-api", marker = "extra == 'dev'", specifier = ">=1.30,<2" },
+    { name = "opentelemetry-api", marker = "extra == 'dev'", specifier = ">=1.37,<2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev"]

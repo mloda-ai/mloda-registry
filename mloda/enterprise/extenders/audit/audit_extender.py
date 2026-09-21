@@ -36,6 +36,12 @@ class AuditSink(Protocol):
     def write(self, record: Mapping[str, Any]) -> None: ...
 
 
+def _require_sink_write(owner: str, sink: object) -> None:
+    # A class object has a callable write too, so it is rejected explicitly.
+    if isinstance(sink, type) or not callable(getattr(sink, "write", None)):
+        raise ValueError(f"{owner} sink must implement the AuditSink protocol: a callable write(record)")
+
+
 class NdjsonAuditSink:
     """One os.write per record to an O_APPEND descriptor keeps concurrent writers from interleaving
     a line, and the file is created owner-only. Opens per write, so it pickles and holds no buffer a
@@ -56,6 +62,8 @@ class TeeAuditSink:
     def __init__(self, *sinks: AuditSink) -> None:
         if not sinks:
             raise ValueError("TeeAuditSink needs at least one sink")
+        for sink in sinks:
+            _require_sink_write("TeeAuditSink", sink)
         self.sinks = sinks
 
     def write(self, record: Mapping[str, Any]) -> None:
@@ -122,8 +130,7 @@ class AuditExtender(Extender):
             )
         if len(set(required_identity)) != len(required_identity):
             raise ValueError(f"AuditExtender required_identity has duplicate name(s): {required_identity}")
-        if not callable(getattr(sink, "write", None)):
-            raise ValueError("AuditExtender sink must implement the AuditSink protocol: a callable write(record)")
+        _require_sink_write("AuditExtender", sink)
         if fail_closed and not raise_on_error:
             raise ValueError(
                 "AuditExtender fail_closed=True requires raise_on_error=True: with raise_on_error=False core "

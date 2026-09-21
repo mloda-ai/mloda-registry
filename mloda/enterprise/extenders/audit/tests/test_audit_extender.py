@@ -14,6 +14,7 @@ from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -1143,6 +1144,25 @@ class TestTeeAuditSink:
     def test_no_sinks_raises_value_error(self) -> None:
         with pytest.raises(ValueError):
             TeeAuditSink()
+
+    @pytest.mark.parametrize(
+        "invalid",
+        [NdjsonAuditSink, None, "not-a-sink", SimpleNamespace(write="not-callable")],
+        ids=["class_instead_of_instance", "none", "str", "write_not_callable"],
+    )
+    def test_a_sink_without_a_callable_write_raises_value_error(self, invalid: Any) -> None:
+        with pytest.raises(ValueError, match="write"):
+            TeeAuditSink(invalid)
+
+    def test_an_invalid_sink_after_a_valid_one_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="write"):
+            TeeAuditSink(InMemoryAuditSink(), None)  # type: ignore[arg-type]
+
+    def test_valid_sinks_construct_and_keep_their_order(self, tmp_path: Path) -> None:
+        memory = InMemoryAuditSink()
+        ndjson = NdjsonAuditSink(tmp_path / "audit.ndjson")
+
+        assert TeeAuditSink(memory, ndjson).sinks == (memory, ndjson)
 
     def test_writes_the_same_record_to_every_sink_in_the_order_given(self) -> None:
         log: list[tuple[str, Mapping[str, Any]]] = []

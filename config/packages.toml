@@ -35,7 +35,7 @@ dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version
 path = "mloda/enterprise"
 published = true
 entry_point_bundle = true
-optional_dependencies = { ed25519 = ["cryptography>=42"], otel = ["opentelemetry-api>=1.30,<2"] }
+optional_dependencies = { ed25519 = ["cryptography>=42"], otel = ["opentelemetry-api>=1.37,<2"] }
 py_typed = true
 
 [packages.mloda-community-example]
@@ -120,7 +120,7 @@ entry_point_groups = ["mloda.extenders"]
 description = "Tenant-scoped audit records with an identity presence gate for mloda pipelines"
 dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version}"]
 path = "mloda/enterprise/extenders/audit"
-optional_dependencies = { dev = ["mloda-testing[otel]", "pytest>=9.0.3", "cryptography>=42", "opentelemetry-api>=1.30,<2"] }
+optional_dependencies = { dev = ["mloda-testing[otel]", "pytest>=9.0.3", "cryptography>=42", "opentelemetry-api>=1.37,<2"] }
 entry_point_groups = ["mloda.extenders"]
 
 # --- Data Operations ---

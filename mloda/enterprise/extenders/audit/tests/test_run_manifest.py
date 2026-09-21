@@ -43,6 +43,7 @@ from mloda.enterprise.extenders.audit import (
     QuarantinedLine,
     RunAlreadySealedError,
     RunNotPendingError,
+    TeeAuditSink,
     manifest_hash,
     quarantine_damaged_lines,
     rotate_manifest_key,
@@ -53,6 +54,7 @@ from mloda.enterprise.extenders.audit import (
     verify_ndjson_log_coverage,
 )
 from mloda.enterprise.extenders.audit.audit_extender import _append_records
+from mloda.enterprise.extenders.audit.tests.test_audit_extender import _POLICY_VERSION, InMemoryAuditSink
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
 from mloda.testing.import_isolation import block_root, evict_package
 
@@ -4536,13 +4538,37 @@ class TestRunManifestRunAll:
         records = _read_lines(audit_path)
         assert records
         manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
-        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+        head = verify_ndjson_log(audit_path, manifest_path, signer=_signer())
 
         assert len(manifests) == 1
         manifest = manifests[0]
+        assert head == manifest_hash(manifest)
         assert manifest["compliant"] is True
         assert manifest["record_count"] == len(records)
         assert {record["run_id"] for record in records} == {manifest["run_id"]}
+        assert [record["policy_version"] for record in records] == [extender.policy_version] * len(records)
+
+    def test_run_all_tee_of_ndjson_and_memory_sinks_seals_and_verifies(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        memory = InMemoryAuditSink()
+        extender = AuditExtender(sink=TeeAuditSink(NdjsonAuditSink(audit_path), memory), policy_version=_POLICY_VERSION)
+
+        with verified_context(tenant_id="tenant-42", project_id="project-7", principal="svc"):
+            values = run_value_int(extender)
+
+        assert values == expected_value_int()
+        records = _read_lines(audit_path)
+        assert records
+        assert records == memory.records
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+        head = verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+        assert len(manifests) == 1
+        assert head == manifest_hash(manifests[0])
+        assert manifests[0]["record_count"] == len(records)
+        assert extender.policy_version == _POLICY_VERSION
+        assert [record["policy_version"] for record in records] == [extender.policy_version] * len(records)
 
     def test_run_all_without_verified_context_seals_a_non_compliant_manifest(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"

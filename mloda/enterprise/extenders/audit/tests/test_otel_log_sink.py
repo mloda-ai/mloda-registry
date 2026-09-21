@@ -5,6 +5,7 @@ from __future__ import annotations
 import calendar
 import hashlib
 import importlib
+import io
 import json
 import logging
 import pickle  # nosec
@@ -31,6 +32,11 @@ try:
     from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 except ImportError:  # SDKs that predate the rename only ship InMemoryLogExporter
     from opentelemetry.sdk._logs.export import InMemoryLogExporter as InMemoryLogRecordExporter
+
+try:
+    from opentelemetry.sdk._logs.export import ConsoleLogRecordExporter
+except ImportError:  # SDKs that predate the rename only ship ConsoleLogExporter
+    from opentelemetry.sdk._logs.export import ConsoleLogExporter as ConsoleLogRecordExporter
 
 import mloda.enterprise.extenders.audit as audit_package
 from mloda.enterprise.extenders.audit import (
@@ -121,6 +127,13 @@ def make_log_capture() -> tuple[LoggerProvider, InMemoryLogRecordExporter]:
     return provider, exporter
 
 
+def make_console_capture() -> tuple[LoggerProvider, io.StringIO]:
+    out = io.StringIO()
+    provider = LoggerProvider(shutdown_on_exit=False)
+    provider.add_log_record_processor(SimpleLogRecordProcessor(ConsoleLogRecordExporter(out=out)))
+    return provider, out
+
+
 @pytest.fixture
 def log_exporter() -> Iterator[InMemoryLogRecordExporter]:
     """An in-memory exporter behind the provider the patched resolver hands out; no global provider is set."""
@@ -189,6 +202,23 @@ def _module_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
         for r in caplog.records
         if r.name == otel_log_sink_module.__name__ and r.levelno == logging.WARNING
     ]
+
+
+def _emit_through_console(*records: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+    """The console exporter's raw text and the JSON object it printed per log (pretty-printed, so decoded in turn)."""
+    provider, out = make_console_capture()
+    with patch(_GET_LOGGER_PROVIDER, return_value=provider):
+        for record in records:
+            OtelLogAuditSink().write(record)
+    text = out.getvalue()
+    decoder = json.JSONDecoder()
+    logs: list[dict[str, Any]] = []
+    rest = text.strip()
+    while rest:
+        log, end = decoder.raw_decode(rest)
+        logs.append(log)
+        rest = rest[end:].lstrip()
+    return text, logs
 
 
 def _read_ndjson(path: Path) -> list[dict[str, Any]]:
@@ -506,6 +536,69 @@ class TestOtelLogAuditSinkMatchTimeRefusal:
         assert attributes["mloda.audit.hook"] == "FEATURE_GROUP_MATCHED"
         assert attributes["mloda.audit.decision"] == "deny"
         assert "IdentityRequiredError" in attributes["error.type"]
+
+
+class TestOtelLogAuditSinkRealExporter:
+    """A real SDK exporter converts each log itself; the in-memory exporter keeps the object and never does."""
+
+    def test_an_allow_record_is_serialised_with_its_body_severity_and_attributes(self) -> None:
+        record = _audit_record(
+            tenant_id="tenant-1",
+            project_id="project-1",
+            principal=_PRINCIPAL,
+            run_id="run-123",
+            feature_group_class="my.module.MyFeatureGroup",
+            feature_names=("value_int", "value_str"),
+        )
+
+        text, logs = _emit_through_console(record)
+
+        assert len(logs) == 1
+        assert logs[0]["body"] == "allow"
+        assert logs[0]["severity_text"] == "INFO"
+        assert logs[0]["attributes"] == {
+            "mloda.audit.decision": "allow",
+            "mloda.audit.policy_version": _POLICY_VERSION,
+            "mloda.audit.hook": "FEATURE_GROUP_CALCULATE_FEATURE",
+            "mloda.run.id": "run-123",
+            "mloda.tenant.id": "tenant-1",
+            "mloda.project.id": "project-1",
+            "user.hash": _sha256(_PRINCIPAL),
+            "mloda.feature_group.name": "my.module.MyFeatureGroup",
+            "mloda.feature.names": ["value_int", "value_str"],
+        }
+        assert _PRINCIPAL not in text
+
+    def test_a_deny_record_is_serialised_with_its_reason_feature_names_and_hashed_principal(self) -> None:
+        record = _audit_record(
+            fail_closed=True,
+            hook=ExtenderHook.FEATURE_GROUP_MATCHED,
+            tenant_id=None,
+            project_id="project-1",
+            principal=_PRINCIPAL,
+            run_id="run-123",
+            feature_group_class="my.module.MyFeatureGroup",
+            feature_names=("value_int", "value_str"),
+        )
+
+        text, logs = _emit_through_console(record)
+
+        assert len(logs) == 1
+        assert logs[0]["body"] == "deny"
+        assert logs[0]["severity_text"] == "WARN"
+        assert logs[0]["attributes"] == {
+            "mloda.audit.decision": "deny",
+            "mloda.audit.deny_reason": "missing_tenant_id",
+            "mloda.audit.policy_version": _POLICY_VERSION,
+            "mloda.audit.hook": "FEATURE_GROUP_MATCHED",
+            "mloda.run.id": "run-123",
+            "mloda.project.id": "project-1",
+            "user.hash": _sha256(_PRINCIPAL),
+            "mloda.feature_group.name": "my.module.MyFeatureGroup",
+            "mloda.feature.names": ["value_int", "value_str"],
+            "error.type": _IDENTITY_REQUIRED_ERROR_TYPE,
+        }
+        assert _PRINCIPAL not in text
 
 
 class TestOtelLogAuditSinkFailureIsolation:
