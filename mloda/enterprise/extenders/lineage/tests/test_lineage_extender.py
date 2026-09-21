@@ -1,10 +1,5 @@
-"""Tests for LineageFacetsExtender: contract compliance via OpenLineageExtenderTestMixin, plus the facets it adds
-on top of the community emitter (column lineage, declared masking, validation runs, the mloda run facet and its
-structure hash).
-
-Facet tests run local feature groups through mloda.run_all; direct __call__ tests wrap calls in a manually built
-HookContext.activate() scope.
-"""
+"""Tests for LineageFacetsExtender: contract compliance plus the facets it adds to the community emitter. Facet
+tests run local feature groups through mloda.run_all; direct __call__ tests use a manually built HookContext."""
 
 from __future__ import annotations
 
@@ -225,7 +220,7 @@ def _assertions(dataset: InputDataset) -> list[tuple[str, bool]]:
 
 
 def _own_facet_producers(event: RunEvent) -> list[tuple[str, str]]:
-    """(facet key, _producer) of every facet the extender builds; client-injected run facets keep the client's producer."""
+    """(facet key, _producer) of every facet the extender builds, not client-injected run facets."""
     payload = json.loads(Serde.to_json(event))
     run_facets = (payload.get("run") or {}).get("facets") or {}
     found = [(key, run_facets[key]["_producer"]) for key in ("parent", "mloda") if key in run_facets]

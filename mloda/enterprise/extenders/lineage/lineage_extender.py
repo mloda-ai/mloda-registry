@@ -42,8 +42,7 @@ class MlodaRunFacet(RunFacet):
 
 
 class LineageFacetsExtender(OpenLineageExtender):
-    """Drop-in superset of OpenLineageExtender: pass it instead of the community emitter. Adds column lineage,
-    declared masking, validator outcomes and a structure hash."""
+    """Used instead of OpenLineageExtender; adds column lineage, masking, validator outcomes and a structure hash."""
 
     producer: str = _PRODUCER
 
@@ -135,8 +134,7 @@ class LineageFacetsExtender(OpenLineageExtender):
 
 
 def _bound_method(func: Any) -> Any:
-    """The bound method behind func, unwrapping the instrumentation wrappers core puts around it (they copy
-    __self__ but not __func__, so the stop test is the method type, not the attribute)."""
+    """The bound method behind func; core's wrappers copy __self__ but not __func__, so stop at the method type."""
     return inspect.unwrap(func, stop=inspect.ismethod)
 
 

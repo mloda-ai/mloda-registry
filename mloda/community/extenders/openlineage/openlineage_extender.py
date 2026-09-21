@@ -302,9 +302,8 @@ class OpenLineageExtender(Extender):
         build_inputs: Callable[[list[InputDataset], BaseException | None], list[InputDataset]] | None = None,
         build_outputs: Callable[[], list[OutputDataset]] | None = None,
     ) -> Any:
-        """One Run: START, func inside an open invocation, then FAIL/ABORT or COMPLETE. build_inputs receives the
-        inputs gathered so far plus the raised exception (None on success) and build_outputs runs on success only,
-        both after the outcome is known and inside the guarded block."""
+        """One Run: START, func inside an open invocation, then FAIL/ABORT or COMPLETE. build_inputs gets the
+        gathered inputs and the raised exception (None on success); build_outputs runs on success only."""
         run = Run(runId=str(uuid.uuid4()), facets=run_facets)
         invocation = _OpenCalculateInvocation(run_id=run.runId, job=job, inputs=declared_inputs)
 

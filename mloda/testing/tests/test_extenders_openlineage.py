@@ -205,8 +205,8 @@ class TestOwnFailureDefaultDetectsNoFault:
 
 
 class _NestedRunProbeOpenLineageExtender(Extender):
-    """Delegates to OpenLineageExtender and, after every calculate run, emits one extra nested run (its own parent
-    run id, a COMPLETE with an input), the way a validation run would."""
+    """Delegates to OpenLineageExtender, then emits one extra nested run after every calculate run, like a validation
+    run would."""
 
     def __init__(self, client: OpenLineageClient, raise_on_error: bool = False) -> None:
         self.raise_on_error = raise_on_error
@@ -283,8 +283,7 @@ _COUNT_SENSITIVE_MIXIN_TESTS: list[Any] = [
 
 
 class TestCalculateRunEventsHook:
-    """calculate_run_events lets a host drop the events of non-calculate runs before the three count-sensitive
-    run_all assertions read them."""
+    """calculate_run_events lets a host drop non-calculate runs before the count-sensitive run_all assertions."""
 
     @pytest.mark.parametrize("mixin_test", _COUNT_SENSITIVE_MIXIN_TESTS)
     def test_nested_run_breaks_the_assertion_without_a_filtering_override(

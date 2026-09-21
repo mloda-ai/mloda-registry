@@ -1,7 +1,6 @@
-"""Manifest resilience for mloda-enterprise-lineage. Unlike the community emitter (whose contract lives in
-OptionalDependencyPackageTestMixin), this manifest swallows a missing community emitter on purpose:
-PluginLoader re-raises a missing ``mloda.*`` module because its root equals the entry point's own root, so an
-unguarded import would break discovery of every enterprise plugin on an install without the extra.
+"""This manifest swallows a missing community emitter on purpose: PluginLoader re-raises a missing ``mloda.*``
+module (its root equals the entry point's own), so an unguarded import would break every enterprise plugin on an
+install without the extra.
 """
 
 from __future__ import annotations
@@ -22,8 +21,7 @@ _EXTENDER_NAME = "LineageFacetsExtender"
 _COMMUNITY = "mloda.community.extenders.openlineage"
 _SHARED = "mloda.community.extenders.shared"
 
-# The two shapes of "the community emitter is unavailable": its package is not installed, or it is
-# installed but openlineage-python is not.
+# Community emitter unavailable: its package is missing, or openlineage-python is.
 _MISSING_ROOTS = [_COMMUNITY, "openlineage"]
 
 # Hand-built so the discovery test needs neither installed metadata nor the community entry point.

@@ -270,11 +270,10 @@ Keep the floor in the bundle extra and in the leaf `dev` entry equal. `test_bund
 enforces that pair.
 
 The dependency can also be a first-party sibling (`mloda-community-openlineage` behind
-`mloda-enterprise[openlineage]`, used by `mloda-enterprise-lineage`). Spell its floor `{version}` in both
-places (`test_bundle_extra_sibling_floor_matches_leaf_dev_entry` enforces the pair); the generator adds the
-bundle's workspace source. Because PluginLoader re-raises a missing module whose root equals the entry
-point's own root (`mloda`), such a leaf's manifest catches the missing sibling itself instead of relying on
-a `mloda.optional_dependencies` marker.
+`mloda-enterprise[openlineage]`). Spell its floor `{version}` in both places
+(`test_bundle_extra_sibling_floor_matches_leaf_dev_entry` enforces the pair); the generator adds the
+bundle's workspace source. PluginLoader re-raises a missing module whose root equals the entry
+point's own root (`mloda`), so such a leaf's manifest must catch the missing sibling itself.
 
 ### Add a variant to an existing plugin
 

@@ -1458,8 +1458,8 @@ class TestOpenLineageExtenderRunAll:
 
 
 class TestOpenLineageExtenderSubclassSeams:
-    """The protected seams a subclass builds on: producer, _dispatch, _calculate_run_facets and
-    _calculate_output_facets. Each default reproduces the community emitter's behavior unchanged."""
+    """The seams a subclass builds on (producer, _dispatch, _calculate_run_facets, _calculate_output_facets); the
+    defaults leave the emitter's behavior unchanged."""
 
     def test_default_producer_is_the_community_package_url(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]

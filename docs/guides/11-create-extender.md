@@ -148,20 +148,20 @@ extender = AuditExtender(sink, fail_closed=True)
 
 ## Lineage facets
 
-`LineageFacetsExtender` (`mloda-enterprise-lineage`) is a superset of `OpenLineageExtender`: pass it instead of the community emitter, not next to it. It needs the extra `mloda-enterprise[openlineage]`; without it the extender is simply not registered. Beyond the community events it adds:
+`LineageFacetsExtender` (`mloda-enterprise-lineage`) is used instead of `OpenLineageExtender`, not next to it. It needs the extra `mloda-enterprise[openlineage]`; without it the extender is not registered. Beyond the community events it adds:
 
-- `columnLineage` on each output dataset: DIRECT edges from the step's declared input features, sorted; root steps have none.
+- `columnLineage` on each output dataset: DIRECT edges from the step's declared input features; root steps have none.
 - `masking` on those edges, only when declared (see below).
 - `dataQualityAssertions` on nested validation runs: one assertion named after the validator, `success` true or false.
 - a `mloda` run facet: `featureGroupVersion`, `pluginVersion`, `computeFramework`, `maskedFeatures` and `structureHash`.
 
-Masking is declared, never inferred: set the class attribute `masking = True` on the feature group, or the option `masking=True` in the feature's own `context`. It must be the boolean `True`; a `group` key, the string `"true"` and a context key forwarded from another step do not count. It is unrelated to core's `mask`. An undeclared feature leaves `Transformation.masking` unset.
+Masking is declared, never inferred: set the class attribute `masking = True` on the feature group, or the option `masking=True` in the feature's own `context`. It must be the boolean `True`; a `group` key, the string `"true"` and a context key forwarded from another step do not count. It is unrelated to core's `mask`.
 
-Column-lineage edges are the step-level declared inputs. A step with several outputs cannot say which input feeds which output, so every output lists every input and the transformation `description` reads `step-level declared inputs` (an over-approximation).
+Column-lineage edges are step-level declared inputs. A step with several outputs cannot say which input feeds which, so every output lists every input (an over-approximation) and the transformation `description` reads `step-level declared inputs`.
 
-Validation runs only for a feature group that overrides `validate_input_features` or `validate_output_features`; a default validator emits nothing. Each overridden validator is its own nested run (job `<feature group>.<method>`, parent facet pointing at the root run) with START, then COMPLETE, FAIL or ABORT. The terminal event carries one input dataset per validated feature (declared inputs for validate-input, output features for validate-output). A failing validator is re-raised and its message is never emitted. Each overridden validator adds one run, two events, per step. Gaps: root steps skip validate-input (no data yet), and core's own `EmptyResultError` and `DataTypeValidator` failures happen outside the hook, so they produce no assertion.
+Validation is reported only for a feature group that overrides `validate_input_features` or `validate_output_features`. Each overridden validator is its own nested run per step (job `<feature group>.<method>`, START then COMPLETE, FAIL or ABORT), so it adds one extra run and two events per step. The terminal event carries one input dataset per validated feature. A failing validator is re-raised and its message is never emitted. Root steps skip validate-input (no data yet), and core's own `EmptyResultError` and `DataTypeValidator` failures happen outside the hook, so they produce no assertion.
 
-`structureHash` is the sha256 of the feature group class, feature group version, plugin version, compute framework, feature names, declared inputs and masked features. It holds no run id or time, so it is stable across runs and changes with the code, plugin, graph shape or masking declaration.
+`structureHash` is the sha256 of the feature group class, versions, compute framework, feature names, declared inputs and masked features. It holds no run id or time, so it is stable across runs and changes only when the structure does.
 
 The `mloda` facet's schema URL points at its module in this repository; it is not a hosted JSON schema.
 
