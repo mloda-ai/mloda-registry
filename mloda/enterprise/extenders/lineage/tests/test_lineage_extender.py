@@ -1228,6 +1228,7 @@ class TestLineageFacetsRunFacet:
             input_features=["x", "y", "z"],
             masked_features=[],
         )
+        assert actual == "1aa6899e9e54c2423cc91db39e491c3e2d1cf05e15a4bc31234bfd474a5735e8"
 
     def test_structure_hash_includes_the_declared_masking(self) -> None:
         actual = _structure_hash(

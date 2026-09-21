@@ -228,6 +228,7 @@ def _structure_hash(context: HookContext, masked: list[str], source_columns: lis
         sorted(context.input_features or ()),
         masked,
     ]
+    # Appended only when non-empty, so a step declaring no source column hashes as before.
     if source_columns:
         structure.append(source_columns)
     return hashlib.sha256(json.dumps(structure, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
