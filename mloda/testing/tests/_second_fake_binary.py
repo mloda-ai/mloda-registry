@@ -27,6 +27,9 @@ from mloda.testing.binary_model.hash_reference import compute_expected_hash
 PLUGIN_ID = "second_fake_binary"
 OPERATION = "frobnicate"
 OUTPUT_KEY = "value"
+# Valid semver with both a pre-release and a build-metadata part; the production parser accepts it, so the
+# kit's --version check must too.
+VERSION = "1.2.3-rc.1+build.7"
 
 
 def _compute_frobnicate_output(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Schema, list[pa.Array]]:
@@ -47,6 +50,7 @@ def _compute_frobnicate_output(table: pa.Table, config: dict[str, Any]) -> tuple
 
 def _install_second_binary_identity() -> None:
     simulated_binary.PLUGIN_ID = PLUGIN_ID
+    simulated_binary.VERSION = VERSION
     simulated_binary.CAPABILITY_OPERATIONS = [OPERATION]
     simulated_binary._OPERATION_OUTPUTS = {OPERATION: (OUTPUT_KEY,)}
     simulated_binary._compute_hash_output = _compute_frobnicate_output
