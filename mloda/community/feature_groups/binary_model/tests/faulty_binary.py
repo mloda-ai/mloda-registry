@@ -131,6 +131,25 @@ def _run(mode: str, args: list[str]) -> int:
         pid_path.write_text(str(child.pid), encoding="utf-8")
         time.sleep(60)
         return 0
+    if mode == "hang_with_sigterm_ignoring_child":
+        # The leader dies on SIGTERM; its child ignores SIGTERM and holds the inherited pipes open. The
+        # child writes its pid only after installing SIG_IGN, and the leader waits for that file.
+        loaded_config = _load_config(config_path)
+        pid_path = Path(loaded_config["parameters"]["pid_file"])
+        child_code = (
+            "import os, signal, sys, time\n"
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            "tmp = sys.argv[1] + '.tmp'\n"
+            "open(tmp, 'w').write(str(os.getpid()))\n"
+            "os.replace(tmp, sys.argv[1])\n"
+            "time.sleep(60)\n"
+        )
+        pid_arg = str(pid_path)
+        subprocess.Popen([sys.executable, "-c", child_code, pid_arg])  # nosec B603
+        while not pid_path.exists():
+            time.sleep(0.02)
+        time.sleep(60)
+        return 0
     if mode == "exit_before_reading":
         return _emit_error(2, "license missing (simulated by faulty_binary exit_before_reading)")
     if mode == "signal":
