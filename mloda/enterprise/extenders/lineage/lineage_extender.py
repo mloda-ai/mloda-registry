@@ -168,6 +168,8 @@ def _class_attribute(func: Any, name: str) -> Any:
 
 def _own_option(feature: Feature | None, key: str) -> Any:
     # Own context key only: not inherited, not held with an equal value by the consumer (which core cannot tell apart).
+    # Equality is checked for bool and str only: only `True` or a non-empty str can count, and it keeps `==` safe for
+    # array-like or exotic values.
     if feature is None or key in feature.options.inherited_context_keys:
         return None
     value = feature.options.context.get(key)

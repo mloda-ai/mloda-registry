@@ -125,7 +125,7 @@ class _MidStep(_Derived):
 
 
 class _TopRequestingMaskedMid(_Derived):
-    """Requests its mid-step input with the same own `masking` context key the top feature propagates."""
+    """Requests its mid-step input with its own fresh `Options(context={"masking": True})`."""
 
     outputs = ("lineage_facets_limit_top",)
     inputs = _MidStep.outputs
@@ -340,9 +340,10 @@ def _calculate_loading_step(
     """Run one calculate call directly, firing a load hook per identity in `loaded`."""
     client, transport = ol_capture
     extender = LineageFacetsExtender(client=client, dataset_namespace="lineage-ds")
-    features = FeatureSet([Feature(name, options=options) for name, options in options_by_feature.items()])
-    for feature in features.features:
-        feature.child_options = consumer_options
+    step_features = [Feature(name, options=options) for name, options in options_by_feature.items()]
+    for feature in step_features:
+        feature.child_options = consumer_options  # before the set is built: the hash includes child_options
+    features = FeatureSet(step_features)
 
     def load() -> str:
         for identity in loaded:
@@ -647,7 +648,7 @@ class TestLineageFacetsMasking:
         assert all(_run_facet(event).maskedFeatures == [] for event in _events_for(transport.events, _job(_Root)))
 
     @pytest.mark.parametrize(("make_options", "mid_masked", "top_masked"), _CONSUMER_HELD_CASES)
-    def test_a_step_option_is_not_attributed_to_the_step_when_its_consumer_holds_it(
+    def test_a_steps_own_option_counts_unless_its_consumer_holds_it(
         self,
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
         make_options: Callable[[], Options],
