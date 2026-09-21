@@ -247,6 +247,10 @@ def run_binary(
     except subprocess.TimeoutExpired:
         _terminate_timed_out_process(proc)
         raise BinaryTerminatedError(f"binary timed out after {timeout}s and was terminated")
+    except BaseException:
+        if proc.poll() is None:
+            _terminate_timed_out_process(proc)
+        raise
 
     logger.debug("binary exited with code %s", proc.returncode)
 
