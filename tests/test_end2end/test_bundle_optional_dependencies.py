@@ -119,6 +119,44 @@ def test_mloda_community_declares_extra_matching_pin_source(
     )
 
 
+def test_bundle_extra_floor_matches_leaf_dev_entry() -> None:
+    """A bundle extra's floor for an external dependency must equal the same dependency's entry in the
+    ``dev`` extra of every nested leaf that lists it, so the two places cannot drift apart."""
+    packages = _packages()
+    checked = 0
+
+    for bundle_name, bundle_cfg in packages.items():
+        if bundle_cfg.get("entry_point_bundle") is not True:
+            continue
+        prefix = bundle_cfg["path"] + "/"
+
+        for extra_name, extra_deps in bundle_cfg.get("optional_dependencies", {}).items():
+            if extra_name in ("all", "dev"):
+                continue
+            external = _external_dependency_names(extra_deps, packages)
+            for extra_spec in extra_deps:
+                name = _dep_name(extra_spec)
+                if name not in external:
+                    continue
+                for leaf_name, leaf_cfg in packages.items():
+                    if not leaf_cfg["path"].startswith(prefix):
+                        continue
+                    for dev_spec in leaf_cfg.get("optional_dependencies", {}).get("dev", []):
+                        if _dep_name(dev_spec) != name:
+                            continue
+                        checked += 1
+                        assert extra_spec == dev_spec, (
+                            f"the {name} floor must match: packages.{bundle_name}.optional_dependencies."
+                            f"{extra_name} ({extra_spec!r}) must equal packages.{leaf_name}."
+                            f"optional_dependencies.dev ({dev_spec!r})"
+                        )
+
+    assert checked, (
+        "expected at least one bundle extra dependency that a nested leaf also lists in its dev extra "
+        "(e.g. mloda-enterprise[ed25519] / mloda-enterprise-audit)"
+    )
+
+
 @pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
 def test_generated_pyproject_lists_distribution_only_under_optional_extra(
     extra_name: str, distribution_name: str, leaf_name: str, root: str, exposed: list[str]

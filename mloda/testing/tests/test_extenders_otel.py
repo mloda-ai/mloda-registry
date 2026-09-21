@@ -18,6 +18,7 @@ from opentelemetry.context import Context
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.trace import NonRecordingSpan, SpanContext, Status, StatusCode, TraceFlags, set_span_in_context
 
+from mloda.community.extenders.otel import OtelExtender
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.otel import (
     OtelExtenderTestMixin,
@@ -161,7 +162,18 @@ class TestOtelExtenderTestMixinShape:
         assert mixin.ambient_sink_captured([]) == []
 
     def test_sdk_defaults_contract_fails_when_the_ambient_sink_captured_nothing(self) -> None:
-        class _Host(TestProbeOtelExtenderContract):
+        class _Host(OtelExtenderTestMixin):
+            @classmethod
+            def extender_class(cls) -> type[OtelExtender]:
+                return OtelExtender
+
+            def make_otel_extender(
+                self, tracer_provider: TracerProvider, *, raise_on_error: bool | None = None
+            ) -> OtelExtender:
+                if raise_on_error is None:
+                    return OtelExtender(tracer_provider=tracer_provider)
+                return OtelExtender(tracer_provider=tracer_provider, raise_on_error=raise_on_error)
+
             def ambient_sink_captured(self, spy: list[Any]) -> list[Any] | None:
                 return []
 

@@ -261,9 +261,8 @@ dependency (today `cryptography` behind `mloda-enterprise[ed25519]`, used by `ml
 5. Add the install row to the README and to the install table under
    [Individual packages](#individual-packages).
 
-Keep the floor in the bundle extra and in the leaf `dev` entry equal. Nothing enforces that pair:
-`test_mloda_community_declares_extra_matching_pin_source` only compares a bundle extra with a
-leaf's `dependencies`.
+Keep the floor in the bundle extra and in the leaf `dev` entry equal. `test_bundle_extra_floor_matches_leaf_dev_entry`
+enforces that pair.
 
 ### Add a variant to an existing plugin
 
