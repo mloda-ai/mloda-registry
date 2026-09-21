@@ -92,7 +92,7 @@ class LineageFacetsExtender(OpenLineageExtender):
     def _column_lineage_facet(
         self, name: str, edges: list[tuple[str, str, str]], masking: bool | None, description: str | None
     ) -> column_lineage_dataset.ColumnLineageDatasetFacet:
-        """The DIRECT lineage of output `name` from each (namespace, dataset name, field) edge."""
+        """`edges` are (namespace, dataset name, field) triples."""
         return column_lineage_dataset.ColumnLineageDatasetFacet(
             fields={
                 name: column_lineage_dataset.Fields(

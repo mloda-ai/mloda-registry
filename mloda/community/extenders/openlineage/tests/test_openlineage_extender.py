@@ -1731,7 +1731,7 @@ class TestOpenLineageExtenderSubclassSeams:
         complete_event = transport.events[-1]
         assert complete_event.eventType == RunState.COMPLETE
         assert [i.name for i in complete_event.inputs or []] == ["src", "s3://bucket/key.parquet"]
-        # The seam sees the gathered inputs that become the COMPLETE event's inputs: declared first, loaded second.
+        # The seam gets the COMPLETE event's inputs: declared first, loaded second.
         assert extender.output_facet_calls == [
             (context, func, ("positional",), "value_int", complete_event.inputs),
             (context, func, ("positional",), "value_str", complete_event.inputs),

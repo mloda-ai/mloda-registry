@@ -51,7 +51,7 @@ _LOADED = "data.csv"
 
 
 class _Root(FeatureGroup):
-    """Root step: declares no inputs and loads no dataset, so it carries no column lineage."""
+    """Root step: no inputs and no dataset load, so no column lineage."""
 
     @classmethod
     def input_data(cls) -> DataCreator:
@@ -180,7 +180,7 @@ class _InterruptedValidator(_Derived):
 
 
 class _Loading(FeatureGroup):
-    """Root step that loads through `data`, so a test fires the nested INPUT_DATA_LOAD hooks itself."""
+    """Root step that loads through `data`; tests fire the nested INPUT_DATA_LOAD hooks themselves."""
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
@@ -292,7 +292,7 @@ def _has_column_lineage(event: RunEvent, name: str) -> bool:
 
 
 def _root_edge(dataset: str, field: str, masking: bool | None = None) -> column_lineage_dataset.Fields:
-    """The one DIRECT edge of a root output, from `field` of the loaded `dataset`; never a step-level description."""
+    """The one DIRECT edge of a root output; it never has a step-level description."""
     transformation = column_lineage_dataset.Transformation(type="DIRECT", masking=masking)
     return column_lineage_dataset.Fields(
         inputFields=[
@@ -304,7 +304,7 @@ def _root_edge(dataset: str, field: str, masking: bool | None = None) -> column_
 
 
 def _inherited_source_column_options() -> Options:
-    """The key looks like the feature's own but was forwarded from a consumer, so core marks it inherited."""
+    """Forwarded from a consumer, so core marks the key inherited."""
     options = Options()
     options.inherit_from(Options(context={_SOURCE_COLUMN: True}), inherit_context_keys=frozenset({_SOURCE_COLUMN}))
     return options
@@ -318,7 +318,7 @@ def _calculate_loading_step(
     loaded: Sequence[str] = (_LOADED,),
     input_features: frozenset[str] | None = None,
 ) -> RunEvent:
-    """Run one calculate invocation of `feature_group` directly; `loaded` are the identities it loads, in order."""
+    """Run one calculate call directly, firing a load hook per identity in `loaded`."""
     client, transport = ol_capture
     extender = LineageFacetsExtender(client=client, dataset_namespace="lineage-ds")
     features = FeatureSet([Feature(name, options=options) for name, options in options_by_feature.items()])
@@ -769,8 +769,7 @@ _MASKED_ROOT_CASES = [
 
 
 class TestLineageFacetsRootSourceColumns:
-    """A root step (no declared inputs) gets columnLineage from its one loaded dataset, only for a feature whose
-    source column is declared through `lineage_source_column` (own context option or feature group attribute)."""
+    """A root step gets columnLineage from its one loaded dataset only for a feature declaring its source column."""
 
     def test_run_all_reader_root_step_links_its_output_to_the_loaded_csv(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], tmp_path: Path
