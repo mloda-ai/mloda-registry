@@ -75,8 +75,7 @@ def _warn_once_without_sdk(provider: object) -> None:
 
 
 class OtelLogAuditSink:
-    """Emits one OpenTelemetry log record per audit record, best effort, through the global logger provider.
-    The principal is exported only as its sha256."""
+    """Emits one OTel log record per audit record, best effort; the principal is exported only as its sha256."""
 
     def __init__(self) -> None:
         try:

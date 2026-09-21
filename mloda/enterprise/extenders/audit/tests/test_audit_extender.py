@@ -106,8 +106,6 @@ class _LoggingSink:
 
 
 class _FailingSink:
-    """Raises the given error on every write."""
-
     def __init__(self, error: Exception) -> None:
         self.error = error
 

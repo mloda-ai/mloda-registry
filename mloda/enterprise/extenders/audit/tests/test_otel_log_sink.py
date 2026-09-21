@@ -1,6 +1,4 @@
-"""Tests for OtelLogAuditSink: one OpenTelemetry log record per audit record, built from an attribute
-allowlist, never raising into the audit path. Tests patch the provider resolver instead of setting a
-global LoggerProvider."""
+"""Tests for OtelLogAuditSink. They patch the provider resolver instead of setting a global LoggerProvider."""
 
 from __future__ import annotations
 
@@ -64,7 +62,6 @@ _ALL_IDENTITY = ("tenant_id", "project_id", "principal")
 
 _OTEL_EXTRA = re.escape("mloda-enterprise[otel]")
 
-# Record key to attribute name for the plain str attributes.
 _STR_ATTRIBUTES = {
     "deny_reason": "mloda.audit.deny_reason",
     "policy_version": "mloda.audit.policy_version",
@@ -76,14 +73,12 @@ _STR_ATTRIBUTES = {
     "error_type": "error.type",
 }
 
-# Every key whose absent, None or blank value must leave its attribute out.
 _BLANK_OMITTED_ATTRIBUTES = {**_STR_ATTRIBUTES, "principal": "user.hash"}
 
 _ALLOWED_ATTRIBUTES = {*_STR_ATTRIBUTES.values(), "mloda.audit.decision", "user.hash", "mloda.feature.names"}
 
 _SEVERITY_BY_DECISION = {"allow": SeverityNumber.INFO, "deny": SeverityNumber.WARN}
 
-# (event_time, nanoseconds since the epoch), worked out with integer arithmetic.
 _EVENT_TIME_CASES = [
     pytest.param("2026-09-21T10:11:12.123456Z", 1789985472123456000, id="microseconds"),
     pytest.param("2026-09-21T10:11:12Z", 1789985472000000000, id="no_fraction"),
@@ -91,7 +86,7 @@ _EVENT_TIME_CASES = [
     pytest.param("2026-09-21T23:59:59.999999Z", 1790035199999999000, id="last_microsecond"),
 ]
 
-# (principal, its sha256 hex digest); the first is the published test vector for "abc".
+# "abc" is the published SHA-256 test vector.
 _PRINCIPAL_HASH_CASES = [
     pytest.param("abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", id="known_vector"),
     pytest.param(_PRINCIPAL, hashlib.sha256(_PRINCIPAL.encode("utf-8")).hexdigest(), id="ascii"),
@@ -104,7 +99,6 @@ _PRINCIPAL_HASH_CASES = [
 
 _EVENT_TIME = re.compile(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?Z")
 
-# Recognisable values under keys that must never be forwarded.
 _UNFORWARDED = {
     "extra_marker": "extra-marker-9c1d",
     "data_access_identity": ["s3://bucket-marker-9c1d/key"],
@@ -121,7 +115,6 @@ _UNFORWARDED = {
 
 
 def make_log_capture() -> tuple[LoggerProvider, InMemoryLogRecordExporter]:
-    """SDK LoggerProvider wired to an in-memory log exporter via a SimpleLogRecordProcessor."""
     exporter = InMemoryLogRecordExporter()  # type: ignore[no-untyped-call,unused-ignore]
     provider = LoggerProvider(shutdown_on_exit=False)
     provider.add_log_record_processor(SimpleLogRecordProcessor(exporter))
@@ -160,7 +153,6 @@ def _single_log(exporter: InMemoryLogRecordExporter) -> Any:
 
 
 def _write_one(exporter: InMemoryLogRecordExporter, record: dict[str, Any]) -> Any:
-    """Write the record through a new sink and return the one log that reached the exporter."""
     OtelLogAuditSink().write(record)
     return _single_log(exporter)
 
@@ -192,7 +184,6 @@ def _epoch_ns(event_time: str) -> int:
 
 
 def _module_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
-    """The WARNING messages the sink module's own logger emitted."""
     return [
         r.getMessage()
         for r in caplog.records
