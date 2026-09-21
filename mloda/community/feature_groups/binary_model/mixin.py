@@ -177,7 +177,9 @@ def _write_ipc_stream(table: pa.Table, max_batch_bytes: int) -> bytes:
 
 def _parse_output_stream(data: bytes) -> pa.Table:
     try:
-        return pa.ipc.open_stream(data).read_all()
+        table = pa.ipc.open_stream(data).read_all()
+        table.validate(full=True)  # full validation catches e.g. invalid UTF-8 in string columns
+        return table
     except (pa.ArrowException, ValueError, OSError) as exc:
         raise OutputContractError(f"binary output is not a valid Arrow IPC stream: {exc}") from exc
 
