@@ -238,7 +238,9 @@ class OpenLineageExtender(Extender):
                         namespace=self.dataset_namespace,
                         name=identity,
                         facets={
-                            "dataSource": datasource_dataset.DatasourceDatasetFacet(name=identity, producer=self.producer)
+                            "dataSource": datasource_dataset.DatasourceDatasetFacet(
+                                name=identity, producer=self.producer
+                            )
                         },
                     )
                 )
