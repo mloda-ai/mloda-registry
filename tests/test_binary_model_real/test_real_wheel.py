@@ -10,8 +10,9 @@ repo's other suites assume the wheel is absent and are not supported with it ins
 The full expired/in-grace/valid license state machine is already covered against the real compiled
 binary in the mloda-binary-wrapper repo's own CI across multiple platforms, and is deliberately not
 duplicated here. The end-to-end test needs a test-key build (never published), so it skips against the
-release wheel; a full run with a production license and the other platforms are intentionally deferred
-follow-up work, not omissions.
+release wheel; a full run with a production license is deferred follow-up work. The ``real-wheel`` CI
+job runs this directory on Linux x86_64, macOS and Windows, not Linux aarch64 (the wrapper does not
+run-test it).
 """
 
 from __future__ import annotations

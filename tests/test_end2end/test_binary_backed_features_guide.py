@@ -20,6 +20,8 @@ _CLAUDE_MD = _REPO_ROOT / "CLAUDE.md"
 _PACKAGING_DOC = _REPO_ROOT / "docs" / "packaging.md"
 # AGENTS.md is a byte-identical copy of CLAUDE.md, covered by test_agent_guidance.py.
 _SETUP_COMMAND_DOCS = (_README, _CONTRIBUTING, _CLAUDE_MD, _PACKAGING_DOC)
+# The `real-wheel` job body: from its key line to the next job key or end of file.
+_REAL_WHEEL_JOB_RE = re.compile(r"^  real-wheel:[^\n]*\n(?P<body>.*?)(?=^  [\w-]+:|\Z)", re.MULTILINE | re.DOTALL)
 
 
 def test_complete_example_sets_binary_wheel_distribution() -> None:
@@ -107,6 +109,23 @@ def test_ci_runs_the_real_wheel_tox_env() -> None:
     assert re.search(r"^\s*(?:-\s+)?run:\s*tox -e real-wheel\s*$", workflow, re.MULTILINE), (
         "ci.yaml must have a non-comment step that runs `tox -e real-wheel`"
     )
+
+
+def test_ci_real_wheel_job_covers_linux_macos_and_windows() -> None:
+    """The real-wheel job in ci.yaml runs its matrix on ubuntu, macos and windows, so it cannot shrink."""
+    workflow = _CI_WORKFLOW.read_text(encoding="utf-8")
+    match = _REAL_WHEEL_JOB_RE.search(workflow)
+    assert match is not None, "ci.yaml must define a top-level `real-wheel` job"
+    job = match.group("body")
+    assert re.search(r"^\s+runs-on:\s*\$\{\{\s*matrix\.os\s*\}\}[ \t]*(?:#.*)?$", job, re.MULTILINE), (
+        "the `real-wheel` job must use `runs-on: ${{ matrix.os }}` so that its matrix `os` list is what runs"
+    )
+    os_list = re.search(r"^\s+os:\s*\[(?P<entries>[^\]]*)\]", job, re.MULTILINE)
+    assert os_list is not None, "the `real-wheel` job matrix `os` must be a flow list, e.g. `os: [ubuntu-24.04, ...]`"
+    raw_entries = re.sub(r"#[^\n]*", "", os_list.group("entries")).split(",")
+    entries = [entry for entry in (raw.strip(" \t\r\n'\"") for raw in raw_entries) if entry]
+    missing = [family for family in ("ubuntu", "macos", "windows") if not any(e.startswith(family) for e in entries)]
+    assert not missing, f"the `real-wheel` matrix `os` list is missing platforms {missing}; entries found: {entries}"
 
 
 def test_against_the_real_wheel_section_shows_the_tox_env_command() -> None:
