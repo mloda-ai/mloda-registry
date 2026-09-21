@@ -697,6 +697,18 @@ _DECLARED_CASES = [
         id="option beats class true",
     ),
     pytest.param(
+        _SourceByTrue,
+        lambda: {"out": Options(context={_SOURCE_COLUMN: False})},
+        {"out": "out"},
+        id="class true, option false falls back",
+    ),
+    pytest.param(
+        _SourceByDict,
+        lambda: {"out": _inherited_source_column_options()},
+        {"out": "src"},
+        id="class dict, inherited option falls back",
+    ),
+    pytest.param(
         _Loading,
         lambda: {
             "out": Options(context={_SOURCE_COLUMN: "src_out"}),
