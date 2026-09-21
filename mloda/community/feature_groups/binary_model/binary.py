@@ -64,7 +64,7 @@ def _resolve_executable_path(candidate: str, path: str) -> Path:
         found = shutil.which(candidate, path=path)
         if found is None:
             raise BinaryUnavailableError(f"binary not found on PATH: {candidate!r}")
-        resolved = Path(found)
+        resolved = Path(os.path.abspath(found))
 
     if not resolved.is_file() or not os.access(resolved, os.X_OK):
         raise BinaryUnavailableError(f"binary is not an executable regular file: {resolved}")

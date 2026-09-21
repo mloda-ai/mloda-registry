@@ -222,6 +222,17 @@ class TestBareOverrideResolvedAgainstGivenEnvPath:
         with pytest.raises(BinaryUnavailableError):
             binary.resolve_binary(PLUGIN_ID, "stub-binary", env={"PATH": os.defpath}, timeout=10.0)
 
+    def test_bare_override_found_via_a_relative_path_entry_is_made_absolute(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """``shutil.which`` returns a relative path for a relative ``PATH`` entry. The resolved argv
+        is executed later from a different working directory, so it must be absolute by then."""
+        bin_dir = self._write_stub_wrapper(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        resolved = binary.resolve_binary(PLUGIN_ID, "stub-binary", env={"PATH": "bin"}, timeout=10.0)
+        assert os.path.isabs(resolved.argv[0])
+        assert resolved.argv[0] == str(bin_dir / "stub-binary")
+
 
 class TestVersionMustBeSemVer:
     """The ``--version`` line's second token must be SemVer, the same pattern the conformance kit
