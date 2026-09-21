@@ -654,9 +654,8 @@ class TestLineageFacetsMasking:
         mid_masked: bool,
         top_masked: bool,
     ) -> None:
-        """An option counts as a step's own only when it is in its context, not marked inherited, and its consumer does
-        not hold the same key with an equal value: core cannot tell a consumer's value that reached the step by
-        propagation, sharing or copying from the step's own equal declaration, so the extender under-reports."""
+        """A step's option counts only when in its own context, not inherited, and not held equally by its consumer:
+        core cannot tell that from the consumer's value reaching the step by propagation, sharing or copying."""
         client, transport = ol_capture
         top = _TopRequestingMaskedMid.outputs[0]
         mid = _MidStep.outputs[0]
@@ -682,8 +681,8 @@ class TestLineageFacetsMasking:
         sharing: type[_SharingOptionsWithInputs],
         root: type[_Root],
     ) -> None:
-        """Input features handed the consumer's Options, or a rebuilt copy of them when the receiving root declares an
-        option default, carry the consumer's masking key; only the consumer reports it, the root step does not."""
+        """Consumer Options shared with a root step, or rebuilt as a copy for its option default, mask only the
+        consumer, not the root step."""
         client, transport = ol_capture
         name = sharing.outputs[0]
 
