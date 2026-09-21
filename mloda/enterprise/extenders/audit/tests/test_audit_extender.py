@@ -591,7 +591,15 @@ class TestAuditExtenderRunAll:
         assert counting.calls == 0
 
     @pytest.mark.parametrize(
-        "mode", [ParallelizationMode.SYNC, ParallelizationMode.THREADING, ParallelizationMode.MULTIPROCESSING]
+        "mode",
+        [
+            ParallelizationMode.SYNC,
+            pytest.param(
+                ParallelizationMode.THREADING,
+                marks=pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning"),
+            ),
+            ParallelizationMode.MULTIPROCESSING,
+        ],
     )
     def test_run_all_fail_closed_refuses_at_calculate_when_identity_is_gone_by_run_time(
         self, mode: ParallelizationMode, tmp_path: Path, request: pytest.FixtureRequest
