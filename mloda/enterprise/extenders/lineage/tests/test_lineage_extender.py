@@ -33,7 +33,7 @@ from mloda.testing.extenders.openlineage import OpenLineageExtenderTestMixin, Re
 _LINEAGE_PRODUCER = "https://github.com/mloda-ai/mloda-registry/tree/main/mloda/enterprise/extenders/lineage"
 _CUSTOM_PRODUCER = "https://example.invalid/custom-lineage-producer"
 _STEP_LEVEL_MARKER = "step-level declared inputs"
-_SECRET = "SENSITIVE_ROW_VALUE_xyz123"
+_ROW_VALUE_MARKER = "SENSITIVE_ROW_VALUE_xyz123"
 
 _VALIDATE_INPUT = "validate_input_features"
 _VALIDATE_OUTPUT = "validate_output_features"
@@ -127,7 +127,7 @@ class _FailingInputValidator(_Derived):
 
     @classmethod
     def validate_input_features(cls, data: Any, features: FeatureSet) -> None:
-        raise ValueError(f"invalid value found: {_SECRET}")
+        raise ValueError(f"invalid value found: {_ROW_VALUE_MARKER}")
 
 
 class _FailingOutputValidator(_Derived):
@@ -135,7 +135,7 @@ class _FailingOutputValidator(_Derived):
 
     @classmethod
     def validate_output_features(cls, data: Any, features: FeatureSet) -> None:
-        raise ValueError(f"invalid value found: {_SECRET}")
+        raise ValueError(f"invalid value found: {_ROW_VALUE_MARKER}")
 
 
 class _Interrupt(BaseException):
@@ -147,7 +147,7 @@ class _InterruptedValidator(_Derived):
 
     @classmethod
     def validate_output_features(cls, data: Any, features: FeatureSet) -> None:
-        raise _Interrupt(f"interrupted: {_SECRET}")
+        raise _Interrupt(f"interrupted: {_ROW_VALUE_MARKER}")
 
 
 class _CustomProducerLineageExtender(LineageFacetsExtender):
@@ -608,7 +608,7 @@ class TestLineageFacetsValidationRuns:
     ) -> None:
         client, transport = ol_capture
 
-        with pytest.raises(ValueError, match=_SECRET):
+        with pytest.raises(ValueError, match=_ROW_VALUE_MARKER):
             _run(LineageFacetsExtender(client=client), list(feature_group.outputs), feature_group)
 
         run_events = _events_for(transport.events, _job(feature_group, f".{method}"))
@@ -618,7 +618,7 @@ class TestLineageFacetsValidationRuns:
         assert datasets
         assert all(_assertions(dataset) == [(method, False)] for dataset in datasets)
         for event in transport.events:
-            assert _SECRET not in Serde.to_json(event)
+            assert _ROW_VALUE_MARKER not in Serde.to_json(event)
 
     def test_interrupted_validator_ends_in_abort_and_propagates(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
@@ -640,7 +640,7 @@ class TestLineageFacetsValidationRuns:
         assert [dataset.name for dataset in datasets] == ["out"]
         assert _assertions(datasets[0]) == [(_VALIDATE_OUTPUT, False)]
         for event in transport.events:
-            assert _SECRET not in Serde.to_json(event)
+            assert _ROW_VALUE_MARKER not in Serde.to_json(event)
 
     @pytest.mark.parametrize("hook", [ExtenderHook.VALIDATE_INPUT_FEATURE, ExtenderHook.VALIDATE_OUTPUT_FEATURE])
     def test_bare_validator_hook_call_passes_through_without_events(
