@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import pickle  # nosec
+import re
 import stat
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
@@ -22,7 +23,7 @@ from mloda.user import ParallelizationMode, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFeature
 
-from mloda.enterprise.extenders.audit import AuditExtender, IdentityRequiredError, NdjsonAuditSink
+from mloda.enterprise.extenders.audit import AuditExtender, IdentityRequiredError, NdjsonAuditSink, TeeAuditSink
 from mloda.enterprise.extenders.audit import audit_extender as audit_extender_module
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
@@ -74,7 +75,13 @@ _EXPECTED_RECORD_KEYS = {
     "error_type",
     "data_access_identity",
     "data_access_format",
+    "policy_version",
 }
+
+_FINGERPRINT = re.compile(r"[0-9a-f]{12}")
+
+# Neither 12 characters nor hex, so a truncated or hashed value would not equal it.
+_POLICY_VERSION = "policy-2026-09-rev-3"
 
 
 class InMemoryAuditSink:
@@ -85,6 +92,27 @@ class InMemoryAuditSink:
 
     def write(self, record: Mapping[str, Any]) -> None:
         self.records.append(dict(record))
+
+
+class _LoggingSink:
+    """Appends (name, record) to a log shared between sinks, so the call order across sinks is observable."""
+
+    def __init__(self, name: str, log: list[tuple[str, Mapping[str, Any]]]) -> None:
+        self.name = name
+        self.log = log
+
+    def write(self, record: Mapping[str, Any]) -> None:
+        self.log.append((self.name, record))
+
+
+class _FailingSink:
+    """Raises the given error on every write."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def write(self, record: Mapping[str, Any]) -> None:
+        raise self.error
 
 
 class _CountingCall:
@@ -356,6 +384,11 @@ class TestAuditExtenderConstruction:
 
         assert extender.wraps() == {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}
 
+    @pytest.mark.parametrize("policy_version", ["", "   ", 3], ids=["empty", "blank", "non_str"])
+    def test_blank_or_non_str_policy_version_raises_value_error(self, policy_version: Any) -> None:
+        with pytest.raises(ValueError):
+            AuditExtender(sink=InMemoryAuditSink(), policy_version=policy_version)
+
 
 class TestAuditExtenderRecord:
     """The audit record's shape and the allow/deny/error decisions that fill it."""
@@ -377,9 +410,10 @@ class TestAuditExtenderRecord:
 
         assert len(sink.records) == 1
 
-    def test_record_has_exactly_the_expected_keys(self) -> None:
+    @_BOTH_POSTURES
+    def test_record_has_exactly_the_expected_keys(self, fail_closed: bool) -> None:
         sink = InMemoryAuditSink()
-        extender = AuditExtender(sink=sink)
+        extender = AuditExtender(sink=sink, fail_closed=fail_closed)
 
         with make_hook_context(tenant_id="tenant-1").activate():
             extender(lambda: None)
@@ -453,6 +487,7 @@ class TestAuditExtenderRecord:
         assert record["decision"] == "allow"
         assert record["compliant"] is True
         assert record["deny_reason"] is None
+        assert record["policy_version"] == extender.policy_version
 
     @pytest.mark.parametrize(("tenant_id", "project_id", "principal", "expected_reason"), _MISSING_IDENTITY_CASES)
     def test_missing_required_identity_denies_but_still_runs(
@@ -475,6 +510,7 @@ class TestAuditExtenderRecord:
         assert record["decision"] == "deny"
         assert record["compliant"] is False
         assert record["deny_reason"] == expected_reason
+        assert record["policy_version"] == extender.policy_version
 
     @pytest.mark.parametrize(("tenant_id", "project_id", "principal", "expected_reason"), _MISSING_IDENTITY_CASES)
     def test_missing_required_identity_refuses_when_fail_closed(
@@ -503,6 +539,8 @@ class TestAuditExtenderRecord:
         assert record["status"] == "error"
         assert record["error_type"] == _IDENTITY_REQUIRED_ERROR_TYPE
         assert record["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name
+        assert record["policy_version"] == extender.policy_version
+        assert set(record) == _EXPECTED_RECORD_KEYS
         message = str(excinfo.value)
         for name in expected_reason.removeprefix("missing_").split("_and_"):
             assert name in message
@@ -529,6 +567,7 @@ class TestAuditExtenderRecord:
         record = sink.records[0]
         assert record["status"] == "error"
         assert record["error_type"] == "builtins.RuntimeError"
+        assert record["policy_version"] == extender.policy_version
         assert marker not in json.dumps(record)
 
     def test_successful_call_records_success_and_no_error_type(self) -> None:
@@ -600,6 +639,8 @@ class TestAuditExtenderFailClosed:
         assert record["hook"] == ExtenderHook.FEATURE_GROUP_MATCHED.name
         assert record["decision"] == "deny"
         assert record["deny_reason"] == "missing_tenant_id"
+        assert record["policy_version"] == extender.policy_version
+        assert set(record) == _EXPECTED_RECORD_KEYS
 
     def test_matched_hook_with_identity_present_returns_the_result_and_writes_nothing(self) -> None:
         sink = InMemoryAuditSink()
@@ -635,6 +676,104 @@ class TestAuditExtenderFailClosed:
 
         assert call.calls == 0
         assert isinstance(excinfo.value.__context__, IdentityRequiredError)
+
+
+class TestAuditExtenderPolicyVersion:
+    """policy_version is an explicit label or, by default, a fingerprint of the configured gate, on every record."""
+
+    @_BOTH_POSTURES
+    def test_default_is_a_12_char_lowercase_hex_fingerprint(self, fail_closed: bool) -> None:
+        extender = AuditExtender(sink=InMemoryAuditSink(), fail_closed=fail_closed)
+
+        assert isinstance(extender.policy_version, str)
+        assert _FINGERPRINT.fullmatch(extender.policy_version)
+
+    @_BOTH_POSTURES
+    def test_same_policy_gives_the_same_fingerprint(self, fail_closed: bool) -> None:
+        first = AuditExtender(
+            sink=InMemoryAuditSink(), required_identity=("tenant_id", "principal"), fail_closed=fail_closed
+        )
+        second = AuditExtender(
+            sink=InMemoryAuditSink(), required_identity=("tenant_id", "principal"), fail_closed=fail_closed
+        )
+
+        assert first.policy_version == second.policy_version
+
+    @pytest.mark.parametrize(
+        "changed",
+        [
+            {"required_identity": ("tenant_id", "principal")},
+            {"required_identity": ("principal",)},
+            {"fail_closed": True},
+        ],
+        ids=["extra_identity_name", "other_identity_name", "fail_closed"],
+    )
+    def test_a_different_gate_gives_a_different_fingerprint(self, changed: dict[str, Any]) -> None:
+        baseline = AuditExtender(sink=InMemoryAuditSink())
+
+        assert AuditExtender(sink=InMemoryAuditSink(), **changed).policy_version != baseline.policy_version
+
+    @_BOTH_POSTURES
+    def test_required_identity_order_does_not_change_the_fingerprint(self, fail_closed: bool) -> None:
+        forward = AuditExtender(
+            sink=InMemoryAuditSink(), required_identity=("tenant_id", "principal"), fail_closed=fail_closed
+        )
+        backward = AuditExtender(
+            sink=InMemoryAuditSink(), required_identity=("principal", "tenant_id"), fail_closed=fail_closed
+        )
+
+        assert forward.policy_version == backward.policy_version
+
+    def test_explicit_value_is_kept_as_given(self) -> None:
+        extender = AuditExtender(sink=InMemoryAuditSink(), policy_version=_POLICY_VERSION)
+
+        assert extender.policy_version == _POLICY_VERSION
+
+    @_BOTH_POSTURES
+    def test_default_fingerprint_is_recorded_on_an_allow_record(self, fail_closed: bool) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink, fail_closed=fail_closed)
+
+        with make_hook_context(tenant_id="tenant-1").activate():
+            extender(lambda: None)
+
+        assert _FINGERPRINT.fullmatch(sink.records[0]["policy_version"])
+        assert sink.records[0]["policy_version"] == extender.policy_version
+
+    @_BOTH_POSTURES
+    def test_explicit_value_is_recorded_on_an_allow_record(self, fail_closed: bool) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink, fail_closed=fail_closed, policy_version=_POLICY_VERSION)
+
+        with make_hook_context(tenant_id="tenant-1").activate():
+            extender(lambda: None)
+
+        assert sink.records[0]["decision"] == "allow"
+        assert sink.records[0]["policy_version"] == _POLICY_VERSION
+
+    def test_explicit_value_is_recorded_on_a_deny_record(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink, policy_version=_POLICY_VERSION)
+
+        with make_hook_context().activate():
+            extender(_CountingCall())
+
+        assert sink.records[0]["decision"] == "deny"
+        assert sink.records[0]["policy_version"] == _POLICY_VERSION
+
+    @pytest.mark.parametrize(
+        "hook", [ExtenderHook.FEATURE_GROUP_MATCHED, ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE], ids=lambda h: h.name
+    )
+    def test_explicit_value_is_recorded_on_a_fail_closed_refusal(self, hook: ExtenderHook) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink, fail_closed=True, policy_version=_POLICY_VERSION)
+
+        with make_hook_context(hook=hook).activate():
+            with pytest.raises(IdentityRequiredError):
+                extender(_CountingCall())
+
+        assert sink.records[0]["hook"] == hook.name
+        assert sink.records[0]["policy_version"] == _POLICY_VERSION
 
 
 class TestAuditExtenderDataAccess:
@@ -997,6 +1136,64 @@ class TestNdjsonAuditSink:
         assert path.read_bytes() == line
 
 
+class TestTeeAuditSink:
+    """TeeAuditSink forwards each record to every sink in order and stops at the first failure."""
+
+    def test_is_defined_in_the_audit_extender_module(self) -> None:
+        assert TeeAuditSink is audit_extender_module.TeeAuditSink
+
+    def test_no_sinks_raises_value_error(self) -> None:
+        with pytest.raises(ValueError):
+            TeeAuditSink()
+
+    def test_writes_the_same_record_to_every_sink_in_the_order_given(self) -> None:
+        log: list[tuple[str, Mapping[str, Any]]] = []
+        tee = TeeAuditSink(_LoggingSink("first", log), _LoggingSink("second", log), _LoggingSink("third", log))
+        record = {"a": 1}
+
+        tee.write(record)
+
+        assert [name for name, _ in log] == ["first", "second", "third"]
+        assert all(written is record for _, written in log)
+
+    def test_first_failure_propagates_unchanged_and_later_sinks_are_not_called(self) -> None:
+        error = OSError("disk full")
+        before = InMemoryAuditSink()
+        after = InMemoryAuditSink()
+        tee = TeeAuditSink(before, _FailingSink(error), after)
+
+        with pytest.raises(OSError, match="disk full") as excinfo:
+            tee.write({"a": 1})
+
+        assert excinfo.value is error
+        assert before.records == [{"a": 1}]
+        assert after.records == []
+
+    def test_pickled_copy_appends_to_every_file(self, tmp_path: Path) -> None:
+        paths = [tmp_path / "first.ndjson", tmp_path / "second.ndjson"]
+        tee = TeeAuditSink(NdjsonAuditSink(paths[0]), NdjsonAuditSink(paths[1]))
+        tee.write({"a": 1})
+
+        copy = pickle.loads(pickle.dumps(tee))  # nosec
+        copy.write({"a": 2})
+
+        for path in paths:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            assert [json.loads(line) for line in lines] == [{"a": 1}, {"a": 2}]
+
+    def test_extender_record_reaches_the_memory_and_the_ndjson_sink(self, tmp_path: Path) -> None:
+        path = tmp_path / "audit.ndjson"
+        memory = InMemoryAuditSink()
+        extender = AuditExtender(sink=TeeAuditSink(memory, NdjsonAuditSink(path)))
+
+        with make_hook_context(tenant_id="tenant-1").activate():
+            extender(lambda: None)
+
+        lines = path.read_text(encoding="utf-8").splitlines()
+        assert len(memory.records) == 1
+        assert [json.loads(line) for line in lines] == memory.records
+
+
 class TestAuditExtenderRunAll:
     """run_all round trips: identity resolved through verified_context, or missing entirely."""
 
@@ -1017,6 +1214,7 @@ class TestAuditExtenderRunAll:
             assert record["tenant_id"] == "tenant-42"
             assert record["decision"] == "allow"
             assert record["status"] == "success"
+            assert record["policy_version"] == extender.policy_version
             assert record["run_id"] is not None
             assert record["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name
 

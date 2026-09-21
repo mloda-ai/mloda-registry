@@ -3,6 +3,8 @@ With fail_closed=True it also refuses at FEATURE_GROUP_MATCHED, writing a deny r
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 from collections.abc import Mapping
@@ -48,12 +50,30 @@ class NdjsonAuditSink:
         _append_records(self.path, [record])
 
 
+class TeeAuditSink:
+    """Writes each record to every sink in order; put durable sinks first, as the first failure stops the rest."""
+
+    def __init__(self, *sinks: AuditSink) -> None:
+        if not sinks:
+            raise ValueError("TeeAuditSink needs at least one sink")
+        self.sinks = sinks
+
+    def write(self, record: Mapping[str, Any]) -> None:
+        for sink in self.sinks:
+            sink.write(record)
+
+
 class IdentityRequiredError(RuntimeError):
     """Raised by AuditExtender(fail_closed=True) when a required identity is missing."""
 
 
 def _error_type(exc: BaseException) -> str:
     return f"{type(exc).__module__}.{type(exc).__qualname__}"
+
+
+def _gate_fingerprint(fail_closed: bool, required_identity: tuple[str, ...]) -> str:
+    gate = {"fail_closed": fail_closed, "required_identity": sorted(required_identity)}
+    return hashlib.sha256(json.dumps(gate, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
 
 def _sanitize_data_access_identity(identity: str) -> str:
@@ -82,8 +102,9 @@ class AuditExtender(Extender):
     Records also list the distinct data loads the call attempted, as index-aligned identity and format
     lists ([] for none; a load without an identity is omitted). URI query, fragment, `;` and `&` parameters
     and user information are stripped, best effort; other identities are recorded as given, so not
-    credential-free, and a sealed log cannot be redacted afterwards. Keys may be added within
-    record_version 1; an absent key means not recorded."""
+    credential-free, and a sealed log cannot be redacted afterwards. Records carry policy_version (the
+    given value, else a fingerprint of the constructor-supplied gate, which does not track code changes).
+    Keys may be added within record_version 1; an absent key means not recorded."""
 
     def __init__(
         self,
@@ -91,6 +112,7 @@ class AuditExtender(Extender):
         required_identity: tuple[str, ...] = ("tenant_id",),
         raise_on_error: bool = True,
         fail_closed: bool = False,
+        policy_version: str | None = None,
     ) -> None:
         unknown = [name for name in required_identity if name not in _ALLOWED_IDENTITY_NAMES]
         if unknown:
@@ -111,10 +133,15 @@ class AuditExtender(Extender):
             raise ValueError(
                 "AuditExtender fail_closed=True needs a non-empty required_identity, else nothing is refused"
             )
+        if policy_version is not None and (not isinstance(policy_version, str) or _is_blank(policy_version)):
+            raise ValueError(f"AuditExtender policy_version must be a non-blank str, got {policy_version!r}")
         self.sink = sink
         self.required_identity = required_identity
         self.raise_on_error = raise_on_error
         self.fail_closed = fail_closed
+        self.policy_version = (
+            policy_version if policy_version is not None else _gate_fingerprint(fail_closed, required_identity)
+        )
         if fail_closed:
             # Core runs the lowest priority outermost; a lower-priority peer would otherwise run before the gate.
             self.priority = 0
@@ -196,6 +223,7 @@ class AuditExtender(Extender):
         missing = self._missing_identity(context)
         return {
             "record_version": 1,
+            "policy_version": self.policy_version,
             "event_time": _utc_now(),
             "run_id": context.run_id,
             "tenant_id": context.tenant_id,

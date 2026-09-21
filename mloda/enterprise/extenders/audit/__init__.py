@@ -5,6 +5,7 @@ from mloda.enterprise.extenders.audit.audit_extender import (
     AuditSink,
     IdentityRequiredError,
     NdjsonAuditSink,
+    TeeAuditSink,
 )
 from mloda.enterprise.extenders.audit.run_manifest import (
     Ed25519Signer,
@@ -40,6 +41,7 @@ __all__ = [
     "QuarantinedLine",
     "RunAlreadySealedError",
     "RunNotPendingError",
+    "TeeAuditSink",
     "manifest_hash",
     "quarantine_damaged_lines",
     "rotate_manifest_key",
