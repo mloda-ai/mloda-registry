@@ -15,7 +15,7 @@ dependencies = ["mloda>=0.13.0,<0.14.0", "mloda-community-extenders-shared>=0.4.
 requires-python = ">=3.10,<3.15"
 
 [project.optional-dependencies]
-dev = ["mloda-testing", "pytest>=9.0.3", "cryptography>=42"]
+dev = ["mloda-testing[otel]", "pytest>=9.0.3", "cryptography>=42", "opentelemetry-api>=1.30,<2"]
 
 [project.urls]
 Homepage = "https://mloda.ai"

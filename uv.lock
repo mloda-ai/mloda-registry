@@ -1845,14 +1845,18 @@ dependencies = [
 ed25519 = [
     { name = "cryptography" },
 ]
+otel = [
+    { name = "opentelemetry-api" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "cryptography", marker = "extra == 'ed25519'", specifier = ">=42" },
     { name = "mloda", specifier = ">=0.13.0,<0.14.0" },
     { name = "mloda-community-extenders-shared", editable = "mloda/community/extenders/shared" },
+    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.30,<2" },
 ]
-provides-extras = ["ed25519"]
+provides-extras = ["ed25519", "otel"]
 
 [[package]]
 name = "mloda-enterprise-audit"
@@ -1866,7 +1870,8 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "cryptography" },
-    { name = "mloda-testing" },
+    { name = "mloda-testing", extra = ["otel"] },
+    { name = "opentelemetry-api" },
     { name = "pytest" },
 ]
 
@@ -1875,7 +1880,8 @@ requires-dist = [
     { name = "cryptography", marker = "extra == 'dev'", specifier = ">=42" },
     { name = "mloda", specifier = ">=0.13.0,<0.14.0" },
     { name = "mloda-community-extenders-shared", specifier = ">=0.4.7" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
+    { name = "mloda-testing", extras = ["otel"], marker = "extra == 'dev'" },
+    { name = "opentelemetry-api", marker = "extra == 'dev'", specifier = ">=1.30,<2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev"]

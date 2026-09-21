@@ -120,9 +120,10 @@ mloda-community (bundled)
 
 A bundled plugin whose runtime dependency is heavy sits behind a bundle extra instead of a
 hard dependency (today `mloda-community[otel]` and `mloda-community[openlineage]`, or both
-together via `mloda-community[all]`; also `mloda-enterprise[ed25519]`, though its plugin still
-loads without it), and its manifest must import cleanly without that dependency installed so
-entry-point loading of the rest of the bundle stays intact. The config steps are in
+together via `mloda-community[all]`; also `mloda-enterprise[ed25519]` and
+`mloda-enterprise[otel]`, though its plugin still loads without them), and its manifest must
+import cleanly without that dependency installed so entry-point loading of the rest of the
+bundle stays intact. The config steps are in
 [Add an optional runtime dependency to a bundle-only plugin](#add-an-optional-runtime-dependency-to-a-bundle-only-plugin).
 
 Moving a dependency behind an extra changes existing installs: when the dependency is missing,
@@ -158,6 +159,7 @@ py_typed = true
 | `pip install mloda-community[openlineage]` | The bundle plus the OpenLineage extender's dependency |
 | `pip install mloda-community[all]` | The bundle plus every extender's dependency |
 | `pip install mloda-enterprise[ed25519]` | The bundle plus the Ed25519 manifest signer's dependency |
+| `pip install mloda-enterprise[otel]` | The bundle plus the OTel audit log sink's dependency |
 | `pip install mloda-community-example` | Base example only |
 | `pip install mloda-community-example[all]` | Base + all variants |
 | `pip install mloda-community-example-a` | Variant A + base |
@@ -248,7 +250,8 @@ from `uv.lock` is not installed.
 ### Add an optional runtime dependency to a bundle-only plugin
 
 For a plugin that ships only inside `mloda-community` or `mloda-enterprise` and loads without the
-dependency (today `cryptography` behind `mloda-enterprise[ed25519]`, used by `mloda-enterprise-audit`):
+dependency (today `cryptography` behind `mloda-enterprise[ed25519]` and `opentelemetry-api` behind
+`mloda-enterprise[otel]`, both used by `mloda-enterprise-audit`):
 
 1. Add the extra to the bundle's `optional_dependencies` in `config/packages.toml`. For
    `mloda-community`, also add it to the `all` extra.
