@@ -14,7 +14,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mloda.testing.binary_model.conformance import BinaryModelConformanceBase, HashOperationConformanceMixin
+from mloda.testing.binary_model.conformance import (
+    DATA_ERROR,
+    DATA_FREE_MARKER,
+    BinaryModelConformanceBase,
+    HashOperationConformanceMixin,
+    arrow_stream_bytes_invalid_utf8,
+    assert_error_response,
+    run_binary,
+)
 
 _LICENSE_KEY = "MLODA_LICENSE_KEY"
 _LICENSE_FILE = "MLODA_LICENSE_FILE"
@@ -32,7 +40,22 @@ _UNKNOWN_KID_MARKER = "marker-unknown-kid-license-text"
 
 
 class TestBinaryModelConformance(HashOperationConformanceMixin, BinaryModelConformanceBase):
-    pass
+    def test_simulated_binary_input_invalid_utf8_is_data_error(
+        self, valid_config_path: Path, valid_license_env: dict[str, str]
+    ) -> None:
+        """A utf8 input value backed by invalid bytes is malformed data (exit 5), not an internal
+        error (exit 6). Simulated-binary regression only, so it lives here and not in the kit base."""
+        result = run_binary(
+            self.binary_cmd,
+            ["run", "--config", str(valid_config_path)],
+            valid_license_env,
+            input_bytes=arrow_stream_bytes_invalid_utf8(
+                self.default_input_columns[0], DATA_FREE_MARKER.encode("utf-8") + b"\xff"
+            ),
+            timeout=self.binary_timeout_seconds,
+        )
+        assert_error_response(result, DATA_ERROR)
+        assert DATA_FREE_MARKER.encode("utf-8") not in result.stderr
 
 
 class _OverriddenLicenseVectors(BinaryModelConformanceBase):

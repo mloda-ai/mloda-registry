@@ -411,9 +411,11 @@ def _read_all_batches(reader: pa.RecordBatchReader) -> pa.Table:
     """Malformed record-batch data after a valid schema message fails here, not at
     ``open_stream()``, and is reported the same way: a data error (contract: Data)."""
     try:
-        return reader.read_all()
+        table = reader.read_all()
+        table.validate(full=True)
     except pa.ArrowException as exc:
         raise _CliError(DATA_ERROR, f"malformed record batch data: {exc}") from exc
+    return table
 
 
 def _assert_no_trailing_data(buffer_reader: pa.BufferReader, raw: bytes) -> None:
