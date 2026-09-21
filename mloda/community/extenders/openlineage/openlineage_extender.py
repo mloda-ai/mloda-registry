@@ -261,25 +261,25 @@ class OpenLineageExtender(Extender):
         return facets
 
     def _calculate_output_facets(
-        self, context: HookContext, func: Any, args: tuple[Any, ...], name: str
+        self, context: HookContext, func: Any, args: tuple[Any, ...], name: str, inputs: list[InputDataset]
     ) -> dict[str, Any]:
         return {}
 
     def _call_calculate_feature(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
-        def output_facets(name: str) -> dict[str, Any]:
+        def output_facets(name: str, inputs: list[InputDataset]) -> dict[str, Any]:
             # A raising seam costs that output its extra facets, never the COMPLETE event.
             try:
-                return self._calculate_output_facets(context, func, args, name)
+                return self._calculate_output_facets(context, func, args, name, inputs)
             except Exception as exc:
                 logger.warning(
                     "%s output facets failed for %s: %s: %s", type(self).__name__, name, type(exc).__name__, exc
                 )
                 return {}
 
-        def build_outputs() -> list[OutputDataset]:
+        def build_outputs(inputs: list[InputDataset]) -> list[OutputDataset]:
             fields = _schema_dataset_fields(context.output_schema)
             return [
-                _build_output_dataset(self.dataset_namespace, name, fields, self.producer, output_facets(name))
+                _build_output_dataset(self.dataset_namespace, name, fields, self.producer, output_facets(name, inputs))
                 for name in context.feature_names
             ]
 
@@ -306,10 +306,11 @@ class OpenLineageExtender(Extender):
         run_facets: dict[str, Any],
         declared_inputs: list[InputDataset],
         build_inputs: Callable[[list[InputDataset], BaseException | None], list[InputDataset]] | None = None,
-        build_outputs: Callable[[], list[OutputDataset]] | None = None,
+        build_outputs: Callable[[list[InputDataset]], list[OutputDataset]] | None = None,
     ) -> Any:
         """One Run: START, func inside an open invocation, then FAIL/ABORT or COMPLETE. build_inputs gets the
-        gathered inputs and the raised exception (None on success); build_outputs runs on success only."""
+        gathered inputs and the raised exception (None on success); build_outputs gets the gathered inputs and
+        runs on success only."""
         run = Run(runId=str(uuid.uuid4()), facets=run_facets)
         invocation = _OpenCalculateInvocation(run_id=run.runId, job=job, inputs=declared_inputs)
 
@@ -341,7 +342,7 @@ class OpenLineageExtender(Extender):
         # Guarded: a bug in this post-success block must never corrupt func's already-computed result.
         try:
             inputs = build_inputs(invocation.inputs, None) if build_inputs else list(invocation.inputs)
-            outputs = build_outputs() if build_outputs else []
+            outputs = build_outputs(inputs) if build_outputs else []
             self._emit_event(RunState.COMPLETE, run, job, inputs, outputs)
         except Exception as exc:
             logger.warning("%s post-call instrumentation failed: %s: %s", type(self).__name__, type(exc).__name__, exc)

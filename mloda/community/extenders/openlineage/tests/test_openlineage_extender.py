@@ -39,7 +39,7 @@ from mloda.testing.extenders.openlineage import (
 )
 from mloda.testing.extenders.runners import run_value_int
 from openlineage.client.client import OpenLineageClient
-from openlineage.client.event_v2 import RunState
+from openlineage.client.event_v2 import InputDataset, RunState
 from openlineage.client.facet_v2 import documentation_dataset, nominal_time_run, parent_run, schema_dataset
 from openlineage.client.serde import Serde
 from openlineage.client.transport.transport import Config, Transport
@@ -160,12 +160,12 @@ class _OutputFacetExtender(OpenLineageExtender):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.output_facet_calls: list[tuple[HookContext, Any, tuple[Any, ...], str]] = []
+        self.output_facet_calls: list[tuple[HookContext, Any, tuple[Any, ...], str, list[InputDataset]]] = []
 
     def _calculate_output_facets(
-        self, context: HookContext, func: Any, args: tuple[Any, ...], name: str
+        self, context: HookContext, func: Any, args: tuple[Any, ...], name: str, inputs: list[InputDataset]
     ) -> dict[str, Any]:
-        self.output_facet_calls.append((context, func, args, name))
+        self.output_facet_calls.append((context, func, args, name, inputs))
         return {
             "probe": documentation_dataset.DocumentationDatasetFacet(
                 description=f"probe:{name}", producer=self.producer
@@ -175,7 +175,7 @@ class _OutputFacetExtender(OpenLineageExtender):
 
 class _FailingOutputFacetExtender(OpenLineageExtender):
     def _calculate_output_facets(
-        self, context: HookContext, func: Any, args: tuple[Any, ...], name: str
+        self, context: HookContext, func: Any, args: tuple[Any, ...], name: str, inputs: list[InputDataset]
     ) -> dict[str, Any]:
         raise RuntimeError("output facet boom")
 
@@ -1715,20 +1715,27 @@ class TestOpenLineageExtenderSubclassSeams:
         context = make_hook_context(
             feature_names=("value_int", "value_str"),
             output_schema=(("value_int", "int64"), ("value_str", "string")),
+            input_features=frozenset({"src"}),
+        )
+        inner_context = make_hook_context(
+            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="s3://bucket/key.parquet"
         )
 
         def func(*args: Any) -> None:
-            return None
+            with inner_context.activate():
+                extender(lambda: "loaded-data")
 
         with context.activate():
             extender(func, "positional")
 
-        assert extender.output_facet_calls == [
-            (context, func, ("positional",), "value_int"),
-            (context, func, ("positional",), "value_str"),
-        ]
         complete_event = transport.events[-1]
         assert complete_event.eventType == RunState.COMPLETE
+        assert [i.name for i in complete_event.inputs or []] == ["src", "s3://bucket/key.parquet"]
+        # The seam sees the gathered inputs that become the COMPLETE event's inputs: declared first, loaded second.
+        assert extender.output_facet_calls == [
+            (context, func, ("positional",), "value_int", complete_event.inputs),
+            (context, func, ("positional",), "value_str", complete_event.inputs),
+        ]
         assert complete_event.outputs is not None
         assert [output.name for output in complete_event.outputs] == ["value_int", "value_str"]
         for output in complete_event.outputs:

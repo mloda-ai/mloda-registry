@@ -71,9 +71,9 @@ class LineageFacetsExtender(OpenLineageExtender):
         return facets
 
     def _calculate_output_facets(
-        self, context: HookContext, func: Any, args: tuple[Any, ...], name: str
+        self, context: HookContext, func: Any, args: tuple[Any, ...], name: str, inputs: list[InputDataset]
     ) -> dict[str, Any]:
-        facets = super()._calculate_output_facets(context, func, args, name)
+        facets = super()._calculate_output_facets(context, func, args, name, inputs)
         if not context.input_features:
             return facets
         masking = True if name in _masked_features(context, func, args) else None
