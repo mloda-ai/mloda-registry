@@ -134,6 +134,33 @@ def test_error_from_exit_never_raises_on_non_utf8_stderr() -> None:
     assert exc.code == 6
 
 
+def test_error_from_exit_never_raises_on_a_lone_surrogate_message() -> None:
+    """A JSON ``"\\ud800"`` escape decodes to a lone surrogate, which cannot be encoded as UTF-8. The
+    mapping must still return the class for the matching code with a sanitized, encodable message."""
+    exc = error_from_exit(5, _stderr_line(5, "\ud800"))
+    assert isinstance(exc, DataError)
+    assert exc.code == 5
+    assert exc.message == "?"
+
+
+def test_error_from_exit_never_raises_on_deeply_nested_json() -> None:
+    """Deeply nested JSON makes ``json.loads`` raise ``RecursionError`` (not a ``ValueError``) on CPython
+    3.10 through 3.13. The mapping must still return a ``BinaryInternalError``; the exception type that
+    ``json.loads`` raises is deliberately not asserted."""
+    exc = error_from_exit(5, b"[" * 20000 + b"]" * 20000 + b"\n")
+    assert isinstance(exc, BinaryInternalError)
+    assert exc.code == 6
+
+
+def test_error_from_exit_never_raises_on_an_oversized_integer_code() -> None:
+    """A 5000-digit ``code`` exceeds the interpreter's int string conversion limit on some Python
+    versions (``json.loads`` raises ``ValueError``); on others it parses. Either way the result is a
+    ``BinaryInternalError`` and nothing is raised."""
+    exc = error_from_exit(5, b'{"code":' + b"9" * 5000 + b"}")
+    assert isinstance(exc, BinaryInternalError)
+    assert exc.code == 6
+
+
 def test_error_from_exit_truncates_a_long_message_on_a_utf8_character_boundary() -> None:
     """A ``message`` longer than 1024 UTF-8 bytes is truncated to at most 1024 bytes, cutting only
     on a character boundary (contract: Data handling). The snowman character is 3 bytes in UTF-8,
