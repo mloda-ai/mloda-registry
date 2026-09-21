@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import stat
 import subprocess  # nosec
 import sys
@@ -487,6 +488,43 @@ class TestRunBinary:
         assert excinfo.value.code == 6
         assert elapsed < 5.0, f"expected termination well before the 60s hang, took {elapsed}s"
         assert _own_zombie_children() == []
+
+    @pytest.mark.parametrize("exc", [KeyboardInterrupt, SystemExit, RuntimeError])
+    def test_exceptional_exit_during_communicate_terminates_and_reaps_the_child(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exc: type[BaseException]
+    ) -> None:
+        spawned: list[subprocess.Popen[bytes]] = []
+
+        class InterruptedPopen(subprocess.Popen):  # type: ignore[type-arg]
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, **kwargs)
+                spawned.append(self)
+
+            def communicate(self, *args: Any, **kwargs: Any) -> tuple[bytes, bytes]:
+                raise exc
+
+        monkeypatch.setattr(subprocess, "Popen", InterruptedPopen)
+        try:
+            with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
+                with pytest.raises(exc):
+                    run_binary(
+                        [*FAULTY_CMD, "--mode", "hang"],
+                        {"PATH": os.defpath},
+                        _hash_config(),
+                        b"",
+                        timeout=10.0,
+                        file_transport_threshold=10_000_000,
+                        invocation_dir=inv.path,
+                    )
+                assert len(spawned) == 1
+                assert spawned[0].poll() is not None, f"child was left running after {exc.__name__}"
+                assert _own_zombie_children() == []
+        finally:
+            monkeypatch.undo()
+            for proc in spawned:
+                if proc.poll() is None:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    proc.wait()
 
     def test_exit_before_reading_with_large_input_does_not_raise_broken_pipe(self, tmp_path: Path) -> None:
         large_input = os.urandom(4 * 1024 * 1024)
