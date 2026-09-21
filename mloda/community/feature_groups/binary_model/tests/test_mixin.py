@@ -31,6 +31,7 @@ from mloda.community.feature_groups.binary_model.errors import (
 )
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
 from mloda.community.feature_groups.binary_model.transport import TEMP_PARENT_NAME, pid_is_alive
+from mloda.testing.binary_model.arrow import arrow_stream_bytes_invalid_utf8
 from mloda.testing.binary_model.conformance import BinaryModelConformanceBase, HashOperationConformanceMixin
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
 from mloda.testing.binary_model.license_vectors import expired_license_token, valid_license_token
@@ -415,6 +416,13 @@ class TestOutputVerification:
         table = pa.table({"col_a": ["alpha"]})
         with pytest.raises(OutputContractError):
             model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "result_out"})
+
+    def test_invalid_utf8_value_raises_output_contract_error(self) -> None:
+        """An IPC stream whose utf8 value buffer holds invalid bytes passes ``read_all()`` but must
+        still be rejected at parse time, not later as a ``UnicodeDecodeError`` (contract: Data)."""
+        data = arrow_stream_bytes_invalid_utf8()
+        with pytest.raises(OutputContractError):
+            mixin._parse_output_stream(data)
 
     def test_wrong_field_name_raises_output_contract_error(self) -> None:
         model = _faulty_model("wrong_schema")
