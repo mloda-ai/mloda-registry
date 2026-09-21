@@ -146,6 +146,25 @@ sink = TeeAuditSink(NdjsonAuditSink("audit.ndjson"), OtelLogAuditSink())
 extender = AuditExtender(sink, fail_closed=True)
 ```
 
+## Lineage facets
+
+`LineageFacetsExtender` (`mloda-enterprise-lineage`) is a superset of `OpenLineageExtender`: pass it instead of the community emitter, not next to it. It needs the extra `mloda-enterprise[openlineage]`; without it the extender is simply not registered. Beyond the community events it adds:
+
+- `columnLineage` on each output dataset: DIRECT edges from the step's declared input features, sorted; root steps have none.
+- `masking` on those edges, only when declared (see below).
+- `dataQualityAssertions` on nested validation runs: one assertion named after the validator, `success` true or false.
+- a `mloda` run facet: `featureGroupVersion`, `pluginVersion`, `computeFramework`, `maskedFeatures` and `structureHash`.
+
+Masking is declared, never inferred: set the class attribute `masking = True` on the feature group, or the option `masking=True` in the feature's own `context`. It must be the boolean `True`; a `group` key, the string `"true"` and a context key forwarded from another step do not count. It is unrelated to core's `mask`. An undeclared feature leaves `Transformation.masking` unset.
+
+Column-lineage edges are the step-level declared inputs. A step with several outputs cannot say which input feeds which output, so every output lists every input and the transformation `description` reads `step-level declared inputs` (an over-approximation).
+
+Validation runs only for a feature group that overrides `validate_input_features` or `validate_output_features`; a default validator emits nothing. Each overridden validator is its own nested run (job `<feature group>.<method>`, parent facet pointing at the root run) with START, then COMPLETE, FAIL or ABORT. The terminal event carries one input dataset per validated feature (declared inputs for validate-input, output features for validate-output). A failing validator is re-raised and its message is never emitted. Each overridden validator adds one run, two events, per step. Gaps: root steps skip validate-input (no data yet), and core's own `EmptyResultError` and `DataTypeValidator` failures happen outside the hook, so they produce no assertion.
+
+`structureHash` is the sha256 of the feature group class, feature group version, plugin version, compute framework, feature names, declared inputs and masked features. It holds no run id or time, so it is stable across runs and changes with the code, plugin, graph shape or masking declaration.
+
+The `mloda` facet's schema URL points at its module in this repository; it is not a hosted JSON schema.
+
 ## Testing
 
 `mloda-testing` ships three test mixins plus helpers (`make_hook_context`, `run_value_int`, `failing_feature_group`) so every extender's test suite exercises the same shared behavior:
@@ -294,5 +313,6 @@ The mixin pins:
 | [otel_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/otel/otel_extender.py) | OpenTelemetry spans, metadata-only by default; inert until a `tracer_provider` is injected or `use_sdk_defaults=True` with an SDK tracer provider configured (`mloda-community-otel`) |
 | [openlineage_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/openlineage/openlineage_extender.py) | OpenLineage RunEvents with schema, data-source and parent-run facets; inert until a `client` is injected or `use_sdk_defaults=True` (`mloda-community-openlineage`) |
 | [audit_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/enterprise/extenders/audit/audit_extender.py) | Tenant-scoped audit record per calculation with an identity presence gate (`fail_closed=True` refuses an unidentified run before any feature is calculated) that also lists the identity and format of each distinct data load the call attempted (URI query, fragment, parameters and user information stripped, best effort; other identities recorded as given, so not credential-free); a sink failure after a successful calculation fails the run by default; every record carries a `policy_version`; `TeeAuditSink` writes a record to several sinks and `OtelLogAuditSink` (extra `mloda-enterprise[otel]`) emits it as an OpenTelemetry log record; `seal_ndjson_runs` seals a finished run into a signed, hash-chained manifest that `verify_ndjson_log` checks, `rotate_manifest_key` records a key change, and `quarantine_damaged_lines` is the repair path for a torn log; `Ed25519Signer` (extra `mloda-enterprise[ed25519]`) makes seals non-repudiable and verifiable with the public key alone, and the unchanged `ManifestSigner` protocol lets a KMS-backed signer plug in later (none ships yet) (`mloda-enterprise-audit`, license required) |
+| [lineage_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/enterprise/extenders/lineage/lineage_extender.py) | Used instead of `OpenLineageExtender`: adds column lineage, declared masking, validator-outcome assertions and a `mloda` run facet with a structure hash (`mloda-enterprise-lineage`, extra `mloda-enterprise[openlineage]`, license required) |
 | [contract.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/testing/extenders/contract.py) | Extender contract test mixin (mloda-testing) |
 | [test_composite_extender.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/extender/test_composite_extender.py) | Chaining tests |

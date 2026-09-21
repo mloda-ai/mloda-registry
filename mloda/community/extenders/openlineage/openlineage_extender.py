@@ -166,7 +166,7 @@ class OpenLineageExtender(Extender):
             with self._client_lock:
                 if not self._logged_pickle_drop:
                     logger.warning(
-                        "OpenLineageExtender drops an injected client when pickled or copied because it isn't "
+                        f"{type(self).__name__} drops an injected client when pickled or copied because it isn't "
                         f"picklable ({failure_reason}); the copy is inert unless use_sdk_defaults=True, which "
                         "lets it build its own client in its own process, e.g. under MULTIPROCESSING."
                     )
@@ -201,8 +201,9 @@ class OpenLineageExtender(Extender):
         with self._client_lock:
             if not self._logged_inert:
                 logger.warning(
-                    "OpenLineageExtender is inert: no client injected and use_sdk_defaults is False; no "
-                    "OpenLineage events will be emitted. Pass a client or use_sdk_defaults=True to enable emission."
+                    "%s is inert: no client injected and use_sdk_defaults is False; no "
+                    "OpenLineage events will be emitted. Pass a client or use_sdk_defaults=True to enable emission.",
+                    type(self).__name__,
                 )
                 self._logged_inert = True
 
@@ -242,7 +243,9 @@ class OpenLineageExtender(Extender):
                     )
                 )
         if invocation is None:
-            logger.debug("OpenLineageExtender: INPUT_DATA_LOAD has no enclosing open calculate invocation to attach to")
+            logger.debug(
+                "%s: INPUT_DATA_LOAD has no enclosing open calculate invocation to attach to", type(self).__name__
+            )
         return func(*args, **kwargs)
 
     def _calculate_run_facets(self, context: HookContext, func: Any, args: tuple[Any, ...]) -> dict[str, Any]:
@@ -320,13 +323,14 @@ class OpenLineageExtender(Extender):
                 self._emit_event(event_state, run, job, inputs, [])
             except Exception as emit_exc:
                 logger.warning(
-                    "OpenLineageExtender failed to emit %s event: %s: %s",
+                    "%s failed to emit %s event: %s: %s",
+                    type(self).__name__,
                     event_state.name,
                     type(emit_exc).__name__,
                     emit_exc,
                 )
             outcome = "failure" if event_state == RunState.FAIL else "abort"
-            logger.warning("OpenLineageExtender observed %s %s: %s: %s", job.name, outcome, type(exc).__name__, exc)
+            logger.warning("%s observed %s %s: %s: %s", type(self).__name__, job.name, outcome, type(exc).__name__, exc)
             raise
 
         # Guarded: a bug in this post-success block must never corrupt func's already-computed result.
@@ -335,7 +339,7 @@ class OpenLineageExtender(Extender):
             outputs = build_outputs() if build_outputs else []
             self._emit_event(RunState.COMPLETE, run, job, inputs, outputs)
         except Exception as exc:
-            logger.warning("OpenLineageExtender post-call instrumentation failed: %s: %s", type(exc).__name__, exc)
+            logger.warning("%s post-call instrumentation failed: %s: %s", type(self).__name__, type(exc).__name__, exc)
 
         return result
 

@@ -1651,4 +1651,31 @@ class TestOpenLineageExtenderSubclassSeams:
         assert result == 42
         assert [event.eventType for event in transport.events] == [RunState.START]
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any("OpenLineageExtender" in message and "output facet boom" in message for message in warnings)
+        assert any(type(extender).__name__ in message and "output facet boom" in message for message in warnings)
+
+    def test_log_messages_name_the_subclass_not_the_base(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        client, _ = ol_capture
+        name = _CustomProducerExtender.__name__
+
+        def failing_body() -> None:
+            raise RuntimeError("calculate boom")
+
+        with caplog.at_level(logging.DEBUG, logger=openlineage_extender_module.logger.name):
+            with make_hook_context().activate():
+                _CustomProducerExtender()(lambda: None)
+                with pytest.raises(RuntimeError, match="calculate boom"):
+                    _CustomProducerExtender(client=client)(failing_body)
+            with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="standalone").activate():
+                _CustomProducerExtender(client=client)(lambda: "loaded")
+            pickle.dumps(_CustomProducerExtender(client=OpenLineageClient(transport=LockHoldingTransport())))
+
+        messages = [r.message for r in caplog.records if r.name == openlineage_extender_module.logger.name]
+        assert any(name in m and "inert" in m.lower() for m in messages), messages
+        assert any(name in m and "calculate boom" in m for m in messages), messages
+        assert any(name in m and "calculate" in m.lower() and ("enclosing" in m or "open" in m) for m in messages), (
+            messages
+        )
+        assert any(name in m and "picklable" in m for m in messages), messages
+        assert not [m for m in messages if "OpenLineageExtender" in m], messages
