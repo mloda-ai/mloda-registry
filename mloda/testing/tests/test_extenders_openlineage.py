@@ -266,6 +266,17 @@ class _FilteringNestedRunHost(_NestedRunHost):
         return [event for event in events if not event.job.name.endswith(_NESTED_JOB_SUFFIX)]
 
 
+class _RealOpenLineageExtenderHost(OpenLineageExtenderTestMixin):
+    @classmethod
+    def extender_class(cls) -> type[Extender]:
+        return OpenLineageExtender
+
+    def make_openlineage_extender(self, client: OpenLineageClient, *, raise_on_error: bool | None = None) -> Extender:
+        if raise_on_error is None:
+            return OpenLineageExtender(client=client)
+        return OpenLineageExtender(client=client, raise_on_error=raise_on_error)
+
+
 _COUNT_SENSITIVE_MIXIN_TESTS: list[Any] = [
     pytest.param(
         lambda host, tmp_path: host.test_openlineage_run_all_derived_feature_reports_input_feature(),
@@ -297,3 +308,16 @@ class TestCalculateRunEventsHook:
         self, mixin_test: Callable[[OpenLineageExtenderTestMixin, Path], None], tmp_path: Path
     ) -> None:
         mixin_test(_FilteringNestedRunHost(), tmp_path)
+
+
+class TestQueryStringIdentityContract:
+    """Proves the query-string contract test fails for an extender that publishes the raw data-access identity."""
+
+    def test_unsanitized_identity_is_detected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "mloda.community.extenders.openlineage.openlineage_extender.resolve_data_access_identity",
+            lambda args, context_identity: context_identity,
+        )
+
+        with pytest.raises(AssertionError, match="URI query string reached an event"):
+            _RealOpenLineageExtenderHost().test_openlineage_input_data_load_query_string_never_reaches_events()
