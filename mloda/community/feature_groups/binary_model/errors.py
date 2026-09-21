@@ -92,9 +92,9 @@ MAX_MESSAGE_BYTES = 1024
 
 
 def _truncate_message(message: str) -> str:
-    """Cap ``message`` at ``MAX_MESSAGE_BYTES`` UTF-8 bytes, cutting only on a character boundary
-    (contract: Data handling)."""
-    return message.encode("utf-8")[:MAX_MESSAGE_BYTES].decode("utf-8", errors="ignore")
+    """Sanitize and cap ``message`` at ``MAX_MESSAGE_BYTES`` UTF-8 bytes, cutting only on a character
+    boundary (contract: Data handling)."""
+    return message.encode("utf-8", errors="replace")[:MAX_MESSAGE_BYTES].decode("utf-8", errors="ignore")
 
 
 def _last_non_empty_line(stderr: bytes) -> str | None:
@@ -112,7 +112,7 @@ def error_from_exit(returncode: int, stderr: bytes) -> BinaryModelError:
     if line is not None:
         try:
             payload = json.loads(line)
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
             payload = None
         if isinstance(payload, dict):
             code = payload.get("code")
