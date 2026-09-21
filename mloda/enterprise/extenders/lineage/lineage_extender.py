@@ -66,7 +66,7 @@ class LineageFacetsExtender(OpenLineageExtender):
             pluginVersion=context.plugin_version,
             computeFramework=context.compute_framework_name,
             maskedFeatures=masked,
-            structureHash=_structure_hash(context, masked),
+            structureHash=_structure_hash(context, masked, _source_columns(context, func, args)),
             producer=self.producer,
         )
         return facets
@@ -201,6 +201,14 @@ def _source_column(func: Any, args: tuple[Any, ...], name: str) -> str | None:
     return column if isinstance(column, str) and column else None
 
 
+def _source_columns(context: HookContext, func: Any, args: tuple[Any, ...]) -> list[list[str]]:
+    # The declaration, not whether an edge was emitted: run facets are built before any data load fires.
+    if context.input_features:
+        return []
+    columns = ((name, _source_column(func, args, name)) for name in sorted(context.feature_names))
+    return [[name, column] for name, column in columns if column is not None]
+
+
 def _masked_features(context: HookContext, func: Any, args: tuple[Any, ...]) -> list[str]:
     if _declares_class_masking(func):
         return sorted(context.feature_names)
@@ -210,8 +218,8 @@ def _masked_features(context: HookContext, func: Any, args: tuple[Any, ...]) -> 
     return sorted({str(feature.name) for feature in features.features if _declares_masking(feature.options)})
 
 
-def _structure_hash(context: HookContext, masked: list[str]) -> str:
-    structure = [
+def _structure_hash(context: HookContext, masked: list[str], source_columns: list[list[str]]) -> str:
+    structure: list[Any] = [
         context.feature_group_class,
         context.feature_group_version,
         context.plugin_version,
@@ -220,4 +228,6 @@ def _structure_hash(context: HookContext, masked: list[str]) -> str:
         sorted(context.input_features or ()),
         masked,
     ]
+    if source_columns:
+        structure.append(source_columns)
     return hashlib.sha256(json.dumps(structure, sort_keys=True, separators=(",", ":")).encode()).hexdigest()

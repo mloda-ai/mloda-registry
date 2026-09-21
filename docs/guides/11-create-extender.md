@@ -169,7 +169,7 @@ Validation runs carry the parent facet only, not the `mloda` facet. Tie one to a
 
 Validate-output assertions ride on input datasets of the `<feature group>.validate_output_features` job, the only spec-legal home for `dataQualityAssertions`.
 
-`structureHash` is the sha256 of the feature group class, versions, compute framework, feature names, declared inputs and masked features. It holds no run id or time, so it is stable across runs. It also changes with the feature group source and the mloda version, because both are part of `feature_group_version`. An option-declared source column is not part of it.
+`structureHash` is the sha256 of the feature group class, versions, compute framework, feature names, declared inputs and masked features and, for a root step, the declared source column of each feature (option or class attribute). It covers the declaration, not whether an edge was emitted (for example, a root step that loads no dataset or several still hashes its declared column). It holds no run id or time, so it is stable across runs. It also changes with the feature group source and the mloda version, because both are part of `feature_group_version`.
 
 Option-declared masking has two limits, and an option-declared `lineage_source_column` has the same two (the second reports an edge instead of masking):
 

@@ -368,8 +368,9 @@ def _expected_structure_hash(
     feature_names: list[str],
     input_features: list[str],
     masked_features: list[str],
+    source_columns: list[list[str]] | None = None,
 ) -> str:
-    structure = [
+    structure: list[Any] = [
         feature_group_class,
         feature_group_version,
         plugin_version,
@@ -378,7 +379,28 @@ def _expected_structure_hash(
         input_features,
         masked_features,
     ]
+    if source_columns:
+        structure.append(source_columns)
     return hashlib.sha256(json.dumps(structure, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _expected_loading_step_hash(
+    options_by_feature: dict[str, Options],
+    *,
+    input_features: frozenset[str] = frozenset(),
+    source_columns: list[list[str]] | None = None,
+) -> str:
+    """The hash of a `_calculate_loading_step` run, whose hook context keeps the make_hook_context defaults."""
+    return _expected_structure_hash(
+        feature_group_class="mloda.testing.DummyFeatureGroup",
+        feature_group_version="1",
+        plugin_version=None,
+        compute_framework="PyArrowTable",
+        feature_names=sorted(options_by_feature),
+        input_features=sorted(input_features),
+        masked_features=[],
+        source_columns=source_columns,
+    )
 
 
 def _structure_hash(func: Callable[..., Any] | None = None, args: tuple[Any, ...] = (), **context: Any) -> str:
@@ -916,28 +938,62 @@ class TestLineageFacetsRootSourceColumns:
         assert _column_lineage(event, "out").fields == {"out": _root_edge(_LOADED, "src_out", True)}
         assert _column_lineage(event, "second").fields == {"second": _root_edge(_LOADED, "src_second")}
 
-    def test_structure_hash_ignores_the_source_column_declaration(self) -> None:
-        features = FeatureSet([Feature("out", options=Options(context={_SOURCE_COLUMN: "src"}))])
+    @pytest.mark.parametrize(("feature_group", "make_options", "sources"), _DECLARED_CASES)
+    def test_structure_hash_includes_the_declared_source_column(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        feature_group: type[_Loading],
+        make_options: Callable[[], dict[str, Options]],
+        sources: dict[str, str],
+    ) -> None:
+        options = make_options()
 
-        actual = _structure_hash(
-            _SourceByDict.calculate_feature,
-            (lambda: None, features),
-            feature_group_class="pkg.Fg",
-            feature_group_version="1",
-            plugin_version=None,
-            compute_framework_name="PyArrowTable",
-            feature_names=("out",),
+        event = _calculate_loading_step(ol_capture, feature_group, options)
+
+        assert _run_facet(event).structureHash == _expected_loading_step_hash(
+            options, source_columns=[[name, column] for name, column in sorted(sources.items())]
         )
 
-        assert actual == _expected_structure_hash(
-            feature_group_class="pkg.Fg",
-            feature_group_version="1",
-            plugin_version=None,
-            compute_framework="PyArrowTable",
-            feature_names=["out"],
-            input_features=[],
-            masked_features=[],
+    @pytest.mark.parametrize("loaded", _NO_EDGE_LOADS)
+    def test_structure_hash_includes_the_declared_source_column_even_without_an_edge(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], loaded: tuple[str, ...]
+    ) -> None:
+        options = {"out": Options()}
+
+        event = _calculate_loading_step(ol_capture, _SourceByDict, options, loaded=loaded)
+
+        assert _run_facet(event).structureHash == _expected_loading_step_hash(options, source_columns=[["out", "src"]])
+
+    @pytest.mark.parametrize(("feature_group", "make_options"), _NOT_DECLARED_CASES)
+    def test_structure_hash_ignores_an_undeclared_or_misdeclared_source_column(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        feature_group: type[_Loading],
+        make_options: Callable[[], Options],
+    ) -> None:
+        options = {"out": make_options()}
+
+        event = _calculate_loading_step(ol_capture, feature_group, options)
+
+        assert _run_facet(event).structureHash == _expected_loading_step_hash(options)
+
+    @pytest.mark.parametrize(("input_features", "loaded"), _DERIVED_INPUTS)
+    @pytest.mark.parametrize(("feature_group", "make_options"), _DERIVED_CASES)
+    def test_structure_hash_of_a_step_with_declared_inputs_ignores_the_source_column(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        feature_group: type[_Loading],
+        make_options: Callable[[], dict[str, Options]],
+        input_features: frozenset[str],
+        loaded: tuple[str, ...],
+    ) -> None:
+        options = make_options()
+
+        event = _calculate_loading_step(
+            ol_capture, feature_group, options, loaded=loaded, input_features=input_features
         )
+
+        assert _run_facet(event).structureHash == _expected_loading_step_hash(options, input_features=input_features)
 
 
 class TestLineageFacetsValidationRuns:
