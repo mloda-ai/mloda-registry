@@ -16,7 +16,7 @@ from openlineage.client.facet_v2 import RunFacet, column_lineage_dataset, data_q
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
 
 if TYPE_CHECKING:
-    from mloda.user import Options
+    from mloda.user import Feature
 
 _PRODUCER = "https://github.com/mloda-ai/mloda-registry/tree/main/mloda/enterprise/extenders/lineage"
 _SCHEMA_URL = (
@@ -166,30 +166,34 @@ def _class_attribute(func: Any, name: str) -> Any:
     return getattr(feature_group, name, None)
 
 
-def _own_option(options: Options | None, key: str) -> Any:
-    # Only the feature's own context key counts: group keys and forwarded (inherited) keys are another step's.
-    if options is None or key in options.inherited_context_keys:
+def _own_option(feature: Feature | None, key: str) -> Any:
+    # Own context key only: not inherited, not held with an equal value by the consumer (which core cannot tell apart).
+    if feature is None or key in feature.options.inherited_context_keys:
         return None
-    return options.context.get(key)
+    value = feature.options.context.get(key)
+    held = feature.child_options.context.get(key) if feature.child_options is not None else None
+    if isinstance(value, (bool, str)) and type(held) is type(value) and held == value:
+        return None
+    return value
 
 
 def _declares_class_masking(func: Any) -> bool:
     return _class_attribute(func, _MASKING) is True
 
 
-def _declares_masking(options: Options | None) -> bool:
-    return _own_option(options, _MASKING) is True
+def _declares_masking(feature: Feature) -> bool:
+    return _own_option(feature, _MASKING) is True
 
 
-def _feature_options(args: tuple[Any, ...], name: str) -> Options | None:
+def _feature(args: tuple[Any, ...], name: str) -> Feature | None:
     features = Extender.feature_set(args)
     if features is None:
         return None
-    return next((feature.options for feature in features.features if str(feature.name) == name), None)
+    return next((feature for feature in features.features if str(feature.name) == name), None)
 
 
 def _source_column(func: Any, args: tuple[Any, ...], name: str) -> str | None:
-    declared = _own_option(_feature_options(args, name), _SOURCE_COLUMN)
+    declared = _own_option(_feature(args, name), _SOURCE_COLUMN)
     if declared is True:
         return name
     if isinstance(declared, str) and declared:
@@ -207,7 +211,7 @@ def _masked_features(context: HookContext, func: Any, args: tuple[Any, ...]) -> 
     features = Extender.feature_set(args)
     if features is None:
         return []
-    return sorted({str(feature.name) for feature in features.features if _declares_masking(feature.options)})
+    return sorted({str(feature.name) for feature in features.features if _declares_masking(feature)})
 
 
 def _structure_hash(context: HookContext, masked: list[str]) -> str:

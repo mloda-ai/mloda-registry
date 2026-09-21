@@ -171,12 +171,7 @@ Validate-output assertions ride on input datasets of the `<feature group>.valida
 
 `structureHash` is the sha256 of the feature group class, versions, compute framework, feature names, declared inputs and masked features. It holds no run id or time, so it is stable across runs. It also changes with the feature group source and the mloda version, because both are part of `feature_group_version`. An option-declared source column is not part of it.
 
-Option-declared masking has two limits, and an option-declared `lineage_source_column` has the same two (the second reports an edge instead of masking):
-
-- When an ancestor feature propagates the `masking` key through `propagate_context_keys`, a step that also declares it counts as inherited and reports no masking.
-- When `input_features()` returns `Feature(name, options=options)`, sharing the consumer's own Options object, the upstream step reports masking.
-
-Declare `masking = True` on the feature group class for a per-feature-group guarantee.
+An option (`masking`, `lineage_source_column`) counts only when the step declares it in its own `context` and its consumer does not hold the same key with an equal value. A key the consumer propagates (`propagate_context_keys`) or pulls (`inherit_context_keys`), an Options object the consumer shares with or copies to the step, and a step that declares the same value as its consumer look the same to core, so none is attributed to the step: it reports no masking and no root edge from the option. `maskedFeatures` is therefore a declared lower bound. Declare `masking = True` (or `lineage_source_column`) on the feature group class for a guarantee that does not depend on the consumer.
 
 The `mloda` facet's schema URL points at its module in this repository; it is not a hosted JSON schema.
 
