@@ -109,3 +109,13 @@ def corrupt_record_batch_message_after_schema(data: bytes) -> bytes:
     corrupted = bytearray(data)
     struct.pack_into("<I", corrupted, record_batch_message_start + 4, 0x7FFFFFFF)
     return bytes(corrupted)
+
+
+def arrow_stream_bytes_invalid_utf8(column_name: str = "col", value: bytes = b"\xff") -> bytes:
+    """Write a single-column, single-row ``utf8`` IPC stream whose value buffer holds ``value``, which
+    must not be valid UTF-8 (default ``b"\\xff"``) (contract: Data). ``open_stream().read_all()``
+    accepts it without validating the bytes; only full validation (``Table.validate(full=True)``) or
+    decoding the value (``to_pydict()``) rejects it."""
+    offsets = pa.array([0, len(value)], type=pa.int32()).buffers()[1]
+    array = pa.Array.from_buffers(pa.utf8(), 1, [None, offsets, pa.py_buffer(value)])
+    return arrow_stream_bytes_from_arrays(pa.schema([pa.field(column_name, pa.utf8())]), [array])
