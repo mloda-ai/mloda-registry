@@ -1511,6 +1511,30 @@ class TestOpenLineageExtenderInputDedupe:
             ("custom-ds", "shared"),
         ]
 
+    def test_uri_shaped_input_feature_is_published_as_given_and_not_merged_with_a_stripped_load(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        raw = "https://host/p?v=1"
+        inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=raw)
+
+        def inner_loader() -> str:
+            return "loaded-data"
+
+        def calculate_body() -> str:
+            with inner_context.activate():
+                extender(inner_loader)
+            return "calculated"
+
+        with make_hook_context(input_features=frozenset({raw})).activate():
+            extender(calculate_body)
+
+        complete_event = transport.events[-1]
+        assert complete_event.eventType == RunState.COMPLETE
+        assert complete_event.inputs is not None
+        assert sorted(i.name for i in complete_event.inputs) == ["https://host/p", raw]
+
 
 class TestOpenLineageExtenderRunAll:
     """End-to-end wiring through mloda.user.mloda.run_all: RunEvents carry the real feature group's job name."""

@@ -22,6 +22,11 @@ from mloda.community.extenders.shared.data_access_identity import (
         pytest.param("https://host/p?sig=SECRET", "https://host/p", id="query"),
         pytest.param("https://host/p#frag", "https://host/p", id="fragment"),
         pytest.param("postgresql://user:pw@db:5432/mydb", "postgresql://db:5432/mydb", id="userinfo"),
+        pytest.param(
+            "abfss://container@account.dfs.core.windows.net/p",
+            "abfss://account.dfs.core.windows.net/p",
+            id="azure_container_dropped_with_userinfo",
+        ),
         pytest.param("https://u:p@ss@host/db", "https://host/db", id="at_sign_inside_userinfo"),
         pytest.param(
             "jdbc:hive2://h:10000/default;user=u;password=SECRET", "jdbc:hive2://h:10000/default", id="semicolon_params"
