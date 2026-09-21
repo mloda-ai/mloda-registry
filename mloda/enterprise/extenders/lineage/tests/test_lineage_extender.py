@@ -17,6 +17,8 @@ from mloda.provider import ComputeFramework, DataCreator, FeatureGroup, FeatureS
 from mloda.steward import Extender, ExtenderHook
 from mloda.user import Feature, FeatureName, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFeature
+from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, OutputDataset, RunEvent, RunState
 from openlineage.client.facet_v2 import column_lineage_dataset, data_quality_assertions_dataset, parent_run
@@ -44,9 +46,12 @@ _ROOT = "lineage_facets_root"
 _ROOT_A = "lineage_facets_root_a"
 _ROOT_B = "lineage_facets_root_b"
 
+_SOURCE_COLUMN = "lineage_source_column"
+_LOADED = "data.csv"
+
 
 class _Root(FeatureGroup):
-    """Root step: declares no inputs, so it never carries column lineage."""
+    """Root step: declares no inputs and loads no dataset, so it carries no column lineage."""
 
     @classmethod
     def input_data(cls) -> DataCreator:
@@ -174,6 +179,46 @@ class _InterruptedValidator(_Derived):
         raise _Interrupt(f"interrupted: {_ROW_VALUE_MARKER}")
 
 
+class _Loading(FeatureGroup):
+    """Root step that loads through `data`, so a test fires the nested INPUT_DATA_LOAD hooks itself."""
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return data()
+
+
+class _SourceByDict(_Loading):
+    lineage_source_column = {"out": "src"}
+
+
+class _SourceByTwoColumnDict(_Loading):
+    lineage_source_column = {"out": "src_out", "second": "src_second"}
+
+
+class _SourceByEmptyEntry(_Loading):
+    lineage_source_column = {"out": ""}
+
+
+class _SourceByTrue(_Loading):
+    lineage_source_column = True
+
+
+class _SourceByFalse(_Loading):
+    lineage_source_column = False
+
+
+class _SourceByOne(_Loading):
+    lineage_source_column = 1
+
+
+class _SourceByString(_Loading):
+    lineage_source_column = "src"
+
+
+class _MaskedSourceByDict(_SourceByDict):
+    masking = True
+
+
 class _CustomProducerLineageExtender(LineageFacetsExtender):
     producer = _CUSTOM_PRODUCER
 
@@ -240,6 +285,61 @@ def _column_lineage(event: RunEvent, name: str) -> column_lineage_dataset.Column
 def _transformations(event: RunEvent, name: str) -> list[column_lineage_dataset.Transformation]:
     fields = _column_lineage(event, name).fields[name]
     return [t for input_field in fields.inputFields for t in input_field.transformations or []]
+
+
+def _has_column_lineage(event: RunEvent, name: str) -> bool:
+    return "columnLineage" in (_output(event, name).facets or {})
+
+
+def _root_edge(dataset: str, field: str, masking: bool | None = None) -> column_lineage_dataset.Fields:
+    """The one DIRECT edge of a root output, from `field` of the loaded `dataset`; never a step-level description."""
+    transformation = column_lineage_dataset.Transformation(type="DIRECT", masking=masking)
+    return column_lineage_dataset.Fields(
+        inputFields=[
+            column_lineage_dataset.InputField(
+                namespace="lineage-ds", name=dataset, field=field, transformations=[transformation]
+            )
+        ]
+    )
+
+
+def _inherited_source_column_options() -> Options:
+    """The key looks like the feature's own but was forwarded from a consumer, so core marks it inherited."""
+    options = Options()
+    options.inherit_from(Options(context={_SOURCE_COLUMN: True}), inherit_context_keys=frozenset({_SOURCE_COLUMN}))
+    return options
+
+
+def _calculate_loading_step(
+    ol_capture: tuple[OpenLineageClient, RecordingTransport],
+    feature_group: type[_Loading],
+    options_by_feature: dict[str, Options],
+    *,
+    loaded: Sequence[str] = (_LOADED,),
+    input_features: frozenset[str] | None = None,
+) -> RunEvent:
+    """Run one calculate invocation of `feature_group` directly; `loaded` are the identities it loads, in order."""
+    client, transport = ol_capture
+    extender = LineageFacetsExtender(client=client, dataset_namespace="lineage-ds")
+    features = FeatureSet([Feature(name, options=options) for name, options in options_by_feature.items()])
+
+    def load() -> str:
+        for identity in loaded:
+            with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity).activate():
+                extender(lambda: "loaded")
+        return "data"
+
+    context = make_hook_context(
+        feature_names=tuple(options_by_feature),
+        input_features=input_features,
+        output_schema=tuple((name, "int64") for name in options_by_feature),
+    )
+    with context.activate():
+        extender(feature_group.calculate_feature, load, features)
+
+    event = transport.events[-1]
+    assert event.eventType == RunState.COMPLETE
+    return event
 
 
 def _assertions(dataset: InputDataset) -> list[tuple[str, bool]]:
@@ -577,6 +677,256 @@ class TestLineageFacetsMasking:
         assert all(_run_facet(event).maskedFeatures == ["alpha", "zeta"] for event in transport.events)
         for name in ("alpha", "zeta"):
             assert [t.masking for t in _transformations(transport.events[-1], name)] == [True]
+
+
+_DECLARED_CASES = [
+    pytest.param(_SourceByDict, lambda: {"out": Options()}, {"out": "src"}, id="class dict"),
+    pytest.param(_SourceByTrue, lambda: {"out": Options()}, {"out": "out"}, id="class true"),
+    pytest.param(_Loading, lambda: {"out": Options(context={_SOURCE_COLUMN: "src"})}, {"out": "src"}, id="option str"),
+    pytest.param(_Loading, lambda: {"out": Options(context={_SOURCE_COLUMN: True})}, {"out": "out"}, id="option true"),
+    pytest.param(
+        _SourceByDict,
+        lambda: {"out": Options(context={_SOURCE_COLUMN: "option_src"})},
+        {"out": "option_src"},
+        id="option beats class dict",
+    ),
+    pytest.param(
+        _SourceByTrue,
+        lambda: {"out": Options(context={_SOURCE_COLUMN: "option_src"})},
+        {"out": "option_src"},
+        id="option beats class true",
+    ),
+    pytest.param(
+        _Loading,
+        lambda: {
+            "out": Options(context={_SOURCE_COLUMN: "src_out"}),
+            "second": Options(context={_SOURCE_COLUMN: "src_second"}),
+        },
+        {"out": "src_out", "second": "src_second"},
+        id="multi output options",
+    ),
+    pytest.param(
+        _SourceByTwoColumnDict,
+        lambda: {"out": Options(), "second": Options()},
+        {"out": "src_out", "second": "src_second"},
+        id="multi output class dict",
+    ),
+    pytest.param(
+        _SourceByDict,
+        lambda: {"out": Options(), "second": Options()},
+        {"out": "src"},
+        id="class dict names one of two",
+    ),
+    pytest.param(
+        _SourceByDict,
+        lambda: {"out": Options(), "second": Options(context={_SOURCE_COLUMN: "option_second"})},
+        {"out": "src", "second": "option_second"},
+        id="class dict and option on different features",
+    ),
+]
+
+_NOT_DECLARED_CASES = [
+    pytest.param(_Loading, lambda: Options(), id="undeclared"),
+    pytest.param(_Loading, lambda: Options(group={_SOURCE_COLUMN: "src"}), id="group key"),
+    pytest.param(_Loading, _inherited_source_column_options, id="inherited key"),
+    pytest.param(_Loading, lambda: Options(context={_SOURCE_COLUMN: False}), id="context false"),
+    pytest.param(_Loading, lambda: Options(context={_SOURCE_COLUMN: ""}), id="context empty string"),
+    pytest.param(_Loading, lambda: Options(context={_SOURCE_COLUMN: 1}), id="context int"),
+    pytest.param(_Loading, lambda: Options(context={_SOURCE_COLUMN: ["src"]}), id="context list"),
+    pytest.param(_SourceByString, lambda: Options(), id="class attribute string"),
+    pytest.param(_SourceByFalse, lambda: Options(), id="class attribute false"),
+    pytest.param(_SourceByOne, lambda: Options(), id="class attribute int"),
+    pytest.param(_SourceByEmptyEntry, lambda: Options(), id="class attribute empty entry"),
+]
+
+_EDGE_LOADS = [
+    pytest.param((_LOADED,), id="one dataset"),
+    pytest.param((_LOADED, _LOADED), id="same dataset twice"),
+]
+
+_NO_EDGE_LOADS = [
+    pytest.param((), id="no dataset"),
+    pytest.param((_LOADED, "other.csv"), id="two distinct datasets"),
+    pytest.param((_LOADED, "other.csv", _LOADED), id="two distinct datasets, one repeated"),
+]
+
+_DERIVED_CASES = [
+    pytest.param(_SourceByDict, lambda: {"out": Options()}, id="class attribute"),
+    pytest.param(_Loading, lambda: {"out": Options(context={_SOURCE_COLUMN: "src"})}, id="own option"),
+    pytest.param(_SourceByTwoColumnDict, lambda: {"out": Options(), "second": Options()}, id="multi output"),
+]
+
+_DERIVED_INPUTS = [
+    pytest.param(frozenset({"b_in", "a_in"}), (_LOADED,), id="two inputs and a load"),
+    pytest.param(frozenset({"a_in"}), (), id="one input, no load"),
+]
+
+_MASKED_ROOT_CASES = [
+    pytest.param(_MaskedSourceByDict, lambda: Options(), True, id="class attribute"),
+    pytest.param(_SourceByDict, lambda: Options(context={"masking": True}), True, id="own context option"),
+    pytest.param(_SourceByDict, lambda: Options(), None, id="not masked"),
+]
+
+
+class TestLineageFacetsRootSourceColumns:
+    """A root step (no declared inputs) gets columnLineage from its one loaded dataset, only for a feature whose
+    source column is declared through `lineage_source_column` (own context option or feature group attribute)."""
+
+    def test_run_all_reader_root_step_links_its_output_to_the_loaded_csv(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], tmp_path: Path
+    ) -> None:
+        client, transport = ol_capture
+        path = tmp_path / "data.csv"
+        path.write_text("alpha,beta\n1,2\n3,4\n", encoding="utf-8")
+        options = Options(group={CsvReader.__name__: str(path)}, context={_SOURCE_COLUMN: True})
+
+        _run(
+            LineageFacetsExtender(client=client, dataset_namespace="lineage-ds"),
+            [Feature("alpha", options=options)],
+            ReadFileFeature,
+        )
+
+        complete = _complete(transport.events, _job(ReadFileFeature))
+        assert _column_lineage(complete, "alpha").fields == {"alpha": _root_edge(str(path), "alpha")}
+
+    def test_run_all_data_creator_root_step_has_no_column_lineage_even_when_declared(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        feature = Feature(_ROOT, options=Options(context={_SOURCE_COLUMN: True}))
+
+        _run(LineageFacetsExtender(client=client), [feature])
+
+        outputs = _complete(transport.events, _job(_Root)).outputs or []
+        assert [output.name for output in outputs] == [_ROOT]
+        assert "schema" in (outputs[0].facets or {})
+        assert "columnLineage" not in (outputs[0].facets or {})
+
+    @pytest.mark.parametrize(("feature_group", "make_options", "sources"), _DECLARED_CASES)
+    def test_declared_source_column_gives_each_declared_feature_its_own_root_edge(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        feature_group: type[_Loading],
+        make_options: Callable[[], dict[str, Options]],
+        sources: dict[str, str],
+    ) -> None:
+        options = make_options()
+
+        event = _calculate_loading_step(ol_capture, feature_group, options)
+
+        for name in options:
+            assert "schema" in (_output(event, name).facets or {})
+            if name in sources:
+                assert _column_lineage(event, name).fields == {name: _root_edge(_LOADED, sources[name])}
+            else:
+                assert not _has_column_lineage(event, name)
+        assert _STEP_LEVEL_MARKER not in Serde.to_json(event)
+
+    @pytest.mark.parametrize(("feature_group", "make_options"), _NOT_DECLARED_CASES)
+    def test_undeclared_or_misdeclared_source_column_is_ignored(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        feature_group: type[_Loading],
+        make_options: Callable[[], Options],
+    ) -> None:
+        event = _calculate_loading_step(ol_capture, feature_group, {"out": make_options()})
+
+        assert "schema" in (_output(event, "out").facets or {})
+        assert not _has_column_lineage(event, "out")
+
+    @pytest.mark.parametrize("loaded", _EDGE_LOADS)
+    def test_one_distinct_loaded_dataset_gives_an_edge(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], loaded: tuple[str, ...]
+    ) -> None:
+        event = _calculate_loading_step(ol_capture, _SourceByDict, {"out": Options()}, loaded=loaded)
+
+        assert _column_lineage(event, "out").fields == {"out": _root_edge(_LOADED, "src")}
+
+    @pytest.mark.parametrize("loaded", _NO_EDGE_LOADS)
+    def test_no_or_several_distinct_loaded_datasets_give_no_edge(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], loaded: tuple[str, ...]
+    ) -> None:
+        event = _calculate_loading_step(ol_capture, _SourceByDict, {"out": Options()}, loaded=loaded)
+
+        assert "schema" in (_output(event, "out").facets or {})
+        assert not _has_column_lineage(event, "out")
+
+    @pytest.mark.parametrize(("input_features", "loaded"), _DERIVED_INPUTS)
+    @pytest.mark.parametrize(("feature_group", "make_options"), _DERIVED_CASES)
+    def test_a_step_with_declared_inputs_keeps_the_edges_from_them_only(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        feature_group: type[_Loading],
+        make_options: Callable[[], dict[str, Options]],
+        input_features: frozenset[str],
+        loaded: tuple[str, ...],
+    ) -> None:
+        options = make_options()
+
+        event = _calculate_loading_step(
+            ol_capture, feature_group, options, loaded=loaded, input_features=input_features
+        )
+
+        description = _STEP_LEVEL_MARKER if len(options) > 1 else None
+        expected = column_lineage_dataset.Fields(
+            inputFields=[
+                column_lineage_dataset.InputField(
+                    namespace="lineage-ds",
+                    name=name,
+                    field=name,
+                    transformations=[column_lineage_dataset.Transformation(type="DIRECT", description=description)],
+                )
+                for name in sorted(input_features)
+            ]
+        )
+        for name in options:
+            assert _column_lineage(event, name).fields == {name: expected}
+
+    @pytest.mark.parametrize(("feature_group", "make_options", "masking"), _MASKED_ROOT_CASES)
+    def test_declared_masking_marks_the_root_edge_transformation(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        feature_group: type[_Loading],
+        make_options: Callable[[], Options],
+        masking: bool | None,
+    ) -> None:
+        event = _calculate_loading_step(ol_capture, feature_group, {"out": make_options()})
+
+        assert [t.masking for t in _transformations(event, "out")] == [masking]
+        assert _column_lineage(event, "out").fields == {"out": _root_edge(_LOADED, "src", masking)}
+
+    def test_masking_is_declared_per_feature_on_root_edges(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        options = {"out": Options(context={"masking": True}), "second": Options()}
+
+        event = _calculate_loading_step(ol_capture, _SourceByTwoColumnDict, options)
+
+        assert _column_lineage(event, "out").fields == {"out": _root_edge(_LOADED, "src_out", True)}
+        assert _column_lineage(event, "second").fields == {"second": _root_edge(_LOADED, "src_second")}
+
+    def test_structure_hash_ignores_the_source_column_declaration(self) -> None:
+        features = FeatureSet([Feature("out", options=Options(context={_SOURCE_COLUMN: "src"}))])
+
+        actual = _structure_hash(
+            _SourceByDict.calculate_feature,
+            (lambda: None, features),
+            feature_group_class="pkg.Fg",
+            feature_group_version="1",
+            plugin_version=None,
+            compute_framework_name="PyArrowTable",
+            feature_names=("out",),
+        )
+
+        assert actual == _expected_structure_hash(
+            feature_group_class="pkg.Fg",
+            feature_group_version="1",
+            plugin_version=None,
+            compute_framework="PyArrowTable",
+            feature_names=["out"],
+            input_features=[],
+            masked_features=[],
+        )
 
 
 class TestLineageFacetsValidationRuns:

@@ -150,7 +150,7 @@ extender = AuditExtender(sink, fail_closed=True)
 
 `LineageFacetsExtender` (`mloda-enterprise-lineage`) is used instead of `OpenLineageExtender`, not next to it. It needs the extra `mloda-enterprise[openlineage]`; without it the extender is not registered. Beyond the community events it adds:
 
-- `columnLineage` on each output dataset: DIRECT edges from the step's declared input features; root steps have none.
+- `columnLineage` on each output dataset: DIRECT edges from the step's declared input features, or, for a root step that declares its source column, from the one dataset it loaded.
 - `masking` on those edges, only when declared (see below).
 - `dataQualityAssertions` on validation runs: one assertion named after the validator, `success` true or false.
 - a `mloda` run facet: `featureGroupVersion`, `pluginVersion`, `computeFramework`, `maskedFeatures` and `structureHash`.
@@ -158,6 +158,8 @@ extender = AuditExtender(sink, fail_closed=True)
 Masking is declared, never inferred: set the class attribute `masking = True` on the feature group, or the option `masking=True` in the feature's own `context`. It must be the boolean `True`; a `group` key, the string `"true"` and a context key forwarded from another step do not count. It is unrelated to core's `mask`.
 
 Column-lineage edges are step-level declared inputs. A step with several outputs cannot say which input feeds which, so every output lists every input (an over-approximation) and the transformation `description` reads `step-level declared inputs`.
+
+A root step has an edge only when it declares the source column, because a feature name equalling a column is common but not guaranteed. Set the option `lineage_source_column` in the feature's own `context` (a column name, or `True` for the feature name), or the class attribute `lineage_source_column` on the feature group (a dict from feature name to column, or `True` for every feature name); the option wins. The edge runs from the loaded dataset, named as core's `data_access_identity` (see [Hook context for data loads](#hook-context-for-data-loads)), to the feature. The column is declared, never verified against the data. A `group` key, a forwarded key, `False`, an empty string and any other type do not count. A root step that loads no dataset (`DataCreator`) or several has no edge, and a step with declared inputs keeps only its input edges.
 
 Validation is reported only for a feature group that overrides `validate_input_features` or `validate_output_features`. Each overridden validator is its own run per step, a sibling of the calculate run and both under the root run (job `<feature group>.<method>`, START then COMPLETE, FAIL or ABORT), so it adds one extra run and two events per step. The terminal event carries one input dataset per validated feature. Validate-input is skipped when the step has no data yet (root steps); when data exists it runs and the validated datasets fall back to the feature names if no inputs are declared. Core's own `EmptyResultError` and `DataTypeValidator` failures happen outside the hook, so they produce no assertion.
 
@@ -167,9 +169,9 @@ Validation runs carry the parent facet only, not the `mloda` facet. Tie one to a
 
 Validate-output assertions ride on input datasets of the `<feature group>.validate_output_features` job, the only spec-legal home for `dataQualityAssertions`.
 
-`structureHash` is the sha256 of the feature group class, versions, compute framework, feature names, declared inputs and masked features. It holds no run id or time, so it is stable across runs. It also changes with the feature group source and the mloda version, because both are part of `feature_group_version`.
+`structureHash` is the sha256 of the feature group class, versions, compute framework, feature names, declared inputs and masked features. It holds no run id or time, so it is stable across runs. It also changes with the feature group source and the mloda version, because both are part of `feature_group_version`. An option-declared source column is not part of it.
 
-Option-declared masking has two limits:
+Option-declared masking has two limits, and both hold for an option-declared `lineage_source_column`:
 
 - When an ancestor feature propagates the `masking` key through `propagate_context_keys`, a step that also declares it counts as inherited and reports no masking.
 - When `input_features()` returns `Feature(name, options=options)`, sharing the consumer's own Options object, the upstream step reports masking.
