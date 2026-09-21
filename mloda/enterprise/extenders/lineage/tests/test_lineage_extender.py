@@ -390,7 +390,7 @@ def _expected_loading_step_hash(
     input_features: frozenset[str] = frozenset(),
     source_columns: list[list[str]] | None = None,
 ) -> str:
-    """The hash of a `_calculate_loading_step` run, whose hook context keeps the make_hook_context defaults."""
+    """Expected hash of a `_calculate_loading_step` run (make_hook_context defaults)."""
     return _expected_structure_hash(
         feature_group_class="mloda.testing.DummyFeatureGroup",
         feature_group_version="1",
