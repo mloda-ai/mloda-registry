@@ -743,7 +743,7 @@ class TestOtelExtenderContentCapture:
         "hook",
         [ExtenderHook.VALIDATE_INPUT_FEATURE, ExtenderHook.VALIDATE_OUTPUT_FEATURE, ExtenderHook.INPUT_DATA_LOAD],
     )
-    def test_content_attribute_absent_on_validate_hooks_even_when_capture_enabled(
+    def test_content_attribute_absent_on_validate_and_load_hooks_even_when_capture_enabled(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], hook: ExtenderHook
     ) -> None:
         provider, exporter = otel_capture
@@ -920,7 +920,8 @@ class TestOtelExtenderContentPreviewCost:
 
 
 class TestOtelExtenderLoadSpanParenting:
-    """R2: INPUT_DATA_LOAD-only parent rule (an ambient active span wins over carrier/run_id fallback)."""
+    """INPUT_DATA_LOAD-only parent rule: an ambient active span wins over carrier/run_id fallback,
+    but only when its trace id actually matches the trace the carrier/run_id would give."""
 
     def test_load_span_carrier_parents_when_no_active_span(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
@@ -958,10 +959,57 @@ class TestOtelExtenderLoadSpanParenting:
         assert span.context is not None
         assert span.context.trace_id == trace_id_from_run_id(run_id)
 
+    def test_load_under_unrelated_ambient_span_with_different_trace_id_falls_back_to_run_id(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        from mloda.community.extenders.otel.otel_multiprocessing import trace_id_from_run_id
+
+        run_id = "018f1e4a-7c3b-7c3b-8c3b-1234567890ab"
+        provider, exporter = otel_capture
+        ambient_tracer = provider.get_tracer("mloda-testing-ambient")
+        otel = OtelExtender(tracer_provider=provider)
+
+        with ambient_tracer.start_as_current_span("ambient"):
+            with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, run_id=run_id, carrier=None).activate():
+                otel(lambda: None)
+
+        spans = [span for span in exporter.get_finished_spans() if span.name == "mloda.load"]
+        assert len(spans) == 1, spans
+        assert spans[0].context is not None
+        assert spans[0].context.trace_id == trace_id_from_run_id(run_id), (
+            "an ambient span whose trace id does not match the run_id must not win; the load span "
+            "should fall back to the run_id-derived trace id instead"
+        )
+
+
+class TestOtelExtenderLoadFailureHandling:
+    def test_failing_load_marks_span_error_with_error_type_and_no_message(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD)
+        otel = OtelExtender(tracer_provider=provider)
+        marker = "SENSITIVE_LOAD_VALUE_xyz123"
+
+        def func() -> None:
+            raise RuntimeError(f"load boom: {marker}")
+
+        with context.activate():
+            with pytest.raises(RuntimeError, match="load boom"):
+                otel(func)
+
+        span = single_span(exporter)
+        assert span.status.status_code == StatusCode.ERROR
+        assert span.attributes is not None
+        assert "error.type" in span.attributes
+        for value in span.attributes.values():
+            assert marker not in str(value)
+        assert marker not in (span.status.description or "")
+
 
 class TestOtelExtenderCalculateSpanIgnoresAmbientSpan:
     """Characterization: calculate/validate hooks keep today's rule, ignoring an ambient active span
-    whenever a carrier or run_id is present (R2 changes this only for INPUT_DATA_LOAD)."""
+    whenever a carrier or run_id is present."""
 
     def test_calculate_span_with_run_id_ignores_ambient_active_span(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
@@ -1005,7 +1053,7 @@ class TestOtelExtenderCalculateSpanIgnoresAmbientSpan:
 
 
 class TestOtelExtenderLoadSpanAttributes:
-    """R2: attributes set on the mloda.load span."""
+    """Attributes set on the mloda.load span."""
 
     def test_operation_name_for_load_hook(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
         provider, exporter = otel_capture
@@ -1017,15 +1065,22 @@ class TestOtelExtenderLoadSpanAttributes:
 
         assert single_span_attributes(exporter)["mloda.operation.name"] == "load"
 
-    def test_load_span_name_is_mloda_load(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
+    def test_load_identity_attribute_absent_for_keyword_dsn_while_format_is_unaffected(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
         provider, exporter = otel_capture
-        context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD)
+        identity = "host=db user=u password=pw"
+        context = make_hook_context(
+            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity, data_access_format="postgresql"
+        )
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
-            otel(lambda: None)
+            otel(lambda *_: "loaded-data", identity)
 
-        assert single_span(exporter).name == "mloda.load"
+        attrs = single_span_attributes(exporter)
+        assert "mloda.data_access.identity" not in attrs, attrs
+        assert attrs["mloda.data_access.format"] == "postgresql"
 
     def test_load_identity_attribute_is_sanitized(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
@@ -1156,7 +1211,7 @@ class _DeclaringReader:
 
 
 class TestOtelExtenderDeclaredAttributes:
-    """R3: mloda.declared.<key> attributes from a declared_attributes classmethod on the owning class."""
+    """mloda.declared.<key> attributes from a declared_attributes classmethod on the owning class."""
 
     def test_declared_attributes_set_on_calculate_span_and_classmethod_receives_feature_set(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
@@ -1228,8 +1283,11 @@ class TestOtelExtenderDeclaredAttributes:
         assert not any(key.startswith("mloda.declared.") for key in attrs), attrs
 
         extender_name = OtelExtender.__name__
+        owner_name = _RaisingDeclaration.__name__
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any(extender_name in message and "ValueError" in message for message in warnings), warnings
+        assert any(
+            extender_name in message and owner_name in message and "ValueError" in message for message in warnings
+        ), warnings
         assert not any("declaration boom" in message for message in warnings), warnings
 
     def test_non_mapping_declaration_is_contained_result_returned_span_not_error(
@@ -1250,8 +1308,200 @@ class TestOtelExtenderDeclaredAttributes:
         assert not any(key.startswith("mloda.declared.") for key in attrs), attrs
 
         extender_name = OtelExtender.__name__
+        owner_name = _NonMappingDeclaration.__name__
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any(extender_name in message for message in warnings), warnings
+        assert any(extender_name in message and owner_name in message for message in warnings), warnings
+
+
+class _RaisingIterationMapping(Mapping[str, Any]):
+    """A Mapping whose iteration itself raises; declared_attributes may return one of these, so
+    materializing the entries (not just calling declared_attributes) must be contained too."""
+
+    def __getitem__(self, key: str) -> Any:
+        raise KeyError(key)
+
+    def __iter__(self) -> Any:
+        raise RuntimeError("iteration boom")
+
+    def __len__(self) -> int:
+        return 1
+
+
+class _RaisingIterationDeclaration(FeatureGroup):
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return "ok"
+
+    @classmethod
+    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
+        return _RaisingIterationMapping()
+
+
+class _InterruptingDeclaration(FeatureGroup):
+    """declared_attributes raises a non-Exception BaseException (an interrupt), which must mark the
+    span ERROR and propagate, like a failure in _set_context_attributes."""
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return "ok"
+
+    @classmethod
+    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
+        raise KeyboardInterrupt()
+
+
+class _CountingDeclaration(FeatureGroup):
+    calls: ClassVar[int] = 0
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return "ok"
+
+    @classmethod
+    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
+        cls.calls += 1
+        return {"dataset": "orders"}
+
+
+class _MixedTypeDeclaration(FeatureGroup):
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return "ok"
+
+    @classmethod
+    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
+        return {
+            "scalar": "kept",
+            "flag": True,
+            "num": 3.5,
+            "listy": [1, 2, 3],
+            "mapping": {"a": 1},
+            "none": None,
+        }
+
+
+class _LongStringDeclaration(FeatureGroup):
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return "ok"
+
+    @classmethod
+    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
+        return {"long": "x" * 500}
+
+
+class _ManyKeysDeclaration(FeatureGroup):
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return "ok"
+
+    @classmethod
+    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
+        return {f"k{i}": i for i in range(40)}
+
+
+class TestOtelExtenderDeclaredAttributesContainment:
+    """Declared-attribute build failures and value shaping (mloda.declared.*): a raising iteration
+    or interrupt must be handled the same way as a raising or non-mapping declared_attributes call,
+    and only bounded, scalar values ever reach the span."""
+
+    def test_raising_mapping_iteration_is_contained_result_returned_span_not_error(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        features = FeatureSet()
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            with caplog.at_level(logging.WARNING):
+                result = otel(_RaisingIterationDeclaration.calculate_feature, None, features)
+
+        assert result == "ok"
+        span = single_span(exporter)
+        assert span.status.status_code != StatusCode.ERROR
+        attrs = span.attributes or {}
+        assert not any(key.startswith("mloda.declared.") for key in attrs), attrs
+
+        extender_name = OtelExtender.__name__
+        owner_name = _RaisingIterationDeclaration.__name__
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any(extender_name in message and owner_name in message for message in warnings), warnings
+        assert not any("iteration boom" in message for message in warnings), warnings
+
+    def test_interrupt_from_declaration_marks_span_error_and_propagates(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        features = FeatureSet()
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            with pytest.raises(KeyboardInterrupt):
+                otel(_InterruptingDeclaration.calculate_feature, None, features)
+
+        span = single_span(exporter)
+        assert span.status.status_code == StatusCode.ERROR
+        assert span.attributes is not None
+        assert "error.type" in span.attributes
+
+    def test_declaration_not_called_when_span_is_not_recording(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        features = FeatureSet()
+        _CountingDeclaration.calls = 0
+        # An unsampled remote parent: the default ParentBased sampler drops the span (not recording).
+        carrier = {"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00"}
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, carrier=carrier).activate():
+            result = otel(_CountingDeclaration.calculate_feature, None, features)
+
+        assert result == "ok"
+        assert exporter.get_finished_spans() == ()
+        assert _CountingDeclaration.calls == 0
+
+    def test_non_scalar_declared_values_are_dropped(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        features = FeatureSet()
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            otel(_MixedTypeDeclaration.calculate_feature, None, features)
+
+        attrs = single_span_attributes(exporter)
+        assert attrs["mloda.declared.scalar"] == "kept"
+        assert attrs["mloda.declared.flag"] is True
+        assert attrs["mloda.declared.num"] == 3.5
+        assert "mloda.declared.listy" not in attrs
+        assert "mloda.declared.mapping" not in attrs
+        assert "mloda.declared.none" not in attrs
+
+    def test_long_declared_string_is_truncated(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        features = FeatureSet()
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            otel(_LongStringDeclaration.calculate_feature, None, features)
+
+        value = single_span_attributes(exporter)["mloda.declared.long"]
+        assert len(value) == otel_extender_module._CONTENT_PREVIEW_MAX_LEN
+
+    def test_declared_keys_are_capped_at_32(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        features = FeatureSet()
+
+        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+            otel(_ManyKeysDeclaration.calculate_feature, None, features)
+
+        attrs = single_span_attributes(exporter)
+        declared_keys = {key for key in attrs if key.startswith("mloda.declared.")}
+        assert len(declared_keys) == 32, declared_keys
+        assert declared_keys == {f"mloda.declared.k{i}" for i in range(32)}
 
 
 class TestOtelExtenderRunAll:

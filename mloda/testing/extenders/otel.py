@@ -407,32 +407,54 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         with make_hook_context(hook=self.context_hook()).activate():
             extender(outer_func)
 
-        for span in exporter.get_finished_spans():
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 2, spans  # the outer call's span plus the nested load span
+        for span in spans:
             assert span.attributes is not None
             for value in span.attributes.values():
                 assert marker not in str(value), span.attributes
 
-    def test_otel_load_nested_in_calculate_is_child_of_the_calculate_span(self) -> None:
+    @pytest.mark.parametrize("parenting", ["run_id", "carrier"])
+    def test_otel_load_nested_in_calculate_is_child_of_the_calculate_span(self, parenting: str) -> None:
         provider, exporter = make_span_capture()
         extender = self.make_otel_extender(provider)
-        if ExtenderHook.INPUT_DATA_LOAD not in extender.wraps():
+        wraps = extender.wraps()
+        if ExtenderHook.INPUT_DATA_LOAD not in wraps:
             pytest.skip("extender does not wrap INPUT_DATA_LOAD")
+        if ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE not in wraps:
+            pytest.skip("extender does not wrap FEATURE_GROUP_CALCULATE_FEATURE")
 
-        inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD)
+        # Both contexts share the same correlation (run_id or carrier), so the load span's trace id
+        # would match the calculate span's trace id even without a parent-child relationship; the
+        # assertions below on span.parent are what actually pin the nesting.
+        shared_kwargs: dict[str, Any] = (
+            {"run_id": "018f1e4a-7c3b-7c3b-8c3b-1234567890ab"}
+            if parenting == "run_id"
+            else {"carrier": inject_parent_carrier()[0]}
+        )
+
+        outer_context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, **shared_kwargs)
+        inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, **shared_kwargs)
 
         def outer_func() -> None:
             with inner_context.activate():
                 extender(lambda: "loaded-data")
 
-        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+        with outer_context.activate():
             extender(outer_func)
 
         spans = exporter.get_finished_spans()
-        calculate_spans = [span for span in spans if span.name == "mloda.calculate"]
-        load_spans = [span for span in spans if span.name == "mloda.load"]
-        assert len(calculate_spans) == 1, spans
-        assert len(load_spans) == 1, spans
-        calculate_span, load_span = calculate_spans[0], load_spans[0]
+        assert len(spans) == 2, spans
+
+        expected = self.expected_span_names()
+        if expected is not None and ExtenderHook.INPUT_DATA_LOAD in expected:
+            load_span = next(span for span in spans if span.name == expected[ExtenderHook.INPUT_DATA_LOAD])
+            calculate_span = next(span for span in spans if span is not load_span)
+        else:
+            span_ids = {span.context.span_id for span in spans if span.context is not None}
+            load_span = next(span for span in spans if span.parent is not None and span.parent.span_id in span_ids)
+            calculate_span = next(span for span in spans if span is not load_span)
+
         assert calculate_span.context is not None
         assert load_span.context is not None
         assert load_span.context.trace_id == calculate_span.context.trace_id

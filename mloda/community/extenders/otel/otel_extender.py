@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import reprlib
 import threading
 from collections.abc import Callable, Mapping
@@ -24,7 +25,7 @@ from opentelemetry.trace import (
 )
 
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
-from mloda.community.extenders.shared.bound_method import class_attribute
+from mloda.community.extenders.shared.bound_method import bound_method, class_attribute
 from mloda.community.extenders.shared.data_access_identity import resolve_data_access_identity
 from mloda.community.extenders.shared.pickle_safety import pickle_failure_reason
 
@@ -85,6 +86,15 @@ _OPERATION_NAMES: dict[ExtenderHook, str] = {
 # Hooks whose owning class may declare span attributes via declared_attributes(), and whose
 # rows.out is recorded after the call: calculate and load, never validate.
 _DECLARABLE_HOOKS = {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}
+
+# Declared attribute values kept; other types are dropped silently.
+_SCALAR_TYPES = (str, bool, int, float)
+
+# Caps declared keys so the SDK's attribute limit can't evict core attributes.
+_MAX_DECLARED_KEYS = 32
+
+# Flags a resolved identity as not URI-shaped (keyword DSN, object repr): never recorded.
+_UNSAFE_IDENTITY_CHARS = re.compile(r"[=;\s]")
 
 
 class OtelExtender(Extender):
@@ -213,8 +223,9 @@ class OtelExtender(Extender):
 
     def _set_declared_attributes(self, span: Span, func: Any, args: tuple[Any, ...]) -> None:
         """mloda.declared.<key> attributes from a declared_attributes classmethod on func's owning class.
-        A missing method is a silent no-op. A raise or a non-mapping result is logged on each failing
-        call and skipped, never raised, never ERROR."""
+        Contained like _set_context_attributes: Exception logs a WARNING and skips, interrupt marks ERROR and re-raises."""
+        if not span.is_recording():
+            return
         declare = class_attribute(func, "declared_attributes")
         if declare is None:
             return
@@ -222,11 +233,27 @@ class OtelExtender(Extender):
             attributes = declare(Extender.feature_set(args))
             if not isinstance(attributes, Mapping):
                 raise TypeError(f"declared_attributes returned {type(attributes).__name__}, expected a Mapping")
+            items = list(attributes.items())
         except Exception as exc:
-            logger.warning("%s declared_attributes failed: %s", type(self).__name__, type(exc).__name__)
+            owner_name = _owning_class_name(func)
+            logger.warning(
+                "%s declared_attributes on %s failed: %s", type(self).__name__, owner_name, type(exc).__name__
+            )
             return
-        for key, value in attributes.items():
+        except BaseException as exc:
+            span.set_status(Status(StatusCode.ERROR))
+            span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
+            raise
+        count = 0
+        for key, value in items:
+            if count >= _MAX_DECLARED_KEYS:
+                break
+            if not isinstance(value, _SCALAR_TYPES):
+                continue
+            if isinstance(value, str):
+                value = value[:_CONTENT_PREVIEW_MAX_LEN]
             span.set_attribute(f"mloda.declared.{key}", value)
+            count += 1
 
     def _content_capture_enabled(self) -> bool:
         if self.capture_content:
@@ -241,9 +268,9 @@ class OtelExtender(Extender):
 def _parent_context(context: HookContext | None) -> Context | None:
     """Pick the parent context for the span to be started, by priority (highest first):
 
-    1. INPUT_DATA_LOAD only: an ambient active span with a valid span context, e.g. the enclosing
-       mloda.calculate span (core runs the load nested inside the calculation). None is returned so
-       the tracer falls back to the ambient current context, making the load span its child.
+    1. INPUT_DATA_LOAD only: a valid ambient active span (e.g. the enclosing mloda.calculate span)
+       wins and None is returned, making the load span its child. If a carrier or run_id is also set,
+       the ambient span wins only when its trace id matches theirs; otherwise falls through to 2/3.
     2. context.carrier, if truthy: extracted into a real parent Context (propagated from another
        process via a W3C traceparent carrier).
     3. else context.run_id, if not None: a synthetic, non-recording parent Context whose trace_id is
@@ -254,8 +281,14 @@ def _parent_context(context: HookContext | None) -> Context | None:
     if context is None:
         return None
 
-    if context.hook == ExtenderHook.INPUT_DATA_LOAD and trace.get_current_span().get_span_context().is_valid:
-        return None
+    if context.hook == ExtenderHook.INPUT_DATA_LOAD:
+        ambient_span_context = trace.get_current_span().get_span_context()
+        if ambient_span_context.is_valid:
+            if not context.carrier and context.run_id is None:
+                return None
+            expected_trace_id = _expected_trace_id(context)
+            if expected_trace_id is None or expected_trace_id == ambient_span_context.trace_id:
+                return None
 
     if context.carrier:
         return extract_carrier(context.carrier)
@@ -272,9 +305,25 @@ def _parent_context(context: HookContext | None) -> Context | None:
     return None
 
 
+def _expected_trace_id(context: HookContext) -> int | None:
+    """The trace id the carrier/run_id fallback rule would give (carrier wins), per _parent_context's priority."""
+    if context.carrier:
+        return trace.get_current_span(extract_carrier(context.carrier)).get_span_context().trace_id
+    if context.run_id is not None:
+        return trace_id_from_run_id(context.run_id)
+    return None
+
+
+def _owning_class_name(func: Any) -> str:
+    """Name of the class owning func, for a warning message; falls back to func's own name."""
+    owner = getattr(bound_method(func), "__self__", None)
+    owning_class = owner if isinstance(owner, type) else type(owner)
+    return getattr(owning_class, "__name__", repr(func))
+
+
 def _set_load_attributes(span: Span, context: HookContext, args: tuple[Any, ...]) -> None:
     identity = resolve_data_access_identity(args, context.data_access_identity)
-    if identity is not None:
+    if identity is not None and not _UNSAFE_IDENTITY_CHARS.search(identity):
         span.set_attribute("mloda.data_access.identity", identity)
     if context.data_access_format is not None:
         span.set_attribute("mloda.data_access.format", context.data_access_format)

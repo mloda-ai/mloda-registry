@@ -35,4 +35,8 @@ def resolve_data_access_identity(args: tuple[Any, ...], context_identity: str | 
         return None
     # Core passes the raw data_access first; using it avoids core's lossy greedy strip.
     raw = args[0] if args and isinstance(args[0], str) else context_identity
-    return sanitize_data_access_identity(raw)
+    sanitized = sanitize_data_access_identity(raw)
+    if sanitized == raw and raw != context_identity and "://" in raw:
+        # raw is scheme-shaped but malformed, so it went unsanitized; fall back to core's own copy.
+        return sanitize_data_access_identity(context_identity)
+    return sanitized

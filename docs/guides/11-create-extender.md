@@ -114,9 +114,16 @@ The `data_access_identity` that core supplies on the context is not guaranteed t
 
 Feature names are published as given wherever they become dataset names: declared input features and outputs in `OpenLineageExtender`, and also column-lineage edges and validation datasets in `LineageFacetsExtender`. A consumer's input name then equals its producer's output name, which is what joins the lineage graph. Only data-access identities are sanitized; a feature name is an author- or caller-chosen identifier, so never put a secret in one. A feature named like a load identity is merged with that load's dataset only when its name equals the sanitized identity, so not while the name still carries the stripped query.
 
-### Declared attributes
+`resolve_data_access_identity` prefers core's raw `args[0]`, but falls back to the sanitized context copy when `args[0]` is scheme-shaped (`://`) with a malformed scheme (leading whitespace, a digit-leading scheme, ...) that differs from it, since core already stripped userinfo there. `OtelExtender` also skips `mloda.data_access.identity` when the resolved identity contains `=`, `;` or whitespace, so a keyword DSN or an object repr is dropped; `mloda.data_access.format` is unaffected.
 
-`OtelExtender` reads a `declared_attributes(features)` classmethod off the class owning the wrapped call (the `FeatureGroup` for a calculate hook, the reader class for a load hook), passing the call's `FeatureSet` (may be `None`). Its returned mapping is set as `mloda.declared.<key>` on the span, before the wrapped call runs, on calculate and load spans only, never on validate. Metadata only: do not echo option values back, since `FeatureSet` options can carry credentials. A missing method is a silent no-op. A raise or a non-mapping return is contained: logged at WARNING on each failing call (extender and exception type, never the message), then skipped; the wrapped call still runs.
+## Declared attributes
+
+`OtelExtender` reads a `declared_attributes(features)` classmethod off the class owning the wrapped call (the `FeatureGroup` for calculate, the reader class for load), passing the call's `FeatureSet` (may be `None`). Its mapping is set as `mloda.declared.<key>` before the wrapped call runs, on calculate and load spans only. Metadata only: do not echo option values back, since `FeatureSet` options can carry credentials.
+
+- Skipped when the span is not recording, or when the class has no such method.
+- Only scalar values (`str`, `bool`, `int`, `float`) are kept; `str` is truncated to the content preview cap.
+- At most 32 declared keys are set (first 32 in mapping order), so core attributes are never evicted by the SDK's limit.
+- A raise while building or iterating the mapping, or a non-mapping return, is contained: logged at WARNING naming the extender and owning class (never the message), then skipped. A `BaseException` that is not an `Exception` (an interrupt) marks the span ERROR and re-raises instead.
 
 ## Verified run context
 

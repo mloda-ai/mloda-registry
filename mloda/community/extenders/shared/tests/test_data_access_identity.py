@@ -69,6 +69,19 @@ def test_sanitize_data_access_identity(identity: str, expected: str) -> None:
         pytest.param(({"k": "v"},), "https://u:p@host/db", "https://host/db", id="dict_arg_uses_context"),
         pytest.param((), None, None, id="no_args_and_no_context_is_none"),
         pytest.param((42,), None, None, id="non_str_arg_and_no_context_is_none"),
+        pytest.param(
+            (" postgresql://user:pw@host/db",),
+            " postgresql://host/db",
+            " postgresql://host/db",
+            id="whitespace_prefixed_uri_userinfo_falls_back_to_context",
+        ),
+        pytest.param(
+            ("1s3://user:pw@host/db",),
+            "1s3://host/db",
+            "1s3://host/db",
+            id="digit_scheme_uri_userinfo_falls_back_to_context",
+        ),
+        pytest.param(("/data/dir/file.csv",), "/data/dir/file.csv", "/data/dir/file.csv", id="plain_path_unchanged"),
     ],
 )
 def test_resolve_data_access_identity(
