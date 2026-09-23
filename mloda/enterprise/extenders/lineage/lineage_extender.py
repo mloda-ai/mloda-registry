@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import inspect
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +13,7 @@ from openlineage.client.event_v2 import InputDataset, Job
 from openlineage.client.facet_v2 import RunFacet, column_lineage_dataset, data_quality_assertions_dataset
 
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
+from mloda.community.extenders.shared.bound_method import bound_method, class_attribute
 
 if TYPE_CHECKING:
     from mloda.user import Feature
@@ -150,20 +150,9 @@ class LineageFacetsExtender(OpenLineageExtender):
         )
 
 
-def _bound_method(func: Any) -> Any:
-    """The bound method behind func; core's wrappers copy __self__ but not __func__, so stop at the method type."""
-    return inspect.unwrap(func, stop=inspect.ismethod)
-
-
 def _overrides_validator(func: Any, method: str) -> bool:
-    function = getattr(_bound_method(func), "__func__", None)
+    function = getattr(bound_method(func), "__func__", None)
     return function is not None and function is not getattr(FeatureGroup, method).__func__
-
-
-def _class_attribute(func: Any, name: str) -> Any:
-    owner = getattr(_bound_method(func), "__self__", None)
-    feature_group = owner if isinstance(owner, type) else type(owner)
-    return getattr(feature_group, name, None)
 
 
 def _own_option(feature: Feature | None, key: str) -> Any:
@@ -180,7 +169,7 @@ def _own_option(feature: Feature | None, key: str) -> Any:
 
 
 def _declares_class_masking(func: Any) -> bool:
-    return _class_attribute(func, _MASKING) is True
+    return class_attribute(func, _MASKING) is True
 
 
 def _declares_masking(feature: Feature) -> bool:
@@ -200,7 +189,7 @@ def _source_column(func: Any, args: tuple[Any, ...], name: str) -> str | None:
         return name
     if isinstance(declared, str) and declared:
         return declared
-    declared = _class_attribute(func, _SOURCE_COLUMN)
+    declared = class_attribute(func, _SOURCE_COLUMN)
     if declared is True:
         return name
     column = declared.get(name) if isinstance(declared, dict) else None

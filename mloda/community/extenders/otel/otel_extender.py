@@ -6,7 +6,7 @@ import logging
 import os
 import reprlib
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from mloda.steward import Extender, ExtenderHook, HookContext
@@ -24,6 +24,8 @@ from opentelemetry.trace import (
 )
 
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
+from mloda.community.extenders.shared.bound_method import class_attribute
+from mloda.community.extenders.shared.data_access_identity import resolve_data_access_identity
 from mloda.community.extenders.shared.pickle_safety import pickle_failure_reason
 
 logger = logging.getLogger(__name__)
@@ -70,13 +72,19 @@ _SPAN_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: "mloda.calculate",
     ExtenderHook.VALIDATE_INPUT_FEATURE: "mloda.validate.input",
     ExtenderHook.VALIDATE_OUTPUT_FEATURE: "mloda.validate.output",
+    ExtenderHook.INPUT_DATA_LOAD: "mloda.load",
 }
 
 _OPERATION_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE: "calculate",
     ExtenderHook.VALIDATE_INPUT_FEATURE: "validate",
     ExtenderHook.VALIDATE_OUTPUT_FEATURE: "validate",
+    ExtenderHook.INPUT_DATA_LOAD: "load",
 }
+
+# Hooks whose owning class may declare span attributes via declared_attributes(), and whose
+# rows.out is recorded after the call: calculate and load, never validate.
+_DECLARABLE_HOOKS = {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}
 
 
 class OtelExtender(Extender):
@@ -155,6 +163,7 @@ class OtelExtender(Extender):
             ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
             ExtenderHook.VALIDATE_INPUT_FEATURE,
             ExtenderHook.VALIDATE_OUTPUT_FEATURE,
+            ExtenderHook.INPUT_DATA_LOAD,
         }
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
@@ -170,10 +179,14 @@ class OtelExtender(Extender):
             if context is not None:
                 try:
                     _set_context_attributes(span, context)
+                    if context.hook == ExtenderHook.INPUT_DATA_LOAD:
+                        _set_load_attributes(span, context, args)
                 except BaseException as exc:
                     span.set_status(Status(StatusCode.ERROR))
                     span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
                     raise
+                if context.hook in _DECLARABLE_HOOKS:
+                    self._set_declared_attributes(span, func, args)
 
             try:
                 result = func(*args, **kwargs)
@@ -184,15 +197,36 @@ class OtelExtender(Extender):
                 raise
 
             try:
-                if context is not None and context.hook == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE:
+                if context is not None and context.hook in _DECLARABLE_HOOKS:
                     if context.rows_out is not None:
                         span.set_attribute("mloda.rows.out", context.rows_out)
-                    if span.is_recording() and self._content_capture_enabled():
+                    if (
+                        context.hook == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE
+                        and span.is_recording()
+                        and self._content_capture_enabled()
+                    ):
                         span.set_attribute("mloda.content.preview", self._content_preview(result))
             except Exception as exc:
                 logger.warning("OtelExtender post-call instrumentation failed: %s: %s", type(exc).__name__, exc)
 
             return result
+
+    def _set_declared_attributes(self, span: Span, func: Any, args: tuple[Any, ...]) -> None:
+        """mloda.declared.<key> attributes from a declared_attributes classmethod on func's owning class.
+        A missing method is a silent no-op. A raise or a non-mapping result is logged on each failing
+        call and skipped, never raised, never ERROR."""
+        declare = class_attribute(func, "declared_attributes")
+        if declare is None:
+            return
+        try:
+            attributes = declare(Extender.feature_set(args))
+            if not isinstance(attributes, Mapping):
+                raise TypeError(f"declared_attributes returned {type(attributes).__name__}, expected a Mapping")
+        except Exception as exc:
+            logger.warning("%s declared_attributes failed: %s", type(self).__name__, type(exc).__name__)
+            return
+        for key, value in attributes.items():
+            span.set_attribute(f"mloda.declared.{key}", value)
 
     def _content_capture_enabled(self) -> bool:
         if self.capture_content:
@@ -207,14 +241,20 @@ class OtelExtender(Extender):
 def _parent_context(context: HookContext | None) -> Context | None:
     """Pick the parent context for the span to be started, by priority (highest first):
 
-    1. context.carrier, if truthy: extracted into a real parent Context (propagated from another
+    1. INPUT_DATA_LOAD only: an ambient active span with a valid span context, e.g. the enclosing
+       mloda.calculate span (core runs the load nested inside the calculation). None is returned so
+       the tracer falls back to the ambient current context, making the load span its child.
+    2. context.carrier, if truthy: extracted into a real parent Context (propagated from another
        process via a W3C traceparent carrier).
-    2. else context.run_id, if not None: a synthetic, non-recording parent Context whose trace_id is
+    3. else context.run_id, if not None: a synthetic, non-recording parent Context whose trace_id is
        deterministically derived from run_id, so spans sharing a run_id correlate even when no carrier
        was ever exchanged.
-    3. else None: today's existing default behavior (the ambient current context is used).
+    4. else None: today's existing default behavior (the ambient current context is used).
     """
     if context is None:
+        return None
+
+    if context.hook == ExtenderHook.INPUT_DATA_LOAD and trace.get_current_span().get_span_context().is_valid:
         return None
 
     if context.carrier:
@@ -230,6 +270,14 @@ def _parent_context(context: HookContext | None) -> Context | None:
         return set_span_in_context(NonRecordingSpan(span_context))
 
     return None
+
+
+def _set_load_attributes(span: Span, context: HookContext, args: tuple[Any, ...]) -> None:
+    identity = resolve_data_access_identity(args, context.data_access_identity)
+    if identity is not None:
+        span.set_attribute("mloda.data_access.identity", identity)
+    if context.data_access_format is not None:
+        span.set_attribute("mloda.data_access.format", context.data_access_format)
 
 
 def _set_context_attributes(span: Span, context: HookContext) -> None:
