@@ -108,25 +108,6 @@ class _ValidateOnlyProbeExtender(Extender):
         return result
 
 
-class _DataChangingLoadProbeExtender(Extender):
-    """Wraps INPUT_DATA_LOAD; rewrites the loaded CSV in place and returns the wrapped result unchanged."""
-
-    explode = False
-
-    def __init__(self, raise_on_error: bool = True) -> None:
-        self.raise_on_error = raise_on_error
-
-    def wraps(self) -> set[ExtenderHook]:
-        return {ExtenderHook.INPUT_DATA_LOAD}
-
-    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
-        if self.explode:
-            raise RuntimeError("data-changing probe instrumentation boom")
-        result = func(*args, **kwargs)
-        Path(result.path).write_text("alpha,beta\n9,2\n9,4\n", encoding="utf-8")
-        return result
-
-
 class TestMakeHookContextDefaults:
     def test_defaults(self) -> None:
         context = make_hook_context()
@@ -478,21 +459,25 @@ class TestDataChangingExtenderFailsContract:
     """Self-test: a probe mutating loaded data in place must fail the never-changes-data contract test."""
 
     def test_data_changing_load_probe_fails_the_mixin_test(self, tmp_path: Path) -> None:
+        class _DataChangingLoadProbeExtender(Extender):
+            """Wraps INPUT_DATA_LOAD; rewrites the loaded CSV in place and returns the wrapped result unchanged."""
+
+            def __init__(self) -> None:
+                self.raise_on_error = True
+
+            def wraps(self) -> set[ExtenderHook]:
+                return {ExtenderHook.INPUT_DATA_LOAD}
+
+            def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+                result = func(*args, **kwargs)
+                Path(result.path).write_text("alpha,beta\n9,2\n9,4\n", encoding="utf-8")
+                return result
+
         class _Host(ExtenderContractTestMixin):
-            @classmethod
-            def extender_class(cls) -> type[Extender]:
-                return _DataChangingLoadProbeExtender
-
             def make_extender(self, *, raise_on_error: bool | None = None) -> _DataChangingLoadProbeExtender:
-                if raise_on_error is None:
-                    return _DataChangingLoadProbeExtender()
-                return _DataChangingLoadProbeExtender(raise_on_error=raise_on_error)
+                return _DataChangingLoadProbeExtender()
 
-            @classmethod
-            def has_backend_sink(cls) -> bool:
-                return False
-
-        with pytest.raises(AssertionError):
+        with pytest.raises(AssertionError, match=r"\[9, 9\]"):
             _Host().test_contract_run_all_input_data_load_leaves_result_unchanged(tmp_path)
 
 

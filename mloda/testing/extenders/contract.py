@@ -248,7 +248,8 @@ class ExtenderContractTestMixin:
         assert run_value_int(self.make_extender()) == expected_value_int()
 
     def test_contract_run_all_input_data_load_leaves_result_unchanged(self, tmp_path: Path) -> None:
-        assert run_csv_feature(tmp_path, self.make_extender()) == [1, 3]
+        values = run_csv_feature(tmp_path, self.make_extender())
+        assert values == [1, 3], f"extender changed data loaded at INPUT_DATA_LOAD: {values}"
 
     def test_contract_run_all_wrapped_failure_propagates_and_runs_once(self) -> None:
         fg = failing_feature_group(f"{self.extender_class().__name__.lower()}_boom_feature")

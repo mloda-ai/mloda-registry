@@ -64,7 +64,7 @@ class MyExtender(Extender):
 
 ## Never Change Data
 
-An extender never changes data on any hook: it returns exactly what the wrapped function returned ([core decision](https://github.com/mloda-ai/mloda/issues/1529)). From mloda 0.14.0 on, core discards an extender's return value once it has called the wrapped function, so a returned replacement is ignored. Core does not prevent mutating the loaded data or other shared arguments in place, so the rule stays on the extender. `OtelExtender`'s `mask` receives the wrapped result itself: return a masked copy, never mask in place.
+An extender never changes data on any hook: it returns exactly what the wrapped function returned ([core decision](https://github.com/mloda-ai/mloda/issues/1529)). From mloda 0.14.0 on, core discards an extender's return value once it has called the wrapped function, so a returned replacement is ignored; an extender that never calls it still returns its own value. Core does not prevent mutating the loaded data or other shared arguments in place, so the rule stays on the extender. `OtelExtender`'s `mask` receives the calculate result itself (for the `capture_content` preview): return a masked copy, never mask in place.
 
 ## Chaining and Error Handling
 
@@ -253,7 +253,7 @@ The mixin pins:
 - when `supports_pickled_sink_capture()` is `True`: a picklable injected sink survives pickling and the pickled copy still emits into it
 - when `supports_unpicklable_sink_degrade()` is `True`: an unpicklable injected sink is dropped and warned about exactly once across repeated pickling, and the resulting copy still wraps a call
 - `run_all` round trips (one success, one wrapped failure)
-- a `run_all` round trip through a CSV load (`run_csv_feature`, fires `INPUT_DATA_LOAD`) returns the loaded column unchanged, so an extender that mutates loaded data in place fails it
+- a `run_all` round trip through a CSV load (`run_csv_feature`, fires `INPUT_DATA_LOAD`) returns the loaded column unchanged, so an extender that changes the loaded CSV data fails it
 - when `has_backend_sink()` is `True`: an unconfigured extender emits nothing against ambient sink configuration, both on a direct call and in `run_all`; `use_sdk_defaults=True` resolves the sink from that same ambient configuration and emits into it, not merely looks it up (skipped when `ambient_sink_captured` returns `None`); an injected sink ignores ambient configuration entirely; a `run_all` under `SYNC` or `THREADING` (no real subprocess, so core never pickles the extender) reaches the exact injected sink object, with no drop-warning logged; a pickled `use_sdk_defaults=True` copy still resolves the sink from ambient configuration. Extenders with no external sink inherit `has_backend_sink()` returning `False` and skip these tests
 - when `supports_real_worker_sink()` is `True`: a real spawned `MULTIPROCESSING` worker reaches the exact injected sink (a marker file exists), with no drop-warning logged; if `supports_unpicklable_sink_degrade()` is also `True`, an unpicklable injected sink degrades gracefully there too (the run still completes, and a drop-warning is logged from the parent process, where core's own preflight pickle check runs before the worker is ever spawned)
 
