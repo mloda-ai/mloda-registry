@@ -219,16 +219,10 @@ def _overrides_validator(func: Any, method: str) -> bool:
 
 
 def _own_option(feature: Feature | None, key: str) -> Any:
-    # Own context key only: not inherited, not held with an equal value by the consumer (which core cannot tell apart).
-    # Equality is checked for bool and str only: only `True` or a non-empty str can count, and it keeps `==` safe for
-    # array-like or exotic values.
-    if feature is None or key in feature.options.inherited_context_keys:
+    # Own context key only: declared on the feature before mloda resolved it, so a received key never counts.
+    if feature is None or key not in feature.options.own_context_keys:
         return None
-    value = feature.options.context.get(key)
-    held = feature.child_options.context.get(key) if feature.child_options is not None else None
-    if isinstance(value, (bool, str)) and type(held) is type(value) and held == value:
-        return None
-    return value
+    return feature.options.context.get(key)
 
 
 def _declares_class_masking(func: Any) -> bool:
