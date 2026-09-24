@@ -93,10 +93,11 @@ def run_csv_feature(
     *extenders: Extender,
     parallelization_modes: set[ParallelizationMode] | None = None,
     flight_server: Any | None = None,
+    carrier: dict[str, str] | None = None,
 ) -> list[Any]:
     """Write a small CSV into `directory` and run its `alpha` column through the pipeline, firing a nested
     INPUT_DATA_LOAD hook with `data_access_identity` set to the CSV's path; return the column. Optional
-    parallelization_modes and flight_server forward straight to mloda.run_all."""
+    parallelization_modes, flight_server and carrier forward straight to mloda.run_all."""
     path = directory / "data.csv"
     path.write_text("alpha,beta\n1,2\n3,4\n", encoding="utf-8")
     plugin_collector = PluginCollector.enabled_feature_groups({ReadFileFeature})
@@ -107,6 +108,7 @@ def run_csv_feature(
         function_extender=set(extenders),
         parallelization_modes=parallelization_modes or {ParallelizationMode.SYNC},
         flight_server=flight_server,
+        carrier=carrier,
     )
     for table in results:
         if isinstance(table, pa.Table) and "alpha" in table.column_names:

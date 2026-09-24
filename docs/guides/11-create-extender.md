@@ -299,7 +299,7 @@ The mixin pins:
 
 A host that must record the raw URI overrides `test_otel_input_data_load_query_string_never_reaches_span_attributes` by name.
 
-Helpers: `make_span_capture`, `make_picklable_span_capture`, `single_span`, `single_span_attributes`, `inject_parent_carrier`, `RebuildingSpanCaptureProvider`, `FileSpanExporter` (writes finished span names to a marker file, for `make_real_worker_extender_and_marker`).
+Helpers: `make_span_capture`, `make_picklable_span_capture`, `single_span`, `single_span_attributes`, `inject_parent_carrier`, `RebuildingSpanCaptureProvider`, `FileSpanExporter` (writes finished span names to a marker file, for `make_real_worker_extender_and_marker`; pass `records=True` for one JSON record per span, with ids and attributes), `read_span_records` (parses those records back).
 
 ### OpenLineageExtenderTestMixin
 
