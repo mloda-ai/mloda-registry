@@ -43,6 +43,60 @@ class TestMyFilterEngine(FilterEngineTestMixin):
         return result[column].tolist()
 ```
 
+### MaskEngineTestMixin
+
+For mask engine tests - set the mask engine class and provide framework-specific data and mask hooks:
+
+```python
+from decimal import Decimal
+from typing import Any
+
+import pytest
+
+from tests.test_plugins.compute_framework.base_implementations.mask_engine_test_mixin import MaskEngineTestMixin
+
+
+class TestMyMaskEngine(MaskEngineTestMixin):
+    mask_engine_class = MyMaskEngine
+
+    @pytest.fixture
+    def sample_data(self) -> Any:
+        return my_lib.DataFrame({"status": ["active", "inactive"], "value": [10, 20]})
+
+    @pytest.fixture
+    def empty_data(self) -> Any:
+        return my_lib.DataFrame({"status": [], "value": []})
+
+    @pytest.fixture
+    def null_data(self) -> Any:
+        return my_lib.DataFrame(
+            {
+                "status": ["active", None],
+                "value": [10, 20],
+                "score": [Decimal("1.00"), None],
+                "ratio": [1.0, None],
+            }
+        )
+
+    @pytest.fixture
+    def decimal_sample_data(self) -> Any:
+        return my_lib.DataFrame({"d": [Decimal("12.34"), Decimal("5.50"), None]})
+
+    def evaluate_mask(self, mask: Any, data: Any) -> list[bool]:
+        return mask.tolist()
+
+    def is_boolean_mask(self, mask: Any, data: Any) -> bool:
+        return mask.dtype == bool
+
+    def apply_mask(self, mask: Any, data: Any) -> dict[str, list[Any]]:
+        return data[mask].to_dict("list")
+```
+
+The mixin expects `mask_engine_class`, `sample_data`, `empty_data`, `null_data`,
+`decimal_sample_data`, `evaluate_mask`, `is_boolean_mask`, and `apply_mask`.
+For SQL engines that return condition strings, inherit from `SqlMaskEngineTestMixin`
+to add SQL condition-shape checks on top of the shared mask engine contract.
+
 ### MultiIndexMergeEngineTestBase (6 tests)
 
 For merge engine tests with multi-column indexes:
@@ -214,6 +268,7 @@ class TestMyTransformer:
 - [ ] `expected_data_framework()` returns correct type
 - [ ] `merge_engine()` returns BaseMergeEngine subclass
 - [ ] `filter_engine()` returns BaseFilterEngine subclass
+- [ ] `mask_engine()` returns BaseMaskEngine subclass
 - [ ] `transform()` handles dict input
 
 ### Merge Engine (use MultiIndexMergeEngineTestBase)
@@ -222,6 +277,9 @@ class TestMyTransformer:
 
 ### Filter Engine (use FilterEngineTestMixin)
 - [ ] All filter types work (range, min, max, equal, regex, categorical)
+
+### Mask Engine (use MaskEngineTestMixin)
+- [ ] Mask comparisons, set membership, boolean combination, null handling, and decimal values work
 
 ### Transformer
 - [ ] Conversion to PyArrow works
@@ -233,6 +291,9 @@ class TestMyTransformer:
 | File | Description |
 |------|-------------|
 | [filter_engine_test_mixin.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/compute_framework/base_implementations/filter_engine_test_mixin.py) | Filter engine mixin |
+| [mask_engine_test_mixin.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/compute_framework/base_implementations/mask_engine_test_mixin.py) | Mask engine mixin |
+| [pyarrow/test_pyarrow_mask_engine.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/compute_framework/base_implementations/pyarrow/test_pyarrow_mask_engine.py) | PyArrow mask engine consumer |
+| [sql_mask_engine_test_mixin.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/compute_framework/base_implementations/sql_mask_engine_test_mixin.py) | SQL mask engine mixin |
 | [multi_index_test_base.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/compute_framework/test_tooling/multi_index/multi_index_test_base.py) | Merge engine base |
 | [dataframe_test_base.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/compute_framework/test_tooling/dataframe_test_base.py) | Framework merge base |
 | [pandas/test_pandas_dataframe.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/compute_framework/base_implementations/pandas/test_pandas_dataframe.py) | Pandas tests |
