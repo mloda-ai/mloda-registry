@@ -1377,7 +1377,8 @@ class TestAuditExtenderRunAll:
         request: pytest.FixtureRequest,
     ) -> None:
         audit_path = tmp_path / "audit.ndjson"
-        counting = CountingExtender()
+        marker_path = tmp_path / "counting_calls"
+        counting = CountingExtender(marker_path=marker_path)
         # Lower than the default 100: it runs outside the gate unless the gate sorts itself outermost.
         counting.priority = 50
         # Only MULTIPROCESSING needs the flight_server fixture.
@@ -1406,3 +1407,5 @@ class TestAuditExtenderRunAll:
         assert record["decision"] == "deny"
         assert record["status"] == "error"
         assert counting.calls == 0
+        # Marker file covers MULTIPROCESSING: a worker's own `calls` copy would be invisible here.
+        assert not marker_path.exists()

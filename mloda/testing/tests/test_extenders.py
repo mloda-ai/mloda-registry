@@ -540,6 +540,7 @@ class TestCountingExtender:
         extender = CountingExtender()
         assert extender.calls == 0
         assert extender.raise_on_error is True
+        assert extender.marker_path is None
 
     def test_wraps_calculate_feature_hook(self) -> None:
         assert CountingExtender().wraps() == {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
@@ -549,10 +550,45 @@ class TestCountingExtender:
         assert extender(lambda a, b: a + b, 3, 4) == 7
         assert extender.calls == 1
 
-    def test_survives_pickle_roundtrip(self) -> None:
-        copy = pickle.loads(pickle.dumps(CountingExtender()))  # nosec
+    def test_marker_path_appends_one_line_per_call(self, tmp_path: Path) -> None:
+        marker_path = tmp_path / "calls"
+        extender = CountingExtender(marker_path=marker_path)
+
+        extender(lambda: None)
+        extender(lambda: None)
+
+        assert extender.calls == 2
+        assert len(marker_path.read_text(encoding="utf-8").splitlines()) == 2
+
+    @pytest.mark.parametrize(
+        "with_marker_path",
+        [False, True],
+        ids=["no_marker_path", "with_marker_path"],
+    )
+    def test_survives_pickle_roundtrip(self, tmp_path: Path, with_marker_path: bool) -> None:
+        marker_path = tmp_path / "calls" if with_marker_path else None
+
+        copy = pickle.loads(pickle.dumps(CountingExtender(marker_path=marker_path)))  # nosec
+
         assert copy.calls == 0
+        assert copy.marker_path == marker_path
         assert copy.wraps() == {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+    def test_multiprocessing_worker_calls_are_visible_via_marker_file(self, tmp_path: Path, flight_server: Any) -> None:
+        marker_path = tmp_path / "calls"
+        extender = CountingExtender(marker_path=marker_path)
+
+        result = run_value_int(
+            extender,
+            parallelization_modes={ParallelizationMode.MULTIPROCESSING},
+            flight_server=flight_server,
+        )
+
+        assert result == expected_value_int()
+        assert marker_path.exists(), "no marker written; the spawned worker never ran the probe"
+        # Worker's own copy increments its calls; only the marker file is visible to the parent.
+        assert len(marker_path.read_text(encoding="utf-8").splitlines()) >= 1
+        assert extender.calls == 0
 
 
 class TestExtenderContractTestMixinShape:

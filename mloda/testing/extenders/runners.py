@@ -116,11 +116,16 @@ def run_csv_feature(
 
 
 class CountingExtender(Extender):
-    """Breaking pass-through probe that counts its own invocations."""
+    """Breaking pass-through probe that counts its own invocations.
 
-    def __init__(self) -> None:
+    If marker_path is set, each call also appends one line to it, so calls made in a MULTIPROCESSING
+    worker stay visible to the parent.
+    """
+
+    def __init__(self, marker_path: Path | None = None) -> None:
         self.raise_on_error = True
         self.calls = 0
+        self.marker_path = marker_path
         # Above the default priority (100) so this probe always sorts downstream of a
         # default-priority host extender, regardless of set iteration order.
         self.priority = 200
@@ -130,6 +135,9 @@ class CountingExtender(Extender):
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         self.calls += 1
+        if self.marker_path is not None:
+            with open(self.marker_path, "a", encoding="utf-8") as marker_file:
+                marker_file.write("call\n")
         return func(*args, **kwargs)
 
 
