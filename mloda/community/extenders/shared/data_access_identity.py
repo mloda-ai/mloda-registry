@@ -32,11 +32,10 @@ def sanitize_data_access_identity(identity: str) -> str:
 def resolve_data_access_identity(args: tuple[Any, ...], context_identity: str | None) -> str | None:
     if context_identity is None:  # the context identity is the recording gate, even if args[0] is a str
         return None
-    # Core passes the raw data_access first; using the raw string keeps what core's default-deny
-    # identity reduces to a type name.
+    # Core passes the raw data_access first; core's default-deny identity can reduce or differ
+    # from a URI the registry records, so the raw string is preferred when it is a str.
     raw = args[0] if args and isinstance(args[0], str) else context_identity
-    sanitized = sanitize_data_access_identity(raw)
-    if sanitized == raw and raw != context_identity and "://" in raw:
-        # raw is scheme-shaped but malformed, so it went unsanitized; fall back to core's identity.
+    if "://" in raw and not _URI_SCHEME.fullmatch(raw.partition("://")[0]):
+        # raw has a malformed scheme, so it went unsanitized; fall back to core's identity.
         return sanitize_data_access_identity(context_identity)
-    return sanitized
+    return sanitize_data_access_identity(raw)

@@ -198,7 +198,7 @@ _URI_SANITIZER_CASES = [
         "https://b.com&token=SECRET",
         "https://b.com",
         ("SECRET", "token"),
-        id="core_greedy_strip_leak_ampersand_tail_in_authority",
+        id="ampersand_tail_in_authority",
     ),
     pytest.param("https://[::1]:8080/x?k=v", "https://[::1]:8080/x", ("k=v",), id="ipv6_host_with_port"),
     pytest.param("file:///tmp/data.csv", "file:///tmp/data.csv", (), id="file_uri_empty_authority_unchanged"),
@@ -222,7 +222,7 @@ _URI_SANITIZER_CASES = [
         "https://b.com/x&sig=SECRET",
         "https://b.com/x",
         ("SECRET", "sig"),
-        id="core_greedy_strip_leak_ampersand_tail_in_path",
+        id="ampersand_tail_in_path",
     ),
     pytest.param(
         "mongodb://h1:27017,h2:27017/db?replicaSet=rs",
@@ -249,36 +249,64 @@ _URI_SANITIZER_CASES = [
     ),
 ]
 
-# (raw data_access, identity core put on the load context, sanitized raw, secret markers absent from the record)
+# (raw data_access, core's default-deny identity on the load context, expected recorded identity, secret markers absent from the record)
 _RAW_FIRST_CASES = [
     pytest.param(
         "https://host/p?email=a@b.com/x&sig=SECRET",
-        "https://b.com/x&sig=SECRET",
+        "str",
         "https://host/p",
         ("SECRET", "a@b.com", "b.com"),
         id="at_sign_in_query_value",
     ),
     pytest.param(
         "https://host/dl?url=https://user@o.example/f&token=SECRET",
-        "https://o.example/f&token=SECRET",
+        "str",
         "https://host/dl",
         ("SECRET", "o.example"),
         id="uri_in_query_value",
     ),
     pytest.param(
         "postgresql://host/db?user=u&password=p@ss/word",
-        "postgresql://ss/word",
+        "str",
         "postgresql://host/db",
-        ("p@ss", "ss/word"),
+        ("p@ss", "ss/word", "password"),
         id="password_with_at_sign_and_slash_in_query",
     ),
-    pytest.param("/data/dir?/file#1.csv", "/data/dir", "/data/dir?/file#1.csv", (), id="non_uri_str_recorded_as_given"),
+    pytest.param(
+        "/data/dir?/file#1.csv",
+        "str",
+        "/data/dir?/file#1.csv",
+        (),
+        id="non_uri_str_recorded_as_given",
+    ),
+    pytest.param(
+        "jdbc:postgresql://h/db",
+        "jdbc:postgresql://h",
+        "jdbc:postgresql://h/db",
+        (),
+        id="clean_uri_with_differing_core_projection_uses_sanitized_raw",
+    ),
+    pytest.param(
+        "s3://bucket/my file.parquet",
+        "str",
+        "s3://bucket/my file.parquet",
+        (),
+        id="clean_uri_with_space_and_core_type_name_uses_sanitized_raw",
+    ),
+    pytest.param(
+        "Server=db;Password=SECRET",
+        "str",
+        "Server=db;Password=SECRET",
+        (),
+        id="keyword_dsn_raw_arg_recorded_as_given",
+    ),
 ]
 
 _NON_URI_IDENTITIES = [
     pytest.param("/data/dir?/file#1.csv", id="path_with_query_and_fragment_chars"),
     pytest.param("{host, port}", id="core_dict_form"),
-    pytest.param("host=h user=u password=SECRET", id="keyword_dsn_documented_gap_passes_through"),
+    pytest.param("host=h user=u password=SECRET", id="keyword_dsn_passes_through"),
+    pytest.param("str", id="core_default_deny_type_name"),
 ]
 
 
@@ -1026,7 +1054,7 @@ class TestAuditExtenderDataAccess:
         assert record["data_access_identity"] == [raw]
 
     @pytest.mark.parametrize(("raw", "context_identity", "expected", "secrets"), _RAW_FIRST_CASES)
-    def test_a_str_first_argument_is_sanitized_instead_of_the_lossy_context_identity(
+    def test_a_str_first_argument_is_recorded_sanitized_unless_its_scheme_is_malformed(
         self, raw: str, context_identity: str, expected: str, secrets: tuple[str, ...]
     ) -> None:
         record = _record_for_loads([(context_identity, "CsvReader")], args=(raw, _FEATURES_PLACEHOLDER))

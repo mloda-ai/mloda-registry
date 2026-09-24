@@ -1261,14 +1261,14 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
             ),
             pytest.param(
                 "https://host/p?email=a@b.com/x&sig=SECRET",
-                "https://b.com/x&sig=SECRET",
+                "str",
                 "https://host/p",
                 ("SECRET", "a@b.com"),
-                id="raw_first_arg_wins_over_lossy_context_identity",
+                id="valid_scheme_raw_wins_over_core_type_name",
             ),
             pytest.param(
                 "postgresql://user:pa?ss@host:5432/db",
-                "postgresql://user:pa",
+                "str",
                 "postgresql://host:5432/db",
                 ("user:pa", "pa?ss", "user:"),
                 id="query_marker_inside_userinfo",
