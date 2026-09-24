@@ -176,7 +176,7 @@ class TestOtelExtenderPickledInertLogging:
     ) -> None:
         provider, _ = otel_capture
         otel = OtelExtender(tracer_provider=provider)
-        otel._logged_inert = True
+        otel._inert_warning.warn_once(lambda: None)
 
         copy = pickle.loads(pickle.dumps(otel))  # nosec
 

@@ -13,11 +13,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from mloda.steward import Extender, ExtenderHook, HookContext, OutputSchema
+from mloda.steward import Extender, ExtenderHook, HookContext, OutputSchema, WarnOncePerInstance, pickle_failure_reason
 
 from mloda.community.extenders.shared.data_access_identity import resolve_data_access_identity
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
-from mloda.community.extenders.shared.pickle_safety import pickle_failure_reason
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
 from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset
@@ -98,8 +97,8 @@ class OpenLineageExtender(Extender):
         self.use_sdk_defaults = use_sdk_defaults
         self._client_lock = threading.Lock()
         self._closed = False
-        self._logged_inert = False
-        self._logged_pickle_drop = False
+        self._inert_warning = WarnOncePerInstance()
+        self._pickle_drop_warning = WarnOncePerInstance()
         # Determined by whether a client was injected, not by when the lazy build happens to run.
         self._owns_client = client is None
         # Registry entry if injected, else a private state created upfront for the lazy build.
@@ -166,15 +165,14 @@ class OpenLineageExtender(Extender):
         client = self._client
         failure_reason = pickle_failure_reason(client) if not self._owns_client and client is not None else None
         client_unpicklable = failure_reason is not None
-        if client_unpicklable and not self._logged_pickle_drop:
-            with self._client_lock:
-                if not self._logged_pickle_drop:
-                    logger.warning(
-                        f"{type(self).__name__} drops an injected client when pickled or copied because it isn't "
-                        f"picklable ({failure_reason}); the copy is inert unless use_sdk_defaults=True, which "
-                        "lets it build its own client in its own process, e.g. under MULTIPROCESSING."
-                    )
-                    self._logged_pickle_drop = True
+        if client_unpicklable:
+            self._pickle_drop_warning.warn_once(
+                lambda: logger.warning(
+                    f"{type(self).__name__} drops an injected client when pickled or copied because it isn't "
+                    f"picklable ({failure_reason}); the copy is inert unless use_sdk_defaults=True, which "
+                    "lets it build its own client in its own process, e.g. under MULTIPROCESSING."
+                )
+            )
         state = dict(self.__dict__)
         if self._owns_client or client_unpicklable:
             state["_client"] = None
@@ -182,8 +180,6 @@ class OpenLineageExtender(Extender):
             # The copy no longer holds an injected client; it will self-build (and own) whatever
             # client it needs from here on, so a later pickle of the copy treats that client as owned.
             state["_owns_client"] = True
-        state["_logged_inert"] = False
-        state["_logged_pickle_drop"] = False
         del state["_client_lock"]
         del state["_close_state"]
         return state
@@ -200,16 +196,13 @@ class OpenLineageExtender(Extender):
         }
 
     def _log_inert_once(self) -> None:
-        if self._logged_inert:
-            return
-        with self._client_lock:
-            if not self._logged_inert:
-                logger.warning(
-                    "%s is inert: no client injected and use_sdk_defaults is False; no "
-                    "OpenLineage events will be emitted. Pass a client or use_sdk_defaults=True to enable emission.",
-                    type(self).__name__,
-                )
-                self._logged_inert = True
+        self._inert_warning.warn_once(
+            lambda: logger.warning(
+                "%s is inert: no client injected and use_sdk_defaults is False; no "
+                "OpenLineage events will be emitted. Pass a client or use_sdk_defaults=True to enable emission.",
+                type(self).__name__,
+            )
+        )
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         if self._client is None and not self.use_sdk_defaults:

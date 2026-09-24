@@ -6,11 +6,10 @@ import logging
 import os
 import re
 import reprlib
-import threading
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from mloda.steward import Extender, ExtenderHook, HookContext
+from mloda.steward import Extender, ExtenderHook, HookContext, WarnOncePerInstance, pickle_failure_reason
 from opentelemetry import trace
 from opentelemetry.context import Context
 from opentelemetry.trace import (
@@ -27,7 +26,6 @@ from opentelemetry.trace import (
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
 from mloda.community.extenders.shared.bound_method import bound_method, class_attribute
 from mloda.community.extenders.shared.data_access_identity import resolve_data_access_identity
-from mloda.community.extenders.shared.pickle_safety import pickle_failure_reason
 
 logger = logging.getLogger(__name__)
 
@@ -119,9 +117,8 @@ class OtelExtender(Extender):
         self.mask = mask
         self._tracer_provider = tracer_provider
         self.use_sdk_defaults = use_sdk_defaults
-        self._logged_inert = False  # one-shot flag shared by the inert and no-SDK warnings
-        self._logged_inert_lock = threading.Lock()
-        self._logged_pickle_drop = False
+        self._inert_warning = WarnOncePerInstance()  # shared by the inert and no-SDK warnings
+        self._pickle_drop_warning = WarnOncePerInstance()
 
     def _resolve_tracer_provider(self) -> TracerProvider:
         if self._tracer_provider is not None:
@@ -135,38 +132,24 @@ class OtelExtender(Extender):
         return _NOOP_TRACER_PROVIDER
 
     def _warn_once(self, message: str) -> None:
-        if self._logged_inert:
-            return
-        with self._logged_inert_lock:
-            if not self._logged_inert:
-                logger.warning(message)
-                self._logged_inert = True
+        self._inert_warning.warn_once(lambda: logger.warning(message))
 
     def __getstate__(self) -> dict[str, Any]:
         provider = self._tracer_provider
         failure_reason = pickle_failure_reason(provider) if provider is not None else None
-        provider_unpicklable = failure_reason is not None
-        if provider_unpicklable and not self._logged_pickle_drop:
-            with self._logged_inert_lock:
-                if not self._logged_pickle_drop:
-                    logger.warning(
-                        "OtelExtender drops an injected tracer_provider when pickled or copied because it "
-                        f"isn't picklable ({failure_reason}); the copy is inert unless use_sdk_defaults=True, "
-                        "which lets it resolve a provider installed in its own process, e.g. via "
-                        "child_bootstrap under MULTIPROCESSING."
-                    )
-                    self._logged_pickle_drop = True
+        if failure_reason is not None:
+            self._pickle_drop_warning.warn_once(
+                lambda: logger.warning(
+                    "OtelExtender drops an injected tracer_provider when pickled or copied because it "
+                    f"isn't picklable ({failure_reason}); the copy is inert unless use_sdk_defaults=True, "
+                    "which lets it resolve a provider installed in its own process, e.g. via "
+                    "child_bootstrap under MULTIPROCESSING."
+                )
+            )
         state = dict(self.__dict__)
-        if provider_unpicklable:
+        if failure_reason is not None:
             state["_tracer_provider"] = None
-        state["_logged_inert"] = False
-        state["_logged_pickle_drop"] = False
-        del state["_logged_inert_lock"]
         return state
-
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        self.__dict__.update(state)
-        self._logged_inert_lock = threading.Lock()
 
     def wraps(self) -> set[ExtenderHook]:
         return {

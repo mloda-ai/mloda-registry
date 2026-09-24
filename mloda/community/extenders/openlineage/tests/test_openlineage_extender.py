@@ -889,9 +889,9 @@ class TestOpenLineageExtenderGetClientBoundary:
 
 class TestOpenLineageExtenderPickledInertLogging:
     def test_pickled_copy_logs_its_own_inert_state(self, caplog: pytest.LogCaptureFixture) -> None:
-        """The copy logs its own inert state instead of inheriting `_logged_inert` from the original."""
+        """The copy logs its own inert state instead of inheriting the original's fired guard."""
         extender = OpenLineageExtender()
-        extender._logged_inert = True
+        extender._inert_warning.warn_once(lambda: None)
 
         copy = pickle.loads(pickle.dumps(extender))  # nosec
 

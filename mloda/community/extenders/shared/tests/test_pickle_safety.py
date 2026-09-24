@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import threading
 
-from mloda.community.extenders.shared.pickle_safety import is_picklable
+from mloda.community.extenders.shared import is_picklable
 
 
 class _LockHolder:
