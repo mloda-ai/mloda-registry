@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import TYPE_CHECKING, Any
 
 import attr
@@ -14,9 +15,13 @@ from openlineage.client.facet_v2 import RunFacet, column_lineage_dataset, data_q
 
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
 from mloda.community.extenders.shared.bound_method import bound_method, class_attribute
+from mloda.community.extenders.shared.data_access_identity import resolve_data_access_identity
+from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 
 if TYPE_CHECKING:
     from mloda.user import Feature
+
+logger = logging.getLogger(__name__)
 
 _PRODUCER = "https://github.com/mloda-ai/mloda-registry/tree/main/mloda/enterprise/extenders/lineage"
 _SCHEMA_URL = (
@@ -29,6 +34,11 @@ _VALIDATOR_METHODS: dict[ExtenderHook, str] = {
     ExtenderHook.VALIDATE_INPUT_FEATURE: "validate_input_features",
     ExtenderHook.VALIDATE_OUTPUT_FEATURE: "validate_output_features",
 }
+
+# Per open calculate call: identity -> described columns (None = undescribable), or None if nothing to verify.
+_open_described_columns: OpenInvocationStack[dict[str, frozenset[str] | None] | None] = OpenInvocationStack(
+    "lineage_open_described_columns"
+)
 
 
 @attr.define
@@ -56,7 +66,23 @@ class LineageFacetsExtender(OpenLineageExtender):
     def _dispatch(self, context: HookContext, func: Any, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
         if context.hook in _VALIDATOR_METHODS:
             return self._call_validator(context, func, args, kwargs)
-        return super()._dispatch(context, func, args, kwargs)
+        if context.hook == ExtenderHook.INPUT_DATA_LOAD:
+            result = super()._dispatch(context, func, args, kwargs)
+            self._record_described_columns(context, func, args)
+            return result
+        # Opened around the whole calculate call, so loads recorded into it are visible when facets are built.
+        described: dict[str, frozenset[str] | None] | None = {} if _source_columns(context, func, args) else None
+        with _open_described_columns.open(self, described):
+            return super()._dispatch(context, func, args, kwargs)
+
+    def _record_described_columns(self, context: HookContext, func: Any, args: tuple[Any, ...]) -> None:
+        described = _open_described_columns.find(self)
+        if described is None:
+            return
+        identity = resolve_data_access_identity(args, context.data_access_identity)
+        if identity is None:
+            return
+        _merge_described_columns(described, identity, _describe_columns(func, args))
 
     def _calculate_run_facets(self, context: HookContext, func: Any, args: tuple[Any, ...]) -> dict[str, Any]:
         facets = super()._calculate_run_facets(context, func, args)
@@ -82,6 +108,18 @@ class LineageFacetsExtender(OpenLineageExtender):
             column = _source_column(func, args, name)
             # With several loaded datasets it is unknown which one holds the column.
             if column is None or len(inputs) != 1:
+                return facets
+            described = _open_described_columns.find(self)
+            identity_columns = described.get(inputs[0].name) if described is not None else None
+            if identity_columns is not None and column not in identity_columns:
+                logger.warning(
+                    "%s: output %r declares lineage_source_column %r, not found among the columns described for "
+                    "dataset %r; no columnLineage edge is emitted",
+                    type(self).__name__,
+                    name,
+                    column,
+                    inputs[0].name,
+                )
                 return facets
             edges = [(inputs[0].namespace, inputs[0].name, column)]
             description = None
@@ -202,6 +240,27 @@ def _source_columns(context: HookContext, func: Any, args: tuple[Any, ...]) -> l
         return []
     columns = ((name, _source_column(func, args, name)) for name in sorted(context.feature_names))
     return [[name, column] for name, column in columns if column is not None]
+
+
+def _describe_columns(func: Any, args: tuple[Any, ...]) -> frozenset[str] | None:
+    """None when the load has no reader owning it, no positional data_access, or the describer raises."""
+    describe = class_attribute(func, "describe_columns")
+    if describe is None or not args:
+        return None
+    try:
+        return frozenset(describe(args[0]))
+    except Exception:
+        return None
+
+
+def _merge_described_columns(
+    described: dict[str, frozenset[str] | None], identity: str, columns: frozenset[str] | None
+) -> None:
+    """Same identity loaded again: the union, or None if either load could not describe."""
+    if identity in described:
+        previous = described[identity]
+        columns = None if previous is None or columns is None else previous | columns
+    described[identity] = columns
 
 
 def _masked_features(context: HookContext, func: Any, args: tuple[Any, ...]) -> list[str]:

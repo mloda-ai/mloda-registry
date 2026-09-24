@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
-from mloda.provider import ComputeFramework, DataCreator, FeatureGroup, FeatureSet, PropertySpec
+from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet, PropertySpec
 from mloda.steward import Extender, ExtenderHook
-from mloda.user import Feature, FeatureName, Options, PluginCollector, mloda
+from mloda.user import DataType, Feature, FeatureName, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFeature
 from mloda_plugins.feature_group.input_data.read_files.csv import CsvReader
@@ -241,6 +241,45 @@ class _CustomProducerLineageExtender(LineageFacetsExtender):
     producer = _CUSTOM_PRODUCER
 
 
+class _DescribingReader(BaseInputData):
+    """Test reader whose describe_columns returns a configurable, fixed set of columns."""
+
+    described: ClassVar[dict[str, DataType | None]] = {}
+    describe_calls: ClassVar[int] = 0
+
+    @classmethod
+    def load_data(cls, data_access: Any, features: FeatureSet) -> Any:
+        return "loaded"
+
+    @classmethod
+    def describe_columns(cls, data_access: Any) -> dict[str, DataType | None]:
+        cls.describe_calls += 1
+        return cls.described
+
+
+def _describing_reader(described: dict[str, DataType | None]) -> type[_DescribingReader]:
+    """A fresh subclass per call, so `describe_calls` never leaks between tests."""
+    return type("_DescribingReaderCase", (_DescribingReader,), {"described": described, "describe_calls": 0})
+
+
+def _raising_reader(exception: type[Exception]) -> type[BaseInputData]:
+    """A reader whose describe_columns cannot describe the dataset; `exception` is what it raises."""
+
+    class _Reader(BaseInputData):
+        @classmethod
+        def load_data(cls, data_access: Any, features: FeatureSet) -> Any:
+            return "loaded"
+
+        @classmethod
+        def describe_columns(cls, data_access: Any) -> dict[str, DataType | None]:
+            raise exception("cannot describe columns")
+
+    return _Reader
+
+
+_UNDESCRIBABLE_EXCEPTIONS = [NotImplementedError, OSError, ValueError, ImportError, RuntimeError]
+
+
 def _job(feature_group: type[FeatureGroup], suffix: str = "") -> str:
     return f"{feature_group.__module__}.{feature_group.__qualname__}{suffix}"
 
@@ -336,19 +375,25 @@ def _calculate_loading_step(
     loaded: Sequence[str] = (_LOADED,),
     input_features: frozenset[str] | None = None,
     consumer_options: Options | None = None,
+    reader: type[BaseInputData] | Sequence[type[BaseInputData] | None] | None = None,
 ) -> RunEvent:
-    """Run one calculate call directly, firing a load hook per identity in `loaded`."""
+    """Run one calculate call directly, firing a load hook per identity in `loaded`, optionally via `reader`
+    (one reader, or a sequence matched to `loaded`) instead of the plain `extender(lambda: ...)` path."""
     client, transport = ol_capture
     extender = LineageFacetsExtender(client=client, dataset_namespace="lineage-ds")
     step_features = [Feature(name, options=options) for name, options in options_by_feature.items()]
     for feature in step_features:
         feature.child_options = consumer_options  # before the set is built: the hash includes child_options
     features = FeatureSet(step_features)
+    readers: Sequence[type[BaseInputData] | None] = reader if isinstance(reader, Sequence) else [reader] * len(loaded)
 
     def load() -> str:
-        for identity in loaded:
+        for identity, one_reader in zip(loaded, readers):
             with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity).activate():
-                extender(lambda: "loaded")
+                if one_reader is not None:
+                    extender(one_reader.load_data, identity, features)
+                else:
+                    extender(lambda: "loaded")
         return "data"
 
     context = make_hook_context(
@@ -874,6 +919,31 @@ class TestLineageFacetsRootSourceColumns:
         complete = _complete(transport.events, _job(ReadFileFeature))
         assert _column_lineage(complete, "alpha").fields == {"alpha": _root_edge(str(path), "alpha")}
 
+    def test_run_all_reader_root_step_with_a_mistyped_source_column_has_no_edge_and_warns(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """CsvReader describes columns via `get_column_names`, so a column absent from the header is caught."""
+        client, transport = ol_capture
+        path = tmp_path / "data.csv"
+        path.write_text("alpha,beta\n1,2\n3,4\n", encoding="utf-8")
+        options = Options(group={CsvReader.__name__: str(path)}, context={_SOURCE_COLUMN: "not_a_column"})
+
+        with caplog.at_level(logging.WARNING):
+            _run(
+                LineageFacetsExtender(client=client, dataset_namespace="lineage-ds"),
+                [Feature("alpha", options=options)],
+                ReadFileFeature,
+            )
+
+        complete = _complete(transport.events, _job(ReadFileFeature))
+        assert not _has_column_lineage(complete, "alpha")
+        warnings = [record for record in caplog.records if record.levelno >= logging.WARNING]
+        assert len(warnings) == 1
+        assert "not_a_column" in warnings[0].getMessage()
+
     def test_run_all_data_creator_root_step_has_no_column_lineage_even_when_declared(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
@@ -887,6 +957,7 @@ class TestLineageFacetsRootSourceColumns:
         assert "schema" in (outputs[0].facets or {})
         assert "columnLineage" not in (outputs[0].facets or {})
 
+    @pytest.mark.parametrize("verified", [False, True], ids=["unverified", "verified"])
     @pytest.mark.parametrize(("feature_group", "make_options", "sources"), _DECLARED_CASES)
     def test_declared_source_column_gives_each_declared_feature_its_own_root_edge(
         self,
@@ -894,10 +965,13 @@ class TestLineageFacetsRootSourceColumns:
         feature_group: type[_Loading],
         make_options: Callable[[], dict[str, Options]],
         sources: dict[str, str],
+        verified: bool,
     ) -> None:
         options = make_options()
+        # A reader describing every declared column keeps every edge unchanged; unverified keeps today's behavior.
+        reader = _describing_reader(dict.fromkeys(sources.values())) if verified else None
 
-        event = _calculate_loading_step(ol_capture, feature_group, options)
+        event = _calculate_loading_step(ol_capture, feature_group, options, reader=reader)
 
         for name in options:
             assert "schema" in (_output(event, name).facets or {})
@@ -1069,6 +1143,136 @@ class TestLineageFacetsRootSourceColumns:
         )
 
         assert _run_facet(event).structureHash == _expected_loading_step_hash(options, input_features=input_features)
+
+    @pytest.mark.parametrize("described", [{}, {"other": None}], ids=["empty", "unrelated column"])
+    def test_declared_source_column_missing_from_the_described_columns_gives_no_edge_and_warns(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        caplog: pytest.LogCaptureFixture,
+        described: dict[str, DataType | None],
+    ) -> None:
+        options = {"out": Options()}
+        reader = _describing_reader(described)
+
+        with caplog.at_level(logging.WARNING):
+            event = _calculate_loading_step(ol_capture, _SourceByDict, options, reader=reader)
+
+        assert "schema" in (_output(event, "out").facets or {})
+        assert not _has_column_lineage(event, "out")
+        assert _run_facet(event).structureHash == _expected_loading_step_hash(options, source_columns=[["out", "src"]])
+        warnings = [record for record in caplog.records if record.levelno >= logging.WARNING]
+        assert len(warnings) == 1
+        message = warnings[0].getMessage()
+        assert "LineageFacetsExtender" in message
+        assert "out" in message
+        assert "src" in message
+        assert _LOADED in message
+
+    def test_multi_output_only_the_verified_column_keeps_its_edge(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        options = {"out": Options(), "second": Options()}
+        reader = _describing_reader({"src_out": None})
+
+        with caplog.at_level(logging.WARNING):
+            event = _calculate_loading_step(ol_capture, _SourceByTwoColumnDict, options, reader=reader)
+
+        assert _column_lineage(event, "out").fields == {"out": _root_edge(_LOADED, "src_out")}
+        assert not _has_column_lineage(event, "second")
+        warnings = [record for record in caplog.records if record.levelno >= logging.WARNING]
+        assert len(warnings) == 1
+        assert "second" in warnings[0].getMessage()
+        assert "src_second" in warnings[0].getMessage()
+
+    @pytest.mark.parametrize("exception", _UNDESCRIBABLE_EXCEPTIONS)
+    def test_a_reader_that_cannot_describe_columns_keeps_the_edge_without_a_warning(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        caplog: pytest.LogCaptureFixture,
+        exception: type[Exception],
+    ) -> None:
+        options = {"out": Options()}
+        reader = _raising_reader(exception)
+
+        with caplog.at_level(logging.WARNING):
+            event = _calculate_loading_step(ol_capture, _SourceByDict, options, reader=reader)
+
+        assert _column_lineage(event, "out").fields == {"out": _root_edge(_LOADED, "src")}
+        assert [record for record in caplog.records if record.levelno >= logging.WARNING] == []
+
+    @pytest.mark.parametrize("exception", _UNDESCRIBABLE_EXCEPTIONS)
+    def test_an_undescribable_load_call_still_returns_its_result_unchanged(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], exception: type[Exception]
+    ) -> None:
+        client, _ = ol_capture
+        extender = LineageFacetsExtender(client=client, dataset_namespace="lineage-ds")
+        reader = _raising_reader(exception)
+        features = FeatureSet([Feature("out")])
+
+        with make_hook_context(feature_names=("out",), output_schema=(("out", "int64"),)).activate():
+            with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=_LOADED).activate():
+                assert extender(reader.load_data, _LOADED, features) == "loaded"
+
+    @pytest.mark.parametrize(
+        ("first_described", "second_described", "edge_kept"),
+        [
+            pytest.param({"other": None}, {"src": None}, True, id="union contains the column"),
+            pytest.param({"a": None}, {"b": None}, False, id="union lacks the column"),
+        ],
+    )
+    def test_same_identity_loaded_twice_uses_the_union_of_described_columns(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        first_described: dict[str, DataType | None],
+        second_described: dict[str, DataType | None],
+        edge_kept: bool,
+    ) -> None:
+        readers = (_describing_reader(first_described), _describing_reader(second_described))
+
+        event = _calculate_loading_step(
+            ol_capture, _SourceByDict, {"out": Options()}, loaded=(_LOADED, _LOADED), reader=readers
+        )
+
+        if edge_kept:
+            assert _column_lineage(event, "out").fields == {"out": _root_edge(_LOADED, "src")}
+        else:
+            assert not _has_column_lineage(event, "out")
+
+    def test_same_identity_loaded_twice_one_undescribable_load_keeps_the_edge(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        """One load can't describe at all, so the identity counts as undescribed and the edge is kept unverified."""
+        readers = (_describing_reader({"other": None}), _raising_reader(NotImplementedError))
+
+        event = _calculate_loading_step(
+            ol_capture, _SourceByDict, {"out": Options()}, loaded=(_LOADED, _LOADED), reader=readers
+        )
+
+        assert _column_lineage(event, "out").fields == {"out": _root_edge(_LOADED, "src")}
+
+    def test_describe_columns_is_never_called_without_a_declared_source_column(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        reader = _describing_reader({})
+
+        _calculate_loading_step(ol_capture, _Loading, {"out": Options()}, reader=reader)
+
+        assert reader.describe_calls == 0
+
+    def test_describe_columns_is_never_called_for_a_step_with_declared_inputs(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        reader = _describing_reader({"src": None})
+
+        _calculate_loading_step(
+            ol_capture,
+            _SourceByDict,
+            {"out": Options()},
+            reader=reader,
+            input_features=frozenset({"a_in"}),
+        )
+
+        assert reader.describe_calls == 0
 
 
 class TestLineageFacetsValidationRuns:
