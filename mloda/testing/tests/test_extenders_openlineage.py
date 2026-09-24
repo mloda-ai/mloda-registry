@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import dataclasses
 import pickle  # nosec
+import re
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -354,66 +355,72 @@ class TestCalculateRunEventsHook:
         mixin_test(_FilteringNestedRunHost(), tmp_path)
 
 
-class _RawIdentityProbeOpenLineageExtender(Extender):
-    """Models an extender that (wrongly) publishes args[0] instead of the context's data_access_identity."""
+class _RewritingIdentityProbeOpenLineageExtender(_NestedRunProbeOpenLineageExtender):
+    """Like _NestedRunProbeOpenLineageExtender, but rewrites the load identity through a caller-supplied callable,
+    keeping other inputs so the "despite other inputs" dimension stays testable."""
 
-    def __init__(self, client: OpenLineageClient, raise_on_error: bool = False) -> None:
-        self.raise_on_error = raise_on_error
-        self._emitter = OpenLineageExtender(client=client, raise_on_error=raise_on_error)
-
-    def wraps(self) -> set[ExtenderHook]:
-        return self._emitter.wraps()
-
-    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
-        context = HookContext.current()
-        if context is not None and context.hook == ExtenderHook.INPUT_DATA_LOAD and args:
-            raw_context = dataclasses.replace(context, data_access_identity=args[0])
-            with raw_context.activate():
-                return self._emitter(func, *args, **kwargs)
-        return self._emitter(func, *args, **kwargs)
-
-
-class _RawIdentityHost(OpenLineageExtenderTestMixin):
-    @classmethod
-    def extender_class(cls) -> type[Extender]:
-        return _RawIdentityProbeOpenLineageExtender
-
-    def make_openlineage_extender(self, client: OpenLineageClient, *, raise_on_error: bool | None = None) -> Extender:
-        if raise_on_error is None:
-            return _RawIdentityProbeOpenLineageExtender(client=client)
-        return _RawIdentityProbeOpenLineageExtender(client=client, raise_on_error=raise_on_error)
-
-
-class _DroppedIdentityProbeOpenLineageExtender(_NestedRunProbeOpenLineageExtender):
-    """Like _NestedRunProbeOpenLineageExtender, but drops the load identity, keeping other inputs."""
+    rewrite_identity: Callable[[HookContext, tuple[Any, ...]], str | None]
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         context = HookContext.current()
         if context is not None and context.hook == ExtenderHook.INPUT_DATA_LOAD:
-            dropped_context = dataclasses.replace(context, data_access_identity=None)
-            with dropped_context.activate():
+            rewritten_context = dataclasses.replace(context, data_access_identity=self.rewrite_identity(context, args))
+            with rewritten_context.activate():
                 return super().__call__(func, *args, **kwargs)
         return super().__call__(func, *args, **kwargs)
 
 
-class _DroppedIdentityHost(_NestedRunHost):
-    @classmethod
-    def extender_class(cls) -> type[Extender]:
-        return _DroppedIdentityProbeOpenLineageExtender
+def _make_rewriting_identity_host(rewrite_identity: Callable[[HookContext, tuple[Any, ...]], str | None]) -> Any:
+    class _Probe(_RewritingIdentityProbeOpenLineageExtender):
+        pass
 
-    def make_openlineage_extender(self, client: OpenLineageClient, *, raise_on_error: bool | None = None) -> Extender:
-        if raise_on_error is None:
-            return _DroppedIdentityProbeOpenLineageExtender(client=client)
-        return _DroppedIdentityProbeOpenLineageExtender(client=client, raise_on_error=raise_on_error)
+    _Probe.rewrite_identity = staticmethod(rewrite_identity)
+
+    class _Host(_NestedRunHost):
+        @classmethod
+        def extender_class(cls) -> type[Extender]:
+            return _Probe
+
+        def make_openlineage_extender(
+            self, client: OpenLineageClient, *, raise_on_error: bool | None = None
+        ) -> Extender:
+            if raise_on_error is None:
+                return _Probe(client=client)
+            return _Probe(client=client, raise_on_error=raise_on_error)
+
+    return _Host()
 
 
 class TestQueryStringIdentityContract:
-    """Proves the query-string contract test fails for an extender that publishes the raw identity or drops it."""
+    """Proves the query-string and user-information contract test fails for an extender that publishes the raw
+    identity, keeps its user information (whole or with only the password masked), publishes a sanitized raw
+    identity, or drops it."""
 
-    def test_publishing_the_raw_identity_is_detected(self) -> None:
-        with pytest.raises(AssertionError, match="URI query string reached an event"):
-            _RawIdentityHost().test_openlineage_input_data_load_query_string_never_reaches_events()
-
-    def test_dropping_the_identity_despite_other_inputs_is_detected(self) -> None:
-        with pytest.raises(AssertionError, match="not attributed as an input"):
-            _DroppedIdentityHost().test_openlineage_input_data_load_query_string_never_reaches_events()
+    @pytest.mark.parametrize(
+        ("rewrite_identity", "match"),
+        [
+            pytest.param(lambda context, args: args[0], "URI query string reached an event", id="records-raw-args0"),
+            pytest.param(
+                lambda context, args: str(args[0]).partition("?")[0],
+                "URI user information reached an event",
+                id="strips-query-keeps-userinfo",
+            ),
+            pytest.param(
+                lambda context, args: re.sub(r":[^:@/]+@", ":***@", str(args[0]).partition("?")[0]),
+                "URI user information reached an event",
+                id="masks-password-keeps-username",
+            ),
+            pytest.param(
+                lambda context, args: re.sub(r"//[^/@]*@", "//", str(args[0]).partition("?")[0]),
+                "not attributed as an input",
+                id="records-sanitized-raw-path",
+            ),
+            pytest.param(lambda context, args: None, "not attributed as an input", id="drops-the-identity"),
+        ],
+    )
+    def test_rewriting_the_identity_is_detected(
+        self, rewrite_identity: Callable[[HookContext, tuple[Any, ...]], str | None], match: str
+    ) -> None:
+        host = _make_rewriting_identity_host(rewrite_identity)
+        with pytest.raises(AssertionError, match=match):
+            host.test_openlineage_input_data_load_query_string_never_reaches_events()

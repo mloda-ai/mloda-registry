@@ -85,7 +85,7 @@ Both `GovDataReader` and `UbaAirReader` above accept any `feature_names` uncondi
 
 A reader that overrides `load_data` wholesale is classified as a final reader structurally; no reader code runs during classification.
 
-Extenders record the data access through the reader's `data_access_identity(data_access)` classmethod. Core's default keeps a URL's scheme, host and path and drops the query, so endpoints that differ only in their query share one identity in audit records, lineage datasets and spans. Override it for a finer identity: its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential.
+Extenders record the data access through the reader's `data_access_identity(data_access)` classmethod. Core's default keeps a URL's scheme, host and path and drops the query (a URL it cannot parse, such as one with `@` in the query, becomes `str`), so endpoints that differ only in their query share one identity in audit records, lineage datasets and spans. Override it for a finer identity: its value is recorded as given, with no stripping in the registry, and a sealed audit log cannot be redacted, so never return a credential.
 
 ## Decline Names You Cannot Confirm
 

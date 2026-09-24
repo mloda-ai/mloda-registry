@@ -368,9 +368,7 @@ _DATA_ACCESS_IDENTITY_CASES = [
         id="jdbc_path_is_dropped_by_core_projection",
     ),
     pytest.param("s3://bucket/my file.parquet", "str", (), id="space_in_path_is_unparseable"),
-    pytest.param("Server=db;Password=SECRET", "str", ("SECRET",), id="keyword_dsn_is_a_type_name"),
     pytest.param("{host, port}", "str", (), id="core_dict_form_string_is_a_type_name"),
-    pytest.param("host=h user=u password=SECRET", "str", ("SECRET",), id="keyword_dsn_passes_through_as_type_name"),
     pytest.param("str", "str", (), id="core_default_deny_type_name_is_a_fixed_point"),
     pytest.param("host=db user=u password=hunter2", "str", ("hunter2",), id="keyword_dsn_with_password"),
     pytest.param("Server=x;Uid=u;Pwd=hunter2;", "str", ("hunter2",), id="odbc_connection_string"),
@@ -1429,33 +1427,37 @@ class TestAuditExtenderDataAccess:
         extender = AuditExtender(sink=sink)
 
         def body() -> None:
-            with _load_context(context_identity, "CsvReader").activate():
-                extender(lambda *_: "loaded", raw_one, _FEATURES_PLACEHOLDER)
-            with _load_context(context_identity, "CsvReader").activate():
-                extender(lambda *_: "loaded", raw_two, _FEATURES_PLACEHOLDER)
+            _load(extender, context_identity, "CsvReader", args=(raw_one, _FEATURES_PLACEHOLDER))
+            _load(extender, context_identity, "CsvReader", args=(raw_two, _FEATURES_PLACEHOLDER))
 
         _calculate(extender, body)
 
+        assert len(sink.records) == 1
         record = sink.records[0]
         assert record["data_access_identity"] == ["https://host/x"]
         assert record["data_access_format"] == ["CsvReader"]
 
     def test_two_azure_containers_on_one_account_and_path_stay_distinct_entries(self) -> None:
-        raw_raw_container = "abfss://raw@acct.dfs.core.windows.net/p"
-        raw_curated_container = "abfss://curated@acct.dfs.core.windows.net/p"
+        marker = "SECRET"
+        raw_raw_container = f"abfss://raw@acct.dfs.core.windows.net/p?sv=1&sig={marker}"
+        raw_curated_container = f"abfss://curated@acct.dfs.core.windows.net/p?sv=1&sig={marker}"
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink)
 
         def body() -> None:
             for raw in (raw_raw_container, raw_curated_container):
                 context_identity = BaseInputData.data_access_identity(raw)
-                with _load_context(context_identity, "CsvReader").activate():
-                    extender(lambda *_: "loaded", raw, _FEATURES_PLACEHOLDER)
+                _load(extender, context_identity, "CsvReader", args=(raw, _FEATURES_PLACEHOLDER))
 
         _calculate(extender, body)
 
+        assert len(sink.records) == 1
         record = sink.records[0]
-        assert record["data_access_identity"] == [raw_raw_container, raw_curated_container]
+        assert record["data_access_identity"] == [
+            "abfss://raw@acct.dfs.core.windows.net/p",
+            "abfss://curated@acct.dfs.core.windows.net/p",
+        ]
+        assert marker not in json.dumps(record)
 
     def test_nested_calculate_attributes_each_load_to_its_own_level(self) -> None:
         sink = InMemoryAuditSink()
@@ -1585,6 +1587,15 @@ class TestAuditExtenderDataAccess:
 
         assert record["data_access_identity"] == []
         assert record["data_access_format"] == []
+
+    def test_a_reader_overridden_context_identity_is_recorded_exactly_as_given(self) -> None:
+        # Models a reader whose data_access_identity() override diverges from core's own projection of args[0].
+        overridden_identity = "https://api.example/x?station=7"
+        record = _record_for_loads(
+            [(overridden_identity, "CsvReader")], args=("s3://bucket/raw/key.parquet", _FEATURES_PLACEHOLDER)
+        )
+
+        assert record["data_access_identity"] == [overridden_identity]
 
 
 class TestNdjsonAuditSink:

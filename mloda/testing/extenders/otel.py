@@ -418,8 +418,8 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         marker = "SENSITIVE_QUERY_VALUE_xyz123"
         userinfo_marker = "SENSITIVE_USERINFO_VALUE_xyz123"
         context_identity = "s3://bucket/key.parquet"
-        # The markers live only in args[0], not in the (clean) context identity.
-        raw = f"s3://{userinfo_marker}:{userinfo_marker}@bucket/key.parquet?X-Amz-Signature={marker}"
+        # A different path than the context identity, so an extender that records raw args[0] is caught too.
+        raw = f"s3://{userinfo_marker}:{userinfo_marker}@bucket/raw/key.parquet?X-Amz-Signature={marker}"
 
         inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity)
 
@@ -440,6 +440,9 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
                 assert userinfo_marker not in str(value), (
                     f"URI user information reached a span attribute: {span.attributes}"
                 )
+            identity_attribute = span.attributes.get("mloda.data_access.identity")
+            if identity_attribute is not None:
+                assert identity_attribute == context_identity, span.attributes
 
     @pytest.mark.parametrize("parenting", ["run_id", "carrier"])
     def test_otel_load_nested_in_calculate_is_child_of_the_calculate_span(self, parenting: str) -> None:
