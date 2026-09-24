@@ -10,7 +10,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
-from mloda.steward import Extender, ExtenderHook, HookContext
+from mloda.steward import Extender, ExtenderHook, HookContext, WarnOncePerInstance
 
 from mloda.community.extenders.shared.data_access_identity import resolve_data_access_identity
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
@@ -36,7 +36,9 @@ _open_calculates: OpenInvocationStack[list[tuple[str, str | None]]] = OpenInvoca
 class AuditSink(Protocol):
     """Receives one audit record per calculation. May also define flush(): AuditExtender.close() calls
     it, if present, on graceful MULTIPROCESSING worker exit, so a buffering sink gets one last chance
-    to drain before the worker terminates."""
+    to drain before the worker terminates; on_run_complete also calls close() (and so flush()) from the
+    parent process when sealing is configured, so a buffered record reaches the audit file before it is
+    sealed."""
 
     def write(self, record: Mapping[str, Any]) -> None: ...
 
@@ -45,6 +47,22 @@ def _require_sink_write(owner: str, sink: object) -> None:
     # A class object has a callable write too, so it is rejected explicitly.
     if isinstance(sink, type) or not callable(getattr(sink, "write", None)):
         raise ValueError(f"{owner} sink must implement the AuditSink protocol: a callable write(record)")
+
+
+def _require_signer_shape(owner: str, obj: object) -> None:
+    # A class object has callable attributes too, so it is rejected explicitly, mirroring _require_sink_write.
+    key_id = getattr(obj, "key_id", None)
+    if (
+        isinstance(obj, type)
+        or not callable(getattr(obj, "sign", None))
+        or not callable(getattr(obj, "verify", None))
+        or not isinstance(key_id, str)
+        or _is_blank(key_id)
+    ):
+        raise ValueError(
+            f"{owner} must implement the ManifestSigner protocol: callable sign(payload), callable "
+            f"verify(payload, signature) and a non-blank str key_id; got {obj!r}"
+        )
 
 
 class NdjsonAuditSink:
@@ -122,9 +140,16 @@ class AuditExtender(Extender):
     given value, else a fingerprint of the constructor-supplied gate, which does not track code changes).
     Keys may be added within record_version 1; an absent key means not recorded. With audit_path,
     manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
-    that just finished; a fail_closed=True deny record written at plan time is not auto-sealed, since
-    on_run_complete never fires for a run refused before setup, so a manual seal_ndjson_runs sweep is
-    needed for it."""
+    that just finished. Auto-sealing must not be used on a prepared session whose run() is called more
+    than once (including a retry after a failed run, since a failed run is sealed too): that reuses the
+    run_id, and a run_id that is RunAlreadySealedError'd is excluded from any later seal_ndjson_runs sweep
+    forever, so its stray new records are permanently outside the seal and verify_ndjson_log always reports
+    them as beyond it. A fail_closed=True deny record written at plan time is a different, recoverable case:
+    it is refused before setup, so on_run_complete never fires for it and it is never auto-sealed at all
+    (not sealed-with-strays); seal it later with seal_ndjson_runs targeted at that specific run_id (found via
+    verify_ndjson_log_coverage(...).unsealed_lines), not a blanket sweep, since a blanket sweep could seal a
+    different run that is still live. expected_head anchoring against a deleted or truncated manifest log is
+    not part of auto-sealing; call seal_ndjson_runs/verify_ndjson_log manually with expected_head for that."""
 
     def __init__(
         self,
@@ -167,6 +192,10 @@ class AuditExtender(Extender):
                 "AuditExtender signer needs both audit_path and manifest_path to auto-seal; give all three or none"
             )
         else:
+            # Validated up front: _signer_map's AttributeError for a non-signer-shaped object is confusing.
+            _require_signer_shape("AuditExtender signer", signer)
+            for previous in previous_signers:
+                _require_signer_shape("AuditExtender previous_signers entry", previous)
             # Reuse seal_ndjson_runs's own checks so a misconfiguration fails at construction, not at run end.
             _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
             _signer_map(signer, previous_signers)
@@ -181,6 +210,7 @@ class AuditExtender(Extender):
         self._manifest_path = manifest_path
         self._signer = signer
         self._previous_signers = previous_signers
+        self._pickle_drop_warning = WarnOncePerInstance()
         if fail_closed:
             # Core runs the lowest priority outermost; a lower-priority peer would otherwise run before the gate.
             self.priority = 0
@@ -201,15 +231,35 @@ class AuditExtender(Extender):
 
     def on_run_complete(self, run_id: str | None) -> None:
         """Auto-seal `run_id` when audit_path/manifest_path/signer are configured; a no-op otherwise, with
-        run_id=None, or when the run wrote nothing. Flushes the sink first, so a buffered record reaches the
-        audit file before it is sealed. RunAlreadySealedError and other RunNotPendingError are logged and
-        swallowed (a steward needs visibility, but neither warrants failing the run); every other exception,
-        e.g. ManifestVerificationError, propagates to core's own on_run_complete handling."""
-        if self._signer is None or run_id is None:
+        run_id=None, or when the run wrote nothing (logged as a WARNING with the audit_path, since a missing
+        audit file or a run_id with no records is worth a steward's attention). Flushes the sink first, so a
+        buffered record reaches the audit file before it is sealed. A pickled or copied instance has no
+        signer (see __getstate__): it warns once per copy instead of raising or sealing anything.
+        RunAlreadySealedError is logged at ERROR (any new records for that run_id landed permanently outside
+        the seal); RunNotPendingError is logged at WARNING (recoverable: the run just wrote nothing yet).
+        Neither is raised. Every other exception, e.g. ManifestVerificationError, is not caught here either;
+        core logs it at ERROR and never fails the run because of it, regardless of raise_on_error/fail_closed."""
+        if run_id is None:
+            return
+        if self._signer is None:
+            if self._audit_path is not None:
+                self._pickle_drop_warning.warn_once(
+                    lambda: logger.warning(
+                        "AuditExtender: this instance is a pickled or copied copy and dropped its signer "
+                        "(see __getstate__); auto-sealing for run_id %r is skipped. Call on_run_complete "
+                        "only on the original instance that owns the signer.",
+                        run_id,
+                    )
+                )
             return
         assert self._audit_path is not None and self._manifest_path is not None  # construction enforces this
         self.close()
         if not Path(self._audit_path).exists():
+            logger.warning(
+                "AuditExtender: audit_path %s does not exist; run_id %r wrote nothing to seal",
+                self._audit_path,
+                run_id,
+            )
             return
         try:
             seal_ndjson_runs(
@@ -220,13 +270,16 @@ class AuditExtender(Extender):
                 run_id=run_id,
             )
         except RunAlreadySealedError:
-            logger.warning(
-                "AuditExtender: run_id %r is already sealed; any new records for it landed outside the "
-                "existing seal and will be reported by verification",
+            logger.error(
+                "AuditExtender: run_id %r is already sealed in manifest_path %s; any new records for it "
+                "landed outside the existing seal and will be reported by verification",
                 run_id,
+                self._manifest_path,
             )
         except RunNotPendingError:
-            logger.warning("AuditExtender: run_id %r has no audit records to seal", run_id)
+            logger.warning(
+                "AuditExtender: run_id %r has no audit records to seal in audit_path %s", run_id, self._audit_path
+            )
 
     def __getstate__(self) -> dict[str, Any]:
         """Drops the signer material so a pickled copy (e.g. into a MULTIPROCESSING worker's dispatch

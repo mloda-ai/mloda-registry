@@ -33,6 +33,7 @@ from mloda.enterprise.extenders.audit import (
     ManifestVerificationError,
     NdjsonAuditSink,
     TeeAuditSink,
+    seal_ndjson_runs,
     verify_ndjson_log_coverage,
 )
 from mloda.enterprise.extenders.audit import audit_extender as audit_extender_module
@@ -596,6 +597,34 @@ class TestAuditExtenderConstruction:
                 previous_signers=(_hmac_signer("shared-key-id", key=_SEALING_KEY_B),),
             )
 
+    def test_non_signer_shaped_signer_raises_value_error(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            AuditExtender(
+                sink=InMemoryAuditSink(),
+                audit_path=tmp_path / "audit.ndjson",
+                manifest_path=tmp_path / "manifest.ndjson",
+                signer=object(),  # type: ignore[arg-type]
+            )
+
+    def test_str_signer_raises_value_error(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            AuditExtender(
+                sink=InMemoryAuditSink(),
+                audit_path=tmp_path / "audit.ndjson",
+                manifest_path=tmp_path / "manifest.ndjson",
+                signer="not-a-signer",  # type: ignore[arg-type]
+            )
+
+    def test_non_signer_shaped_previous_signer_raises_value_error(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            AuditExtender(
+                sink=InMemoryAuditSink(),
+                audit_path=tmp_path / "audit.ndjson",
+                manifest_path=tmp_path / "manifest.ndjson",
+                signer=_hmac_signer(),
+                previous_signers=("not-a-signer",),  # type: ignore[arg-type]
+            )
+
     def test_valid_sealing_config_constructs_and_leaves_existing_behavior_unaffected(self, tmp_path: Path) -> None:
         extender = AuditExtender(
             sink=InMemoryAuditSink(),
@@ -955,7 +984,9 @@ class TestAuditExtenderSealing:
         assert manifest["run_id"] == "run-1"
         assert manifest["record_count"] == 1
 
-    def test_zero_records_and_missing_audit_path_is_a_noop_and_creates_no_manifest(self, tmp_path: Path) -> None:
+    def test_zero_records_and_missing_audit_file_is_a_noop_and_creates_no_manifest(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         audit_path = tmp_path / "audit.ndjson"
         manifest_path = tmp_path / "manifest.ndjson"
         assert not audit_path.exists()
@@ -963,9 +994,12 @@ class TestAuditExtenderSealing:
             sink=NdjsonAuditSink(audit_path), audit_path=audit_path, manifest_path=manifest_path, signer=_hmac_signer()
         )
 
-        extender.on_run_complete("run-never-wrote-anything")  # must not raise
+        with caplog.at_level(logging.WARNING):
+            extender.on_run_complete("run-never-wrote-anything")  # must not raise
 
         assert not manifest_path.exists()
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any(str(audit_path) in r.getMessage() for r in warnings)
 
     def test_zero_records_for_this_run_but_audit_path_has_other_runs_logs_warning_and_seals_nothing_for_it(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -981,11 +1015,11 @@ class TestAuditExtenderSealing:
             extender.on_run_complete("run-missing")  # must not raise
 
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-        assert any("run-missing" in r.getMessage() for r in warnings)
+        assert any("run-missing" in r.getMessage() and str(audit_path) in r.getMessage() for r in warnings)
         manifests = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()]
         assert "run-missing" not in {m.get("run_id") for m in manifests}
 
-    def test_second_call_for_an_already_sealed_run_with_no_new_records_logs_warning_and_does_not_raise(
+    def test_second_call_for_an_already_sealed_run_with_no_new_records_logs_error_and_does_not_raise(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         audit_path = tmp_path / "audit.ndjson"
@@ -997,11 +1031,11 @@ class TestAuditExtenderSealing:
         extender.on_run_complete("run-1")
         before = manifest_path.read_text(encoding="utf-8")
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.ERROR):
             extender.on_run_complete("run-1")  # must not raise
 
-        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-        assert any("run-1" in r.getMessage() for r in warnings)
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert any("run-1" in r.getMessage() and str(manifest_path) in r.getMessage() for r in errors)
         assert manifest_path.read_text(encoding="utf-8") == before
 
     def test_second_call_after_a_new_record_for_the_same_run_id_does_not_reseal_it(
@@ -1018,11 +1052,11 @@ class TestAuditExtenderSealing:
         # Simulates a second run() call reusing the same run_id: a new record lands in the audit file.
         _append_records(audit_path, [_minimal_audit_record("run-1")])
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.ERROR):
             extender.on_run_complete("run-1")  # must not raise
 
-        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-        assert any("run-1" in r.getMessage() for r in warnings)
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert any("run-1" in r.getMessage() and str(manifest_path) in r.getMessage() for r in errors)
         manifests = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()]
         assert len(manifests) == 1
         assert manifests[0]["record_count"] == 1
@@ -1036,8 +1070,6 @@ class TestAuditExtenderSealing:
         # Seals run-1 under a different key than the extender below is configured with, so the manifest
         # log's current key mismatches the extender's signer.
         other_signer = _hmac_signer("other-key", key=_SEALING_KEY_B)
-        from mloda.enterprise.extenders.audit import seal_ndjson_runs
-
         seal_ndjson_runs(audit_path, manifest_path, signer=other_signer, run_id="run-1")
         _append_records(audit_path, [_minimal_audit_record("run-2")])
         extender = AuditExtender(
@@ -1081,6 +1113,48 @@ class TestAuditExtenderSealing:
         extender.on_run_complete("run-1")  # the original still seals
 
         assert manifest_path.exists()
+
+    def test_pickled_copy_warns_once_on_run_complete_that_sealing_config_was_dropped(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifest.ndjson"
+        _append_records(audit_path, [_minimal_audit_record("run-1")])
+        extender = AuditExtender(
+            sink=NdjsonAuditSink(audit_path), audit_path=audit_path, manifest_path=manifest_path, signer=_hmac_signer()
+        )
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        with caplog.at_level(logging.WARNING):
+            copy.on_run_complete("run-1")  # must not raise, and must not seal: the copy has no signer
+
+        assert not manifest_path.exists()
+        matching = [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.WARNING and re.search(r"pickl|copi", r.getMessage(), re.IGNORECASE)
+        ]
+        assert len(matching) == 1, [(r.levelno, r.getMessage()) for r in caplog.records]
+
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            copy.on_run_complete("run-1")  # same copy again: must not warn a second time
+
+        assert not manifest_path.exists()
+        assert not any(re.search(r"pickl|copi", r.getMessage(), re.IGNORECASE) for r in caplog.records)
+
+    def test_flush_failure_inside_on_run_complete_propagates_and_aborts_sealing(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifest.ndjson"
+        _append_records(audit_path, [_minimal_audit_record("run-1")])
+        sink = Mock(spec=["write", "flush"])
+        sink.flush.side_effect = RuntimeError("flush boom")
+        extender = AuditExtender(sink=sink, audit_path=audit_path, manifest_path=manifest_path, signer=_hmac_signer())
+
+        with pytest.raises(RuntimeError, match="flush boom"):
+            extender.on_run_complete("run-1")
+
+        assert not manifest_path.exists()
 
     def test_ed25519_signer_never_enters_the_pickle_stream(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"
