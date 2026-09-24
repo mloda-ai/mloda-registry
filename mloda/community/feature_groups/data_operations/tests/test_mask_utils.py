@@ -72,26 +72,26 @@ class TestBuildPolarsMaskExpr:
     def test_single_equal(self) -> None:
         pl = pytest.importorskip("polars")
 
-        expr = build_polars_mask_expr([("status", "equal", "active")])
-        df = pl.DataFrame({"status": ["active", "inactive", "active"]})
-        result = df.lazy().filter(expr).collect()
+        df = pl.DataFrame({"status": ["active", "inactive", "active"]}).lazy()
+        expr = build_polars_mask_expr(df, [("status", "equal", "active")])
+        result = df.filter(expr).collect()
         assert result.shape == (2, 1)
         assert result["status"].to_list() == ["active", "active"]
 
     def test_multiple_conditions(self) -> None:
         pl = pytest.importorskip("polars")
 
-        expr = build_polars_mask_expr([("cat", "equal", "X"), ("val", "greater_equal", 10)])
-        df = pl.DataFrame({"cat": ["X", "X", "Y"], "val": [15, 5, 20]})
-        result = df.lazy().filter(expr).collect()
+        df = pl.DataFrame({"cat": ["X", "X", "Y"], "val": [15, 5, 20]}).lazy()
+        expr = build_polars_mask_expr(df, [("cat", "equal", "X"), ("val", "greater_equal", 10)])
+        result = df.filter(expr).collect()
         assert result.shape == (1, 2)
 
     def test_is_in(self) -> None:
         pl = pytest.importorskip("polars")
 
-        expr = build_polars_mask_expr([("col", "is_in", ["a", "b"])])
-        df = pl.DataFrame({"col": ["a", "c", "b"]})
-        result = df.lazy().filter(expr).collect()
+        df = pl.DataFrame({"col": ["a", "c", "b"]}).lazy()
+        expr = build_polars_mask_expr(df, [("col", "is_in", ["a", "b"])])
+        result = df.filter(expr).collect()
         assert result.shape == (2, 1)
 
     def test_all_comparison_operators(self) -> None:
@@ -103,10 +103,27 @@ class TestBuildPolarsMaskExpr:
             ("less_than", 2, 1),
             ("less_equal", 2, 2),
         ]:
-            expr = build_polars_mask_expr([("x", op, test_val)])
-            df = pl.DataFrame({"x": [1, 2, 3]})
-            result = df.lazy().filter(expr).collect()
+            df = pl.DataFrame({"x": [1, 2, 3]}).lazy()
+            expr = build_polars_mask_expr(df, [("x", op, test_val)])
+            result = df.filter(expr).collect()
             assert result.shape[0] == expected_count, f"Failed for {op}"
+
+    @pytest.mark.parametrize(
+        ("mask_spec", "expected_count"),
+        [
+            pytest.param([("x", "greater_than", 5)], 1, id="greater_than_excludes_nan"),
+            pytest.param([("x", "equal", None)], 2, id="equal_none_matches_null_and_nan"),
+        ],
+    )
+    def test_null_and_nan_semantics(self, mask_spec: list[tuple[str, str, Any]], expected_count: int) -> None:
+        """Null/NaN-aware semantics: NaN never passes a range comparison, while equal(None)
+        matches both null and NaN rows."""
+        pl = pytest.importorskip("polars")
+
+        df = pl.DataFrame({"x": [1.0, None, float("nan"), 7.0]}).lazy()
+        expr = build_polars_mask_expr(df, mask_spec)
+        result = df.filter(expr).collect()
+        assert result.shape[0] == expected_count
 
 
 class TestBuildSqlCaseWhen:

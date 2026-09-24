@@ -73,8 +73,9 @@ class OpenLineageExtender(Extender):
     else use_sdk_defaults, else inert. Emits happen synchronously on the calculation thread, so a blocking transport
     delays every wrapped calculation. close() flushes the client and is terminal. A self-built client is rebuilt per
     worker; an injected client that can't survive pickling is dropped by a trial-pickle probe and falls back to the
-    resolution rule above, while a picklable injected client is pickled as-is. Workers are
-    terminated without a flush, so a synchronous transport is needed there. Data-access identities are sanitized
+    resolution rule above, while a picklable injected client is pickled as-is. Core calls close() on graceful
+    worker exit, but flush has no time limit of its own and termination at the worker's shutdown timeout can cut
+    it short, so a synchronous transport is still recommended there. Data-access identities are sanitized
     as in the audit extender, so dataset names taken from them carry no URI query."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
@@ -117,7 +118,8 @@ class OpenLineageExtender(Extender):
                 atexit.register(self.close, self._ATEXIT_CLOSE_TIMEOUT)
         return self._client
 
-    def close(self, timeout: float = -1.0) -> bool:
+    # Core calls close() with no args on graceful MULTIPROCESSING worker exit and ignores the result.
+    def close(self, timeout: float = -1.0) -> bool:  # type: ignore[override]
         """Flush the underlying client; a no-op if none has been built yet, waiting out any build in
         flight. Otherwise every closer, including a sibling sharing an injected client, waits for one flush."""
         with self._client_lock:

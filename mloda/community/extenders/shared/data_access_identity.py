@@ -12,8 +12,7 @@ _AUTHORITY_LEAK = re.compile(r"[;&=\s]")
 
 
 def sanitize_data_access_identity(identity: str) -> str:
-    # Core's own userinfo strip is greedy and can leave query text in the string, so the authority and path
-    # are cut at leak markers too. Userinfo goes first: ; and & are valid inside it.
+    # The authority and path are cut at leak markers too. Userinfo goes first: ; and & are valid inside it.
     scheme, separator, rest = identity.partition("://")
     if not separator or not _URI_SCHEME.fullmatch(scheme):
         return identity
@@ -33,10 +32,11 @@ def sanitize_data_access_identity(identity: str) -> str:
 def resolve_data_access_identity(args: tuple[Any, ...], context_identity: str | None) -> str | None:
     if context_identity is None:  # the context identity is the recording gate, even if args[0] is a str
         return None
-    # Core passes the raw data_access first; using it avoids core's lossy greedy strip.
+    # Core passes the raw data_access first; using the raw string keeps what core's default-deny
+    # identity reduces to a type name.
     raw = args[0] if args and isinstance(args[0], str) else context_identity
     sanitized = sanitize_data_access_identity(raw)
     if sanitized == raw and raw != context_identity and "://" in raw:
-        # raw is scheme-shaped but malformed, so it went unsanitized; fall back to core's own copy.
+        # raw is scheme-shaped but malformed, so it went unsanitized; fall back to core's identity.
         return sanitize_data_access_identity(context_identity)
     return sanitized

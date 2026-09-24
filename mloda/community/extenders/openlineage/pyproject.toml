@@ -11,7 +11,7 @@ version = "0.4.7"
 description = "OpenLineage RunEvents with schema, data-source and parent-run facets, for mloda pipelines"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda>=0.13.0,<0.14.0", "openlineage-python>=1.20,<2", "mloda-community-extenders-shared>=0.4.7"]
+dependencies = ["mloda>=0.14.0,<0.15.0", "openlineage-python>=1.20,<2", "mloda-community-extenders-shared>=0.4.7"]
 requires-python = ">=3.10,<3.15"
 
 [project.optional-dependencies]

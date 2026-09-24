@@ -183,6 +183,10 @@ class TestMakeHookContextOverrides:
         context = make_hook_context(duration_seconds=1.5)
         assert context.duration_seconds == 1.5
 
+    def test_input_feature_edges_override(self) -> None:
+        context = make_hook_context(input_feature_edges={"value_int": ("raw_value",)})
+        assert context.input_feature_edges == {"value_int": ("raw_value",)}
+
     def test_status_override(self) -> None:
         context = make_hook_context(status="ok")
         assert context.status == "ok"
