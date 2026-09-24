@@ -21,7 +21,7 @@ from unittest.mock import Mock
 
 import pytest
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.provider import FeatureGroup, FeatureSet
+from mloda.provider import BaseInputData, FeatureGroup, FeatureSet
 from mloda.steward import Extender, ExtenderHook
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -1077,36 +1077,59 @@ class TestOtelExtenderLoadSpanAttributes:
 
         assert single_span_attributes(exporter)["mloda.operation.name"] == "load"
 
-    def test_load_identity_attribute_absent_for_keyword_dsn_while_format_is_unaffected(
+    def test_load_identity_attribute_is_core_type_name_for_keyword_dsn_while_format_is_unaffected(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        identity = "host=db user=u password=pw"
+        raw = "host=db user=u password=pw"
+        context_identity = BaseInputData.data_access_identity(raw)  # "str"
         context = make_hook_context(
-            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity, data_access_format="postgresql"
+            hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity, data_access_format="postgresql"
         )
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
-            otel(lambda *_: "loaded-data", identity)
+            # Core passes the raw data access as arg 0; the extender must record the context identity, not it.
+            otel(lambda *_: "loaded-data", raw)
 
         attrs = single_span_attributes(exporter)
-        assert "mloda.data_access.identity" not in attrs, attrs
+        assert attrs["mloda.data_access.identity"] == "str"
+        assert "pw" not in str(attrs)
         assert attrs["mloda.data_access.format"] == "postgresql"
 
-    def test_load_identity_attribute_is_sanitized(
+    def test_load_identity_attribute_is_the_core_identity(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
-        identity = "https://user:pw@host/path?sig=secret"
-        context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity)
+        raw = "https://user:pw@host/path?sig=secret"
+        context_identity = BaseInputData.data_access_identity(raw)  # "https://host/path"
+        context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity)
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
             # Core passes the raw data access as arg 0, matching _load_data_via_hook's call shape.
-            otel(lambda *_: "loaded-data", identity)
+            otel(lambda *_: "loaded-data", raw)
 
-        assert single_span_attributes(exporter)["mloda.data_access.identity"] == "https://host/path"
+        attrs = single_span_attributes(exporter)
+        assert attrs["mloda.data_access.identity"] == "https://host/path"
+        assert "pw" not in str(attrs)
+        assert "secret" not in str(attrs)
+
+    def test_load_identity_attribute_for_a_mapping_data_access_is_the_sorted_key_set(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        raw = {"host": "h", "port": 5432, "api_key": "SECRET"}
+        context_identity = BaseInputData.data_access_identity(raw)  # "{api_key, host, port}"
+        context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity)
+        otel = OtelExtender(tracer_provider=provider)
+
+        with context.activate():
+            otel(lambda *_: "loaded-data", raw)
+
+        attrs = single_span_attributes(exporter)
+        assert attrs["mloda.data_access.identity"] == "{api_key, host, port}"
+        assert "SECRET" not in str(attrs)
 
     def test_load_identity_attribute_absent_when_context_has_none(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]

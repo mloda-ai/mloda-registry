@@ -3,8 +3,8 @@ own_failure() detects a fault."""
 
 from __future__ import annotations
 
+import dataclasses
 import pickle  # nosec
-import re
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -321,17 +321,6 @@ class _FilteringNestedRunHost(_NestedRunHost):
         return [event for event in events if not event.job.name.endswith(_NESTED_JOB_SUFFIX)]
 
 
-class _RealOpenLineageExtenderHost(OpenLineageExtenderTestMixin):
-    @classmethod
-    def extender_class(cls) -> type[Extender]:
-        return OpenLineageExtender
-
-    def make_openlineage_extender(self, client: OpenLineageClient, *, raise_on_error: bool | None = None) -> Extender:
-        if raise_on_error is None:
-            return OpenLineageExtender(client=client)
-        return OpenLineageExtender(client=client, raise_on_error=raise_on_error)
-
-
 _COUNT_SENSITIVE_MIXIN_TESTS: list[Any] = [
     pytest.param(
         lambda host, tmp_path: host.test_openlineage_run_all_derived_feature_reports_input_feature(),
@@ -365,50 +354,66 @@ class TestCalculateRunEventsHook:
         mixin_test(_FilteringNestedRunHost(), tmp_path)
 
 
+class _RawIdentityProbeOpenLineageExtender(Extender):
+    """Models an extender that (wrongly) publishes args[0] instead of the context's data_access_identity."""
+
+    def __init__(self, client: OpenLineageClient, raise_on_error: bool = False) -> None:
+        self.raise_on_error = raise_on_error
+        self._emitter = OpenLineageExtender(client=client, raise_on_error=raise_on_error)
+
+    def wraps(self) -> set[ExtenderHook]:
+        return self._emitter.wraps()
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        context = HookContext.current()
+        if context is not None and context.hook == ExtenderHook.INPUT_DATA_LOAD and args:
+            raw_context = dataclasses.replace(context, data_access_identity=args[0])
+            with raw_context.activate():
+                return self._emitter(func, *args, **kwargs)
+        return self._emitter(func, *args, **kwargs)
+
+
+class _RawIdentityHost(OpenLineageExtenderTestMixin):
+    @classmethod
+    def extender_class(cls) -> type[Extender]:
+        return _RawIdentityProbeOpenLineageExtender
+
+    def make_openlineage_extender(self, client: OpenLineageClient, *, raise_on_error: bool | None = None) -> Extender:
+        if raise_on_error is None:
+            return _RawIdentityProbeOpenLineageExtender(client=client)
+        return _RawIdentityProbeOpenLineageExtender(client=client, raise_on_error=raise_on_error)
+
+
+class _DroppedIdentityProbeOpenLineageExtender(_NestedRunProbeOpenLineageExtender):
+    """Like _NestedRunProbeOpenLineageExtender, but drops the load identity, keeping other inputs."""
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        context = HookContext.current()
+        if context is not None and context.hook == ExtenderHook.INPUT_DATA_LOAD:
+            dropped_context = dataclasses.replace(context, data_access_identity=None)
+            with dropped_context.activate():
+                return super().__call__(func, *args, **kwargs)
+        return super().__call__(func, *args, **kwargs)
+
+
+class _DroppedIdentityHost(_NestedRunHost):
+    @classmethod
+    def extender_class(cls) -> type[Extender]:
+        return _DroppedIdentityProbeOpenLineageExtender
+
+    def make_openlineage_extender(self, client: OpenLineageClient, *, raise_on_error: bool | None = None) -> Extender:
+        if raise_on_error is None:
+            return _DroppedIdentityProbeOpenLineageExtender(client=client)
+        return _DroppedIdentityProbeOpenLineageExtender(client=client, raise_on_error=raise_on_error)
+
+
 class TestQueryStringIdentityContract:
-    """Proves the query-string and user-information contract test fails for an extender that leaks the query
-    string, leaks user information, or drops the identity."""
+    """Proves the query-string contract test fails for an extender that publishes the raw identity or drops it."""
 
-    @pytest.mark.parametrize(
-        ("host_class", "resolver", "message"),
-        [
-            pytest.param(
-                _RealOpenLineageExtenderHost,
-                lambda args, context_identity: context_identity,
-                "URI query string reached an event",
-                id="publishes-raw-identity",
-            ),
-            pytest.param(
-                _NestedRunHost,
-                lambda args, context_identity: None,
-                "not attributed as an input",
-                id="drops-identity-despite-other-inputs",
-            ),
-            pytest.param(
-                _RealOpenLineageExtenderHost,
-                lambda args, context_identity: context_identity.partition("?")[0],
-                "URI user information reached an event",
-                id="strips-query-keeps-userinfo",
-            ),
-            pytest.param(
-                _RealOpenLineageExtenderHost,
-                lambda args, context_identity: re.sub(r":[^:@/]+@", ":***@", context_identity.partition("?")[0]),
-                "URI user information reached an event",
-                id="masks-password-keeps-username",
-            ),
-        ],
-    )
-    def test_non_compliant_identity_handling_is_detected(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        host_class: type[OpenLineageExtenderTestMixin],
-        resolver: Callable[..., str | None],
-        message: str,
-    ) -> None:
-        monkeypatch.setattr(
-            "mloda.community.extenders.openlineage.openlineage_extender.resolve_data_access_identity",
-            resolver,
-        )
+    def test_publishing_the_raw_identity_is_detected(self) -> None:
+        with pytest.raises(AssertionError, match="URI query string reached an event"):
+            _RawIdentityHost().test_openlineage_input_data_load_query_string_never_reaches_events()
 
-        with pytest.raises(AssertionError, match=message):
-            host_class().test_openlineage_input_data_load_query_string_never_reaches_events()
+    def test_dropping_the_identity_despite_other_inputs_is_detected(self) -> None:
+        with pytest.raises(AssertionError, match="not attributed as an input"):
+            _DroppedIdentityHost().test_openlineage_input_data_load_query_string_never_reaches_events()

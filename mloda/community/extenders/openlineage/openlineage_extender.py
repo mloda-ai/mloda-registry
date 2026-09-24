@@ -15,7 +15,6 @@ from typing import Any
 
 from mloda.steward import Extender, ExtenderHook, HookContext, OutputSchema, WarnOncePerInstance, pickle_failure_reason
 
-from mloda.community.extenders.shared.data_access_identity import resolve_data_access_identity
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
 from openlineage.client.client import OpenLineageClient
@@ -76,8 +75,8 @@ class OpenLineageExtender(Extender):
     by a trial-pickle probe and falls back to the resolution rule above, while a picklable injected client is
     pickled as-is. Core calls close() with no args on graceful MULTIPROCESSING worker exit; raise close_timeout
     together with graceful_shutdown_timeout for a buffered transport (e.g. async_http, kafka) to fully drain,
-    otherwise events past the budget are lost. The parent-death path is best effort. Data-access identities are
-    sanitized as in the audit extender, so dataset names taken from them carry no URI query."""
+    otherwise events past the budget are lost. The parent-death path is best effort. Dataset names for
+    loads are core's data_access_identity, recorded as given."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
     close_timeout: float = CLOSE_TIMEOUT
@@ -229,7 +228,7 @@ class OpenLineageExtender(Extender):
 
     def _call_input_data_load(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
         invocation = _open_invocations.find(self)
-        identity = resolve_data_access_identity(args, context.data_access_identity)
+        identity = context.data_access_identity
         if invocation is not None and identity is not None:
             already_present = any(
                 i.namespace == self.dataset_namespace and i.name == identity for i in invocation.inputs
