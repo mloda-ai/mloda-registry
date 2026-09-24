@@ -93,21 +93,23 @@ class FileSpanExporter(SpanExporter):
         self._records = records
 
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
-        with open(self._marker_path, "a") as handle:
-            for span in spans:
-                if self._records:
-                    context = span.context
-                    parent = span.parent
-                    record = {
-                        "name": span.name,
-                        "trace_id": context.trace_id if context is not None else None,
-                        "span_id": context.span_id if context is not None else None,
-                        "parent_span_id": parent.span_id if parent is not None else None,
-                        "attributes": dict(span.attributes) if span.attributes is not None else {},
-                    }
-                    handle.write(f"{json.dumps(record)}\n")
-                else:
-                    handle.write(f"{span.name}\n")
+        lines = []
+        for span in spans:
+            if self._records:
+                context = span.context
+                parent = span.parent
+                record = {
+                    "name": span.name,
+                    "trace_id": context.trace_id if context is not None else None,
+                    "span_id": context.span_id if context is not None else None,
+                    "parent_span_id": parent.span_id if parent is not None else None,
+                    "attributes": dict(span.attributes) if span.attributes is not None else {},
+                }
+                lines.append(f"{json.dumps(record)}\n")
+            else:
+                lines.append(f"{span.name}\n")
+        with open(self._marker_path, "a", encoding="utf-8") as handle:
+            handle.write("".join(lines))
         return SpanExportResult.SUCCESS
 
     def shutdown(self) -> None:

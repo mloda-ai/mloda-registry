@@ -1226,16 +1226,16 @@ class _DeclaringReader:
         return {"table": "orders_raw"}
 
 
-_DECLARED_ATTRIBUTES_CHAINS = ["direct", "chained-lower-priority", "chained-higher-priority"]
+_DECLARED_ATTRIBUTES_CHAINS = ["direct", "otel-inner", "otel-outer"]
 
 
-def _chained_call(otel: OtelExtender, chain: str) -> tuple[Any, CountingExtender | None]:
-    """direct: otel called alone, as-is. chained-*: CompositeExtender([otel, counting]), with counting's
-    priority set below or above OtelExtender's default priority."""
+def _chained_call(otel: OtelExtender, chain: str) -> tuple[Extender, CountingExtender | None]:
+    """direct: otel called alone. Otherwise CompositeExtender([otel, counting]), with otel inner or
+    outer; the two unwrap a different number of wrapper levels before reaching the owning class."""
     if chain == "direct":
         return otel, None
     counting = CountingExtender()
-    counting.priority = 50 if chain == "chained-lower-priority" else 200
+    counting.priority = 50 if chain == "otel-inner" else 200
     return CompositeExtender([otel, counting]), counting
 
 
@@ -1596,6 +1596,7 @@ class TestOtelExtenderRunAll:
 
         assert result == [1, 3]
 
+        assert marker_path.exists(), "no span records written; the extender never emitted through the injected provider"
         records = read_span_records(marker_path)
         calculate_records = [record for record in records if record["name"] == "mloda.calculate"]
         load_records = [record for record in records if record["name"] == "mloda.load"]
@@ -1603,15 +1604,15 @@ class TestOtelExtenderRunAll:
         assert len(load_records) == 1, records
         calculate_record, load_record = calculate_records[0], load_records[0]
 
-        assert load_record["trace_id"] == calculate_record["trace_id"]
-        assert load_record["parent_span_id"] == calculate_record["span_id"]
+        assert load_record["trace_id"] == calculate_record["trace_id"], records
+        assert load_record["parent_span_id"] == calculate_record["span_id"], records
 
         if parenting == "run_id":
             run_id = calculate_record["attributes"]["mloda.run.id"]
-            assert calculate_record["trace_id"] == uuid.UUID(run_id).int
+            assert calculate_record["trace_id"] == uuid.UUID(run_id).int, records
         else:
-            assert calculate_record["trace_id"] == carrier_trace_id
-            assert calculate_record["parent_span_id"] == carrier_span_id
+            assert calculate_record["trace_id"] == carrier_trace_id, records
+            assert calculate_record["parent_span_id"] == carrier_span_id, records
 
         if mode == ParallelizationMode.MULTIPROCESSING:
             assert "mloda.subprocess.worker_index" in calculate_record["attributes"], calculate_record
