@@ -54,7 +54,7 @@ class SqliteWindowAggregation(WindowAggregationFeatureGroup):
 
         source_sql = quoted_source
         if mask_spec is not None:
-            source_sql = build_sql_case_when(mask_spec, quoted_source)
+            source_sql = build_sql_case_when(SqliteFramework.mask_engine(), data, mask_spec, quoted_source)
 
         # Tag each row with its original (rowid) order so the partitioned aggregate
         # can be reordered back to the input order, matching the previous append_column

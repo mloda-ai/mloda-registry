@@ -58,7 +58,7 @@ class DuckdbAggregation(AggregationFeatureGroup):
 
         source_sql = quoted_source
         if mask_spec is not None:
-            source_sql = build_sql_case_when(mask_spec, quoted_source)
+            source_sql = build_sql_case_when(DuckDBFramework.mask_engine(), data, mask_spec, quoted_source)
 
         if agg_type == "nunique":
             agg_expr = f"COUNT(DISTINCT {source_sql})"
