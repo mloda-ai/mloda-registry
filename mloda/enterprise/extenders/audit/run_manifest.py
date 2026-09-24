@@ -591,11 +591,12 @@ def seal_ndjson_runs(
     run_id: str | None = None,
     expected_head: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Seal every unsealed run (or only `run_id`). Seal only after a run's writers stop: core has no run-end hook,
-    so sealing a still-live run fails its verification for good. Pass `run_id` when other runs may still be live;
-    omit it to sweep an audit file no writer is appending to. Raises RunAlreadySealedError for an already-sealed
-    `run_id` (catch that, not ValueError, for an idempotent retry) and RunNotPendingError when it has no records.
-    `signer` must be the log's current key: call rotate_manifest_key after a key change.
+    """Seal every unsealed run (or only `run_id`). Seal only after a run's writers stop, or sealing a still-live run
+    fails its verification for good; prefer AuditExtender's automatic sealing from Extender.on_run_complete when
+    available, since it fires only once a run's writers have stopped. Pass `run_id` when other runs may still be
+    live; omit it to sweep an audit file no writer is appending to. Raises RunAlreadySealedError for an
+    already-sealed `run_id` (catch that, not ValueError, for an idempotent retry) and RunNotPendingError when it
+    has no records. `signer` must be the log's current key: call rotate_manifest_key after a key change.
     `previous_signers` covers a retired signing key during rotation (see module docstring)."""
     signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)

@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -17,6 +17,14 @@ from mloda.community.extenders.shared.open_invocations import OpenInvocationStac
 from mloda.enterprise.extenders.audit._records import _append_records as _append_records
 from mloda.enterprise.extenders.audit._records import _canonical_json as _canonical_json
 from mloda.enterprise.extenders.audit._records import _is_blank, _utc_now
+from mloda.enterprise.extenders.audit.run_manifest import (
+    ManifestSigner,
+    RunAlreadySealedError,
+    RunNotPendingError,
+    _reject_aliased_paths,
+    _signer_map,
+    seal_ndjson_runs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +120,11 @@ class AuditExtender(Extender):
     and user information are stripped, best effort; other identities are recorded as given, so not
     credential-free, and a sealed log cannot be redacted afterwards. Records carry policy_version (the
     given value, else a fingerprint of the constructor-supplied gate, which does not track code changes).
-    Keys may be added within record_version 1; an absent key means not recorded."""
+    Keys may be added within record_version 1; an absent key means not recorded. With audit_path,
+    manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
+    that just finished; a fail_closed=True deny record written at plan time is not auto-sealed, since
+    on_run_complete never fires for a run refused before setup, so a manual seal_ndjson_runs sweep is
+    needed for it."""
 
     def __init__(
         self,
@@ -121,6 +133,10 @@ class AuditExtender(Extender):
         raise_on_error: bool = True,
         fail_closed: bool = False,
         policy_version: str | None = None,
+        audit_path: str | Path | None = None,
+        manifest_path: str | Path | None = None,
+        signer: ManifestSigner | None = None,
+        previous_signers: Iterable[ManifestSigner] = (),
     ) -> None:
         unknown = [name for name in required_identity if name not in _ALLOWED_IDENTITY_NAMES]
         if unknown:
@@ -137,6 +153,23 @@ class AuditExtender(Extender):
             )
         if policy_version is not None and (not isinstance(policy_version, str) or _is_blank(policy_version)):
             raise ValueError(f"AuditExtender policy_version must be a non-blank str, got {policy_version!r}")
+        previous_signers = tuple(previous_signers)
+        paths_given = audit_path is not None or manifest_path is not None
+        if signer is None:
+            if paths_given:
+                raise ValueError(
+                    "AuditExtender audit_path and manifest_path need a signer to auto-seal; give all three or none"
+                )
+            if previous_signers:
+                raise ValueError("AuditExtender previous_signers needs a signer, else there is nothing to seal with")
+        elif audit_path is None or manifest_path is None:
+            raise ValueError(
+                "AuditExtender signer needs both audit_path and manifest_path to auto-seal; give all three or none"
+            )
+        else:
+            # Reuse seal_ndjson_runs's own checks so a misconfiguration fails at construction, not at run end.
+            _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
+            _signer_map(signer, previous_signers)
         self.sink = sink
         self.required_identity = required_identity
         self.raise_on_error = raise_on_error
@@ -144,6 +177,10 @@ class AuditExtender(Extender):
         self.policy_version = (
             policy_version if policy_version is not None else _gate_fingerprint(fail_closed, required_identity)
         )
+        self._audit_path = audit_path
+        self._manifest_path = manifest_path
+        self._signer = signer
+        self._previous_signers = previous_signers
         if fail_closed:
             # Core runs the lowest priority outermost; a lower-priority peer would otherwise run before the gate.
             self.priority = 0
@@ -161,6 +198,44 @@ class AuditExtender(Extender):
         flush = getattr(self.sink, "flush", None)
         if callable(flush):
             flush()
+
+    def on_run_complete(self, run_id: str | None) -> None:
+        """Auto-seal `run_id` when audit_path/manifest_path/signer are configured; a no-op otherwise, with
+        run_id=None, or when the run wrote nothing. Flushes the sink first, so a buffered record reaches the
+        audit file before it is sealed. RunAlreadySealedError and other RunNotPendingError are logged and
+        swallowed (a steward needs visibility, but neither warrants failing the run); every other exception,
+        e.g. ManifestVerificationError, propagates to core's own on_run_complete handling."""
+        if self._signer is None or run_id is None:
+            return
+        assert self._audit_path is not None and self._manifest_path is not None  # construction enforces this
+        self.close()
+        if not Path(self._audit_path).exists():
+            return
+        try:
+            seal_ndjson_runs(
+                self._audit_path,
+                self._manifest_path,
+                signer=self._signer,
+                previous_signers=self._previous_signers,
+                run_id=run_id,
+            )
+        except RunAlreadySealedError:
+            logger.warning(
+                "AuditExtender: run_id %r is already sealed; any new records for it landed outside the "
+                "existing seal and will be reported by verification",
+                run_id,
+            )
+        except RunNotPendingError:
+            logger.warning("AuditExtender: run_id %r has no audit records to seal", run_id)
+
+    def __getstate__(self) -> dict[str, Any]:
+        """Drops the signer material so a pickled copy (e.g. into a MULTIPROCESSING worker's dispatch
+        payload) carries none: on_run_complete only ever runs in the parent, never in a worker copy, and
+        Ed25519Signer holds non-picklable cryptography key objects besides."""
+        state = dict(self.__dict__)
+        state["_signer"] = None
+        state["_previous_signers"] = ()
+        return state
 
     def wraps(self) -> set[ExtenderHook]:
         if self.fail_closed:
