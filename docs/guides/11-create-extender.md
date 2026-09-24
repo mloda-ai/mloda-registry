@@ -295,7 +295,7 @@ The mixin pins:
 - the carrier parents the span; without a carrier, the trace id derives from `run_id`
 - `run_all` spans share one trace id, and the check requires at least two spans, one of them the declared calculate span name
 - an interrupt (`BaseException`) still marks the span `ERROR` without leaking the exception message
-- when the host wraps `INPUT_DATA_LOAD` (else skipped): the query string of a nested load identity never reaches any span attribute; a load nested inside a calculate call is a child of that calculate span
+- when the host wraps `INPUT_DATA_LOAD` (else skipped): the query string and user information of a nested load identity never reach any span attribute; a load nested inside a calculate call is a child of that calculate span
 
 Helpers: `make_span_capture`, `make_picklable_span_capture`, `single_span`, `single_span_attributes`, `inject_parent_carrier`, `RebuildingSpanCaptureProvider`, `FileSpanExporter` (writes finished span names to a marker file, for `make_real_worker_extender_and_marker`).
 
@@ -332,12 +332,12 @@ The mixin pins:
 - no event ever leaks the exception message
 - the parent facet ties the run to the ambient `run_id`
 - a nested `INPUT_DATA_LOAD` call becomes an input, on both COMPLETE and FAIL, when the extender wraps that hook; the input is attributed before the load runs, so a failing load still appears on the FAIL event, and inputs mean attempted reads
-- the URI query string of a nested `INPUT_DATA_LOAD` identity reaches no event when the extender wraps that hook; user information is not pinned
+- the URI query string and user information of a nested `INPUT_DATA_LOAD` identity reach no event when the extender wraps that hook
 - the calculate context's declared `input_features` become inputs too, on both COMPLETE and FAIL, so a host must report them
 - a START emit failure under warning-only mode never prevents the wrapped call from running
 - `run_all` events share one parent run id
 
-Strip the query before recording: a host that drops the identity instead also fails, since inputs mean attempted reads. The rule is enforced on every host wrapping `INPUT_DATA_LOAD` because a presigned URL or SAS token in a published dataset name is a credential leak; a host that must publish the raw URI overrides `test_openlineage_input_data_load_query_string_never_reaches_events` by name.
+Strip the query and user information before recording: a host that drops the identity instead also fails, since inputs mean attempted reads. The rule is enforced on every host wrapping `INPUT_DATA_LOAD` because a presigned URL, a SAS token, or `user:password@` in a published dataset name is a credential leak; a host that must publish the raw URI overrides `test_openlineage_input_data_load_query_string_never_reaches_events` by name.
 
 `RecordingTransport`, `LockHoldingTransport`, `FileTransport` (writes emitted event types to a marker file, for `make_real_worker_extender_and_marker`) and `make_recording_client` live in `mloda.testing.extenders.openlineage`.
 

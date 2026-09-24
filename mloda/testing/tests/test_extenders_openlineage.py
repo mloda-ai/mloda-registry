@@ -365,7 +365,7 @@ class TestCalculateRunEventsHook:
 
 
 class TestQueryStringIdentityContract:
-    """Proves the query-string contract test fails for an extender that publishes the raw identity or drops it."""
+    """Proves the query-string and user-information contract test fails for an extender that leaks either one."""
 
     @pytest.mark.parametrize(
         ("host_class", "resolver", "message"),
@@ -381,6 +381,12 @@ class TestQueryStringIdentityContract:
                 lambda args, context_identity: None,
                 "not attributed as an input",
                 id="drops-identity-despite-other-inputs",
+            ),
+            pytest.param(
+                _RealOpenLineageExtenderHost,
+                lambda args, context_identity: context_identity.partition("?")[0],
+                "URI user information reached an event",
+                id="strips-query-keeps-userinfo",
             ),
         ],
     )

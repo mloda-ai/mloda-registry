@@ -6,6 +6,7 @@ from __future__ import annotations
 import pickle  # nosec
 import re
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -175,6 +176,19 @@ class TestRebuildingSpanCaptureProviderBatch:
         assert copy._marker_path == marker_path
 
 
+class _RealOtelExtenderHost(OtelExtenderTestMixin):
+    @classmethod
+    def extender_class(cls) -> type[OtelExtender]:
+        return OtelExtender
+
+    def make_otel_extender(
+        self, tracer_provider: TracerProvider, *, raise_on_error: bool | None = None
+    ) -> OtelExtender:
+        if raise_on_error is None:
+            return OtelExtender(tracer_provider=tracer_provider)
+        return OtelExtender(tracer_provider=tracer_provider, raise_on_error=raise_on_error)
+
+
 class TestOtelExtenderTestMixinShape:
     def test_is_extender_contract_subclass(self) -> None:
         assert issubclass(OtelExtenderTestMixin, ExtenderContractTestMixin)
@@ -197,18 +211,7 @@ class TestOtelExtenderTestMixinShape:
         assert mixin.ambient_sink_captured([]) == []
 
     def test_sdk_defaults_contract_fails_when_the_ambient_sink_captured_nothing(self) -> None:
-        class _Host(OtelExtenderTestMixin):
-            @classmethod
-            def extender_class(cls) -> type[OtelExtender]:
-                return OtelExtender
-
-            def make_otel_extender(
-                self, tracer_provider: TracerProvider, *, raise_on_error: bool | None = None
-            ) -> OtelExtender:
-                if raise_on_error is None:
-                    return OtelExtender(tracer_provider=tracer_provider)
-                return OtelExtender(tracer_provider=tracer_provider, raise_on_error=raise_on_error)
-
+        class _Host(_RealOtelExtenderHost):
             def ambient_sink_captured(self, spy: list[Any]) -> list[Any] | None:
                 return []
 
@@ -265,3 +268,33 @@ class TestOwnFailureDefaultDetectsNoFault:
 
         with pytest.raises(AssertionError, match="own_failure"):
             _Host().test_contract_own_failure_does_not_stop_chained_extender(caplog)
+
+
+class TestQueryStringIdentityContract:
+    """Proves the user-information contract test fails for an extender that leaks it into a span attribute."""
+
+    @pytest.mark.parametrize(
+        ("host_class", "resolver", "message"),
+        [
+            pytest.param(
+                _RealOtelExtenderHost,
+                lambda args, context_identity: context_identity.partition("?")[0],
+                "URI user information reached a span attribute",
+                id="strips-query-keeps-userinfo",
+            ),
+        ],
+    )
+    def test_non_compliant_identity_handling_is_detected(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        host_class: type[OtelExtenderTestMixin],
+        resolver: Callable[..., str | None],
+        message: str,
+    ) -> None:
+        monkeypatch.setattr(
+            "mloda.community.extenders.otel.otel_extender.resolve_data_access_identity",
+            resolver,
+        )
+
+        with pytest.raises(AssertionError, match=message):
+            host_class().test_otel_input_data_load_query_string_never_reaches_span_attributes()

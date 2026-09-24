@@ -416,7 +416,8 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         if ExtenderHook.INPUT_DATA_LOAD not in extender.wraps():
             pytest.skip("extender does not wrap INPUT_DATA_LOAD")
         marker = "SENSITIVE_QUERY_VALUE_xyz123"
-        identity = f"s3://bucket/key.parquet?X-Amz-Signature={marker}"
+        userinfo_marker = "SENSITIVE_USERINFO_VALUE_xyz123"
+        identity = f"s3://user:{userinfo_marker}@bucket/key.parquet?X-Amz-Signature={marker}"
 
         inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity)
 
@@ -434,6 +435,9 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
             assert span.attributes is not None
             for value in span.attributes.values():
                 assert marker not in str(value), span.attributes
+                assert userinfo_marker not in str(value), (
+                    f"URI user information reached a span attribute: {span.attributes}"
+                )
 
     @pytest.mark.parametrize("parenting", ["run_id", "carrier"])
     def test_otel_load_nested_in_calculate_is_child_of_the_calculate_span(self, parenting: str) -> None:

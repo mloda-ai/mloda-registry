@@ -551,7 +551,8 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         if ExtenderHook.INPUT_DATA_LOAD not in extender.wraps():
             pytest.skip("extender does not wrap INPUT_DATA_LOAD")
         marker = "SENSITIVE_QUERY_VALUE_xyz123"
-        identity = f"s3://bucket/key.parquet?X-Amz-Signature={marker}"
+        userinfo_marker = "SENSITIVE_USERINFO_VALUE_xyz123"
+        identity = f"s3://user:{userinfo_marker}@bucket/key.parquet?X-Amz-Signature={marker}"
 
         inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity)
 
@@ -567,6 +568,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         assert any("key.parquet" in name for name in input_names), "the data load was not attributed as an input"
         for event in transport.events:
             assert marker not in Serde.to_json(event), "URI query string reached an event"
+            assert userinfo_marker not in Serde.to_json(event), "URI user information reached an event"
 
     def test_openlineage_fail_event_carries_nested_inputs(self) -> None:
         client, transport = make_recording_client()
