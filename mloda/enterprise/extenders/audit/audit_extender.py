@@ -54,7 +54,8 @@ class NdjsonAuditSink:
 
 
 class TeeAuditSink:
-    """Writes each record to every sink in order; put durable sinks first, as the first failure stops the rest."""
+    """Writes each record to every sink in order; put durable sinks first, as write() stops at the first
+    failure. flush() instead attempts every child and re-raises only the first error."""
 
     def __init__(self, *sinks: AuditSink) -> None:
         if not sinks:

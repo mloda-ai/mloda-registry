@@ -11,6 +11,7 @@ import json
 import logging
 import pickle  # nosec
 import re
+import time
 from collections.abc import Callable, Iterator
 from contextlib import suppress
 from pathlib import Path
@@ -58,6 +59,7 @@ from mloda.enterprise.extenders.audit.tests.test_audit_extender import (
     _TENANT,
     InMemoryAuditSink,
 )
+from mloda.testing.extenders.flush import blocking_flush_provider, call_with_join_timeout
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
 from mloda.testing.import_isolation import block_root, evict_package
@@ -923,6 +925,38 @@ class TestOtelLogAuditSinkFlush:
             sink.flush()
 
         provider.force_flush.assert_called_once_with(timeout_millis=5000)
+
+    def test_flush_bounds_a_blocking_force_flush_and_logs_a_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """opentelemetry-sdk's BatchProcessor.force_flush(timeout_millis) currently ignores the timeout
+        and exports synchronously; flush() must still return well under a second."""
+        with blocking_flush_provider() as provider:
+            sink = OtelLogAuditSink()
+            sink.close_timeout = 0.1
+
+            start = time.monotonic()
+            with patch(_GET_LOGGER_PROVIDER, return_value=provider):
+                with caplog.at_level(logging.WARNING, logger=otel_log_sink_module.__name__):
+                    still_running, outcome = call_with_join_timeout(sink.flush, join_timeout=1.0)
+            elapsed = time.monotonic() - start
+
+        assert not still_running, "flush() did not return within 1.0s while force_flush blocked past close_timeout"
+        if "error" in outcome:
+            raise outcome["error"]
+        assert elapsed < 1.0, elapsed
+
+        warnings = _module_warnings(caplog)
+        assert len(warnings) == 1
+        assert "OtelLogAuditSink" in warnings[0]
+
+    def test_negative_close_timeout_flushes_with_no_args(self) -> None:
+        provider = Mock(force_flush=Mock(return_value=True))
+        sink = OtelLogAuditSink()
+        sink.close_timeout = -1.0
+
+        with patch(_GET_LOGGER_PROVIDER, return_value=provider):
+            sink.flush()
+
+        provider.force_flush.assert_called_once_with()
 
 
 class TestOtelLogAuditSinkPickle:

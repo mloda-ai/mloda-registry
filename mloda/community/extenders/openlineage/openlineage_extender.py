@@ -123,9 +123,9 @@ class OpenLineageExtender(Extender):
     # Core calls close() with no args on graceful MULTIPROCESSING worker exit and ignores the result.
     def close(self, timeout: float | None = None) -> bool:  # type: ignore[override]
         """Flush the underlying client, capped at close_timeout when timeout is None (core's own no-arg
-        call); a negative value waits with no limit, matching today's explicit-timeout behavior. A no-op
-        if none has been built yet, waiting out any build in flight. Otherwise every closer, including a
-        sibling sharing an injected client, waits for one flush."""
+        call); pass timeout=-1 to wait with no limit and drain fully. A no-op if none has been built yet,
+        waiting out any build in flight. Otherwise every closer, including a sibling sharing an injected
+        client, waits for one flush."""
         if timeout is None:
             timeout = self.close_timeout
         with self._client_lock:

@@ -26,6 +26,7 @@ from mloda_plugins.feature_group.input_data.read_file_feature import ReadFileFea
 
 from mloda.enterprise.extenders.audit import AuditExtender, IdentityRequiredError, NdjsonAuditSink, TeeAuditSink
 from mloda.enterprise.extenders.audit import audit_extender as audit_extender_module
+from mloda.enterprise.extenders.audit._records import _append_records
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
@@ -110,8 +111,10 @@ _POLICY_VERSION = "policy-2026-09-rev-3"
 
 class BufferingNdjsonAuditSink:
     """Buffers written records in memory; flush() appends them to path as NDJSON, so the marker file
-    only exists once flush() actually ran (proving a worker's graceful-exit close(), not merely that
-    it wrote a record). Module-level so it survives pickling into a spawned worker."""
+    only exists once flush() actually ran with something to write (proving a worker's graceful-exit
+    close(), not merely that it wrote a record). Module-level so it survives pickling into a spawned
+    worker. Writes via _append_records, the same helper NdjsonAuditSink uses, which already skips an
+    empty batch (no os.open at all) rather than creating an empty marker file."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
@@ -121,9 +124,7 @@ class BufferingNdjsonAuditSink:
         self._buffer.append(dict(record))
 
     def flush(self) -> None:
-        with open(self.path, "a", encoding="utf-8") as handle:
-            for record in self._buffer:
-                handle.write(json.dumps(record, sort_keys=True) + "\n")
+        _append_records(self.path, self._buffer)
         self._buffer = []
 
 
@@ -412,6 +413,8 @@ class TestAuditExtenderFailClosedContract(TestAuditExtenderContract):
 
     @classmethod
     def supports_real_worker_buffered_sink(cls) -> bool:
+        # fail_closed's close() is AuditExtender.close(), the exact same sink.flush() path the parent
+        # (non-fail_closed) host already exercises; the extra spawned real-worker run would be redundant.
         return False
 
     @classmethod

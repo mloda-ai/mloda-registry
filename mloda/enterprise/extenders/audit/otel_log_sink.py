@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
-from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, force_flush
+from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, force_flush, to_timeout_millis
 from mloda.enterprise.extenders.audit._records import _is_blank
 from mloda.enterprise.extenders.audit.run_manifest import _MIN_KEY_BYTES
 
@@ -128,7 +128,7 @@ class OtelLogAuditSink:
             from opentelemetry._logs import get_logger_provider
 
             provider = get_logger_provider()
-            result = force_flush(provider, timeout_millis=int(self.close_timeout * 1000))
+            result = force_flush(provider, timeout_millis=to_timeout_millis(self.close_timeout))
             if result is False:
                 logger.warning("%s did not flush all log records within close_timeout", type(self).__name__)
         except Exception as exc:

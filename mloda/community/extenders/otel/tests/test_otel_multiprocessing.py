@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import re
 import uuid
+from unittest.mock import patch
 
 import pytest
 from opentelemetry import context as otel_context
+from opentelemetry import trace as otel_trace_api
 from opentelemetry.context import Context
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -14,6 +16,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 
 from mloda.community.extenders.otel.otel_multiprocessing import (
     extract_carrier,
+    force_flush,
     inject_carrier,
     trace_id_from_run_id,
 )
@@ -108,6 +111,33 @@ class TestForceFlushReExport:
         from mloda.community.extenders.shared import teardown as teardown_module
 
         assert otel_multiprocessing_module.force_flush is teardown_module.force_flush
+
+
+class TestForceFlushRealSdkProviders:
+    """The two force_flush cases that need the real OTel SDK/API, exercised through this module's
+    force_flush re-export, so shared/tests/test_teardown.py itself never imports opentelemetry."""
+
+    def test_calls_and_returns_true_for_real_sdk_provider(self) -> None:
+        provider = TracerProvider()
+
+        with patch.object(provider, "force_flush") as mock_force_flush:
+            result = force_flush(provider)
+
+        mock_force_flush.assert_called_once()
+        assert result is True
+
+    def test_returns_none_for_default_proxy_tracer_provider(self) -> None:
+        """The API-only ProxyTracerProvider lacks force_flush entirely.
+
+        Constructed directly rather than via get_tracer_provider(), which returns whatever the
+        process-global provider is set to and would make this test order/environment-dependent.
+        """
+        proxy_provider = otel_trace_api.ProxyTracerProvider()
+        assert not hasattr(proxy_provider, "force_flush")  # precondition this test relies on
+
+        result = force_flush(proxy_provider)
+
+        assert result is None
 
 
 class TestTraceIdFromRunId:

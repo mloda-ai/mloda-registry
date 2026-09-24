@@ -18,12 +18,8 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor
 
 from mloda.community.extenders.otel import OtelExtender
-from mloda.testing.extenders.otel import FileSpanExporter
+from mloda.testing.extenders.otel import BATCH_SCHEDULE_DELAY_MILLIS, FileSpanExporter
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
-
-# Long enough that BatchSpanProcessor's own scheduled flush never fires within a test's lifetime;
-# only an explicit flush (via OtelExtender.close(), which core calls on graceful worker exit) drains it.
-_BATCH_SCHEDULE_DELAY_MILLIS = 600_000
 
 
 class _InstallRealTracerProviderBootstrap:
@@ -34,8 +30,10 @@ class _InstallRealTracerProviderBootstrap:
     OtelExtender(use_sdk_defaults=True) (no injected tracer_provider) then resolves this ambiently via
     opentelemetry.trace.get_tracer_provider(), the process-global provider this bootstrap just set.
 
-    batch=True wires a BatchSpanProcessor with a schedule_delay_millis long enough to never fire on
-    its own, so only the extender's own close() can drain the buffered span."""
+    batch=True wires a BatchSpanProcessor with a schedule_delay_millis (BATCH_SCHEDULE_DELAY_MILLIS)
+    long enough to never fire on its own, so only the extender's own close() can drain the buffered
+    span; shutdown_on_exit=False, because otherwise the SDK's own atexit shutdown would flush the span
+    itself and hide a missing close()."""
 
     def __init__(self, marker_path: Path, batch: bool = False) -> None:
         self._marker_path = marker_path
@@ -45,9 +43,7 @@ class _InstallRealTracerProviderBootstrap:
         exporter = FileSpanExporter(self._marker_path)
         if self._batch:
             provider = TracerProvider(shutdown_on_exit=False)
-            provider.add_span_processor(
-                BatchSpanProcessor(exporter, schedule_delay_millis=_BATCH_SCHEDULE_DELAY_MILLIS)
-            )
+            provider.add_span_processor(BatchSpanProcessor(exporter, schedule_delay_millis=BATCH_SCHEDULE_DELAY_MILLIS))
         else:
             provider = TracerProvider()
             provider.add_span_processor(SimpleSpanProcessor(exporter))

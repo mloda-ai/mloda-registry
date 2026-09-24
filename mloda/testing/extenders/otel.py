@@ -23,6 +23,10 @@ from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import run_two_features
 
+BATCH_SCHEDULE_DELAY_MILLIS = 600_000
+"""Long enough that a BatchSpanProcessor's own scheduled flush never fires within a test's lifetime;
+only an explicit force_flush() (e.g. via close(), which core calls on graceful worker exit) drains it."""
+
 
 def make_span_capture() -> tuple[TracerProvider, InMemorySpanExporter]:
     """SDK TracerProvider wired to an in-memory span exporter via a SimpleSpanProcessor."""
@@ -111,11 +115,9 @@ class RebuildingSpanCaptureProvider(ApiTracerProvider):
     get_tracer() call, wired to a file exporter when marker_path is set, else a class-level
     accumulator. __getstate__ drops the live SDK provider, so instances always pickle cleanly.
 
-    batch=True wires a BatchSpanProcessor with a schedule_delay_millis long enough to never fire
-    within a test, so a span stays buffered until an explicit force_flush() drains it, proving a
-    real worker's close() actually flushed rather than merely emitted."""
-
-    _BATCH_SCHEDULE_DELAY_MILLIS = 600_000
+    batch=True wires a BatchSpanProcessor with a schedule_delay_millis (BATCH_SCHEDULE_DELAY_MILLIS)
+    long enough to never fire within a test, so a span stays buffered until an explicit force_flush()
+    drains it, proving a real worker's close() actually flushed rather than merely emitted."""
 
     def __init__(self, marker_path: Path | None = None, batch: bool = False) -> None:
         self._marker_path = marker_path
@@ -137,7 +139,7 @@ class RebuildingSpanCaptureProvider(ApiTracerProvider):
                 else _ClassAccumulatorSpanExporter()
             )
             processor = (
-                BatchSpanProcessor(exporter, schedule_delay_millis=self._BATCH_SCHEDULE_DELAY_MILLIS)
+                BatchSpanProcessor(exporter, schedule_delay_millis=BATCH_SCHEDULE_DELAY_MILLIS)
                 if self._batch
                 else SimpleSpanProcessor(exporter)
             )
@@ -157,7 +159,7 @@ class RebuildingSpanCaptureProvider(ApiTracerProvider):
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self._marker_path = state["_marker_path"]
-        self._batch = state["_batch"]
+        self._batch = state.get("_batch", False)
         self._sdk_provider = None
 
 

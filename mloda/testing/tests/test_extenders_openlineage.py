@@ -3,6 +3,7 @@ own_failure() detects a fault."""
 
 from __future__ import annotations
 
+import pickle  # nosec
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -21,6 +22,7 @@ from openlineage.client.facet_v2 import parent_run
 from mloda.community.extenders.openlineage import OpenLineageExtender
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.openlineage import (
+    BufferingFileTransport,
     FileTransport,
     OpenLineageExtenderTestMixin,
     RecordingTransport,
@@ -77,6 +79,58 @@ class TestFileTransport:
         transport = FileTransport(tmp_path / "marker.txt")
         with pytest.raises(TypeError):
             transport.emit(object())  # type: ignore[arg-type]
+
+
+class TestBufferingFileTransport:
+    """emit() only buffers; close() writes, and only when the buffer holds something."""
+
+    def test_marker_file_does_not_exist_until_close(self, tmp_path: Path) -> None:
+        marker_path = tmp_path / "marker.txt"
+        transport = BufferingFileTransport(marker_path)
+
+        transport.emit(_build_run_event())
+
+        assert not marker_path.exists()
+
+    def test_close_writes_the_buffered_event_types(self, tmp_path: Path) -> None:
+        marker_path = tmp_path / "marker.txt"
+        transport = BufferingFileTransport(marker_path)
+        events = [_build_run_event(), _build_run_event()]
+        for event in events:
+            transport.emit(event)
+
+        transport.close()
+
+        expected_lines = []
+        for event in events:
+            assert event.eventType is not None
+            expected_lines.append(event.eventType.value)
+        assert marker_path.read_text().splitlines() == expected_lines
+
+    def test_no_marker_file_when_nothing_was_emitted(self, tmp_path: Path) -> None:
+        marker_path = tmp_path / "marker.txt"
+        transport = BufferingFileTransport(marker_path)
+
+        transport.close()
+
+        assert not marker_path.exists()
+
+    def test_raises_type_error_for_non_run_event(self, tmp_path: Path) -> None:
+        transport = BufferingFileTransport(tmp_path / "marker.txt")
+        with pytest.raises(TypeError):
+            transport.emit(object())  # type: ignore[arg-type]
+
+    def test_pickles_and_the_copy_still_flushes_its_own_buffer(self, tmp_path: Path) -> None:
+        marker_path = tmp_path / "marker.txt"
+        transport = BufferingFileTransport(marker_path)
+        event = _build_run_event()
+        transport.emit(event)
+
+        copy = pickle.loads(pickle.dumps(transport))  # nosec
+        copy.close()
+
+        assert event.eventType is not None
+        assert marker_path.read_text().splitlines() == [event.eventType.value]
 
 
 class TestMakeRecordingClient:

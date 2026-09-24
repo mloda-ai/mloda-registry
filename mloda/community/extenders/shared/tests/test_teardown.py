@@ -1,14 +1,17 @@
-"""Tests for teardown.py: force_flush and CLOSE_TIMEOUT, the shared bounded-flush primitives every
-registry extender's close() builds on."""
+"""Tests for teardown.py: force_flush, CLOSE_TIMEOUT and to_timeout_millis, the shared bounded-flush
+primitives every registry extender's close() builds on. Imports no opentelemetry: the two force_flush
+cases that need the real SDK/API live in otel/tests/test_otel_multiprocessing.py instead, exercised
+through that module's force_flush re-export."""
 
 from __future__ import annotations
 
-from unittest.mock import Mock, patch
+import time
+from unittest.mock import Mock
 
-from opentelemetry import trace as otel_trace_api
-from opentelemetry.sdk.trace import TracerProvider
+import pytest
 
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, force_flush
+from mloda.testing.extenders.flush import blocking_flush_provider, call_with_join_timeout
 
 
 class TestCloseTimeout:
@@ -19,31 +22,9 @@ class TestCloseTimeout:
 class TestForceFlush:
     """force_flush() duck-types on a provider's optional force_flush method."""
 
-    def test_calls_and_returns_true_for_real_sdk_provider(self) -> None:
-        provider = TracerProvider()
-
-        with patch.object(provider, "force_flush") as mock_force_flush:
-            result = force_flush(provider)
-
-        mock_force_flush.assert_called_once()
-        assert result is True
-
     def test_returns_none_for_object_without_force_flush(self) -> None:
         """No force_flush at all means "cannot be asked to flush", distinct from a real False result."""
         result = force_flush(object())
-
-        assert result is None
-
-    def test_returns_none_for_default_proxy_tracer_provider(self) -> None:
-        """The API-only ProxyTracerProvider lacks force_flush entirely.
-
-        Constructed directly rather than via get_tracer_provider(), which returns whatever the
-        process-global provider is set to and would make this test order/environment-dependent.
-        """
-        proxy_provider = otel_trace_api.ProxyTracerProvider()
-        assert not hasattr(proxy_provider, "force_flush")  # precondition this test relies on
-
-        result = force_flush(proxy_provider)
 
         assert result is None
 
@@ -80,3 +61,55 @@ class TestForceFlush:
         force_flush(stub)
 
         stub.force_flush.assert_called_once_with()
+
+
+class TestForceFlushBoundedByTimeoutThread:
+    """opentelemetry-sdk 1.44 BatchProcessor.force_flush(timeout_millis) ignores the timeout (upstream
+    TODO) and exports the whole queue synchronously, so force_flush() must run the provider's own
+    force_flush on a bounded-wait background thread rather than trusting it to honor timeout_millis."""
+
+    def test_blocking_force_flush_returns_false_within_the_timeout(self) -> None:
+        with blocking_flush_provider() as provider:
+            start = time.monotonic()
+            still_running, outcome = call_with_join_timeout(
+                lambda: force_flush(provider, timeout_millis=100), join_timeout=1.0
+            )
+            elapsed = time.monotonic() - start
+
+        assert not still_running, "force_flush(timeout_millis=100) did not return within 1.0s"
+        if "error" in outcome:
+            raise outcome["error"]
+        assert outcome["result"] is False
+        assert elapsed < 1.0, elapsed
+
+    @pytest.mark.parametrize("timeout_millis", [1000, None], ids=["with_timeout", "no_timeout"])
+    def test_a_raising_force_flush_propagates(self, timeout_millis: int | None) -> None:
+        provider = Mock(force_flush=Mock(side_effect=RuntimeError("flush boom")))
+
+        with pytest.raises(RuntimeError, match="flush boom"):
+            force_flush(provider, timeout_millis=timeout_millis)
+
+
+class TestToTimeoutMillis:
+    """to_timeout_millis(seconds) -> the millisecond value force_flush's timeout_millis wants, None
+    meaning no cap, matching OpenLineage's own "negative waits with no limit" convention."""
+
+    def test_one_second_converts_to_one_thousand_millis(self) -> None:
+        from mloda.community.extenders.shared.teardown import to_timeout_millis
+
+        assert to_timeout_millis(1.0) == 1000
+
+    def test_quarter_second_converts_to_two_hundred_fifty_millis(self) -> None:
+        from mloda.community.extenders.shared.teardown import to_timeout_millis
+
+        assert to_timeout_millis(0.25) == 250
+
+    def test_negative_seconds_means_no_cap(self) -> None:
+        from mloda.community.extenders.shared.teardown import to_timeout_millis
+
+        assert to_timeout_millis(-1.0) is None
+
+    def test_infinite_seconds_means_no_cap(self) -> None:
+        from mloda.community.extenders.shared.teardown import to_timeout_millis
+
+        assert to_timeout_millis(float("inf")) is None

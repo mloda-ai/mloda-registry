@@ -544,5 +544,10 @@ class ExtenderContractTestMixin:
         assert marker_path.exists(), (
             "no marker written; the spawned worker's graceful exit never flushed the buffered sink via close()"
         )
+        marker_lines = marker_path.read_text().splitlines()
+        assert marker_lines, "close() ran but the buffered sink's marker file is empty"
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING and name in r.message]
         assert warnings == [], warnings
+        expected = self.sink_probe_expected_content()
+        if expected is not None:
+            assert expected <= set(marker_lines), marker_lines

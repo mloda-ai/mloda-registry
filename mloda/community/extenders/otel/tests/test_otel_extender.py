@@ -30,6 +30,7 @@ from opentelemetry.trace import StatusCode
 
 from mloda.community.extenders.otel import OtelExtender
 from mloda.community.extenders.otel import otel_extender as otel_extender_module
+from mloda.testing.extenders.flush import blocking_flush_provider, call_with_join_timeout
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.otel import (
     OtelExtenderTestMixin,
@@ -1642,3 +1643,32 @@ class TestOtelExtenderClose:
         otel.close()
 
         provider.force_flush.assert_called_once_with(timeout_millis=5000)
+
+    def test_close_bounds_a_blocking_force_flush_and_logs_a_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """opentelemetry-sdk's BatchProcessor.force_flush(timeout_millis) currently ignores the timeout
+        and exports synchronously; close() must still return well under a second."""
+        with blocking_flush_provider() as provider:
+            otel = OtelExtender(tracer_provider=provider)
+            otel.close_timeout = 0.1
+
+            start = time.monotonic()
+            with caplog.at_level(logging.WARNING):
+                still_running, outcome = call_with_join_timeout(otel.close, join_timeout=1.0)
+            elapsed = time.monotonic() - start
+
+        assert not still_running, "close() did not return within 1.0s while force_flush blocked past close_timeout"
+        if "error" in outcome:
+            raise outcome["error"]
+        assert elapsed < 1.0, elapsed
+
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("OtelExtender" in message for message in warnings), warnings
+
+    def test_negative_close_timeout_calls_force_flush_with_no_args(self) -> None:
+        provider = Mock(force_flush=Mock(return_value=True))
+        otel = OtelExtender(tracer_provider=provider)
+        otel.close_timeout = -1.0
+
+        otel.close()
+
+        provider.force_flush.assert_called_once_with()

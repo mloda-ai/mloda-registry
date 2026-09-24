@@ -6,6 +6,7 @@ from __future__ import annotations
 import pickle  # nosec
 import re
 import uuid
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from mloda.community.extenders.otel import OtelExtender
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.otel import (
     OtelExtenderTestMixin,
+    RebuildingSpanCaptureProvider,
     inject_parent_carrier,
     make_picklable_span_capture,
     make_span_capture,
@@ -138,6 +140,39 @@ class TestMakePicklableSpanCapture:
 
         _, second_captured = make_picklable_span_capture()
         assert second_captured == []
+
+
+class TestRebuildingSpanCaptureProviderBatch:
+    """batch=True wires a BatchSpanProcessor whose own scheduled flush never fires within a test; only
+    an explicit force_flush() drains a buffered span, proving a real worker's close() actually flushed."""
+
+    def test_force_flush_before_any_tracer_returns_true(self, tmp_path: Path) -> None:
+        provider = RebuildingSpanCaptureProvider(marker_path=tmp_path / "marker.txt", batch=True)
+
+        assert provider.force_flush() is True
+
+    def test_batch_span_reaches_the_marker_only_after_force_flush(self, tmp_path: Path) -> None:
+        marker_path = tmp_path / "marker.txt"
+        provider = RebuildingSpanCaptureProvider(marker_path=marker_path, batch=True)
+        tracer = provider.get_tracer("test-extenders-otel-batch")
+
+        with tracer.start_as_current_span("buffered-span"):
+            pass
+
+        assert not marker_path.exists()
+
+        assert provider.force_flush() is True
+
+        assert marker_path.read_text().splitlines() == ["buffered-span"]
+
+    def test_batch_survives_a_pickle_round_trip(self, tmp_path: Path) -> None:
+        marker_path = tmp_path / "marker.txt"
+        provider = RebuildingSpanCaptureProvider(marker_path=marker_path, batch=True)
+
+        copy = pickle.loads(pickle.dumps(provider))  # nosec
+
+        assert copy._batch is True
+        assert copy._marker_path == marker_path
 
 
 class TestOtelExtenderTestMixinShape:
