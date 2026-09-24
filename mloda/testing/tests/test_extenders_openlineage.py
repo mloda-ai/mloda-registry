@@ -4,6 +4,7 @@ own_failure() detects a fault."""
 from __future__ import annotations
 
 import pickle  # nosec
+import re
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -365,7 +366,8 @@ class TestCalculateRunEventsHook:
 
 
 class TestQueryStringIdentityContract:
-    """Proves the query-string and user-information contract test fails for an extender that leaks either one."""
+    """Proves the query-string and user-information contract test fails for an extender that leaks the query
+    string, leaks user information, or drops the identity."""
 
     @pytest.mark.parametrize(
         ("host_class", "resolver", "message"),
@@ -387,6 +389,12 @@ class TestQueryStringIdentityContract:
                 lambda args, context_identity: context_identity.partition("?")[0],
                 "URI user information reached an event",
                 id="strips-query-keeps-userinfo",
+            ),
+            pytest.param(
+                _RealOpenLineageExtenderHost,
+                lambda args, context_identity: re.sub(r":[^:@/]+@", ":***@", context_identity.partition("?")[0]),
+                "URI user information reached an event",
+                id="masks-password-keeps-username",
             ),
         ],
     )

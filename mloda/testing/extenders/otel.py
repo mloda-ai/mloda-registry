@@ -417,7 +417,7 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
             pytest.skip("extender does not wrap INPUT_DATA_LOAD")
         marker = "SENSITIVE_QUERY_VALUE_xyz123"
         userinfo_marker = "SENSITIVE_USERINFO_VALUE_xyz123"
-        identity = f"s3://user:{userinfo_marker}@bucket/key.parquet?X-Amz-Signature={marker}"
+        identity = f"s3://{userinfo_marker}:{userinfo_marker}@bucket/key.parquet?X-Amz-Signature={marker}"
 
         inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity)
 

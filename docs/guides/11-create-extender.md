@@ -297,6 +297,8 @@ The mixin pins:
 - an interrupt (`BaseException`) still marks the span `ERROR` without leaking the exception message
 - when the host wraps `INPUT_DATA_LOAD` (else skipped): the query string and user information of a nested load identity never reach any span attribute; a load nested inside a calculate call is a child of that calculate span
 
+A host that must record the raw URI overrides `test_otel_input_data_load_query_string_never_reaches_span_attributes` by name.
+
 Helpers: `make_span_capture`, `make_picklable_span_capture`, `single_span`, `single_span_attributes`, `inject_parent_carrier`, `RebuildingSpanCaptureProvider`, `FileSpanExporter` (writes finished span names to a marker file, for `make_real_worker_extender_and_marker`).
 
 ### OpenLineageExtenderTestMixin

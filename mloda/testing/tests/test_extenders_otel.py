@@ -271,7 +271,8 @@ class TestOwnFailureDefaultDetectsNoFault:
 
 
 class TestQueryStringIdentityContract:
-    """Proves the user-information contract test fails for an extender that leaks it into a span attribute."""
+    """Proves the user-information contract test fails for an extender that leaks user information into a span
+    attribute, whole or with only the password masked."""
 
     @pytest.mark.parametrize(
         ("host_class", "resolver", "message"),
@@ -281,6 +282,12 @@ class TestQueryStringIdentityContract:
                 lambda args, context_identity: context_identity.partition("?")[0],
                 "URI user information reached a span attribute",
                 id="strips-query-keeps-userinfo",
+            ),
+            pytest.param(
+                _RealOtelExtenderHost,
+                lambda args, context_identity: re.sub(r":[^:@/]+@", ":***@", context_identity.partition("?")[0]),
+                "URI user information reached a span attribute",
+                id="masks-password-keeps-username",
             ),
         ],
     )
