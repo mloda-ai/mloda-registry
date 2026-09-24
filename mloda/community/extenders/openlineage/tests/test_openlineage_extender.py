@@ -24,6 +24,7 @@ from typing import Any, cast
 import pyarrow as pa
 import pytest
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
+from mloda.provider import BaseInputData
 from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext
 
 from mloda.community.extenders.openlineage import openlineage_extender as openlineage_extender_module
@@ -1341,18 +1342,18 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
         assert isinstance(data_source_facet, datasource_dataset.DatasourceDatasetFacet)
         assert data_source_facet.name == "s3://bucket/key.parquet"
 
+    # (raw data_access passed as args[0], expected recorded name, secret markers absent from every event).
+    # Expected is a hardcoded literal, pinned once against core's BaseInputData.data_access_identity.
     @pytest.mark.parametrize(
-        ("raw_arg", "context_identity", "expected_name", "secrets"),
+        ("raw", "expected_name", "secrets"),
         [
             pytest.param(
-                None,
                 "https://user:pw@host/p/a?sig=SECRET#frag",
                 "https://host/p/a",
                 ("user:pw", "SECRET", "frag"),
                 id="userinfo_query_fragment",
             ),
             pytest.param(
-                None,
                 "s3://bucket/key.parquet?versionId=SECRET",
                 "s3://bucket/key.parquet",
                 ("SECRET",),
@@ -1361,38 +1362,47 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
             pytest.param(
                 "https://host/p?email=a@b.com/x&sig=SECRET",
                 "str",
-                "https://host/p",
                 ("SECRET", "a@b.com"),
-                id="valid_scheme_raw_wins_over_core_type_name",
+                id="at_sign_in_query_value_is_unparseable",
             ),
             pytest.param(
                 "postgresql://user:pa?ss@host:5432/db",
                 "str",
-                "postgresql://host:5432/db",
                 ("user:pa", "pa?ss", "user:"),
-                id="query_marker_inside_userinfo",
+                id="query_marker_inside_userinfo_is_unparseable",
+            ),
+            pytest.param(
+                "host=db user=u password=hunter2",
+                "str",
+                ("hunter2",),
+                id="keyword_dsn",
+            ),
+            pytest.param(
+                "Server=x;Uid=u;Pwd=hunter2;",
+                "str",
+                ("hunter2",),
+                id="odbc_connection_string",
             ),
         ],
     )
-    def test_recorded_input_and_data_source_names_are_stripped_of_uri_secrets(
+    def test_recorded_input_and_data_source_names_use_the_core_identity_never_the_raw_data_access(
         self,
         ol_capture: tuple[OpenLineageClient, RecordingTransport],
-        raw_arg: str | None,
-        context_identity: str,
+        raw: str,
         expected_name: str,
         secrets: tuple[str, ...],
     ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
+        context_identity = BaseInputData.data_access_identity(raw)
         inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity)
-        load_args = () if raw_arg is None else (raw_arg,)
 
         def inner_func(*_: Any) -> str:
             return "loaded-data"
 
         def outer_func() -> str:
             with inner_context.activate():
-                extender(inner_func, *load_args)
+                extender(inner_func, raw)
             return "calculate-result"
 
         with make_hook_context().activate():
@@ -1566,14 +1576,18 @@ class TestOpenLineageExtenderInputDedupe:
     ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
+        raw_one = "https://host/p?token=AAA"
+        raw_two = "https://host/p?token=BBB"
+        context_identity = BaseInputData.data_access_identity(raw_one)
+        assert context_identity == BaseInputData.data_access_identity(raw_two)
 
-        def load(identity: str) -> None:
-            with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity).activate():
-                extender(lambda: "loaded")
+        def load(raw: str) -> None:
+            with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity).activate():
+                extender(lambda *_: "loaded", raw)
 
         def calculate_body() -> str:
-            load("https://host/p?token=AAA")
-            load("https://host/p?token=BBB")
+            load(raw_one)
+            load(raw_two)
             return "calculated"
 
         with make_hook_context().activate():
@@ -1616,14 +1630,15 @@ class TestOpenLineageExtenderInputDedupe:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
         raw = "https://host/p?v=1"
-        inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=raw)
+        context_identity = BaseInputData.data_access_identity(raw)  # "https://host/p"
+        inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity)
 
-        def inner_loader() -> str:
+        def inner_loader(*_: Any) -> str:
             return "loaded-data"
 
         def calculate_body() -> str:
             with inner_context.activate():
-                extender(inner_loader)
+                extender(inner_loader, raw)
             return "calculated"
 
         with make_hook_context(input_features=frozenset({raw})).activate():
@@ -1632,7 +1647,33 @@ class TestOpenLineageExtenderInputDedupe:
         complete_event = transport.events[-1]
         assert complete_event.eventType == RunState.COMPLETE
         assert complete_event.inputs is not None
-        assert sorted(i.name for i in complete_event.inputs) == ["https://host/p", raw]
+        assert sorted(i.name for i in complete_event.inputs) == sorted([context_identity, raw])
+
+    def test_two_azure_containers_on_one_account_become_two_distinct_input_datasets(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        raw_container = "abfss://raw@acct.dfs.core.windows.net/p"
+        curated_container = "abfss://curated@acct.dfs.core.windows.net/p"
+
+        def load(raw: str) -> None:
+            identity = BaseInputData.data_access_identity(raw)
+            with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity).activate():
+                extender(lambda *_: "loaded", raw)
+
+        def calculate_body() -> str:
+            load(raw_container)
+            load(curated_container)
+            return "calculated"
+
+        with make_hook_context().activate():
+            extender(calculate_body)
+
+        complete_event = transport.events[-1]
+        assert complete_event.eventType == RunState.COMPLETE
+        assert complete_event.inputs is not None
+        assert sorted(i.name for i in complete_event.inputs) == sorted([raw_container, curated_container])
 
 
 class TestOpenLineageExtenderRunAll:

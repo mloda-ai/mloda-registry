@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import reprlib
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -25,7 +24,6 @@ from opentelemetry.trace import (
 
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
 from mloda.community.extenders.shared.bound_method import bound_method, class_attribute
-from mloda.community.extenders.shared.data_access_identity import resolve_data_access_identity
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, force_flush, to_timeout_millis
 
 logger = logging.getLogger(__name__)
@@ -91,9 +89,6 @@ _SCALAR_TYPES = (str, bool, int, float)
 
 # Caps declared keys so the SDK's attribute limit can't evict core attributes.
 _MAX_DECLARED_KEYS = 32
-
-# Flags a resolved identity as not URI-shaped (keyword DSN, object repr): never recorded.
-_UNSAFE_IDENTITY_CHARS = re.compile(r"[=;\s]")
 
 
 class OtelExtender(Extender):
@@ -199,7 +194,7 @@ class OtelExtender(Extender):
                 try:
                     _set_context_attributes(span, context)
                     if context.hook == ExtenderHook.INPUT_DATA_LOAD:
-                        _set_load_attributes(span, context, args)
+                        _set_load_attributes(span, context)
                 except BaseException as exc:
                     span.set_status(Status(StatusCode.ERROR))
                     span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
@@ -330,9 +325,9 @@ def _owning_class_name(func: Any) -> str:
     return getattr(owning_class, "__name__", repr(func))
 
 
-def _set_load_attributes(span: Span, context: HookContext, args: tuple[Any, ...]) -> None:
-    identity = resolve_data_access_identity(args, context.data_access_identity)
-    if identity is not None and not _UNSAFE_IDENTITY_CHARS.search(identity):
+def _set_load_attributes(span: Span, context: HookContext) -> None:
+    identity = context.data_access_identity
+    if identity is not None:
         span.set_attribute("mloda.data_access.identity", identity)
     if context.data_access_format is not None:
         span.set_attribute("mloda.data_access.format", context.data_access_format)

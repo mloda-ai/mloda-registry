@@ -3,6 +3,7 @@ own_failure() detects a fault."""
 
 from __future__ import annotations
 
+import dataclasses
 import pickle  # nosec
 import re
 import uuid
@@ -311,49 +312,64 @@ class TestOwnFailureDefaultDetectsNoFault:
             _Host().test_contract_own_failure_does_not_stop_chained_extender(caplog)
 
 
+class _RewritingIdentityProbeOtelExtender(OtelExtender):
+    """An OtelExtender that rewrites the load identity through a caller-supplied callable before recording it."""
+
+    rewrite_identity: Callable[[HookContext, tuple[Any, ...]], str | None]
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        context = HookContext.current()
+        if context is not None and context.hook == ExtenderHook.INPUT_DATA_LOAD:
+            rewritten_context = dataclasses.replace(context, data_access_identity=self.rewrite_identity(context, args))
+            with rewritten_context.activate():
+                return super().__call__(func, *args, **kwargs)
+        return super().__call__(func, *args, **kwargs)
+
+
+def _make_rewriting_identity_host(rewrite_identity: Callable[[HookContext, tuple[Any, ...]], str | None]) -> Any:
+    class _Probe(_RewritingIdentityProbeOtelExtender):
+        pass
+
+    _Probe.rewrite_identity = staticmethod(rewrite_identity)
+
+    class _Host(_RealOtelExtenderHost):
+        @classmethod
+        def extender_class(cls) -> type[OtelExtender]:
+            return _Probe
+
+        def make_otel_extender(
+            self, tracer_provider: TracerProvider, *, raise_on_error: bool | None = None
+        ) -> OtelExtender:
+            if raise_on_error is None:
+                return _Probe(tracer_provider=tracer_provider)
+            return _Probe(tracer_provider=tracer_provider, raise_on_error=raise_on_error)
+
+    return _Host()
+
+
 class TestQueryStringIdentityContract:
-    """Proves the identity contract test fails for an extender that leaks user information into a span
-    attribute (whole or with only the password masked) or records the raw identity."""
+    """Proves the identity contract test fails for an extender that records the raw data access in a span
+    attribute, or its user information whole or with only the password masked."""
 
     @pytest.mark.parametrize(
-        ("host_class", "resolver", "message"),
+        ("rewrite_identity", "match"),
         [
+            pytest.param(lambda context, args: str(args[0]), "SENSITIVE_QUERY_VALUE_xyz123", id="records-raw-args0"),
             pytest.param(
-                _RealOtelExtenderHost,
-                lambda args, context_identity: context_identity.partition("?")[0],
+                lambda context, args: str(args[0]).partition("?")[0],
                 "URI user information reached a span attribute",
                 id="strips-query-keeps-userinfo",
             ),
             pytest.param(
-                _RealOtelExtenderHost,
-                lambda args, context_identity: re.sub(r":[^:@/]+@", ":***@", context_identity.partition("?")[0]),
+                lambda context, args: re.sub(r":[^:@/]+@", ":***@", str(args[0]).partition("?")[0]),
                 "URI user information reached a span attribute",
                 id="masks-password-keeps-username",
             ),
         ],
     )
     def test_non_compliant_identity_handling_is_detected(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        host_class: type[OtelExtenderTestMixin],
-        resolver: Callable[..., str | None],
-        message: str,
+        self, rewrite_identity: Callable[[HookContext, tuple[Any, ...]], str | None], match: str
     ) -> None:
-        monkeypatch.setattr(
-            "mloda.community.extenders.otel.otel_extender.resolve_data_access_identity",
-            resolver,
-        )
-
-        with pytest.raises(AssertionError, match=message):
-            host_class().test_otel_input_data_load_query_string_never_reaches_span_attributes()
-
-    def test_raw_identity_recording_is_detected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Patches _set_load_attributes, not the resolver: the raw identity contains '=', which
-        # _UNSAFE_IDENTITY_CHARS would just drop.
-        def _record_raw_identity(span: Any, context: HookContext, args: tuple[Any, ...]) -> None:
-            span.set_attribute("mloda.data_access.identity", context.data_access_identity)
-
-        monkeypatch.setattr("mloda.community.extenders.otel.otel_extender._set_load_attributes", _record_raw_identity)
-
-        with pytest.raises(AssertionError, match="SENSITIVE_QUERY_VALUE_xyz123"):
-            _RealOtelExtenderHost().test_otel_input_data_load_query_string_never_reaches_span_attributes()
+        host = _make_rewriting_identity_host(rewrite_identity)
+        with pytest.raises(AssertionError, match=match):
+            host.test_otel_input_data_load_query_string_never_reaches_span_attributes()
