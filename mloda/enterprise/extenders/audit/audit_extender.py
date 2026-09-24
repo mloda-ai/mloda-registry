@@ -86,8 +86,8 @@ class AuditExtender(Extender):
     the run; when the calculation itself fails, its exception wins and the sink failure is only logged.
     With fail_closed=True, a missing identity writes the deny record and raises IdentityRequiredError
     before the wrapped call, also at FEATURE_GROUP_MATCHED, and runs outermost (priority 0). fail_closed=True
-    also declares core's never_fall_back, so the refusal (and any sink failure) propagates whatever
-    raise_on_error says, including a value set after construction.
+    declares core's never_fall_back, so raise_on_error has no effect on it: the refusal, and a sink
+    failure on the refusal path or after a successful call, always propagate. fail_closed is read-only.
     Records also list the distinct data loads the call attempted, as index-aligned identity and format
     lists ([] for none; a load without an identity is omitted). URI query, fragment, `;` and `&` parameters
     and user information are stripped, best effort; other identities are recorded as given, so not
@@ -121,7 +121,7 @@ class AuditExtender(Extender):
         self.sink = sink
         self.required_identity = required_identity
         self.raise_on_error = raise_on_error
-        self.fail_closed = fail_closed
+        self._fail_closed = fail_closed
         self.policy_version = (
             policy_version if policy_version is not None else _gate_fingerprint(fail_closed, required_identity)
         )
@@ -129,6 +129,11 @@ class AuditExtender(Extender):
             # Core runs the lowest priority outermost; a lower-priority peer would otherwise run before the gate.
             self.priority = 0
             self.never_fall_back = True
+
+    @property
+    def fail_closed(self) -> bool:
+        """Read-only: fixed at construction, never a value set later."""
+        return self._fail_closed
 
     def wraps(self) -> set[ExtenderHook]:
         if self.fail_closed:

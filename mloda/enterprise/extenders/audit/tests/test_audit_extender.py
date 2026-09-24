@@ -43,10 +43,6 @@ def _fail_closed_default(sink: Any) -> AuditExtender:
     return AuditExtender(sink=sink, fail_closed=True)
 
 
-def _fail_closed_raise_on_error_false_in_constructor(sink: Any) -> AuditExtender:
-    return AuditExtender(sink=sink, fail_closed=True, raise_on_error=False)
-
-
 def _fail_closed_raise_on_error_false_set_after_construction(sink: Any) -> AuditExtender:
     extender = AuditExtender(sink=sink, fail_closed=True)
     extender.raise_on_error = False
@@ -54,14 +50,15 @@ def _fail_closed_raise_on_error_false_set_after_construction(sink: Any) -> Audit
 
 
 # How raise_on_error is configured on a fail_closed=True gate; a refusal must propagate in every case.
+# The in-constructor variant is covered directly by test_fail_closed_with_raise_on_error_false_is_accepted.
 _FAIL_CLOSED_RAISE_ON_ERROR_POSTURES = pytest.mark.parametrize(
     "make_gate_extender",
     [
-        _fail_closed_default,
-        _fail_closed_raise_on_error_false_in_constructor,
-        _fail_closed_raise_on_error_false_set_after_construction,
+        pytest.param(_fail_closed_default, id="default"),
+        pytest.param(
+            _fail_closed_raise_on_error_false_set_after_construction, id="raise_on_error_false_set_after_construction"
+        ),
     ],
-    ids=["default", "raise_on_error_false_in_constructor", "raise_on_error_false_set_after_construction"],
 )
 
 _IDENTITY_REQUIRED_ERROR_TYPE = "mloda.enterprise.extenders.audit.audit_extender.IdentityRequiredError"
@@ -138,6 +135,11 @@ class _FailingSink:
 
     def write(self, record: Mapping[str, Any]) -> None:
         raise self.error
+
+
+class _DiskFullSink:
+    def write(self, record: Mapping[str, Any]) -> None:
+        raise OSError("disk full")
 
 
 class _CountingCall:
@@ -417,8 +419,10 @@ class TestAuditExtenderConstruction:
             AuditExtender(sink=InMemoryAuditSink(), fail_closed=True, required_identity=())
 
     def test_fail_closed_with_raise_on_error_false_is_accepted(self) -> None:
-        # never_fall_back overrides raise_on_error, so this combination no longer needs rejecting.
-        AuditExtender(sink=InMemoryAuditSink(), fail_closed=True, raise_on_error=False)
+        extender = AuditExtender(sink=InMemoryAuditSink(), fail_closed=True, raise_on_error=False)
+
+        assert extender.raise_on_error is False
+        assert extender.never_fall_back is True
 
     def test_fail_closed_with_defaults_is_accepted_wraps_the_matched_hook_sorts_outermost_and_never_falls_back(
         self,
@@ -435,6 +439,15 @@ class TestAuditExtenderConstruction:
         default_posture = AuditExtender(sink=InMemoryAuditSink())
         assert default_posture.priority == 100
         assert default_posture.never_fall_back is False
+
+    @_BOTH_POSTURES
+    def test_fail_closed_is_read_only_after_construction(self, fail_closed: bool) -> None:
+        extender = AuditExtender(sink=InMemoryAuditSink(), fail_closed=fail_closed)
+
+        with pytest.raises(AttributeError):
+            extender.fail_closed = not fail_closed  # type: ignore[misc]
+
+        assert extender.fail_closed is fail_closed
 
     def test_default_posture_wraps_the_calculate_and_input_data_load_hooks(self) -> None:
         extender = AuditExtender(sink=InMemoryAuditSink())
@@ -719,17 +732,16 @@ class TestAuditExtenderFailClosed:
     @pytest.mark.parametrize(
         "hook", [ExtenderHook.FEATURE_GROUP_MATCHED, ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE], ids=lambda h: h.name
     )
-    def test_sink_failure_on_the_refusal_path_propagates_and_the_call_never_runs(self, hook: ExtenderHook) -> None:
-        class _DiskFullSink:
-            def write(self, record: Mapping[str, Any]) -> None:
-                raise OSError("disk full")
-
-        extender = AuditExtender(sink=_DiskFullSink(), fail_closed=True)
+    @_FAIL_CLOSED_RAISE_ON_ERROR_POSTURES
+    def test_sink_failure_on_the_refusal_path_propagates_and_the_call_never_runs(
+        self, hook: ExtenderHook, make_gate_extender: Callable[[Any], AuditExtender]
+    ) -> None:
+        extender = make_gate_extender(_DiskFullSink())
         call = _CountingCall()
 
         with make_hook_context(hook=hook).activate():
             with pytest.raises(OSError, match="disk full") as excinfo:
-                extender(call)
+                CompositeExtender([extender])(call)
 
         assert call.calls == 0
         assert isinstance(excinfo.value.__context__, IdentityRequiredError)
@@ -1372,8 +1384,7 @@ class TestAuditExtenderRunAll:
         flight_server = (
             request.getfixturevalue("flight_server") if mode == ParallelizationMode.MULTIPROCESSING else None
         )
-        # For MULTIPROCESSING, never_fall_back (and the raise_on_error override it implies) must survive
-        # pickling into the worker.
+        # For MULTIPROCESSING, never_fall_back must survive pickling into the worker.
         gate = make_gate_extender(NdjsonAuditSink(audit_path))
 
         with verified_context(tenant_id="t"):

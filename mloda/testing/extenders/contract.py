@@ -183,6 +183,7 @@ class ExtenderContractTestMixin:
         assert isinstance(copy, self.extender_class())
         assert copy.wraps() == extender.wraps()
         assert copy.raise_on_error == extender.raise_on_error
+        assert copy.never_fall_back == extender.never_fall_back
 
     def test_contract_wraps_only_known_hooks(self) -> None:
         extender = self.make_extender()
