@@ -38,6 +38,32 @@ from mloda.testing.extenders.runners import (
 
 _BOTH_POSTURES = pytest.mark.parametrize("fail_closed", [False, True])
 
+
+def _fail_closed_default(sink: Any) -> AuditExtender:
+    return AuditExtender(sink=sink, fail_closed=True)
+
+
+def _fail_closed_raise_on_error_false_in_constructor(sink: Any) -> AuditExtender:
+    return AuditExtender(sink=sink, fail_closed=True, raise_on_error=False)
+
+
+def _fail_closed_raise_on_error_false_set_after_construction(sink: Any) -> AuditExtender:
+    extender = AuditExtender(sink=sink, fail_closed=True)
+    extender.raise_on_error = False
+    return extender
+
+
+# How raise_on_error is configured on a fail_closed=True gate; a refusal must propagate in every case.
+_FAIL_CLOSED_RAISE_ON_ERROR_POSTURES = pytest.mark.parametrize(
+    "make_gate_extender",
+    [
+        _fail_closed_default,
+        _fail_closed_raise_on_error_false_in_constructor,
+        _fail_closed_raise_on_error_false_set_after_construction,
+    ],
+    ids=["default", "raise_on_error_false_in_constructor", "raise_on_error_false_set_after_construction"],
+)
+
 _IDENTITY_REQUIRED_ERROR_TYPE = "mloda.enterprise.extenders.audit.audit_extender.IdentityRequiredError"
 
 # Recognisable values for a present identity, so a refusal message that leaks one is caught.
@@ -386,16 +412,17 @@ class TestAuditExtenderConstruction:
         with pytest.raises(ValueError):
             AuditExtender(sink=object())  # type: ignore[arg-type]
 
-    @pytest.mark.parametrize(
-        "kwargs",
-        [{"raise_on_error": False}, {"required_identity": ()}],
-        ids=["raise_on_error_false", "empty_required_identity"],
-    )
-    def test_fail_closed_that_could_not_be_enforced_raises_value_error(self, kwargs: dict[str, Any]) -> None:
+    def test_fail_closed_with_empty_required_identity_raises_value_error(self) -> None:
         with pytest.raises(ValueError):
-            AuditExtender(sink=InMemoryAuditSink(), fail_closed=True, **kwargs)
+            AuditExtender(sink=InMemoryAuditSink(), fail_closed=True, required_identity=())
 
-    def test_fail_closed_with_defaults_is_accepted_wraps_the_matched_hook_and_sorts_outermost(self) -> None:
+    def test_fail_closed_with_raise_on_error_false_is_accepted(self) -> None:
+        # never_fall_back overrides raise_on_error, so this combination no longer needs rejecting.
+        AuditExtender(sink=InMemoryAuditSink(), fail_closed=True, raise_on_error=False)
+
+    def test_fail_closed_with_defaults_is_accepted_wraps_the_matched_hook_sorts_outermost_and_never_falls_back(
+        self,
+    ) -> None:
         extender = AuditExtender(sink=InMemoryAuditSink(), fail_closed=True)
 
         assert extender.wraps() == {
@@ -404,7 +431,10 @@ class TestAuditExtenderConstruction:
             ExtenderHook.INPUT_DATA_LOAD,
         }
         assert extender.priority == 0
-        assert AuditExtender(sink=InMemoryAuditSink()).priority == 100
+        assert extender.never_fall_back is True
+        default_posture = AuditExtender(sink=InMemoryAuditSink())
+        assert default_posture.priority == 100
+        assert default_posture.never_fall_back is False
 
     def test_default_posture_wraps_the_calculate_and_input_data_load_hooks(self) -> None:
         extender = AuditExtender(sink=InMemoryAuditSink())
@@ -1299,12 +1329,15 @@ class TestAuditExtenderRunAll:
             assert record["decision"] == "deny"
             assert record["deny_reason"] == "missing_tenant_id"
 
-    def test_run_all_fail_closed_without_verified_context_refuses_at_plan_time(self) -> None:
+    @_FAIL_CLOSED_RAISE_ON_ERROR_POSTURES
+    def test_run_all_fail_closed_without_verified_context_refuses_at_plan_time(
+        self, make_gate_extender: Callable[[Any], AuditExtender]
+    ) -> None:
         sink = InMemoryAuditSink()
         counting = CountingExtender()
 
         with pytest.raises(IdentityRequiredError):
-            run_value_int(AuditExtender(sink=sink, fail_closed=True), counting)
+            run_value_int(make_gate_extender(sink), counting)
 
         assert len(sink.records) == 1
         record = sink.records[0]
@@ -1312,6 +1345,7 @@ class TestAuditExtenderRunAll:
         assert record["decision"] == "deny"
         assert counting.calls == 0
 
+    @_FAIL_CLOSED_RAISE_ON_ERROR_POSTURES
     @pytest.mark.parametrize(
         "mode",
         [
@@ -1324,7 +1358,11 @@ class TestAuditExtenderRunAll:
         ],
     )
     def test_run_all_fail_closed_refuses_at_calculate_when_identity_is_gone_by_run_time(
-        self, mode: ParallelizationMode, tmp_path: Path, request: pytest.FixtureRequest
+        self,
+        mode: ParallelizationMode,
+        make_gate_extender: Callable[[Any], AuditExtender],
+        tmp_path: Path,
+        request: pytest.FixtureRequest,
     ) -> None:
         audit_path = tmp_path / "audit.ndjson"
         counting = CountingExtender()
@@ -1334,13 +1372,16 @@ class TestAuditExtenderRunAll:
         flight_server = (
             request.getfixturevalue("flight_server") if mode == ParallelizationMode.MULTIPROCESSING else None
         )
+        # For MULTIPROCESSING, never_fall_back (and the raise_on_error override it implies) must survive
+        # pickling into the worker.
+        gate = make_gate_extender(NdjsonAuditSink(audit_path))
 
         with verified_context(tenant_id="t"):
             session = mloda.prepare(
                 ["value_int"],
                 compute_frameworks={PyArrowTable},
                 plugin_collector=PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator}),
-                function_extender={AuditExtender(sink=NdjsonAuditSink(audit_path), fail_closed=True), counting},
+                function_extender={gate, counting},
                 parallelization_modes={mode},
             )
 

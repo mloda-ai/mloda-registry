@@ -28,6 +28,7 @@ Q3: Need state with ParallelizationMode.MULTIPROCESSING?
 | `__call__(func, *args, **kwargs)` | Yes | Wrap and execute the function |
 | `priority` | No | Execution order (lower = first, default 100) |
 | `raise_on_error` | No | If `True` (default), a failure of this extender breaks the calculation. Set `False` for warning-only extenders |
+| `never_fall_back` | No | For gates: `True` makes a failure always propagate, whatever `raise_on_error` says. Default `False` |
 | `use_sdk_defaults` | No | For an extender with an external sink: `True` delegates sink resolution to the vendor SDK's own defaults. Default `False` keeps the extender inert until a client/provider is injected |
 
 ## Available Hooks
@@ -70,7 +71,7 @@ Extender failures are breaking by default, both for a single extender and in a c
 
 Only the extender's own failure is caught. An exception raised by the wrapped function always propagates, and the wrapped function is never run twice.
 
-An extender that refuses a call (a gate) must keep `raise_on_error = True`: a warning-only extender that raises before delegating is logged, and the wrapped function runs anyway.
+An extender that refuses a call by raising (a gate) sets `never_fall_back = True`, so the refusal propagates whatever `raise_on_error` says; without it, a warning-only extender that raises before delegating is logged and the wrapped function runs anyway. Give a gate a `priority` strictly below every other extender on its hooks, since equal priorities sort in no fixed order. `FEATURE_GROUP_MATCHED` reads `verified_context` at plan time, every other hook at run-call time. See core's [error handling](https://github.com/mloda-ai/mloda/blob/0.14.0/docs/docs/chapter1/extender.md#4-error-handling).
 
 ## Pickle Compatibility
 
@@ -137,12 +138,12 @@ with verified_context(tenant_id="tenant-42", project_id="project-7", principal="
     results = mloda.run_all(features=["my_feature"], function_extender={MyExtender()})
 ```
 
-`AuditExtender(sink, fail_closed=True)` (`mloda-enterprise-audit`) turns a missing required identity into a refusal: it writes the deny record, then raises `IdentityRequiredError` before the wrapped call runs, so no feature is calculated. It sets `priority = 0` so the gate runs outermost; an extender with a lower priority would still run outside it. It gates two hooks:
+`AuditExtender(sink, fail_closed=True)` (`mloda-enterprise-audit`) turns a missing required identity into a refusal: it writes the deny record, then raises `IdentityRequiredError` before the wrapped call runs, so no feature is calculated. It sets `priority = 0` so the gate runs outermost; an extender at priority 0 or lower may still run outside it. It gates two hooks:
 
 - `FEATURE_GROUP_MATCHED` reads `verified_context` at plan time, so `prepare`, `explain` and `diagnose` need the scope too, not only `run`. It writes a record (which `OtelLogAuditSink` also emits) only when it refuses, before any feature is calculated. Without `fail_closed`, a missing identity denies at calculate and the run proceeds. No allow event is written at match; the calculate record is the allow event.
 - `FEATURE_GROUP_CALCULATE_FEATURE` reads it at `run()` or `stream_run()` time. It is the only gate for an extender passed only to `run()`, and it catches a session prepared inside the scope but run outside it.
 
-The refusal record has `decision="deny"`, `status="error"` and an `error_type` naming `IdentityRequiredError`; a match-time refusal leaves the feature-group fields empty. It is only as durable as the sink, so use a synchronous one such as `NdjsonAuditSink` under `MULTIPROCESSING` (see [Pickle Compatibility](#pickle-compatibility)). The constructor rejects `fail_closed=True` with `raise_on_error=False` or an empty `required_identity`; do not change `raise_on_error` or `fail_closed` afterwards, as only the constructor checks them. Two paths still fail open: a call made outside a core run (no hook context), and an extender that registry strict mode `strict` (`MLODA_PLUGIN_REGISTRY_STRICT`) drops as unregistered.
+The refusal record has `decision="deny"`, `status="error"` and an `error_type` naming `IdentityRequiredError`; a match-time refusal leaves the feature-group fields empty. It is only as durable as the sink, so use a synchronous one such as `NdjsonAuditSink` under `MULTIPROCESSING` (see [Pickle Compatibility](#pickle-compatibility)). `fail_closed=True` declares core's `never_fall_back`, so the refusal, and any sink failure, propagates whatever `raise_on_error` says, also when it is set after construction. The constructor rejects `fail_closed=True` with an empty `required_identity`; do not change `fail_closed` afterwards, as `priority`, `never_fall_back` and `policy_version` are derived from it only at construction. Two paths still fail open: a call made outside a core run (no hook context), and an extender that registry strict mode `strict` (`MLODA_PLUGIN_REGISTRY_STRICT`) drops as unregistered.
 
 Every record carries `policy_version`: the argument of that name (a non-blank string), else a 12 hex character fingerprint of the constructor-supplied gate (sorted `required_identity` plus `fail_closed`), which does not track code changes. The key is additive within `record_version` 1.
 
