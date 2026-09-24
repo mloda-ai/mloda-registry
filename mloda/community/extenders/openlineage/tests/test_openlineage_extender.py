@@ -911,13 +911,16 @@ class TestOpenLineageExtenderConcurrentInertLogging:
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         extender = OpenLineageExtender()
-        original_info = openlineage_extender_module.logger.info
+        original_warning = openlineage_extender_module.logger.warning
+        warning_calls: list[str] = []
 
-        def slow_info(msg: str, *args: Any, **kwargs: Any) -> None:
+        # Slow the one-shot warning to widen the check-then-log race window.
+        def slow_warning(msg: str, *args: Any, **kwargs: Any) -> None:
+            warning_calls.append(msg)
             time.sleep(0.05)
-            original_info(msg, *args, **kwargs)
+            original_warning(msg, *args, **kwargs)
 
-        monkeypatch.setattr(openlineage_extender_module.logger, "info", slow_info)
+        monkeypatch.setattr(openlineage_extender_module.logger, "warning", slow_warning)
 
         thread_count = 32
         barrier = threading.Barrier(thread_count)
@@ -928,11 +931,14 @@ class TestOpenLineageExtenderConcurrentInertLogging:
                 extender(lambda: None)
 
         threads = [threading.Thread(target=worker, daemon=True) for _ in range(thread_count)]
-        with caplog.at_level(logging.INFO):
+        with caplog.at_level(logging.WARNING):
             for thread in threads:
                 thread.start()
             for thread in threads:
                 thread.join()
+
+        # Self-check: the slow_warning patch was actually hit.
+        assert len(warning_calls) == 1, warning_calls
 
         inert_records = [
             r for r in caplog.records if "OpenLineageExtender" in r.message and "inert" in r.message.lower()
