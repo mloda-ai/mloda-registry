@@ -570,7 +570,10 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             assert marker not in Serde.to_json(event), "URI query string reached an event"
             assert userinfo_marker not in Serde.to_json(event), "URI user information reached an event"
         input_names = [dataset.name for event in transport.events for dataset in event.inputs or []]
-        assert context_identity in input_names, "the data load was not attributed as an input"
+        assert context_identity in input_names, (
+            f"the data load was not attributed as an input named by the context's data_access_identity "
+            f"({context_identity!r}); input_names={input_names!r}"
+        )
 
     def test_openlineage_fail_event_carries_nested_inputs(self) -> None:
         client, transport = make_recording_client()

@@ -265,6 +265,7 @@ class _DescribingReader(BaseInputData):
 
     described: ClassVar[Any] = {}
     describe_calls: ClassVar[int] = 0
+    received_data_access: ClassVar[list[Any]] = []
 
     @classmethod
     def load_data(cls, data_access: Any, features: FeatureSet) -> Any:
@@ -273,12 +274,17 @@ class _DescribingReader(BaseInputData):
     @classmethod
     def describe_columns(cls, data_access: Any) -> Any:
         cls.describe_calls += 1
+        cls.received_data_access.append(data_access)
         return cls.described
 
 
 def _describing_reader(described: Any) -> type[_DescribingReader]:
-    """A fresh subclass per call, so `describe_calls` never leaks between tests."""
-    return type("_DescribingReaderCase", (_DescribingReader,), {"described": described, "describe_calls": 0})
+    """A fresh subclass per call, so `describe_calls`/`received_data_access` never leak between tests."""
+    return type(
+        "_DescribingReaderCase",
+        (_DescribingReader,),
+        {"described": described, "describe_calls": 0, "received_data_access": []},
+    )
 
 
 class _RaisingReader(BaseInputData):
@@ -1133,6 +1139,21 @@ class TestLineageFacetsRootSourceColumns:
         )
 
         assert [i.name for i in event.inputs or []] == [context_identity]
+
+    def test_reader_describe_columns_gets_the_raw_data_access_not_the_context_identity(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        raw = "host=db user=u password=hunter2"
+        context_identity = BaseInputData.data_access_identity(raw)  # "str"
+        reader = _describing_reader({"src": None})
+
+        event = _calculate_loading_step(
+            ol_capture, _SourceByDict, {"out": Options()}, loaded=(context_identity,), raw_args=(raw,), reader=reader
+        )
+
+        assert reader.received_data_access == [raw]
+        assert (event.inputs or [])[0].name == context_identity
+        assert "hunter2" not in Serde.to_json(event)
 
     @pytest.mark.parametrize("loaded", _NO_EDGE_LOADS)
     def test_no_or_several_distinct_loaded_datasets_give_no_edge(

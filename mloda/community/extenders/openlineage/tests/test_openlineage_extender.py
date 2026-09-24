@@ -1428,6 +1428,30 @@ class TestOpenLineageExtenderInputDataLoadCorrelation:
             for secret in secrets:
                 assert secret not in serialized
 
+    def test_context_identity_none_records_no_input_even_with_a_str_uri_args0(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        extender = OpenLineageExtender(client=client)
+        raw = "https://host/p?sig=SECRET"
+        inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=None)
+
+        def outer_func() -> str:
+            with inner_context.activate():
+                extender(lambda *_: "loaded-data", raw)
+            return "calculate-result"
+
+        with make_hook_context().activate():
+            extender(outer_func)
+
+        complete_event = transport.events[1]
+        assert complete_event.inputs == []
+
+        from openlineage.client.serde import Serde
+
+        for event in transport.events:
+            assert "SECRET" not in Serde.to_json(event)
+
     def test_input_data_load_without_enclosing_calculate_does_not_raise_or_emit(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -1654,8 +1678,11 @@ class TestOpenLineageExtenderInputDedupe:
     ) -> None:
         client, transport = ol_capture
         extender = OpenLineageExtender(client=client)
-        raw_container = "abfss://raw@acct.dfs.core.windows.net/p"
-        curated_container = "abfss://curated@acct.dfs.core.windows.net/p"
+        marker = "SECRET"
+        raw_container = f"abfss://raw@acct.dfs.core.windows.net/p?sv=1&sig={marker}"
+        curated_container = f"abfss://curated@acct.dfs.core.windows.net/p?sv=1&sig={marker}"
+        stripped_raw_container = "abfss://raw@acct.dfs.core.windows.net/p"
+        stripped_curated_container = "abfss://curated@acct.dfs.core.windows.net/p"
 
         def load(raw: str) -> None:
             identity = BaseInputData.data_access_identity(raw)
@@ -1673,7 +1700,14 @@ class TestOpenLineageExtenderInputDedupe:
         complete_event = transport.events[-1]
         assert complete_event.eventType == RunState.COMPLETE
         assert complete_event.inputs is not None
-        assert sorted(i.name for i in complete_event.inputs) == sorted([raw_container, curated_container])
+        assert sorted(i.name for i in complete_event.inputs) == sorted(
+            [stripped_raw_container, stripped_curated_container]
+        )
+
+        from openlineage.client.serde import Serde
+
+        for event in transport.events:
+            assert marker not in Serde.to_json(event)
 
 
 class TestOpenLineageExtenderRunAll:

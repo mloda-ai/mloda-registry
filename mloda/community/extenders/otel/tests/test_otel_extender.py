@@ -1143,7 +1143,8 @@ class TestOtelExtenderLoadSpanAttributes:
         otel = OtelExtender(tracer_provider=provider)
 
         with context.activate():
-            otel(lambda: None)
+            # Context None means nothing recorded, even with a str args[0] that looks like a URI.
+            otel(lambda *_: "loaded-data", "https://host/p?sig=SECRET")
 
         assert "mloda.data_access.identity" not in single_span_attributes(exporter)
 
