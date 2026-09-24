@@ -18,6 +18,7 @@ from mloda.testing.extenders.runners import (
     CountingExtender,
     expected_value_int,
     failing_feature_group,
+    run_csv_feature,
     run_failing_feature,
     run_value_int,
 )
@@ -245,6 +246,9 @@ class ExtenderContractTestMixin:
 
     def test_contract_run_all_leaves_result_unchanged(self) -> None:
         assert run_value_int(self.make_extender()) == expected_value_int()
+
+    def test_contract_run_all_input_data_load_leaves_result_unchanged(self, tmp_path: Path) -> None:
+        assert run_csv_feature(tmp_path, self.make_extender()) == [1, 3]
 
     def test_contract_run_all_wrapped_failure_propagates_and_runs_once(self) -> None:
         fg = failing_feature_group(f"{self.extender_class().__name__.lower()}_boom_feature")
