@@ -533,6 +533,36 @@ class TestMakeRealWorkerExtenderAndMarkerMustBeDeclared:
             )
 
 
+class TestMakeRealWorkerBufferedExtenderAndMarkerMustBeDeclared:
+    def test_default_raises_not_implemented_error(self, tmp_path: Path) -> None:
+        with pytest.raises(NotImplementedError):
+            ExtenderContractTestMixin().make_real_worker_buffered_extender_and_marker(tmp_path)
+
+    def test_undeclared_host_errors_instead_of_skipping_sink_gated_test(
+        self, tmp_path: Path, request: pytest.FixtureRequest, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        class _UndeclaredHost(ExtenderContractTestMixin):
+            @classmethod
+            def extender_class(cls) -> type[Extender]:
+                return _ProbeExtender
+
+            def make_extender(self, *, raise_on_error: bool | None = None) -> _ProbeExtender:
+                return _ProbeExtender(sink=[])
+
+            @classmethod
+            def has_backend_sink(cls) -> bool:
+                return False
+
+            @classmethod
+            def supports_real_worker_buffered_sink(cls) -> bool:
+                return True
+
+        with pytest.raises(NotImplementedError):
+            _UndeclaredHost().test_contract_real_worker_multiprocessing_flushes_buffered_sink_on_close(
+                tmp_path, request, caplog
+            )
+
+
 class TestCountingExtender:
     """CountingExtender: breaking pass-through probe that counts its own invocations."""
 
@@ -601,10 +631,14 @@ class TestExtenderContractTestMixinShape:
             "test_contract_real_worker_multiprocessing_unpicklable_sink_degrades_gracefully",
             "test_contract_pickled_copy_with_sdk_defaults_resolves_ambient_sink",
             "test_contract_run_all_input_data_load_leaves_result_unchanged",
+            "test_contract_real_worker_multiprocessing_flushes_buffered_sink_on_close",
         ],
     )
     def test_new_contract_tests_exist(self, name: str) -> None:
         assert hasattr(ExtenderContractTestMixin, name)
+
+    def test_supports_real_worker_buffered_sink_defaults_to_false(self) -> None:
+        assert ExtenderContractTestMixin.supports_real_worker_buffered_sink() is False
 
 
 class TestProbeExtenderDeclaredHooks(ExtenderContractTestMixin):

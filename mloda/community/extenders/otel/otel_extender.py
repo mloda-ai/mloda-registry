@@ -26,6 +26,7 @@ from opentelemetry.trace import (
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
 from mloda.community.extenders.shared.bound_method import bound_method, class_attribute
 from mloda.community.extenders.shared.data_access_identity import resolve_data_access_identity
+from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, force_flush
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,10 @@ class OtelExtender(Extender):
     An injected tracer_provider that can't survive pickling (e.g. the real SDK TracerProvider, which
     holds locks) is dropped by a trial-pickle probe when a copy is made (worker processes under
     ParallelizationMode.MULTIPROCESSING), falling back to the resolution rule above; a picklable
-    custom provider is kept as-is."""
+    custom provider is kept as-is. close() flushes the resolved provider, capped at close_timeout
+    (default 1s), and never calls shutdown() (core, not the extender, owns provider lifetime)."""
+
+    close_timeout: float = CLOSE_TIMEOUT
 
     def __init__(
         self,
@@ -133,6 +137,25 @@ class OtelExtender(Extender):
 
     def _warn_once(self, message: str) -> None:
         self._inert_warning.warn_once(lambda: logger.warning(message))
+
+    # Core calls close() with no args on graceful MULTIPROCESSING worker exit and ignores the result.
+    def close(self) -> None:
+        """Flush the resolved tracer_provider within close_timeout, best effort; never raises and never
+        calls shutdown() (core, not the extender, owns provider lifetime). Inert (no injected provider,
+        use_sdk_defaults False) touches no provider."""
+        if self._tracer_provider is not None:
+            provider: Any = self._tracer_provider
+        elif self.use_sdk_defaults:
+            provider = trace.get_tracer_provider()
+        else:
+            return
+        try:
+            result = force_flush(provider, timeout_millis=int(self.close_timeout * 1000))
+        except Exception as exc:
+            logger.warning("%s failed to flush tracer_provider: %s: %s", type(self).__name__, type(exc).__name__, exc)
+            return
+        if result is False:
+            logger.warning("%s did not flush all spans within close_timeout", type(self).__name__)
 
     def __getstate__(self) -> dict[str, Any]:
         provider = self._tracer_provider

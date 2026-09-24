@@ -26,7 +26,9 @@ _open_calculates: OpenInvocationStack[list[tuple[str, str | None]]] = OpenInvoca
 
 
 class AuditSink(Protocol):
-    """Receives one audit record per calculation."""
+    """Receives one audit record per calculation. May also define flush(): AuditExtender.close() calls
+    it, if present, on graceful MULTIPROCESSING worker exit, so a buffering sink gets one last chance
+    to drain before the worker terminates."""
 
     def write(self, record: Mapping[str, Any]) -> None: ...
 
@@ -64,6 +66,22 @@ class TeeAuditSink:
     def write(self, record: Mapping[str, Any]) -> None:
         for sink in self.sinks:
             sink.write(record)
+
+    def flush(self) -> None:
+        """Flush every child that defines one, in order; a failing child does not stop the rest, and
+        the first error raised is re-raised only after every child was attempted."""
+        first_error: Exception | None = None
+        for sink in self.sinks:
+            flush = getattr(sink, "flush", None)
+            if not callable(flush):
+                continue
+            try:
+                flush()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
 
 
 class IdentityRequiredError(RuntimeError):
@@ -134,6 +152,14 @@ class AuditExtender(Extender):
     def fail_closed(self) -> bool:
         """Read-only: fixed at construction, never a value set later."""
         return self._fail_closed
+
+    # Core calls close() with no args on graceful MULTIPROCESSING worker exit and ignores the result.
+    def close(self) -> None:
+        """Flush the sink if it defines flush(); a no-op otherwise. An exception propagates (core logs
+        it at ERROR)."""
+        flush = getattr(self.sink, "flush", None)
+        if callable(flush):
+            flush()
 
     def wraps(self) -> set[ExtenderHook]:
         if self.fail_closed:

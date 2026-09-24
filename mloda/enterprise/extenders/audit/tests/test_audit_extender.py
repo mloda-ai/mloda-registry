@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext, verified_context
@@ -106,6 +106,25 @@ _FINGERPRINT = re.compile(r"[0-9a-f]{12}")
 
 # Neither 12 characters nor hex, so a truncated or hashed value would not equal it.
 _POLICY_VERSION = "policy-2026-09-rev-3"
+
+
+class BufferingNdjsonAuditSink:
+    """Buffers written records in memory; flush() appends them to path as NDJSON, so the marker file
+    only exists once flush() actually ran (proving a worker's graceful-exit close(), not merely that
+    it wrote a record). Module-level so it survives pickling into a spawned worker."""
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+        self._buffer: list[dict[str, Any]] = []
+
+    def write(self, record: Mapping[str, Any]) -> None:
+        self._buffer.append(dict(record))
+
+    def flush(self) -> None:
+        with open(self.path, "a", encoding="utf-8") as handle:
+            for record in self._buffer:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
+        self._buffer = []
 
 
 class InMemoryAuditSink:
@@ -372,6 +391,15 @@ class TestAuditExtenderContract(ExtenderContractTestMixin):
         marker_path = tmp_path / "audit.ndjson"
         return AuditExtender(sink=NdjsonAuditSink(marker_path), fail_closed=self.fail_closed), marker_path
 
+    @classmethod
+    def supports_real_worker_buffered_sink(cls) -> bool:
+        return True
+
+    def make_real_worker_buffered_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
+        marker_path = tmp_path / "audit_buffered.ndjson"
+        sink = BufferingNdjsonAuditSink(marker_path)
+        return AuditExtender(sink=sink, fail_closed=self.fail_closed), marker_path
+
 
 class TestAuditExtenderFailClosedContract(TestAuditExtenderContract):
     """The fail_closed posture satisfies the same Extender contract, under a present identity."""
@@ -380,6 +408,10 @@ class TestAuditExtenderFailClosedContract(TestAuditExtenderContract):
 
     @classmethod
     def supports_warning_only(cls) -> bool:
+        return False
+
+    @classmethod
+    def supports_real_worker_buffered_sink(cls) -> bool:
         return False
 
     @classmethod
@@ -745,6 +777,102 @@ class TestAuditExtenderFailClosed:
 
         assert call.calls == 0
         assert isinstance(excinfo.value.__context__, IdentityRequiredError)
+
+
+class TestAuditExtenderClose:
+    """close() flushes the sink if it defines flush(); a sink without one is a no-op, never an error."""
+
+    def test_close_calls_sink_flush_once(self) -> None:
+        sink = Mock(spec=["write", "flush"])
+        extender = AuditExtender(sink=sink)
+
+        extender.close()
+
+        sink.flush.assert_called_once()
+
+    @pytest.mark.parametrize("make_sink", [InMemoryAuditSink, lambda: NdjsonAuditSink(Path("unused.ndjson"))])
+    def test_close_is_a_noop_when_sink_has_no_flush(self, make_sink: Callable[[], Any]) -> None:
+        extender = AuditExtender(sink=make_sink())
+
+        extender.close()  # must not raise
+
+    def test_close_propagates_a_raising_sink_flush(self) -> None:
+        sink = Mock(spec=["write", "flush"])
+        sink.flush.side_effect = RuntimeError("flush boom")
+        extender = AuditExtender(sink=sink)
+
+        with pytest.raises(RuntimeError, match="flush boom"):
+            extender.close()
+
+
+class TestTeeAuditSinkFlush:
+    """flush() fans out to every child that defines one (in order), skips children without one,
+    continues past a failing child, and re-raises the first error only after every child ran."""
+
+    def test_flush_calls_every_child_that_has_one_in_order(self) -> None:
+        calls: list[str] = []
+
+        class _FlushingSink:
+            def __init__(self, name: str) -> None:
+                self.name = name
+
+            def write(self, record: Mapping[str, Any]) -> None:
+                pass
+
+            def flush(self) -> None:
+                calls.append(self.name)
+
+        tee = TeeAuditSink(_FlushingSink("first"), _FlushingSink("second"))
+
+        tee.flush()
+
+        assert calls == ["first", "second"]
+
+    def test_flush_skips_children_without_a_flush_method(self) -> None:
+        calls: list[str] = []
+
+        class _FlushingSink:
+            def write(self, record: Mapping[str, Any]) -> None:
+                pass
+
+            def flush(self) -> None:
+                calls.append("flushing")
+
+        tee = TeeAuditSink(InMemoryAuditSink(), _FlushingSink())
+
+        tee.flush()  # InMemoryAuditSink has no flush(); must not raise or be called
+
+        assert calls == ["flushing"]
+
+    def test_flush_continues_past_a_failing_child_and_reraises_the_first_error(self) -> None:
+        calls: list[str] = []
+
+        class _FlushRecordingSink:
+            def __init__(self, name: str, error: Exception | None = None) -> None:
+                self.name = name
+                self.error = error
+
+            def write(self, record: Mapping[str, Any]) -> None:
+                pass
+
+            def flush(self) -> None:
+                calls.append(self.name)
+                if self.error is not None:
+                    raise self.error
+
+        first_error = RuntimeError("first boom")
+        second_error = RuntimeError("second boom")
+        tee = TeeAuditSink(
+            _FlushRecordingSink("a", first_error),
+            _FlushRecordingSink("b", second_error),
+            _FlushRecordingSink("c"),
+        )
+
+        with pytest.raises(RuntimeError, match="first boom") as excinfo:
+            tee.flush()
+
+        assert excinfo.value is first_error
+        assert calls == ["a", "b", "c"]
 
 
 class TestAuditExtenderPolicyVersion:

@@ -17,6 +17,7 @@ from mloda.steward import Extender, ExtenderHook, HookContext, OutputSchema, War
 
 from mloda.community.extenders.shared.data_access_identity import resolve_data_access_identity
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
+from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
 from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset
@@ -70,14 +71,16 @@ class OpenLineageExtender(Extender):
     """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating nested
     INPUT_DATA_LOAD calls and the calculate context's input features as inputs. Sink resolution: injected client wins,
     else use_sdk_defaults, else inert. Emits happen synchronously on the calculation thread, so a blocking transport
-    delays every wrapped calculation. close() flushes the client and is terminal. A self-built client is rebuilt per
-    worker; an injected client that can't survive pickling is dropped by a trial-pickle probe and falls back to the
-    resolution rule above, while a picklable injected client is pickled as-is. Core calls close() on graceful
-    worker exit, but flush has no time limit of its own and termination at the worker's shutdown timeout can cut
-    it short, so a synchronous transport is still recommended there. Data-access identities are sanitized
-    as in the audit extender, so dataset names taken from them carry no URI query."""
+    delays every wrapped calculation. close() flushes the client, capped at close_timeout (default 1s), and is
+    terminal. A self-built client is rebuilt per worker; an injected client that can't survive pickling is dropped
+    by a trial-pickle probe and falls back to the resolution rule above, while a picklable injected client is
+    pickled as-is. Core calls close() with no args on graceful MULTIPROCESSING worker exit; raise close_timeout
+    together with graceful_shutdown_timeout for a buffered transport (e.g. async_http, kafka) to fully drain,
+    otherwise events past the budget are lost. The parent-death path is best effort. Data-access identities are
+    sanitized as in the audit extender, so dataset names taken from them carry no URI query."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
+    close_timeout: float = CLOSE_TIMEOUT
     producer: str = _PRODUCER
 
     def __init__(
@@ -118,9 +121,13 @@ class OpenLineageExtender(Extender):
         return self._client
 
     # Core calls close() with no args on graceful MULTIPROCESSING worker exit and ignores the result.
-    def close(self, timeout: float = -1.0) -> bool:  # type: ignore[override]
-        """Flush the underlying client; a no-op if none has been built yet, waiting out any build in
-        flight. Otherwise every closer, including a sibling sharing an injected client, waits for one flush."""
+    def close(self, timeout: float | None = None) -> bool:  # type: ignore[override]
+        """Flush the underlying client, capped at close_timeout when timeout is None (core's own no-arg
+        call); a negative value waits with no limit, matching today's explicit-timeout behavior. A no-op
+        if none has been built yet, waiting out any build in flight. Otherwise every closer, including a
+        sibling sharing an injected client, waits for one flush."""
+        if timeout is None:
+            timeout = self.close_timeout
         with self._client_lock:
             if self._client is None:
                 return True

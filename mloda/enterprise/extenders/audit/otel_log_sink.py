@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
+from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, force_flush
 from mloda.enterprise.extenders.audit._records import _is_blank
 from mloda.enterprise.extenders.audit.run_manifest import _MIN_KEY_BYTES
 
@@ -82,6 +83,8 @@ def _warn_once_without_sdk(provider: object) -> None:
 class OtelLogAuditSink:
     """Emits one OTel log record per audit record, best effort; the principal is exported only hashed."""
 
+    close_timeout: float = CLOSE_TIMEOUT
+
     def __init__(self, user_hash_key: bytes | None = None) -> None:
         try:
             import opentelemetry._logs  # noqa: F401
@@ -116,4 +119,19 @@ class OtelLogAuditSink:
         except Exception as exc:
             logger.warning(
                 "%s failed to emit an audit log record: %s: %s", type(self).__name__, type(exc).__name__, exc
+            )
+
+    def flush(self) -> None:
+        """Called by AuditExtender.close() on graceful MULTIPROCESSING worker exit; flushes the resolved
+        logger provider within close_timeout, best effort like write()."""
+        try:
+            from opentelemetry._logs import get_logger_provider
+
+            provider = get_logger_provider()
+            result = force_flush(provider, timeout_millis=int(self.close_timeout * 1000))
+            if result is False:
+                logger.warning("%s did not flush all log records within close_timeout", type(self).__name__)
+        except Exception as exc:
+            logger.warning(
+                "%s failed to flush the logger provider: %s: %s", type(self).__name__, type(exc).__name__, exc
             )

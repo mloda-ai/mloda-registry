@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import re
 import uuid
-from unittest.mock import Mock, patch
 
 import pytest
 from opentelemetry import context as otel_context
-from opentelemetry import trace as otel_trace_api
 from opentelemetry.context import Context
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -16,7 +14,6 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 
 from mloda.community.extenders.otel.otel_multiprocessing import (
     extract_carrier,
-    force_flush,
     inject_carrier,
     trace_id_from_run_id,
 )
@@ -103,55 +100,14 @@ class TestExtractCarrier:
         assert isinstance(extracted, Context)
 
 
-class TestForceFlush:
-    """force_flush() duck-types on a provider's optional force_flush method."""
+class TestForceFlushReExport:
+    """This module re-exports shared/teardown.py's force_flush, never a local copy."""
 
-    def test_calls_and_returns_true_for_real_sdk_provider(self) -> None:
-        provider = TracerProvider()
+    def test_is_the_shared_teardown_force_flush(self) -> None:
+        from mloda.community.extenders.otel import otel_multiprocessing as otel_multiprocessing_module
+        from mloda.community.extenders.shared import teardown as teardown_module
 
-        with patch.object(provider, "force_flush") as mock_force_flush:
-            result = force_flush(provider)
-
-        mock_force_flush.assert_called_once()
-        assert result is True
-
-    def test_returns_false_for_object_without_force_flush(self) -> None:
-        result = force_flush(object())
-
-        assert result is False
-
-    def test_returns_false_for_default_proxy_tracer_provider(self) -> None:
-        """The API-only ProxyTracerProvider lacks force_flush entirely.
-
-        Constructed directly rather than via get_tracer_provider(), which returns whatever the
-        process-global provider is set to and would make this test order/environment-dependent.
-        """
-        proxy_provider = otel_trace_api.ProxyTracerProvider()
-        assert not hasattr(proxy_provider, "force_flush")  # precondition this test relies on
-
-        result = force_flush(proxy_provider)
-
-        assert result is False
-
-    def test_returns_false_when_provider_force_flush_returns_false(self) -> None:
-        """The real SDK TracerProvider.force_flush() returns False when the flush times out and spans
-        were dropped; that signal must not be discarded in favor of an unconditional True."""
-        stub = Mock(force_flush=Mock(return_value=False))
-
-        result = force_flush(stub)
-
-        assert result is False, (
-            "force_flush() must propagate provider.force_flush()'s own return value instead of always "
-            "returning True whenever the method exists and is callable"
-        )
-
-    def test_returns_true_when_provider_force_flush_returns_true(self) -> None:
-        """Sanity check the positive case: a fix must not accidentally invert the boolean."""
-        stub = Mock(force_flush=Mock(return_value=True))
-
-        result = force_flush(stub)
-
-        assert result is True
+        assert otel_multiprocessing_module.force_flush is teardown_module.force_flush
 
 
 class TestTraceIdFromRunId:

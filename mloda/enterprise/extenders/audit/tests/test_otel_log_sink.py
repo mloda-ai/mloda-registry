@@ -16,7 +16,7 @@ from contextlib import suppress
 from pathlib import Path
 from types import ModuleType
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -872,6 +872,57 @@ class TestOtelLogAuditSinkWithoutSdkProvider:
             _write_one(log_exporter, _audit_record(tenant_id="tenant-1"))
 
         assert _module_warnings(caplog) == []
+
+
+class TestOtelLogAuditSinkFlush:
+    """flush() (called by AuditExtender.close() on graceful MULTIPROCESSING worker exit) flushes the
+    resolved logger provider within close_timeout, best effort like write()."""
+
+    def test_flush_calls_force_flush_with_timeout_millis(self) -> None:
+        from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
+
+        provider = Mock(force_flush=Mock(return_value=True))
+        sink = OtelLogAuditSink()
+
+        with patch(_GET_LOGGER_PROVIDER, return_value=provider):
+            sink.flush()
+
+        provider.force_flush.assert_called_once_with(timeout_millis=int(CLOSE_TIMEOUT * 1000))
+
+    def test_flush_swallows_a_raising_force_flush_and_logs_a_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        provider = Mock(force_flush=Mock(side_effect=RuntimeError("flush boom")))
+        sink = OtelLogAuditSink()
+
+        with patch(_GET_LOGGER_PROVIDER, return_value=provider):
+            with caplog.at_level(logging.WARNING, logger=otel_log_sink_module.__name__):
+                sink.flush()  # must not raise
+
+        warnings = _module_warnings(caplog)
+        assert len(warnings) == 1
+        assert "OtelLogAuditSink" in warnings[0]
+        assert "RuntimeError" in warnings[0]
+
+    def test_flush_logs_a_warning_when_force_flush_returns_false(self, caplog: pytest.LogCaptureFixture) -> None:
+        provider = Mock(force_flush=Mock(return_value=False))
+        sink = OtelLogAuditSink()
+
+        with patch(_GET_LOGGER_PROVIDER, return_value=provider):
+            with caplog.at_level(logging.WARNING, logger=otel_log_sink_module.__name__):
+                sink.flush()
+
+        warnings = _module_warnings(caplog)
+        assert len(warnings) == 1
+        assert "OtelLogAuditSink" in warnings[0]
+
+    def test_close_timeout_override_is_honored(self) -> None:
+        provider = Mock(force_flush=Mock(return_value=True))
+        sink = OtelLogAuditSink()
+        sink.close_timeout = 5.0
+
+        with patch(_GET_LOGGER_PROVIDER, return_value=provider):
+            sink.flush()
+
+        provider.force_flush.assert_called_once_with(timeout_millis=5000)
 
 
 class TestOtelLogAuditSinkPickle:

@@ -154,6 +154,19 @@ class ExtenderContractTestMixin:
         real spawned worker's emission writes to. Only called when supports_real_worker_sink() is True."""
         raise NotImplementedError
 
+    @classmethod
+    def supports_real_worker_buffered_sink(cls) -> bool:
+        """True when the host provides a buffered, file-backed sink whose marker is written only on
+        flush/close, observable from a real spawned MULTIPROCESSING worker's graceful exit. Default
+        False: opt-in per concrete host, since it requires a real flight_server and a spawned subprocess."""
+        return False
+
+    def make_real_worker_buffered_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
+        """Return an extender wired to a buffered sink under tmp_path (the sink writes its marker only
+        on flush/close, never on emit), plus the marker file path. Only called when
+        supports_real_worker_buffered_sink() is True."""
+        raise NotImplementedError
+
     def context_hook(self) -> ExtenderHook:
         """FEATURE_GROUP_CALCULATE_FEATURE when wrapped, else the wrapped hook with the smallest value."""
         wraps = self.make_extender().wraps()
@@ -512,3 +525,24 @@ class ExtenderContractTestMixin:
         assert values == expected_value_int()
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING and name in r.message]
         assert warnings, "expected a drop-and-warn message when the injected sink could not survive pickling"
+
+    def test_contract_real_worker_multiprocessing_flushes_buffered_sink_on_close(
+        self, tmp_path: Path, request: pytest.FixtureRequest, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The sink writes its marker only on flush/close, so the marker exists only if the worker-side
+        close() (core calls it on graceful MULTIPROCESSING worker exit) actually reached it."""
+        if not self.supports_real_worker_buffered_sink():
+            pytest.skip("host does not support a real-worker buffered MULTIPROCESSING sink")
+        flight_server = request.getfixturevalue("flight_server")
+        extender, marker_path = self.make_real_worker_buffered_extender_and_marker(tmp_path)
+        name = self.extender_class().__name__
+        with caplog.at_level(logging.WARNING):
+            values = run_value_int(
+                extender, parallelization_modes={ParallelizationMode.MULTIPROCESSING}, flight_server=flight_server
+            )
+        assert values == expected_value_int()
+        assert marker_path.exists(), (
+            "no marker written; the spawned worker's graceful exit never flushed the buffered sink via close()"
+        )
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING and name in r.message]
+        assert warnings == [], warnings

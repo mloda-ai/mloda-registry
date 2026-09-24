@@ -31,6 +31,7 @@ from mloda.community.extenders.openlineage.openlineage_extender import OpenLinea
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.openlineage import (
+    BufferingFileTransport,
     FileTransport,
     LockHoldingTransport,
     OpenLineageExtenderTestMixin,
@@ -218,6 +219,16 @@ class TestOpenLineageExtenderContract(OpenLineageExtenderTestMixin):
     def make_real_worker_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
         marker_path = tmp_path / "openlineage_real_worker_events.txt"
         client = OpenLineageClient(transport=FileTransport(marker_path))
+        extender = self.make_openlineage_extender(client)
+        return extender, marker_path
+
+    @classmethod
+    def supports_real_worker_buffered_sink(cls) -> bool:
+        return True
+
+    def make_real_worker_buffered_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
+        marker_path = tmp_path / "openlineage_real_worker_buffered_events.txt"
+        client = OpenLineageClient(transport=BufferingFileTransport(marker_path))
         extender = self.make_openlineage_extender(client)
         return extender, marker_path
 
@@ -603,10 +614,10 @@ class TestOpenLineageExtenderCloseIdempotencyAndReuse:
         results: dict[str, bool] = {}
 
         def close_first() -> None:
-            results["first"] = extender.close()
+            results["first"] = extender.close(timeout=-1)
 
         def close_second() -> None:
-            results["second"] = extender.close()
+            results["second"] = extender.close(timeout=-1)
 
         thread_first = threading.Thread(target=close_first)
         thread_second = threading.Thread(target=close_second)
@@ -658,7 +669,7 @@ class TestOpenLineageExtenderCloseIdempotencyAndReuse:
             extender._get_client()
 
         def closer() -> None:
-            results["close"] = extender.close()
+            results["close"] = extender.close(timeout=-1)
 
         thread_build = threading.Thread(target=build)
         thread_close = threading.Thread(target=closer)
@@ -708,6 +719,86 @@ class TestOpenLineageExtenderCloseIdempotencyAndReuse:
 
         assert second is True
         assert built.close_calls == 2
+
+
+class TestOpenLineageExtenderCloseTimeoutDefault:
+    """close() with no explicit timeout uses the class-level close_timeout (defaulting to the shared
+    CLOSE_TIMEOUT), instead of blocking forever."""
+
+    def test_no_arg_close_passes_close_timeout_to_client_close(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
+
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+        received: list[float] = []
+
+        def fake_close(timeout: float = -1.0) -> bool:
+            received.append(timeout)
+            return True
+
+        monkeypatch.setattr(client, "close", fake_close)
+
+        extender.close()
+
+        assert received == [CLOSE_TIMEOUT]
+
+    def test_instance_close_timeout_override_is_honored(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+        extender.close_timeout = 42.0
+        received: list[float] = []
+
+        def fake_close(timeout: float = -1.0) -> bool:
+            received.append(timeout)
+            return True
+
+        monkeypatch.setattr(client, "close", fake_close)
+
+        extender.close()
+
+        assert received == [42.0]
+
+    def test_instance_close_timeout_override_survives_pickling(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+        extender.close_timeout = 42.0
+
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        received: list[float] = []
+
+        def fake_close(timeout: float = -1.0) -> bool:
+            received.append(timeout)
+            return True
+
+        monkeypatch.setattr(copy._client, "close", fake_close)
+
+        copy.close()
+
+        assert received == [42.0]
+
+    def test_explicit_timeout_still_passes_through_unchanged(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+        received: list[float] = []
+
+        def fake_close(timeout: float = -1.0) -> bool:
+            received.append(timeout)
+            return True
+
+        monkeypatch.setattr(client, "close", fake_close)
+
+        extender.close(timeout=3.5)
+
+        assert received == [3.5]
 
 
 class TestOpenLineageExtenderSharedInjectedClientCloseState:
@@ -764,10 +855,12 @@ class TestOpenLineageExtenderSharedInjectedClientCloseState:
         client = _SlottedDuckTypeClient()
         extender = OpenLineageExtender(client=cast(OpenLineageClient, client))
 
+        from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
+
         result = extender.close()
 
         assert result is True
-        assert client.close_calls == [-1.0]
+        assert client.close_calls == [CLOSE_TIMEOUT]
 
     def test_shared_incomplete_flush_result_is_returned_to_every_closer(self) -> None:
         transport = _IncompleteFlushTransport()
@@ -790,10 +883,10 @@ class TestOpenLineageExtenderSharedInjectedClientCloseState:
         results: dict[str, bool] = {}
 
         def close_a() -> None:
-            results["a"] = extender_a.close()
+            results["a"] = extender_a.close(timeout=-1)
 
         def close_b() -> None:
-            results["b"] = extender_b.close()
+            results["b"] = extender_b.close(timeout=-1)
 
         thread_a = threading.Thread(target=close_a)
         thread_b = threading.Thread(target=close_b)
@@ -824,7 +917,7 @@ class TestOpenLineageExtenderSharedInjectedClientCloseState:
         result_b: list[bool] = []
 
         def close_a() -> None:
-            extender_a.close()
+            extender_a.close(timeout=-1)
 
         thread_a = threading.Thread(target=close_a)
         try:

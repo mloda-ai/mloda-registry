@@ -14,7 +14,7 @@ import pytest
 from mloda.steward import Extender, ExtenderHook
 from opentelemetry import propagate
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, SpanExportResult
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode, Tracer
 from opentelemetry.trace import TracerProvider as ApiTracerProvider
@@ -109,10 +109,17 @@ class RebuildingSpanCaptureProvider(ApiTracerProvider):
     """Picklable custom TracerProvider (implements the opentelemetry.trace ABC directly, unlike the
     SDK's TracerProvider, which holds locks). Lazily builds a real SDK provider on the first
     get_tracer() call, wired to a file exporter when marker_path is set, else a class-level
-    accumulator. __getstate__ drops the live SDK provider, so instances always pickle cleanly."""
+    accumulator. __getstate__ drops the live SDK provider, so instances always pickle cleanly.
 
-    def __init__(self, marker_path: Path | None = None) -> None:
+    batch=True wires a BatchSpanProcessor with a schedule_delay_millis long enough to never fire
+    within a test, so a span stays buffered until an explicit force_flush() drains it, proving a
+    real worker's close() actually flushed rather than merely emitted."""
+
+    _BATCH_SCHEDULE_DELAY_MILLIS = 600_000
+
+    def __init__(self, marker_path: Path | None = None, batch: bool = False) -> None:
         self._marker_path = marker_path
+        self._batch = batch
         self._sdk_provider: TracerProvider | None = None
 
     def get_tracer(
@@ -129,16 +136,28 @@ class RebuildingSpanCaptureProvider(ApiTracerProvider):
                 if self._marker_path is not None
                 else _ClassAccumulatorSpanExporter()
             )
-            self._sdk_provider.add_span_processor(SimpleSpanProcessor(exporter))
+            processor = (
+                BatchSpanProcessor(exporter, schedule_delay_millis=self._BATCH_SCHEDULE_DELAY_MILLIS)
+                if self._batch
+                else SimpleSpanProcessor(exporter)
+            )
+            self._sdk_provider.add_span_processor(processor)
         return self._sdk_provider.get_tracer(
             instrumenting_module_name, instrumenting_library_version, schema_url, attributes
         )
 
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        """Delegates to the SDK provider once one has been built; True (nothing to flush yet) before that."""
+        if self._sdk_provider is None:
+            return True
+        return self._sdk_provider.force_flush(timeout_millis=timeout_millis)
+
     def __getstate__(self) -> dict[str, Any]:
-        return {"_marker_path": self._marker_path}
+        return {"_marker_path": self._marker_path, "_batch": self._batch}
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self._marker_path = state["_marker_path"]
+        self._batch = state["_batch"]
         self._sdk_provider = None
 
 

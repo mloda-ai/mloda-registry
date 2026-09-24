@@ -95,6 +95,33 @@ class FileTransport(Transport):
             handle.write(f"{event.eventType.value}\n")
 
 
+class BufferingFileTransport(Transport):
+    """Buffers each emitted event's type in memory and appends it to marker_path only on close(), so
+    a marker only exists once close() actually ran (proving a worker's graceful-exit flush, not merely
+    that it emitted)."""
+
+    kind = "buffering-file-transport"
+    config_class = Config
+
+    def __init__(self, marker_path: Path) -> None:
+        self._marker_path = marker_path
+        self._buffer: list[str] = []
+
+    def emit(self, event: Event) -> None:
+        if not isinstance(event, RunEvent):
+            raise TypeError(f"BufferingFileTransport only records RunEvent, got {type(event).__name__}")
+        if event.eventType is None:
+            return
+        self._buffer.append(event.eventType.value)
+
+    def close(self, timeout: float = -1.0) -> bool:
+        with open(self._marker_path, "a") as handle:
+            for event_type in self._buffer:
+                handle.write(f"{event_type}\n")
+        self._buffer = []
+        return True
+
+
 class _PidTaggedFileTransport(Transport):
     """Like FileTransport, but tags each line with the emitting pid to prove a spawned worker (not
     the parent) emitted; selected via OPENLINEAGE__TRANSPORT__TYPE for a lazily-built client."""
