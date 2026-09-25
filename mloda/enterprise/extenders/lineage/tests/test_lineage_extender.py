@@ -265,6 +265,7 @@ class _DescribingReader(BaseInputData):
 
     described: ClassVar[Any] = {}
     describe_calls: ClassVar[int] = 0
+    received_data_access: ClassVar[list[Any]] = []
 
     @classmethod
     def load_data(cls, data_access: Any, features: FeatureSet) -> Any:
@@ -273,12 +274,17 @@ class _DescribingReader(BaseInputData):
     @classmethod
     def describe_columns(cls, data_access: Any) -> Any:
         cls.describe_calls += 1
+        cls.received_data_access.append(data_access)
         return cls.described
 
 
 def _describing_reader(described: Any) -> type[_DescribingReader]:
-    """A fresh subclass per call, so `describe_calls` never leaks between tests."""
-    return type("_DescribingReaderCase", (_DescribingReader,), {"described": described, "describe_calls": 0})
+    """A fresh subclass per call, so `describe_calls`/`received_data_access` never leak between tests."""
+    return type(
+        "_DescribingReaderCase",
+        (_DescribingReader,),
+        {"described": described, "describe_calls": 0, "received_data_access": []},
+    )
 
 
 class _RaisingReader(BaseInputData):
@@ -423,9 +429,11 @@ def _calculate_loading_step(
     input_features: frozenset[str] | None = None,
     consumer_options: Options | None = None,
     reader: type[BaseInputData] | Sequence[type[BaseInputData] | None] | None = None,
+    raw_args: Sequence[Any] | None = None,
 ) -> RunEvent:
     """Run one calculate call directly, firing a load hook per identity in `loaded`, optionally via `reader`
-    (one reader, or a sequence matched to `loaded`) instead of the plain `extender(lambda: ...)` path."""
+    (one reader, or a sequence matched to `loaded`) instead of the plain `extender(lambda: ...)` path.
+    `raw_args` is what args[0] carries per load; it defaults to `loaded`."""
     client, transport = ol_capture
     extender = LineageFacetsExtender(client=client, dataset_namespace="lineage-ds")
     step_features = [Feature(name, options=options) for name, options in options_by_feature.items()]
@@ -433,14 +441,15 @@ def _calculate_loading_step(
         feature.child_options = consumer_options  # before the set is built: the hash includes child_options
     features = FeatureSet(step_features)
     readers: Sequence[type[BaseInputData] | None] = reader if isinstance(reader, Sequence) else [reader] * len(loaded)
+    raws: Sequence[Any] = raw_args if raw_args is not None else loaded
 
     def load() -> str:
-        for identity, one_reader in zip(loaded, readers, strict=True):
+        for identity, one_reader, raw in zip(loaded, readers, raws, strict=True):
             with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity).activate():
                 if one_reader is not None:
-                    assert extender(one_reader.load_data, identity, features) == "loaded"
+                    assert extender(one_reader.load_data, raw, features) == "loaded"
                 else:
-                    assert extender(lambda: "loaded") == "loaded"
+                    assert extender(lambda *_: "loaded", raw) == "loaded"
         return "data"
 
     context = make_hook_context(
@@ -1098,6 +1107,53 @@ class TestLineageFacetsRootSourceColumns:
         event = _calculate_loading_step(ol_capture, _SourceByDict, {"out": Options()}, loaded=loaded)
 
         assert _column_lineage(event, "out").fields == {"out": _root_edge(_LOADED, "src")}
+
+    def test_the_context_identity_is_used_for_the_dataset_and_edge_even_when_raw_args_differ(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        raw = "host=db user=u password=hunter2"
+        context_identity = BaseInputData.data_access_identity(raw)  # "str"
+
+        event = _calculate_loading_step(
+            ol_capture, _SourceByDict, {"out": Options()}, loaded=(context_identity,), raw_args=(raw,)
+        )
+
+        assert _column_lineage(event, "out").fields == {"out": _root_edge(context_identity, "src")}
+        assert (event.inputs or [])[0].name == context_identity
+        assert "hunter2" not in Serde.to_json(event)
+
+    def test_two_sources_with_equal_core_identity_but_different_raw_args_merge_into_one_dataset(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        raw_one = "host=db user=u password=one"
+        raw_two = "Server=x;Uid=u;Pwd=two;"
+        context_identity = BaseInputData.data_access_identity(raw_one)
+        assert context_identity == BaseInputData.data_access_identity(raw_two) == "str"
+
+        event = _calculate_loading_step(
+            ol_capture,
+            _SourceByDict,
+            {"out": Options()},
+            loaded=(context_identity, context_identity),
+            raw_args=(raw_one, raw_two),
+        )
+
+        assert [i.name for i in event.inputs or []] == [context_identity]
+
+    def test_reader_describe_columns_gets_the_raw_data_access_not_the_context_identity(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        raw = "host=db user=u password=hunter2"
+        context_identity = BaseInputData.data_access_identity(raw)  # "str"
+        reader = _describing_reader({"src": None})
+
+        event = _calculate_loading_step(
+            ol_capture, _SourceByDict, {"out": Options()}, loaded=(context_identity,), raw_args=(raw,), reader=reader
+        )
+
+        assert reader.received_data_access == [raw]
+        assert (event.inputs or [])[0].name == context_identity
+        assert "hunter2" not in Serde.to_json(event)
 
     @pytest.mark.parametrize("loaded", _NO_EDGE_LOADS)
     def test_no_or_several_distinct_loaded_datasets_give_no_edge(

@@ -17,7 +17,6 @@ from openlineage.client.facet_v2 import RunFacet, column_lineage_dataset, data_q
 
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
 from mloda.community.extenders.shared.bound_method import bound_method, class_attribute
-from mloda.community.extenders.shared.data_access_identity import resolve_data_access_identity
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 
 if TYPE_CHECKING:
@@ -103,7 +102,7 @@ class LineageFacetsExtender(OpenLineageExtender):
         state = _open_described_columns.find(self)
         if state is None:
             return
-        identity = resolve_data_access_identity(args, context.data_access_identity)
+        identity = context.data_access_identity
         if identity is None:
             return
         state.record(identity, _pending_describe(func, args))
@@ -136,7 +135,7 @@ class LineageFacetsExtender(OpenLineageExtender):
             state = _open_described_columns.find(self)
             identity_columns = state.described_columns(inputs[0].name) if state is not None else None
             if identity_columns is not None and column not in identity_columns:
-                # No dataset identity: it may carry credentials, e.g. a keyword DSN.
+                # No dataset identity: it may carry credentials, e.g. a reader's data_access_identity override.
                 logger.warning(
                     "%s: %s output %r declares lineage_source_column %r, not found among its dataset's "
                     "described columns; no columnLineage edge is emitted",

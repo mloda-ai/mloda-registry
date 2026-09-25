@@ -12,7 +12,6 @@ from typing import Any, Protocol
 
 from mloda.steward import Extender, ExtenderHook, HookContext, WarnOncePerInstance
 
-from mloda.community.extenders.shared.data_access_identity import resolve_data_access_identity
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.enterprise.extenders.audit._records import _append_records as _append_records
 from mloda.enterprise.extenders.audit._records import _canonical_json as _canonical_json
@@ -134,9 +133,8 @@ class AuditExtender(Extender):
     declares core's never_fall_back, so raise_on_error has no effect on it: the refusal, and a sink
     failure on the refusal path or after a successful call, always propagate. fail_closed is read-only.
     Records also list the distinct data loads the call attempted, as index-aligned identity and format
-    lists ([] for none; a load without an identity is omitted). URI query, fragment, `;` and `&` parameters
-    and user information are stripped, best effort; other identities are recorded as given, so not
-    credential-free, and a sealed log cannot be redacted afterwards. Records carry policy_version (the
+    lists ([] for none; a load without an identity is omitted). The identity is core's data_access_identity,
+    recorded as given, and a sealed log cannot be redacted afterwards. Records carry policy_version (the
     given value, else a fingerprint of the constructor-supplied gate, which does not track code changes).
     Keys may be added within record_version 1; an absent key means not recorded. With audit_path,
     manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
@@ -306,7 +304,7 @@ class AuditExtender(Extender):
 
         # A load only runs inside a calculate call that already passed the gate.
         if context.hook is ExtenderHook.INPUT_DATA_LOAD:
-            self._note_load(context, args)
+            self._note_load(context)
             return func(*args, **kwargs)
 
         if self.fail_closed:
@@ -346,12 +344,12 @@ class AuditExtender(Extender):
         self.sink.write(record)
         return result
 
-    def _note_load(self, context: HookContext, args: tuple[Any, ...]) -> None:
+    def _note_load(self, context: HookContext) -> None:
         loads = _open_calculates.find(self)
         if loads is None:
             logger.debug("AuditExtender: INPUT_DATA_LOAD has no enclosing open calculate invocation to attach to")
             return
-        identity = resolve_data_access_identity(args, context.data_access_identity)
+        identity = context.data_access_identity
         if identity is None:
             return
         entry = (identity, context.data_access_format)

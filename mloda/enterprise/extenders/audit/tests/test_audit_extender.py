@@ -20,6 +20,7 @@ from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
+from mloda.provider import BaseInputData
 from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext, verified_context
 from mloda.user import ParallelizationMode, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
@@ -291,21 +292,19 @@ def _assert_logged_no_enclosing_calculate(caplog: pytest.LogCaptureFixture) -> N
     assert len(matching) == 1, [(r.name, r.levelno, r.getMessage()) for r in caplog.records]
 
 
-# (raw identity, sanitized identity, secret markers that must not survive anywhere in the record)
-_URI_SANITIZER_CASES = [
+# (raw data_access passed as args[0], core's recorded identity, secret markers that must not survive anywhere
+# in the record). Expected is a hardcoded literal, pinned once against core's BaseInputData.data_access_identity.
+_DATA_ACCESS_IDENTITY_CASES = [
     pytest.param(_BUCKET_KEY, _BUCKET_KEY, (), id="clean_s3_unchanged"),
     pytest.param(
         "https://user:pw@host/p/a?sig=SECRET#frag", "https://host/p/a", ("SECRET", "pw"), id="userinfo_query_fragment"
     ),
     pytest.param("postgresql://user:pw@db:5432/mydb", "postgresql://db:5432/mydb", ("pw",), id="userinfo_with_port"),
     pytest.param(
-        "jdbc:postgresql://h/db?password=SECRET", "jdbc:postgresql://h/db", ("SECRET",), id="compound_scheme_query"
+        "jdbc:postgresql://h/db?password=SECRET", "jdbc:postgresql://h", ("SECRET",), id="compound_scheme_query"
     ),
     pytest.param(
-        "https://b.com&token=SECRET",
-        "https://b.com",
-        ("SECRET", "token"),
-        id="ampersand_tail_in_authority",
+        "https://b.com&token=SECRET", "str", ("SECRET", "token"), id="ampersand_tail_in_authority_is_unparseable"
     ),
     pytest.param("https://[::1]:8080/x?k=v", "https://[::1]:8080/x", ("k=v",), id="ipv6_host_with_port"),
     pytest.param("file:///tmp/data.csv", "file:///tmp/data.csv", (), id="file_uri_empty_authority_unchanged"),
@@ -314,28 +313,23 @@ _URI_SANITIZER_CASES = [
     pytest.param("https://u:p@ss@host/db", "https://host/db", ("p@ss",), id="synthetic_at_sign_inside_userinfo"),
     pytest.param(
         "jdbc:hive2://h:10000/default;user=u;password=SECRET",
-        "jdbc:hive2://h:10000/default",
+        "str",
         ("SECRET",),
-        id="jdbc_semicolon_params_cut_from_path",
+        id="jdbc_semicolon_params_are_unparseable",
     ),
     pytest.param(
         "jdbc:sqlserver://h:1433;password=SECRET",
-        "jdbc:sqlserver://h:1433",
+        "str",
         ("SECRET",),
-        id="jdbc_semicolon_params_cut_from_authority",
+        id="jdbc_semicolon_in_authority_is_unparseable",
     ),
-    pytest.param("my_scheme://host?tok=SECRET", "my_scheme://host", ("SECRET",), id="underscore_in_scheme"),
-    pytest.param(
-        "https://b.com/x&sig=SECRET",
-        "https://b.com/x",
-        ("SECRET", "sig"),
-        id="ampersand_tail_in_path",
-    ),
+    pytest.param("my_scheme://host?tok=SECRET", "str", ("SECRET",), id="underscore_in_scheme_is_unparseable"),
+    pytest.param("https://b.com/x&sig=SECRET", "str", ("SECRET", "sig"), id="ampersand_tail_in_path_is_unparseable"),
     pytest.param(
         "mongodb://h1:27017,h2:27017/db?replicaSet=rs",
-        "mongodb://h1:27017,h2:27017/db",
+        "str",
         ("replicaSet",),
-        id="multi_host_authority_stays_intact",
+        id="multi_host_authority_is_unparseable",
     ),
     pytest.param("s3://münchen-bucket/key.parquet", "s3://münchen-bucket/key.parquet", (), id="non_ascii_host_kept"),
     pytest.param(
@@ -344,76 +338,46 @@ _URI_SANITIZER_CASES = [
         (),
         id="hive_style_equals_in_path_kept",
     ),
-    pytest.param(
-        "postgresql://user:pa/ss@host/db", "postgresql://host/db", ("pa/ss",), id="synthetic_slash_in_password"
-    ),
+    pytest.param("postgresql://user:pa/ss@host/db", "str", ("pa/ss",), id="synthetic_slash_in_password_is_unparseable"),
     pytest.param("postgresql://u:p&q@host/db", "postgresql://host/db", ("p&q",), id="synthetic_ampersand_in_password"),
-    pytest.param(
-        "https://host=SECRET/p/a", "https://host", ("SECRET",), id="equals_in_authority_cuts_it_and_drops_the_path"
-    ),
-    pytest.param(
-        "https://host SECRET/p/a", "https://host", ("SECRET",), id="whitespace_in_authority_cuts_it_and_drops_the_path"
-    ),
-]
-
-# (raw data_access, core's default-deny identity on the load context, expected recorded identity, secret markers absent from the record)
-_RAW_FIRST_CASES = [
+    pytest.param("https://host=SECRET/p/a", "str", ("SECRET",), id="equals_in_authority_is_unparseable"),
+    pytest.param("https://host SECRET/p/a", "str", ("SECRET",), id="whitespace_in_authority_is_unparseable"),
     pytest.param(
         "https://host/p?email=a@b.com/x&sig=SECRET",
         "str",
-        "https://host/p",
         ("SECRET", "a@b.com", "b.com"),
         id="at_sign_in_query_value",
     ),
     pytest.param(
         "https://host/dl?url=https://user@o.example/f&token=SECRET",
         "str",
-        "https://host/dl",
         ("SECRET", "o.example"),
         id="uri_in_query_value",
     ),
     pytest.param(
         "postgresql://host/db?user=u&password=p@ss/word",
         "str",
-        "postgresql://host/db",
         ("p@ss", "ss/word", "password"),
         id="password_with_at_sign_and_slash_in_query",
     ),
-    pytest.param(
-        "/data/dir?/file#1.csv",
-        "str",
-        "/data/dir?/file#1.csv",
-        (),
-        id="non_uri_str_recorded_as_given",
-    ),
+    pytest.param("/data/dir?/file#1.csv", "str", (), id="path_with_query_and_fragment_chars"),
     pytest.param(
         "jdbc:postgresql://h/db",
         "jdbc:postgresql://h",
-        "jdbc:postgresql://h/db",
         (),
-        id="clean_uri_with_differing_core_projection_uses_sanitized_raw",
+        id="jdbc_path_is_dropped_by_core_projection",
     ),
+    pytest.param("s3://bucket/my file.parquet", "str", (), id="space_in_path_is_unparseable"),
+    pytest.param("{host, port}", "str", (), id="core_dict_form_string_is_a_type_name"),
+    pytest.param("str", "str", (), id="core_default_deny_type_name_is_a_fixed_point"),
+    pytest.param("host=db user=u password=hunter2", "str", ("hunter2",), id="keyword_dsn_with_password"),
+    pytest.param("Server=x;Uid=u;Pwd=hunter2;", "str", ("hunter2",), id="odbc_connection_string"),
     pytest.param(
-        "s3://bucket/my file.parquet",
-        "str",
-        "s3://bucket/my file.parquet",
-        (),
-        id="clean_uri_with_space_and_core_type_name_uses_sanitized_raw",
+        {"host": "h", "port": 5432, "api_key": "SECRET"},
+        "{api_key, host, port}",
+        ("SECRET",),
+        id="mapping_identity_is_sorted_keys",
     ),
-    pytest.param(
-        "Server=db;Password=SECRET",
-        "str",
-        "Server=db;Password=SECRET",
-        (),
-        id="keyword_dsn_raw_arg_recorded_as_given",
-    ),
-]
-
-_NON_URI_IDENTITIES = [
-    pytest.param("/data/dir?/file#1.csv", id="path_with_query_and_fragment_chars"),
-    pytest.param("{host, port}", id="core_dict_form"),
-    pytest.param("host=h user=u password=SECRET", id="keyword_dsn_passes_through"),
-    pytest.param("str", id="core_default_deny_type_name"),
 ]
 
 
@@ -1339,7 +1303,7 @@ class TestAuditExtenderPolicyVersion:
 
 
 class TestAuditExtenderDataAccess:
-    """A load nested in a calculate call is recorded on that call's record, sanitized, never on a record of its own."""
+    """A load nested in a calculate call is recorded on that call's record with core's identity, never its own."""
 
     def test_calculate_without_a_load_records_empty_lists(self) -> None:
         record = _record_for_loads([])
@@ -1453,13 +1417,47 @@ class TestAuditExtenderDataAccess:
         assert record["data_access_identity"] == [_BUCKET_KEY, _BUCKET_KEY]
         assert record["data_access_format"] == ["CsvReader", "ParquetReader"]
 
-    def test_loads_that_sanitize_to_the_same_identity_are_deduplicated(self) -> None:
-        record = _record_for_loads(
-            [("https://a:1@host/x?sig=one", "CsvReader"), ("https://b:2@host/x?sig=two", "CsvReader")]
-        )
+    def test_loads_whose_core_identity_matches_are_deduplicated_even_when_raw_args_differ(self) -> None:
+        # Raw args[0] differ in userinfo and query; core projects both to the same identity.
+        raw_one = "https://a:1@host/x?sig=one"
+        raw_two = "https://b:2@host/x?sig=two"
+        assert BaseInputData.data_access_identity(raw_one) == BaseInputData.data_access_identity(raw_two)
+        context_identity = BaseInputData.data_access_identity(raw_one)
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink)
 
+        def body() -> None:
+            _load(extender, context_identity, "CsvReader", args=(raw_one, _FEATURES_PLACEHOLDER))
+            _load(extender, context_identity, "CsvReader", args=(raw_two, _FEATURES_PLACEHOLDER))
+
+        _calculate(extender, body)
+
+        assert len(sink.records) == 1
+        record = sink.records[0]
         assert record["data_access_identity"] == ["https://host/x"]
         assert record["data_access_format"] == ["CsvReader"]
+
+    def test_two_azure_containers_on_one_account_and_path_stay_distinct_entries(self) -> None:
+        marker = "SECRET"
+        raw_raw_container = f"abfss://raw@acct.dfs.core.windows.net/p?sv=1&sig={marker}"
+        raw_curated_container = f"abfss://curated@acct.dfs.core.windows.net/p?sv=1&sig={marker}"
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink)
+
+        def body() -> None:
+            for raw in (raw_raw_container, raw_curated_container):
+                context_identity = BaseInputData.data_access_identity(raw)
+                _load(extender, context_identity, "CsvReader", args=(raw, _FEATURES_PLACEHOLDER))
+
+        _calculate(extender, body)
+
+        assert len(sink.records) == 1
+        record = sink.records[0]
+        assert record["data_access_identity"] == [
+            "abfss://raw@acct.dfs.core.windows.net/p",
+            "abfss://curated@acct.dfs.core.windows.net/p",
+        ]
+        assert marker not in json.dumps(record)
 
     def test_nested_calculate_attributes_each_load_to_its_own_level(self) -> None:
         sink = InMemoryAuditSink()
@@ -1572,26 +1570,11 @@ class TestAuditExtenderDataAccess:
         ]
         assert [r["data_access_identity"] for r in sink_b.records] == [["s3://bucket/both.parquet"]]
 
-    @pytest.mark.parametrize(("raw", "expected", "secrets"), _URI_SANITIZER_CASES)
-    def test_uri_identity_is_sanitized_before_it_is_stored(
-        self, raw: str, expected: str, secrets: tuple[str, ...]
+    @pytest.mark.parametrize(("raw", "expected", "secrets"), _DATA_ACCESS_IDENTITY_CASES)
+    def test_the_core_identity_is_recorded_never_the_raw_data_access(
+        self, raw: Any, expected: str, secrets: tuple[str, ...]
     ) -> None:
-        record = _record_for_loads([(raw, None)])
-
-        assert record["data_access_identity"] == [expected]
-        for secret in secrets:
-            assert secret not in json.dumps(record)
-
-    @pytest.mark.parametrize("raw", _NON_URI_IDENTITIES)
-    def test_non_uri_identity_passes_through_unchanged(self, raw: str) -> None:
-        record = _record_for_loads([(raw, None)])
-
-        assert record["data_access_identity"] == [raw]
-
-    @pytest.mark.parametrize(("raw", "context_identity", "expected", "secrets"), _RAW_FIRST_CASES)
-    def test_a_str_first_argument_is_recorded_sanitized_unless_its_scheme_is_malformed(
-        self, raw: str, context_identity: str, expected: str, secrets: tuple[str, ...]
-    ) -> None:
+        context_identity = BaseInputData.data_access_identity(raw)
         record = _record_for_loads([(context_identity, "CsvReader")], args=(raw, _FEATURES_PLACEHOLDER))
 
         assert record["data_access_identity"] == [expected]
@@ -1599,19 +1582,20 @@ class TestAuditExtenderDataAccess:
         for secret in secrets:
             assert secret not in json.dumps(record)
 
-    def test_a_non_str_first_argument_falls_back_to_the_context_identity(self) -> None:
-        connection_params = {"host": "h", "port": 5432, "api_key": "SECRET"}
-
-        record = _record_for_loads([("{host, port}", None)], args=(connection_params, _FEATURES_PLACEHOLDER))
-
-        assert record["data_access_identity"] == ["{host, port}"]
-        assert "SECRET" not in json.dumps(record)
-
     def test_a_load_without_a_context_identity_is_skipped_even_with_a_uri_first_argument(self) -> None:
         record = _record_for_loads([(None, "CsvReader")], args=("https://host/p?sig=SECRET", _FEATURES_PLACEHOLDER))
 
         assert record["data_access_identity"] == []
         assert record["data_access_format"] == []
+
+    def test_a_reader_overridden_context_identity_is_recorded_exactly_as_given(self) -> None:
+        # Models a reader whose data_access_identity() override diverges from core's own projection of args[0].
+        overridden_identity = "https://api.example/x?station=7"
+        record = _record_for_loads(
+            [(overridden_identity, "CsvReader")], args=("s3://bucket/raw/key.parquet", _FEATURES_PLACEHOLDER)
+        )
+
+        assert record["data_access_identity"] == [overridden_identity]
 
 
 class TestNdjsonAuditSink:

@@ -552,23 +552,28 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             pytest.skip("extender does not wrap INPUT_DATA_LOAD")
         marker = "SENSITIVE_QUERY_VALUE_xyz123"
         userinfo_marker = "SENSITIVE_USERINFO_VALUE_xyz123"
-        identity = f"s3://{userinfo_marker}:{userinfo_marker}@bucket/key.parquet?X-Amz-Signature={marker}"
+        context_identity = "s3://bucket/key.parquet"
+        # A different path than the context identity, so an extender that records raw args[0] is caught too.
+        raw = f"s3://{userinfo_marker}:{userinfo_marker}@bucket/raw/key.parquet?X-Amz-Signature={marker}"
 
-        inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity)
+        inner_context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=context_identity)
 
         def outer_func() -> None:
             with inner_context.activate():
-                # Core passes the raw data access as arg 0; the shipped extender prefers it over the context value.
-                extender(lambda *_: "loaded-data", identity)
+                # Core passes the raw data access as arg 0; a correct extender records the context identity, never it.
+                extender(lambda *_: "loaded-data", raw)
 
         with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
             extender(outer_func)
 
-        input_names = [dataset.name for event in transport.events for dataset in event.inputs or []]
-        assert any("key.parquet" in name for name in input_names), "the data load was not attributed as an input"
         for event in transport.events:
             assert marker not in Serde.to_json(event), "URI query string reached an event"
             assert userinfo_marker not in Serde.to_json(event), "URI user information reached an event"
+        input_names = [dataset.name for event in transport.events for dataset in event.inputs or []]
+        assert context_identity in input_names, (
+            f"the data load was not attributed as an input named by the context's data_access_identity "
+            f"({context_identity!r}); input_names={input_names!r}"
+        )
 
     def test_openlineage_fail_event_carries_nested_inputs(self) -> None:
         client, transport = make_recording_client()
