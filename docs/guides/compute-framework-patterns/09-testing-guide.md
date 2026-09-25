@@ -22,25 +22,60 @@ tests/
 
 mloda provides base classes that give you comprehensive tests with minimal code.
 
-### FilterEngineTestMixin (11+ tests)
+### FilterEngineTestMixin
 
-For filter engine tests - implement 3 methods, get 11 tests:
+For filter engine tests. Set `filter_engine_class` and provide the data fixtures and value hooks; the fixture docstrings in the mixin give the exact columns and values:
 
 ```python
+from decimal import Decimal
+from typing import Any
+
+import pytest
+
 from tests.test_plugins.compute_framework.base_implementations.filter_engine_test_mixin import FilterEngineTestMixin
 
 
 class TestMyFilterEngine(FilterEngineTestMixin):
-    @pytest.fixture
-    def filter_engine(self) -> Any:
-        return MyFilterEngine
+    filter_engine_class = MyFilterEngine
 
     @pytest.fixture
     def sample_data(self) -> Any:
-        return my_lib.DataFrame({"str_col": ["a", "b"], "int_col": [1, 5]})
+        return my_lib.DataFrame(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "age": [25, 30, 35, 40, 45],
+                "name": ["Alice", "Bob", "Charlie", "David", "Eve"],
+                "category": ["A", "B", "A", "C", "B"],
+            }
+        )
 
-    def get_column_values(self, result, column) -> list[Any]:
-        return result[column].tolist()
+    @pytest.fixture
+    def nullable_category_sample_data(self) -> Any:
+        return my_lib.DataFrame(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "category": ["A", None, "B", None, "C"],
+                "score": [1, None, 2, None, 3],
+                "ratio": [1.0, float("nan"), 2.0, None, 3.0],
+            }
+        )
+
+    @pytest.fixture
+    def decimal_sample_data(self) -> Any:
+        return my_lib.DataFrame({"d": [Decimal("12.34"), Decimal("5.50"), Decimal("99.99"), None]})  # decimal(10, 2)
+
+    def get_column_values(self, result: Any, column: str) -> list[Any]:
+        return result[column].to_list()  # missing values as None
+
+    def get_decimal_column_dtype(self, data: Any) -> Any:
+        return data["d"].dtype
+```
+
+`result_row_count(result)` defaults to `len(result)`; override it when `len` does not count rows (a columnar dict, a lazy frame). A framework that cannot support a test overrides it by name and skips it with a reason:
+
+```python
+    def test_categorical_inclusion_decimal(self, filter_engine: Any, decimal_sample_data: Any) -> None:
+        pytest.skip("MyFramework has no decimal type")
 ```
 
 ### MultiIndexMergeEngineTestBase (6 tests)
@@ -221,7 +256,7 @@ class TestMyTransformer:
 - [ ] Connection passed correctly for stateful frameworks
 
 ### Filter Engine (use FilterEngineTestMixin)
-- [ ] All filter types work (range, min, max, equal, regex, categorical)
+- [ ] All filter types work (range, min, max, equal, regex, categorical), including null, NaN and decimal columns
 
 ### Transformer
 - [ ] Conversion to PyArrow works
