@@ -50,6 +50,50 @@ def match_feature_group_criteria(
 
 ---
 
+## Reporting Why a Match Declined
+
+A hook that returns `False` without a reason leaves the user a bare "No feature groups found". When the name is addressed to your group but you still refuse it, for example an unknown output part, record the reason before returning `False`:
+
+```python
+from mloda.provider import NAME_STAGE, FeatureGroup, record_match_rejection
+from mloda.user import DataAccessCollection, FeatureName, Options
+
+
+class SourceStats(FeatureGroup):
+    """Emits `<source>__stats~mean` and `<source>__stats~std`."""
+
+    PARTS = ("mean", "std")
+
+    @classmethod
+    def match_feature_group_criteria(
+        cls,
+        feature_name: str | FeatureName,
+        options: Options,
+        data_access_collection: DataAccessCollection | None = None,
+    ) -> bool:
+        base, _, part = str(feature_name).partition("~")
+        if not base.endswith("__stats"):
+            return False  # not addressed to this group: stay silent
+        if part and part not in cls.PARTS:
+            reason = f"unknown output part '~{part}', expected one of: {', '.join(cls.PARTS)}"
+            record_match_rejection(cls.__name__, reason, stage=NAME_STAGE)
+            return False
+        return True
+```
+
+```text
+  - SourceStats (feature name): unknown output part '~median', expected one of: mean, std
+```
+
+- Record only when the name is otherwise addressed to the group; a plain mismatch returns `False` silently.
+- Prefer recording to raising: a raise from the hook is contained as a `match hook` near-miss, a worse reason.
+- `NAME_STAGE` ships in mloda 0.14.0, so a plugin that imports it needs `mloda>=0.14.0`. The literal `"name"` also works on older cores, where the near-miss reads `(option value)`.
+- To name a rejected option value, declare `expected` on the spec instead (see [Whole-Value Guards](#whole-value-guards-with-match_guard)).
+
+See [Feature Group Matching](https://mloda-ai.github.io/mloda/in_depth/feature-group-matching/).
+
+---
+
 ## Discriminator Keys for Configuration-Based Matching
 
 When multiple method variants exist for a feature group type (e.g., different scaling algorithms), use a **unique discriminator key** to distinguish them. The `FeatureChainParserMixin` handles matching automatically via `PREFIX_PATTERN` and `PROPERTY_MAPPING`.
@@ -250,6 +294,8 @@ Use `match_guard` to check the raw option value with a callable. Despite the nam
 
 After basic matching and `required_when` checks succeed, `match_feature_group_criteria` calls each `match_guard`. A falsy return is a plain non-match (`False`, debug log, no error), so resolution moves on and another candidate may still take the feature. A guard that raises `TypeError`, `ValueError`, or `AttributeError` is treated the same way.
 
+The rejection reaches the user's "No feature groups found" error only when the spec is strict or declares `expected`, a phrase completing "must be ...", as `partition_by` does below. The rejected value is echoed in that error, so never declare `expected` on a key that can carry a secret such as a token or a connection string.
+
 ```python
 from mloda.provider import property_spec
 
@@ -262,6 +308,7 @@ PROPERTY_MAPPING = {
     "partition_by": property_spec(
         "Columns to partition by",
         match_guard=_is_list_of_strings,
+        expected="a list of column names",
     ),
     "window_size": property_spec(
         "Number of rows in the rolling window",
@@ -292,7 +339,7 @@ Use `element_validator` to validate option values with a callable instead of che
 
 When an element validator is present, it **replaces** the `allowed_values` membership check rather than adding to it. It receives each parsed element and must return `True` if valid.
 
-A falsy return raises `ValueError`, but the mixin catches it and returns `False`, so both mechanisms end in a non-match and another candidate can still take the feature. The difference is diagnostics: if nothing matches, an `element_validator` rejection is listed as a reason in the end user's "No feature groups found" error, while a `match_guard` rejection leaves only a debug log unless the feature group extends the rejection-reason hook, as the data operation families do (via `RejectionReasonMixin` in `mloda/community/feature_groups/data_operations/base.py`).
+A falsy return raises `ValueError`, but the mixin catches it and returns `False`, so both mechanisms end in a non-match and another candidate can still take the feature. The difference is diagnostics: if nothing matches, an `element_validator` rejection is listed as a reason in the end user's "No feature groups found" error, while a `match_guard` rejection leaves only a debug log unless the spec is strict or declares `expected` (see [Whole-Value Guards](#whole-value-guards-with-match_guard)).
 
 ```python
 from mloda.provider import property_spec

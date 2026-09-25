@@ -138,7 +138,7 @@ The following must hold for this to happen:
 
 | Precondition | Why |
 |---|---|
-| The group's matcher accepts the `~part` suffix | e.g. `EncodingFeatureGroup.PREFIX_PATTERN = r".*__(onehot\|label\|ordinal)_encoded(~\d+)?$"`. A pattern that doesn't tolerate a trailing `~` (like `DimensionalityReductionFeatureGroup`'s) never receives a `~N` name as a top-level request. |
+| The group's matcher accepts the `~part` suffix | e.g. `EncodingFeatureGroup.PREFIX_PATTERN = r".*__(onehot\|label\|ordinal)_encoded(~\d+)?$"`. A pattern that doesn't tolerate a trailing `~` (like `DimensionalityReductionFeatureGroup`'s) never receives a `~N` name as a top-level request. A group that refuses an unknown part should say why: see [Reporting Why a Match Declined](14-feature-matching.md#reporting-why-a-match-declined). |
 | `feature_names_supported()` doesn't list the base name | `FeatureGroup.set_feature_name()` rewrites `base~N` back to `base` when `base` is in `feature_names_supported()`, collapsing the parts into one Feature before `calculate_feature()` runs. |
 | The parts share options, compute framework and data type | These form the grouping hash that batches features into one `FeatureSet`; the name itself is not part of it. |
 
