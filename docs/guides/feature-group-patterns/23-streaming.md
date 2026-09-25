@@ -60,12 +60,15 @@ Each yielded value is a **complete** result for one feature group (e.g. a `pa.Ta
 `stream_all` accepts the same parameters as `run_all`, including filters, compute frameworks, and links:
 
 ```python
-from mloda.user import mloda, Feature, GlobalFilter, SingleFilter, FilterType
+from mloda.user import mloda, Feature, GlobalFilter, FilterType
+
+global_filter = GlobalFilter()
+global_filter.add_filter("status", FilterType.EQUAL, {"value": "active"})
 
 for result in mloda.stream_all(
     [Feature("feature_a"), Feature("feature_b")],
     compute_frameworks=["PandasDataFrame"],
-    global_filter=GlobalFilter({SingleFilter("status", FilterType.EQUAL, "active")}),
+    global_filter=global_filter,
 ):
     print(result)
 ```
