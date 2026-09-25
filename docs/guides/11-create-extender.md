@@ -345,6 +345,28 @@ Strip the query and user information before recording: a host that drops the ide
 
 `make_hook_context` builds a `HookContext` for direct `__call__` tests.
 
+### Asserting on warnings
+
+Count only the WARNING records of the logger that emits the warning under test, never every record in `caplog.records`. Core logs some warnings once per process (for example "not registered in the plugin registry" under `MLODA_PLUGIN_REGISTRY_STRICT=warn`), so under pytest-xdist such a record appears only if no earlier test in the worker triggered it. For your extender's own warnings, filter by its module's logger:
+
+```python
+import logging
+
+import pytest
+
+import my_package.my_extender as my_extender_module
+
+
+def _module_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == my_extender_module.__name__ and r.levelno == logging.WARNING
+    ]
+```
+
+The warning-only fallback warning is logged by core's extender logger, not your module's, and names the extender: check that the name appears in a message, as `ExtenderContractTestMixin` does.
+
 ## Real Implementations
 
 | File | Description |
