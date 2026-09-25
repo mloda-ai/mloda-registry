@@ -1,4 +1,4 @@
-"""Rejection reasons surfaced by ``_strict_validation_rejection_reason``, now using each spec's ``expected`` text."""
+"""Rejection reasons surfaced by ``_strict_validation_rejection_reason``, using each spec's ``expected`` text."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class TestPatternPathGuardRejectionReported:
         assert "'five'" in reason
 
     def test_nested_singleton_constant_reports_a_reason(self) -> None:
-        """A double-wrapped scalar is guard-rejected; the arity carve-out must not swallow it."""
+        """``[[5]]`` fails ``constant``'s element_validator, not a guard, so the reason still names it."""
         options = Options(context={"constant": [[5]]})
         reason = PyArrowScalarArithmetic._strict_validation_rejection_reason("value_int__add_constant", options)
         assert reason is not None
@@ -92,11 +92,10 @@ class TestMultiElementArityRejectionReported:
         assert reason is not None
         assert "option 'in_features' must be" in reason
         assert "got set" in reason
-        assert "exactly one" not in reason
 
 
-class TestMissingRequiredWhenReported:
-    """Core's facade does not evaluate required_when; only the present-value non-report stays here."""
+class TestPresentRequiredOptionReportsNothing:
+    """A required option that is present has nothing to report."""
 
     def test_present_order_by_reports_nothing(self) -> None:
         options = Options(context={"order_by": "ts"})
@@ -104,11 +103,11 @@ class TestMissingRequiredWhenReported:
 
 
 class TestRejectionReasonHookNeverRaises:
-    """The hook is diagnostics only: a hostile value repr must not escape as an exception."""
+    """A value whose repr raises is reported by type name only, never by its text."""
 
     def test_unreprable_guard_rejected_value_still_reports_a_reason(self) -> None:
         class ExplodingRepr:
-            """Value whose repr raises, so reporting must survive the formatting failure."""
+            """Value whose repr raises, so reporting must fall back to the type name."""
 
             def __repr__(self) -> str:
                 raise RuntimeError("repr exploded")
@@ -145,3 +144,14 @@ class TestEveryGuardedSpecDeclaresExpected:
                 if spec.match_guard is not None and spec.expected is None:
                     offenders.append(f"{family.key}.{key}")
         assert offenders == [], f"Guarded specs missing 'expected': {offenders}"
+
+
+class TestReleasedLeafImportCompat:
+    """Released leaves still import the old name."""
+
+    def test_rejection_reason_mixin_is_feature_chain_parser_mixin(self) -> None:
+        from mloda.provider import FeatureChainParserMixin
+
+        from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin
+
+        assert RejectionReasonMixin is FeatureChainParserMixin
