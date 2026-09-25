@@ -113,6 +113,14 @@ class TestPointArithmeticIntegration(DataOpsIntegrationTestBase):
         fg_cls = self.feature_group_class()
         assert fg_cls.match_feature_group_criteria(self.primary_feature_name(), options)  # type: ignore[attr-defined]
 
+    def test_guard_rejected_in_features_container_reported_at_discovery(self) -> None:
+        """A frozenset in_features is guard-rejected; the run_all resolution error must name it."""
+        with pytest.raises(ValueError, match=r"option 'in_features' must be .*got frozenset"):
+            self._run_single_feature(
+                "my_diff",
+                {"arithmetic_op": "subtract", "in_features": frozenset({"value_int", "amount"})},
+            )
+
 
 class TestIntegrationMultipleFeatures:
     def test_add_and_multiply_together(self) -> None:

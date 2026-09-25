@@ -1,13 +1,8 @@
-"""Rejection reasons surfaced by ``_strict_validation_rejection_reason``.
-
-Core's hook names element-validator rejections on the config path only; a pattern-path
-match_guard rejection and a missing required_when key both end in the generic
-no-feature-groups error with nothing named. These tests pin the reasons the mixin adds,
-and that non-candidates stay silent while reporting itself never raises.
-"""
+"""Rejection reasons surfaced by ``_strict_validation_rejection_reason``, now using each spec's ``expected`` text."""
 
 from __future__ import annotations
 
+from mloda.provider import PropertySpec
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow_ffill import PyArrowFfill
@@ -20,6 +15,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.point_arithme
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.pyarrow_scalar_arithmetic import (
     PyArrowScalarArithmetic,
 )
+from mloda.community.feature_groups.data_operations.tests.test_prefix_pattern_collisions import FAMILIES, _load_class
 
 
 class TestPatternPathGuardRejectionReported:
@@ -60,8 +56,8 @@ class TestConfigPathGuardRejectionReported:
         options = Options(context={"in_features": "value_float", "order_by": 123, "partition_by": ["region"]})
         reason = PyArrowFfill._strict_validation_rejection_reason("my_result", options)
         assert reason is not None
-        assert "match_guard" in reason
-        assert "'order_by'" in reason
+        assert "option 'order_by' must be" in reason
+        assert "got int 123" in reason
 
     def test_non_candidate_with_guard_rejected_value_reports_nothing(self) -> None:
         """No pattern name and no in_features: ffill was never a candidate, so nothing is reported."""
@@ -70,7 +66,7 @@ class TestConfigPathGuardRejectionReported:
 
 
 class TestMultiElementArityRejectionReported:
-    """A multi-element container of individually accepted values must be named with an arity reason."""
+    """A multi-element container of accepted values is named; the ``expected`` text carries the arity."""
 
     def test_multi_element_order_by_reports_an_arity_reason(self) -> None:
         """The verdict stays a non-match; only the reason is added."""
@@ -80,9 +76,9 @@ class TestMultiElementArityRejectionReported:
         assert PyArrowFfill.match_feature_group_criteria("my_result", options, None) is False
         reason = PyArrowFfill._strict_validation_rejection_reason("my_result", options)
         assert reason is not None
-        assert "'order_by'" in reason
+        assert "option 'order_by' must be" in reason
         assert "exactly one" in reason
-        assert "got 2 elements" in reason
+        assert "got list" in reason
 
     def test_single_element_order_by_reports_nothing(self) -> None:
         """A single-element container is an accepted singleton, so there is nothing to report."""
@@ -94,19 +90,13 @@ class TestMultiElementArityRejectionReported:
         options = Options(context={"arithmetic_op": "add", "in_features": {("a",), ("b",)}})
         reason = PyArrowPointArithmetic._strict_validation_rejection_reason("my_result", options)
         assert reason is not None
-        assert "match_guard" in reason
-        assert "'in_features'" in reason
+        assert "option 'in_features' must be" in reason
+        assert "got set" in reason
         assert "exactly one" not in reason
 
 
 class TestMissingRequiredWhenReported:
-    """A missing required_when key must be named, not left as a debug log."""
-
-    def test_missing_order_by_reports_a_reason(self) -> None:
-        reason = PyArrowFfill._strict_validation_rejection_reason("value_float__ffill", Options())
-        assert reason is not None
-        assert "required option 'order_by'" in reason
-        assert "propagate_context_keys" in reason
+    """Core's facade does not evaluate required_when; only the present-value non-report stays here."""
 
     def test_present_order_by_reports_nothing(self) -> None:
         options = Options(context={"order_by": "ts"})
@@ -127,6 +117,8 @@ class TestRejectionReasonHookNeverRaises:
         reason = PyArrowFfill._strict_validation_rejection_reason("value_float__ffill", options)
         assert reason is not None
         assert "'order_by'" in reason
+        assert "must be" in reason
+        assert "got ExplodingRepr" in reason
 
 
 class TestFrameAggregateNamePathReportsNothing:
@@ -137,3 +129,19 @@ class TestFrameAggregateNamePathReportsNothing:
         options = Options(context={"partition_by": ["region"], "order_by": "timestamp", "frame_type": "time"})
         assert PandasFrameAggregate.match_feature_group_criteria("sales__sum_rolling_3", options)
         assert PandasFrameAggregate._strict_validation_rejection_reason("sales__sum_rolling_3", options) is None
+
+
+class TestEveryGuardedSpecDeclaresExpected:
+    """A guarded PROPERTY_MAPPING spec without ``expected`` silently falls back to a bare non-match."""
+
+    def test_every_guarded_spec_declares_expected(self) -> None:
+        offenders: list[str] = []
+        for family in FAMILIES:
+            cls = _load_class(family)
+            property_mapping = getattr(cls, "PROPERTY_MAPPING", {})
+            for key, spec in property_mapping.items():
+                if not isinstance(spec, PropertySpec):
+                    continue
+                if spec.match_guard is not None and spec.expected is None:
+                    offenders.append(f"{family.key}.{key}")
+        assert offenders == [], f"Guarded specs missing 'expected': {offenders}"

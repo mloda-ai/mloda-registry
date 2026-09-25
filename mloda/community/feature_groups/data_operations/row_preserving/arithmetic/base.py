@@ -20,10 +20,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import FeatureChainParser, FeatureGroup
+from mloda.provider import FeatureChainParser, FeatureChainParserMixin, FeatureGroup
 from mloda.user import Feature
 
-from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, op_token_value
+from mloda.community.feature_groups.data_operations.base import op_token_value
 
 ARITHMETIC_OP_NAMES: frozenset[str] = frozenset({"add", "subtract", "multiply", "divide"})
 
@@ -31,7 +31,7 @@ ARITHMETIC_OP_NAMES: frozenset[str] = frozenset({"add", "subtract", "multiply", 
 SQL_ARITHMETIC_OPS: dict[str, str] = {"add": "+", "subtract": "-", "multiply": "*", "divide": "/"}
 
 
-class ArithmeticFeatureGroupBase(RejectionReasonMixin, FeatureGroup):
+class ArithmeticFeatureGroupBase(FeatureChainParserMixin, FeatureGroup):
     ARITHMETIC_OP = "arithmetic_op"
 
     #: Operation label used in the numeric-source rejection message.
