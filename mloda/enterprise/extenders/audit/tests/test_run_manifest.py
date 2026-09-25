@@ -4514,8 +4514,7 @@ class TestEd25519WithoutCryptography:
         assert Ed25519Signer.from_public_key(public_key, "k").verify(b"payload", signature) is True
 
 
-# (mode, fail_closed) combinations shared by every TestRunManifestRunAll test below. THREADING ignores
-# PytestUnhandledThreadExceptionWarning: a refusal raised by a worker thread is unhandled from pytest's view.
+# (mode, fail_closed) combos for TestRunManifestRunAll; THREADING ignores the unhandled-thread warning a refusal raises.
 _RUN_ALL_MODE_AND_FAIL_CLOSED = [
     (ParallelizationMode.SYNC, False),
     pytest.param(
@@ -4652,8 +4651,7 @@ class TestRunManifestRunAll:
     def test_run_all_second_run_of_a_prepared_session_is_refused_and_leaves_the_seal_untouched(
         self, mode: ParallelizationMode, fail_closed: bool, tmp_path: Path, request: pytest.FixtureRequest
     ) -> None:
-        """A prepared session's run() reuses its run_id; a second run() through the auto-sealing extender
-        must be refused, not sealed a second time or left as a stray write outside the existing seal."""
+        """A prepared session's run() reuses its run_id, so a second run() must be refused, not resealed."""
         audit_path = tmp_path / "audit.ndjson"
         manifest_path = tmp_path / "manifests.ndjson"
         # Only MULTIPROCESSING needs the flight_server fixture.

@@ -164,9 +164,7 @@ def _minimal_audit_record(run_id: str | None, *, compliant: bool = True) -> dict
 def _extender_with_run_1_sealed(
     tmp_path: Path, make: Callable[..., AuditExtender] = AuditExtender, **kwargs: Any
 ) -> tuple[AuditExtender, Path]:
-    """Seal run-1 via on_run_complete; return (extender, audit_path). make accepts AuditExtender itself or
-    a _FAIL_CLOSED_RAISE_ON_ERROR_POSTURES factory: both take sink positionally and audit_path/manifest_path/
-    signer as keywords, plus any extra kwargs (e.g. fail_closed, raise_on_error)."""
+    """Seal run-1 via on_run_complete; return (extender, audit_path)."""
     audit_path = tmp_path / "audit.ndjson"
     manifest_path = tmp_path / "manifest.ndjson"
     _append_records(audit_path, [_minimal_audit_record("run-1")])
@@ -1079,8 +1077,7 @@ class TestAuditExtenderSealing:
             sink=NdjsonAuditSink(audit_path), audit_path=audit_path, manifest_path=manifest_path, signer=signer
         )
         extender.on_run_complete("run-1")
-        # Stands for a record written by a writer outside this extender: a second run() call through
-        # this extender is now refused, so it can no longer be the one to append this record itself.
+        # Stands for a record written by a writer outside this extender, since this extender now refuses run-1.
         _append_records(audit_path, [_minimal_audit_record("run-1")])
 
         with caplog.at_level(logging.ERROR):

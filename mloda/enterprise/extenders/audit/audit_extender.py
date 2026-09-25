@@ -140,13 +140,12 @@ class AuditExtender(Extender):
     given value, else a fingerprint of the constructor-supplied gate, which does not track code changes).
     Keys may be added within record_version 1; an absent key means not recorded. With audit_path,
     manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
-    that just finished. After auto-sealing a run_id, this instance (and a copy pickled after the seal)
-    refuses any further calculation under it with RunAlreadySealedError before writing anything, so
-    re-running a prepared session (including a retry after a failed run, since a failed run is sealed
-    too) fails fast: prepare a new session instead. With raise_on_error=False (fail_closed=False), core
-    instead logs the refusal and runs the call unaudited, as for a sink failure. Another AuditExtender
-    instance is not refused, and its records under a sealed run_id land outside the seal. A fail_closed=True
-    deny record written at plan time is a different, recoverable case:
+    that just finished. After auto-sealing a run_id, this instance (and a copy pickled after the seal) refuses any
+    further calculation under it with RunAlreadySealedError before writing anything, so re-running a prepared session
+    (including a retry after a failed run, since a failed run is sealed too) fails fast: prepare a new session instead.
+    With raise_on_error=False (fail_closed=False), core instead logs the refusal and runs the call unaudited, as for a
+    sink failure. Another AuditExtender instance is not refused, and its records under a sealed run_id land outside the
+    seal. A fail_closed=True deny record written at plan time is a different, recoverable case:
     it is refused before setup, so on_run_complete never fires for it and it is never auto-sealed at all
     (not sealed-with-strays); seal it later with seal_ndjson_runs targeted at that specific run_id (found via
     verify_ndjson_log_coverage(...).unsealed_lines), not a blanket sweep, since a blanket sweep could seal a
@@ -238,12 +237,12 @@ class AuditExtender(Extender):
         audit file or a run_id with no records is worth a steward's attention). Flushes the sink first, so a
         buffered record reaches the audit file before it is sealed. A pickled or copied instance has no
         signer (see __getstate__): it warns once per copy instead of raising or sealing anything.
-        RunAlreadySealedError is logged at ERROR (the run_id was already sealed and was not sealed again;
-        a record written for it by another writer lies outside the seal); RunNotPendingError is logged at
-        WARNING (recoverable: the run just wrote nothing yet). Neither is raised. Either way the run_id is
-        remembered on success or already-sealed, so a later call under it through this instance is refused
-        (see __call__). Every other exception, e.g. ManifestVerificationError, is not caught here either;
-        core logs it at ERROR and never fails the run because of it, regardless of raise_on_error/fail_closed."""
+        RunAlreadySealedError is logged at ERROR (the run_id was already sealed and was not sealed again; a record
+        written for it by another writer lies outside the seal); RunNotPendingError is logged at WARNING (recoverable:
+        the run just wrote nothing yet). Neither is raised. A sealed or already-sealed run_id is remembered, so a later
+        call under it through this instance is refused. Every other exception, e.g. ManifestVerificationError, is not
+        caught here either; core logs it at ERROR and never fails the run because of it, regardless of
+        raise_on_error/fail_closed."""
         if run_id is None:
             return
         if self._signer is None:
