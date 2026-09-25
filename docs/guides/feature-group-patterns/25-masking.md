@@ -52,8 +52,12 @@ Multiple conditions are combined with AND logic. All conditions must be true for
 ### Value Constraints
 
 - Values must be `None`, `bool`, `int`, `float`, or `str`.
-- For `is_in`, the value must be a non-empty `list`, `tuple`, or `set`.
-- A 2-element tuple like `("col", "equal")` is valid only for the `equal` operator and checks for NULL.
+- For `is_in`, the value must be a non-empty `list`, `tuple`, `set`, or `frozenset`; a string raises `ValueError`.
+- A 2-element tuple like `("col", "equal")` is valid only for the `equal` operator and matches null and NaN rows.
+
+### Missing Values
+
+A null or NaN row never passes a comparison (`equal` with a value, `greater_than`, `greater_equal`, `less_than`, `less_equal`), so its value is masked. The 2-element `equal` form and an `is_in` list containing `None` match null and NaN rows. On DuckDB the masks do not apply the NaN rule yet: a NaN row passes `greater_than` and `greater_equal`, and the 2-element `equal` and `is_in` with `None` match null rows only. See [Mask Engine](https://mloda-ai.github.io/mloda/in_depth/mask_engine/) for the core contract.
 
 ---
 

@@ -45,6 +45,13 @@ global_filter.add_filter("age", FilterType.RANGE, {"min": 18, "max": 65})
 global_filter.add_filter("status", FilterType.EQUAL, {"value": "active"})
 ```
 
+### Missing Values and Value Types
+
+- A null or NaN row never passes a range, min, max or equal filter. Categorical inclusion keeps null and NaN rows only when `values` contains `None` (a NaN value counts as `None`).
+- `values` must be a list, tuple, set or frozenset; a string raises `TypeError` in `add_filter`.
+
+Every filter engine follows these rules; see [Filter Data](https://mloda-ai.github.io/mloda/in_depth/filter_data/) for the full contract.
+
 ---
 
 ## Time Filters

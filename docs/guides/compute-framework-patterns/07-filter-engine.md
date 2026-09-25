@@ -14,11 +14,13 @@ The filter engine handles filtering operations on data.
 |--------|-------------|
 | `do_range_filter()` | Filter by min/max range |
 | `do_min_filter()` | Filter >= value |
-| `do_max_filter()` | Filter <= value |
+| `_apply_max_inclusive_filter()`, `_apply_max_exclusive_filter()` | Filter <= / < a threshold; the base `do_max_filter()` reads both parameter forms and calls them |
 | `do_equal_filter()` | Filter == value |
-| `do_regex_filter()` | Filter by regex pattern |
+| `do_regex_filter()` | Filter by regex pattern (unanchored search) |
 | `do_categorical_inclusion_filter()` | Filter by set membership |
 | `final_filters()` | Return True if filters applied at end |
+
+A null or NaN row never passes a range, min, max or equal filter; categorical inclusion keeps null and NaN rows only when `values` contains `None` or NaN. See [Filter Data](https://mloda-ai.github.io/mloda/in_depth/filter_data/) for the full contract.
 
 ## Base Class Methods (override optional)
 
@@ -29,57 +31,71 @@ The filter engine handles filtering operations on data.
 ## Complete Example
 
 ```python
-from typing import Any
-from mloda.provider import BaseFilterEngine
+import math
 import re
+from typing import Any, Callable
+
+from mloda.provider import BaseFilterEngine
+
+
+def _is_missing(value: Any) -> bool:
+    return value is None or (isinstance(value, float) and math.isnan(value))
 
 
 class MyFilterEngine(BaseFilterEngine):
-    """Filter engine for MyFramework."""
+    """Filter engine for MyFramework (row-wise list[dict])."""
 
     @classmethod
     def final_filters(cls) -> bool:
         return True
 
     @classmethod
+    def _keep(cls, data: Any, column: str, predicate: Callable[[Any], bool]) -> Any:
+        # A null or NaN row never passes a comparison.
+        return [row for row in data if not _is_missing(row.get(column)) and predicate(row[column])]
+
+    @classmethod
     def do_range_filter(cls, data, filter_feature) -> Any:
         min_val, max_val, is_exclusive = cls.get_min_max_operator(filter_feature)
-        col = filter_feature.filter_feature.name
+        if min_val is None or max_val is None:
+            raise ValueError(f"Filter parameter {filter_feature.parameter} not supported")
         if is_exclusive:
-            return [row for row in data if min_val <= row.get(col) < max_val]
-        return [row for row in data if min_val <= row.get(col) <= max_val]
+            return cls._keep(data, filter_feature.name, lambda v: min_val <= v < max_val)
+        return cls._keep(data, filter_feature.name, lambda v: min_val <= v <= max_val)
 
     @classmethod
     def do_min_filter(cls, data, filter_feature) -> Any:
         value = filter_feature.parameter.value
-        col = filter_feature.filter_feature.name
-        return [row for row in data if row.get(col) >= value]
+        return cls._keep(data, filter_feature.name, lambda v: v >= value)
 
     @classmethod
-    def do_max_filter(cls, data, filter_feature) -> Any:
-        value = filter_feature.parameter.value
-        col = filter_feature.filter_feature.name
-        return [row for row in data if row.get(col) <= value]
+    def _apply_max_inclusive_filter(cls, data, column_name, threshold) -> Any:
+        return cls._keep(data, column_name, lambda v: v <= threshold)
+
+    @classmethod
+    def _apply_max_exclusive_filter(cls, data, column_name, threshold) -> Any:
+        return cls._keep(data, column_name, lambda v: v < threshold)
 
     @classmethod
     def do_equal_filter(cls, data, filter_feature) -> Any:
         value = filter_feature.parameter.value
-        col = filter_feature.filter_feature.name
-        return [row for row in data if row.get(col) == value]
+        return cls._keep(data, filter_feature.name, lambda v: v == value)
 
     @classmethod
     def do_regex_filter(cls, data, filter_feature) -> Any:
-        pattern = filter_feature.parameter.value
-        col = filter_feature.filter_feature.name
-        regex = re.compile(pattern)
-        return [row for row in data if regex.match(str(row.get(col, "")))]
+        regex = re.compile(filter_feature.parameter.value)
+        return cls._keep(data, filter_feature.name, lambda v: regex.search(str(v)) is not None)
 
     @classmethod
     def do_categorical_inclusion_filter(cls, data, filter_feature) -> Any:
-        values = set(filter_feature.parameter.values)
-        col = filter_feature.filter_feature.name
-        return [row for row in data if row.get(col) in values]
+        values = filter_feature.parameter.values
+        keep_missing = any(_is_missing(v) for v in values)
+        present = {v for v in values if not _is_missing(v)}
+        col = filter_feature.name
+        return [row for row in data if row.get(col) in present or (keep_missing and _is_missing(row.get(col)))]
 ```
+
+`filter_feature.name` is the resolved column name. `FilterEngineTestMixin` runs the shared contract suite against an engine; see the [Testing Guide](09-testing-guide.md).
 
 ## Timezone Validation (Opt-In)
 
