@@ -7,6 +7,7 @@ from collections.abc import Callable
 from enum import Enum
 from typing import Any, TypeVar
 
+from mloda.provider import FeatureChainParserMixin
 from mloda.user import Options
 
 T = TypeVar("T")
@@ -230,3 +231,7 @@ _PARAMETRIC_SUFFIX_PATTERN = re.compile(r"[1-9][0-9]*")
 def is_parametric_suffix(suffix: str) -> bool:
     """True for the ASCII positive-integer suffix of a parametric operation token (e.g. the 4 in ntile_4)."""
     return _PARAMETRIC_SUFFIX_PATTERN.fullmatch(suffix) is not None
+
+
+# Deprecated alias: released leaves still import this name.
+RejectionReasonMixin = FeatureChainParserMixin
