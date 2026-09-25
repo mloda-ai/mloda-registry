@@ -13,6 +13,8 @@ from mloda.community.feature_groups.data_operations.aggregation_base import (
     AggregationFeatureGroupBase,
 )
 from mloda.community.feature_groups.data_operations.base import (
+    COLUMN_REF_EXPECTED,
+    OP_TOKEN_EXPECTED,
     column_ref_value,
     is_column_ref,
     is_op_token,
@@ -118,6 +120,7 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
             strict=True,
             allowed_values=AGGREGATION_TYPES,
             match_guard=is_op_token,
+            expected=OP_TOKEN_EXPECTED,
         ),
         DefaultOptionKeys.in_features: property_spec(
             "Source feature for window aggregation",
@@ -132,6 +135,7 @@ class WindowAggregationFeatureGroup(AggregationFeatureGroupBase):
             strict=False,
             default=None,
             match_guard=is_column_ref,
+            expected=COLUMN_REF_EXPECTED,
         ),
         MASK_KEY: property_spec(
             "Conditional mask: (column, operator, value) tuple or list of tuples",

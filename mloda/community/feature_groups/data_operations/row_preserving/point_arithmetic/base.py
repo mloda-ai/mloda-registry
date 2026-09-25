@@ -25,7 +25,7 @@ from typing import Any
 from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureSet, property_spec
 from mloda.user import Feature
 
-from mloda.community.feature_groups.data_operations.base import is_op_token
+from mloda.community.feature_groups.data_operations.base import OP_TOKEN_EXPECTED, is_op_token
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
 
 ARITHMETIC_OPERATIONS: dict[str, str] = {
@@ -72,11 +72,13 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
             strict=True,
             allowed_values=ARITHMETIC_OPERATIONS,
             match_guard=is_op_token,
+            expected=OP_TOKEN_EXPECTED,
         ),
         DefaultOptionKeys.in_features: property_spec(
             "Two source feature columns for the element-wise arithmetic operation",
             strict=False,
             match_guard=_is_ordered_in_features,
+            expected="an ordered list or tuple of source features",
         ),
     }
 

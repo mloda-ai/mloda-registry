@@ -18,7 +18,7 @@ from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureSet, pr
 from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.aggregation_base import AggregationFeatureGroupBase
-from mloda.community.feature_groups.data_operations.base import is_op_token
+from mloda.community.feature_groups.data_operations.base import OP_TOKEN_EXPECTED, is_op_token
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 AGGREGATION_TYPES = {
@@ -57,6 +57,7 @@ class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase):
             strict=True,
             allowed_values=AGGREGATION_TYPES,
             match_guard=is_op_token,
+            expected=OP_TOKEN_EXPECTED,
         ),
         DefaultOptionKeys.in_features: property_spec(
             "Single source feature column to aggregate",

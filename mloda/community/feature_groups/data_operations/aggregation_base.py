@@ -17,10 +17,10 @@ modules.
 
 from __future__ import annotations
 
-from mloda.provider import FeatureChainParser, FeatureGroup
+from mloda.provider import FeatureChainParser, FeatureChainParserMixin, FeatureGroup
 from mloda.user import DataType, Feature, Options
 
-from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, op_token_value
+from mloda.community.feature_groups.data_operations.base import op_token_value
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 
 AGGREGATION_TYPES: dict[str, str] = {
@@ -44,7 +44,7 @@ AGGREGATION_TYPES: dict[str, str] = {
 }
 
 
-class AggregationFeatureGroupBase(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup):
+class AggregationFeatureGroupBase(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGroup):
     AGGREGATION_TYPE = "aggregation_type"
 
     #: Canonical aggregation-type table. Subclasses override to advertise their

@@ -7,11 +7,19 @@ import os
 from typing import Any
 
 from mloda.core.abstract_plugins.components.utils import escalate_match_abort  # no public equivalent yet
-from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureGroup, FeatureSet, property_spec
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureChainParser,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    property_spec,
+)
 from mloda.user import DataType, Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.base import (
-    RejectionReasonMixin,
+    OP_TOKEN_EXPECTED,
+    POSITIVE_INT_EXPECTED,
     is_op_token,
     is_positive_int,
     op_token_value,
@@ -26,7 +34,7 @@ BINNING_OPS = {
 }
 
 
-class BinningFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     PREFIX_PATTERN = r".*__(bin|qbin)_[1-9]\d*$"
 
     MIN_IN_FEATURES = 1
@@ -41,11 +49,13 @@ class BinningFeatureGroup(RejectionReasonMixin, FeatureGroup):
             strict=True,
             allowed_values=BINNING_OPS,
             match_guard=is_op_token,
+            expected=OP_TOKEN_EXPECTED,
         ),
         # deferred_binding stays True: see _validate_forwarded_n_bins_mismatch for why.
         N_BINS: property_spec(
             "Number of bins (positive integer)",
             match_guard=is_positive_int,
+            expected=POSITIVE_INT_EXPECTED,
             deferred_binding=True,
         ),
         DefaultOptionKeys.in_features: property_spec(

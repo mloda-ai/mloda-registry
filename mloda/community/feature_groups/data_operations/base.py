@@ -2,24 +2,13 @@
 
 from __future__ import annotations
 
-import logging
 import re
-import reprlib
 from collections.abc import Callable
 from enum import Enum
 from typing import Any, TypeVar
 
-from mloda.core.abstract_plugins.components.feature_chainer.feature_chain_parser import (
-    option_key_is_present,
-)  # no public equivalent yet
-from mloda.core.abstract_plugins.components.utils import (
-    contained_raise_log_level,
-    contained_raise_reason,
-)  # no public equivalent yet
-from mloda.provider import FeatureChainParser, FeatureChainParserMixin, PropertySpec
-from mloda.user import FeatureName, Options
-
-logger = logging.getLogger(__name__)
+from mloda.provider import FeatureChainParserMixin
+from mloda.user import Options
 
 T = TypeVar("T")
 
@@ -157,6 +146,9 @@ def op_token_value(value: object) -> str:
     return str(_unwrap_singleton(value))
 
 
+OP_TOKEN_EXPECTED = "exactly one non-empty string"  # nosec B105
+
+
 def is_column_ref(value: object) -> bool:
     """True for exactly one column name: a non-empty string, bare or in a single-element container.
 
@@ -169,6 +161,9 @@ def is_column_ref(value: object) -> bool:
 def column_ref_value(value: object) -> str:
     """The single column name of a value is_column_ref accepts, unwrapped from its container."""
     return op_token_value(value)
+
+
+COLUMN_REF_EXPECTED = "exactly one column name (a non-empty string)"
 
 
 def is_scalar_number(value: object) -> bool:
@@ -188,6 +183,9 @@ def scalar_number_value(value: object) -> int | float:
     return number
 
 
+SCALAR_NUMBER_EXPECTED = "exactly one int or float"
+
+
 def _is_feature_ref(value: object) -> bool:
     """One source-feature reference: a non-empty string, or a Feature (duck-typed as core's converter does)."""
     if isinstance(value, str):
@@ -203,6 +201,9 @@ def is_in_features_value(value: object) -> bool:
     return _is_feature_ref(value)
 
 
+IN_FEATURES_EXPECTED = "a source feature name or Feature, or a container of them"
+
+
 def is_positive_int(value: object) -> bool:
     """True only for exactly one positive int, bare or in a single-element container (rejects bool, non-int, n < 1)."""
     n = _unwrap_singleton(value)
@@ -213,6 +214,9 @@ def positive_int_value(value: object) -> int:
     """The single int of a value is_positive_int accepts, unwrapped from its container."""
     n: int = _unwrap_singleton(value)
     return n
+
+
+POSITIVE_INT_EXPECTED = "exactly one positive int"
 
 
 def always_required(_options: Options) -> bool:
@@ -229,133 +233,5 @@ def is_parametric_suffix(suffix: str) -> bool:
     return _PARAMETRIC_SUFFIX_PATTERN.fullmatch(suffix) is not None
 
 
-# ---------------------------------------------------------------------------
-# Shared rejection-reason reporting
-# ---------------------------------------------------------------------------
-
-
-def _safe_repr(value: Any) -> str:
-    """A capped repr that never raises: a hostile __repr__ falls back to the type name."""
-    try:
-        return reprlib.repr(value)
-    except Exception:
-        return f"<unreprable {type(value).__name__}>"
-
-
-class RejectionReasonMixin(FeatureChainParserMixin):
-    """Names guard and required_when rejections that core's rejection-reason hook leaves silent."""
-
-    @classmethod
-    def _strict_validation_rejection_reason(cls, feature_name: str | FeatureName, options: Options) -> str | None:
-        # Core's own hook already gets the value-rejection / name-path-presence / strict-guard
-        # precedence right (see its docstring: value rejection first, then name-path presence,
-        # then a match_guard rejection on a strict-validation spec), so it is trusted first. Only
-        # when it has nothing to report do this mixin's own diagnostics get a turn, for the two
-        # gaps core intentionally leaves silent: a required_when miss (core's hook never evaluates
-        # required_when at all) and a match_guard rejection on a non-strict spec (core treats that
-        # as "this feature group does not match", not "this value is wrong").
-        core_reason = super()._strict_validation_rejection_reason(feature_name, options)
-        if core_reason is not None:
-            return core_reason
-
-        property_mapping = cls._get_property_mapping()
-        if property_mapping is None:
-            return None
-
-        prefix_patterns = cls._get_prefix_patterns()
-        try:
-            matched = FeatureChainParser.match_configuration_feature_chain_parser(
-                feature_name, options, property_mapping=property_mapping, prefix_patterns=prefix_patterns
-            )
-        except ValueError:
-            # Both match paths validate present option values the same way core's own hook just
-            # did above, so a value-rejection ValueError here would already have been returned by
-            # super(). A ValueError reaching this point is therefore a parse error (a matched
-            # PREFIX_PATTERN with no source feature), which core's own hook also treats as nothing
-            # to report.
-            return None
-        if not matched:
-            return None
-
-        # The effective options fold in any name-derived bindings, so a required_when predicate
-        # and a match_guard see a name-carried value exactly as the real match path does.
-        effective_options = FeatureChainParser.build_effective_options(
-            feature_name, prefix_patterns, property_mapping, options
-        )
-        key = cls._missing_required_when_key(effective_options, property_mapping)
-        if key is not None:
-            return (
-                f"required option '{key}' was not provided; provide it in Options(context=...). "
-                f"For a chained name, the child receives only the context keys listed in "
-                f"propagate_context_keys"
-            )
-        # Checked last: the one gap core's own hook leaves silent by design.
-        return cls._match_guard_rejection_reason(effective_options, property_mapping)
-
-    @classmethod
-    def _missing_required_when_key(
-        cls,
-        effective_options: Options,
-        property_mapping: dict[str, Any],
-    ) -> str | None:
-        """First key whose required_when predicate fires while the effective options leave it unset."""
-        for key, spec in property_mapping.items():
-            if not isinstance(spec, PropertySpec):
-                continue
-            predicate = spec.required_when
-            if predicate is None or not callable(predicate):
-                continue
-            try:
-                is_required = bool(predicate(effective_options))
-            # Contained exactly like core's own check_required_when (feature_chain_author_guards.py):
-            # a predicate that raises cannot judge, so this key is skipped rather than aborting the
-            # whole diagnostic.
-            except Exception as exc:
-                logger.log(
-                    contained_raise_log_level(exc),
-                    "required_when predicate for '%s' %s; treating it as non-required.",
-                    key,
-                    contained_raise_reason(exc),
-                )
-                continue
-            # An opted-in explicit None counts as present (#768), same presence test core's own
-            # check_required_when uses.
-            if is_required and not option_key_is_present(spec, key, effective_options):
-                return key
-        return None
-
-    @classmethod
-    def _match_guard_rejection_reason(cls, options: Options, property_mapping: dict[str, Any]) -> str | None:
-        """Formatted reason for the first match_guard rejection of a present value, or None."""
-        for key, spec in property_mapping.items():
-            if not isinstance(spec, PropertySpec):
-                continue
-            guard = spec.match_guard
-            if guard is None:
-                continue
-            value = options.get(key)
-            if value is None:
-                continue
-            if cls._guard_accepts(guard, value):
-                continue
-            # Multi-element with every element accepted, where a flat list is also rejected, is an
-            # arity error, so the arity is named. A nested singleton or a container-type rejection
-            # falls through as a real guard rejection; the match verdict is a plain non-match either way.
-            if (
-                isinstance(value, (list, tuple, set, frozenset))
-                and len(value) > 1
-                and all(cls._guard_accepts(guard, element) for element in value)
-                and not cls._guard_accepts(guard, list(value))
-            ):
-                return f"option '{key}' accepts exactly one value, got {len(value)} elements: {_safe_repr(value)}"
-            guard_name = getattr(guard, "__name__", repr(guard))
-            return f"match_guard '{guard_name}' for option '{key}' rejected value {_safe_repr(value)}"
-        return None
-
-    @staticmethod
-    def _guard_accepts(guard: Callable[[Any], Any], value: Any) -> bool:
-        """Run one guard, treating a raised TypeError/ValueError/AttributeError as rejection."""
-        try:
-            return bool(guard(value))
-        except (TypeError, ValueError, AttributeError):
-            return False
+# Deprecated alias: released leaves still import this name.
+RejectionReasonMixin = FeatureChainParserMixin

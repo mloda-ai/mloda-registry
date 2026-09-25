@@ -4,11 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureGroup, FeatureSet, property_spec
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureChainParser,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    property_spec,
+)
 from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import (
-    RejectionReasonMixin,
+    COLUMN_REF_EXPECTED,
+    IN_FEATURES_EXPECTED,
+    OP_TOKEN_EXPECTED,
     column_ref_value,
     is_column_ref,
     is_in_features_value,
@@ -44,7 +53,7 @@ def _is_supported_rank_type(value: object) -> bool:
     return False
 
 
-class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup):
+class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGroup):
     """Base class for rank operations that preserve row count.
 
     Rank operations assign a rank or position to each row within a
@@ -145,11 +154,13 @@ class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup
             allowed_values=RANK_TYPES,
             element_validator=_is_supported_rank_type,
             match_guard=is_op_token,
+            expected=OP_TOKEN_EXPECTED,
         ),
         DefaultOptionKeys.in_features: property_spec(
             "Source feature for rank ordering",
             strict=False,
             match_guard=is_in_features_value,
+            expected=IN_FEATURES_EXPECTED,
         ),
         PARTITION_BY: property_spec(
             "List of columns to partition by",
@@ -159,6 +170,7 @@ class RankFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup
             "Column to order by within each partition",
             strict=False,
             match_guard=is_column_ref,
+            expected=COLUMN_REF_EXPECTED,
         ),
     }
 

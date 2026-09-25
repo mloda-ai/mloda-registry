@@ -46,10 +46,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureGroup, FeatureSet, property_spec
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureChainParser,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    property_spec,
+)
 from mloda.user import Feature, FeatureName, Options
 
-from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, column_ref_value, is_column_ref
+from mloda.community.feature_groups.data_operations.base import (
+    COLUMN_REF_EXPECTED,
+    column_ref_value,
+    is_column_ref,
+)
 
 # Supported sessionization units mapped to their length in seconds. The four
 # keys also define the units accepted by the feature-name regex.
@@ -99,7 +110,7 @@ def _sessionize_threshold_seconds(n: int, unit: str) -> int:
     return n * SESSIONIZATION_UNITS[unit]
 
 
-class SessionizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for gap-threshold sessionization operations that preserve row count."""
 
     PREFIX_PATTERN = r".*__(sessionize_\d+_(?:minute|hour|day|week))$"
@@ -125,6 +136,7 @@ class SessionizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
             strict=False,
             default=None,
             match_guard=is_column_ref,
+            expected=COLUMN_REF_EXPECTED,
         ),
     }
 
