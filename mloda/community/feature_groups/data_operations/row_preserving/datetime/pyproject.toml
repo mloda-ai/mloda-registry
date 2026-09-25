@@ -20,9 +20,9 @@ pyarrow = ["pyarrow"]
 sqlite = []
 python_dict = []
 duckdb = ["duckdb"]
-polars = ["polars"]
+polars = ["polars>=1.21"]
 pandas = ["pandas"]
-all = ["pyarrow", "polars", "pandas", "duckdb"]
+all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"]
 
 [project.urls]
 Homepage = "https://mloda.ai"

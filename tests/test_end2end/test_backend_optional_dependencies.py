@@ -100,6 +100,10 @@ def _registered_backends(manifest_path: Path) -> set[str]:
 
 _LEAF_PACKAGES = _leaf_packages()
 assert _LEAF_PACKAGES, "no data_operations leaf packages found under config/packages.toml; guard is vacuous"
+_POLARS_LEAF_PACKAGES = [
+    (name, entry) for name, entry in _LEAF_PACKAGES if "polars" in entry.get("optional_dependencies", {})
+]
+assert _POLARS_LEAF_PACKAGES, "no data_operations leaf packages declare a polars extra; guard is vacuous"
 
 
 @pytest.mark.parametrize("package_name,entry", _LEAF_PACKAGES, ids=[name for name, _ in _LEAF_PACKAGES])
@@ -123,3 +127,12 @@ def test_leaf_package_extras_match_registered_backends(package_name: str, entry:
 
     expected_all = {dep for backend in backends & _PACKAGED_BACKENDS for dep in actual[backend]}
     assert set(actual.get("all", [])) == expected_all, f"{package_name}: 'all' extra must match its packaged backends"
+
+
+@pytest.mark.parametrize("package_name,entry", _POLARS_LEAF_PACKAGES, ids=[name for name, _ in _POLARS_LEAF_PACKAGES])
+def test_polars_leaf_package_extras_require_minimum_version(package_name: str, entry: dict[str, Any]) -> None:
+    extras = entry["optional_dependencies"]
+    expected = ["polars>=1.21"]
+    assert extras["polars"] == expected, f"{package_name}: polars extra must require polars>=1.21"
+    all_polars = [dep for dep in extras["all"] if _dep_name(dep) == "polars"]
+    assert all_polars == expected, f"{package_name}: all extra must require the same polars>=1.21 floor"
