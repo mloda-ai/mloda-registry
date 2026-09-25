@@ -14,6 +14,7 @@ import logging
 import pickle  # nosec
 import threading
 import time
+import uuid
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any, ClassVar
@@ -22,7 +23,8 @@ from unittest.mock import Mock
 import pytest
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
 from mloda.provider import FeatureGroup, FeatureSet
-from mloda.steward import Extender, ExtenderHook
+from mloda.steward import CompositeExtender, Extender, ExtenderHook
+from mloda.user import ParallelizationMode
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -35,11 +37,13 @@ from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.otel import (
     OtelExtenderTestMixin,
     RebuildingSpanCaptureProvider,
+    inject_parent_carrier,
     make_span_capture,
+    read_span_records,
     single_span,
     single_span_attributes,
 )
-from mloda.testing.extenders.runners import expected_value_int, run_csv_feature, run_value_int
+from mloda.testing.extenders.runners import CountingExtender, expected_value_int, run_csv_feature, run_value_int
 
 # The one attribute key that MUST carry content preview.
 _CONTENT_ATTRIBUTE = "mloda.content.preview"
@@ -1222,34 +1226,55 @@ class _DeclaringReader:
         return {"table": "orders_raw"}
 
 
+_DECLARED_ATTRIBUTES_CHAINS = ["direct", "otel-inner", "otel-outer"]
+
+
+def _chained_call(otel: OtelExtender, chain: str) -> tuple[Extender, CountingExtender | None]:
+    """direct: otel called alone. Otherwise CompositeExtender([otel, counting]), with otel inner or
+    outer; the two unwrap a different number of wrapper levels before reaching the owning class."""
+    if chain == "direct":
+        return otel, None
+    counting = CountingExtender()
+    counting.priority = 50 if chain == "otel-inner" else 200
+    return CompositeExtender([otel, counting]), counting
+
+
 class TestOtelExtenderDeclaredAttributes:
     """mloda.declared.<key> attributes from a declared_attributes classmethod on the owning class."""
 
+    @pytest.mark.parametrize("chain", _DECLARED_ATTRIBUTES_CHAINS)
     def test_declared_attributes_set_on_calculate_span_and_classmethod_receives_feature_set(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], chain: str
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider)
+        call, counting = _chained_call(otel, chain)
         features = FeatureSet()
         _DeclaringFeatureGroup.received_feature_sets = []
 
         with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
-            otel(_DeclaringFeatureGroup.calculate_feature, None, features)
+            call(_DeclaringFeatureGroup.calculate_feature, None, features)
 
         assert single_span_attributes(exporter)["mloda.declared.dataset"] == "orders"
         assert _DeclaringFeatureGroup.received_feature_sets == [features]
+        if counting is not None:
+            assert counting.calls == 1
 
+    @pytest.mark.parametrize("chain", _DECLARED_ATTRIBUTES_CHAINS)
     def test_declared_attributes_set_on_load_span_from_reader_classmethod(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], chain: str
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider)
+        call, counting = _chained_call(otel, chain)
         features = FeatureSet()
 
         with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD).activate():
-            otel(_DeclaringReader.load_data, "s3://bucket/key.parquet", features)
+            call(_DeclaringReader.load_data, "s3://bucket/key.parquet", features)
 
         assert single_span_attributes(exporter)["mloda.declared.table"] == "orders_raw"
+        if counting is not None:
+            assert counting.calls == 1
 
     def test_declared_attributes_absent_on_validate_spans(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
@@ -1538,27 +1563,62 @@ class TestOtelExtenderRunAll:
             assert span.attributes.get("mloda.feature.name") == "value_int"
             assert span.attributes.get("mloda.compute_framework.name") == "PyArrowTable"
 
+    @pytest.mark.parametrize("mode", [ParallelizationMode.SYNC, ParallelizationMode.MULTIPROCESSING])
+    @pytest.mark.parametrize("parenting", ["run_id", "carrier"])
     def test_run_csv_feature_produces_a_load_span_child_of_the_calculate_span(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], tmp_path: Path
+        self,
+        tmp_path: Path,
+        mode: ParallelizationMode,
+        parenting: str,
+        request: pytest.FixtureRequest,
     ) -> None:
-        provider, exporter = otel_capture
+        # RebuildingSpanCaptureProvider is picklable (unlike otel_capture's SDK TracerProvider), so it
+        # survives into a real spawned MULTIPROCESSING worker.
+        marker_path = tmp_path / "spans.jsonl"
+        provider = RebuildingSpanCaptureProvider(marker_path=marker_path, records=True)
+        flight_server = (
+            request.getfixturevalue("flight_server") if mode == ParallelizationMode.MULTIPROCESSING else None
+        )
 
-        assert run_csv_feature(tmp_path, OtelExtender(tracer_provider=provider)) == [1, 3]
+        carrier: dict[str, str] | None = None
+        carrier_trace_id: int | None = None
+        carrier_span_id: int | None = None
+        if parenting == "carrier":
+            carrier, carrier_trace_id, carrier_span_id = inject_parent_carrier()
 
-        spans = exporter.get_finished_spans()
-        calculate_spans = [span for span in spans if span.name == "mloda.calculate"]
-        load_spans = [span for span in spans if span.name == "mloda.load"]
-        assert len(calculate_spans) == 1, spans
-        assert len(load_spans) == 1, spans
-        calculate_span, load_span = calculate_spans[0], load_spans[0]
+        result = run_csv_feature(
+            tmp_path,
+            OtelExtender(tracer_provider=provider),
+            parallelization_modes={mode},
+            flight_server=flight_server,
+            carrier=carrier,
+        )
 
-        assert calculate_span.context is not None
-        assert load_span.context is not None
-        assert load_span.context.trace_id == calculate_span.context.trace_id
-        assert load_span.parent is not None
-        assert load_span.parent.span_id == calculate_span.context.span_id
+        assert result == [1, 3]
 
-        load_attrs = load_span.attributes or {}
+        assert marker_path.exists(), "no span records written; the extender never emitted through the injected provider"
+        records = read_span_records(marker_path)
+        calculate_records = [record for record in records if record["name"] == "mloda.calculate"]
+        load_records = [record for record in records if record["name"] == "mloda.load"]
+        assert len(calculate_records) == 1, records
+        assert len(load_records) == 1, records
+        calculate_record, load_record = calculate_records[0], load_records[0]
+
+        assert load_record["trace_id"] == calculate_record["trace_id"], records
+        assert load_record["parent_span_id"] == calculate_record["span_id"], records
+
+        if parenting == "run_id":
+            run_id = calculate_record["attributes"]["mloda.run.id"]
+            assert calculate_record["trace_id"] == uuid.UUID(run_id).int, records
+        else:
+            assert calculate_record["trace_id"] == carrier_trace_id, records
+            assert calculate_record["parent_span_id"] == carrier_span_id, records
+
+        if mode == ParallelizationMode.MULTIPROCESSING:
+            assert "mloda.subprocess.worker_index" in calculate_record["attributes"], calculate_record
+            assert "mloda.subprocess.worker_index" in load_record["attributes"], load_record
+
+        load_attrs = load_record["attributes"]
         assert load_attrs.get("mloda.data_access.format") is not None
         identity = load_attrs.get("mloda.data_access.identity")
         assert isinstance(identity, str) and identity.endswith("data.csv"), load_attrs

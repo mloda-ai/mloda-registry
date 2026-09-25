@@ -268,8 +268,12 @@ class TestRunCsvFeature:
 
     @pytest.mark.parametrize(
         ("keyword", "value"),
-        [("parallelization_modes", {ParallelizationMode.THREADING}), ("flight_server", object())],
-        ids=["parallelization_modes", "flight_server"],
+        [
+            ("parallelization_modes", {ParallelizationMode.THREADING}),
+            ("flight_server", object()),
+            ("carrier", {"traceparent": "00-" + "1" * 32 + "-" + "2" * 16 + "-01"}),
+        ],
+        ids=["parallelization_modes", "flight_server", "carrier"],
     )
     def test_forwards_the_run_keywords_to_run_all(self, tmp_path: Path, keyword: str, value: Any) -> None:
         table = pa.table({"alpha": [1, 3]})

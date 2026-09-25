@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -50,6 +51,12 @@ def single_span_attributes(exporter: InMemorySpanExporter) -> Mapping[str, Any]:
     return attributes
 
 
+def read_span_records(path: Path) -> list[dict[str, Any]]:
+    """Parse the JSON-lines file written by a records=True FileSpanExporter/RebuildingSpanCaptureProvider."""
+    with open(path, encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]
+
+
 def inject_parent_carrier() -> tuple[dict[str, str], int, int]:
     """Start a span on a throwaway capture provider and inject it into a W3C traceparent carrier."""
     provider, _ = make_span_capture()
@@ -78,16 +85,31 @@ def _tracer_provider_resolution_spy() -> Iterator[list[Any]]:
 
 
 class FileSpanExporter(SpanExporter):
-    """Appends one line per finished span name to marker_path, so a span can be observed from
-    inside a real spawned worker process."""
+    """Appends one line per finished span to marker_path, so a span can be observed from inside a real
+    spawned worker process. records=True writes a JSON record instead of the bare span name."""
 
-    def __init__(self, marker_path: Path) -> None:
+    def __init__(self, marker_path: Path, records: bool = False) -> None:
         self._marker_path = marker_path
+        self._records = records
 
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
-        with open(self._marker_path, "a") as handle:
-            for span in spans:
-                handle.write(f"{span.name}\n")
+        lines = []
+        for span in spans:
+            if self._records:
+                context = span.context
+                parent = span.parent
+                record = {
+                    "name": span.name,
+                    "trace_id": context.trace_id if context is not None else None,
+                    "span_id": context.span_id if context is not None else None,
+                    "parent_span_id": parent.span_id if parent is not None else None,
+                    "attributes": dict(span.attributes) if span.attributes is not None else {},
+                }
+                lines.append(f"{json.dumps(record)}\n")
+            else:
+                lines.append(f"{span.name}\n")
+        with open(self._marker_path, "a", encoding="utf-8") as handle:
+            handle.write("".join(lines))
         return SpanExportResult.SUCCESS
 
     def shutdown(self) -> None:
@@ -117,11 +139,14 @@ class RebuildingSpanCaptureProvider(ApiTracerProvider):
 
     batch=True wires a BatchSpanProcessor with a schedule_delay_millis (BATCH_SCHEDULE_DELAY_MILLIS)
     long enough to never fire within a test, so a span stays buffered until an explicit force_flush()
-    drains it, proving a real worker's close() actually flushed rather than merely emitted."""
+    drains it, proving a real worker's close() actually flushed rather than merely emitted.
 
-    def __init__(self, marker_path: Path | None = None, batch: bool = False) -> None:
+    records=True writes each finished span as a JSON record (see FileSpanExporter) instead of a bare name."""
+
+    def __init__(self, marker_path: Path | None = None, batch: bool = False, records: bool = False) -> None:
         self._marker_path = marker_path
         self._batch = batch
+        self._records = records
         self._sdk_provider: TracerProvider | None = None
 
     def get_tracer(
@@ -134,7 +159,7 @@ class RebuildingSpanCaptureProvider(ApiTracerProvider):
         if self._sdk_provider is None:
             self._sdk_provider = TracerProvider(shutdown_on_exit=False)
             exporter: SpanExporter = (
-                FileSpanExporter(self._marker_path)
+                FileSpanExporter(self._marker_path, records=self._records)
                 if self._marker_path is not None
                 else _ClassAccumulatorSpanExporter()
             )
@@ -155,11 +180,12 @@ class RebuildingSpanCaptureProvider(ApiTracerProvider):
         return self._sdk_provider.force_flush(timeout_millis=timeout_millis)
 
     def __getstate__(self) -> dict[str, Any]:
-        return {"_marker_path": self._marker_path, "_batch": self._batch}
+        return {"_marker_path": self._marker_path, "_batch": self._batch, "_records": self._records}
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self._marker_path = state["_marker_path"]
         self._batch = state.get("_batch", False)
+        self._records = state.get("_records", False)
         self._sdk_provider = None
 
 

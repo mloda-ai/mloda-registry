@@ -28,6 +28,7 @@ from mloda.testing.extenders.otel import (
     inject_parent_carrier,
     make_picklable_span_capture,
     make_span_capture,
+    read_span_records,
     single_span,
     single_span_attributes,
 )
@@ -176,7 +177,47 @@ class TestRebuildingSpanCaptureProviderBatch:
         assert copy._marker_path == marker_path
 
 
+class TestRecordModeSpanCapture:
+    """records=True: FileSpanExporter/RebuildingSpanCaptureProvider write one JSON record per finished span
+    instead of a bare name; read_span_records parses those lines back."""
+
+    def test_parent_and_child_span_records_round_trip_with_attributes(self, tmp_path: Path) -> None:
+        marker_path = tmp_path / "spans.jsonl"
+        provider = RebuildingSpanCaptureProvider(marker_path=marker_path, records=True)
+        tracer = provider.get_tracer("test-extenders-otel-records")
+
+        with tracer.start_as_current_span("parent-span") as parent_span:
+            parent_span.set_attribute("probe.key", "probe-value")
+            with tracer.start_as_current_span("child-span"):
+                pass
+
+        records = read_span_records(marker_path)
+        assert {record["name"] for record in records} == {"parent-span", "child-span"}
+
+        parent_record = next(record for record in records if record["name"] == "parent-span")
+        child_record = next(record for record in records if record["name"] == "child-span")
+
+        assert parent_record["trace_id"] == child_record["trace_id"]
+        assert parent_record["parent_span_id"] is None
+        assert child_record["parent_span_id"] == parent_record["span_id"]
+        assert parent_record["attributes"]["probe.key"] == "probe-value"
+
+    def test_records_survives_a_pickle_round_trip(self, tmp_path: Path) -> None:
+        marker_path = tmp_path / "spans.jsonl"
+        provider = RebuildingSpanCaptureProvider(marker_path=marker_path, records=True)
+
+        copy = pickle.loads(pickle.dumps(provider))  # nosec
+        tracer = copy.get_tracer("test-extenders-otel-records")
+        with tracer.start_as_current_span("after-pickle-span"):
+            pass
+
+        records = read_span_records(marker_path)
+        assert [record["name"] for record in records] == ["after-pickle-span"]
+
+
 class _RealOtelExtenderHost(OtelExtenderTestMixin):
+    """Wires the mixin to the real OtelExtender; reused by mixin self-tests below."""
+
     @classmethod
     def extender_class(cls) -> type[OtelExtender]:
         return OtelExtender
@@ -271,8 +312,8 @@ class TestOwnFailureDefaultDetectsNoFault:
 
 
 class TestQueryStringIdentityContract:
-    """Proves the user-information contract test fails for an extender that leaks user information into a span
-    attribute, whole or with only the password masked."""
+    """Proves the identity contract test fails for an extender that leaks user information into a span
+    attribute (whole or with only the password masked) or records the raw identity."""
 
     @pytest.mark.parametrize(
         ("host_class", "resolver", "message"),
@@ -305,3 +346,14 @@ class TestQueryStringIdentityContract:
 
         with pytest.raises(AssertionError, match=message):
             host_class().test_otel_input_data_load_query_string_never_reaches_span_attributes()
+
+    def test_raw_identity_recording_is_detected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Patches _set_load_attributes, not the resolver: the raw identity contains '=', which
+        # _UNSAFE_IDENTITY_CHARS would just drop.
+        def _record_raw_identity(span: Any, context: HookContext, args: tuple[Any, ...]) -> None:
+            span.set_attribute("mloda.data_access.identity", context.data_access_identity)
+
+        monkeypatch.setattr("mloda.community.extenders.otel.otel_extender._set_load_attributes", _record_raw_identity)
+
+        with pytest.raises(AssertionError, match="SENSITIVE_QUERY_VALUE_xyz123"):
+            _RealOtelExtenderHost().test_otel_input_data_load_query_string_never_reaches_span_attributes()
