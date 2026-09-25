@@ -75,6 +75,14 @@ class TestPatternMatching:
     def test_match_by_name(self, feature_name: str, expected: bool) -> None:
         assert PandasSessionization.match_feature_group_criteria(feature_name, _match_options()) is expected
 
+    def test_config_source_without_sessionize_token_does_not_match(self) -> None:
+        options = Options(context={"in_features": "value_int"})
+        assert PandasSessionization.match_feature_group_criteria("my_result", options) is False
+
+    def test_name_based_feature_still_matches_with_source_option(self) -> None:
+        options = Options(context={"in_features": "value_int", "order_by": "ts", "partition_by": ["user"]})
+        assert PandasSessionization.match_feature_group_criteria(SESSIONIZE_FEATURE_NAME, options) is True
+
     def test_n_zero_matches_regex_but_rejected_at_parse(self) -> None:
         """``sessionize_0_minute`` matches the ``\\d+`` regex but n=0 is rejected at parse time.
 
