@@ -119,7 +119,9 @@ exclude_dirs = [
     "*.egg-info/*",
     "*/*.egg-info/*",
     "site-packages/*",
-    "*/site-packages/*"
+    "*/site-packages/*",
+    ".claude/worktrees/*",
+    "*/.claude/worktrees/*"
 ]
 skips = [
     "B101", # Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
