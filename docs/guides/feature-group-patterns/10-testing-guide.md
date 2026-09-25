@@ -109,6 +109,45 @@ def test_derived_feature_isolated():
 
 Use when upstream features are slow (API calls, ML inference) or you need controlled test data.
 
+## Testing What an Import Loads
+
+A packaging check alongside Level 1: which plugin modules an import pulls in and which FeatureGroups it loads (see [Package Layout](../04-create-plugin-package.md#package-layout-and-import-time-discovery)). Probe a fresh interpreter, because the test process has already imported every FeatureGroup:
+
+```python
+import json
+import subprocess
+import sys
+from typing import Any
+
+_PROBE = """
+import json, sys
+import {module}
+report = {{"mloda": "mloda" in sys.modules, "modules": sorted(m for m in sys.modules if m.startswith("acme."))}}
+from mloda.provider import FeatureGroup, get_all_subclasses
+report["groups"] = sorted(fg.__name__ for fg in get_all_subclasses(FeatureGroup) if fg.__module__.startswith("acme."))
+print(json.dumps(report))
+"""
+
+
+def _import_report(module: str) -> dict[str, Any]:
+    probe = [sys.executable, "-c", _PROBE.format(module=module)]
+    return json.loads(subprocess.run(probe, check=True, capture_output=True, text=True).stdout)
+
+
+def test_helper_import_loads_no_mloda() -> None:
+    assert _import_report("acme.core.parsers") == {
+        "mloda": False,
+        "modules": ["acme.core", "acme.core.parsers"],
+        "groups": [],
+    }
+
+
+def test_plugin_import_loads_only_its_groups() -> None:
+    assert _import_report("acme.feature_groups.my_plugin")["groups"] == ["MyFeatureGroup"]
+```
+
+`get_all_subclasses` also returns abstract bases, so list those in the expected groups too.
+
 ## Testing by Pattern
 
 | Pattern | Level 1 Focus | Level 2 Focus |

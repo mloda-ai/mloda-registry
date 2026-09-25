@@ -32,6 +32,24 @@ placeholder/
     └── my_extender/
 ```
 
+## Package Layout and Import-Time Discovery
+
+mloda resolves a feature against every FeatureGroup subclass loaded in the process, so a FeatureGroup becomes a candidate as soon as the module defining it is imported (`MLODA_PLUGIN_REGISTRY_STRICT=strict` additionally drops groups missing from the explicit plugin registry). Python runs every parent package's `__init__.py` before a submodule, and the template's `my_plugin/__init__.py` imports `MyFeatureGroup`. A helper subpackage under it, such as `my_plugin/core/parsers.py`, therefore loads mloda and `MyFeatureGroup` whenever anything imports the parser.
+
+Keep plain logic (parsers, crosswalks, arithmetic) in a sibling package that imports neither mloda nor a FeatureGroup module:
+
+```text
+acme/
+├── core/                        # plain logic, no mloda import
+│   └── parsers.py
+└── feature_groups/
+    └── my_plugin/
+        ├── __init__.py          # imports MyFeatureGroup
+        └── my_feature_group.py  # imports acme.core.parsers
+```
+
+To pin what an import loads, see [Testing What an Import Loads](feature-group-patterns/10-testing-guide.md#testing-what-an-import-loads).
+
 ## Set Up Your Plugin
 
 1. **Rename the namespace** to your organization:
