@@ -33,7 +33,8 @@ A null or NaN row never passes a range, min, max or equal filter; categorical in
 ```python
 import math
 import re
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from mloda.provider import BaseFilterEngine
 

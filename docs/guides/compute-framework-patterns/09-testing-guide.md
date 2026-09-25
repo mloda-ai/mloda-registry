@@ -24,7 +24,7 @@ mloda provides base classes that give you comprehensive tests with minimal code.
 
 ### FilterEngineTestMixin
 
-For filter engine tests. Set `filter_engine_class` and provide the data fixtures and value hooks; the fixture docstrings in the mixin give the exact columns and values:
+For filter engine tests. Set `filter_engine_class` and provide the data fixtures and value hooks; the mixin's tests assert against exactly these values:
 
 ```python
 from decimal import Decimal

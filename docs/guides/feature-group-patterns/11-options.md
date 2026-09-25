@@ -146,7 +146,7 @@ See [`ffill/base.py`](https://github.com/mloda-ai/mloda-registry/blob/main/mloda
 When using `PROPERTY_MAPPING` with `FeatureChainParserMixin`, you can declare validation rules and conditional requirements directly on option entries:
 
 - **`element_validator`**: Validate each parsed element with a callable (requires `strict=True`). A falsy return raises `ValueError`, which the mixin turns into a non-match plus a rejection reason in the resolution error.
-- **`match_guard`**: Check the raw option value with a callable (no `strict_validation` needed). Useful for composite types like lists or dicts. A falsy return is a plain non-match, with no reason reported unless the spec is strict or declares `expected` (a phrase completing "must be ...", such as `expected="a list of column names"`). The rejected value is echoed to the user, so never declare `expected` on a key that can carry a secret.
+- **`match_guard`**: Check the raw option value with a callable (no `strict_validation` needed). Useful for composite types like lists or dicts. A falsy return is a plain non-match, with no reason reported unless the spec is strict or declares `expected` (a phrase completing "must be ...", such as `expected="a list of column names"`). Both echo the rejected value to the user (strict in full, `expected` shortened), so declare neither on a key that can carry a secret.
 - **`required_when`**: Make an option conditionally required based on a predicate callable.
 
 For `element_validator` and membership, the spec declares the arity: `list`, `tuple`, `set` and `frozenset` unpack element-wise and identically, a `str` stays a scalar, and a `dict` is one composite value. `match_guard` still sees the raw value with its original container type.

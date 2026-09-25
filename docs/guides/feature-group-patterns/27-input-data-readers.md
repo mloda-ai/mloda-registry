@@ -79,7 +79,7 @@ Both `GovDataReader` and `UbaAirReader` above accept any `feature_names` uncondi
 
 ## Your Own Root FeatureGroup
 
-`ReadFileFeature` fronts every `ReadFile` subclass. Only a reader family outside `ReadFile` needs its own root group, and its base must derive from `BaseInputData` directly: a `ReadFile`-based family under a second root group matches `ReadFileFeature` too and fails with `Multiple feature groups found`. The root group loads the data in `calculate_feature`, as `ReadFileFeature` does:
+`ReadFileFeature`, `ReadDBFeature` and `ReadDocumentFeature` front every subclass of `ReadFile`, `ReadDB` and `ReadDocument`, HTTP readers built on `ReadFile` included (see [Non-File / HTTP Sources](#non-file--http-sources)). Write your own root group only when the group needs behavior of its own, such as its own `compute_framework_rule()` or domain. Its reader family must derive from `BaseInputData` directly: a family built on a stock base under a second root group also matches the stock root and fails with `Multiple feature groups found`. The root group loads the data in `calculate_feature`, as `ReadFileFeature` does:
 
 ```python
 from typing import Any
@@ -87,29 +87,29 @@ from mloda.provider import BaseInputData, FeatureGroup, FeatureSet
 from mloda.user import Options
 
 
-class ApiReader(BaseInputData):
+class WarehouseReader(BaseInputData):
     """Family base; a feature picks a subclass by its class-name option key."""
 
 
-class WeatherApiReader(ApiReader):
+class SalesTableReader(WarehouseReader):
     @classmethod
     def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any:
-        if isinstance(data_access, str) and data_access.startswith("https://weather."):
+        if isinstance(data_access, str) and data_access.startswith("warehouse://sales"):
             return data_access
         return None
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> Any: ...  # fetch, return the table
+    def load_data(cls, data_access: Any, features: FeatureSet) -> Any: ...  # query, return the table
 
 
-class WeatherFeature(FeatureGroup):
+class WarehouseFeature(FeatureGroup):
     @classmethod
     def input_data(cls) -> BaseInputData | None:
-        return ApiReader()
+        return WarehouseReader()
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return ApiReader().load(features)
+        return WarehouseReader().load(features)
 ```
 
 Core hands a root group no loaded data, so returning `data` instead fails at run time with `ValueError: Data <class 'NoneType'> is not supported by PandasDataFrame` (named after the compute framework in use). A `DataCreator` group is different: it builds its data in `calculate_feature`.

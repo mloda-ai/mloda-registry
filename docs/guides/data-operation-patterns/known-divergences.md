@@ -88,7 +88,7 @@ regression_test:
 
 - **Operations**: `aggregation` (`mode` agg type), `window_aggregation` (`mode` agg type).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/polars_mode_helpers.py` (shared Polars Lazy helpers used by both `polars_lazy_aggregation.py` and `polars_lazy_window_aggregation.py`); Pandas uses the vectorized `compute_mode_winners` helper in `pandas_helpers.py`.
-- **Reference behavior**: `ReferenceAggregation._mode` breaks ties by first occurrence in the input ordering. This is the reference's own convention, not `pc.mode`'s, which returns the smallest value among ties (see [When PyArrow has no kernel](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier)). NaN is not settled yet: the reference counts distinct NaN objects separately (`[1.0, nan, nan]` gives `1.0`), while PythonDict and `pc.mode` count NaN as one value (`nan`); the canonical fixture holds no NaN.
+- **Reference behavior**: `ReferenceAggregation._mode` breaks ties by first occurrence in the input ordering. This is the reference's own convention, not `pc.mode`'s, which returns the smallest value among ties (see [When PyArrow has no kernel](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier)). For NaN the policy follows `pc.mode`, which counts NaN as one value, as PythonDict does (`[1.0, nan, nan]` gives `nan`); the reference does not follow it yet, since it counts distinct NaN objects separately and gives `1.0`. The canonical fixture holds no NaN.
 - **Native framework behavior**: Polars' `.mode()` and Pandas' `.mode()` break ties differently (sorted order / multiple returned values / unspecified).
 - **Mitigation kind**: Implementation fix.
 - **How**: Both frameworks explicitly rank candidate values by `(count desc, first_occurrence_index asc)` and take the head. The Polars Lazy implementation stays inside the lazy / vectorised path: it adds per-`(partition, value)` count and first-index columns via `.over()`, then uses `sort_by([cnt, first_idx], descending=[True, False], maintain_order=True).first()` (no Python callback). On Pandas this is a single vectorized groupby over `(partition_by, value)` that aggregates count and first-occurrence index, avoiding a per-group Python reducer.
@@ -370,7 +370,7 @@ regression_test:
 ### PythonDict `median` does not skip NaN, so a NaN's position decides the result
 
 <!-- machine-checked
-operation: aggregation, resample, window_aggregation, frame_aggregate
+operation: aggregation, window_aggregation, frame_aggregate
 framework: python_dict
 condition: reduce_agg median only filters None, so NaN's input position decides the result; the reference policy skips NaN like pc.quantile, as Pandas does, while DuckDB and Polars sort NaN last
 mitigation_location:
@@ -379,13 +379,13 @@ regression_test:
 - mloda/community/feature_groups/data_operations/tests/test_python_dict_helpers.py::TestReduceAggMedianDoesNotSkipNanDocumentedDivergence::test_median_of_value_and_nan_returns_nan
 -->
 
-- **Operations**: `aggregation`, `resample`, `window_aggregation`, `frame_aggregate` (every PythonDict backend whose `median` agg type routes through `reduce_agg`).
+- **Operations**: `aggregation`, `window_aggregation`, `frame_aggregate` (every PythonDict backend whose `median` agg type routes through `reduce_agg`; `resample` offers no `median`).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/python_dict_helpers.py` (`reduce_agg`'s `median` branch).
-- **Reference behavior**: Under the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier), median follows `pc.quantile(q=0.5)`, which skips NaN like null: `[1.0, nan]` gives `1.0`. `PyArrowScalarAggregate` already does. The aggregation and window_aggregation references (`ReferenceAggregation._median`, and `_median` in `window_aggregation/reference.py`) do not yet: they filter only `None` and sort with Python's `sorted`, so a NaN's input position decides the result (`[1.0, nan]` gives `nan`, `[nan, 1.0, 2.0]` gives `1.0`, `[1.0, 2.0, nan]` gives `2.0`).
+- **Reference behavior**: Under the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier), median follows `pc.quantile(q=0.5)`, which skips NaN like null: `[1.0, nan]` gives `1.0`. `PyArrowScalarAggregate` already does. The aggregation, window_aggregation and frame_aggregate references (`ReferenceAggregation._median`, `_median` in `window_aggregation/reference.py`, and `median` in `aggregation_helpers.py`) do not yet: they filter only `None` and sort with Python's `sorted`, so a NaN's input position decides the result (`[1.0, nan]` gives `nan`, `[nan, 1.0, 2.0]` gives `1.0`, `[1.0, 2.0, nan]` gives `2.0`).
 - **Cross-framework check**: verified directly against each engine: Pandas' `Series.median()` skips NaN like the policy (`1.0` for `[1.0, nan]`, `1.5` for `[nan, 1.0, 2.0]`). DuckDB's `MEDIAN(...)` and Polars' `.median()` sort NaN as the largest value, so NaN surfaces only when it lands in the middle (`nan` for `[1.0, nan]`, `2.0` for `[nan, 1.0, 2.0]`); their `percentile` backends (`QUANTILE_CONT`, `.quantile`) do the same. The canonical fixture holds no NaN, so no cross-framework test sees any of this.
 - **Native PythonDict behavior**: `reduce_agg`'s `non_null` list filters out `None` only; NaN reaches `statistics.median` unfiltered, with the same position dependence as the references. `python_dict_scalar_aggregate.py` computes its median with `statistics.median` too.
-- **Mitigation kind**: Accepted divergence, pending the policy: the aggregation and window references, PythonDict, DuckDB and Polars still have to skip NaN.
-- **How**: The earlier rationale, that PythonDict agrees with DuckDB, Polars and the reference, held only for inputs like `[1.0, nan]`. The policy settles the convention: median skips NaN, like the p50 percentile. Aligning the references and backends is a code change that has not landed yet.
+- **Mitigation kind**: Accepted divergence for now; the code does not follow the policy yet.
+- **How**: The policy settles the convention: median skips NaN, like the p50 percentile. The references above, PythonDict, DuckDB and Polars still have to be aligned; until then no backend can be compared against the reference on NaN input.
 - **Regression signal**: `test_median_of_value_and_nan_returns_nan` pins `reduce_agg("median", [1.0, float("nan")])` to `nan`, the current behavior the policy replaces; the fix flips it to `1.0`.
 
 ### PythonDict `group_key_value` merges `0.0` and `-0.0` into one group
