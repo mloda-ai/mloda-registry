@@ -128,6 +128,21 @@ class SessionizationFeatureGroup(RejectionReasonMixin, FeatureGroup):
         ),
     }
 
+    @classmethod
+    def match_feature_group_criteria(
+        cls,
+        feature_name: Any,
+        options: Any,
+        _data_access_collection: Any = None,
+    ) -> bool:
+        """Require a threshold token in the name before claiming a feature."""
+        operation_config, source_feature = FeatureChainParser.parse_feature_name(
+            str(feature_name), cls._get_prefix_patterns()
+        )
+        if operation_config is None or not source_feature:
+            return False
+        return super().match_feature_group_criteria(feature_name, options, _data_access_collection)
+
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         _feature_name = str(feature_name)
 
