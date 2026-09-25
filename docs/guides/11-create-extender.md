@@ -359,9 +359,7 @@ import my_package.my_extender as my_extender_module
 
 def _module_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
     return [
-        r.getMessage()
-        for r in caplog.records
-        if r.name == my_extender_module.__name__ and r.levelno == logging.WARNING
+        r.getMessage() for r in caplog.records if r.name == my_extender_module.__name__ and r.levelno == logging.WARNING
     ]
 ```
 
