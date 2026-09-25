@@ -115,6 +115,10 @@ class IdentityRequiredError(RuntimeError):
     """Raised by AuditExtender(fail_closed=True) when a required identity is missing."""
 
 
+class SealedRunRefusedError(RuntimeError):
+    """Raised by AuditExtender for a call under a run_id it already sealed or found sealed."""
+
+
 def _error_type(exc: BaseException) -> str:
     return f"{type(exc).__module__}.{type(exc).__qualname__}"
 
@@ -141,12 +145,12 @@ class AuditExtender(Extender):
     Keys may be added within record_version 1; an absent key means not recorded. With audit_path,
     manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
     that just finished. After auto-sealing a run_id, this instance (and a copy pickled after the seal) refuses any
-    further calculation under it with RunAlreadySealedError before writing anything, so re-running a prepared session
+    further calculation under it with SealedRunRefusedError before writing anything, so re-running a prepared session
     (including a retry after a failed run, since a failed run is sealed too) fails fast: prepare a new session instead.
     With raise_on_error=False (fail_closed=False), core instead logs the refusal and runs the call unaudited, as for a
-    sink failure. Another AuditExtender instance is not refused, and its records under a sealed run_id land outside the
-    seal. A fail_closed=True deny record written at plan time is a different, recoverable case:
-    it is refused before setup, so on_run_complete never fires for it and it is never auto-sealed at all
+    sink failure, so that re-run leaves no record for verification to find. Another AuditExtender instance is not
+    refused, and its records under a sealed run_id land outside the seal. A fail_closed=True deny record written at
+    plan time is a different, recoverable case: it is refused before setup, so on_run_complete never fires for it and it is never auto-sealed at all
     (not sealed-with-strays); seal it later with seal_ndjson_runs targeted at that specific run_id (found via
     verify_ndjson_log_coverage(...).unsealed_lines), not a blanket sweep, since a blanket sweep could seal a
     different run that is still live. expected_head anchoring against a deleted or truncated manifest log is
@@ -237,9 +241,9 @@ class AuditExtender(Extender):
         audit file or a run_id with no records is worth a steward's attention). Flushes the sink first, so a
         buffered record reaches the audit file before it is sealed. A pickled or copied instance has no
         signer (see __getstate__): it warns once per copy instead of raising or sealing anything.
-        RunAlreadySealedError is logged at ERROR (the run_id was already sealed and was not sealed again; a record
-        written for it by another writer lies outside the seal); RunNotPendingError is logged at WARNING (recoverable:
-        the run just wrote nothing yet). Neither is raised. A sealed or already-sealed run_id is remembered, so a later
+        RunAlreadySealedError is logged at ERROR (any record written for it after that seal lies outside it,
+        verification reports it); RunNotPendingError is logged at WARNING (recoverable: the run just wrote nothing
+        yet). Neither is raised. A sealed or already-sealed run_id is remembered, so a later
         call under it through this instance is refused. Every other exception, e.g. ManifestVerificationError, is not
         caught here either; core logs it at ERROR and never fails the run because of it, regardless of
         raise_on_error/fail_closed."""
@@ -278,8 +282,7 @@ class AuditExtender(Extender):
             self._sealed_run_ids.add(run_id)
             logger.error(
                 "AuditExtender: run_id %r is already sealed in manifest_path %s and was not sealed again; "
-                "calls under it through this extender are refused from now on, and a record written for it "
-                "by another writer lies outside the seal (verification reports it)",
+                "any record written for it after that seal lies outside it (verification reports it)",
                 run_id,
                 self._manifest_path,
             )
@@ -317,9 +320,9 @@ class AuditExtender(Extender):
             return func(*args, **kwargs)
 
         if context.run_id in self._sealed_run_ids:
-            raise RunAlreadySealedError(
-                f"AuditExtender refused the call: run_id {context.run_id!r} is already sealed by "
-                "auto-sealing; prepare a new session to run again"
+            raise SealedRunRefusedError(
+                f"AuditExtender refused the call: run_id {context.run_id!r} is already sealed in the "
+                "manifest log; prepare a new session to run again"
             )
 
         if self.fail_closed:

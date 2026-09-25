@@ -5,6 +5,7 @@ from mloda.enterprise.extenders.audit.audit_extender import (
     AuditSink,
     IdentityRequiredError,
     NdjsonAuditSink,
+    SealedRunRefusedError,
     TeeAuditSink,
 )
 from mloda.enterprise.extenders.audit.otel_log_sink import OtelLogAuditSink
@@ -43,6 +44,7 @@ __all__ = [
     "QuarantinedLine",
     "RunAlreadySealedError",
     "RunNotPendingError",
+    "SealedRunRefusedError",
     "TeeAuditSink",
     "manifest_hash",
     "quarantine_damaged_lines",

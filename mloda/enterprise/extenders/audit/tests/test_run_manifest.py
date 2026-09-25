@@ -25,8 +25,7 @@ from unittest.mock import patch
 
 import pytest
 from mloda.steward import verified_context
-from mloda.user import ParallelizationMode, PluginCollector, mloda
-from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
+from mloda.user import ParallelizationMode
 
 import mloda.enterprise.extenders.audit as audit_package
 import mloda.enterprise.extenders.audit.audit_extender as audit_extender_module
@@ -44,6 +43,7 @@ from mloda.enterprise.extenders.audit import (
     QuarantinedLine,
     RunAlreadySealedError,
     RunNotPendingError,
+    SealedRunRefusedError,
     TeeAuditSink,
     manifest_hash,
     quarantine_damaged_lines,
@@ -60,8 +60,7 @@ from mloda.enterprise.extenders.audit.tests.test_audit_extender import (
     BufferingNdjsonAuditSink,
     InMemoryAuditSink,
 )
-from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
-from mloda.testing.extenders.runners import expected_value_int, run_value_int
+from mloda.testing.extenders.runners import expected_value_int, prepare_value_int, run_value_int
 from mloda.testing.import_isolation import block_root, evict_package
 
 _KEY = b"k" * 32
@@ -626,6 +625,7 @@ class TestRunManifestPublicApi:
             "ManifestVerificationError",
             "RunNotPendingError",
             "RunAlreadySealedError",
+            "SealedRunRefusedError",
             "seal_run",
             "manifest_hash",
             "verify_manifest",
@@ -654,6 +654,10 @@ class TestRunManifestPublicApi:
 
     def test_run_already_sealed_error_is_a_run_not_pending_error(self) -> None:
         assert issubclass(RunAlreadySealedError, RunNotPendingError)
+
+    def test_sealed_run_refused_error_is_a_runtime_error_but_not_a_value_error(self) -> None:
+        assert issubclass(SealedRunRefusedError, RuntimeError)
+        assert not issubclass(SealedRunRefusedError, ValueError)
 
     def test_append_records_and_canonical_json_come_from_one_shared_private_records_module(self) -> None:
         import mloda.enterprise.extenders.audit._records as records_module
@@ -4514,14 +4518,10 @@ class TestEd25519WithoutCryptography:
         assert Ed25519Signer.from_public_key(public_key, "k").verify(b"payload", signature) is True
 
 
-# (mode, fail_closed) combos for TestRunManifestRunAll; THREADING ignores the unhandled-thread warning a refusal raises.
+# (mode, fail_closed) combos for TestRunManifestRunAll.
 _RUN_ALL_MODE_AND_FAIL_CLOSED = [
     (ParallelizationMode.SYNC, False),
-    pytest.param(
-        ParallelizationMode.THREADING,
-        False,
-        marks=pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning"),
-    ),
+    (ParallelizationMode.THREADING, False),
     (ParallelizationMode.MULTIPROCESSING, False),
     (ParallelizationMode.MULTIPROCESSING, True),
 ]
@@ -4648,6 +4648,7 @@ class TestRunManifestRunAll:
         assert [record["policy_version"] for record in records] == [extender.policy_version] * len(records)
 
     @pytest.mark.parametrize(("mode", "fail_closed"), _RUN_ALL_MODE_AND_FAIL_CLOSED)
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
     def test_run_all_second_run_of_a_prepared_session_is_refused_and_leaves_the_seal_untouched(
         self, mode: ParallelizationMode, fail_closed: bool, tmp_path: Path, request: pytest.FixtureRequest
     ) -> None:
@@ -4668,20 +4669,14 @@ class TestRunManifestRunAll:
         )
 
         with verified_context(tenant_id="tenant-42", project_id="project-7", principal="svc"):
-            session = mloda.prepare(
-                ["value_int"],
-                compute_frameworks={PyArrowTable},
-                plugin_collector=PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator}),
-                function_extender={extender},
-                parallelization_modes={mode},
-            )
+            session = prepare_value_int(extender, parallelization_modes={mode})
             session.run(parallelization_modes={mode}, flight_server=flight_server)
 
             assert len(_read_lines(manifest_path)) == 1
             audit_before = audit_path.read_bytes()
             manifest_before = manifest_path.read_bytes()
 
-            with pytest.raises(RunAlreadySealedError):
+            with pytest.raises(SealedRunRefusedError):
                 session.run(parallelization_modes={mode}, flight_server=flight_server)
 
         assert audit_path.read_bytes() == audit_before
