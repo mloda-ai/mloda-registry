@@ -228,6 +228,8 @@ def input_features(self, options: Options, feature_name: FeatureName) -> set[Fea
     }
 ```
 
+A link on one input is enough from mloda 0.14.0. Older cores register a link only when they reach the Feature carrying it, and `input_features()` returns a set, so when the unlinked sibling is processed first its join key is never injected and the join fails with a missing-column `KeyError`, depending on `PYTHONHASHSEED`. A plugin that still supports mloda below 0.14.0 attaches the same link to every input it joins (equal links deduplicate) or passes it via `mloda.run_all(links=...)`.
+
 ## Multi-Table Join (Aggregate + Left-Join)
 
 ```python
