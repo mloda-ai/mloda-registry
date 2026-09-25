@@ -107,6 +107,36 @@ class TestFfillIntegration(DataOpsIntegrationTestBase):
         options = Options()
         assert not PyArrowFfill.match_feature_group_criteria("my_custom_result", options)
 
+    @pytest.mark.parametrize(
+        ("name", "options_context", "match"),
+        [
+            pytest.param(
+                "value_float__ffill",
+                {"order_by": 123, "partition_by": ["region"]},
+                r"option 'order_by' must be .*got int 123",
+                id="name_path",
+            ),
+            pytest.param(
+                "my_result",
+                {"in_features": "value_float", "order_by": 123, "partition_by": ["region"]},
+                r"option 'order_by' must be .*got int 123",
+                id="config_path",
+            ),
+            pytest.param(
+                "value_float__ffill",
+                {"order_by": ["timestamp", "region"]},
+                r"option 'order_by' must be exactly one.*got list",
+                id="arity",
+            ),
+        ],
+    )
+    def test_guard_rejected_order_by_reported_at_discovery(
+        self, name: str, options_context: dict[str, Any], match: str
+    ) -> None:
+        """A mistyped or multi-element order_by must be named in the run_all resolution error."""
+        with pytest.raises(ValueError, match=match):
+            self._run_single_feature(name, options_context)
+
 
 class TestFfillRequiredOrderBy:
     """ffill requires ``order_by``: a feature missing it must NOT match at discovery."""

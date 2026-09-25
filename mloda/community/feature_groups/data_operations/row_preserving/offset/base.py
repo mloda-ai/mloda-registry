@@ -4,11 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureGroup, FeatureSet, property_spec
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureChainParser,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    property_spec,
+)
 from mloda.user import DataType, Feature
 
 from mloda.community.feature_groups.data_operations.base import (
-    RejectionReasonMixin,
+    COLUMN_REF_EXPECTED,
+    IN_FEATURES_EXPECTED,
+    OP_TOKEN_EXPECTED,
     column_ref_value,
     is_column_ref,
     is_in_features_value,
@@ -41,7 +50,7 @@ def _is_supported_offset_type(value: object) -> bool:
     return False
 
 
-class OffsetFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for offset operations that preserve row count.
 
     Offset operations access values at a fixed offset from the current row
@@ -130,11 +139,13 @@ class OffsetFeatureGroup(RejectionReasonMixin, FeatureGroup):
             allowed_values=OFFSET_TYPES,
             element_validator=_is_supported_offset_type,
             match_guard=is_op_token,
+            expected=OP_TOKEN_EXPECTED,
         ),
         DefaultOptionKeys.in_features: property_spec(
             "Source feature for offset operation",
             strict=False,
             match_guard=is_in_features_value,
+            expected=IN_FEATURES_EXPECTED,
         ),
         PARTITION_BY: property_spec(
             "List of columns to partition by",
@@ -144,6 +155,7 @@ class OffsetFeatureGroup(RejectionReasonMixin, FeatureGroup):
             "Column to order by within each partition",
             strict=False,
             match_guard=is_column_ref,
+            expected=COLUMN_REF_EXPECTED,
         ),
     }
 

@@ -4,10 +4,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureGroup, FeatureSet, property_spec
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureChainParser,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    property_spec,
+)
 from mloda.user import DataType, Feature
 
-from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, is_op_token, op_token_value
+from mloda.community.feature_groups.data_operations.base import (
+    OP_TOKEN_EXPECTED,
+    is_op_token,
+    op_token_value,
+)
 
 STRING_OPS = {
     "upper": "Convert string to uppercase",
@@ -18,7 +29,7 @@ STRING_OPS = {
 }
 
 
-class StringFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class StringFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for element-wise string operations that preserve row count.
 
     String operations transform a single string column element by element.
@@ -69,6 +80,7 @@ class StringFeatureGroup(RejectionReasonMixin, FeatureGroup):
             strict=True,
             allowed_values=STRING_OPS,
             match_guard=is_op_token,
+            expected=OP_TOKEN_EXPECTED,
         ),
         DefaultOptionKeys.in_features: property_spec(
             "Source string column",

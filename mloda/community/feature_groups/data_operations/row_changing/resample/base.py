@@ -38,11 +38,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureGroup, FeatureSet, property_spec
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureChainParser,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    property_spec,
+)
 from mloda.user import DataType, Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.base import (
-    RejectionReasonMixin,
+    COLUMN_REF_EXPECTED,
     always_required,
     column_ref_value,
     is_column_ref,
@@ -112,7 +119,7 @@ def _is_valid_resample_op(value: object) -> bool:
     return True
 
 
-class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for resample operations that CHANGE the row count.
 
     Subclasses must implement ``_compute_resample`` (the backend-specific
@@ -145,11 +152,13 @@ class ResampleFeatureGroup(RejectionReasonMixin, FeatureGroup):
         TIME_COLUMN: property_spec(
             "Column to floor into fixed-freq buckets",
             match_guard=is_column_ref,
+            expected=COLUMN_REF_EXPECTED,
             required_when=always_required,
         ),
         RESAMPLE_OP: property_spec(
             "Resample token '{n}_{unit}_{agg}' (e.g. '1_hour_mean') when the op is not encoded in the feature name.",
             match_guard=_is_valid_resample_op,
+            expected="exactly one '{n}_{unit}_{agg}' resample token (e.g. '1_hour_mean')",
         ),
     }
 

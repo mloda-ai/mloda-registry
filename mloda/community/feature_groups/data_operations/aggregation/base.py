@@ -10,7 +10,7 @@ from mloda.community.feature_groups.data_operations.aggregation_base import (
     AGGREGATION_TYPES,
     AggregationFeatureGroupBase,
 )
-from mloda.community.feature_groups.data_operations.base import is_op_token
+from mloda.community.feature_groups.data_operations.base import OP_TOKEN_EXPECTED, is_op_token
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 
@@ -93,6 +93,7 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase):
             strict=True,
             allowed_values=AGGREGATION_TYPES,
             match_guard=is_op_token,
+            expected=OP_TOKEN_EXPECTED,
         ),
         DefaultOptionKeys.in_features: property_spec(
             "Source feature for aggregation",

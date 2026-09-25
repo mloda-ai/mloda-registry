@@ -29,6 +29,8 @@ from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureSet, pr
 from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.base import (
+    OP_TOKEN_EXPECTED,
+    SCALAR_NUMBER_EXPECTED,
     is_number_element,
     is_op_token,
     is_scalar_number,
@@ -59,6 +61,7 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
             strict=True,
             allowed_values=ARITHMETIC_OPERATIONS,
             match_guard=is_op_token,
+            expected=OP_TOKEN_EXPECTED,
         ),
         DefaultOptionKeys.in_features: property_spec(
             "Single source feature column for the arithmetic operation",
@@ -69,6 +72,7 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
             strict=True,
             element_validator=is_number_element,
             match_guard=is_scalar_number,
+            expected=SCALAR_NUMBER_EXPECTED,
             deferred_binding=True,
         ),
     }

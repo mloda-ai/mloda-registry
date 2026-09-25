@@ -9,20 +9,21 @@ import re
 from typing import Any
 
 from mloda.core.abstract_plugins.components.utils import escalate_match_abort  # no public equivalent yet
-from mloda.provider import DefaultOptionKeys, FeatureGroup, FeatureSet, property_spec, record_match_rejection
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    property_spec,
+    record_match_rejection,
+)
 from mloda.user import DataType, Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.base import (
-    FRAME_SIZE as _FRAME_SIZE_KEY,
-)
-from mloda.community.feature_groups.data_operations.base import (
-    FRAME_TYPE as _FRAME_TYPE_KEY,
-)
-from mloda.community.feature_groups.data_operations.base import (
-    FRAME_UNIT as _FRAME_UNIT_KEY,
-)
-from mloda.community.feature_groups.data_operations.base import (
-    RejectionReasonMixin,
+    COLUMN_REF_EXPECTED,
+    IN_FEATURES_EXPECTED,
+    OP_TOKEN_EXPECTED,
+    POSITIVE_INT_EXPECTED,
     always_required,
     column_ref_value,
     is_column_ref,
@@ -32,6 +33,15 @@ from mloda.community.feature_groups.data_operations.base import (
     op_token_value,
     option_value,
     positive_int_value,
+)
+from mloda.community.feature_groups.data_operations.base import (
+    FRAME_SIZE as _FRAME_SIZE_KEY,
+)
+from mloda.community.feature_groups.data_operations.base import (
+    FRAME_TYPE as _FRAME_TYPE_KEY,
+)
+from mloda.community.feature_groups.data_operations.base import (
+    FRAME_UNIT as _FRAME_UNIT_KEY,
 )
 from mloda.community.feature_groups.data_operations.capability_hook import SubtypeCapabilityHook
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
@@ -126,7 +136,7 @@ def _parse_frame_feature_cached(feature_name: str) -> dict[str, Any] | None:
     return None
 
 
-class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, FeatureGroup):
+class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGroup):
     """Base class for frame aggregate operations that preserve row count.
 
     Frame aggregation computes an aggregate over a sliding or expanding window
@@ -224,6 +234,7 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
             strict=True,
             allowed_values={k: k for k in _AGGREGATION_TYPES},
             match_guard=is_op_token,
+            expected=OP_TOKEN_EXPECTED,
         ),
         FRAME_TYPE: property_spec(
             "Frame semantics of the window",
@@ -235,6 +246,7 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
                 "expanding": "Same as cumulative",
             },
             match_guard=is_op_token,
+            expected=OP_TOKEN_EXPECTED,
             # A frame name carries its own type via _parse_frame_feature, not a named capture; see
             # _validate_forwarded_frame_mismatch for the forwarded-value protection this loses.
             deferred_binding=True,
@@ -242,6 +254,7 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
         FRAME_SIZE: property_spec(
             "Window size (rows for rolling, integer for time)",
             match_guard=is_positive_int,
+            expected=POSITIVE_INT_EXPECTED,
             # Optional by declaration: conditional requiredness (rolling/time only) is hand-enforced
             # in match_feature_group_criteria's config-path branch, not via required_when. A
             # required_when predicate here would also fire on the name path through core's
@@ -255,12 +268,14 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
             strict=True,
             allowed_values={unit: f"{unit} interval" for unit in sorted(_TIME_UNITS)},
             match_guard=is_op_token,
+            expected=OP_TOKEN_EXPECTED,
             # Same rationale as FRAME_SIZE above: conditional requiredness is hand-enforced below.
             default=None,
         ),
         DefaultOptionKeys.in_features: property_spec(
             "Source feature for frame aggregation",
             match_guard=is_in_features_value,
+            expected=IN_FEATURES_EXPECTED,
         ),
         PARTITION_BY: property_spec(
             "List of columns to partition by",
@@ -268,6 +283,7 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, RejectionReasonMixin, Fe
         ORDER_BY: property_spec(
             "Column to order by within each partition",
             match_guard=is_column_ref,
+            expected=COLUMN_REF_EXPECTED,
             required_when=always_required,
         ),
         MASK_KEY: property_spec(

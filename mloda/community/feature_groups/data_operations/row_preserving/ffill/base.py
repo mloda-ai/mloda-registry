@@ -33,18 +33,25 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureGroup, FeatureSet, property_spec
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureChainParser,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    property_spec,
+)
 from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.base import (
-    RejectionReasonMixin,
+    COLUMN_REF_EXPECTED,
     always_required,
     column_ref_value,
     is_column_ref,
 )
 
 
-class FfillFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class FfillFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for forward-fill-by-time operations that preserve row count.
 
     ffill is a single-op operation (no op/unit matrix). All backends support it
@@ -71,6 +78,7 @@ class FfillFeatureGroup(RejectionReasonMixin, FeatureGroup):
         ORDER_BY: property_spec(
             "Column to order by (ascending) within each partition",
             match_guard=is_column_ref,
+            expected=COLUMN_REF_EXPECTED,
             required_when=always_required,
         ),
     }

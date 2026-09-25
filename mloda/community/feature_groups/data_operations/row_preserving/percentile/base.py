@@ -7,11 +7,18 @@ import os
 from typing import Any
 
 from mloda.core.abstract_plugins.components.utils import escalate_match_abort  # no public equivalent yet
-from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureGroup, FeatureSet, property_spec
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureChainParser,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    property_spec,
+)
 from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.base import (
-    RejectionReasonMixin,
+    SCALAR_NUMBER_EXPECTED,
     is_scalar_number,
     scalar_number_value,
 )
@@ -40,7 +47,7 @@ def _is_unit_interval_element(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and 0.0 <= value <= 1.0
 
 
-class PercentileFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for percentile operations that preserve row count.
 
     Computes a percentile over a partitioned group using PERCENTILE_CONT
@@ -90,6 +97,7 @@ class PercentileFeatureGroup(RejectionReasonMixin, FeatureGroup):
             strict=True,
             element_validator=_is_unit_interval_element,
             match_guard=is_scalar_number,
+            expected=SCALAR_NUMBER_EXPECTED,
             deferred_binding=True,
         ),
         DefaultOptionKeys.in_features: property_spec(

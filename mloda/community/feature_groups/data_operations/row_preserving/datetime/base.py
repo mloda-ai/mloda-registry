@@ -4,10 +4,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureGroup, FeatureSet, property_spec
+from mloda.provider import (
+    DefaultOptionKeys,
+    FeatureChainParser,
+    FeatureChainParserMixin,
+    FeatureGroup,
+    FeatureSet,
+    property_spec,
+)
 from mloda.user import DataType, Feature, FeatureName, Options
 
-from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin, is_op_token, op_token_value
+from mloda.community.feature_groups.data_operations.base import (
+    OP_TOKEN_EXPECTED,
+    is_op_token,
+    op_token_value,
+)
 
 DATETIME_OPS = {
     "year": "Extract year from datetime",
@@ -22,7 +33,7 @@ DATETIME_OPS = {
 }
 
 
-class DateTimeFeatureGroup(RejectionReasonMixin, FeatureGroup):
+class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for element-wise datetime extraction operations.
 
     Extracts scalar integer components from datetime columns. The output
@@ -91,6 +102,7 @@ class DateTimeFeatureGroup(RejectionReasonMixin, FeatureGroup):
             strict=True,
             allowed_values=DATETIME_OPS,
             match_guard=is_op_token,
+            expected=OP_TOKEN_EXPECTED,
         ),
         DefaultOptionKeys.in_features: property_spec(
             "Source datetime column",

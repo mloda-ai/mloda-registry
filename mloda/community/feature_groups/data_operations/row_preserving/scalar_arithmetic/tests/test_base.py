@@ -203,12 +203,7 @@ class TestRejectionReporting:
             assert "constant" in reason
 
     def test_multi_element_constant_reports_an_arity_reason(self) -> None:
-        """A multi-element constant stays a non-match. ``constant`` is a strict_validation spec, so
-        core's own hook already reports the match_guard rejection (the same message the real match
-        pass records via ``_validate_match_guards``); this mixin's own arity-naming diagnostic never
-        gets a turn for a strict spec, matching the documented contract that this hook must keep
-        producing the same messages the match pass records.
-        """
+        """``constant`` is strict, so once it declares ``expected`` the reason is core's expected text."""
         options = Options(
             context={
                 "arithmetic_op": "add",
@@ -219,8 +214,8 @@ class TestRejectionReporting:
         assert ScalarArithmeticFeatureGroup.match_feature_group_criteria("my_result", options, None) is False
         reason = ScalarArithmeticFeatureGroup._strict_validation_rejection_reason("my_result", options)
         assert reason is not None
-        assert "'constant'" in reason
-        assert "rejected by match_guard" in reason
+        assert "option 'constant' must be" in reason
+        assert "got list" in reason
 
 
 class TestSingleColumnEnforcement:
