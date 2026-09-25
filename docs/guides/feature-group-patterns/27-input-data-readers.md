@@ -77,6 +77,43 @@ features = [
 
 Both `GovDataReader` and `UbaAirReader` above accept any `feature_names` unconditionally; see [Decline Names You Cannot Confirm](#decline-names-you-cannot-confirm) below before shipping either as written.
 
+## Your Own Root FeatureGroup
+
+`ReadFileFeature` fronts every `ReadFile` subclass. Only a reader family outside `ReadFile` needs its own root group, and its base must derive from `BaseInputData` directly: a `ReadFile`-based family under a second root group matches `ReadFileFeature` too and fails with `Multiple feature groups found`. The root group loads the data in `calculate_feature`, as `ReadFileFeature` does:
+
+```python
+from typing import Any
+from mloda.provider import BaseInputData, FeatureGroup, FeatureSet
+from mloda.user import Options
+
+
+class ApiReader(BaseInputData):
+    """Family base; a feature picks a subclass by its class-name option key."""
+
+
+class WeatherApiReader(ApiReader):
+    @classmethod
+    def match_subclass_data_access(cls, data_access: Any, feature_names: list[str], options: Options) -> Any:
+        if isinstance(data_access, str) and data_access.startswith("https://weather."):
+            return data_access
+        return None
+
+    @classmethod
+    def load_data(cls, data_access: Any, features: FeatureSet) -> Any: ...  # fetch, return the table
+
+
+class WeatherFeature(FeatureGroup):
+    @classmethod
+    def input_data(cls) -> BaseInputData | None:
+        return ApiReader()
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return ApiReader().load(features)
+```
+
+Core hands a root group no loaded data, so returning `data` instead fails at run time with `ValueError: Data <class 'NoneType'> is not supported by PandasDataFrame` (named after the compute framework in use). A `DataCreator` group is different: it builds its data in `calculate_feature`.
+
 ## Non-File / HTTP Sources
 
 `ReadFile`'s default matching (`match_read_file_data_access`) is file-suffix and directory shaped. For a non-file source (an HTTP endpoint returning JSON), the sanctioned recipe is: subclass `ReadFile`, override `match_subclass_data_access` and `load_data` wholesale. On that path `suffix()` is never consulted (it is inert), so you do not implement it.

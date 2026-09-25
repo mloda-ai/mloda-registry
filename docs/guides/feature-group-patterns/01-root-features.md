@@ -43,6 +43,8 @@ class MyRootFeature(FeatureGroup):
 
 The return shape is a contract, not a style choice. On `PythonDictFramework` it is columnar `dict[str, list]`, and a root feature group must return its columns even when it has no rows: `{"my_column": []}`, never `[]` or `{}`. An empty source directory or a query with no hits is a zero-row result, and a result with zero columns raises `EmptyResultError`. See [calculate_feature](12-calculate-feature.md#return-contract).
 
+A reader that loads real data is not called for you: `calculate_feature` receives `data=None` and must return the reader's `load(features)`. See [Your Own Root FeatureGroup](27-input-data-readers.md#your-own-root-featuregroup).
+
 ## Test
 
 ```python
