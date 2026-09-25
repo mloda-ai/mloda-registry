@@ -47,6 +47,19 @@ def run_value_int(
     raise AssertionError("No result table with value_int found")
 
 
+def prepare_value_int(*extenders: Extender, parallelization_modes: set[ParallelizationMode] | None = None) -> mloda:
+    """Prepare (but do not run) `value_int` through the pipeline with the given extenders; call
+    session.run() to execute it. Optional parallelization_modes forwards straight to mloda.prepare."""
+    plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator})
+    return mloda.prepare(
+        ["value_int"],
+        compute_frameworks={PyArrowTable},
+        plugin_collector=plugin_collector,
+        function_extender=set(extenders),
+        parallelization_modes=parallelization_modes or {ParallelizationMode.SYNC},
+    )
+
+
 def _value_int_plus_one_feature_group() -> type[FeatureGroup]:
     """Build a fresh `ValueIntPlusOne` subclass per call so parallel tests never share state."""
 
