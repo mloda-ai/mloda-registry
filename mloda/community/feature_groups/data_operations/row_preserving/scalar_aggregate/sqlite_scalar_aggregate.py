@@ -51,7 +51,7 @@ class SqliteScalarAggregate(ScalarAggregateFeatureGroup):
 
         source_sql = quoted_source
         if mask_spec is not None:
-            source_sql = build_sql_case_when(mask_spec, quoted_source)
+            source_sql = build_sql_case_when(SqliteFramework.mask_engine(), data, mask_spec, quoted_source)
 
         # No partition_by/order_by: the empty window broadcasts the global aggregate
         # to every row; ordering is irrelevant.

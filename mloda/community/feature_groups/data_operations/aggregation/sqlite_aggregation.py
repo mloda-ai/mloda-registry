@@ -55,7 +55,7 @@ class SqliteAggregation(AggregationFeatureGroup):
 
         source_sql = quoted_source
         if mask_spec is not None:
-            source_sql = build_sql_case_when(mask_spec, quoted_source)
+            source_sql = build_sql_case_when(SqliteFramework.mask_engine(), data, mask_spec, quoted_source)
 
         new_name = _next_table_name()
         sql = (

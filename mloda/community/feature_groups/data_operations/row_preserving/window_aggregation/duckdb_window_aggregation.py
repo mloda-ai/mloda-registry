@@ -61,7 +61,7 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
 
         source_sql = quoted_source
         if mask_spec is not None:
-            source_sql = build_sql_case_when(mask_spec, quoted_source)
+            source_sql = build_sql_case_when(DuckDBFramework.mask_engine(), data, mask_spec, quoted_source)
 
         if agg_type == "nunique":
             result: DuckdbRelation = data.window(

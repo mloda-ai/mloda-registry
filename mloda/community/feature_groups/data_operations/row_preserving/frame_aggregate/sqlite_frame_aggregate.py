@@ -78,7 +78,7 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
         quoted_source = quote_ident(source_col)
         source_sql = quoted_source
         if mask_spec is not None:
-            source_sql = build_sql_case_when(mask_spec, quoted_source)
+            source_sql = build_sql_case_when(SqliteFramework.mask_engine(), data, mask_spec, quoted_source)
         quoted_order = quote_ident(order_by)
 
         if frame_type == "time":
@@ -179,7 +179,7 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
 
         # Build the inner aggregate expression with the ``s.`` alias prefix.
         inner_source = f"s.{quoted_source}"
-        inner_source_sql = build_sql_case_when(mask_spec, inner_source) if mask_spec is not None else inner_source
+        inner_source_sql = build_sql_case_when(SqliteFramework.mask_engine(), data, mask_spec, inner_source) if mask_spec is not None else inner_source
 
         if partition_by:
             partition_eq = " AND ".join(

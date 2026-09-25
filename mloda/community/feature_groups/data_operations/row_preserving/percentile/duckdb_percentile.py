@@ -34,7 +34,7 @@ class DuckdbPercentile(PercentileFeatureGroup):
 
         source_sql = quoted_source
         if mask_spec is not None:
-            source_sql = build_sql_case_when(mask_spec, quoted_source)
+            source_sql = build_sql_case_when(DuckDBFramework.mask_engine(), data, mask_spec, quoted_source)
 
         # Safety: identifiers are quote_ident()-quoted. The percentile value is a
         # Python float validated to [0.0, 1.0] by the base class, so it cannot
