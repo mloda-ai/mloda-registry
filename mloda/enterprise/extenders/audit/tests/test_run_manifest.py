@@ -25,7 +25,8 @@ from unittest.mock import patch
 
 import pytest
 from mloda.steward import verified_context
-from mloda.user import ParallelizationMode
+from mloda.user import ParallelizationMode, PluginCollector, mloda
+from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 import mloda.enterprise.extenders.audit as audit_package
 import mloda.enterprise.extenders.audit.audit_extender as audit_extender_module
@@ -59,6 +60,7 @@ from mloda.enterprise.extenders.audit.tests.test_audit_extender import (
     BufferingNdjsonAuditSink,
     InMemoryAuditSink,
 )
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
 from mloda.testing.import_isolation import block_root, evict_package
 
@@ -4512,18 +4514,24 @@ class TestEd25519WithoutCryptography:
         assert Ed25519Signer.from_public_key(public_key, "k").verify(b"payload", signature) is True
 
 
+# (mode, fail_closed) combinations shared by every TestRunManifestRunAll test below. THREADING ignores
+# PytestUnhandledThreadExceptionWarning: a refusal raised by a worker thread is unhandled from pytest's view.
+_RUN_ALL_MODE_AND_FAIL_CLOSED = [
+    (ParallelizationMode.SYNC, False),
+    pytest.param(
+        ParallelizationMode.THREADING,
+        False,
+        marks=pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning"),
+    ),
+    (ParallelizationMode.MULTIPROCESSING, False),
+    (ParallelizationMode.MULTIPROCESSING, True),
+]
+
+
 class TestRunManifestRunAll:
     """A real run's audit file seals into one verifiable manifest."""
 
-    @pytest.mark.parametrize(
-        ("mode", "fail_closed"),
-        [
-            (ParallelizationMode.SYNC, False),
-            (ParallelizationMode.THREADING, False),
-            (ParallelizationMode.MULTIPROCESSING, False),
-            (ParallelizationMode.MULTIPROCESSING, True),
-        ],
-    )
+    @pytest.mark.parametrize(("mode", "fail_closed"), _RUN_ALL_MODE_AND_FAIL_CLOSED)
     def test_run_all_audit_file_seals_and_verifies(
         self, mode: ParallelizationMode, fail_closed: bool, tmp_path: Path, request: pytest.FixtureRequest
     ) -> None:
@@ -4604,15 +4612,7 @@ class TestRunManifestRunAll:
         assert len(manifests) == 1
         assert manifests[0]["compliant"] is False
 
-    @pytest.mark.parametrize(
-        ("mode", "fail_closed"),
-        [
-            (ParallelizationMode.SYNC, False),
-            (ParallelizationMode.THREADING, False),
-            (ParallelizationMode.MULTIPROCESSING, False),
-            (ParallelizationMode.MULTIPROCESSING, True),
-        ],
-    )
+    @pytest.mark.parametrize(("mode", "fail_closed"), _RUN_ALL_MODE_AND_FAIL_CLOSED)
     def test_run_all_auto_seals_via_on_run_complete_without_a_manual_seal_call(
         self, mode: ParallelizationMode, fail_closed: bool, tmp_path: Path, request: pytest.FixtureRequest
     ) -> None:
@@ -4647,6 +4647,48 @@ class TestRunManifestRunAll:
         assert head == manifest_hash(manifest)
         assert {record["run_id"] for record in records} == {manifest["run_id"]}
         assert [record["policy_version"] for record in records] == [extender.policy_version] * len(records)
+
+    @pytest.mark.parametrize(("mode", "fail_closed"), _RUN_ALL_MODE_AND_FAIL_CLOSED)
+    def test_run_all_second_run_of_a_prepared_session_is_refused_and_leaves_the_seal_untouched(
+        self, mode: ParallelizationMode, fail_closed: bool, tmp_path: Path, request: pytest.FixtureRequest
+    ) -> None:
+        """A prepared session's run() reuses its run_id; a second run() through the auto-sealing extender
+        must be refused, not sealed a second time or left as a stray write outside the existing seal."""
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        # Only MULTIPROCESSING needs the flight_server fixture.
+        flight_server = (
+            request.getfixturevalue("flight_server") if mode == ParallelizationMode.MULTIPROCESSING else None
+        )
+        signer = _signer()
+        extender = AuditExtender(
+            sink=NdjsonAuditSink(audit_path),
+            audit_path=audit_path,
+            manifest_path=manifest_path,
+            signer=signer,
+            fail_closed=fail_closed,
+        )
+
+        with verified_context(tenant_id="tenant-42", project_id="project-7", principal="svc"):
+            session = mloda.prepare(
+                ["value_int"],
+                compute_frameworks={PyArrowTable},
+                plugin_collector=PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator}),
+                function_extender={extender},
+                parallelization_modes={mode},
+            )
+            session.run(parallelization_modes={mode}, flight_server=flight_server)
+
+            assert len(_read_lines(manifest_path)) == 1
+            audit_before = audit_path.read_bytes()
+            manifest_before = manifest_path.read_bytes()
+
+            with pytest.raises(RunAlreadySealedError):
+                session.run(parallelization_modes={mode}, flight_server=flight_server)
+
+        assert audit_path.read_bytes() == audit_before
+        assert manifest_path.read_bytes() == manifest_before
+        verify_ndjson_log(audit_path, manifest_path, signer=signer)
 
     @_both_algorithms
     def test_run_all_multiprocessing_auto_seal_waits_for_workers_to_be_joined(
