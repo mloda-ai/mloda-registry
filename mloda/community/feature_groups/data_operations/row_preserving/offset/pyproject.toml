@@ -19,9 +19,9 @@ dev = ["mloda-testing", "pytest>=9.0.3"]
 sqlite = []
 python_dict = []
 duckdb = ["duckdb"]
-polars = ["polars"]
+polars = ["polars>=1.21"]
 pandas = ["pandas"]
-all = ["polars", "pandas", "duckdb"]
+all = ["polars>=1.21", "pandas", "duckdb"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
