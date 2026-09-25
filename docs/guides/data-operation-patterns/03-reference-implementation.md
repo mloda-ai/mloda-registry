@@ -1,6 +1,6 @@
 # Reference Implementation Pattern
 
-Every data operation has one framework designated as the reference. Other frameworks are correct if and only if they match the reference on the shared test suite. PyArrow is the reference for the operations that ship today.
+Every data operation has one framework designated as the reference. Other frameworks are correct if and only if they match the reference on the shared test suite. PyArrow is the reference for the operations that ship today; where it has no grouped kernel, a pure-Python reference applies PyArrow's semantics (see [When PyArrow has no kernel](#when-pyarrow-has-no-kernel-or-is-the-outlier)).
 
 **What**: One framework implementation is the source of truth. Cross-framework tests run the same feature through both the target framework and the reference, then assert the two results match.
 **When**: Every time you add a new operation or add a new framework implementation for an existing operation.
@@ -58,14 +58,28 @@ Row-preserving and aggregation tests share a canonical input: 12 rows with colum
 
 ## When the reference itself is wrong
 
-Bugs happen. If the PyArrow implementation is wrong:
+Bugs happen. If the reference implementation is wrong:
 
-1. Fix the PyArrow implementation.
+1. Fix the reference implementation (PyArrow, or the pure-Python reference in `mloda/testing`).
 2. Update the operation's test base (`BinningTestBase`, `AggregationTestBase`, etc.) so the expected values reflect the correct result.
 3. Run every framework's test class. Every non-PyArrow implementation that was "matching" the bug will now fail.
 4. Fix each framework implementation so it matches the corrected reference.
 
 Do not "fix" a non-PyArrow framework to agree with the PyArrow bug. The reference is where correctness lives, so fixing the reference is what realigns the ecosystem.
+
+---
+
+## When PyArrow has no kernel, or is the outlier
+
+PyArrow has no grouped kernel for median, mode, rank, offset, percentile or frame_aggregate, so a pure-Python reference in `mloda/testing` computes them. Its answer follows these rules, in order:
+
+1. **The ungrouped PyArrow kernel.** Per group, the reference returns what PyArrow's ungrouped kernel for the same op returns on that group's values. Median is `pc.quantile(q=0.5)`, which skips NaN like null, so median always equals the p50 percentile. `PyArrowScalarAggregate` (median) and `ReferencePercentile` already work this way.
+2. **The majority.** Where no PyArrow kernel covers the op or the case, the majority of the frameworks that implement the op natively decides.
+3. **Mode ties, the one exception.** The reference breaks mode ties by first occurrence, while `pc.mode` picks the smallest value. Every backend already implements first occurrence, so switching would change all of them without improving agreement.
+
+[Known divergences](known-divergences.md) records each decision, including where the reference does not follow these rules yet. The reference and PythonDict stay separate implementations of the same rules: one shared implementation could not verify itself.
+
+**PyArrow as the outlier.** When PyArrow's convention is the odd one out (it alone keeps `0.0` and `-0.0` as separate groups), PyArrow stays the reference: re-voting the reference per edge case brings back the drift this pattern exists to prevent. A backend that would need a hot-path branch to match such an edge case, which the canonical fixture does not exercise, keeps its native convention as an accepted divergence, with a regression test that pins its choice.
 
 ---
 
