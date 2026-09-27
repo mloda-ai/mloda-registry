@@ -12,7 +12,7 @@ import pickle  # nosec
 import re
 import stat
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import AbstractContextManager
 from datetime import datetime
 from pathlib import Path
@@ -189,15 +189,15 @@ def _second_extender_over_same_sealing_config(
     signer: Any,
     **kwargs: Any,
 ) -> AuditExtender:
-    """A second, fresh AuditExtender over the same sealing config; any refusal it raises must come from the
-    shared manifest_path, not its own empty in-memory sealed set."""
+    """A second, fresh AuditExtender over the same sealing config; any refusal it raises must come from
+    reading the shared manifest_path."""
     return AuditExtender(
         NdjsonAuditSink(audit_path), audit_path=audit_path, manifest_path=manifest_path, signer=signer, **kwargs
     )
 
 
 def _refuser_sealing_instance(tmp_path: Path, fail_closed: bool) -> tuple[AuditExtender, Path]:
-    """The instance that sealed run-1 itself, refusing from its own in-memory sealed set."""
+    """The instance that sealed run-1 itself; its refusal comes from reading the manifest log too."""
     return _extender_with_run_1_sealed(tmp_path, fail_closed=fail_closed)
 
 
@@ -266,6 +266,14 @@ def _find_signer_tuple_attr(obj: Any) -> tuple[Any, ...] | None:
         if isinstance(value, tuple) and value and all(_signer_like(item) for item in value):
             return value
     return None
+
+
+def _holds_none_of(obj: Any, run_ids: Iterable[str]) -> bool:
+    """Whether no set, frozenset or dict attribute of obj contains any of run_ids; name-agnostic on purpose."""
+    for value in vars(obj).values():
+        if isinstance(value, (set, frozenset, dict)) and any(run_id in value for run_id in run_ids):
+            return False
+    return True
 
 
 class BufferingNdjsonAuditSink:
@@ -1236,6 +1244,33 @@ class TestAuditExtenderSealing:
         )
 
         pickle.dumps(extender)  # nosec  # must not raise
+
+    def test_a_long_lived_instance_holds_no_run_ids_once_their_runs_completed(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        extender = AuditExtender(
+            NdjsonAuditSink(audit_path), audit_path=audit_path, manifest_path=manifest_path, signer=_hmac_signer()
+        )
+        run_ids = ["run-alpha", "run-bravo", "run-charlie"]
+        for run_id in run_ids:
+            with make_hook_context(run_id=run_id, tenant_id=_TENANT).activate():
+                extender(_CountingCall())
+            extender.on_run_complete(run_id)
+
+        with make_hook_context(run_id="run-alpha", tenant_id=_TENANT).activate():
+            with pytest.raises(SealedRunRefusedError):
+                extender(_CountingCall())
+        extender.on_run_complete("run-alpha")
+
+        assert _holds_none_of(extender, run_ids)
+        pickled = pickle.dumps(extender)  # nosec
+        assert not any(run_id.encode("utf-8") in pickled for run_id in run_ids)
+
+        for run_id in run_ids:
+            call = _CountingCall()
+            with make_hook_context(run_id=run_id, tenant_id=_TENANT).activate():
+                with pytest.raises(SealedRunRefusedError):
+                    extender(call)
+            assert call.calls == 0
 
     @_BOTH_POSTURES
     @pytest.mark.parametrize("tenant_id", [_TENANT, None], ids=["identity_present", "identity_missing"])

@@ -116,7 +116,7 @@ class IdentityRequiredError(RuntimeError):
 
 
 class SealedRunRefusedError(RuntimeError):
-    """Raised by AuditExtender for a call under a run_id it already sealed or found sealed."""
+    """Raised by AuditExtender for a call under a run_id already sealed in its manifest log."""
 
 
 def _error_type(exc: BaseException) -> str:
@@ -144,7 +144,7 @@ class AuditExtender(Extender):
     Keys may be added within record_version 1; an absent key means not recorded. With audit_path,
     manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
     that just finished. An auto-sealing instance, or a pickled copy of one, refuses a calculation with
-    SealedRunRefusedError before writing anything when its run_id was sealed by this instance or is already named in
+    SealedRunRefusedError before writing anything when its run_id is already named in
     manifest_path (an unverified read, once per run per instance or copy, at its first calculation; a seal landing
     after that first calculation is not seen, so do not run one prepared auto-sealing session concurrently: a run
     sealed while another run() of it is still calculating leaves that run's later records outside the seal), so
@@ -221,8 +221,7 @@ class AuditExtender(Extender):
         self._signer = signer
         self._previous_signers = previous_signers
         self._pickle_drop_warning = WarnOncePerInstance()
-        self._sealed_run_ids: set[str] = set()
-        self._unsealed_run_ids: set[str] = set()
+        self._run_sealed: dict[str, bool] = {}
         if fail_closed:
             # Core runs the lowest priority outermost; a lower-priority peer would otherwise run before the gate.
             self.priority = 0
@@ -249,13 +248,13 @@ class AuditExtender(Extender):
         signer (see __getstate__): it warns once per copy instead of raising or sealing anything.
         RunAlreadySealedError is logged at ERROR (any record written for it after that seal lies outside it,
         verification reports it); RunNotPendingError is logged at WARNING (recoverable: the run just wrote nothing
-        yet). Neither is raised. A sealed or already-sealed run_id is remembered, so a later
-        call under it through this instance is refused. Every other exception, e.g. ManifestVerificationError, is not
+        yet). Neither is raised. The run's cached answer is dropped, so a later call under it re-reads the
+        manifest log (and is refused there). Every other exception, e.g. ManifestVerificationError, is not
         caught here either; core logs it at ERROR and never fails the run because of it, regardless of
         raise_on_error/fail_closed."""
         if run_id is None:
             return
-        self._unsealed_run_ids.discard(run_id)  # the run is over: a later call re-checks the manifest log
+        self._run_sealed.pop(run_id, None)  # the run is over: a later call re-reads the manifest log
         if self._signer is None:
             if self._audit_path is not None:
                 self._pickle_drop_warning.warn_once(
@@ -284,9 +283,7 @@ class AuditExtender(Extender):
                 previous_signers=self._previous_signers,
                 run_id=run_id,
             )
-            self._sealed_run_ids.add(run_id)
         except RunAlreadySealedError:
-            self._sealed_run_ids.add(run_id)
             logger.error(
                 "AuditExtender: run_id %r is already sealed in manifest_path %s and was not sealed again; "
                 "any record written for it after that seal lies outside it (verification reports it)",
@@ -301,12 +298,12 @@ class AuditExtender(Extender):
     def __getstate__(self) -> dict[str, Any]:
         """Drops the signer material so a pickled copy (e.g. into a MULTIPROCESSING worker's dispatch
         payload) carries none: on_run_complete only ever runs in the parent, never in a worker copy, and
-        Ed25519Signer holds non-picklable cryptography key objects besides. Also resets the unsealed-run
-        cache, so the copy re-checks the manifest log instead of inheriting a cached unsealed answer."""
+        Ed25519Signer holds non-picklable cryptography key objects besides. Also resets the per-run
+        cache, so the copy carries no run_ids and re-checks the manifest log."""
         state = dict(self.__dict__)
         state["_signer"] = None
         state["_previous_signers"] = ()
-        state["_unsealed_run_ids"] = set()
+        state["_run_sealed"] = {}
         return state
 
     def wraps(self) -> set[ExtenderHook]:
@@ -328,11 +325,8 @@ class AuditExtender(Extender):
             self._note_load(context)
             return func(*args, **kwargs)
 
-        # MATCHED is excluded from the manifest-log check: it runs at plan time under a freshly minted
-        # run_id, and caching that unsealed answer could go stale once the run later gets sealed.
-        if context.run_id in self._sealed_run_ids or (
-            context.hook is ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE and self._found_sealed(context.run_id)
-        ):
+        # MATCHED runs at plan time under a freshly minted run_id, so it is never checked and never caches.
+        if context.hook is ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE and self._found_sealed(context.run_id):
             raise SealedRunRefusedError(
                 f"AuditExtender refused the call: run_id {context.run_id!r} is already sealed in the "
                 "manifest log; prepare a new session to run again"
@@ -388,10 +382,12 @@ class AuditExtender(Extender):
             loads.append(entry)
 
     def _found_sealed(self, run_id: str | None) -> bool:
-        """Whether run_id is sealed in the manifest log, cached per run_id per instance or copy (its
-        first calculation decides for the whole run: a seal landing after that is not seen)."""
-        if self._manifest_path is None or run_id is None or run_id in self._unsealed_run_ids:
+        """Whether run_id is sealed in the manifest log; cached per run until on_run_complete, per
+        instance or copy."""
+        if self._manifest_path is None or run_id is None:
             return False
+        if run_id in self._run_sealed:
+            return self._run_sealed[run_id]
         try:
             found = _is_run_sealed_unverified(self._manifest_path, run_id)
         except OSError as exc:
@@ -402,9 +398,9 @@ class AuditExtender(Extender):
                 run_id,
                 type(exc).__name__,
             )
-            self._unsealed_run_ids.add(run_id)
+            self._run_sealed[run_id] = False
             return False
-        (self._sealed_run_ids if found else self._unsealed_run_ids).add(run_id)
+        self._run_sealed[run_id] = found
         return found
 
     def _missing_identity(self, context: HookContext) -> list[str]:
