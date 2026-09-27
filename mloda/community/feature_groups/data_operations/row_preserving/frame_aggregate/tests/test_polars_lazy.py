@@ -32,11 +32,6 @@ class TestPolarsLazyFrameAggregate(CapabilityHookTestMixin, PolarsLazyTestMixin,
         return PolarsLazyFrameAggregate
 
     @classmethod
-    def nan_divergent_agg_types(cls) -> frozenset[str]:
-        """Polars' rolling window propagates NaN into both MIN and MAX instead of skipping it."""
-        return frozenset({"min", "max"})
-
-    @classmethod
     def supports_null_order_in_time_window(cls) -> bool:
         # polars rolling_*_by(ts) panics on null timestamps in the order_by column.
         return False

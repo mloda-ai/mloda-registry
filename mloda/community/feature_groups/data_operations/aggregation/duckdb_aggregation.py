@@ -12,7 +12,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import q
 from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
-from mloda.community.feature_groups.data_operations.duckdb_helpers import median_wrapped_source
+from mloda.community.feature_groups.data_operations.duckdb_helpers import nan_policy_agg_sql
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 
@@ -67,7 +67,9 @@ class DuckdbAggregation(AggregationFeatureGroup):
             agg_func = _DUCKDB_AGG_FUNCS.get(agg_type)
             if agg_func is None:
                 raise unsupported_agg_type_error(agg_type, _DUCKDB_AGG_FUNCS.keys(), framework="DuckDB")
-            agg_expr = f"{agg_func}({median_wrapped_source(data, source_col, source_sql, agg_type)})"
+            agg_expr = nan_policy_agg_sql(data, source_col, source_sql, agg_type, agg_func)
+            if agg_type == "mode":
+                agg_expr += ".v"
             if agg_type in ("first", "last"):
                 agg_expr += f" FILTER (WHERE {source_sql} IS NOT NULL)"
 

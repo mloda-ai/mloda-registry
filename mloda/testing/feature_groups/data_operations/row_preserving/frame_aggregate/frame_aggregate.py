@@ -124,19 +124,24 @@ NAN_POLICY_ROLLING_3: dict[str, list[float]] = {
     "min": [2.0, 2.0, 1.0, 1.0, 1.0, 1.0, 3.0],
     "max": [2.0, 2.0, 2.0, 1.0, 1.0, 3.0, 3.0],
 }
-# Known per-backend divergences, pinned via nan_divergent_agg_types(); DuckDB's rolling
-# window propagates NaN into MAX, and Polars' rolling window propagates NaN into both.
-NAN_DIVERGENT_ROLLING_3: dict[str, list[float]] = {
-    "min": [2.0, float("nan"), float("nan"), 1.0, float("nan"), float("nan"), float("nan")],
-    "max": [2.0, float("nan"), float("nan"), 1.0, float("nan"), float("nan"), float("nan")],
+
+# Cumulative and expanding aggregate to the running median/min/max over the same
+# grp/ts/val fixture as NAN_POLICY_ROLLING_3, but over the whole preceding run rather
+# than a fixed-size window; both frame kinds share these values.
+NAN_POLICY_CUMULATIVE_EXPANDING: dict[str, list[float]] = {
+    "median": [2.0, 2.0, 1.5, 1.0, 1.0, 2.0, 2.0],
+    "min": [2.0, 2.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+    "max": [2.0, 2.0, 2.0, 1.0, 1.0, 3.0, 3.0],
 }
 
-# Feature-name templates for each frame kind the NaN policy test covers. The 2-day window
-# matches rolling_3 exactly on this fixture (one row per grp per day), so both the policy
-# and the divergent values above apply unchanged.
-NAN_POLICY_FRAME_KINDS: dict[str, str] = {
-    "rolling_3": "val__{agg_type}_rolling_3",
-    "2_day_window": "val__{agg_type}_2_day_window",
+# Feature-name templates and expected values for each frame kind the NaN policy test
+# covers. The 2-day window matches rolling_3 exactly on this fixture (one row per grp
+# per day), so it shares the rolling_3 policy values.
+NAN_POLICY_FRAME_KINDS: dict[str, tuple[str, dict[str, list[float]]]] = {
+    "rolling_3": ("val__{agg_type}_rolling_3", NAN_POLICY_ROLLING_3),
+    "2_day_window": ("val__{agg_type}_2_day_window", NAN_POLICY_ROLLING_3),
+    "cumulative": ("val__cum{agg_type}", NAN_POLICY_CUMULATIVE_EXPANDING),
+    "expanding": ("val__expanding_{agg_type}", NAN_POLICY_CUMULATIVE_EXPANDING),
 }
 
 
@@ -1017,9 +1022,9 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
         assert result_col[0] == 130
 
     # -- NaN policy (median/min/max) -------------------------------------------
-    # The reference assertion pins the policy; ``nan_divergent_agg_types`` pins each
-    # backend's own known divergence. No ``supported_agg_types`` exists on this base,
-    # so support is probed directly via ``match_feature_group_criteria``.
+    # The reference assertion pins the policy for every frame kind; no backend has an
+    # unmitigated divergence left. No ``supported_agg_types`` exists on this base, so
+    # support is probed directly via ``match_feature_group_criteria``.
 
     def _skip_if_frame_feature_unsupported(self, feature_name: str, partition_by: list[str], order_by: str) -> None:
         options = Options(context={"partition_by": partition_by, "order_by": order_by})
@@ -1033,24 +1038,20 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
     @pytest.mark.parametrize("frame_kind", sorted(NAN_POLICY_FRAME_KINDS), ids=sorted(NAN_POLICY_FRAME_KINDS))
     @pytest.mark.parametrize("agg_type", sorted(NAN_POLICY_ROLLING_3), ids=sorted(NAN_POLICY_ROLLING_3))
     def test_nan_policy_frame(self, agg_type: str, frame_kind: str) -> None:
-        """median/min/max of a NaN-mixed column, ordered by ts, for rolling_3 and the 2-day window."""
-        feature_name = NAN_POLICY_FRAME_KINDS[frame_kind].format(agg_type=agg_type)
+        """median/min/max of a NaN-mixed column, ordered by ts, for every frame kind."""
+        name_template, expected_by_agg_type = NAN_POLICY_FRAME_KINDS[frame_kind]
+        feature_name = name_template.format(agg_type=agg_type)
         self._skip_if_frame_feature_unsupported(feature_name, ["grp"], "ts")
         table = self.nan_policy_table()
         fs = make_feature_set(feature_name, ["grp"], "ts")
 
         ref = self.reference_implementation_class().calculate_feature(table, fs)
         ref_col = _extract_column(ref, feature_name)
-        assert ref_col == pytest.approx(NAN_POLICY_ROLLING_3[agg_type], nan_ok=True), f"reference: {ref_col!r}"
+        assert ref_col == pytest.approx(expected_by_agg_type[agg_type], nan_ok=True), f"reference: {ref_col!r}"
 
         result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
         result_col = self.extract_column(result, feature_name)
-        expected = (
-            NAN_DIVERGENT_ROLLING_3[agg_type]
-            if agg_type in self.nan_divergent_agg_types()
-            else NAN_POLICY_ROLLING_3[agg_type]
-        )
-        assert result_col == pytest.approx(expected, nan_ok=True), f"backend: {result_col!r}"
+        assert result_col == pytest.approx(expected_by_agg_type[agg_type], nan_ok=True), f"backend: {result_col!r}"
 
     # -- Row-order preservation ------------------------------------------------
 

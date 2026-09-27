@@ -8,6 +8,8 @@ wrap shared by aggregation feature groups.
 
 from __future__ import annotations
 
+from typing import Callable
+
 import polars as pl
 
 # Polars duration aliases for each unit. Polars' ``dt.truncate('1w')`` is
@@ -32,3 +34,14 @@ def nan_to_null(expr: pl.Expr, dtype: pl.DataType) -> pl.Expr:
     if dtype.is_float():
         return expr.fill_nan(None)
     return expr
+
+
+def nan_skipping_extreme(expr_fn: Callable[[pl.Expr], pl.Expr], col: pl.Expr, dtype: pl.DataType) -> pl.Expr:
+    """``expr_fn(col)`` with NaN skipped like pc.min/pc.max, an all-NaN window staying NaN.
+
+    Float dtypes run ``expr_fn`` on the NaN-to-null column, then fall back to
+    ``expr_fn(col)`` (where NaN propagates) for null results, only true if the window was all-NaN or all-null.
+    """
+    if not dtype.is_float():
+        return expr_fn(col)
+    return expr_fn(nan_to_null(col, dtype)).fill_null(expr_fn(col))

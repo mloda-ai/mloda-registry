@@ -69,10 +69,10 @@ NAN_POLICY_WINDOW: dict[str, list[float]] = {
     "min": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
     "max": [2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0],
 }
-# Known per-backend divergences, pinned via nan_divergent_agg_types().
+# Known per-backend divergence, pinned via nan_divergent_agg_types(): pandas' mode()
+# treats NaN as a distinct, dropped value rather than one counted value.
 NAN_DIVERGENT_WINDOW: dict[str, list[float]] = {
     "mode": [2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 1.0],
-    "max": [float("nan")] * 7,
 }
 
 
@@ -882,8 +882,8 @@ class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOps
         assert output_id == input_id
 
     # -- NaN policy (median/mode/min/max) ------------------------------------
-    # The reference assertion pins the policy; ``nan_divergent_agg_types`` pins each
-    # backend's own known divergence.
+    # The reference assertion pins the policy; ``nan_divergent_agg_types`` pins pandas'
+    # mode() divergence (the only backend divergence left).
 
     @pytest.mark.parametrize("agg_type", sorted(NAN_POLICY_WINDOW), ids=sorted(NAN_POLICY_WINDOW))
     def test_nan_policy_window(self, agg_type: str) -> None:

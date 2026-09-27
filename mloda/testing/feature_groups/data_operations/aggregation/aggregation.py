@@ -87,10 +87,10 @@ NAN_POLICY_AGG: dict[str, dict[Any, float]] = {
     "min": {"A": 1.0, "B": 1.0},
     "max": {"A": 2.0, "B": 3.0},
 }
-# Known per-backend divergences, pinned via nan_divergent_agg_types().
+# Known per-backend divergence, pinned via nan_divergent_agg_types(): pandas' mode()
+# treats NaN as a distinct, dropped value rather than one counted value.
 NAN_DIVERGENT_AGG: dict[str, dict[Any, float]] = {
     "mode": {"A": 2.0, "B": 1.0},
-    "max": {"A": float("nan"), "B": float("nan")},
 }
 
 # (agg_type, needs_skip) for aggregations over the all-null ``score`` column.
@@ -839,8 +839,8 @@ class AggregationTestBase(MaskTestMixin, DataOpsTestBase):
         assert result_map[None] == -10
 
     # -- NaN policy (median/mode/min/max) ------------------------------------
-    # The reference assertion pins the policy; ``nan_divergent_agg_types`` pins each
-    # backend's own known divergence.
+    # The reference assertion pins the policy; ``nan_divergent_agg_types`` pins pandas'
+    # mode() divergence (the only backend divergence left).
 
     @pytest.mark.parametrize("agg_type", sorted(NAN_POLICY_AGG), ids=sorted(NAN_POLICY_AGG))
     def test_nan_policy_agg(self, agg_type: str) -> None:

@@ -132,7 +132,8 @@ class DataOpsTestBase(ABC):
     def nan_divergent_agg_types(cls) -> frozenset[str]:
         """Agg types where this framework pins a known NaN divergence instead of the policy.
 
-        Default: none. See docs/guides/data-operation-patterns/known-divergences.md.
+        Only aggregation/window_aggregation read this, for pandas' mode() divergence. Default: none.
+        See docs/guides/data-operation-patterns/known-divergences.md.
         """
         return frozenset()
 

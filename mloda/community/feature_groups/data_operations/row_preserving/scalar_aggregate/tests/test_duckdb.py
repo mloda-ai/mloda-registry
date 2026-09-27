@@ -21,8 +21,3 @@ class TestDuckdbScalarAggregate(DuckdbTestMixin, ScalarAggregateTestBase):
     @classmethod
     def implementation_class(cls) -> Any:
         return DuckdbScalarAggregate
-
-    @classmethod
-    def nan_divergent_agg_types(cls) -> frozenset[str]:
-        """DuckDB's MAX propagates NaN instead of skipping it."""
-        return frozenset({"max"})

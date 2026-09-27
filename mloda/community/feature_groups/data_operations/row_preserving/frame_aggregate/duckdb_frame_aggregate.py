@@ -16,7 +16,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
     WindowFrame,
 )
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import median_wrapped_source
+from mloda.community.feature_groups.data_operations.duckdb_helpers import nan_policy_agg_sql
 from mloda.community.feature_groups.data_operations.errors import (
     unsupported_agg_type_error,
     unsupported_frame_type_error,
@@ -94,14 +94,13 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
             inner_source = f"s.{quoted_source}"
             if mask_spec is not None:
                 inner_source = build_sql_case_when(DuckDBFramework.mask_engine(), data, mask_spec, inner_source)
-            inner_source = median_wrapped_source(data, source_col, inner_source, agg_type)
+            agg_sql = nan_policy_agg_sql(data, source_col, inner_source, agg_type, agg_func)
             return cls._compute_time_frame(
                 data=data,
                 feature_name=feature_name,
-                inner_source_sql=inner_source,
+                agg_sql=agg_sql,
                 partition_by=partition_by,
                 quoted_order=quoted_order,
-                agg_func=agg_func,
                 frame_size=frame_size,
                 frame_unit=frame_unit,
             )
@@ -129,9 +128,9 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         rel = data.with_row_number(rn)
 
         # Step 2: compute window function with frame
-        agg_source = median_wrapped_source(data, source_col, source_sql, agg_type)
+        agg_call = nan_policy_agg_sql(data, source_col, source_sql, agg_type, agg_func)
         rel = rel.window(
-            f"{agg_func}({agg_source})",
+            agg_call,
             feature_name,
             partition_by=partition_by,
             order_by=order_spec,
@@ -150,10 +149,9 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         cls,
         data: DuckdbRelation,
         feature_name: str,
-        inner_source_sql: str,
+        agg_sql: str,
         partition_by: list[str],
         quoted_order: str,
-        agg_func: str,
         frame_size: int | None,
         frame_unit: str | None,
     ) -> DuckdbRelation:
@@ -191,12 +189,12 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         quoted_feature = quote_ident(feature_name)
         keep = ", ".join(quote_ident(c) for c in data.columns)
 
-        # Safety: identifiers via quote_ident(); agg_func from whitelist; size/unit
-        # are sanitized integer/whitelisted-string values.
+        # Safety: identifiers via quote_ident(); agg_sql built from a whitelisted
+        # SQL function name; size/unit are sanitized integer/whitelisted-string values.
         sql = " ".join(  # nosec
             [
                 f"SELECT {keep},",
-                f"(SELECT {agg_func}({inner_source_sql})",
+                f"(SELECT {agg_sql}",
                 "FROM tagged s",
                 f"WHERE {partition_eq}",
                 "AND (",

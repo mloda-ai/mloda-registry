@@ -10,7 +10,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import Unbounded, WindowFrame
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import median_wrapped_source
+from mloda.community.feature_groups.data_operations.duckdb_helpers import nan_policy_agg_sql
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import build_sql_case_when
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
@@ -76,8 +76,16 @@ class DuckdbWindowAggregation(WindowAggregationFeatureGroup):
         agg_func = _DUCKDB_AGG_FUNCS.get(agg_type)
         if agg_func is None:
             raise unsupported_agg_type_error(agg_type, _DUCKDB_AGG_FUNCS.keys(), framework="DuckDB")
-        agg_source = median_wrapped_source(data, source_col, source_sql, agg_type)
-        result = data.window(f"{agg_func}({agg_source})", feature_name, partition_by=partition_by)
+        agg_call = nan_policy_agg_sql(data, source_col, source_sql, agg_type, agg_func)
+        result = data.window(agg_call, feature_name, partition_by=partition_by)
+        if agg_type == "mode":
+            # MODE returns a struct; extract .v with one projection that keeps column order.
+            quoted_feature = quote_ident(feature_name)
+            keep = ", ".join(
+                f"{quoted_feature}.v AS {quoted_feature}" if c == feature_name else quote_ident(c)
+                for c in result.columns
+            )
+            result = result.project(keep)
         return result
 
     @classmethod

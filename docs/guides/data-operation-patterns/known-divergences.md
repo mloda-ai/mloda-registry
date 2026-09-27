@@ -90,7 +90,7 @@ regression_test:
 
 - **Operations**: `aggregation` (`mode` agg type), `window_aggregation` (`mode` agg type).
 - **Where it lives**: `mloda/community/feature_groups/data_operations/polars_mode_helpers.py` (shared Polars Lazy helpers used by both `polars_lazy_aggregation.py` and `polars_lazy_window_aggregation.py`); Pandas uses the vectorized `compute_mode_winners` helper in `pandas_helpers.py`.
-- **Reference behavior**: `aggregation_helpers.mode` (shared by the aggregation and window_aggregation references) breaks ties by first occurrence in the input ordering. This is the reference's own convention, not `pc.mode`'s, which returns the smallest value among ties (see [When PyArrow has no kernel](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier)). For NaN the policy follows `pc.mode`, which counts NaN as one value, as the reference, Polars, and PythonDict all do (`[1.0, nan, nan]` gives `nan`); see `DataOpsTestBase.nan_policy_table` for the NaN-mixed fixture (Pandas and DuckDB diverge here, see the entry below).
+- **Reference behavior**: `aggregation_helpers.mode` (shared by the aggregation and window_aggregation references) breaks ties by first occurrence in the input ordering. This is the reference's own convention, not `pc.mode`'s, which returns the smallest value among ties (see [When PyArrow has no kernel](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier)). For NaN the policy follows `pc.mode`, which counts NaN as one value, as the reference, Polars, and PythonDict all do (`[1.0, nan, nan]` gives `nan`); see `DataOpsTestBase.nan_policy_table` for the NaN-mixed fixture (Pandas diverges here, see the entry below).
 - **Native framework behavior**: Polars' `.mode()` and Pandas' `.mode()` break ties differently (sorted order / multiple returned values / unspecified).
 - **Mitigation kind**: Implementation fix.
 - **How**: Both frameworks explicitly rank candidate values by `(count desc, first_occurrence_index asc)` and take the head. The Polars Lazy implementation stays inside the lazy / vectorised path: it adds per-`(partition, value)` count and first-index columns via `.over()`, then uses `sort_by([cnt, first_idx], descending=[True, False], maintain_order=True).first()` (no Python callback). On Pandas this is a single vectorized groupby over `(partition_by, value)` that aggregates count and first-occurrence index, avoiding a per-group Python reducer.
@@ -372,35 +372,28 @@ regression_test:
 - **How**: Most PythonDict backends build their group key through `group_key_value`, which substitutes a shared sentinel for any NaN component so NaN-keyed rows land in one group; `reduce_agg`'s `min`/`max`/`median` branches and `_percentile_of` filter NaN out of the reduced value list before reducing, matching PyArrow's skip-NaN semantics, and `min`/`max` return NaN (not null) when every non-null value in the group is NaN. `python_dict_sessionization.py` is the exception: it never calls `group_key_value`. Instead it sorts raw partition-key values through `partition_sort_key` (which gives NaN and None each their own contiguous sort tier) and compares adjacent sorted rows with `values_equal` (NaN-safe equality), so two NaN-keyed rows still land in one contiguous, un-poisoned session without ever building a normalized key.
 - **Regression signal**: The percentile/rank/resample tests cited above build a live PyArrow `Table.group_by()` (or a PyArrow-oracle comparison) and assert the PythonDict backend groups/reduces identically; removing `group_key_value` or the NaN filter from `reduce_agg`/`_percentile_of` fails those. The cited sessionization test instead exercises `partition_sort_key` and `values_equal`; it does not exercise `group_key_value`, so removing `group_key_value` does not fail it. `test_median_skips_nan` pins `reduce_agg("median", [1.0, float("nan")])` to `1.0`, the flip from the median's previous position-dependent NaN handling. `test_min_all_nan_returns_nan`/`test_max_all_nan_returns_nan` pin an all-NaN group to NaN, not null.
 
-### Pandas/DuckDB `mode`, DuckDB `max`, and Polars rolling min/max still diverge on NaN input
+### Pandas `mode` still diverges on NaN input
 
 <!-- machine-checked
-operation: aggregation, window_aggregation, scalar_aggregate, frame_aggregate
-framework: pandas, duckdb, polars_lazy
-condition: pandas/DuckDB mode counts each NaN separately instead of as one value; DuckDB MAX and Polars rolling min/max propagate NaN instead of skipping it
+operation: aggregation, window_aggregation
+framework: pandas
+condition: pandas mode counts each NaN separately instead of as one value
 mitigation_location:
 - mloda/community/feature_groups/data_operations/pandas_helpers.py
 - mloda/community/feature_groups/data_operations/aggregation/pandas_aggregation.py
-- mloda/community/feature_groups/data_operations/aggregation/duckdb_aggregation.py
-- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/duckdb_window_aggregation.py
 - mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/pandas_window_aggregation.py
-- mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/duckdb_scalar_aggregate.py
-- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/duckdb_frame_aggregate.py
-- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/polars_lazy_frame_aggregate.py
 regression_test:
 - mloda/testing/feature_groups/data_operations/aggregation/aggregation.py::AggregationTestBase::test_nan_policy_agg
 - mloda/testing/feature_groups/data_operations/row_preserving/window_aggregation/window_aggregation.py::WindowAggregationTestBase::test_nan_policy_window
-- mloda/testing/feature_groups/data_operations/row_preserving/scalar_aggregate/scalar_aggregate.py::ScalarAggregateTestBase::test_nan_policy_scalar
-- mloda/testing/feature_groups/data_operations/row_preserving/frame_aggregate/frame_aggregate.py::FrameAggregateTestBase::test_nan_policy_frame
 -->
 
-- **Operations**: `aggregation`/`window_aggregation` `mode` (Pandas and DuckDB) and `max` (DuckDB only); `scalar_aggregate` `max` (DuckDB only); `frame_aggregate` rolling and time frames' `min`/`max` (DuckDB `max` only, Polars both; cumulative/expanding frames are not pinned).
-- **Where it lives**: `pandas_helpers.py`'s `compute_mode_winners`, shared by `pandas_aggregation.py` and `pandas_window_aggregation.py`; DuckDB's native `MODE`/`MAX` in `duckdb_aggregation.py`, `duckdb_window_aggregation.py`, `duckdb_scalar_aggregate.py`, `duckdb_frame_aggregate.py`; Polars' native rolling `MIN`/`MAX` in `polars_lazy_frame_aggregate.py`.
-- **Reference behavior**: Under the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier), `mode` counts NaN as one value like `pc.mode`, and `min`/`max` skip NaN like `pc.min`/`pc.max` (all-NaN still returns NaN, unlike median/quantile's null).
-- **Native behavior**: Pandas never calls `Series.mode()`; `compute_mode_winners` drops NaN via `.notna()` before counting, and a float64 pandas column cannot tell NaN from null anyway, so it cannot count NaN as one value like the policy asks (the test mixin's `extract_column` also maps NaN to `None` on read-back). DuckDB's `MODE(...)` counts every NaN literal as a distinct value. DuckDB's `MAX(...)` and Polars' `rolling_min`/`rolling_max` (and their `_by` time variants) propagate NaN into the result once any value in the window is NaN, instead of skipping it.
-- **Mitigation kind**: Accepted divergence. Pandas cannot tell NaN from null; the DuckDB and Polars cases are not yet mitigated. `median` and `QUANTILE_CONT`/`.quantile()` follow the policy through a float-only NaN-to-null wrap; the same wrap would turn an all-NaN `min`/`max` into null instead of NaN, so these need their own fix.
-- **How**: Each framework's `nan_divergent_agg_types()` hook pins its own known value instead of the policy value in the shared `test_nan_policy_*` tests.
-- **Regression signal**: The tests cited above run the fixture through the reference (asserting the policy) and through each backend (asserting the policy, or the pinned divergence for agg types in `nan_divergent_agg_types()`); a framework fix that starts matching the policy would need its hook narrowed or removed, and an unmitigated agg type outside the hook would fail its assertion.
+- **Operations**: `aggregation`/`window_aggregation` `mode` (Pandas only).
+- **Where it lives**: `pandas_helpers.py`'s `compute_mode_winners`, shared by `pandas_aggregation.py` and `pandas_window_aggregation.py`.
+- **Reference behavior**: Under the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier), `mode` counts NaN as one value like `pc.mode`. DuckDB and Polars now follow this natively (DuckDB `max` via `-MIN(-x)`, DuckDB `mode` via a struct-valued `MODE`, Polars rolling `min`/`max` via `fill_nan`/`fill_null`).
+- **Native behavior**: Pandas never calls `Series.mode()`; `compute_mode_winners` drops NaN via `.notna()` before counting, and a float64 pandas column cannot tell NaN from null anyway, so it cannot count NaN as one value like the policy asks.
+- **Mitigation kind**: Accepted divergence. Pandas cannot tell NaN from null.
+- **How**: Pandas' `nan_divergent_agg_types()` hook pins `{"mode"}` instead of the policy value in the shared `test_nan_policy_*` tests.
+- **Regression signal**: The tests run the fixture through the reference (policy) and each backend (policy, or the pinned `mode` divergence for Pandas); a Pandas fix matching the policy would need the hook narrowed or removed.
 
 ### PythonDict `group_key_value` merges `0.0` and `-0.0` into one group
 

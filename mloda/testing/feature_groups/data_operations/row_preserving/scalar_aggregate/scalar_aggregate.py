@@ -54,10 +54,6 @@ NAN_POLICY_SCALAR: dict[str, list[float]] = {
     "min": [1.0] * 7,
     "max": [3.0] * 7,
 }
-# Known per-backend divergences, pinned via nan_divergent_agg_types().
-NAN_DIVERGENT_SCALAR: dict[str, list[float]] = {
-    "max": [float("nan")] * 7,
-}
 
 
 # ---------------------------------------------------------------------------
@@ -416,8 +412,8 @@ class ScalarAggregateTestBase(MaskTestMixin, DataOpsTestBase):
         assert all(v == expected for v in result_col)
 
     # -- NaN policy (median/min/max) -------------------------------------------
-    # The reference assertion pins the policy; ``nan_divergent_agg_types`` pins each
-    # backend's own known divergence.
+    # The reference assertion pins the policy. No backend has an unmitigated
+    # divergence left, so there is no ``nan_divergent_agg_types`` branch here.
 
     @pytest.mark.parametrize("agg_type", sorted(NAN_POLICY_SCALAR), ids=sorted(NAN_POLICY_SCALAR))
     def test_nan_policy_scalar(self, agg_type: str) -> None:
@@ -433,12 +429,7 @@ class ScalarAggregateTestBase(MaskTestMixin, DataOpsTestBase):
 
         result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
         result_col = self.extract_column(result, feature_name)
-        expected = (
-            NAN_DIVERGENT_SCALAR[agg_type]
-            if agg_type in self.nan_divergent_agg_types()
-            else NAN_POLICY_SCALAR[agg_type]
-        )
-        assert result_col == pytest.approx(expected, nan_ok=True), f"backend: {result_col!r}"
+        assert result_col == pytest.approx(NAN_POLICY_SCALAR[agg_type], nan_ok=True), f"backend: {result_col!r}"
 
     # -- Mask tests ------------------------------------------------------------
 

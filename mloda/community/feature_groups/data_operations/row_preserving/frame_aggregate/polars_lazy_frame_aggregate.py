@@ -14,7 +14,7 @@ from mloda.community.feature_groups.data_operations.errors import (
 )
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
-from mloda.community.feature_groups.data_operations.polars_helpers import nan_to_null
+from mloda.community.feature_groups.data_operations.polars_helpers import nan_skipping_extreme, nan_to_null
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -102,9 +102,17 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
             elif agg_type == "avg":
                 expr = col.rolling_mean(window_size=window, min_samples=1).over(partition_by).alias(feature_name)
             elif agg_type == "min":
-                expr = col.rolling_min(window_size=window, min_samples=1).over(partition_by).alias(feature_name)
+                expr = (
+                    nan_skipping_extreme(lambda c: c.rolling_min(window_size=window, min_samples=1), col, source_dtype)
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
             elif agg_type == "max":
-                expr = col.rolling_max(window_size=window, min_samples=1).over(partition_by).alias(feature_name)
+                expr = (
+                    nan_skipping_extreme(lambda c: c.rolling_max(window_size=window, min_samples=1), col, source_dtype)
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
             elif agg_type == "std":
                 expr = col.rolling_std(window_size=window, min_samples=2, ddof=0).over(partition_by).alias(feature_name)
             elif agg_type == "var":
@@ -208,13 +216,21 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
                 )
             elif agg_type == "min":
                 expr = (
-                    col.rolling_min_by(by_col, window_size=window_str, closed="both")
+                    nan_skipping_extreme(
+                        lambda c: c.rolling_min_by(by_col, window_size=window_str, closed="both"),
+                        col,
+                        source_dtype,
+                    )
                     .over(partition_by)
                     .alias(feature_name)
                 )
             elif agg_type == "max":
                 expr = (
-                    col.rolling_max_by(by_col, window_size=window_str, closed="both")
+                    nan_skipping_extreme(
+                        lambda c: c.rolling_max_by(by_col, window_size=window_str, closed="both"),
+                        col,
+                        source_dtype,
+                    )
                     .over(partition_by)
                     .alias(feature_name)
                 )

@@ -72,11 +72,20 @@ def nan_to_null_sql(expr: str, column_type: str) -> str:
     return expr
 
 
-def median_wrapped_source(data: "DuckdbRelation", source_col: str, source_sql: str, agg_type: str) -> str:
-    """``source_sql`` with NaN as null for median, unchanged otherwise.
+def nan_policy_agg_sql(data: "DuckdbRelation", source_col: str, source_sql: str, agg_type: str, agg_func: str) -> str:
+    """Full aggregate call for ``agg_type``, applying the NaN policy natively.
 
-    An unknown type (e.g. a case-mismatched *source_col*, which DuckDB still binds) is left unwrapped.
+    ``mode`` returns a struct, so callers must extract ``.v``. Float ``max`` becomes
+    ``-MIN(-x)``: DuckDB sorts NaN highest, so MIN skips it and an all-NaN input stays NaN.
     """
-    if agg_type != "median":
-        return source_sql
-    return nan_to_null_sql(source_sql, column_types(data).get(source_col, ""))
+    if agg_type == "mode":
+        return f"MODE(CASE WHEN {source_sql} IS NOT NULL THEN struct_pack(v := {source_sql}) END)"
+
+    column_type = column_types(data).get(source_col, "")
+    is_float = column_type.upper() in ("FLOAT", "DOUBLE")
+
+    if is_float and agg_type == "median":
+        return f"{agg_func}({nan_to_null_sql(source_sql, column_type)})"
+    if is_float and agg_type == "max":
+        return f"-MIN(-({source_sql}))"
+    return f"{agg_func}({source_sql})"

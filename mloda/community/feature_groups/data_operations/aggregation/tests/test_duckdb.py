@@ -27,8 +27,3 @@ class TestDuckdbAggregation(DuckdbTestMixin, AggregationTestBase):
     @classmethod
     def supported_agg_types(cls) -> set[str]:
         return {*cls.ALL_AGG_TYPES, "mean"}
-
-    @classmethod
-    def nan_divergent_agg_types(cls) -> frozenset[str]:
-        """DuckDB's MODE counts each NaN separately, and MAX propagates NaN instead of skipping it."""
-        return frozenset({"mode", "max"})
