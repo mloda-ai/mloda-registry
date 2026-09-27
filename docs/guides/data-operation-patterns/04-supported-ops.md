@@ -25,6 +25,8 @@ for attr in ("supported_agg_types", "supported_ops", "supported_offset_types", "
 
 The multiple method names exist because different operation categories use different vocabulary: aggregation has "agg_types", binning has "ops", offset has "offset_types", rank has "rank_types". The semantics are the same.
 
+If none of the four is defined, the helper raises `TypeError` rather than skipping. A base that declares no supported set is a defect, not a framework limitation: skipping there would make the calling shared test pass on every backend without ever running, so the coverage loss would be invisible.
+
 ---
 
 ## Example: SQLite excludes `upper`, `lower`, and `reverse`

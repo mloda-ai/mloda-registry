@@ -27,6 +27,16 @@ import pytest
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 
+# Capability methods ``_skip_if_unsupported`` probes, in order. Operation families
+# spell the same idea differently: aggregation has "agg_types", binning "ops",
+# offset "offset_types", rank "rank_types".
+_SUPPORTED_SET_ATTRS: tuple[str, ...] = (
+    "supported_agg_types",
+    "supported_ops",
+    "supported_offset_types",
+    "supported_rank_types",
+)
+
 
 class DataOpsTestBase(ABC):
     """Abstract base class shared by all data-operations test suites.
@@ -95,14 +105,21 @@ class DataOpsTestBase(ABC):
 
         Works with any subclass that defines ``supported_agg_types``,
         ``supported_ops``, ``supported_offset_types``, or ``supported_rank_types``.
+        A subclass defining none of them is a defect, not an unsupported op, so
+        this raises rather than skipping: skipping would make the shared test
+        pass on every framework without ever running.
         """
-        for attr in ("supported_agg_types", "supported_ops", "supported_offset_types", "supported_rank_types"):
+        for attr in _SUPPORTED_SET_ATTRS:
             method = getattr(self, attr, None)
             if method is not None:
                 if op not in method():
                     pytest.skip(f"{op} not supported by this framework")
                 return
-        pytest.skip(f"{op} not supported by this framework")
+        raise TypeError(
+            f"{type(self).__name__} declares none of {', '.join(_SUPPORTED_SET_ATTRS)}, "
+            f"so {op!r} cannot be checked for support. Declare the supported set on the test base, "
+            "or keep the shared test on a base that declares one."
+        )
 
     # -- Shared NaN-policy fixture -----------------------------------------
 
