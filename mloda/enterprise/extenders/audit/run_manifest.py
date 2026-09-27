@@ -408,24 +408,24 @@ def _iter_manifests(path: str | Path) -> Iterator[dict[str, Any]]:
 
 
 def _is_run_sealed_unverified(manifest_path: str | Path, run_id: str) -> bool:
-    """True iff a line naming run_id decodes to a manifest sealing it; no signature or chain check (a
-    pickled AuditExtender copy has no signer). A line that does not decode (e.g. a torn tail) is skipped,
-    not treated as sealed; a decodable one, even unterminated, counts."""
+    """Unverified read without the lock: a seal holds the exclusive lock while it digests the whole audit
+    log, so a calculation must not wait on it. True iff a line naming run_id decodes to a JSON object with
+    that run_id; a line that does not decode (torn, or mid-append) is skipped, not treated as sealed; a
+    decodable one, even unterminated, counts."""
     needle = json.dumps(run_id).encode("utf-8")
-    with _flock(manifest_path, exclusive=False):
-        try:
-            with open(manifest_path, "rb") as file:
-                for raw in file:
-                    if needle not in raw:
-                        continue
-                    try:
-                        manifest = _decode_line("manifest tail", raw.rstrip(b"\n"))
-                    except ManifestVerificationError:
-                        continue
-                    if isinstance(manifest, dict) and manifest.get("run_id") == run_id:
-                        return True
-        except FileNotFoundError:
-            return False
+    try:
+        with open(manifest_path, "rb") as file:
+            for raw in file:
+                if needle not in raw:
+                    continue
+                try:
+                    manifest = _decode_line(str(manifest_path), raw.rstrip(b"\n"))
+                except ManifestVerificationError:
+                    continue
+                if isinstance(manifest, dict) and manifest.get("run_id") == run_id:
+                    return True
+    except FileNotFoundError:
+        return False
     return False
 
 

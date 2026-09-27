@@ -20,11 +20,11 @@ from mloda.enterprise.extenders.audit.run_manifest import (
     ManifestSigner,
     RunAlreadySealedError,
     RunNotPendingError,
-    _is_run_sealed_unverified,
     _reject_aliased_paths,
     _signer_map,
     seal_ndjson_runs,
 )
+from mloda.enterprise.extenders.audit.run_manifest import _is_run_sealed_unverified as _is_run_sealed_unverified
 
 logger = logging.getLogger(__name__)
 
@@ -145,13 +145,16 @@ class AuditExtender(Extender):
     manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
     that just finished. An auto-sealing instance, or a pickled copy of one, refuses a calculation with
     SealedRunRefusedError before writing anything when its run_id was sealed by this instance or is already named in
-    manifest_path (an unverified read, once per run_id per instance or copy, at its first calculation; a seal landing
-    after that first calculation is not seen), so re-running a prepared session (including a retry after a failed
-    run, since a failed run is sealed too), even through a fresh instance, fails fast: prepare a new session instead.
-    With raise_on_error=False (fail_closed=False), core instead logs the refusal and runs the call unaudited, as for a
-    sink failure, so that re-run leaves no record for verification to find. A manifest read failure other than a
-    missing file propagates like a sink failure. An AuditExtender without sealing config cannot check and is never
-    refused. A fail_closed=True deny record written at plan time is a different, recoverable case: it is refused
+    manifest_path (an unverified read, once per run per instance or copy, at its first calculation; a seal landing
+    after that first calculation is not seen, so do not run one prepared auto-sealing session concurrently: a run
+    sealed while another run() of it is still calculating leaves that run's later records outside the seal), so
+    re-running a prepared session (including a retry after a failed run, since a failed run is sealed too), even
+    through a fresh instance, fails fast: prepare a new session instead. The read is unverified, so a writer to
+    manifest_path can make runs be refused (availability only, it never hides a seal). With raise_on_error=False
+    (fail_closed=False), core instead logs the refusal and runs the call unaudited, as for a sink failure, so that
+    re-run leaves no record for verification to find. A manifest read failure is logged at WARNING and the run is
+    audited without the check. An AuditExtender without sealing config cannot check and is never refused.
+    A fail_closed=True deny record written at plan time is a different, recoverable case: it is refused
     before setup, so on_run_complete never fires for it and it is never auto-sealed at all (not sealed-with-strays);
     seal it later with seal_ndjson_runs targeted at that specific run_id (found via
     verify_ndjson_log_coverage(...).unsealed_lines), not a blanket sweep, since a blanket sweep could seal a
@@ -389,7 +392,18 @@ class AuditExtender(Extender):
         first calculation decides for the whole run: a seal landing after that is not seen)."""
         if self._manifest_path is None or run_id is None or run_id in self._unsealed_run_ids:
             return False
-        found = _is_run_sealed_unverified(self._manifest_path, run_id)
+        try:
+            found = _is_run_sealed_unverified(self._manifest_path, run_id)
+        except OSError as exc:
+            logger.warning(
+                "AuditExtender: could not read manifest_path %s for run_id %r (%s); calculations under it "
+                "are audited without the sealed-run check",
+                self._manifest_path,
+                run_id,
+                type(exc).__name__,
+            )
+            self._unsealed_run_ids.add(run_id)
+            return False
         (self._sealed_run_ids if found else self._unsealed_run_ids).add(run_id)
         return found
 

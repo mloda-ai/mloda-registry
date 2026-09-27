@@ -24,7 +24,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from mloda.steward import verified_context
+from mloda.steward import Extender, verified_context
 from mloda.user import ParallelizationMode
 
 import mloda.enterprise.extenders.audit as audit_package
@@ -4684,21 +4684,25 @@ class TestRunManifestRunAll:
             audit_before = audit_path.read_bytes()
             manifest_before = manifest_path.read_bytes()
 
-            rerun_extender = (
-                extender
+            rerun_extenders: set[Extender] | None = (
+                None
                 if rerun_with == "same_instance"
-                else AuditExtender(
-                    sink=NdjsonAuditSink(audit_path),
-                    audit_path=audit_path,
-                    manifest_path=manifest_path,
-                    signer=signer,
-                    fail_closed=fail_closed,
-                )
+                else {
+                    AuditExtender(
+                        sink=NdjsonAuditSink(audit_path),
+                        audit_path=audit_path,
+                        manifest_path=manifest_path,
+                        signer=signer,
+                        fail_closed=fail_closed,
+                    )
+                }
             )
 
             with pytest.raises(SealedRunRefusedError):
                 session.run(
-                    parallelization_modes={mode}, flight_server=flight_server, function_extender={rerun_extender}
+                    parallelization_modes={mode},
+                    flight_server=flight_server,
+                    function_extender=rerun_extenders,
                 )
 
         assert audit_path.read_bytes() == audit_before

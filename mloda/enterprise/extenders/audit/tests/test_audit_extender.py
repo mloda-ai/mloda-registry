@@ -11,6 +11,7 @@ import os
 import pickle  # nosec
 import re
 import stat
+import threading
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from datetime import datetime
@@ -40,6 +41,7 @@ from mloda.enterprise.extenders.audit import (
 )
 from mloda.enterprise.extenders.audit import audit_extender as audit_extender_module
 from mloda.enterprise.extenders.audit._records import _append_records, _canonical_json
+from mloda.enterprise.extenders.audit.run_manifest import _flock
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
@@ -185,12 +187,11 @@ def _second_extender_over_same_sealing_config(
     audit_path: Path,
     manifest_path: Path,
     signer: Any,
-    make: Callable[..., AuditExtender] = AuditExtender,
     **kwargs: Any,
 ) -> AuditExtender:
     """A second, fresh AuditExtender over the same sealing config; any refusal it raises must come from the
     shared manifest_path, not its own empty in-memory sealed set."""
-    return make(
+    return AuditExtender(
         NdjsonAuditSink(audit_path), audit_path=audit_path, manifest_path=manifest_path, signer=signer, **kwargs
     )
 
@@ -215,6 +216,26 @@ def _refuser_pickled_second_instance(tmp_path: Path, fail_closed: bool) -> tuple
     """A pickled copy of a fresh second instance: it has no signer, only the shared manifest_path."""
     second, audit_path = _refuser_second_instance(tmp_path, fail_closed)
     return pickle.loads(pickle.dumps(second)), audit_path  # nosec
+
+
+def _torn_garbage_tail(audit_path: Path, manifest_path: Path, signer: Any) -> str:
+    """Both a non-object line and a torn line name run-2, so the byte prefilter finds them and a decode is
+    attempted, but neither decodes to a sealing manifest: run-1 (sealed on line 1) stays refused, run-2 stays
+    unsealed."""
+    with open(manifest_path, "ab") as manifest_file:
+        manifest_file.write(b'["run-2"]\n{"run_id": "run-2", "record_co')
+    return "run-1"
+
+
+def _unterminated_seal_of_run_2_tail(audit_path: Path, manifest_path: Path, signer: Any) -> str:
+    """A real, decodable run-2 seal appended without its trailing newline; still counts as sealed."""
+    head = verify_ndjson_log_coverage(audit_path, manifest_path, signer=signer).head
+    record = _minimal_audit_record("run-2")
+    _append_records(audit_path, [record])
+    manifest_2 = seal_run([record], run_id="run-2", signer=signer, previous_manifest_hash=head)
+    with open(manifest_path, "ab") as manifest_file:
+        manifest_file.write(_canonical_json(manifest_2))  # no trailing newline
+    return "run-2"
 
 
 _REFUSERS = pytest.mark.parametrize(
@@ -1262,7 +1283,31 @@ class TestAuditExtenderSealing:
 
         assert spy.call_count == 2  # once for run-2 (unsealed, cached), once for run-1 (sealed, cached)
 
-    @pytest.mark.parametrize("prime", ["matched_at_plan_time", "calculated_then_run_completed"])
+    def test_a_calculation_never_waits_on_an_exclusive_holder_of_the_manifest_lock(self, tmp_path: Path) -> None:
+        sealing_instance, audit_path = _extender_with_run_1_sealed(tmp_path)
+        _, manifest_path = _sealing_config(tmp_path)
+        second = _second_extender_over_same_sealing_config(audit_path, manifest_path, _hmac_signer())
+        call = _CountingCall()
+        finished = threading.Event()
+
+        def run_under_run_2() -> None:
+            with make_hook_context(run_id="run-2", tenant_id=_TENANT).activate():
+                second(call)
+            finished.set()
+
+        with _flock(manifest_path, exclusive=True):
+            thread = threading.Thread(target=run_under_run_2)
+            thread.start()
+            thread.join(timeout=3)
+            finished_while_locked = finished.is_set()
+        thread.join()  # the lock is released now; never leave the thread running past the test
+
+        assert finished_while_locked
+        assert call.calls == 1
+
+    @pytest.mark.parametrize(
+        "prime", ["matched_at_plan_time", "calculated_then_run_completed", "pickled_after_calculate"]
+    )
     def test_an_unsealed_answer_cached_before_run_1_got_sealed_does_not_survive_to_the_next_calculate_call(
         self, tmp_path: Path, prime: str
     ) -> None:
@@ -1273,6 +1318,8 @@ class TestAuditExtenderSealing:
             sink=sink, audit_path=audit_path, manifest_path=manifest_path, signer=signer, fail_closed=True
         )
 
+        refuser = instance_c
+
         if prime == "matched_at_plan_time":
             # Plan time, under a freshly minted run_id: run-1 is unsealed here, and this hook must never
             # cache that, or it would go stale the moment run-1 is sealed below.
@@ -1280,7 +1327,7 @@ class TestAuditExtenderSealing:
                 hook=ExtenderHook.FEATURE_GROUP_MATCHED, run_id="run-1", tenant_id=_TENANT
             ).activate():
                 instance_c(_CountingCall())
-        else:
+        elif prime == "calculated_then_run_completed":
             # A calculate call while run-1 is still unsealed; its own sink is in-memory only, so
             # on_run_complete below seals nothing (the audit file never gets this record) and must forget
             # whatever it cached for run-1 rather than leave a stale "unsealed" answer behind.
@@ -1288,6 +1335,13 @@ class TestAuditExtenderSealing:
                 instance_c(_CountingCall())
             instance_c.on_run_complete("run-1")
             assert not audit_path.exists()
+        else:
+            assert prime == "pickled_after_calculate"
+            # A calculate call while run-1 is still unsealed caches "unsealed" on instance_c; a pickled copy
+            # made right after must not inherit that stale answer once run-1 gets sealed below.
+            with make_hook_context(run_id="run-1", tenant_id=_TENANT).activate():
+                instance_c(_CountingCall())
+            refuser = pickle.loads(pickle.dumps(instance_c))  # nosec
 
         _append_records(audit_path, [_minimal_audit_record("run-1")])
         seal_ndjson_runs(audit_path, manifest_path, signer=signer, run_id="run-1")
@@ -1296,26 +1350,10 @@ class TestAuditExtenderSealing:
         call = _CountingCall()
         with make_hook_context(run_id="run-1", tenant_id=_TENANT).activate():
             with pytest.raises(SealedRunRefusedError):
-                instance_c(call)
+                refuser(call)
 
         assert call.calls == 0
         assert audit_path.read_bytes() == before
-
-    def _torn_garbage_tail(self, audit_path: Path, manifest_path: Path, signer: Any) -> str:
-        """An undecodable, unterminated tail; the run_id it refuses to name (run-1, already sealed above)."""
-        with open(manifest_path, "ab") as manifest_file:
-            manifest_file.write(b"not-json-and-not-terminated")
-        return "run-1"
-
-    def _unterminated_seal_of_run_2_tail(self, audit_path: Path, manifest_path: Path, signer: Any) -> str:
-        """A real, decodable run-2 seal appended without its trailing newline; still counts as sealed."""
-        head = verify_ndjson_log_coverage(audit_path, manifest_path, signer=signer).head
-        record = _minimal_audit_record("run-2")
-        _append_records(audit_path, [record])
-        manifest_2 = seal_run([record], run_id="run-2", signer=signer, previous_manifest_hash=head)
-        with open(manifest_path, "ab") as manifest_file:
-            manifest_file.write(_canonical_json(manifest_2))  # no trailing newline
-        return "run-2"
 
     @pytest.mark.parametrize(
         "make_tail",
@@ -1325,13 +1363,13 @@ class TestAuditExtenderSealing:
         ],
     )
     def test_a_manifest_tail_that_does_not_decode_is_skipped_but_a_valid_unterminated_seal_still_counts(
-        self, tmp_path: Path, make_tail: Callable[["TestAuditExtenderSealing", Path, Path, Any], str]
+        self, tmp_path: Path, make_tail: Callable[[Path, Path, Any], str]
     ) -> None:
         sealing_instance, audit_path = _extender_with_run_1_sealed(tmp_path)
         _, manifest_path = _sealing_config(tmp_path)
         signer = _find_signer_attr(sealing_instance)
 
-        refused_run_id = make_tail(self, audit_path, manifest_path, signer)
+        refused_run_id = make_tail(audit_path, manifest_path, signer)
 
         second = _second_extender_over_same_sealing_config(audit_path, manifest_path, signer)
         before = audit_path.read_bytes()
@@ -1351,23 +1389,36 @@ class TestAuditExtenderSealing:
         assert call.calls == 1
         assert audit_path.read_bytes() != before_other
 
-    def test_manifest_path_being_a_directory_raises_os_error_instead_of_a_refusal(self, tmp_path: Path) -> None:
+    def test_manifest_read_failure_logs_a_warning_and_still_audits_the_call(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         sealing_instance, audit_path = _extender_with_run_1_sealed(tmp_path)
         _, manifest_path = _sealing_config(tmp_path)
-        second = _second_extender_over_same_sealing_config(
-            audit_path, manifest_path, _find_signer_attr(sealing_instance)
-        )
+        second = _second_extender_over_same_sealing_config(audit_path, manifest_path, _hmac_signer())
         manifest_path.unlink()
         manifest_path.mkdir()
 
         before = audit_path.read_bytes()
         call = _CountingCall()
-        with make_hook_context(run_id="run-3", tenant_id=_TENANT).activate():
-            with pytest.raises(OSError):
-                second(call)
+        with caplog.at_level(logging.WARNING):
+            for _ in range(2):
+                with make_hook_context(run_id="run-3", tenant_id=_TENANT).activate():
+                    result = second(call)
+                assert result == 42
 
-        assert call.calls == 0
-        assert audit_path.read_bytes() == before
+        assert call.calls == 2
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING
+            and r.name == audit_extender_module.__name__
+            and "run-3" in r.getMessage()
+            and str(manifest_path) in r.getMessage()
+        ]
+        assert len(warnings) == 1, [(r.levelno, r.getMessage()) for r in caplog.records]
+        after = audit_path.read_bytes()
+        assert after.startswith(before)
+        assert after.count(b"\n") == before.count(b"\n") + 2
 
     def test_call_under_a_different_run_id_after_sealing_still_runs_and_writes(self, tmp_path: Path) -> None:
         extender, audit_path = _extender_with_run_1_sealed(tmp_path)
