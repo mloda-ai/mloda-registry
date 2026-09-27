@@ -515,8 +515,8 @@ def _reachable_distributions(packages: dict[str, dict[str, Any]]) -> list[str]:
 
 
 def test_no_dotted_package_is_listed_by_two_reachable_distributions() -> None:
-    """Definition-of-done: every path shipped by a distribution reachable from a published one has exactly
-    one owner among the reachable distributions."""
+    """Every path shipped by a distribution reachable from a published one has exactly one owner among the
+    reachable distributions."""
     packages = _packages()
     reachable = _reachable_distributions(packages)
 
