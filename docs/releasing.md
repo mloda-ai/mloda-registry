@@ -42,6 +42,9 @@ It sets `MLODA_REGISTRY_VERSION` and runs these tox envs:
 | `verify-extras` | The `[all]` extras resolve and pull in their variants |
 | `verify-typed-install` | A standalone leaf install is typed under mypy --strict |
 
+`verify-published` installs with the `exclude-newer` window lifted for the released set; see
+[Published packages](#published-packages) below.
+
 `verify-typed-install` follows the fails-until-release pattern `verify-published` has: it
 goes red until the base's `py.typed` marker ships. Sibling dependency floors need no
 dedicated verification env: `verify-published-independent` already covers each leaf
@@ -61,6 +64,12 @@ and `verify-extras` derives its internal extras from `config/packages.toml`'s
 
 Flagging a package does not publish it: it ships with the next release run, and
 `tox -e verify-published` fails for it until then.
+
+The root `pyproject.toml`'s `exclude-newer` window would hide a release younger than
+seven days, so `verify-published` and `security` pass `--exclude-newer-exempt`, which
+lifts the cutoff for the released distributions only; third-party dependencies stay
+behind the window. The script-driven verify envs install into a temporary directory,
+where no project config applies.
 
 A release that introduces packages new to PyPI can be rejected with
 `429 Too many new projects created`. PyPI throttles the creation of *new* project names,

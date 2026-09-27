@@ -4,6 +4,7 @@
 Usage:
     python scripts/published_packages.py                # one distribution name per line
     python scripts/published_packages.py --pin 0.4.0    # each name pinned to a version
+    python scripts/published_packages.py --exclude-newer-exempt  # uv flags exempting the set from exclude-newer
 """
 
 from __future__ import annotations
@@ -47,6 +48,11 @@ def published_packages(packages: dict[str, dict[str, Any]]) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Print the distributions published to PyPI")
     parser.add_argument("--pin", metavar="VERSION", help="Append '==VERSION' to every distribution name")
+    parser.add_argument(
+        "--exclude-newer-exempt",
+        action="store_true",
+        help="Print '--exclude-newer-package=NAME=false' for every distribution instead of its name",
+    )
     args = parser.parse_args()
 
     # tox renders '--pin ' when MLODA_REGISTRY_VERSION is unset.
@@ -61,7 +67,10 @@ def main() -> int:
         return 1
 
     for name in names:
-        print(f"{name}=={args.pin}" if args.pin else name)
+        if args.exclude_newer_exempt:
+            print(f"--exclude-newer-package={name}=false")
+        else:
+            print(f"{name}=={args.pin}" if args.pin else name)
     return 0
 
 

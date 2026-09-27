@@ -457,6 +457,18 @@ def test_cli_pin_appends_the_version_to_every_name(
     )
 
 
+def test_cli_exclude_newer_exempt_prints_one_flag_per_distribution(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--exclude-newer-exempt`` feeds the tox install lines, exempting the released set from the
+    7-day ``exclude-newer`` filter that would otherwise hide our own freshly published distributions."""
+    lines = _cli_lines(monkeypatch, capsys, ["--exclude-newer-exempt"])
+    expected = [f"--exclude-newer-package={name}=false" for name in _EXPECTED_PUBLISHED]
+    assert lines == expected, (
+        f"'python scripts/published_packages.py --exclude-newer-exempt' printed {lines!r}, expected {expected!r}"
+    )
+
+
 def test_cli_exits_non_zero_when_nothing_is_published(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """An empty set would silently publish nothing, so it must fail loudly instead."""
     (tmp_path / "config").mkdir()
@@ -718,10 +730,28 @@ def test_internal_extra_members_drops_external_names() -> None:
 
 @pytest.mark.parametrize("env_name", _TOX_PUBLISHED_ENVS)
 def test_tox_env_installs_from_the_published_script(env_name: str) -> None:
-    """Both PyPI-installing envs read the released set from the single source."""
-    assert _SCRIPT_INVOCATION in _tox_block(env_name), (
-        f"tox.ini [testenv:{env_name}] does not invoke {_SCRIPT_INVOCATION}, so its package list is a "
-        "second copy of the released set."
+    """Both PyPI-installing envs read the released set, and its exclude-newer exemption, from the
+    single source, on the 'uv pip install' line itself (the 'security' env's 'uv pip uninstall' line
+    also calls the script but must not satisfy this check)."""
+    install_lines = [
+        line for line in _tox_block(env_name).splitlines() if "uv pip install" in line and _SCRIPT_INVOCATION in line
+    ]
+    assert len(install_lines) == 1, (
+        f"tox.ini [testenv:{env_name}] must have exactly one 'uv pip install' line invoking "
+        f"{_SCRIPT_INVOCATION}, found {len(install_lines)}: {install_lines!r}"
+    )
+    install_line = install_lines[0]
+    assert "uv pip uninstall" not in install_line, (
+        f"tox.ini [testenv:{env_name}] install-line check matched an uninstall line: {install_line!r}"
+    )
+    assert re.search(rf"{re.escape(_SCRIPT_INVOCATION)}\s+--pin\b", install_line) is not None, (
+        f"tox.ini [testenv:{env_name}] 'uv pip install' line does not invoke {_SCRIPT_INVOCATION} with "
+        f"--pin: {install_line!r}"
+    )
+    assert re.search(rf"{re.escape(_SCRIPT_INVOCATION)}\s+--exclude-newer-exempt\b", install_line) is not None, (
+        f"tox.ini [testenv:{env_name}] 'uv pip install' line does not invoke {_SCRIPT_INVOCATION} with "
+        f"--exclude-newer-exempt, so 'exclude-newer' filters out our own freshly published "
+        f"distributions: {install_line!r}"
     )
 
 

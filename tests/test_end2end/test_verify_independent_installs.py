@@ -23,6 +23,10 @@ _WORKFLOW_PATH = _REPO_ROOT / ".github" / "workflows" / "verify-published.yaml"
 
 _INDEPENDENT_STEP = "Verify packages install independently"
 
+# The one Verify step allowed to run unconditionally: every later Verify step must not be skipped
+# just because an earlier one failed.
+_FIRST_VERIFY_STEP = "Verify published packages (all together)"
+
 # Published distributions whose 'uv pip install' the fakes below fail, to check isolation.
 _FAILING_DISTRIBUTIONS = ["mloda-community-ema", "mloda-community-rank"]
 
@@ -173,6 +177,37 @@ def test_main_reports_every_failing_distribution_while_running_concurrently(
     assert exit_code == 1, f"main() exited {exit_code!r} with two failing distributions, expected 1"
     for name in _FAILING_DISTRIBUTIONS:
         assert name in out, f"main() output does not name failing distribution {name!r}: {out!r}"
+
+
+def test_later_verify_steps_run_independently_of_earlier_failures() -> None:
+    """One failing probe (e.g. the flaky independent-install step) must not skip the steps after it, so
+    every 'Verify ...' step but the first carries an 'if:' that runs it regardless of prior outcome."""
+    text = _WORKFLOW_PATH.read_text()
+    verify_steps = [match for match in _STEP_RE.finditer(text) if match.group("name").strip().startswith("Verify ")]
+    names = [match.group("name").strip() for match in verify_steps]
+    assert _FIRST_VERIFY_STEP in names, (
+        f".github/workflows/verify-published.yaml has no '- name: {_FIRST_VERIFY_STEP}'; this test cannot "
+        "tell the first Verify step from the rest without it"
+    )
+
+    missing_if = []
+    for match in verify_steps:
+        name = match.group("name").strip()
+        if name == _FIRST_VERIFY_STEP:
+            continue
+        if_match = re.search(r"^\s*if:\s*(.+)$", match.group("body"), re.MULTILINE)
+        if (
+            if_match is None
+            or "!cancelled()" not in if_match.group(1)
+            or ("steps.get_version.outcome == 'success'" not in if_match.group(1))
+        ):
+            missing_if.append(name)
+
+    assert missing_if == [], (
+        f".github/workflows/verify-published.yaml steps {missing_if} lack an 'if:' containing both "
+        "'!cancelled()' and \"steps.get_version.outcome == 'success'\", so a failure in an earlier "
+        "Verify step (or in 'Get latest release version') skips them instead of running independently"
+    )
 
 
 def test_independent_install_step_has_no_longer_timeout_than_the_other_verify_steps() -> None:
