@@ -125,8 +125,15 @@ class LineageFacetsExtender(OpenLineageExtender):
     ) -> dict[str, Any]:
         facets = super()._calculate_output_facets(context, func, args, name, inputs)
         if context.input_features:
-            edges = [(self.dataset_namespace, input_name, input_name) for input_name in sorted(context.input_features)]
-            description = _STEP_LEVEL_DESCRIPTION if len(context.feature_names) > 1 else None
+            declared = (context.input_feature_edges or {}).get(name)
+            if declared is not None:
+                edges = [(self.dataset_namespace, input_name, input_name) for input_name in sorted(declared)]
+                description = None
+            else:
+                edges = [
+                    (self.dataset_namespace, input_name, input_name) for input_name in sorted(context.input_features)
+                ]
+                description = _STEP_LEVEL_DESCRIPTION if len(context.feature_names) > 1 else None
         else:
             column = _source_column(func, args, name)
             # With several loaded datasets it is unknown which one holds the column.

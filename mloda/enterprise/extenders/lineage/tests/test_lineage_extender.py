@@ -669,9 +669,10 @@ class TestLineageFacetsColumnLineage:
                 column_lineage_dataset.Transformation(type="DIRECT", description=description)
             ]
 
-    def test_run_all_multi_output_step_marks_every_output_edge_as_step_level(
+    def test_run_all_multi_output_step_gives_each_output_its_own_declared_edge(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
+        """Core 0.14 populates input_feature_edges per output, so no step-level marker is needed here anymore."""
         client, transport = ol_capture
 
         _run(LineageFacetsExtender(client=client), list(_MultiOutput.outputs), _MultiOutput)
@@ -680,9 +681,56 @@ class TestLineageFacetsColumnLineage:
         assert sorted(output.name for output in complete.outputs or []) == sorted(_MultiOutput.outputs)
         for name in _MultiOutput.outputs:
             assert set(_column_lineage(complete, name).fields) == {name}
-            assert _transformations(complete, name) == [
-                column_lineage_dataset.Transformation(type="DIRECT", description=_STEP_LEVEL_MARKER)
+            input_fields = _column_lineage(complete, name).fields[name].inputFields
+            assert [input_field.name for input_field in input_fields] == [_ROOT]
+            assert _transformations(complete, name) == [column_lineage_dataset.Transformation(type="DIRECT")]
+
+    def test_input_feature_edges_give_each_output_exactly_its_own_edges_even_on_multi_output_steps(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+        edges: dict[str, tuple[str, ...]] = {"a__sum": ("a",), "b__sum": ("b",)}
+
+        with make_hook_context(
+            feature_names=("a__sum", "b__sum"),
+            input_features=frozenset({"a", "b"}),
+            input_feature_edges=edges,
+        ).activate():
+            LineageFacetsExtender(client=client)(lambda: None)
+
+        for output, inputs in edges.items():
+            input_fields = _column_lineage(transport.events[-1], output).fields[output].inputFields
+            assert [input_field.name for input_field in input_fields] == list(inputs)
+            assert _transformations(transport.events[-1], output) == [
+                column_lineage_dataset.Transformation(type="DIRECT") for _ in inputs
             ]
+
+    def test_input_feature_edges_only_apply_to_outputs_with_an_entry(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        """An output missing from input_feature_edges keeps the old behavior: all step inputs, step-level marker."""
+        client, transport = ol_capture
+        edges: dict[str, tuple[str, ...]] = {"a__sum": ("a",)}
+
+        with make_hook_context(
+            feature_names=("a__sum", "b__sum"),
+            input_features=frozenset({"a", "b"}),
+            input_feature_edges=edges,
+        ).activate():
+            LineageFacetsExtender(client=client)(lambda: None)
+
+        a_fields = _column_lineage(transport.events[-1], "a__sum").fields["a__sum"].inputFields
+        assert [input_field.name for input_field in a_fields] == ["a"]
+        assert _transformations(transport.events[-1], "a__sum") == [
+            column_lineage_dataset.Transformation(type="DIRECT")
+        ]
+
+        b_fields = _column_lineage(transport.events[-1], "b__sum").fields["b__sum"].inputFields
+        assert [input_field.name for input_field in b_fields] == ["a", "b"]
+        assert (
+            _transformations(transport.events[-1], "b__sum")
+            == [column_lineage_dataset.Transformation(type="DIRECT", description=_STEP_LEVEL_MARKER)] * 2
+        )
 
 
 _MASKED_CASES = [
