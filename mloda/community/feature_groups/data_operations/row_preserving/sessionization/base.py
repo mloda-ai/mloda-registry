@@ -36,7 +36,7 @@ Options context:
 
 The source column always comes from the ``{ts}__sessionize_{n}_{unit}`` name;
 a config-only feature (source given via ``in_features`` instead of the name)
-is rejected.
+is not matched.
 
 Every backend (pandas, polars-lazy, PyArrow, DuckDB, SQLite) computes
 sessionization NATIVELY; there is no rejection of supported inputs. PyArrow is
@@ -166,7 +166,7 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         if not source_feature:
             raise ValueError(
                 f"sessionize reads its source from the {{ts}}__sessionize_{{n}}_{{unit}} feature name, "
-                f"got {feature_name!r}."
+                f"got {str(feature_name)!r}."
             )
 
         return [source_feature]

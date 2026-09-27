@@ -389,3 +389,19 @@ class SessionizationTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
         fs = make_feature_set("ts__sessionize_30_minute", partition_by=["user"], order_by="ts")
         with pytest.raises(ValueError, match=r"(?i)ts|missing|column"):
             self.implementation_class().calculate_feature(data, fs)
+
+    def test_config_only_feature_rejected_at_calculate(self) -> None:
+        """calculate_feature must reject a config-only feature name (source must come from the name)."""
+        feature = Feature(
+            "bad_config_only",
+            options=Options(
+                context={
+                    "in_features": "ts",
+                    "partition_by": ["user"],
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        with pytest.raises(ValueError, match=r"(?i)feature name"):
+            self.implementation_class().calculate_feature(self.test_data, fs)

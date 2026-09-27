@@ -90,9 +90,16 @@ class TestPatternMatching:
         # The regex itself accepts the digit 0.
         assert PandasSessionization.match_feature_group_criteria("ts__sessionize_0_minute", _match_options()) is True
 
-    def test_name_based_match_still_works_with_in_features_option(self) -> None:
-        """A valid name-based feature still matches when ``in_features`` is also set, with a consistent source."""
-        options = Options(context={"in_features": "ts", "order_by": "ts", "partition_by": ["user"]})
+    @pytest.mark.parametrize(
+        "in_features",
+        [
+            pytest.param("ts", id="matching_source"),
+            pytest.param("other", id="mismatched_source"),
+        ],
+    )
+    def test_name_based_match_still_works_with_in_features_option(self, in_features: str) -> None:
+        """A valid name-based feature still matches; ``in_features`` is ignored on the name path."""
+        options = Options(context={"in_features": in_features, "order_by": "ts", "partition_by": ["user"]})
         assert PandasSessionization.match_feature_group_criteria(SESSIONIZE_FEATURE_NAME, options) is True
 
 
@@ -230,3 +237,8 @@ class TestSourceExtraction:
         feature = Feature("created_at__sessionize_30_minute", options=Options())
         source_features = SessionizationFeatureGroup._extract_source_features(feature)
         assert source_features == ["created_at"]
+
+    def test_input_features_returns_source_feature_from_name(self) -> None:
+        """``input_features`` extracts the source feature ``a__b`` from ``a__b__sessionize_1_hour``."""
+        result = SessionizationFeatureGroup().input_features(Options(), FeatureName("a__b__sessionize_1_hour"))
+        assert result == {Feature("a__b")}
