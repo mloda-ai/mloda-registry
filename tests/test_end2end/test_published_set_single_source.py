@@ -354,9 +354,6 @@ _DEP_NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 # Only the lower bound matters here: ">=1.30,<2" and " >= 1.30, <2" both floor at 1.30.
 _DEP_FLOOR_RE = re.compile(r">=\s*([^\s,;]+)")
 
-# The exact ownership spelling '<name>[extras]=={version}', no marker (extras optional).
-_OWNERSHIP_EXACT_FLOOR_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]*\])?==\{version\}$")
-
 
 def _normalize_dep_name(name: str) -> str:
     """PEP 503 normal form: lowercase, runs of '-', '_', '.' collapsed to '-'."""
@@ -385,33 +382,11 @@ def _nested_under(bundle_name: str, packages: dict[str, dict[str, Any]]) -> list
     return [name for name in packages if name != bundle_name and packages[name]["path"].startswith(prefix)]
 
 
-def _raw_bundle_requirement_strings(bundle_name: str, packages: dict[str, dict[str, Any]]) -> list[str]:
-    """Every requirement string a bundle declares itself, from its own dependencies plus non-dev extras,
-    as written in the config."""
+def _bundle_extra_only_owned_names(bundle_name: str, packages: dict[str, dict[str, Any]]) -> set[str]:
+    """Nested packages a bundle owns only through a non-dev extra, not also in its own ``dependencies``."""
     cfg = packages[bundle_name]
-    strings = list(cfg.get("dependencies", []))
-    for extra_name, deps in cfg.get("optional_dependencies", {}).items():
-        if extra_name != "dev":
-            strings.extend(deps)
-    return strings
-
-
-def _bundle_extra_names(bundle_name: str, packages: dict[str, dict[str, Any]]) -> set[str]:
-    """Configured packages a bundle names only in a non-dev optional_dependencies extra (not also in
-    its own dependencies); reuses ``_raw_bundle_requirement_strings`` instead of a second non-dev loop."""
-    configured = {_normalize_dep_name(name): name for name in packages}
-    named = set()
-    for dep in _raw_bundle_requirement_strings(bundle_name, packages):
-        parsed = _parse_dependency(dep)
-        if parsed is not None and parsed[0] in configured:
-            named.add(configured[parsed[0]])
-    return named - _bundle_dependency_names(bundle_name, packages)
-
-
-def _bundle_owned_names(bundle_name: str, packages: dict[str, dict[str, Any]]) -> set[str]:
-    """Nested packages a bundle owns: named in its own dependencies or a non-dev extra."""
-    owned = _bundle_dependency_names(bundle_name, packages) | _bundle_extra_names(bundle_name, packages)
-    return owned & set(_nested_under(bundle_name, packages))
+    owned = set(gen.bundle_owned_names(cfg, packages))
+    return owned - set(gen.sibling_dependency_names(cfg.get("dependencies", []), packages))
 
 
 def test_config_declares_a_published_set() -> None:
@@ -520,29 +495,25 @@ def test_no_dotted_package_is_listed_by_two_published_distributions() -> None:
     )
 
 
-def test_every_published_nested_package_is_owned_with_the_exact_version_placeholder_spelling() -> None:
-    """A published package nested under an entry_point_bundle must be named '<name>[extras]=={version}'
-    (extras optional, no marker) in the bundle's own dependencies or a non-dev extra, so the bundle pins
-    the code it excludes exactly."""
+def test_bundle_owned_names_matches_the_published_nested_packages_exactly() -> None:
+    """A bundle owns exactly its published nested packages. ``gen.bundle_owned_names`` and the set of
+    published nested packages must match in both directions; the generator itself enforces the
+    '<name>[extras]=={version}' spelling that ownership requires (see the synthetic tests in
+    test_sibling_floor_placeholder.py), so generation succeeding here proves the real bundles comply."""
     packages = _packages()
+    shared = _load_toml(_SHARED_CONFIG)
     checked_bundles: set[str] = set()
 
     for bundle_name in _entry_point_bundles(packages):
-        raw_strings = _raw_bundle_requirement_strings(bundle_name, packages)
-        owning = {
-            match.group(1)
-            for match in (_OWNERSHIP_EXACT_FLOOR_RE.match(raw) for raw in raw_strings)
-            if match is not None
-        }
-        for nested_name in _nested_under(bundle_name, packages):
-            if not packages[nested_name].get("published"):
-                continue
+        owned = set(gen.bundle_owned_names(packages[bundle_name], packages))
+        published_nested = {name for name in _nested_under(bundle_name, packages) if packages[name].get("published")}
+        if published_nested:
             checked_bundles.add(bundle_name)
-            assert nested_name in owning, (
-                f"{bundle_name} must own published nested package {nested_name!r} by listing "
-                f"'{nested_name}[extras]=={{version}}' in its own dependencies or a non-dev extra, "
-                f"has {raw_strings!r}"
-            )
+        assert owned == published_nested, (
+            f"{bundle_name} owns {sorted(owned)}, but its published nested packages are "
+            f"{sorted(published_nested)}: these must match exactly"
+        )
+        gen.generate_pyproject(bundle_name, packages[bundle_name], shared, packages)  # must not raise
 
     assert "mloda-community" in checked_bundles, (
         "expected at least one published package nested under mloda-community, or this test is vacuous"
@@ -780,7 +751,7 @@ def test_probe_modules_covers_every_surface_nested_under_a_bundle(bundle: str) -
     probed through its own distribution instead."""
     packages = _packages()
     prefix = packages[bundle]["path"] + "/"
-    extra_only = _bundle_extra_names(bundle, packages) - _bundle_dependency_names(bundle, packages)
+    extra_only = _bundle_extra_only_owned_names(bundle, packages)
     nested = [name for name, cfg in packages.items() if cfg["path"].startswith(prefix) and name not in extra_only]
     assert nested, f"fixture assumption: {bundle} has configured packages nested under {prefix}"
     expected = [module for name in [bundle, *nested] for module in _expected_surface(packages[name]["path"])]
@@ -880,7 +851,7 @@ def test_internal_extra_members_yields_exactly_the_internal_extras() -> None:
     bare package name."""
     entries = _internal_extra_entries(_packages())
     expected = [
-        (_COMMUNITY_EXAMPLE, "all", ["mloda-community-example-a", _EXAMPLE_B]),
+        (_COMMUNITY_EXAMPLE, "all", ["mloda-community-example-a"]),
         (_DATA_OPERATIONS, "all", _published_children()),
         ("mloda-community", "otel", ["mloda-community-otel"]),
         ("mloda-community", "openlineage", ["mloda-community-openlineage"]),
@@ -957,17 +928,44 @@ def test_data_operations_extra_uses_the_published_children_placeholder() -> None
     )
 
 
-def test_community_example_extra_keeps_the_unpublished_example_b() -> None:
-    """example-b is unpublished but still resolvable at its last version, and tox -e verify-extras installs it."""
+def test_no_published_package_requires_an_unpublished_sibling() -> None:
+    """A published package's dependencies or a non-dev extra may never name an unpublished configured
+    sibling; the 'dev' extra is exempt (tooling only, never ships)."""
     packages = _packages()
-    extra = packages[_COMMUNITY_EXAMPLE].get("optional_dependencies", {}).get("all", [])
-    assert _EXAMPLE_B in extra, (
-        f"config/packages.toml dropped {_EXAMPLE_B} from the {_COMMUNITY_EXAMPLE} 'all' extra, got "
-        f"{extra!r}; tox -e verify-extras installs that extra and imports example_b from it."
+    published = set(_config_published())
+    offending: list[str] = []
+    checked = False
+
+    for name in published:
+        cfg = packages[name]
+        expanded = gen.expand_published_children(cfg, packages)
+        raw = list(cfg.get("dependencies", []))
+        for extra_name, deps in expanded.items():
+            if extra_name != "dev":
+                raw.extend(deps)
+        siblings = gen.sibling_dependency_names(raw, packages)
+        checked = True
+        offending.extend(f"{name} -> {sibling}" for sibling in siblings if sibling not in published)
+
+    assert checked, "expected at least one published package, or this test is vacuous"
+    assert offending == [], (
+        f"published packages must never require an unpublished sibling outside the 'dev' extra: {offending}"
     )
-    assert not packages[_EXAMPLE_B].get("published"), (
-        f"{_EXAMPLE_B} is flagged published; this test pins that an unpublished package may stay in a "
-        "hand-written extra, so the extra must not be converted to the published-children placeholder."
+
+
+def test_restoring_example_b_to_the_community_example_extra_is_rejected() -> None:
+    """The guard is not exempt for a sibling nested under an entry_point_bundle: putting the unpublished
+    example-b back into the published example base's 'all' extra must still raise, naming example-b, even
+    though mloda-community also ships example-b's code."""
+    shared = _load_toml(_SHARED_CONFIG)
+    packages = deepcopy(_packages())
+    packages[_COMMUNITY_EXAMPLE]["optional_dependencies"]["all"].append(f"{_EXAMPLE_B}>={{version}}")
+
+    with pytest.raises(ValueError) as exc_info:
+        gen.generate_pyproject(_COMMUNITY_EXAMPLE, packages[_COMMUNITY_EXAMPLE], shared, packages)
+
+    assert _EXAMPLE_B in str(exc_info.value), (
+        f"error message must name the unpublished sibling {_EXAMPLE_B!r}, got: {exc_info.value}"
     )
 
 
@@ -1007,19 +1005,16 @@ def test_unpublishing_a_child_keeps_it_out_of_the_base_wheel() -> None:
     )
 
 
-def test_shrinking_an_extra_keeps_a_configured_child_out_of_the_base_wheel() -> None:
-    """Same coupling through a hand-written extra: the example base must not absorb example-b either."""
-    packages = deepcopy(_packages())
-    extra: list[str] = packages[_COMMUNITY_EXAMPLE]["optional_dependencies"]["all"]
-    assert _EXAMPLE_B in extra, f"fixture assumption: the {_COMMUNITY_EXAMPLE} 'all' extra lists {_EXAMPLE_B}"
-    packages[_COMMUNITY_EXAMPLE]["optional_dependencies"]["all"] = [dep for dep in extra if dep != _EXAMPLE_B]
+def test_example_b_stays_out_of_the_community_example_base_wheel_whatever_the_extras_say() -> None:
+    """A configured child's wheel boundary comes from the layout, not from any extra: example-b, nested
+    under the example base's path, never ships in the base wheel no matter what its extras list."""
+    packages = _packages()
 
     leaked = _entries_under(_wheel_packages(_COMMUNITY_EXAMPLE, packages), _dotted_path(_EXAMPLE_B))
 
     assert leaked == [], (
-        f"dropping {_EXAMPLE_B} from the {_COMMUNITY_EXAMPLE} 'all' extra absorbed {leaked} into the "
-        f"{_COMMUNITY_EXAMPLE} wheel; a configured package nested under another package's path belongs "
-        "to its own wheel whatever the extras say."
+        f"the {_COMMUNITY_EXAMPLE} wheel ships {leaked}; a configured package nested under another "
+        "package's path belongs to its own wheel whatever the extras say."
     )
 
 
@@ -1040,7 +1035,7 @@ def test_bundle_wheel_still_ships_every_nested_package(bundle: str) -> None:
     own dependencies or a non-dev extra."""
     packages = _packages()
     prefix = packages[bundle]["path"] + "/"
-    owned = _bundle_owned_names(bundle, packages)
+    owned = set(gen.bundle_owned_names(packages[bundle], packages))
     nested = {
         name: cfg["path"].replace("/", ".")
         for name, cfg in packages.items()
@@ -1085,7 +1080,7 @@ def test_bundle_dependencies_on_nested_packages_are_published_and_absent_from_th
     """Every nested package a bundle owns (dependencies or a non-dev extra) owns its own files: published,
     not in the bundle wheel."""
     packages = _packages()
-    nested_owned = sorted(_bundle_owned_names(bundle, packages))
+    nested_owned = sorted(gen.bundle_owned_names(packages[bundle], packages))
     listed = set(_wheel_packages(bundle, packages))
 
     unpublished = [name for name in nested_owned if packages[name].get("published") is not True]
@@ -1163,7 +1158,7 @@ def test_bundle_declares_every_nested_leaf_external_runtime_dependency() -> None
                     bundle_floors[name] = floor
 
         nested_names = _nested_under(bundle_name, packages)
-        owned_names = _bundle_owned_names(bundle_name, packages)
+        owned_names = set(gen.bundle_owned_names(packages[bundle_name], packages))
         for nested_name in nested_names:
             if nested_name in owned_names:
                 continue  # the owned package's own metadata installs its own dependencies

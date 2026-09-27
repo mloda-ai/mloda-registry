@@ -565,9 +565,17 @@ _LEAF_DOTTED = "mloda.community.feature_groups.data_operations.aggregation"
 _DEP_DOTTED = "mloda.community.feature_groups.data_operations"
 
 
-def _synthetic_bundle(dependencies: list[str]) -> dict[str, dict[str, Any]]:
-    """``_synthetic_packages`` plus a ``_DEPENDENT`` entry-point bundle at ``mloda/community``."""
-    return _synthetic_packages_with_dependent(_BUNDLE_PATH, dependencies, entry_point_bundle=True)
+def _synthetic_bundle(dependencies: list[str], published: set[str] | None = None) -> dict[str, dict[str, Any]]:
+    """``_synthetic_packages`` plus a ``_DEPENDENT`` entry-point bundle at ``mloda/community``. Publishes only
+    the nested packages ``dependencies`` names (or an explicit ``published`` override): a bundle owns
+    exactly its published nested packages. A test that owns a nested package only through an extra
+    (added to the returned dict after this call) must set that package's ``published`` flag itself."""
+    packages = _synthetic_packages_with_dependent(_BUNDLE_PATH, dependencies, entry_point_bundle=True)
+    if published is None:
+        published = set(gen.sibling_dependency_names(dependencies, packages)) & {_DEP, _LEAF}
+    for name in (_DEP, _LEAF):
+        packages[name]["published"] = name in published
+    return packages
 
 
 def _generated_wheel_packages(pkg_name: str, packages: dict[str, dict[str, Any]], shared: dict[str, Any]) -> list[str]:
@@ -619,7 +627,7 @@ def test_bundle_dependency_on_a_nested_package_with_entry_point_groups_is_accept
     """An owned package may declare entry_point_groups: the bundle's own entry points omit its label, and
     the owned package's own generated pyproject still declares them."""
     shared, _packages_config = gen.load_configs()
-    packages = _synthetic_bundle(["{core_dependency}", f"{_LEAF}=={{version}}"])
+    packages = _synthetic_bundle(["{core_dependency}", f"{_LEAF}=={{version}}", f"{_DEP}=={{version}}"])
     packages[_LEAF]["entry_point_groups"] = ["mloda.feature_groups"]
 
     bundle_content = gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)  # must not raise
@@ -653,9 +661,10 @@ def test_bundle_extra_ownership_excludes_the_wheel_and_entry_points() -> None:
     """A bundle naming a nested package only in a non-dev extra excludes it from the wheel and from the
     bundle's own aggregated entry points, same as a dependencies-owned package."""
     shared, _packages_config = gen.load_configs()
-    packages = _synthetic_bundle(["{core_dependency}"])
+    packages = _synthetic_bundle(["{core_dependency}", f"{_DEP}=={{version}}"])
     packages[_DEPENDENT]["optional_dependencies"] = {"extra": [f"{_LEAF}=={{version}}"]}
     packages[_LEAF]["entry_point_groups"] = ["mloda.feature_groups"]
+    packages[_LEAF]["published"] = True  # owned via the extra above, so it must be published
 
     bundle_content = gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
     leaf_content = gen.generate_pyproject(_LEAF, packages[_LEAF], shared, packages)
@@ -698,6 +707,7 @@ def test_exact_operator_accepted_for_a_bundle_nested_sibling(with_extras: bool, 
     if via_extra:
         packages = _synthetic_bundle(["{core_dependency}"])
         packages[_DEPENDENT]["optional_dependencies"] = {"extra": [dependency]}
+        packages[_LEAF]["published"] = True  # owned via the extra above, so it must be published
         opts = _generated_optional_dependencies(_DEPENDENT, packages, shared)
         assert opts.get("extra") == [expected], (
             f"expected the extra to expand to [{expected!r}], got {opts.get('extra')!r}"
@@ -775,10 +785,15 @@ def test_exact_operator_with_a_marker_is_rejected_for_a_bundle_nested_sibling() 
     assert dependency in message, f"error message must name the offending dependency {dependency!r}, got: {message}"
 
 
-def test_exact_operator_rejected_in_a_bundle_dev_extra() -> None:
-    """The exact-operator sibling floor is accepted only in dependencies or a non-dev extra, never dev."""
+@pytest.mark.parametrize(
+    "dependency",
+    [_LEAF, f"{_LEAF}>={{version}}", f"{_LEAF}=={{version}}"],
+    ids=["bare", "floor", "exact"],
+)
+def test_bundle_dev_extra_naming_a_nested_sibling_is_rejected(dependency: str) -> None:
+    """A bundle's dev extra never names a nested sibling package, in any spelling; the exact-operator
+    sibling floor stays accepted only in dependencies or a non-dev extra."""
     shared, _packages_config = gen.load_configs()
-    dependency = f"{_LEAF}=={{version}}"
     packages = _synthetic_bundle(["{core_dependency}"])
     packages[_DEPENDENT]["optional_dependencies"] = {"dev": [dependency]}
 
@@ -788,7 +803,105 @@ def test_exact_operator_rejected_in_a_bundle_dev_extra() -> None:
     message = str(exc_info.value)
     assert _DEPENDENT in message, f"error message must name the bundle {_DEPENDENT!r}, got: {message}"
     assert dependency in message, f"error message must name the offending dependency {dependency!r}, got: {message}"
-    assert ">={version}" in message, f"error message must name the accepted spelling '>={{version}}', got: {message}"
+    assert "dev" in message, f"error message must name the 'dev' extra, got: {message}"
+
+
+def test_bundle_leaves_a_published_nested_package_unowned_is_rejected() -> None:
+    """A bundle owns exactly its published nested packages; a published nested sibling the bundle does
+    not name in its own dependencies or a non-dev extra is rejected."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_bundle(["{core_dependency}", f"{_LEAF}=={{version}}"])
+    packages[_DEP]["published"] = True  # published, but the bundle names only _LEAF above
+
+    with pytest.raises(ValueError) as exc_info:
+        gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
+
+    message = str(exc_info.value)
+    assert _DEPENDENT in message, f"error message must name the bundle {_DEPENDENT!r}, got: {message}"
+    assert _DEP in message, f"error message must name the unowned published package {_DEP!r}, got: {message}"
+    assert "=={version}" in message, f"error message must name the required spelling '=={{version}}', got: {message}"
+
+
+def test_bundle_published_children_placeholder_in_an_extra_is_rejected() -> None:
+    """{published_children} is not available in an entry_point_bundle's own extras."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_bundle(["{core_dependency}"])
+    packages[_DEPENDENT]["optional_dependencies"] = {"extra": ["{published_children}"]}
+
+    with pytest.raises(ValueError) as exc_info:
+        gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
+
+    message = str(exc_info.value)
+    assert _DEPENDENT in message, f"error message must name the bundle {_DEPENDENT!r}, got: {message}"
+    assert "{published_children}" in message, f"error message must name the placeholder, got: {message}"
+    assert "=={version}" in message, f"error message must name the required spelling '=={{version}}', got: {message}"
+
+
+def test_extra_owned_package_leaves_an_unowned_nested_sibling_under_it_rejected() -> None:
+    """A bundle owning a package only through a non-dev extra must also own every configured package
+    nested under that package's own path, whether or not that nested package is published."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_bundle(["{core_dependency}"])
+    packages[_DEPENDENT]["optional_dependencies"] = {"extra": [f"{_DEP}=={{version}}"]}
+    packages[_DEP]["published"] = True  # owned only through the extra above (not in dependencies)
+    # _LEAF (nested under _DEP's path) stays unpublished and unowned, which is the violation.
+
+    with pytest.raises(ValueError) as exc_info:
+        gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
+
+    message = str(exc_info.value)
+    assert _DEPENDENT in message, f"error message must name the bundle {_DEPENDENT!r}, got: {message}"
+    assert _DEP in message, f"error message must name the extra-owned package {_DEP!r}, got: {message}"
+    assert _LEAF in message, f"error message must name the unowned nested sibling {_LEAF!r}, got: {message}"
+
+
+def test_published_package_dependency_on_an_unpublished_sibling_is_rejected() -> None:
+    """A published package's runtime dependency on an unpublished sibling is rejected, bundle or not."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_packages(f"{_DEP}>={{version}}")
+    packages[_DEP]["published"] = False
+
+    with pytest.raises(ValueError) as exc_info:
+        gen.generate_pyproject(_LEAF, packages[_LEAF], shared, packages)
+
+    message = str(exc_info.value)
+    assert _LEAF in message, f"error message must name the package {_LEAF!r}, got: {message}"
+    assert _DEP in message, f"error message must name the unpublished sibling {_DEP!r}, got: {message}"
+
+
+@pytest.mark.parametrize("nested_under_bundle", [False, True], ids=["standalone", "nested-under-bundle"])
+def test_published_package_extra_naming_an_unpublished_sibling_is_rejected(nested_under_bundle: bool) -> None:
+    """The guard applies to a non-dev extra, not only plain dependencies; an unpublished sibling nested
+    under some unrelated entry_point_bundle's own path is not exempt either, since that bundle owning the
+    code does not make the extra's own pinned requirement installable from PyPI."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_packages_with_base_extra({"all": [f"{_LEAF}>={{version}}"]})
+    packages[_LEAF]["published"] = False
+    if nested_under_bundle:
+        packages[_DEPENDENT] = {
+            "description": "bundle",
+            "dependencies": ["{core_dependency}"],
+            "path": _BUNDLE_PATH,
+            "published": True,
+            "entry_point_bundle": True,
+        }
+
+    with pytest.raises(ValueError) as exc_info:
+        gen.generate_pyproject(_DEP, packages[_DEP], shared, packages)
+
+    message = str(exc_info.value)
+    assert _DEP in message, f"error message must name the package {_DEP!r}, got: {message}"
+    assert _LEAF in message, f"error message must name the unpublished sibling {_LEAF!r}, got: {message}"
+
+
+def test_published_package_dev_extra_naming_an_unpublished_sibling_is_accepted() -> None:
+    """The guard exempts the dev extra: a tooling-only dependency never ships, so it may name an unpublished
+    sibling."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_packages_with_base_extra({"dev": [f"{_LEAF}>={{version}}"]})
+    packages[_LEAF]["published"] = False
+
+    gen.generate_pyproject(_DEP, packages[_DEP], shared, packages)  # must not raise
 
 
 def test_sibling_dependency_name_returns_the_configured_name_or_none() -> None:

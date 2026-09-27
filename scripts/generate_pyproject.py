@@ -252,25 +252,96 @@ def bundle_owned_names(pkg_config: dict[str, Any], all_packages: dict[str, dict[
     return [name for name in nested_package_names(pkg_config["path"], all_packages) if name in owned]
 
 
-def compute_wheel_packages(
+def validate_ownership_and_publishing(
     pkg_name: str,
+    pkg_config: dict[str, Any],
+    all_packages: dict[str, dict[str, Any]],
+) -> None:
+    """Raise ValueError for a bundle ownership violation or a published package's dependency or
+    non-dev extra on an unpublished configured sibling, read off the raw (unexpanded, unresolved)
+    config. Runs before any dependency/extra resolution, so a placeholder or a 'dev' extra entry
+    never reaches (and is masked by) an older, unrelated resolver error.
+    """
+    raw_opt_deps: dict[str, list[str]] = pkg_config.get("optional_dependencies", {})
+
+    if pkg_config.get("entry_point_bundle"):
+        nested = nested_package_names(pkg_config["path"], all_packages)
+
+        for group, deps in raw_opt_deps.items():
+            if PUBLISHED_CHILDREN in deps:
+                raise ValueError(
+                    f"Bundle {pkg_name}: extra {group!r} names the {PUBLISHED_CHILDREN!r} placeholder, "
+                    "which is not available in an entry_point_bundle's own extras; name each owned "
+                    "nested sibling explicitly, spelled exactly '<sibling>[extras]=={version}'"
+                )
+
+        for dep in raw_opt_deps.get("dev", []):
+            sibling = sibling_dependency_name(dep, all_packages)
+            if sibling is not None and sibling in nested:
+                raise ValueError(
+                    f"Bundle {pkg_name}: 'dev' extra names {dep!r}, a nested sibling {sibling!r}; the "
+                    "'dev' extra must never name a nested sibling package, in any spelling"
+                )
+
+        owned = set(bundle_owned_names(pkg_config, all_packages))
+        published_nested = {name for name in nested if all_packages[name].get("published")}
+
+        for name in sorted(owned - published_nested):
+            raise ValueError(
+                f"Bundle {pkg_name} owns nested package {name} (via dependencies or an extra), "
+                "which must be published = true"
+            )
+
+        for name in sorted(published_nested - owned):
+            raise ValueError(
+                f"Bundle {pkg_name} does not own published nested package {name}: a bundle must own "
+                "exactly its published nested packages, named in its own dependencies or a non-dev "
+                "extra, spelled exactly '<sibling>[extras]=={version}'"
+            )
+
+        dep_owned = set(sibling_dependency_names(pkg_config.get("dependencies", []), all_packages))
+        for owned_name in sorted(owned - dep_owned):
+            owned_path = all_packages[owned_name]["path"]
+            for child in nested_package_names(owned_path, all_packages):
+                if child not in owned:
+                    raise ValueError(
+                        f"Bundle {pkg_name} owns {owned_name} only through an extra, but does not own "
+                        f"{child}, a configured package nested under {owned_name}'s own path; a bundle "
+                        "owning a package only through a non-dev extra must also own every configured "
+                        "package nested under it"
+                    )
+
+    if pkg_config.get("published"):
+        raw_deps = list(pkg_config.get("dependencies", []))
+        for group, deps in raw_opt_deps.items():
+            if group != "dev":
+                raw_deps.extend(deps)
+        for dep in raw_deps:
+            sibling = sibling_dependency_name(dep, all_packages)
+            if sibling is None or all_packages[sibling].get("published"):
+                continue
+            raise ValueError(
+                f"{pkg_name}: dependency {dep!r} names unpublished sibling {sibling!r}; a published "
+                "package's dependencies or a non-dev extra must never name an unpublished configured "
+                "sibling package"
+            )
+
+
+def compute_wheel_packages(
     pkg_config: dict[str, Any],
     all_packages: dict[str, dict[str, Any]],
 ) -> list[str]:
     """The dotted ``[tool.setuptools] packages`` a package's own generated wheel lists: filesystem
     discovery under the package's path, excluding nested configured packages' own paths (each ships
-    its own wheel) and any optional-dependency entry naming a configured package. An
-    entry_point_bundle instead excludes each owned package's own wheel packages, not its whole
-    path, so an unowned package nested under an owned one still ships in the bundle wheel.
-    ``py_typed`` adds the package's own dotted path, since that ships the PEP 561 marker for a
+    its own wheel). An entry_point_bundle instead excludes each owned package's own wheel packages,
+    not its whole path, so an unowned package nested under an owned one still ships in the bundle
+    wheel. ``py_typed`` adds the package's own dotted path, since that ships the PEP 561 marker for a
     namespace portion discovery alone would miss."""
     if "workspace_deps" in pkg_config:
         return []
 
-    pkg_opt_deps = expand_published_children(pkg_config, all_packages)
-    excluded_pkg_names = {dep for deps in pkg_opt_deps.values() for dep in deps}
     owned_names = bundle_owned_names(pkg_config, all_packages)
-    excluded_pkg_names -= set(owned_names)
+    excluded_pkg_names: set[str] = set()
     if not pkg_config.get("entry_point_bundle"):
         excluded_pkg_names |= set(nested_package_names(pkg_config["path"], all_packages))
 
@@ -282,7 +353,7 @@ def compute_wheel_packages(
     if owned_names:
         owned_wheel_packages: set[str] = set()
         for dep_name in owned_names:
-            owned_wheel_packages |= set(compute_wheel_packages(dep_name, all_packages[dep_name], all_packages))
+            owned_wheel_packages |= set(compute_wheel_packages(all_packages[dep_name], all_packages))
         packages = [p for p in packages if p not in owned_wheel_packages]
 
     if pkg_config.get("py_typed"):
@@ -448,6 +519,9 @@ def generate_pyproject(
     if "workspace_deps" in pkg_config and "py_typed" in pkg_config:
         raise ValueError(f"{pkg_name}: workspace_deps and py_typed are mutually exclusive")
 
+    # Ownership/publishing validation runs on the raw config, before any resolution below.
+    validate_ownership_and_publishing(pkg_name, pkg_config, all_packages)
+
     # Resolved early so a missing version raises this function's own ValueError, not a raw KeyError.
     defaults = shared.get("defaults", {})
     # A bundle's own nested siblings may use the exact-operator '<sibling>[extras]=={version}' spelling.
@@ -516,15 +590,6 @@ def generate_pyproject(
         lines.append(f"{quote_toml_basic_string(key, key=True)} = {quote_toml_basic_string(value)}")
     lines.append("")
 
-    # A bundle owns a nested package named in its own dependencies or a non-dev extra: that package's
-    # own wheel ships it, so it must be published, or nothing ships its files.
-    for dep_name in bundle_owned_names(pkg_config, all_packages):
-        if not all_packages[dep_name].get("published"):
-            raise ValueError(
-                f"Bundle {pkg_name} owns nested package {dep_name} (via dependencies or an extra), "
-                "which must be published = true"
-            )
-
     # Entry points - mloda plugin discovery (issue #271). Emit groups in the
     # stable ENTRY_POINT_ATTRS insertion order; entry-point labels are
     # distribution names containing hyphens, which are valid bare TOML keys.
@@ -551,7 +616,7 @@ def generate_pyproject(
         # Wheel boundaries come from the configured layout, not the released set: see
         # compute_wheel_packages for the discover/exclude logic, shared with the recursive
         # computation of what an owned package's own wheel lists.
-        packages = compute_wheel_packages(pkg_name, pkg_config, all_packages)
+        packages = compute_wheel_packages(pkg_config, all_packages)
 
         # The package-data table below is belt and braces on top of listing the dotted path.
         package_data: list[str] = []

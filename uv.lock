@@ -1088,7 +1088,6 @@ dependencies = [
 [package.optional-dependencies]
 all = [
     { name = "mloda-community-example-a" },
-    { name = "mloda-community-example-b" },
 ]
 dev = [
     { name = "mloda-testing" },
@@ -1099,7 +1098,6 @@ dev = [
 requires-dist = [
     { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
     { name = "mloda-community-example-a", marker = "extra == 'all'" },
-    { name = "mloda-community-example-b", marker = "extra == 'all'" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]

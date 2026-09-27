@@ -79,6 +79,16 @@ def _write_wheel_with_files(out_dir: Path, pkg_name: str, files: list[str], vers
     return path
 
 
+def _write_wheel_with_metadata(out_dir: Path, pkg_name: str, extra_lines: list[str], version: str = _VERSION) -> Path:
+    """Like ``_write_wheel``, but the METADATA carries the given additional lines (extras, requires-dist)."""
+    path = out_dir / _wheel_name(pkg_name, version)
+    dist_info = f"{pkg_name.replace('-', '_')}-{version}.dist-info"
+    lines = ["Metadata-Version: 2.4", f"Name: {pkg_name}", f"Version: {version}", *extra_lines]
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr(f"{dist_info}/METADATA", "\n".join(lines) + "\n")
+    return path
+
+
 def _sandbox(root: Path, monkeypatch: pytest.MonkeyPatch, names: list[str]) -> list[tuple[str, str]]:
     """Run main() against a copy of the config; returns the (name, pyproject path) entries for ``names``."""
     (root / "config").mkdir(parents=True, exist_ok=True)
@@ -301,3 +311,17 @@ def test_two_wheels_for_one_distribution_are_rejected_as_ambiguous(
     for candidate in (_wheel_name("mloda-registry"), _wheel_name("mloda-registry", _STALE_VERSION)):
         assert candidate in output, f"main() must name the ambiguous candidate {candidate}, printed:\n{output}"
     assert exit_code == 1, f"main() must fail when one distribution has two wheels, returned {exit_code!r}"
+
+
+def test_community_example_wheel_without_example_b_in_the_all_extra_reports_no_error(tmp_path: Path) -> None:
+    """example-b drops out of the 'all' extra (config/packages.toml), so a wheel that reflects that must
+    not be flagged: verify_dependency_relationships must stop requiring example-b in the extra."""
+    wheel = _write_wheel_with_metadata(
+        tmp_path,
+        "mloda-community-example",
+        ["Provides-Extra: all", 'Requires-Dist: mloda-community-example-a; extra == "all"'],
+    )
+
+    errors = vb.verify_dependency_relationships({"mloda-community-example": wheel})
+
+    assert errors == [], f"a wheel whose 'all' extra lists only example-a must report no error, got {errors!r}"

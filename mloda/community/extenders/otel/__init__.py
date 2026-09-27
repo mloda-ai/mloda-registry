@@ -23,9 +23,9 @@ if not TYPE_CHECKING and _api_module_missing():
     __all__ = []
 
 
-# Lazy on purpose: the mloda-community bundle ships this extender behind the mloda-community[otel]
-# extra, and the mloda.optional_dependencies marker (see _optional_dependencies.py) is loaded through this
-# package, so nothing here may import opentelemetry at import time.
+# Lazy on purpose: this extender ships in its own distribution, which the mloda-community[otel]
+# extra pulls in, and the mloda.optional_dependencies marker (see _optional_dependencies.py) is loaded
+# through this package, so nothing here may import opentelemetry at import time.
 def __getattr__(name: str) -> Any:
     if name == "OtelExtender":
         from mloda.community.extenders.otel.otel_extender import OtelExtender
