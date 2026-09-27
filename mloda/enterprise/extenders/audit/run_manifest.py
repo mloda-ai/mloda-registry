@@ -407,6 +407,28 @@ def _iter_manifests(path: str | Path) -> Iterator[dict[str, Any]]:
         return
 
 
+def _is_run_sealed_unverified(manifest_path: str | Path, run_id: str) -> bool:
+    """True iff a line naming run_id decodes to a manifest sealing it; no signature or chain check (a
+    pickled AuditExtender copy has no signer). A line that does not decode (e.g. a torn tail) is skipped,
+    not treated as sealed; a decodable one, even unterminated, counts."""
+    needle = json.dumps(run_id).encode("utf-8")
+    with _flock(manifest_path, exclusive=False):
+        try:
+            with open(manifest_path, "rb") as file:
+                for raw in file:
+                    if needle not in raw:
+                        continue
+                    try:
+                        manifest = _decode_line("manifest tail", raw.rstrip(b"\n"))
+                    except ManifestVerificationError:
+                        continue
+                    if isinstance(manifest, dict) and manifest.get("run_id") == run_id:
+                        return True
+        except FileNotFoundError:
+            return False
+    return False
+
+
 def _read_manifests(path: str | Path) -> list[dict[str, Any]]:
     return list(_iter_manifests(path))
 
@@ -594,7 +616,8 @@ def seal_ndjson_runs(
     """Seal every unsealed run (or only `run_id`). Seal only after a run's writers stop, or sealing a still-live run
     fails its verification for good; prefer AuditExtender's automatic sealing from Extender.on_run_complete when
     available, since it fires only once a run's writers have stopped, for a run that is run() exactly once
-    (AuditExtender refuses a re-run of a session it already sealed: see its class docstring). Pass `run_id` when other
+    (AuditExtender refuses a calculation under a run_id already sealed in its manifest log: see its class docstring).
+    Pass `run_id` when other
     runs may still be live; omit it to sweep an audit file no writer is appending to, but never as a substitute for
     targeting a specific unsealed run_id when other runs are still live, since a blanket sweep could seal one of those.
     Raises RunAlreadySealedError for an already-sealed `run_id` (catch that, not ValueError, for an idempotent retry)

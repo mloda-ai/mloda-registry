@@ -20,6 +20,7 @@ from mloda.enterprise.extenders.audit.run_manifest import (
     ManifestSigner,
     RunAlreadySealedError,
     RunNotPendingError,
+    _is_run_sealed_unverified,
     _reject_aliased_paths,
     _signer_map,
     seal_ndjson_runs,
@@ -142,12 +143,15 @@ class AuditExtender(Extender):
     given value, else a fingerprint of the constructor-supplied gate, which does not track code changes).
     Keys may be added within record_version 1; an absent key means not recorded. With audit_path,
     manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
-    that just finished. After auto-sealing a run_id, this instance (and a copy pickled after the seal) refuses any
-    further calculation under it with SealedRunRefusedError before writing anything, so re-running a prepared session
-    (including a retry after a failed run, since a failed run is sealed too) fails fast: prepare a new session instead.
+    that just finished. An auto-sealing instance, or a pickled copy of one, refuses a calculation with
+    SealedRunRefusedError before writing anything when its run_id was sealed by this instance or is already named in
+    manifest_path (an unverified read, once per run_id per instance or copy, at its first calculation; a seal landing
+    after that first calculation is not seen), so re-running a prepared session (including a retry after a failed
+    run, since a failed run is sealed too), even through a fresh instance, fails fast: prepare a new session instead.
     With raise_on_error=False (fail_closed=False), core instead logs the refusal and runs the call unaudited, as for a
-    sink failure, so that re-run leaves no record for verification to find. Another AuditExtender instance is not
-    refused, and its records under a sealed run_id land outside the seal. A fail_closed=True deny record written at
+    sink failure, so that re-run leaves no record for verification to find. A manifest read failure other than a
+    missing file propagates like a sink failure. An AuditExtender without sealing config cannot check and is never
+    refused. A fail_closed=True deny record written at
     plan time is a different, recoverable case: it is refused before setup, so on_run_complete never fires for it and it is never auto-sealed at all
     (not sealed-with-strays); seal it later with seal_ndjson_runs targeted at that specific run_id (found via
     verify_ndjson_log_coverage(...).unsealed_lines), not a blanket sweep, since a blanket sweep could seal a
@@ -215,6 +219,7 @@ class AuditExtender(Extender):
         self._previous_signers = previous_signers
         self._pickle_drop_warning = WarnOncePerInstance()
         self._sealed_run_ids: set[str] = set()
+        self._unsealed_run_ids: set[str] = set()
         if fail_closed:
             # Core runs the lowest priority outermost; a lower-priority peer would otherwise run before the gate.
             self.priority = 0
@@ -247,6 +252,7 @@ class AuditExtender(Extender):
         raise_on_error/fail_closed."""
         if run_id is None:
             return
+        self._unsealed_run_ids.discard(run_id)  # the run is over: a later call re-checks the manifest log
         if self._signer is None:
             if self._audit_path is not None:
                 self._pickle_drop_warning.warn_once(
@@ -292,10 +298,12 @@ class AuditExtender(Extender):
     def __getstate__(self) -> dict[str, Any]:
         """Drops the signer material so a pickled copy (e.g. into a MULTIPROCESSING worker's dispatch
         payload) carries none: on_run_complete only ever runs in the parent, never in a worker copy, and
-        Ed25519Signer holds non-picklable cryptography key objects besides."""
+        Ed25519Signer holds non-picklable cryptography key objects besides. Also resets the unsealed-run
+        cache, so the copy re-checks the manifest log instead of inheriting a cached unsealed answer."""
         state = dict(self.__dict__)
         state["_signer"] = None
         state["_previous_signers"] = ()
+        state["_unsealed_run_ids"] = set()
         return state
 
     def wraps(self) -> set[ExtenderHook]:
@@ -317,7 +325,11 @@ class AuditExtender(Extender):
             self._note_load(context)
             return func(*args, **kwargs)
 
-        if context.run_id in self._sealed_run_ids:
+        # MATCHED is excluded from the manifest-log check: it runs at plan time under a freshly minted
+        # run_id, and caching that unsealed answer could go stale once the run later gets sealed.
+        if context.run_id in self._sealed_run_ids or (
+            context.hook is ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE and self._found_sealed(context.run_id)
+        ):
             raise SealedRunRefusedError(
                 f"AuditExtender refused the call: run_id {context.run_id!r} is already sealed in the "
                 "manifest log; prepare a new session to run again"
@@ -371,6 +383,15 @@ class AuditExtender(Extender):
         entry = (identity, context.data_access_format)
         if entry not in loads:
             loads.append(entry)
+
+    def _found_sealed(self, run_id: str | None) -> bool:
+        """Whether run_id is sealed in the manifest log, cached per run_id per instance or copy (its
+        first calculation decides for the whole run: a seal landing after that is not seen)."""
+        if self._manifest_path is None or run_id is None or run_id in self._unsealed_run_ids:
+            return False
+        found = _is_run_sealed_unverified(self._manifest_path, run_id)
+        (self._sealed_run_ids if found else self._unsealed_run_ids).add(run_id)
+        return found
 
     def _missing_identity(self, context: HookContext) -> list[str]:
         return [name for name in self.required_identity if _is_blank(getattr(context, name))]

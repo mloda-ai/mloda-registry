@@ -4648,11 +4648,19 @@ class TestRunManifestRunAll:
         assert [record["policy_version"] for record in records] == [extender.policy_version] * len(records)
 
     @pytest.mark.parametrize(("mode", "fail_closed"), _RUN_ALL_MODE_AND_FAIL_CLOSED)
+    @pytest.mark.parametrize("rerun_with", ["same_instance", "fresh_instance"])
     @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
     def test_run_all_second_run_of_a_prepared_session_is_refused_and_leaves_the_seal_untouched(
-        self, mode: ParallelizationMode, fail_closed: bool, tmp_path: Path, request: pytest.FixtureRequest
+        self,
+        mode: ParallelizationMode,
+        fail_closed: bool,
+        rerun_with: str,
+        tmp_path: Path,
+        request: pytest.FixtureRequest,
     ) -> None:
-        """A prepared session's run() reuses its run_id, so a second run() must be refused, not resealed."""
+        """A prepared session's run() reuses its run_id, so a second run() must be refused, not resealed,
+        whether the refusal comes from the same extender instance or a fresh one built over the same
+        sealing config (audit_path/manifest_path/signer), as after a process restart."""
         audit_path = tmp_path / "audit.ndjson"
         manifest_path = tmp_path / "manifests.ndjson"
         # Only MULTIPROCESSING needs the flight_server fixture.
@@ -4676,8 +4684,22 @@ class TestRunManifestRunAll:
             audit_before = audit_path.read_bytes()
             manifest_before = manifest_path.read_bytes()
 
+            rerun_extender = (
+                extender
+                if rerun_with == "same_instance"
+                else AuditExtender(
+                    sink=NdjsonAuditSink(audit_path),
+                    audit_path=audit_path,
+                    manifest_path=manifest_path,
+                    signer=signer,
+                    fail_closed=fail_closed,
+                )
+            )
+
             with pytest.raises(SealedRunRefusedError):
-                session.run(parallelization_modes={mode}, flight_server=flight_server)
+                session.run(
+                    parallelization_modes={mode}, flight_server=flight_server, function_extender={rerun_extender}
+                )
 
         assert audit_path.read_bytes() == audit_before
         assert manifest_path.read_bytes() == manifest_before
