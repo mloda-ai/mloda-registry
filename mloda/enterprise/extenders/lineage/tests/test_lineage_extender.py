@@ -672,7 +672,7 @@ class TestLineageFacetsColumnLineage:
     def test_run_all_multi_output_step_gives_each_output_its_own_declared_edge(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
-        """Core 0.14 populates input_feature_edges per output, so no step-level marker is needed here anymore."""
+        """Each output's edges come from input_feature_edges, so there is no step-level marker."""
         client, transport = ol_capture
 
         _run(LineageFacetsExtender(client=client), list(_MultiOutput.outputs), _MultiOutput)
@@ -708,7 +708,7 @@ class TestLineageFacetsColumnLineage:
     def test_input_feature_edges_only_apply_to_outputs_with_an_entry(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
-        """An output missing from input_feature_edges keeps the old behavior: all step inputs, step-level marker."""
+        """An output missing from input_feature_edges falls back to all step inputs, with a step-level marker."""
         client, transport = ol_capture
         edges: dict[str, tuple[str, ...]] = {"a__sum": ("a",)}
 
