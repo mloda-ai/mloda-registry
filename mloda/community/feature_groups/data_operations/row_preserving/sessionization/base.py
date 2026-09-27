@@ -33,7 +33,10 @@ Options context:
   DEFAULTS to the named timestamp source column when absent.
 - ``partition_by``: OPTIONAL list of columns; default ``[]`` treats the whole
   table as a single stream.
-- ``in_features``: the single source column (when not derivable from the name).
+
+The source column always comes from the ``{ts}__sessionize_{n}_{unit}`` name;
+a config-only feature (source given via ``in_features`` instead of the name)
+is not matched.
 
 Every backend (pandas, polars-lazy, PyArrow, DuckDB, SQLite) computes
 sessionization NATIVELY; there is no rejection of supported inputs. PyArrow is
@@ -44,6 +47,7 @@ the cross-framework reference oracle. Compute subclasses implement
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from mloda.provider import (
@@ -148,10 +152,7 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         _data_access_collection: Any = None,
     ) -> bool:
         """Require a threshold token in the name before claiming a feature."""
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(
-            str(feature_name), cls._get_prefix_patterns()
-        )
-        if operation_config is None or not source_feature:
+        if not re.match(cls.PREFIX_PATTERN, str(feature_name)):
             return False
         return super().match_feature_group_criteria(feature_name, options, _data_access_collection)
 

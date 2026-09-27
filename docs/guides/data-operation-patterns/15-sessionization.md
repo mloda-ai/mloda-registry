@@ -21,7 +21,8 @@ ts__sessionize_1_hour
 |---|---|---|
 | `order_by` | no (defaults to the source timestamp) | The timestamp column rows are ordered by within each partition. |
 | `partition_by` | no (default `[]`) | Columns that scope sessions (e.g. `["user_id"]`). With no partition the whole table is one stream. |
-| `in_features` | config form only | The source timestamp column (when not using the `{ts}__sessionize_{n}_{unit}` string form). |
+
+The source timestamp column and the threshold always come from the feature name; a config-only feature (source given via `in_features` instead) is not matched.
 
 The threshold is `n` of `unit` as a fixed duration: `minute` = 60s, `hour` = 3600s, `day` = 86400s, `week` = 604800s. Only fixed-duration units are supported; calendar units (`month`, `year`) are intentionally excluded because a "gap" is a duration and those units are not fixed-length.
 

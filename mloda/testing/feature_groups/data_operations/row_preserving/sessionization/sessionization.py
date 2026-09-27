@@ -346,7 +346,7 @@ class SessionizationTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
     # -- Option-based configuration -----------------------------------------
 
     def test_option_based_sessionization(self) -> None:
-        """Option-based configuration (no string-pattern order_by) produces the same result."""
+        """A name-based feature with an options-only partition_by defaults order_by to the source column."""
         feature = Feature(
             "ts__sessionize_30_minute",
             options=Options(

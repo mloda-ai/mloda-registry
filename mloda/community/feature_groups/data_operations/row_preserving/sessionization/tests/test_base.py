@@ -70,6 +70,7 @@ class TestPatternMatching:
             pytest.param("ts__sessionize_30", False, id="missing_unit_token"),
             pytest.param("ts__sessionize_30_month", False, id="invalid_unit"),
             pytest.param("sessionize_30_minute", False, id="no_source_column"),
+            pytest.param("__sessionize_30_minute", False, id="empty_source_column"),
         ],
     )
     def test_match_by_name(self, feature_name: str, expected: bool) -> None:
@@ -79,10 +80,6 @@ class TestPatternMatching:
         options = Options(context={"in_features": "value_int"})
         assert PandasSessionization.match_feature_group_criteria("my_result", options) is False
 
-    def test_name_based_feature_still_matches_with_source_option(self) -> None:
-        options = Options(context={"in_features": "value_int", "order_by": "ts", "partition_by": ["user"]})
-        assert PandasSessionization.match_feature_group_criteria(SESSIONIZE_FEATURE_NAME, options) is True
-
     def test_n_zero_matches_regex_but_rejected_at_parse(self) -> None:
         """``sessionize_0_minute`` matches the ``\\d+`` regex but n=0 is rejected at parse time.
 
@@ -91,6 +88,11 @@ class TestPatternMatching:
         """
         # The regex itself accepts the digit 0.
         assert PandasSessionization.match_feature_group_criteria("ts__sessionize_0_minute", _match_options()) is True
+
+    def test_name_based_match_still_works_with_in_features_option(self) -> None:
+        """A valid name-based feature still matches when ``in_features`` is also set, with a consistent source."""
+        options = Options(context={"in_features": "ts", "order_by": "ts", "partition_by": ["user"]})
+        assert PandasSessionization.match_feature_group_criteria(SESSIONIZE_FEATURE_NAME, options) is True
 
 
 class TestThresholdParser:
