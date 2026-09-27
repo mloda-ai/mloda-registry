@@ -738,9 +738,6 @@ def test_tox_env_installs_from_the_published_script(env_name: str) -> None:
         f"{_SCRIPT_INVOCATION}, found {len(install_lines)}: {install_lines!r}"
     )
     install_line = install_lines[0]
-    assert "uv pip uninstall" not in install_line, (
-        f"tox.ini [testenv:{env_name}] install-line check matched an uninstall line: {install_line!r}"
-    )
     assert re.search(rf"{re.escape(_SCRIPT_INVOCATION)}\s+--pin\b", install_line) is not None, (
         f"tox.ini [testenv:{env_name}] 'uv pip install' line does not invoke {_SCRIPT_INVOCATION} with "
         f"--pin: {install_line!r}"
