@@ -19,6 +19,8 @@ import logging
 from collections.abc import Iterable
 from typing import Any
 
+from mloda.provider import traceback_blames_root
+
 logger = logging.getLogger(__name__)
 
 # Optional third-party roots a data_operations backend may top-import (a framework
@@ -28,27 +30,10 @@ logger = logging.getLogger(__name__)
 _OPTIONAL_BACKENDS = frozenset({"pandas", "polars", "duckdb", "pyarrow", "numpy"})
 
 
-def _innermost_traceback_module(exc: ImportError) -> str | None:
-    """Module name of the innermost (deepest) frame of exc's traceback, or None if exc has no traceback.
-    Mirrors core's private ``_traceback_blames_root`` (mloda.core.abstract_plugins.plugin_loader.plugin_loader);
-    keep in sync.
-    """
-    tb = exc.__traceback__
-    if tb is None:
-        return None
-    while tb.tb_next is not None:
-        tb = tb.tb_next
-    module_name = tb.tb_frame.f_globals.get("__name__")
-    return module_name if isinstance(module_name, str) else None
-
-
 def _traceback_blamed_backend(exc: ImportError) -> str | None:
     """The ``_OPTIONAL_BACKENDS`` member blamed for exc by the innermost traceback frame, or None."""
-    innermost = _innermost_traceback_module(exc)
-    if innermost is None:
-        return None
     for candidate in _OPTIONAL_BACKENDS:
-        if innermost == candidate or innermost.startswith(f"{candidate}."):
+        if traceback_blames_root(exc, candidate):
             return candidate
     return None
 
