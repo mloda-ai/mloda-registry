@@ -130,6 +130,12 @@ def main() -> int:
         parser.error("--pin needs a version, got an empty value (is MLODA_REGISTRY_VERSION set?)")
 
     packages = load_packages_config()
+    names = published_packages(packages)
+
+    # An empty set would silently publish, verify or scan nothing.
+    if not names:
+        print(f"{PACKAGES_CONFIG}: no package is flagged 'published = true'", file=sys.stderr)
+        return 1
 
     if args.wheels is not None:
         try:
@@ -140,13 +146,6 @@ def main() -> int:
         for wheel in wheels:
             print(wheel)
         return 0
-
-    names = published_packages(packages)
-
-    # An empty set would silently publish, verify or scan nothing.
-    if not names:
-        print(f"{PACKAGES_CONFIG}: no package is flagged 'published = true'", file=sys.stderr)
-        return 1
 
     for name in names:
         if args.exclude_newer_exempt:

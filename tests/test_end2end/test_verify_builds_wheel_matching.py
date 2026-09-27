@@ -444,3 +444,30 @@ def test_cli_wheels_exits_non_zero_when_published_wheels_raises(
     err = capsys.readouterr().err
     assert exit_code != 0, "published_packages.main() must exit non-zero when published_wheels() raises"
     assert "mloda-registry" in err, f"stderr must name the offending package, got {err!r}"
+
+
+def test_cli_wheels_exits_non_zero_when_nothing_is_published(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An empty published set would hand the release workflow an empty upload list; --wheels must fail
+    loudly too, not just the bare invocation."""
+    _write_packages_config(
+        tmp_path,
+        '[packages.mloda-registry]\ndescription = "sandbox"\npath = "mloda/registry"\n',
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["published_packages.py", "--wheels", str(tmp_path)])
+
+    main: Callable[[], int] | None = getattr(pp, "main", None)
+    assert callable(main), "published_packages.main must be a callable returning an exit code"
+    try:
+        exit_code = main()
+    except SystemExit as exc:
+        exit_code = exc.code if isinstance(exc.code, int) else 1
+
+    err = capsys.readouterr().err
+    assert exit_code != 0, (
+        "published_packages.main() must exit non-zero for '--wheels' when no package is flagged "
+        "'published = true', the same as the bare invocation"
+    )
+    assert err.strip(), "the reason must be printed on stderr, not silently swallowed"

@@ -50,12 +50,9 @@ def probe_modules(name: str, packages: dict[str, dict[str, Any]]) -> list[str]:
     instead); a plain wheel excludes its nested packages, so it probes only its own."""
     # The single derivation point for import surfaces lives in verify_published_imports.
     surface: Callable[[str], tuple[str, ...]] = _load_sibling("verify_published_imports").import_surface
-    sibling_names: Callable[[list[str], dict[str, dict[str, Any]]], list[str]] = _load_sibling(
-        "generate_pyproject"
-    ).sibling_dependency_names
-    owned_names: Callable[[dict[str, Any], dict[str, dict[str, Any]]], list[str]] = _load_sibling(
-        "generate_pyproject"
-    ).bundle_owned_names
+    gen = _load_sibling("generate_pyproject")
+    sibling_names: Callable[[list[str], dict[str, dict[str, Any]]], list[str]] = gen.sibling_dependency_names
+    owned_names: Callable[[dict[str, Any], dict[str, dict[str, Any]]], list[str]] = gen.bundle_owned_names
     pkg_config = packages[name]
     path = str(pkg_config["path"]).rstrip("/")
     modules = list(surface(path))
