@@ -94,11 +94,15 @@ left carrying an unexpanded placeholder after expansion. `{version}` is only acc
 that exact spelling, `"<sibling>[extras]>={version}"`, for a name that normalizes to a
 configured sibling package; any other use of `{version}` fails generation.
 
-An `entry_point_bundle` may instead pin a nested sibling exactly, `"<sibling>[extras]=={version}"`,
-in its own `dependencies` or a non-dev extra: since the bundle ships that sibling's code, it pins
-the excluded code to the exact version it releases in lockstep with. This exact-operator spelling
-is accepted only for a sibling nested under the bundle's own path; everywhere else `"=={version}"`
-stays rejected like any other hand-written floor.
+Naming a nested sibling in an `entry_point_bundle`'s own `dependencies` or a non-dev extra owns that
+sibling: the bundle excludes its code from its own wheel, since the sibling's own distribution ships
+it instead. Such a requirement must then be spelled exactly `"<sibling>[extras]=={version}"`, with no
+environment marker, so the bundle pins the code it excludes to the exact version it releases in
+lockstep with, on every platform alike; a bare name, a `">={version}"` floor, or a marker are all
+rejected there. This exact-operator spelling is required only for a sibling nested under the bundle's
+own path, and only in `dependencies` or a non-dev extra (never `dev`, since a dev-only dependency
+never ships and so cannot own anything); everywhere else `"=={version}"` stays rejected like any
+other hand-written floor.
 
 **Generator infers:**
 
@@ -126,6 +130,11 @@ but not listed) still ships inside the bundle wheel. A nested plugin that import
 the bundle's path (`mloda-enterprise-audit` uses `mloda-community-extenders-shared`) needs that
 sibling in the bundle's own `dependencies` too, at the ordinary `">={version}"` floor: it is not
 nested, so it cannot be owned.
+
+Uninstalling one owned package (`pip uninstall mloda-community-aggregation`) removes only its own
+files; the bundle still needs it, so `pip check` then reports the missing dependency. Uninstalling
+the bundle itself (`pip uninstall mloda-community`) leaves every package it owns installed, since pip
+does not remove a dependency's dependencies; their entry points still register.
 
 ```text
 mloda-community (bundled)
@@ -155,9 +164,12 @@ A direct import of the manifest module now raises instead of degrading.
 
 When the dependency is missing, accessing the extender name on the package (`OtelExtender`,
 `OpenLineageExtender`) raises `ModuleNotFoundError` through the package's lazy `__getattr__`, so
-`hasattr(pkg, "OtelExtender")` raises rather than returning `False`. Probe availability with
-`importlib.util.find_spec("opentelemetry.trace")` or `find_spec("openlineage.client")` instead,
-since both are namespace packages and a root-only probe can miss a missing submodule.
+`hasattr(pkg, "OtelExtender")` raises rather than returning `False`. Probe with
+`importlib.util.find_spec("mloda.community.extenders.otel")` (respectively `...openlineage`) for
+whether the extender itself is installed at all, since a bare `mloda-community` install has neither
+module regardless of what third-party packages happen to be present; `find_spec("opentelemetry.trace")`
+or `find_spec("openlineage.client")` only tells you whether that one dependency is present, not
+whether the extender module is.
 
 ### Individual packages
 
@@ -220,7 +232,9 @@ Conventions:
   `<dotted.package.path>.manifest:<ATTR>` target, e.g.
   `mloda-community-ffill = "mloda.community.feature_groups.data_operations.row_preserving.ffill.manifest:FEATURE_GROUPS"`.
 - Bundle packages set `entry_point_bundle = true` and aggregate the entry points of
-  every nested plugin package under their path.
+  every nested plugin package under their path they do not own; an owned package
+  declares its own entry points in its own generated pyproject instead (see
+  [Bundled packages](#bundled-packages)).
 - `mloda.optional_dependencies` is a companion marker group, not a plugin group: it
   declares a package's optional import roots for `PluginLoader` to consult when the
   manifest import fails. Its target is the sibling `_optional_dependencies.py`, not
@@ -248,7 +262,9 @@ python scripts/generate_pyproject.py    # Regenerate
 ### Add a new package
 
 1. Add to `config/packages.toml` (description, dependencies, path; for a plugin
-   package also `entry_point_groups = ["mloda.feature_groups" | ...]`).
+   package also `entry_point_groups = ["mloda.feature_groups" | ...]`), above the
+   `# --- Bundles ---` marker: the published order is dependency-first, and a test
+   enforces that every published package comes before the bundles in `_EXPECTED_PUBLISHED`.
 2. For a plugin package, create `<path>/manifest.py` listing the concrete classes.
 3. If it should ship standalone on PyPI, set `published = true`. Two edits follow it,
    the way `py_typed` also needs its committed marker: the gate test
@@ -300,6 +316,10 @@ The dependency can also be a first-party sibling (`mloda-community-openlineage` 
 (`test_bundle_extra_sibling_floor_matches_leaf_dev_entry` enforces the pair); the generator adds the
 bundle's workspace source. PluginLoader re-raises a missing module whose root equals the entry
 point's own root (`mloda`), so such a leaf's manifest must catch the missing sibling itself.
+
+A published community leaf goes behind a bundle extra the same way, spelled `"<leaf>=={version}"`
+(as `mloda-community-otel` and `mloda-community-openlineage` do): the extra both owns the leaf (see
+[Bundled packages](#bundled-packages)) and gates its third-party dependency.
 
 ### Add a variant to an existing plugin
 

@@ -88,16 +88,6 @@ def _external_dependency_names(deps: list[str], packages: dict[str, dict[str, An
     return names
 
 
-def _bundle_owned_names(bundle_name: str, packages: dict[str, dict[str, Any]]) -> set[str]:
-    """Configured packages a bundle owns: named in its own dependencies or a non-dev extra."""
-    bundle_cfg = packages[bundle_name]
-    raw = list(bundle_cfg.get("dependencies", []))
-    for extra_name, deps in bundle_cfg.get("optional_dependencies", {}).items():
-        if extra_name != "dev":
-            raw.extend(deps)
-    return {_dep_name(dep) for dep in raw if _dep_name(dep) in packages}
-
-
 @pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
 def test_mloda_community_dependencies_do_not_pin_extra_only_distribution(
     extra_name: str, distribution_name: str, leaf_name: str, root: str, exposed: list[str]
@@ -379,7 +369,7 @@ def test_bundle_shipped_leaf_with_extra_only_dependency_skips_via_plugin_loader(
         if bundle_cfg.get("entry_point_bundle") is not True:
             continue
         prefix = bundle_cfg["path"] + "/"
-        owned = _bundle_owned_names(bundle_name, packages)
+        owned = set(gen.bundle_owned_names(bundle_cfg, packages))
 
         hard_names = _external_dependency_names(bundle_cfg.get("dependencies", []), packages)
         extra_names: set[str] = set()

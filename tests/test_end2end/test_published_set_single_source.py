@@ -354,6 +354,9 @@ _DEP_NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 # Only the lower bound matters here: ">=1.30,<2" and " >= 1.30, <2" both floor at 1.30.
 _DEP_FLOOR_RE = re.compile(r">=\s*([^\s,;]+)")
 
+# The exact ownership spelling '<name>[extras]=={version}', no marker (extras optional).
+_OWNERSHIP_EXACT_FLOOR_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]*\])?==\{version\}$")
+
 
 def _normalize_dep_name(name: str) -> str:
     """PEP 503 normal form: lowercase, runs of '-', '_', '.' collapsed to '-'."""
@@ -382,35 +385,33 @@ def _nested_under(bundle_name: str, packages: dict[str, dict[str, Any]]) -> list
     return [name for name in packages if name != bundle_name and packages[name]["path"].startswith(prefix)]
 
 
+def _raw_bundle_requirement_strings(bundle_name: str, packages: dict[str, dict[str, Any]]) -> list[str]:
+    """Every requirement string a bundle declares itself, from its own dependencies plus non-dev extras,
+    as written in the config."""
+    cfg = packages[bundle_name]
+    strings = list(cfg.get("dependencies", []))
+    for extra_name, deps in cfg.get("optional_dependencies", {}).items():
+        if extra_name != "dev":
+            strings.extend(deps)
+    return strings
+
+
 def _bundle_extra_names(bundle_name: str, packages: dict[str, dict[str, Any]]) -> set[str]:
-    """Configured packages a bundle names in any of its own non-dev optional_dependencies extras."""
+    """Configured packages a bundle names only in a non-dev optional_dependencies extra (not also in
+    its own dependencies); reuses ``_raw_bundle_requirement_strings`` instead of a second non-dev loop."""
     configured = {_normalize_dep_name(name): name for name in packages}
     named = set()
-    for extra_name, deps in packages[bundle_name].get("optional_dependencies", {}).items():
-        if extra_name == "dev":
-            continue
-        for dep in deps:
-            parsed = _parse_dependency(dep)
-            if parsed is not None and parsed[0] in configured:
-                named.add(configured[parsed[0]])
-    return named
+    for dep in _raw_bundle_requirement_strings(bundle_name, packages):
+        parsed = _parse_dependency(dep)
+        if parsed is not None and parsed[0] in configured:
+            named.add(configured[parsed[0]])
+    return named - _bundle_dependency_names(bundle_name, packages)
 
 
 def _bundle_owned_names(bundle_name: str, packages: dict[str, dict[str, Any]]) -> set[str]:
     """Nested packages a bundle owns: named in its own dependencies or a non-dev extra."""
     owned = _bundle_dependency_names(bundle_name, packages) | _bundle_extra_names(bundle_name, packages)
     return owned & set(_nested_under(bundle_name, packages))
-
-
-def _raw_bundle_requirement_strings(bundle_name: str, packages: dict[str, dict[str, Any]]) -> list[str]:
-    """Every dependency/extra requirement string a bundle declares itself, as written in the config."""
-    cfg = packages[bundle_name]
-    strings = list(cfg.get("dependencies", []))
-    for extra_name, deps in cfg.get("optional_dependencies", {}).items():
-        if extra_name == "dev":
-            continue
-        strings.extend(deps)
-    return strings
 
 
 def test_config_declares_a_published_set() -> None:
@@ -520,21 +521,27 @@ def test_no_dotted_package_is_listed_by_two_published_distributions() -> None:
 
 
 def test_every_published_nested_package_is_owned_with_the_exact_version_placeholder_spelling() -> None:
-    """A published package nested under an entry_point_bundle must be named exactly '<name>=={version}' in
-    the bundle's own dependencies or a non-dev extra, so the bundle pins the code it excludes exactly."""
+    """A published package nested under an entry_point_bundle must be named '<name>[extras]=={version}'
+    (extras optional, no marker) in the bundle's own dependencies or a non-dev extra, so the bundle pins
+    the code it excludes exactly."""
     packages = _packages()
     checked_bundles: set[str] = set()
 
     for bundle_name in _entry_point_bundles(packages):
         raw_strings = _raw_bundle_requirement_strings(bundle_name, packages)
+        owning = {
+            match.group(1)
+            for match in (_OWNERSHIP_EXACT_FLOOR_RE.match(raw) for raw in raw_strings)
+            if match is not None
+        }
         for nested_name in _nested_under(bundle_name, packages):
             if not packages[nested_name].get("published"):
                 continue
             checked_bundles.add(bundle_name)
-            expected = f"{nested_name}=={{version}}"
-            assert expected in raw_strings, (
-                f"{bundle_name} must own published nested package {nested_name!r} by listing {expected!r} "
-                f"in its own dependencies or a non-dev extra, has {raw_strings!r}"
+            assert nested_name in owning, (
+                f"{bundle_name} must own published nested package {nested_name!r} by listing "
+                f"'{nested_name}[extras]=={{version}}' in its own dependencies or a non-dev extra, "
+                f"has {raw_strings!r}"
             )
 
     assert "mloda-community" in checked_bundles, (
@@ -1098,7 +1105,7 @@ def test_community_bundle_depends_on_the_nested_shared_extenders() -> None:
 
     assert _SHARED_EXTENDERS in _nested_under(_COMMUNITY_BUNDLE, packages)
     assert _SHARED_EXTENDERS in _bundle_dependency_names(_COMMUNITY_BUNDLE, packages), (
-        f"{_COMMUNITY_BUNDLE} must list {_SHARED_EXTENDERS}>={{version}} in its own dependencies"
+        f"{_COMMUNITY_BUNDLE} must list {_SHARED_EXTENDERS}=={{version}} in its own dependencies"
     )
 
 
@@ -1115,15 +1122,15 @@ def test_enterprise_bundle_wheel_is_unchanged_by_its_shared_extenders_dependency
 
 
 def test_bundle_declares_every_nested_leaf_external_runtime_dependency() -> None:
-    """An entry_point_bundle wheel ships a nested package's code without inheriting its pyproject.toml's
-    ``dependencies``: nothing else installs a nested leaf's real (non-mloda, non-internal-registry)
-    runtime dependency for it. So every such external dependency a nested package declares must also
-    appear, at an equal-or-higher floor, in its bundle's OWN ``dependencies`` or in one of the bundle's
-    OWN non-dev ``optional_dependencies`` extras (that path is opt-in, so the leaf's manifest must then
-    import cleanly without the dependency; see mloda-community-openlineage). This guards the invariant
-    for the FUTURE: nothing else stops a new bundled leaf with an external runtime dependency from
-    being added without covering it in the bundle again (as mloda-community-otel's opentelemetry-api
-    once was). Likewise for a sibling outside the bundle: the bundle must list it too."""
+    """An entry_point_bundle wheel ships a nested, unowned package's code without inheriting its
+    pyproject.toml's ``dependencies``: nothing else installs such a leaf's real (non-mloda,
+    non-internal-registry) runtime dependency for it. So every such external dependency an unowned
+    nested package declares must also appear, at an equal-or-higher floor, in its bundle's OWN
+    ``dependencies`` or in one of the bundle's OWN non-dev ``optional_dependencies`` extras. An owned
+    nested package is skipped: its own metadata installs its own dependencies instead. This guards the
+    invariant for the FUTURE: nothing else stops a new unowned bundled leaf with an external runtime
+    dependency from being added without covering it in the bundle again. Likewise for a sibling outside
+    the bundle: the bundle must list it too."""
     packages = _packages()
     core_placeholder = "{core_dependency}"
 

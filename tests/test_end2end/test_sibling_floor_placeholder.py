@@ -154,7 +154,7 @@ def test_hand_pinned_sibling_dependency_is_rejected(dependency: str) -> None:
     ],
     ids=["extra-upper-bound", "extra-lower-bound", "tilde-operator", "exact-operator", "placeholder-in-marker-only"],
 )
-def test_malformed_version_placeholder_specifier_is_rejected(dependency: str) -> None:
+def test_malformed_version_placeholder_specifier_is_rejected(dependency: str, request: pytest.FixtureRequest) -> None:
     """{version} alone isn't enough: the specifier (marker stripped) must be exactly '<name>[extras]>={version}'."""
     shared, _packages_config = gen.load_configs()
     packages = _synthetic_packages(dependency)
@@ -165,6 +165,10 @@ def test_malformed_version_placeholder_specifier_is_rejected(dependency: str) ->
     message = str(exc_info.value)
     assert _LEAF in message, f"error message must name the leaf package {_LEAF!r}, got: {message}"
     assert dependency in message, f"error message must name the offending dependency {dependency!r}, got: {message}"
+    if request.node.callspec.id == "exact-operator":
+        assert ">={version}" in message, (
+            f"error message must name the accepted spelling '>={{version}}', got: {message}"
+        )
 
 
 @pytest.mark.parametrize(
@@ -519,17 +523,6 @@ def test_top_level_package_with_default_dev_deps_and_no_sibling_keeps_only_mloda
     assert sources == {"mloda-testing": _WORKSPACE}, f"expected only the mloda-testing source, got {sources!r}"
 
 
-def _expected_top_level_sources(pkg_name: str, packages: dict[str, dict[str, Any]]) -> set[str]:
-    """Every sibling a top-level package's own dependencies or extras name, per the generator's own rule
-    (gen.sibling_dependency_names over its runtime dependencies plus its expanded optional dependencies)."""
-    cfg = packages[pkg_name]
-    deps = list(cfg.get("dependencies", []))
-    expanded = gen.expand_published_children(cfg, packages)
-    for extra_deps in expanded.values():
-        deps.extend(extra_deps)
-    return set(gen.sibling_dependency_names(deps, packages))
-
-
 def test_real_bundles_workspace_sources_follow_their_sibling_dependencies() -> None:
     """A bundle's workspace sources follow whatever siblings its own config names in dependencies or
     extras, not a hardcoded set; both bundles still need the shared extenders package."""
@@ -544,11 +537,24 @@ def test_real_bundles_workspace_sources_follow_their_sibling_dependencies() -> N
         f"expected mloda-enterprise sources[{sibling!r}] == {_WORKSPACE!r}, got {enterprise_sources!r}"
     )
 
-    expected_community = _expected_top_level_sources("mloda-community", packages)
-    assert sibling in expected_community, f"fixture assumption: mloda-community depends on {sibling!r}"
-    assert community_sources == {name: _WORKSPACE for name in expected_community}, (
-        f"mloda-community sources must follow its configured sibling dependencies/extras {expected_community!r}, "
-        f"got {community_sources!r}"
+    for name in (
+        "mloda-community-extenders-shared",
+        "mloda-community-example",
+        "mloda-community-example-a",
+        "mloda-community-data-operations",
+        "mloda-community-aggregation",
+        "mloda-community-resample",
+        "mloda-community-otel",
+        "mloda-community-openlineage",
+    ):
+        assert community_sources.get(name) == _WORKSPACE, (
+            f"expected mloda-community sources[{name!r}] == {_WORKSPACE!r}, got {community_sources!r}"
+        )
+    assert all(value == _WORKSPACE for value in community_sources.values()), (
+        f"every mloda-community workspace source must be {_WORKSPACE!r}, got {community_sources!r}"
+    )
+    assert all(name in packages for name in community_sources), (
+        f"every mloda-community workspace source key must be a configured package, got {community_sources!r}"
     )
 
 
@@ -574,7 +580,7 @@ def _generated_wheel_packages(pkg_name: str, packages: dict[str, dict[str, Any]]
 def test_bundle_wheel_excludes_a_nested_package_it_depends_on() -> None:
     """A bundle naming a nested package in its own dependencies leaves that package's files to its own wheel."""
     shared, _packages_config = gen.load_configs()
-    packages = _synthetic_bundle(["{core_dependency}", f"{_LEAF}>={{version}}"])
+    packages = _synthetic_bundle(["{core_dependency}", f"{_LEAF}=={{version}}"])
 
     listed = _generated_wheel_packages(_DEPENDENT, packages, shared)
 
@@ -585,7 +591,7 @@ def test_bundle_wheel_excludes_a_nested_package_it_depends_on() -> None:
 def test_bundle_wheel_still_ships_a_nested_package_it_does_not_depend_on() -> None:
     """The exclusion is scoped to the bundle's own dependencies: another nested package is still shipped."""
     shared, _packages_config = gen.load_configs()
-    packages = _synthetic_bundle(["{core_dependency}", f"{_LEAF}>={{version}}"])
+    packages = _synthetic_bundle(["{core_dependency}", f"{_LEAF}=={{version}}"])
 
     listed = _generated_wheel_packages(_DEPENDENT, packages, shared)
 
@@ -598,7 +604,7 @@ def test_bundle_wheel_still_ships_a_nested_package_it_does_not_depend_on() -> No
 def test_bundle_dependency_on_an_unpublished_nested_package_is_rejected() -> None:
     """The nested dependency owns the files, so it must be a published distribution or nothing ships them."""
     shared, _packages_config = gen.load_configs()
-    packages = _synthetic_bundle(["{core_dependency}", f"{_LEAF}>={{version}}"])
+    packages = _synthetic_bundle(["{core_dependency}", f"{_LEAF}=={{version}}"])
     packages[_LEAF]["published"] = False
 
     with pytest.raises(ValueError) as exc_info:
@@ -723,3 +729,76 @@ def test_exact_operator_rejected_for_a_bundle_dependency_outside_its_path() -> N
     assert outside_dependency in message, (
         f"error message must name the offending dependency {outside_dependency!r}, got: {message}"
     )
+    assert ">={version}" in message, f"error message must name the accepted spelling '>={{version}}', got: {message}"
+
+
+def test_bare_nested_sibling_in_a_bundle_extra_is_rejected() -> None:
+    """A bundle owning a nested sibling through an extra must still pin it exactly; a bare name is rejected."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_bundle(["{core_dependency}"])
+    packages[_DEPENDENT]["optional_dependencies"] = {"extra": [_LEAF]}
+
+    with pytest.raises(ValueError) as exc_info:
+        gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
+
+    message = str(exc_info.value)
+    assert _DEPENDENT in message, f"error message must name the bundle {_DEPENDENT!r}, got: {message}"
+    assert _LEAF in message, f"error message must name the offending dependency {_LEAF!r}, got: {message}"
+
+
+def test_floor_operator_rejected_for_a_bundle_nested_sibling_in_dependencies() -> None:
+    """A bundle's own dependencies on a nested sibling own (exclude) its code, so a floor is no longer
+    enough: only the exact-operator spelling is accepted there."""
+    shared, _packages_config = gen.load_configs()
+    dependency = f"{_LEAF}>={{version}}"
+    packages = _synthetic_bundle(["{core_dependency}", dependency])
+
+    with pytest.raises(ValueError) as exc_info:
+        gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
+
+    message = str(exc_info.value)
+    assert _DEPENDENT in message, f"error message must name the bundle {_DEPENDENT!r}, got: {message}"
+    assert dependency in message, f"error message must name the offending dependency {dependency!r}, got: {message}"
+
+
+def test_exact_operator_with_a_marker_is_rejected_for_a_bundle_nested_sibling() -> None:
+    """The exact-operator sibling floor pins every platform alike, so it accepts no environment marker."""
+    shared, _packages_config = gen.load_configs()
+    dependency = f'{_LEAF}=={{version}}; python_version>="3.12"'
+    packages = _synthetic_bundle(["{core_dependency}", dependency])
+
+    with pytest.raises(ValueError) as exc_info:
+        gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
+
+    message = str(exc_info.value)
+    assert _DEPENDENT in message, f"error message must name the bundle {_DEPENDENT!r}, got: {message}"
+    assert dependency in message, f"error message must name the offending dependency {dependency!r}, got: {message}"
+
+
+def test_exact_operator_rejected_in_a_bundle_dev_extra() -> None:
+    """The exact-operator sibling floor is accepted only in dependencies or a non-dev extra, never dev."""
+    shared, _packages_config = gen.load_configs()
+    dependency = f"{_LEAF}=={{version}}"
+    packages = _synthetic_bundle(["{core_dependency}"])
+    packages[_DEPENDENT]["optional_dependencies"] = {"dev": [dependency]}
+
+    with pytest.raises(ValueError) as exc_info:
+        gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
+
+    message = str(exc_info.value)
+    assert _DEPENDENT in message, f"error message must name the bundle {_DEPENDENT!r}, got: {message}"
+    assert dependency in message, f"error message must name the offending dependency {dependency!r}, got: {message}"
+    assert ">={version}" in message, f"error message must name the accepted spelling '>={{version}}', got: {message}"
+
+
+def test_sibling_dependency_name_returns_the_configured_name_or_none() -> None:
+    """sibling_dependency_name parses one requirement string, extras/markers ignored, the singular sibling
+    of sibling_dependency_names, returning None when the requirement names no configured package."""
+    _shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+
+    assert gen.sibling_dependency_name(f"{_DEP}>={{version}}", packages) == _DEP
+    assert gen.sibling_dependency_name(f"{_DEP}[all]=={{version}}", packages) == _DEP
+    assert gen.sibling_dependency_name(f'{_DEP}>={{version}}; python_version>="3.11"', packages) == _DEP
+    assert gen.sibling_dependency_name("pytest>=9.0.3", packages) is None
+    assert gen.sibling_dependency_name("{core_dependency}", packages) is None

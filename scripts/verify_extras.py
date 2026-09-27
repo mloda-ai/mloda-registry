@@ -39,31 +39,23 @@ def internal_extra_members(packages: dict[str, dict[str, Any]]) -> list[tuple[st
     required to be a bare package name."""
     gen = _load_sibling("generate_pyproject")
     expand: Callable[[dict[str, Any], dict[str, dict[str, Any]]], dict[str, list[str]]] = gen.expand_published_children
+    sibling_name: Callable[[str, dict[str, dict[str, Any]], dict[str, str]], str | None] = gen.sibling_dependency_name
     normalize: Callable[[str], str] = gen.normalize_package_name
-    name_re = gen.DEP_NAME_RE
 
-    def _member(dep: str, configured: dict[str, str]) -> str | None:
-        """The configured package name a single dependency string names, or None, in list order
-        (unlike sibling_dependency_names, which sorts)."""
-        match = name_re.match(dep.split(";", 1)[0])
-        if match is None:
-            return None
-        return configured.get(normalize(match.group(1)))
+    # Built once, not per package: the normalized name lookup sibling_dependency_name would otherwise
+    # rebuild on every call.
+    configured = {normalize(name): name for name in packages}
 
     entries: list[tuple[str, str, list[str]]] = []
     for pkg_name, pkg_config in packages.items():
         if pkg_config.get("published") is not True:
             continue
-        configured = {normalize(name): name for name in packages}
         expanded = expand(pkg_config, packages)
         for extra, deps in expanded.items():
             if extra == DEV_EXTRA:
                 continue
-            members = []
-            for dep in deps:
-                member = _member(dep, configured)
-                if member is not None:
-                    members.append(member)
+            # In list order (unlike sibling_dependency_names, which sorts).
+            members = [name for name in (sibling_name(dep, packages, configured) for dep in deps) if name is not None]
             if members:
                 entries.append((pkg_name, extra, members))
     return entries

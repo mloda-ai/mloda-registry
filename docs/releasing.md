@@ -21,9 +21,9 @@ workflow_dispatch → semantic-release → PyPI publish
 5. **PyPI publish**: the `publish` job checks out that exact SHA (not whatever `main`
    is when the job runs), then builds and uploads wheels with `twine --skip-existing`,
    so a rerun after a partial upload does not fail on the files that already made it.
-   Upload order is the published order (`scripts/published_packages.py`), dependencies first
-   and bundles last, so a partial upload leaves an installable prefix and never leaves the
-   previous release's bundle version unresolvable.
+   Upload order is the published order (`scripts/published_packages.py`), dependencies
+   first and bundles last, so a new bundle version appears on PyPI only after everything
+   it pins is already there.
 
 The `prepareCmd` in `.releaserc.yaml` also seds a `MLODA_REGISTRY_VERSION:<version>}`
 default into `tox.ini`. No such default remains there, so that half of the command is
@@ -49,11 +49,13 @@ It sets `MLODA_REGISTRY_VERSION` and runs these tox envs:
 [Published packages](#published-packages) below.
 
 `verify-typed-install` follows the fails-until-release pattern `verify-published` has: it
-goes red until the base's `py.typed` marker ships. Sibling dependency floors need no
-dedicated verification env: `verify-published-independent` already covers each leaf
-installing alone at its generator-derived floor, and `verify-extras` covers each base
-resolving together with its children (see
-[packaging.md](packaging.md#sibling-dependency-floors)).
+goes red until the base's `py.typed` marker ships. `verify-extras` follows the same pattern
+for a newly owned bundle extra (`mloda-community[otel]` / `[openlineage]`): it goes red until
+the first release that ships the owned leaves, since the previous bundle version still
+contains their code directly. Sibling dependency floors need no dedicated verification env:
+`verify-published-independent` already covers each leaf installing alone at its
+generator-derived floor, and `verify-extras` covers each base resolving together with its
+children (see [packaging.md](packaging.md#sibling-dependency-floors)).
 
 ## Published packages
 
@@ -81,18 +83,22 @@ low (around four) and the lockout lasts many hours. It is not something the rele
 workflow can pace or retry around. See
 [pypi/support#10572](https://github.com/pypi/support/issues/10572) and
 [this monorepo release thread](https://discuss.python.org/t/request-temporary-new-project-rate-limit-lift-on-pypi-for-a-coordinated-monorepo-release-user-pace/108030).
-Because every leaf requires its base at the same version, a rejected, partial upload also
-leaves the already-uploaded leaves uninstallable until the rerun completes. Bundles upload
-last (see [Flow](#flow)), so a partial upload never leaves `mloda-community` itself
-unresolvable: an unpinned install still resolves the previous bundle version, whose exact pins
-are all already on PyPI. Installing both bundles needs `mloda-community` and `mloda-enterprise`
-at the same version, since `mloda-enterprise` requires `mloda-community-openlineage` (through
-its own `[openlineage]` extra) at that version too.
+With dependency-first upload order (see [Flow](#flow)), every uploaded package's same-release
+requirements are already on PyPI, so a rejected, partial upload leaves nothing already
+uploaded uninstallable; a rerun just uploads the rest. `mloda-enterprise` cannot resolve at a
+newer version than `mloda-community`: it needs `mloda-community-extenders-shared`, and, through
+its own `[openlineage]` extra, `mloda-community-openlineage`, both at its own version or later,
+and `mloda-community` pins each of the packages it owns exactly. Install both bundles at the
+same version.
+
+Yanking a broken package also needs its bundles yanked at the same version: the bundle pins an
+owned package exactly (`==`), and PyPI still resolves an exact pin to a yanked file, unlike a
+floor.
 
 `pip install -U` from a `mloda-community` that still shipped these packages' files can delete
 the newly installed packages' files when it removes the old bundle, without `pip check`
-noticing (`uv pip install -U` is not affected). Run `pip install --force-reinstall
-mloda-community` to fix it.
+noticing (`uv pip install -U` is not affected); see the [README](../README.md#upgrading) for the
+fix.
 
 Not every package ships standalone. Most demo and example packages reach users inside the
 `mloda-community` / `mloda-enterprise` bundle wheels instead; `mloda-community-example`
