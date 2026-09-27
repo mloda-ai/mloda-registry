@@ -68,8 +68,8 @@ Flagging a package does not publish it: it ships with the next release run, and
 The root `pyproject.toml`'s `exclude-newer` window would hide a release younger than
 seven days, so `verify-published` and `security` pass `--exclude-newer-exempt`, which
 lifts the cutoff for the released distributions only; third-party dependencies stay
-behind the window. The script-driven verify envs install into a temporary directory,
-where no project config applies.
+behind the window. The script-driven verify envs install from a temporary directory,
+where no project config, and so no window, applies.
 
 A release that introduces packages new to PyPI can be rejected with
 `429 Too many new projects created`. PyPI throttles the creation of *new* project names,

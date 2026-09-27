@@ -23,8 +23,7 @@ _WORKFLOW_PATH = _REPO_ROOT / ".github" / "workflows" / "verify-published.yaml"
 
 _INDEPENDENT_STEP = "Verify packages install independently"
 
-# The one Verify step allowed to run unconditionally: every later Verify step must not be skipped
-# just because an earlier one failed.
+# The one Verify step allowed to run unconditionally; every step after it must run regardless.
 _FIRST_VERIFY_STEP = "Verify published packages (all together)"
 
 # Published distributions whose 'uv pip install' the fakes below fail, to check isolation.
@@ -180,8 +179,7 @@ def test_main_reports_every_failing_distribution_while_running_concurrently(
 
 
 def test_later_verify_steps_run_independently_of_earlier_failures() -> None:
-    """One failing probe (e.g. the flaky independent-install step) must not skip the steps after it, so
-    every 'Verify ...' step but the first carries an 'if:' that runs it regardless of prior outcome."""
+    """A failing probe must not skip the Verify steps after it, so each carries an '!cancelled()' 'if:'."""
     text = _WORKFLOW_PATH.read_text()
     verify_steps = [match for match in _STEP_RE.finditer(text) if match.group("name").strip().startswith("Verify ")]
     names = [match.group("name").strip() for match in verify_steps]

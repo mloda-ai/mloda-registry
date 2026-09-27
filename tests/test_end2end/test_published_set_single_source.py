@@ -460,8 +460,7 @@ def test_cli_pin_appends_the_version_to_every_name(
 def test_cli_exclude_newer_exempt_prints_one_flag_per_distribution(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """``--exclude-newer-exempt`` feeds the tox install lines, exempting the released set from the
-    7-day ``exclude-newer`` filter that would otherwise hide our own freshly published distributions."""
+    """``--exclude-newer-exempt`` exempts the released set from the 7-day ``exclude-newer`` filter."""
     lines = _cli_lines(monkeypatch, capsys, ["--exclude-newer-exempt"])
     expected = [f"--exclude-newer-package={name}=false" for name in _EXPECTED_PUBLISHED]
     assert lines == expected, (
@@ -730,9 +729,7 @@ def test_internal_extra_members_drops_external_names() -> None:
 
 @pytest.mark.parametrize("env_name", _TOX_PUBLISHED_ENVS)
 def test_tox_env_installs_from_the_published_script(env_name: str) -> None:
-    """Both PyPI-installing envs read the released set, and its exclude-newer exemption, from the
-    single source, on the 'uv pip install' line itself (the 'security' env's 'uv pip uninstall' line
-    also calls the script but must not satisfy this check)."""
+    """Both PyPI-installing envs read the released set, and its exclude-newer exemption, from the single source."""
     install_lines = [
         line for line in _tox_block(env_name).splitlines() if "uv pip install" in line and _SCRIPT_INVOCATION in line
     ]
