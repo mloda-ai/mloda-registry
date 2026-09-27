@@ -40,7 +40,7 @@ class DuckdbPercentile(PercentileFeatureGroup):
         # Safety: identifiers are quote_ident()-quoted. The percentile value is a
         # Python float validated to [0.0, 1.0] by the base class, so it cannot
         # produce SQL injection via float.__format__.
-        agg_source = nan_to_null_sql(source_sql, column_types(data)[source_col])
+        agg_source = nan_to_null_sql(source_sql, column_types(data).get(source_col, ""))
         result: DuckdbRelation = data.window(
             f"QUANTILE_CONT({agg_source}, {percentile})", feature_name, partition_by=partition_by
         )

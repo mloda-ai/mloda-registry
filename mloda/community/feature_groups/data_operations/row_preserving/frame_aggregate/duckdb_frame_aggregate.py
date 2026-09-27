@@ -16,7 +16,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
     WindowFrame,
 )
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import column_types, nan_to_null_sql
+from mloda.community.feature_groups.data_operations.duckdb_helpers import median_wrapped_source
 from mloda.community.feature_groups.data_operations.errors import (
     unsupported_agg_type_error,
     unsupported_frame_type_error,
@@ -88,18 +88,22 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
                     "treating masked rows as having null order_by, which the correlated "
                     "subquery cannot express natively. See known-divergences.md."
                 )
+            # Correlated subquery aliases the source table as "s"; build the wrapped
+            # inner source SQL here, where source_col (needed for the type lookup) is
+            # in scope, so the callee only ever sees the final SQL string.
+            inner_source = f"s.{quoted_source}"
+            if mask_spec is not None:
+                inner_source = build_sql_case_when(DuckDBFramework.mask_engine(), data, mask_spec, inner_source)
+            inner_source = median_wrapped_source(data, source_col, inner_source, agg_type)
             return cls._compute_time_frame(
                 data=data,
                 feature_name=feature_name,
-                quoted_source=quoted_source,
+                inner_source_sql=inner_source,
                 partition_by=partition_by,
                 quoted_order=quoted_order,
                 agg_func=agg_func,
-                agg_type=agg_type,
-                column_type=column_types(data)[source_col],
                 frame_size=frame_size,
                 frame_unit=frame_unit,
-                mask_spec=mask_spec,
             )
 
         # NULLS LAST is equivalent to the old CASE WHEN order IS NULL THEN 1 ELSE 0 END
@@ -125,9 +129,7 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         rel = data.with_row_number(rn)
 
         # Step 2: compute window function with frame
-        agg_source = source_sql
-        if agg_type == "median":
-            agg_source = nan_to_null_sql(source_sql, column_types(data)[source_col])
+        agg_source = median_wrapped_source(data, source_col, source_sql, agg_type)
         rel = rel.window(
             f"{agg_func}({agg_source})",
             feature_name,
@@ -148,15 +150,12 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         cls,
         data: DuckdbRelation,
         feature_name: str,
-        quoted_source: str,
+        inner_source_sql: str,
         partition_by: list[str],
         quoted_order: str,
         agg_func: str,
-        agg_type: str,
-        column_type: str,
         frame_size: int | None,
         frame_unit: str | None,
-        mask_spec: list[tuple[str, str, Any]] | None,
     ) -> DuckdbRelation:
         """Compute a time-based window aggregate via a correlated subquery.
 
@@ -180,14 +179,6 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         # Step 1: tag rows with original position; this is also the tiebreaker.
         tagged = data.with_row_number(rn)
 
-        inner_source = f"s.{quoted_source}"
-        inner_source_sql = (
-            build_sql_case_when(DuckDBFramework.mask_engine(), tagged, mask_spec, inner_source)
-            if mask_spec is not None
-            else inner_source
-        )
-        agg_source_sql = nan_to_null_sql(inner_source_sql, column_type) if agg_type == "median" else inner_source_sql
-
         if partition_by:
             partition_eq = " AND ".join(
                 f"(s.{quote_ident(col)} = t.{quote_ident(col)} "
@@ -205,7 +196,7 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         sql = " ".join(  # nosec
             [
                 f"SELECT {keep},",
-                f"(SELECT {agg_func}({agg_source_sql})",
+                f"(SELECT {agg_func}({inner_source_sql})",
                 "FROM tagged s",
                 f"WHERE {partition_eq}",
                 "AND (",

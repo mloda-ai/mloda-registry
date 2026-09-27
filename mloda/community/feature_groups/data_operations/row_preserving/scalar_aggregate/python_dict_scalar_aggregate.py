@@ -23,7 +23,6 @@ from mloda.community.feature_groups.data_operations.mask_utils import build_mask
 from mloda.community.feature_groups.data_operations.python_dict_helpers import (
     STD_AGG_TYPES,
     VARIANCE_DDOF,
-    is_nan,
     reduce_agg,
     variance,
 )
@@ -64,8 +63,8 @@ class PythonDictScalarAggregate(ScalarAggregateFeatureGroup):
         """Reduce the (already null-filtered) whole-column values to a single scalar."""
         if agg_type == "count":
             return len(non_null)
-        if agg_type == "median":
-            return reduce_agg("median", non_null)
+        if agg_type in ("median", "min", "max"):
+            return reduce_agg(agg_type, non_null)
         if agg_type in VARIANCE_DDOF:
             return variance(non_null, ddof=VARIANCE_DDOF[agg_type], as_std=agg_type in STD_AGG_TYPES)
 
@@ -75,11 +74,5 @@ class PythonDictScalarAggregate(ScalarAggregateFeatureGroup):
             return sum(non_null)
         if agg_type in ("avg", "mean"):
             return sum(non_null) / len(non_null)
-        if agg_type == "min":
-            finite = [v for v in non_null if not is_nan(v)]
-            return min(finite) if finite else None
-        if agg_type == "max":
-            finite = [v for v in non_null if not is_nan(v)]
-            return max(finite) if finite else None
 
         raise unsupported_agg_type_error(agg_type, cls._SUPPORTED_AGG_TYPES, framework="PythonDict")

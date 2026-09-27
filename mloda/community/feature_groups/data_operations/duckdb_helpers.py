@@ -62,8 +62,7 @@ def floor_expr(quoted_source: str, n: int, unit: str) -> str:
 
 def column_types(data: "DuckdbRelation") -> dict[str, str]:
     """Column name -> DuckDB type string, read from the relation's schema."""
-    underlying = data._relation
-    return dict(zip(list(underlying.columns), [str(t) for t in underlying.types]))
+    return dict(zip(data.columns, [str(t) for t in data.types]))
 
 
 def nan_to_null_sql(expr: str, column_type: str) -> str:
@@ -71,3 +70,13 @@ def nan_to_null_sql(expr: str, column_type: str) -> str:
     if column_type.upper() in ("FLOAT", "DOUBLE"):
         return f"NULLIF({expr}, 'NaN')"
     return expr
+
+
+def median_wrapped_source(data: "DuckdbRelation", source_col: str, source_sql: str, agg_type: str) -> str:
+    """``source_sql`` with NaN as null for median, unchanged otherwise.
+
+    An unknown type (e.g. a case-mismatched *source_col*, which DuckDB still binds) is left unwrapped.
+    """
+    if agg_type != "median":
+        return source_sql
+    return nan_to_null_sql(source_sql, column_types(data).get(source_col, ""))

@@ -881,12 +881,11 @@ class AggregationTestBase(MaskTestMixin, DataOpsTestBase):
 
         result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
         result_counts = sorted(self.extract_column(result, feature_name))
+        row_count = self.get_row_count(result)
         if self.merges_signed_zero_keys():
-            row_count = self.get_row_count(result)
             assert row_count == 1, f"expected one merged group, got {row_count} rows"
             assert result_counts == [3]
         else:
-            row_count = self.get_row_count(result)
             assert row_count == 2, f"expected two split groups, got {row_count} rows"
             assert result_counts == [1, 2]
             signs = sorted(math.copysign(1, v) for v in self.extract_column(result, "k"))

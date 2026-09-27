@@ -17,6 +17,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
 from mloda.community.feature_groups.data_operations.duckdb_helpers import (
+    column_types,
     floor_expr,
     interval_literal,
 )
@@ -61,8 +62,7 @@ class DuckdbTimeBucketization(TimeBucketizationFeatureGroup):
 
     @classmethod
     def _assert_source_column_is_timestamp(cls, data: DuckdbRelation, source_col: str) -> None:
-        underlying = data._relation
-        type_by_column = dict(zip(list(underlying.columns), [str(t) for t in underlying.types]))
+        type_by_column = column_types(data)
         dtype_str = type_by_column.get(source_col)
         if dtype_str is None:
             raise ValueError(

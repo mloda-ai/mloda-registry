@@ -95,17 +95,7 @@ class TestPythonDictNanPartitionKeyGrouping:
 
 
 class TestPythonDictMinMaxSkipsNan:
-    """min/max must skip NaN values within a window, not propagate them.
-
-    ``PythonDictFrameAggregate._reduce_window`` (python_dict_frame_aggregate.py
-    lines 192-195) reduces a window's non-null values with Python's builtin
-    ``min()``/``max()``, which short-circuits to NaN the moment any element
-    is NaN, unlike ``aggregation_helpers.aggregate()`` (this operation's own
-    ``ReferenceFrameAggregate`` test reference), which now skips NaN for
-    ``min``/``max``. This test calls PyArrow's own ``pyarrow.compute.min``/``max``
-    directly (the functions every genuine PyArrow-backed aggregation in this
-    codebase delegates to) on the window's non-NaN values as the live oracle.
-    """
+    """min/max must skip NaN values within a window, matching the PyArrow oracle."""
 
     @staticmethod
     def _expanding_via(agg_type: str) -> tuple[list[Any], Any]:

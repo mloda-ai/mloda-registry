@@ -34,13 +34,12 @@ _POLARS_AGG_EXPRS: dict[str, Any] = {
     "std_samp": lambda col: pl.col(col).std(ddof=1),
     "var_pop": lambda col: pl.col(col).var(ddof=0),
     "var_samp": lambda col: pl.col(col).var(ddof=1),
-    "median": lambda col: pl.col(col).median(),
     "nunique": lambda col: pl.col(col).drop_nulls().n_unique(),
     "first": lambda col: pl.col(col).drop_nulls().first(),
     "last": lambda col: pl.col(col).drop_nulls().last(),
 }
 
-_SUPPORTED_AGG_TYPES = {*_POLARS_AGG_EXPRS.keys(), "mode"}
+_SUPPORTED_AGG_TYPES = {*_POLARS_AGG_EXPRS.keys(), "mode", "median"}
 
 
 class PolarsLazyAggregation(AggregationFeatureGroup):

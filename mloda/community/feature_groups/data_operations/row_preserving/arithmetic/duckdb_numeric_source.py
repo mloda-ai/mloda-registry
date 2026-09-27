@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from mloda.community.feature_groups.data_operations.duckdb_helpers import column_types
+
 # DuckDB type names that count as numeric for arithmetic.
 # Parameterized variants (DECIMAL(p, s)) are matched via ``startswith(p + "(")``.
 DUCKDB_NUMERIC_PREFIXES: tuple[str, ...] = (
@@ -36,11 +38,7 @@ def duckdb_non_numeric_descriptor(data: Any, source_col: str) -> str | None:
     Returns ``None`` when the column is absent (presence is validated
     separately by the calling feature group).
     """
-    # ``DuckdbRelation`` wraps a ``DuckDBPyRelation`` exposing aligned
-    # ``.columns`` and ``.types`` (~4 microseconds; cheaper than
-    # ``data.to_arrow_table().schema`` which materializes the relation).
-    underlying = data._relation
-    type_by_column = dict(zip(list(underlying.columns), [str(t) for t in underlying.types]))
+    type_by_column = column_types(data)
     dtype_str: str | None = type_by_column.get(source_col)
     if dtype_str is None:
         return None

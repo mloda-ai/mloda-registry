@@ -252,8 +252,21 @@ class TestReduceAgg:
     def test_max_skips_none_and_nan(self) -> None:
         assert reduce_agg("max", [float("nan"), None, 3.0, 1.0]) == pytest.approx(3.0)
 
-    def test_min_all_nan_returns_none(self) -> None:
-        assert reduce_agg("min", [float("nan"), float("nan")]) is None
+    def test_min_all_nan_returns_nan(self) -> None:
+        """An all-NaN (non-empty) group returns NaN, matching aggregation_helpers.aggregate."""
+        result = reduce_agg("min", [float("nan"), float("nan")])
+        assert result is not None and math.isnan(result)
+
+    def test_max_all_nan_returns_nan(self) -> None:
+        """An all-NaN (non-empty) group returns NaN, matching aggregation_helpers.aggregate."""
+        result = reduce_agg("max", [float("nan"), float("nan")])
+        assert result is not None and math.isnan(result)
+
+    def test_min_all_none_returns_none(self) -> None:
+        assert reduce_agg("min", [None, None]) is None
+
+    def test_max_all_none_returns_none(self) -> None:
+        assert reduce_agg("max", [None, None]) is None
 
     def test_first_and_last_skip_none(self) -> None:
         assert reduce_agg("first", [None, 5, 6]) == 5

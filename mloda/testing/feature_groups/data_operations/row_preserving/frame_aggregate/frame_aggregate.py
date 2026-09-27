@@ -131,6 +131,14 @@ NAN_DIVERGENT_ROLLING_3: dict[str, list[float]] = {
     "max": [2.0, float("nan"), float("nan"), 1.0, float("nan"), float("nan"), float("nan")],
 }
 
+# Feature-name templates for each frame kind the NaN policy test covers. The 2-day window
+# matches rolling_3 exactly on this fixture (one row per grp per day), so both the policy
+# and the divergent values above apply unchanged.
+NAN_POLICY_FRAME_KINDS: dict[str, str] = {
+    "rolling_3": "val__{agg_type}_rolling_3",
+    "2_day_window": "val__{agg_type}_2_day_window",
+}
+
 
 # ---------------------------------------------------------------------------
 # Capability-probe option builders (shared across backend test modules)
@@ -1005,10 +1013,11 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
         if not backend.supports_compute_framework(feature_name, options, framework):
             pytest.skip(f"{feature_name} not supported by this framework")
 
+    @pytest.mark.parametrize("frame_kind", sorted(NAN_POLICY_FRAME_KINDS), ids=sorted(NAN_POLICY_FRAME_KINDS))
     @pytest.mark.parametrize("agg_type", sorted(NAN_POLICY_ROLLING_3), ids=sorted(NAN_POLICY_ROLLING_3))
-    def test_nan_policy_rolling_3(self, agg_type: str) -> None:
-        """Rolling-3 median/min/max of a NaN-mixed column, ordered by ts."""
-        feature_name = f"val__{agg_type}_rolling_3"
+    def test_nan_policy_frame(self, agg_type: str, frame_kind: str) -> None:
+        """median/min/max of a NaN-mixed column, ordered by ts, for rolling_3 and the 2-day window."""
+        feature_name = NAN_POLICY_FRAME_KINDS[frame_kind].format(agg_type=agg_type)
         self._skip_if_frame_feature_unsupported(feature_name, ["grp"], "ts")
         table = self.nan_policy_table()
         fs = make_feature_set(feature_name, ["grp"], "ts")
@@ -1025,21 +1034,6 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
             else NAN_POLICY_ROLLING_3[agg_type]
         )
         assert result_col == pytest.approx(expected, nan_ok=True), f"backend: {result_col!r}"
-
-    def test_nan_policy_time_window_median(self) -> None:
-        """A 2-day time-window median of a NaN-mixed column matches rolling_3 median."""
-        feature_name = "val__median_2_day_window"
-        self._skip_if_frame_feature_unsupported(feature_name, ["grp"], "ts")
-        table = self.nan_policy_table()
-        fs = make_feature_set(feature_name, ["grp"], "ts")
-
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
-        ref_col = _extract_column(ref, feature_name)
-        assert ref_col == pytest.approx(NAN_POLICY_ROLLING_3["median"], nan_ok=True), f"reference: {ref_col!r}"
-
-        result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
-        result_col = self.extract_column(result, feature_name)
-        assert result_col == pytest.approx(NAN_POLICY_ROLLING_3["median"], nan_ok=True), f"backend: {result_col!r}"
 
     # -- Row-order preservation ------------------------------------------------
 

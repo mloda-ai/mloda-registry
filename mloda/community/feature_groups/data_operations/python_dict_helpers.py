@@ -184,7 +184,9 @@ def reduce_agg(agg_type: str, values: list[Any]) -> Any:
     """Reduce one group's raw (possibly null-containing) values per *agg_type*.
 
     NaN is skipped (in addition to None) for ``min``/``max``/``median``, matching
-    PyArrow's ``pc.min``/``pc.max``/``pc.quantile``.
+    PyArrow's ``pc.min``/``pc.max``/``pc.quantile``. When every non-null value is NaN,
+    ``min``/``max`` return NaN (an all-NaN group is not empty); an all-None or empty
+    group still returns ``None``.
     """
     non_null = [v for v in values if v is not None]
 
@@ -214,10 +216,10 @@ def reduce_agg(agg_type: str, values: list[Any]) -> Any:
         return sum(non_null) / len(non_null)
     if agg_type == "min":
         finite = [v for v in non_null if not is_nan(v)]
-        return min(finite) if finite else None
+        return min(finite) if finite else non_null[0]
     if agg_type == "max":
         finite = [v for v in non_null if not is_nan(v)]
-        return max(finite) if finite else None
+        return max(finite) if finite else non_null[0]
 
     raise unsupported_agg_type_error(agg_type, SUPPORTED_AGG_TYPES, framework="PythonDict")
 
