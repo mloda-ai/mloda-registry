@@ -35,7 +35,13 @@ Every plugin is requested by feature name (usually `{column}__{operation}`) and 
 
 ## Upgrading
 
-From a `mloda-community` release that still shipped the plugin code directly (0.4.7 and earlier), `pip install -U mloda-community` can delete the plugins' files (`uv` is not affected). Run `pip install --force-reinstall mloda-community` after upgrading.
+Upgrading with pip from a `mloda-community` release that still shipped the plugin code inside the bundle deletes the plugins' files, and `pip check` reports nothing (`uv` is not affected). After upgrading, reinstall with the extras you use; an extender left out of the command stays deleted:
+
+```bash
+pip install --force-reinstall "mloda-community[otel]"
+```
+
+Keep `mloda-community`, `mloda-enterprise` and any plugin installed on its own at the same version, and upgrade them together. The bundle pins the packages it owns exactly, so upgrading one alone leaves a version conflict that pip reports without stopping the install.
 
 The OTel and OpenLineage extenders now ship only through `mloda-community[otel]` / `[openlineage]` / `[all]`, or their own distributions: a bare `mloda-community` install contains neither, even if `opentelemetry-api` or `openlineage-python` is already installed.
 
@@ -83,7 +89,7 @@ Options such as `partition_by` and `order_by`, plus the shared contracts, are in
 
 `mloda-community-openlineage`, behind `mloda-enterprise[openlineage]`, is what the lineage facets extender (`mloda-enterprise-lineage`) builds on; without the extra its entry point registers nothing.
 
-The remaining example packages are not on PyPI; install them from git, replacing the subdirectory with the package `path` from `config/packages.toml`:
+The remaining example packages are not released to PyPI and ship inside the bundles. To use one without its bundle, install it from git, replacing the subdirectory with the package `path` from `config/packages.toml`; next to the bundle it would own the same files twice:
 
 ```bash
 pip install "git+https://github.com/mloda-ai/mloda-registry.git#subdirectory=mloda/community/feature_groups/example/example_b"

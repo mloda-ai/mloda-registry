@@ -60,9 +60,9 @@ optional_dependencies = { dev = ["mloda-testing", "pytest>=9.0.3"] }
 |-------|----------|-------------|
 | `description` | Yes | PyPI description |
 | `path` | Yes | Package directory |
-| `published` | No | `true` ships the distribution standalone on PyPI. Single source of the released set, read through `scripts/published_packages.py`. Must be a boolean. It governs the released set, and also wheel contents through the bundle ownership guard: a bundle never ships a nested published package it owns (named in its own `dependencies` or a non-dev extra) |
+| `published` | No | `true` ships the distribution standalone on PyPI. Single source of the released set, read through `scripts/published_packages.py`. Must be a boolean. It governs the released set, and also wheel contents: a bundle must own (name in its own `dependencies` or a non-dev extra) every published package nested under its path, and ships only the unpublished rest |
 | `dependencies` | By convention | Runtime deps; use `"{core_dependency}"` for the mloda floor, `"<sibling>>={version}"` for a sibling package, or, for a package nested under an `entry_point_bundle`'s own path, `"<sibling>=={version}"` to own it (see [Sibling dependency floors](#sibling-dependency-floors)). The generator defaults it to empty rather than failing, but every package declares it |
-| `optional_dependencies` | No | Merged with defaults. The entry `"{published_children}"` expands to every published package nested under this package's path, in config order. A test-only third-party dependency goes in `dev` here; an `entry_point_bundle` may also own a nested sibling through a non-dev extra, the same as through `dependencies`; see [Add a test-only dependency](#add-a-test-only-dependency) |
+| `optional_dependencies` | No | Merged with defaults. The entry `"{published_children}"` expands to every published package nested under this package's path, in config order; an `entry_point_bundle` cannot use it and names each package it owns instead, through a non-dev extra the same as through `dependencies`. A test-only third-party dependency goes in `dev` here; see [Add a test-only dependency](#add-a-test-only-dependency) |
 | `has_readme` | No | `true` points the package at its own `README.md` |
 | `workspace_deps` | No | Marks a meta-package whose deps are workspace siblings. Mutually exclusive with `py_typed`; unused today |
 | `entry_point_groups` | No | List of mloda entry-point groups the package's `manifest.py` populates (`mloda.feature_groups`, `mloda.compute_frameworks`, `mloda.extenders`) |
@@ -100,9 +100,17 @@ it instead. Such a requirement must then be spelled exactly `"<sibling>[extras]=
 environment marker, so the bundle pins the code it excludes to the exact version it releases in
 lockstep with, on every platform alike; a bare name, a `">={version}"` floor, or a marker are all
 rejected there. This exact-operator spelling is required only for a sibling nested under the bundle's
-own path, and only in `dependencies` or a non-dev extra (never `dev`, since a dev-only dependency
-never ships and so cannot own anything); everywhere else `"=={version}"` stays rejected like any
-other hand-written floor.
+own path, and only in `dependencies` or a non-dev extra; everywhere else `"=={version}"` stays
+rejected like any other hand-written floor.
+
+The generator rejects a config that breaks ownership:
+
+- a published package nested under a bundle that the bundle does not own
+- a nested package named in a bundle's `dev` extra, which never ships and so cannot own anything
+- an unowned package nested under a package the bundle owns only through an extra, since a bare
+  install would ship it without its parent
+- a published package that names an unpublished one in its `dependencies` or a non-dev extra: the
+  name either fails to resolve or resolves to a stale release whose files a bundle also ships
 
 **Generator infers:**
 
@@ -125,8 +133,8 @@ package they own: named in the bundle's own `dependencies` or a non-dev extra, p
 wheel ships it instead of the bundle's, and its own generated pyproject declares its own entry
 points, so each shipped path keeps exactly one published owner (`pip install mloda-community
 mloda-community-aggregation` then `pip uninstall mloda-community-aggregation` must never delete
-files the bundle still needs). A nested package the bundle does not own (unpublished, or published
-but not listed) still ships inside the bundle wheel. A nested plugin that imports a sibling outside
+files the bundle still needs). An unpublished nested package ships inside the bundle wheel; a
+published one the bundle does not name fails generation. A nested plugin that imports a sibling outside
 the bundle's path (`mloda-enterprise-audit` uses `mloda-community-extenders-shared`) needs that
 sibling in the bundle's own `dependencies` too, at the ordinary `">={version}"` floor: it is not
 nested, so it cannot be owned.
@@ -182,7 +190,7 @@ description = "Example community FeatureGroup plugin for mloda"
 dependencies = ["{core_dependency}"]
 path = "mloda/community/feature_groups/example"
 published = true
-optional_dependencies = { all = ["mloda-community-example-a", "mloda-community-example-b"] }
+optional_dependencies = { all = ["mloda-community-example-a"] }
 entry_point_groups = ["mloda.feature_groups"]
 py_typed = true
 ```
@@ -197,16 +205,11 @@ py_typed = true
 | `pip install mloda-enterprise[otel]` | The bundle plus the OTel audit log sink's dependency |
 | `pip install mloda-enterprise[openlineage]` | The bundle plus the OpenLineage emitter the lineage facets extender builds on |
 | `pip install mloda-community-example` | Base example only |
-| `pip install mloda-community-example[all]` | Base + all variants |
+| `pip install mloda-community-example[all]` | Base + its published variants |
 | `pip install mloda-community-example-a` | Variant A + base |
 
-Entries in `optional_dependencies.all` are emitted unpinned, so a variant only has
-to exist on PyPI at some version for the extra to resolve. A variant that is
-dropped from the release list therefore keeps resolving at its last published
-version, which is why `mloda-community-example-b` can lack `published = true`
-without breaking `[all]`. A variant that was
-never published at all is different: it cannot satisfy the extra at any version,
-so `[all]` fails outright.
+Entries in `optional_dependencies.all` are emitted unpinned and can only name published
+packages. `mloda-community-example-b` is unpublished, so it ships in the bundle wheel only.
 
 ## Entry points
 
@@ -263,8 +266,8 @@ python scripts/generate_pyproject.py    # Regenerate
 
 1. Add to `config/packages.toml` (description, dependencies, path; for a plugin
    package also `entry_point_groups = ["mloda.feature_groups" | ...]`), above the
-   `# --- Bundles ---` marker: the published order is dependency-first, and a test
-   enforces that every published package comes before the bundles in `_EXPECTED_PUBLISHED`.
+   `# --- Bundles ---` marker and after every published package it depends on:
+   `scripts/published_packages.py` rejects a config that is not dependency-first.
 2. For a plugin package, create `<path>/manifest.py` listing the concrete classes.
 3. If it should ship standalone on PyPI, set `published = true`. Two edits follow it,
    the way `py_typed` also needs its committed marker: the gate test
@@ -274,8 +277,8 @@ python scripts/generate_pyproject.py    # Regenerate
    The flag takes effect at the next release, so that env fails for it until then.
    If the package is nested under an `entry_point_bundle`'s own path (`mloda-community` or
    `mloda-enterprise`), the bundle must also own it: add `"<name>=={version}"` to the bundle's
-   own `dependencies` or a non-dev extra (see [Bundled packages](#bundled-packages)), or the
-   bundle's own wheel keeps shipping the same files, breaking the single-owner guarantee.
+   own `dependencies` or a non-dev extra (see [Bundled packages](#bundled-packages)), or
+   generation fails.
 4. Regenerate and sync:
 
 ```bash
@@ -323,6 +326,7 @@ A published community leaf goes behind a bundle extra the same way, spelled `"<l
 
 ### Add a variant to an existing plugin
 
-Same as [Add a new package](#add-a-new-package), plus add the variant to the parent's `optional_dependencies.all`.
+Same as [Add a new package](#add-a-new-package), plus add the variant to the parent's `optional_dependencies.all`,
+which only takes a variant with `published = true`.
 If that extra is `["{published_children}"]`, do not edit it: set `published = true`
 on the variant instead, and the placeholder picks it up.

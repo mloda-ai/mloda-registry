@@ -21,9 +21,9 @@ workflow_dispatch → semantic-release → PyPI publish
 5. **PyPI publish**: the `publish` job checks out that exact SHA (not whatever `main`
    is when the job runs), then builds and uploads wheels with `twine --skip-existing`,
    so a rerun after a partial upload does not fail on the files that already made it.
-   Upload order is the published order (`scripts/published_packages.py`), dependencies
-   first and bundles last, so a new bundle version appears on PyPI only after everything
-   it pins is already there.
+   Upload order is the published order (`scripts/published_packages.py`, which rejects a
+   config that is not dependency-first), bundles last, so a new bundle version appears on
+   PyPI only after everything it pins is already there.
 
 The `prepareCmd` in `.releaserc.yaml` also seds a `MLODA_REGISTRY_VERSION:<version>}`
 default into `tox.ini`. No such default remains there, so that half of the command is
@@ -89,13 +89,14 @@ uploaded uninstallable; a rerun just uploads the rest. `mloda-enterprise` cannot
 newer version than `mloda-community`: it needs `mloda-community-extenders-shared`, and, through
 its own `[openlineage]` extra, `mloda-community-openlineage`, both at its own version or later,
 and `mloda-community` pins each of the packages it owns exactly. Install both bundles at the
-same version.
+same version and upgrade them together: upgrading one alone, or a single owned package,
+leaves a conflict that pip reports without stopping the install.
 
 Yanking a broken package also needs its bundles yanked at the same version: the bundle pins an
 owned package exactly (`==`), and PyPI still resolves an exact pin to a yanked file, unlike a
 floor.
 
-`pip install -U` from a `mloda-community` that still shipped these packages' files can delete
+`pip install -U` from a `mloda-community` that still shipped these packages' files deletes
 the newly installed packages' files when it removes the old bundle, without `pip check`
 noticing (`uv pip install -U` is not affected); see the [README](../README.md#upgrading) for the
 fix.
