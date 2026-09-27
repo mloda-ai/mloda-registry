@@ -44,15 +44,14 @@ _TOX_INI = _REPO_ROOT / "tox.ini"
 # The bundle distributions, always part of the released set.
 _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterprise"]
 
-# The released set, in config order: registry and testing, the shared extenders package ahead of the bundles
-# that depend on it, the bundles, examples kept for PyPI resolution coverage, the otel and openlineage
-# extenders, and the data-operations base plus its plugin packages.
+# The released set, in config order: registry and testing, the shared extenders package, the examples,
+# the otel and openlineage extenders, the data-operations base plus its plugin packages, and finally the
+# two bundles, which own (dependencies/extras) every published package nested under their path, so the
+# published order is dependency-first.
 _EXPECTED_PUBLISHED = [
     "mloda-registry",
     "mloda-testing",
     "mloda-community-extenders-shared",
-    "mloda-community",
-    "mloda-enterprise",
     "mloda-community-example",
     "mloda-community-example-a",
     "mloda-community-otel",
@@ -75,6 +74,8 @@ _EXPECTED_PUBLISHED = [
     "mloda-community-ema",
     "mloda-community-sessionization",
     "mloda-community-resample",
+    "mloda-community",
+    "mloda-enterprise",
 ]
 
 # Example/demo packages that reach users only inside the community and enterprise bundle wheels.
@@ -132,6 +133,16 @@ _TOX_VERIFY_SCRIPTS = [
 ]
 
 _BUILD_STEP = "Build packages"
+
+_PUBLISH_STEP = "Publish to PyPI"
+
+# A line that fills a shell variable from the config-derived script, whatever the variable is named
+# (the build step uses 'packages', the publish step may use another name).
+_SCRIPT_FILL_RE = re.compile(rf"^[^\n#]*=\s*\$\([^\n]*{re.escape(_SCRIPT_INVOCATION)}", re.MULTILINE)
+
+# A literal bash glob over every file in dist/, the pre-fix upload source (bash order puts
+# mloda_community-*.whl before mloda_community_extenders_shared-*.whl).
+_DIST_STAR_GLOB_RE = re.compile(r"\(\s*dist/\*\s*\)")
 
 # A hand-written distribution name, quoted or bare. The leading boundary keeps the
 # ``/tmp/mloda-verify*`` paths and the dotted ``mloda.community....`` imports out.
@@ -278,17 +289,22 @@ def _tox_block(env_name: str) -> str:
     return match.group(1)
 
 
-def _workflow_build_step() -> str:
-    """Body of the ``run:`` block of the release workflow's build step."""
+def _workflow_step_body(step_name: str) -> str:
+    """Body of the ``run:`` block of a named step in the release workflow."""
     match = re.search(
-        rf"^(?P<indent>\s*)- name: {re.escape(_BUILD_STEP)}\n(?P<body>.*?)(?=^(?P=indent)- name:|\Z)",
+        rf"^(?P<indent>\s*)- name: {re.escape(step_name)}\n(?P<body>.*?)(?=^(?P=indent)- name:|\Z)",
         _RELEASE_WORKFLOW.read_text(),
         re.MULTILINE | re.DOTALL,
     )
-    assert match is not None, f".github/workflows/release.yaml has no '- name: {_BUILD_STEP}' step"
+    assert match is not None, f".github/workflows/release.yaml has no '- name: {step_name}' step"
     _, separator, run_block = match.group("body").partition("run: |\n")
-    assert separator, f".github/workflows/release.yaml step '{_BUILD_STEP}' has no 'run: |' block"
+    assert separator, f".github/workflows/release.yaml step '{step_name}' has no 'run: |' block"
     return run_block
+
+
+def _workflow_build_step() -> str:
+    """Body of the ``run:`` block of the release workflow's build step."""
+    return _workflow_step_body(_BUILD_STEP)
 
 
 def _generated(pkg_name: str, packages: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -366,6 +382,37 @@ def _nested_under(bundle_name: str, packages: dict[str, dict[str, Any]]) -> list
     return [name for name in packages if name != bundle_name and packages[name]["path"].startswith(prefix)]
 
 
+def _bundle_extra_names(bundle_name: str, packages: dict[str, dict[str, Any]]) -> set[str]:
+    """Configured packages a bundle names in any of its own non-dev optional_dependencies extras."""
+    configured = {_normalize_dep_name(name): name for name in packages}
+    named = set()
+    for extra_name, deps in packages[bundle_name].get("optional_dependencies", {}).items():
+        if extra_name == "dev":
+            continue
+        for dep in deps:
+            parsed = _parse_dependency(dep)
+            if parsed is not None and parsed[0] in configured:
+                named.add(configured[parsed[0]])
+    return named
+
+
+def _bundle_owned_names(bundle_name: str, packages: dict[str, dict[str, Any]]) -> set[str]:
+    """Nested packages a bundle owns: named in its own dependencies or a non-dev extra."""
+    owned = _bundle_dependency_names(bundle_name, packages) | _bundle_extra_names(bundle_name, packages)
+    return owned & set(_nested_under(bundle_name, packages))
+
+
+def _raw_bundle_requirement_strings(bundle_name: str, packages: dict[str, dict[str, Any]]) -> list[str]:
+    """Every dependency/extra requirement string a bundle declares itself, as written in the config."""
+    cfg = packages[bundle_name]
+    strings = list(cfg.get("dependencies", []))
+    for extra_name, deps in cfg.get("optional_dependencies", {}).items():
+        if extra_name == "dev":
+            continue
+        strings.extend(deps)
+    return strings
+
+
 def test_config_declares_a_published_set() -> None:
     """config/packages.toml carries the released set as a per-package 'published' flag."""
     assert _config_published(), (
@@ -409,6 +456,89 @@ def test_published_packages_returns_the_flagged_names_in_config_order() -> None:
     assert names == _EXPECTED_PUBLISHED, (
         f"published_packages() returned {names!r}, expected the flagged distributions in config "
         f"declaration order {_EXPECTED_PUBLISHED!r}"
+    )
+
+
+def test_published_set_is_dependency_first() -> None:
+    """Every published sibling named in a package's own runtime dependencies, or in a non-dev extra whose
+    raw config entry carries the {version} placeholder (a same-release requirement, e.g. mloda-community
+    [otel] -> 'mloda-community-otel=={version}'), must appear earlier in the published order. A bare
+    {published_children}/'all' entry (e.g. data-operations[all], example[all]) is unpinned, resolves at
+    any already-published version, and is excluded here; its children depend on the base anyway, so they
+    still come after it."""
+    packages = _packages()
+    published = _published_packages_fn()(packages)
+    index = {name: position for position, name in enumerate(published)}
+    checked_community = False
+
+    for name in published:
+        cfg = packages[name]
+        raw_deps = list(cfg.get("dependencies", []))
+        for extra_name, deps in cfg.get("optional_dependencies", {}).items():
+            if extra_name == "dev":
+                continue
+            raw_deps.extend(dep for dep in deps if "{version}" in dep)
+
+        siblings = gen.sibling_dependency_names(raw_deps, packages)
+        if name == "mloda-community" and siblings:
+            checked_community = True
+
+        for sibling in siblings:
+            if sibling not in index:
+                continue  # an unpublished sibling has no position to order against
+            assert index[sibling] < index[name], (
+                f"{name} depends on published sibling {sibling} at a pinned {{version}}, but the "
+                f"published order places {sibling} at {index[sibling]}, not before {name} at "
+                f"{index[name]}: {published!r}"
+            )
+
+    assert checked_community, (
+        "expected mloda-community to name at least one published sibling at a pinned {version}, or this "
+        "test is vacuous for the bundle ownership edges"
+    )
+
+
+def test_no_dotted_package_is_listed_by_two_published_distributions() -> None:
+    """Definition-of-done: every path shipped by a published wheel has exactly one published owner."""
+    packages = _packages()
+    published = _published_packages_fn()(packages)
+
+    owners: dict[str, str] = {}
+    conflicts: dict[str, list[str]] = {}
+    for name in published:
+        for entry in _wheel_packages(name, packages):
+            previous = owners.get(entry)
+            if previous is not None and previous != name:
+                conflicts.setdefault(entry, [previous]).append(name)
+            else:
+                owners[entry] = name
+
+    assert conflicts == {}, (
+        f"published distributions' generated [tool.setuptools] packages both list {conflicts}; each "
+        "shipped path must have exactly one published owner"
+    )
+
+
+def test_every_published_nested_package_is_owned_with_the_exact_version_placeholder_spelling() -> None:
+    """A published package nested under an entry_point_bundle must be named exactly '<name>=={version}' in
+    the bundle's own dependencies or a non-dev extra, so the bundle pins the code it excludes exactly."""
+    packages = _packages()
+    checked_bundles: set[str] = set()
+
+    for bundle_name in _entry_point_bundles(packages):
+        raw_strings = _raw_bundle_requirement_strings(bundle_name, packages)
+        for nested_name in _nested_under(bundle_name, packages):
+            if not packages[nested_name].get("published"):
+                continue
+            checked_bundles.add(bundle_name)
+            expected = f"{nested_name}=={{version}}"
+            assert expected in raw_strings, (
+                f"{bundle_name} must own published nested package {nested_name!r} by listing {expected!r} "
+                f"in its own dependencies or a non-dev extra, has {raw_strings!r}"
+            )
+
+    assert "mloda-community" in checked_bundles, (
+        "expected at least one published package nested under mloda-community, or this test is vacuous"
     )
 
 
@@ -516,6 +646,31 @@ def test_release_workflow_builds_from_the_published_script() -> None:
     )
 
 
+def test_release_workflow_publish_step_fills_its_list_from_the_published_script() -> None:
+    """The upload order must come from the same single source as the build array, not a re-derived list."""
+    body = _workflow_step_body(_PUBLISH_STEP)
+    assert _SCRIPT_FILL_RE.search(body) is not None, (
+        f".github/workflows/release.yaml step '{_PUBLISH_STEP}' does not fill its upload list from "
+        f"'python {_SCRIPT_INVOCATION}', like the '{_BUILD_STEP}' step does."
+    )
+
+
+def test_release_workflow_publish_step_does_not_iterate_dist_star() -> None:
+    """Bash glob order over dist/* puts mloda_community-* before mloda_community_extenders_shared-*,
+    uploading the bundle before the package it depends on."""
+    body = _workflow_step_body(_PUBLISH_STEP)
+    assert _DIST_STAR_GLOB_RE.search(body) is None, (
+        f".github/workflows/release.yaml step '{_PUBLISH_STEP}' still iterates every file in dist/ in "
+        "bash glob order instead of one wheel per published name in script order."
+    )
+    assert re.search(r"dist/\S*-\*\.whl", body) is not None, (
+        f".github/workflows/release.yaml step '{_PUBLISH_STEP}' must locate one wheel per published name "
+        "via a 'dist/<name with - as _>-*.whl' pattern."
+    )
+    for token in ("--skip-existing", "--verbose", "PYPI_UPLOAD_DELAY_SECONDS"):
+        assert token in body, f".github/workflows/release.yaml step '{_PUBLISH_STEP}' must keep {token!r}"
+
+
 @pytest.mark.parametrize("env_name", _TOX_DERIVED_SET_ENVS)
 def test_tox_env_names_no_distribution_itself(env_name: str) -> None:
     """tox must not re-type any distribution name; every installed set is derived from the config."""
@@ -613,10 +768,13 @@ def test_every_unpublished_package_is_nested_under_an_entry_point_bundle() -> No
 
 @pytest.mark.parametrize("bundle", _ENTRY_POINT_BUNDLES)
 def test_probe_modules_covers_every_surface_nested_under_a_bundle(bundle: str) -> None:
-    """The bundle wheels ship all nested code, so a payload-less bundle wheel must fail the probe."""
+    """A bare install of the bundle ships (or pulls in via 'dependencies') every nested package it does not
+    own only through an extra; an extra-only owned child has no code in a bare install, so its surface is
+    probed through its own distribution instead."""
     packages = _packages()
     prefix = packages[bundle]["path"] + "/"
-    nested = [name for name, cfg in packages.items() if cfg["path"].startswith(prefix)]
+    extra_only = _bundle_extra_names(bundle, packages) - _bundle_dependency_names(bundle, packages)
+    nested = [name for name, cfg in packages.items() if cfg["path"].startswith(prefix) and name not in extra_only]
     assert nested, f"fixture assumption: {bundle} has configured packages nested under {prefix}"
     expected = [module for name in [bundle, *nested] for module in _expected_surface(packages[name]["path"])]
 
@@ -624,7 +782,7 @@ def test_probe_modules_covers_every_surface_nested_under_a_bundle(bundle: str) -
 
     assert modules == expected, (
         f"probe_modules({bundle!r}) returned {modules!r}, expected its own import surface plus every "
-        f"nested configured package's surface in config order {expected!r}"
+        f"nested configured package's surface it does not own only through an extra, in config order {expected!r}"
     )
 
 
@@ -681,12 +839,46 @@ def test_probe_modules_adds_nested_surfaces_only_for_an_entry_point_bundle() -> 
     )
 
 
+def test_probe_modules_skips_a_nested_child_owned_only_through_an_extra() -> None:
+    """A dependency-owned child is still installed by a bare bundle install and stays in the probe; a
+    child owned only through an extra has no code in a bare install and must be left out."""
+    packages: dict[str, dict[str, Any]] = {
+        "mloda-sandbox": {
+            "description": "sandbox",
+            "path": "mloda/sandbox",
+            "published": True,
+            "entry_point_bundle": True,
+            "dependencies": ["mloda-sandbox-dep-child==0.0.0"],
+            "optional_dependencies": {"extra": ["mloda-sandbox-extra-child==0.0.0"]},
+        },
+        "mloda-sandbox-dep-child": {"description": "sandbox", "path": "mloda/sandbox/dep_child", "published": True},
+        "mloda-sandbox-extra-child": {
+            "description": "sandbox",
+            "path": "mloda/sandbox/extra_child",
+            "published": True,
+        },
+    }
+
+    modules = _probe_modules("mloda-sandbox", packages)
+
+    assert modules == ["mloda.sandbox", "mloda.sandbox.dep_child"], (
+        f"probe_modules('mloda-sandbox') returned {modules!r}, expected the dependency-owned child kept and "
+        "the extra-owned child left out: ['mloda.sandbox', 'mloda.sandbox.dep_child']"
+    )
+
+
 def test_internal_extra_members_yields_exactly_the_internal_extras() -> None:
-    """The extras that pull in configured packages are the only ones verify-extras must exercise."""
+    """The extras that pull in configured packages are the only ones verify-extras must exercise. A member
+    is parsed from the requirement string (e.g. 'mloda-community-otel=={version}'), not required to be a
+    bare package name."""
     entries = _internal_extra_entries(_packages())
     expected = [
         (_COMMUNITY_EXAMPLE, "all", ["mloda-community-example-a", _EXAMPLE_B]),
         (_DATA_OPERATIONS, "all", _published_children()),
+        ("mloda-community", "otel", ["mloda-community-otel"]),
+        ("mloda-community", "openlineage", ["mloda-community-openlineage"]),
+        ("mloda-community", "all", ["mloda-community-otel", "mloda-community-openlineage"]),
+        ("mloda-enterprise", "openlineage", ["mloda-community-openlineage"]),
     ]
     assert entries == expected, f"internal_extra_members() yielded {entries!r}, expected exactly {expected!r}"
 
@@ -837,14 +1029,15 @@ def _bundle_dependency_names(bundle: str, packages: dict[str, dict[str, Any]]) -
 
 @pytest.mark.parametrize("bundle", _ENTRY_POINT_BUNDLES)
 def test_bundle_wheel_still_ships_every_nested_package(bundle: str) -> None:
-    """Bundles ship all nested code, published or not, except a nested package the bundle itself depends on."""
+    """Bundles ship all nested code, published or not, except a nested package the bundle owns through its
+    own dependencies or a non-dev extra."""
     packages = _packages()
     prefix = packages[bundle]["path"] + "/"
-    depended_on = _bundle_dependency_names(bundle, packages)
+    owned = _bundle_owned_names(bundle, packages)
     nested = {
         name: cfg["path"].replace("/", ".")
         for name, cfg in packages.items()
-        if cfg["path"].startswith(prefix) and name not in depended_on
+        if cfg["path"].startswith(prefix) and name not in owned
     }
     assert nested, f"fixture assumption: {bundle} has configured packages nested under {prefix}"
 
@@ -853,8 +1046,14 @@ def test_bundle_wheel_still_ships_every_nested_package(bundle: str) -> None:
     missing = sorted(name for name, dotted in nested.items() if dotted not in listed)
     assert missing == [], (
         f"the generated {bundle} wheel no longer ships nested packages {missing}; a package flagged "
-        "'entry_point_bundle = true' must keep including every nested module it does not depend on."
+        "'entry_point_bundle = true' must keep including every nested module it does not own."
     )
+
+    if bundle == "mloda-community":
+        assert _dotted_path(_EXAMPLE_B) in listed, (
+            f"the {bundle} wheel must still ship {_EXAMPLE_B}, an unowned package nested under owned "
+            f"{_COMMUNITY_EXAMPLE}"
+        )
 
 
 _SHARED_EXTENDERS = "mloda-community-extenders-shared"
@@ -876,17 +1075,21 @@ def test_community_bundle_wheel_leaves_the_shared_extenders_to_their_own_wheel()
 
 @pytest.mark.parametrize("bundle", _ENTRY_POINT_BUNDLES)
 def test_bundle_dependencies_on_nested_packages_are_published_and_absent_from_the_bundle_wheel(bundle: str) -> None:
-    """Every nested package a bundle names in its own dependencies owns its files: published, not in the bundle wheel."""
+    """Every nested package a bundle owns (dependencies or a non-dev extra) owns its own files: published,
+    not in the bundle wheel."""
     packages = _packages()
-    nested_dependencies = sorted(set(_nested_under(bundle, packages)) & _bundle_dependency_names(bundle, packages))
-    listed = _wheel_packages(bundle, packages)
+    nested_owned = sorted(_bundle_owned_names(bundle, packages))
+    listed = set(_wheel_packages(bundle, packages))
 
-    unpublished = [name for name in nested_dependencies if packages[name].get("published") is not True]
-    leaked = {name: _entries_under(listed, _dotted_path(name)) for name in nested_dependencies}
+    unpublished = [name for name in nested_owned if packages[name].get("published") is not True]
+    # The bundle excludes exactly the owned package's own wheel packages, not everything nested
+    # under it, so an unowned package nested under an owned one (still shipped by the bundle, e.g.
+    # mloda-community-example-b under owned mloda-community-example) must not be flagged here.
+    leaked = {name: sorted(listed & set(_wheel_packages(name, packages))) for name in nested_owned}
     leaked = {name: entries for name, entries in leaked.items() if entries}
 
-    assert unpublished == [], f"{bundle} depends on nested packages that are not published: {unpublished}"
-    assert leaked == {}, f"the {bundle} wheel ships nested packages it declares as dependencies: {leaked}"
+    assert unpublished == [], f"{bundle} owns nested packages that are not published: {unpublished}"
+    assert leaked == {}, f"the {bundle} wheel ships nested packages it owns: {leaked}"
 
 
 def test_community_bundle_depends_on_the_nested_shared_extenders() -> None:
@@ -953,7 +1156,10 @@ def test_bundle_declares_every_nested_leaf_external_runtime_dependency() -> None
                     bundle_floors[name] = floor
 
         nested_names = _nested_under(bundle_name, packages)
+        owned_names = _bundle_owned_names(bundle_name, packages)
         for nested_name in nested_names:
+            if nested_name in owned_names:
+                continue  # the owned package's own metadata installs its own dependencies
             for dep in packages[nested_name].get("dependencies", []):
                 if dep.strip() == core_placeholder:
                     continue

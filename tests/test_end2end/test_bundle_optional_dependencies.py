@@ -1,8 +1,10 @@
 """mloda-community must not hard-require an optional plugin's own third-party dependency
-(openlineage-python, opentelemetry-api, ...); each ships as its own bundle extra, pinned in
-exactly one place: the leaf package's own dependency. mloda-enterprise[openlineage] does the same for a
-first-party sibling (mloda-community-openlineage), whose floor is spelled `{version}` in the extra and
-equally in the leaf's dev entry.
+(openlineage-python, opentelemetry-api, ...); each leaf ships as its own bundle extra, exactly pinned
+`mloda-community-<leaf>=={version}`, itself the sole owner of the third-party pin in its own
+`dependencies` (mloda-community-otel/mloda-community-openlineage are published, nested siblings the
+bundle owns through the extra). mloda-enterprise[openlineage] does the same for the first-party sibling
+mloda-community-openlineage, whose floor is spelled `{version}` in the extra and equally in the leaf's
+dev entry.
 """
 
 from __future__ import annotations
@@ -46,8 +48,8 @@ _ROWS: list[tuple[str, str, str, str, list[str]]] = [
     ("otel", "opentelemetry-api", "mloda-community-otel", "opentelemetry", ["OtelExtender"]),
 ]
 
-# Distribution name -> the import root that provides it, derived from _ROWS. Extend _ROWS above
-# when a bundle covers a new nested leaf's dependency only through an extra.
+# Distribution name -> the import root that provides it, derived from _ROWS. Extend _ROWS above (not
+# here) when a bundle covers a new nested leaf's dependency only through an extra.
 _IMPORT_ROOT_OF_DISTRIBUTION = {distribution_name: root for _, distribution_name, _, root, _ in _ROWS}
 
 # Leaf package name -> attribute name(s) its own __init__ must not expose when its extra-only
@@ -86,16 +88,27 @@ def _external_dependency_names(deps: list[str], packages: dict[str, dict[str, An
     return names
 
 
+def _bundle_owned_names(bundle_name: str, packages: dict[str, dict[str, Any]]) -> set[str]:
+    """Configured packages a bundle owns: named in its own dependencies or a non-dev extra."""
+    bundle_cfg = packages[bundle_name]
+    raw = list(bundle_cfg.get("dependencies", []))
+    for extra_name, deps in bundle_cfg.get("optional_dependencies", {}).items():
+        if extra_name != "dev":
+            raw.extend(deps)
+    return {_dep_name(dep) for dep in raw if _dep_name(dep) in packages}
+
+
 @pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
 def test_mloda_community_dependencies_do_not_pin_extra_only_distribution(
     extra_name: str, distribution_name: str, leaf_name: str, root: str, exposed: list[str]
 ) -> None:
     community = _packages()["mloda-community"]
     hard_deps = community.get("dependencies", [])
-    offending = [dep for dep in hard_deps if _dep_name(dep) == distribution_name]
+    offending = [dep for dep in hard_deps if _dep_name(dep) in (distribution_name, leaf_name)]
     assert not offending, (
-        f"packages.mloda-community.dependencies must not pin {distribution_name} directly, found "
-        f"{offending!r}; it belongs in optional_dependencies.{extra_name} instead"
+        f"packages.mloda-community.dependencies must not pin {distribution_name} or {leaf_name} directly, "
+        f"found {offending!r}; {leaf_name} belongs in optional_dependencies.{extra_name} instead, and "
+        f"{distribution_name} belongs in {leaf_name}'s own dependencies"
     )
 
 
@@ -103,25 +116,22 @@ def test_mloda_community_dependencies_do_not_pin_extra_only_distribution(
 def test_mloda_community_declares_extra_matching_pin_source(
     extra_name: str, distribution_name: str, leaf_name: str, root: str, exposed: list[str]
 ) -> None:
+    """The bundle extra owns the leaf exactly (`{leaf}=={version}`); the leaf's own dependencies own the
+    third-party pin, the extra's only route to it."""
     packages = _packages()
     community_extra = packages["mloda-community"].get("optional_dependencies", {}).get(extra_name)
     assert community_extra is not None, f"packages.mloda-community.optional_dependencies.{extra_name} must be declared"
 
-    matching = [dep for dep in community_extra if _dep_name(dep) == distribution_name]
-    assert len(matching) == 1, (
-        f"packages.mloda-community.optional_dependencies.{extra_name} must contain exactly one "
-        f"{distribution_name} entry, got {community_extra!r}"
+    expected_extra = [f"{leaf_name}=={{version}}"]
+    assert community_extra == expected_extra, (
+        f"packages.mloda-community.optional_dependencies.{extra_name} must be exactly "
+        f"{expected_extra!r}, got {community_extra!r}"
     )
 
     leaf_deps = packages[leaf_name]["dependencies"]
     leaf_matching = [dep for dep in leaf_deps if _dep_name(dep) == distribution_name]
     assert len(leaf_matching) == 1, (
         f"packages.{leaf_name}.dependencies must declare exactly one {distribution_name} entry, got {leaf_deps!r}"
-    )
-    assert matching[0] == leaf_matching[0], (
-        f"the {distribution_name} pin must live in one place: packages.mloda-community."
-        f"optional_dependencies.{extra_name} ({matching[0]!r}) must equal packages.{leaf_name}.dependencies "
-        f"({leaf_matching[0]!r})"
     )
 
 
@@ -241,28 +251,40 @@ def test_mloda_enterprise_pyproject_lists_the_openlineage_extra_with_the_shared_
 def test_generated_pyproject_lists_distribution_only_under_optional_extra(
     extra_name: str, distribution_name: str, leaf_name: str, root: str, exposed: list[str]
 ) -> None:
+    """The generated community pyproject lists the leaf, pinned '==<version>', only under its own extra
+    (and 'all'); the third-party distribution the leaf depends on never appears in the community pyproject."""
     assert _COMMUNITY_PYPROJECT.is_file(), f"generated pyproject not found at {_COMMUNITY_PYPROJECT}"
     project = _load_toml(_COMMUNITY_PYPROJECT)["project"]
 
     hard_deps = project.get("dependencies", [])
-    offending = [dep for dep in hard_deps if _dep_name(dep) == distribution_name]
+    offending = [dep for dep in hard_deps if _dep_name(dep) in (distribution_name, leaf_name)]
     assert not offending, (
-        f"{_COMMUNITY_PYPROJECT}: [project].dependencies must not pin {distribution_name}, found {offending!r}"
+        f"{_COMMUNITY_PYPROJECT}: [project].dependencies must not pin {distribution_name} or {leaf_name}, "
+        f"found {offending!r}"
     )
 
     optional_deps: dict[str, list[str]] = project.get("optional-dependencies", {})
+    distribution_appears = any(_dep_name(dep) == distribution_name for deps in optional_deps.values() for dep in deps)
+    assert not distribution_appears, (
+        f"{_COMMUNITY_PYPROJECT}: {distribution_name} must not appear anywhere; it is pinned only in "
+        f"{leaf_name}'s own dependencies, not the community pyproject"
+    )
+
     # "all" is expected to re-list every extra's entries (see the union test below), so it is not
     # itself a violation of "only under <extra_name>".
-    groups_with_distribution = {
+    groups_with_leaf = {
         group: deps
         for group, deps in optional_deps.items()
-        if group != "all" and any(_dep_name(dep) == distribution_name for dep in deps)
+        if group != "all" and any(_dep_name(dep) == leaf_name for dep in deps)
     }
-    assert groups_with_distribution == {extra_name: optional_deps.get(extra_name, [])}, (
-        f"{_COMMUNITY_PYPROJECT}: {distribution_name} must appear only under "
-        f"[project.optional-dependencies].{extra_name}, found it under {sorted(groups_with_distribution)}"
+    assert groups_with_leaf == {extra_name: optional_deps.get(extra_name, [])}, (
+        f"{_COMMUNITY_PYPROJECT}: {leaf_name} must appear only under "
+        f"[project.optional-dependencies].{extra_name}, found it under {sorted(groups_with_leaf)}"
     )
-    assert len(optional_deps.get(extra_name, [])) == 1
+    assert optional_deps.get(extra_name, []) == [f"{leaf_name}=={project['version']}"], (
+        f"{_COMMUNITY_PYPROJECT}: [project.optional-dependencies].{extra_name} must be exactly "
+        f"[{leaf_name!r}==<version>], got {optional_deps.get(extra_name)!r}"
+    )
 
 
 def test_mloda_community_declares_all_extra_as_union_of_per_extra_entries() -> None:
@@ -286,18 +308,78 @@ def test_mloda_community_declares_all_extra_as_union_of_per_extra_entries() -> N
     )
 
 
+@pytest.mark.parametrize("extra_name, distribution_name, leaf_name, root, exposed", _ROWS)
 def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
+    extra_name: str,
+    distribution_name: str,
+    leaf_name: str,
+    root: str,
+    exposed: list[str],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A leaf dependency covered only by a bundle extra is optional at runtime: PluginLoader is the sole
-    guard, so the degrade is observed through load_entry_points(), not a direct manifest import."""
+    """A leaf reached only through a bundle extra is optional at runtime: PluginLoader is the sole guard,
+    so the degrade is observed through load_entry_points(), not a direct manifest import. _ROWS is the
+    single source of which leaves the bundle covers only through an extra."""
     packages = _packages()
-    checked = 0
+    leaf_cfg = packages[leaf_name]
+    dotted = leaf_cfg["path"].replace("/", ".")
+    groups = leaf_cfg.get("entry_point_groups")
+    assert groups, f"fixture assumption: {leaf_name} declares entry_point_groups"
+    # PluginLoader.load_entry_points(group=...) only accepts plugin-type groups.
+    groups = [g for g in groups if g != gen.OPTIONAL_DEPENDENCIES_GROUP]
+
+    with pytest.MonkeyPatch.context() as mp:
+        block_root(mp, root)
+        evict_package(mp, dotted)
+
+        # PluginLoader._skipped is process-wide and dedupes identical (entry point, dependency)
+        # warnings, so a fresh reset keeps this test's warning assertion independent of whichever
+        # other test last blocked the same distribution for the same entry point.
+        PluginLoader.reset_cache()
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger=_PLUGIN_LOADER_LOGGER):
+            for group in groups:
+                keys = PluginLoader().load_entry_points(group=group)
+                assert not any(key.startswith(f"{dotted}.") for key in keys), (
+                    f"PluginLoader registered a class from {dotted}'s manifest even though "
+                    f"{distribution_name} was blocked; the entry point should have been skipped"
+                )
+
+        plugin_loader_warnings = [
+            record
+            for record in caplog.records
+            if record.name == _PLUGIN_LOADER_LOGGER
+            and record.levelno == logging.WARNING
+            and f"{dotted}.manifest:" in record.getMessage()
+        ]
+        assert plugin_loader_warnings, (
+            f"PluginLoader.load_entry_points() logged no WARNING mentioning {dotted}.manifest: "
+            f"while {distribution_name} was blocked"
+        )
+
+        leaf_module = importlib.import_module(dotted)
+        for attr in exposed:
+            assert attr not in vars(leaf_module), (
+                f"{dotted} still exposes {attr!r} after blocking {distribution_name}; {leaf_name} is "
+                f"covered only through the mloda-community.{extra_name} extra, so the package's __init__ "
+                "must not import it eagerly"
+            )
+
+
+def test_bundle_shipped_leaf_with_extra_only_dependency_skips_via_plugin_loader(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Future guard, derived from the config rather than _ROWS: a nested leaf the bundle SHIPS (does not
+    own) whose external dependency is covered only by one of the bundle's own extras must still degrade
+    import-safely through PluginLoader, not a direct manifest import. Owned leaves are covered by the
+    _ROWS-parametrized test above instead."""
+    packages = _packages()
 
     for bundle_name, bundle_cfg in packages.items():
         if bundle_cfg.get("entry_point_bundle") is not True:
             continue
         prefix = bundle_cfg["path"] + "/"
+        owned = _bundle_owned_names(bundle_name, packages)
 
         hard_names = _external_dependency_names(bundle_cfg.get("dependencies", []), packages)
         extra_names: set[str] = set()
@@ -308,7 +390,7 @@ def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
         extra_only = extra_names - hard_names
 
         for leaf_name, leaf_cfg in packages.items():
-            if leaf_name == bundle_name or not leaf_cfg["path"].startswith(prefix):
+            if leaf_name == bundle_name or not leaf_cfg["path"].startswith(prefix) or leaf_name in owned:
                 continue
             groups = leaf_cfg.get("entry_point_groups")
             if not groups:
@@ -321,7 +403,6 @@ def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
             if not covered_only_by_extra:
                 continue
 
-            checked += 1
             dotted = leaf_cfg["path"].replace("/", ".")
 
             # Scoped per leaf so a block/evict from one iteration never leaks into the next.
@@ -337,6 +418,9 @@ def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
 
                 evict_package(mp, dotted)
 
+                # See the matching comment in test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning:
+                # PluginLoader._skipped dedupes identical warnings process-wide, across tests.
+                PluginLoader.reset_cache()
                 caplog.clear()
                 with caplog.at_level(logging.WARNING, logger=_PLUGIN_LOADER_LOGGER):
                     for group in groups:
@@ -371,10 +455,8 @@ def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
                         "__init__ must not import it eagerly"
                     )
 
-    assert checked, (
-        "expected at least one entry-point-bundle nested leaf whose dependency is covered only through "
-        "the bundle's own optional extra (e.g. mloda-community-openlineage / openlineage-python)"
-    )
+    # No bundle-shipped (unowned) leaf has such a dependency today; the _ROWS-parametrized test above
+    # exercises the same mechanism non-vacuously for the owned mloda-community-otel/-openlineage leaves.
 
 
 # root -> a real transitive dependency of that root's own distribution (not the root itself), used to

@@ -35,7 +35,7 @@ Every plugin is requested by feature name (usually `{column}__{operation}`) and 
 
 ## Plugins
 
-`mloda-community` bundles all plugins below. Each is also published on its own for minimal installs, with the backend as an extra (`pip install "mloda-community-ema[pandas]"`).
+`mloda-community` bundles all plugins below. Each is also published on its own for minimal installs, with the backend as an extra (`pip install "mloda-community-ema[pandas]"`); the bundle depends on each standalone package it ships, pinned to its own version, so a plugin's files come from exactly one installed distribution.
 
 | Plugin | Feature name | Guide |
 |--------|--------------|-------|

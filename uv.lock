@@ -743,29 +743,69 @@ version = "0.4.7"
 source = { editable = "mloda/community" }
 dependencies = [
     { name = "mloda" },
+    { name = "mloda-community-aggregation" },
+    { name = "mloda-community-binning" },
+    { name = "mloda-community-data-operations" },
+    { name = "mloda-community-datetime" },
+    { name = "mloda-community-ema" },
+    { name = "mloda-community-example" },
+    { name = "mloda-community-example-a" },
     { name = "mloda-community-extenders-shared" },
+    { name = "mloda-community-ffill" },
+    { name = "mloda-community-frame-aggregate" },
+    { name = "mloda-community-offset" },
+    { name = "mloda-community-percentile" },
+    { name = "mloda-community-point-arithmetic" },
+    { name = "mloda-community-rank" },
+    { name = "mloda-community-resample" },
+    { name = "mloda-community-scalar-aggregate" },
+    { name = "mloda-community-scalar-arithmetic" },
+    { name = "mloda-community-sessionization" },
+    { name = "mloda-community-string" },
+    { name = "mloda-community-time-bucketization" },
+    { name = "mloda-community-window-aggregation" },
 ]
 
 [package.optional-dependencies]
 all = [
-    { name = "openlineage-python" },
-    { name = "opentelemetry-api" },
+    { name = "mloda-community-openlineage" },
+    { name = "mloda-community-otel" },
 ]
 openlineage = [
-    { name = "openlineage-python" },
+    { name = "mloda-community-openlineage" },
 ]
 otel = [
-    { name = "opentelemetry-api" },
+    { name = "mloda-community-otel" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda-community-aggregation", editable = "mloda/community/feature_groups/data_operations/aggregation" },
+    { name = "mloda-community-binning", editable = "mloda/community/feature_groups/data_operations/row_preserving/binning" },
+    { name = "mloda-community-data-operations", editable = "mloda/community/feature_groups/data_operations" },
+    { name = "mloda-community-datetime", editable = "mloda/community/feature_groups/data_operations/row_preserving/datetime" },
+    { name = "mloda-community-ema", editable = "mloda/community/feature_groups/data_operations/row_preserving/ema" },
+    { name = "mloda-community-example", editable = "mloda/community/feature_groups/example" },
+    { name = "mloda-community-example-a", editable = "mloda/community/feature_groups/example/example_a" },
     { name = "mloda-community-extenders-shared", editable = "mloda/community/extenders/shared" },
-    { name = "openlineage-python", marker = "extra == 'all'", specifier = ">=1.20,<2" },
-    { name = "openlineage-python", marker = "extra == 'openlineage'", specifier = ">=1.20,<2" },
-    { name = "opentelemetry-api", marker = "extra == 'all'", specifier = ">=1.30,<2" },
-    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.30,<2" },
+    { name = "mloda-community-ffill", editable = "mloda/community/feature_groups/data_operations/row_preserving/ffill" },
+    { name = "mloda-community-frame-aggregate", editable = "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate" },
+    { name = "mloda-community-offset", editable = "mloda/community/feature_groups/data_operations/row_preserving/offset" },
+    { name = "mloda-community-openlineage", marker = "extra == 'all'", editable = "mloda/community/extenders/openlineage" },
+    { name = "mloda-community-openlineage", marker = "extra == 'openlineage'", editable = "mloda/community/extenders/openlineage" },
+    { name = "mloda-community-otel", marker = "extra == 'all'", editable = "mloda/community/extenders/otel" },
+    { name = "mloda-community-otel", marker = "extra == 'otel'", editable = "mloda/community/extenders/otel" },
+    { name = "mloda-community-percentile", editable = "mloda/community/feature_groups/data_operations/row_preserving/percentile" },
+    { name = "mloda-community-point-arithmetic", editable = "mloda/community/feature_groups/data_operations/row_preserving/point_arithmetic" },
+    { name = "mloda-community-rank", editable = "mloda/community/feature_groups/data_operations/row_preserving/rank" },
+    { name = "mloda-community-resample", editable = "mloda/community/feature_groups/data_operations/row_changing/resample" },
+    { name = "mloda-community-scalar-aggregate", editable = "mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate" },
+    { name = "mloda-community-scalar-arithmetic", editable = "mloda/community/feature_groups/data_operations/row_preserving/scalar_arithmetic" },
+    { name = "mloda-community-sessionization", editable = "mloda/community/feature_groups/data_operations/row_preserving/sessionization" },
+    { name = "mloda-community-string", editable = "mloda/community/feature_groups/data_operations/string" },
+    { name = "mloda-community-time-bucketization", editable = "mloda/community/feature_groups/data_operations/row_preserving/time_bucketization" },
+    { name = "mloda-community-window-aggregation", editable = "mloda/community/feature_groups/data_operations/row_preserving/window_aggregation" },
 ]
 provides-extras = ["otel", "openlineage", "all"]
 

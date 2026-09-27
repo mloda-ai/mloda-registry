@@ -41,6 +41,12 @@ DEP_NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 # A sibling requirement (marker already stripped), spelled exactly '<name>[extras]>={version}'.
 SIBLING_FLOOR_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?\s*>=\s*\{version\}\s*$")
 
+# Exact-operator variant, spelled '<name>[extras]=={version}'. Accepted only for a sibling nested under
+# an entry_point_bundle's own path, in that bundle's own dependencies or a non-dev extra: the bundle pins
+# the code it excludes from its own wheel exactly, since it ships that code (all packages release in
+# lockstep at one version).
+SIBLING_EXACT_FLOOR_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?\s*==\s*\{version\}\s*$")
+
 # A bare sibling requirement: just the name (and optional extras), no specifier at all.
 BARE_SIBLING_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?\s*$")
 
@@ -80,12 +86,19 @@ def _validate_sibling_spelling(
     with_core: str,
     canonical_siblings: set[str],
     allow_bare: bool,
+    nested_siblings: set[str] | None = None,
 ) -> None:
-    """Raise if ``with_core`` hand-pins a sibling floor, or places {version} anywhere but '<sibling>[extras]>={version}'."""
+    """Raise if ``with_core`` hand-pins a sibling floor, or places {version} anywhere but
+    '<sibling>[extras]>={version}' (or, for a sibling in ``nested_siblings``, the exact-operator
+    '<sibling>[extras]=={version}')."""
     requirement = with_core.split(";", 1)[0]
     match = DEP_NAME_RE.match(requirement)
-    is_sibling = match is not None and normalize_package_name(match.group(1)) in canonical_siblings
+    sibling_name = normalize_package_name(match.group(1)) if match is not None else None
+    is_sibling = sibling_name is not None and sibling_name in canonical_siblings
+    is_nested_sibling = is_sibling and nested_siblings is not None and sibling_name in nested_siblings
     spelled_as_floor = is_sibling and SIBLING_FLOOR_RE.match(requirement) is not None
+    spelled_as_exact_floor = is_nested_sibling and SIBLING_EXACT_FLOOR_RE.match(requirement) is not None
+    spelled_as_floor = spelled_as_floor or spelled_as_exact_floor
 
     if is_sibling and not spelled_as_floor and not (allow_bare and BARE_SIBLING_RE.match(requirement) is not None):
         raise ValueError(
@@ -108,6 +121,7 @@ def _resolve_dep_list(
     shared: dict[str, Any],
     all_packages: dict[str, dict[str, Any]],
     allow_bare_sibling: bool,
+    nested_siblings: set[str] | None = None,
 ) -> list[str]:
     """Expand {core_dependency} first, validate sibling spelling on the result, then expand {version}."""
     defaults = shared.get("defaults", {})
@@ -129,7 +143,7 @@ def _resolve_dep_list(
     resolved: list[str] = []
     for dep in raw_deps:
         with_core = dep.replace("{core_dependency}", core_dep)
-        _validate_sibling_spelling(pkg_name, dep, with_core, canonical_siblings, allow_bare_sibling)
+        _validate_sibling_spelling(pkg_name, dep, with_core, canonical_siblings, allow_bare_sibling, nested_siblings)
         expanded = with_core.replace(VERSION_PLACEHOLDER, str(version))
         if "{" in expanded:
             raise ValueError(
@@ -144,10 +158,14 @@ def resolve_dependencies(
     raw_deps: list[str],
     shared: dict[str, Any],
     all_packages: dict[str, dict[str, Any]],
+    nested_siblings: set[str] | None = None,
 ) -> list[str]:
     """Expand {core_dependency} and {version} placeholders in a package's plain ``dependencies``; raises if a
-    sibling dependency isn't spelled '<name>[extras]>={version}'."""
-    return _resolve_dep_list(pkg_name, raw_deps, shared, all_packages, allow_bare_sibling=False)
+    sibling dependency isn't spelled '<name>[extras]>={version}' (or, for a sibling in ``nested_siblings``,
+    the exact-operator '<name>[extras]=={version}')."""
+    return _resolve_dep_list(
+        pkg_name, raw_deps, shared, all_packages, allow_bare_sibling=False, nested_siblings=nested_siblings
+    )
 
 
 def resolve_optional_dependencies(
@@ -155,11 +173,14 @@ def resolve_optional_dependencies(
     opt_deps: dict[str, list[str]],
     shared: dict[str, Any],
     all_packages: dict[str, dict[str, Any]],
+    nested_siblings: set[str] | None = None,
 ) -> dict[str, list[str]]:
     """Expand {core_dependency} and {version} placeholders in a package's merged ``optional_dependencies``; a
     sibling entry here may also be bare, unlike plain ``dependencies``' strict '<name>[extras]>={version}'."""
     return {
-        group: _resolve_dep_list(pkg_name, deps, shared, all_packages, allow_bare_sibling=True)
+        group: _resolve_dep_list(
+            pkg_name, deps, shared, all_packages, allow_bare_sibling=True, nested_siblings=nested_siblings
+        )
         for group, deps in opt_deps.items()
     }
 
@@ -181,6 +202,60 @@ def nested_package_names(pkg_path: str, all_packages: dict[str, dict[str, Any]])
     return [name for name, cfg in all_packages.items() if cfg["path"].startswith(prefix)]
 
 
+def bundle_owned_names(pkg_config: dict[str, Any], all_packages: dict[str, dict[str, Any]]) -> list[str]:
+    """Nested configured packages an entry_point_bundle owns: named in its own ``dependencies`` or a
+    non-dev ``optional_dependencies`` extra (parsed like ``sibling_dependency_names``). The owned
+    package's own wheel ships it and declares its own entry points. Not a bundle -> ``[]``."""
+    if not pkg_config.get("entry_point_bundle"):
+        return []
+    raw: list[str] = list(pkg_config.get("dependencies", []))
+    for extra_name, deps in pkg_config.get("optional_dependencies", {}).items():
+        if extra_name != "dev":
+            raw.extend(deps)
+    owned = set(sibling_dependency_names(raw, all_packages))
+    return [name for name in nested_package_names(pkg_config["path"], all_packages) if name in owned]
+
+
+def compute_wheel_packages(
+    pkg_name: str,
+    pkg_config: dict[str, Any],
+    all_packages: dict[str, dict[str, Any]],
+) -> list[str]:
+    """The dotted ``[tool.setuptools] packages`` a package's own generated wheel lists: filesystem
+    discovery under the package's path, excluding nested configured packages' own paths (each ships
+    its own wheel) and any optional-dependency entry naming a configured package. An
+    entry_point_bundle instead excludes each owned package's own wheel packages, not its whole
+    path, so an unowned package nested under an owned one still ships in the bundle wheel.
+    ``py_typed`` adds the package's own dotted path, since that ships the PEP 561 marker for a
+    namespace portion discovery alone would miss."""
+    if "workspace_deps" in pkg_config:
+        return []
+
+    pkg_opt_deps = expand_published_children(pkg_config, all_packages)
+    excluded_pkg_names = {dep for deps in pkg_opt_deps.values() for dep in deps}
+    owned_names = bundle_owned_names(pkg_config, all_packages)
+    excluded_pkg_names -= set(owned_names)
+    if not pkg_config.get("entry_point_bundle"):
+        excluded_pkg_names |= set(nested_package_names(pkg_config["path"], all_packages))
+
+    exclude_paths = sorted(
+        all_packages[dep_name]["path"] for dep_name in excluded_pkg_names if dep_name in all_packages
+    )
+    packages = discover_packages(pkg_config["path"], exclude_paths)
+
+    if owned_names:
+        owned_wheel_packages: set[str] = set()
+        for dep_name in owned_names:
+            owned_wheel_packages |= set(compute_wheel_packages(dep_name, all_packages[dep_name], all_packages))
+        packages = [p for p in packages if p not in owned_wheel_packages]
+
+    if pkg_config.get("py_typed"):
+        dotted_path = pkg_config["path"].replace("/", ".")
+        packages = sorted(set(packages) | {dotted_path})
+
+    return packages
+
+
 def compute_entry_points(
     pkg_name: str,
     pkg_config: dict[str, Any],
@@ -192,9 +267,11 @@ def compute_entry_points(
     pairs, where ``value`` is the canonical ``<dotted>.<module_suffix>:<ATTR>`` target
     (``module_suffix`` per ``ENTRY_POINT_MODULE_SUFFIX``, default ``manifest``).
 
-    Bundle packages (``entry_point_bundle = true``) aggregate the entry points of
-    every nested plugin package whose path lives under the bundle path. Regular
-    plugin packages emit their own declared ``entry_point_groups``.
+    Bundle packages (``entry_point_bundle = true``) aggregate the entry points of every nested
+    plugin package whose path lives under the bundle path, except a package the bundle owns
+    (``bundle_owned_names``): that package's own wheel ships it, so its own generated pyproject
+    declares its entry points instead. Regular plugin packages emit their own declared
+    ``entry_point_groups``.
     """
     if pkg_config.get("entry_point_bundle") and pkg_config.get("entry_point_groups"):
         raise ValueError(f"{pkg_name}: entry_point_bundle and entry_point_groups are mutually exclusive")
@@ -202,7 +279,10 @@ def compute_entry_points(
     result: dict[str, list[tuple[str, str]]] = {}
 
     if pkg_config.get("entry_point_bundle"):
+        owned = set(bundle_owned_names(pkg_config, all_packages))
         for name in nested_package_names(pkg_config["path"], all_packages):
+            if name in owned:
+                continue
             cfg = all_packages[name]
             groups = cfg.get("entry_point_groups")
             if not groups:
@@ -334,7 +414,13 @@ def generate_pyproject(
 
     # Resolved early so a missing version raises this function's own ValueError, not a raw KeyError.
     defaults = shared.get("defaults", {})
-    deps = resolve_dependencies(pkg_name, pkg_config.get("dependencies", []), shared, all_packages)
+    # A bundle's own nested siblings may use the exact-operator '<sibling>[extras]=={version}' spelling.
+    nested_siblings = (
+        {normalize_package_name(n) for n in nested_package_names(pkg_config["path"], all_packages)}
+        if pkg_config.get("entry_point_bundle")
+        else None
+    )
+    deps = resolve_dependencies(pkg_name, pkg_config.get("dependencies", []), shared, all_packages, nested_siblings)
     runtime_deps = list(deps)  # `deps` is rebound by the optional-dependencies loop below
 
     lines = [HEADER]
@@ -380,7 +466,7 @@ def generate_pyproject(
     default_opt_deps = {} if skip_defaults else defaults.get("optional_dependencies", {})
     pkg_opt_deps = expand_published_children(pkg_config, all_packages)
     merged_opt_deps = resolve_optional_dependencies(
-        pkg_name, {**default_opt_deps, **pkg_opt_deps}, shared, all_packages
+        pkg_name, {**default_opt_deps, **pkg_opt_deps}, shared, all_packages, nested_siblings
     )
     if merged_opt_deps:
         lines.append("[project.optional-dependencies]")
@@ -394,24 +480,14 @@ def generate_pyproject(
         lines.append(f"{quote_toml_basic_string(key, key=True)} = {quote_toml_basic_string(value)}")
     lines.append("")
 
-    # A bundle does not ship a nested package it lists in its own dependencies; that package owns it.
-    bundle_owned_dependencies: list[str] = []
-    if pkg_config.get("entry_point_bundle"):
-        nested_names = nested_package_names(pkg_config["path"], all_packages)
-        for dep_name in sibling_dependency_names(runtime_deps, all_packages):
-            if dep_name not in nested_names:
-                continue
-            dep_config = all_packages[dep_name]
-            if (
-                not dep_config.get("published")
-                or dep_config.get("entry_point_groups")
-                or nested_package_names(dep_config["path"], all_packages)
-            ):
-                raise ValueError(
-                    f"Bundle {pkg_name} depends on nested package {dep_name}, which must be "
-                    "published = true, declare no entry_point_groups and have no packages nested under it"
-                )
-            bundle_owned_dependencies.append(dep_name)
+    # A bundle owns a nested package named in its own dependencies or a non-dev extra: that package's
+    # own wheel ships it, so it must be published, or nothing ships its files.
+    for dep_name in bundle_owned_names(pkg_config, all_packages):
+        if not all_packages[dep_name].get("published"):
+            raise ValueError(
+                f"Bundle {pkg_name} owns nested package {dep_name} (via dependencies or an extra), "
+                "which must be published = true"
+            )
 
     # Entry points - mloda plugin discovery (issue #271). Emit groups in the
     # stable ENTRY_POINT_ATTRS insertion order; entry-point labels are
@@ -436,29 +512,15 @@ def generate_pyproject(
         depth = len(pkg_path.parts)
         rel_path = "/".join([".."] * depth)
 
-        # Wheel boundaries come from the configured layout, not the released set: a nested
-        # package belongs to its own wheel, published or not. Optional deps are excluded too,
-        # since an extra may name a package that is not nested. Bundles ship all nested code
-        # except the packages they depend on (see bundle_owned_dependencies).
-        excluded_pkg_names = {dep for deps in pkg_opt_deps.values() for dep in deps}
-        if not pkg_config.get("entry_point_bundle"):
-            excluded_pkg_names |= set(nested_package_names(pkg_config["path"], all_packages))
-        else:
-            excluded_pkg_names |= set(bundle_owned_dependencies)
+        # Wheel boundaries come from the configured layout, not the released set: see
+        # compute_wheel_packages for the discover/exclude logic, shared with the recursive
+        # computation of what an owned package's own wheel lists.
+        packages = compute_wheel_packages(pkg_name, pkg_config, all_packages)
 
-        exclude_paths = sorted(
-            all_packages[dep_name]["path"] for dep_name in excluded_pkg_names if dep_name in all_packages
-        )
-
-        # Discover packages from filesystem, excluding optional sub-packages
-        packages = discover_packages(pkg_config["path"], exclude_paths)
-
-        # Listing the dotted path (a PEP 420 portion discover_packages misses) in packages is what
-        # ships py.typed; the package-data table below is belt and braces.
+        # The package-data table below is belt and braces on top of listing the dotted path.
         package_data: list[str] = []
         if pkg_config.get("py_typed"):
             dotted_path = pkg_config["path"].replace("/", ".")
-            packages = sorted(set(packages) | {dotted_path})
             # Subtable of [tool.setuptools]: must stay after its keys, or they reparent into it.
             package_data = [
                 "",

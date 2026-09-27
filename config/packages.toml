@@ -27,24 +27,6 @@ path = "mloda/community/extenders/shared"
 published = true
 py_typed = true
 
-[packages.mloda-community]
-description = "All community plugins for mloda"
-dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version}"]
-path = "mloda/community"
-published = true
-entry_point_bundle = true
-optional_dependencies = { otel = ["opentelemetry-api>=1.30,<2"], openlineage = ["openlineage-python>=1.20,<2"], all = ["opentelemetry-api>=1.30,<2", "openlineage-python>=1.20,<2"] }
-py_typed = true
-
-[packages.mloda-enterprise]
-description = "All enterprise plugins for mloda (License required: https://mloda.ai/enterprise)"
-dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version}"]
-path = "mloda/enterprise"
-published = true
-entry_point_bundle = true
-optional_dependencies = { ed25519 = ["cryptography>=42"], otel = ["opentelemetry-api>=1.37,<2"], openlineage = ["mloda-community-openlineage>={version}"] }
-py_typed = true
-
 [packages.mloda-community-example]
 description = "Example community FeatureGroup plugin for mloda"
 dependencies = ["{core_dependency}"]
@@ -276,3 +258,49 @@ path = "mloda/community/feature_groups/data_operations/row_changing/resample"
 published = true
 optional_dependencies = { pyarrow = ["pyarrow"], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
+
+# --- Bundles ---
+# Each bundle owns (dependencies or a non-dev extra) every published package nested under its path,
+# pinned '<name>=={version}': the bundle ships only the unpublished rest, so each shipped path keeps
+# exactly one published owner. Placed last so the published order stays dependency-first.
+
+[packages.mloda-community]
+description = "All community plugins for mloda"
+dependencies = [
+    "{core_dependency}",
+    "mloda-community-extenders-shared=={version}",
+    "mloda-community-example=={version}",
+    "mloda-community-example-a=={version}",
+    "mloda-community-data-operations=={version}",
+    "mloda-community-aggregation=={version}",
+    "mloda-community-rank=={version}",
+    "mloda-community-offset=={version}",
+    "mloda-community-window-aggregation=={version}",
+    "mloda-community-frame-aggregate=={version}",
+    "mloda-community-scalar-aggregate=={version}",
+    "mloda-community-scalar-arithmetic=={version}",
+    "mloda-community-point-arithmetic=={version}",
+    "mloda-community-datetime=={version}",
+    "mloda-community-string=={version}",
+    "mloda-community-binning=={version}",
+    "mloda-community-percentile=={version}",
+    "mloda-community-time-bucketization=={version}",
+    "mloda-community-ffill=={version}",
+    "mloda-community-ema=={version}",
+    "mloda-community-sessionization=={version}",
+    "mloda-community-resample=={version}",
+]
+path = "mloda/community"
+published = true
+entry_point_bundle = true
+optional_dependencies = { otel = ["mloda-community-otel=={version}"], openlineage = ["mloda-community-openlineage=={version}"], all = ["mloda-community-otel=={version}", "mloda-community-openlineage=={version}"] }
+py_typed = true
+
+[packages.mloda-enterprise]
+description = "All enterprise plugins for mloda (License required: https://mloda.ai/enterprise)"
+dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version}"]
+path = "mloda/enterprise"
+published = true
+entry_point_bundle = true
+optional_dependencies = { ed25519 = ["cryptography>=42"], otel = ["opentelemetry-api>=1.37,<2"], openlineage = ["mloda-community-openlineage>={version}"] }
+py_typed = true
