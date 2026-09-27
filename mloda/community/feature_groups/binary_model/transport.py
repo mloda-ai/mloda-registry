@@ -166,33 +166,67 @@ def _find_offending_parameter_key(config: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _terminate_timed_out_process(proc: subprocess.Popen[bytes]) -> None:
-    """Terminate a hung binary after ``communicate`` times out (contract: Errors, Data handling):
-    on POSIX, the whole process group started with the child, via ``start_new_session=True``, so a
-    descendant it spawned does not outlive it (SIGKILL always follows SIGTERM); on Windows, the child
-    process alone."""
+_GRACE_WAIT_SECONDS = 1.0
+_REAP_WAIT_SECONDS = 5.0
+
+
+def _close_posix_pipes(proc: subprocess.Popen[bytes]) -> None:
+    """Close the child's own pipe ends after it has been reaped (contract: Data handling), POSIX
+    only: on Windows a reader thread may still be blocked in ``read()`` on the pipe, and closing it
+    there can hang, so those handles are left open there."""
+    for pipe in (proc.stdin, proc.stdout, proc.stderr):
+        if pipe is not None:
+            try:
+                pipe.close()
+            except OSError:
+                pass
+
+
+def _soft_stop(proc: subprocess.Popen[bytes]) -> None:
     if os.name == "nt":
         proc.terminate()
+    else:
         try:
-            proc.wait(timeout=1.0)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-        return
+            os.killpg(proc.pid, signal.SIGTERM)
+        except OSError:
+            pass
 
+
+def _hard_kill(proc: subprocess.Popen[bytes]) -> None:
+    if os.name == "nt":
+        proc.kill()
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
+def _terminate_timed_out_process(proc: subprocess.Popen[bytes]) -> None:
+    """Terminate a hung binary after ``communicate`` times out, or on any exceptional exit
+    (contract: Errors, Data handling): on POSIX, the whole process group started with the child,
+    via ``start_new_session=True``, so a descendant it spawned does not outlive it; on Windows, the
+    child process alone. The hard kill always runs, in a ``finally``, even when the soft stop's
+    grace wait is itself interrupted, so an interrupt during that wait still reaches the hard kill
+    before propagating. After the hard kill, the reap is bounded: if the process still won't die
+    within ``_REAP_WAIT_SECONDS``, a warning naming only the pid is logged and this returns rather
+    than blocking forever."""
     try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except OSError:
-        pass
-    try:
-        proc.wait(timeout=1.0)
-    except subprocess.TimeoutExpired:
-        pass
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except OSError:
-        pass
-    proc.wait()
+        _soft_stop(proc)
+        try:
+            proc.wait(timeout=_GRACE_WAIT_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass
+    finally:
+        try:
+            _hard_kill(proc)
+            try:
+                proc.wait(timeout=_REAP_WAIT_SECONDS)
+            except subprocess.TimeoutExpired:
+                logger.warning("process %s did not exit after being killed", proc.pid)
+        finally:
+            if os.name != "nt":
+                _close_posix_pipes(proc)
 
 
 def run_binary(
@@ -250,8 +284,10 @@ def run_binary(
         _terminate_timed_out_process(proc)
         raise BinaryTerminatedError(f"binary timed out after {timeout}s and was terminated")
     except BaseException:
-        if proc.poll() is None:
-            _terminate_timed_out_process(proc)
+        # Unconditional: on POSIX an exited leader can still leave a live descendant in its process
+        # group, and killpg on an already-empty group just raises ProcessLookupError (swallowed);
+        # on Windows terminate()/kill() on an already-exited process are no-ops in CPython.
+        _terminate_timed_out_process(proc)
         raise
 
     logger.debug("binary exited with code %s", proc.returncode)

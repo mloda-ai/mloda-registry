@@ -8,6 +8,7 @@ handling, Errors).
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import signal
@@ -15,6 +16,7 @@ import stat
 import subprocess  # nosec
 import sys
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +35,7 @@ from mloda.community.feature_groups.binary_model.errors import (
 from mloda.community.feature_groups.binary_model.transport import (
     TEMP_PARENT_NAME,
     InvocationDirectory,
+    _terminate_timed_out_process,
     minimal_environment,
     pid_is_alive,
     run_binary,
@@ -89,6 +92,32 @@ def _own_zombie_children() -> list[int]:
         if state == "Z" and int(ppid) == my_pid:
             zombies.append(int(entry.name))
     return zombies
+
+
+def _interrupted_popen_class(
+    spawned: list[subprocess.Popen[bytes]],
+    *,
+    communicate_raises: type[BaseException] | None = None,
+    wait_before_raise: Any = None,
+) -> type[subprocess.Popen[bytes]]:
+    """A ``subprocess.Popen`` subclass recording every spawned instance into ``spawned``; when
+    ``communicate_raises`` is given, ``communicate`` calls ``wait_before_raise(self)`` (if given)
+    and then raises it instead of running normally (shared by every test that needs to observe or
+    interrupt the spawned process)."""
+
+    class RecordingPopen(subprocess.Popen):  # type: ignore[type-arg]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            spawned.append(self)
+
+        def communicate(self, *args: Any, **kwargs: Any) -> tuple[bytes, bytes]:
+            if communicate_raises is not None:
+                if wait_before_raise is not None:
+                    wait_before_raise(self)
+                raise communicate_raises
+            return super().communicate(*args, **kwargs)
+
+    return RecordingPopen
 
 
 class TestMinimalEnvironment:
@@ -471,7 +500,11 @@ class TestRunBinary:
                 )
         assert excinfo.value.code == 4
 
-    def test_hanging_binary_is_terminated_on_timeout_without_a_zombie(self, tmp_path: Path) -> None:
+    def test_hanging_binary_is_terminated_on_timeout_without_a_zombie(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        spawned: list[subprocess.Popen[bytes]] = []
+        monkeypatch.setattr(subprocess, "Popen", _interrupted_popen_class(spawned))
         started = time.monotonic()
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             with pytest.raises(BinaryTerminatedError) as excinfo:
@@ -488,22 +521,18 @@ class TestRunBinary:
         assert excinfo.value.code == 6
         assert elapsed < 5.0, f"expected termination well before the 60s hang, took {elapsed}s"
         assert _own_zombie_children() == []
+        assert len(spawned) == 1
+        if os.name == "posix":
+            assert spawned[0].stdin is not None and spawned[0].stdin.closed
+            assert spawned[0].stdout is not None and spawned[0].stdout.closed
+            assert spawned[0].stderr is not None and spawned[0].stderr.closed
 
     @pytest.mark.parametrize("exc", [KeyboardInterrupt, SystemExit, RuntimeError])
     def test_exceptional_exit_during_communicate_terminates_and_reaps_the_child(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exc: type[BaseException]
     ) -> None:
         spawned: list[subprocess.Popen[bytes]] = []
-
-        class InterruptedPopen(subprocess.Popen):  # type: ignore[type-arg]
-            def __init__(self, *args: Any, **kwargs: Any) -> None:
-                super().__init__(*args, **kwargs)
-                spawned.append(self)
-
-            def communicate(self, *args: Any, **kwargs: Any) -> tuple[bytes, bytes]:
-                raise exc
-
-        monkeypatch.setattr(subprocess, "Popen", InterruptedPopen)
+        monkeypatch.setattr(subprocess, "Popen", _interrupted_popen_class(spawned, communicate_raises=exc))
         try:
             with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
                 with pytest.raises(exc):
@@ -519,12 +548,69 @@ class TestRunBinary:
                 assert len(spawned) == 1
                 assert spawned[0].poll() is not None, f"child was left running after {exc.__name__}"
                 assert _own_zombie_children() == []
+                if os.name == "posix":
+                    assert spawned[0].stdin is not None and spawned[0].stdin.closed
+                    assert spawned[0].stdout is not None and spawned[0].stdout.closed
+                    assert spawned[0].stderr is not None and spawned[0].stderr.closed
         finally:
             monkeypatch.undo()
             for proc in spawned:
                 if proc.poll() is None:
                     os.killpg(proc.pid, signal.SIGKILL)
                     proc.wait()
+
+    @pytest.mark.skipif(os.name != "posix", reason="process-group orphan only reachable on POSIX")
+    def test_exceptional_exit_after_leader_already_exited_still_kills_descendant(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """C4: the leader (``exit_leaving_child``) spawns a descendant, writes its pid, and exits 0
+        right away; by the time ``run_binary``'s exceptional-exit handler runs, the leader is
+        already dead, so today's ``if proc.poll() is None`` guard skips termination and leaves the
+        descendant alive in the process group."""
+        pid_file = tmp_path / "child.pid"
+        spawned: list[subprocess.Popen[bytes]] = []
+
+        def _wait_for_leader_exit_and_pid_file(proc: subprocess.Popen[bytes]) -> None:
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                if pid_file.exists():
+                    try:
+                        proc.wait(timeout=0.05)
+                        return
+                    except subprocess.TimeoutExpired:
+                        continue
+                time.sleep(0.02)
+
+        monkeypatch.setattr(
+            subprocess,
+            "Popen",
+            _interrupted_popen_class(
+                spawned, communicate_raises=KeyboardInterrupt, wait_before_raise=_wait_for_leader_exit_and_pid_file
+            ),
+        )
+        child_pid: int | None = None
+        try:
+            with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
+                with pytest.raises(KeyboardInterrupt):
+                    run_binary(
+                        [*FAULTY_CMD, "--mode", "exit_leaving_child"],
+                        {"PATH": os.defpath},
+                        _hash_config(parameters={"pid_file": str(pid_file)}),
+                        b"",
+                        timeout=10.0,
+                        file_transport_threshold=10_000_000,
+                        invocation_dir=inv.path,
+                    )
+            assert pid_file.exists(), "faulty_binary never wrote the descendant's pid"
+            child_pid = int(pid_file.read_text(encoding="utf-8"))
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline and pid_is_alive(child_pid):
+                time.sleep(0.05)
+            assert not pid_is_alive(child_pid), "descendant of an already-exited leader was left alive"
+        finally:
+            monkeypatch.undo()
+            if child_pid is not None and pid_is_alive(child_pid):
+                os.kill(child_pid, signal.SIGKILL)
 
     def test_exit_before_reading_with_large_input_does_not_raise_broken_pipe(self, tmp_path: Path) -> None:
         large_input = os.urandom(4 * 1024 * 1024)
@@ -634,3 +720,103 @@ class TestRunBinary:
                     invocation_dir=inv.path,
                 )
         assert str(inv.path) not in excinfo.value.message
+
+
+class _FakePipe:
+    """Stand-in for a pipe handle, recording whether ``close()`` was called."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeProcess:
+    """Tiny stand-in for ``subprocess.Popen`` used to unit-test ``_terminate_timed_out_process``
+    without spawning a real process."""
+
+    def __init__(
+        self, wait_effects: Sequence[BaseException] = (), *, always_timeout: bool = False, pid: int = 4321
+    ) -> None:
+        self.pid = pid
+        self.returncode: int | None = None
+        self._wait_effects = list(wait_effects)
+        self._always_timeout = always_timeout
+        self.wait_calls: list[float | None] = []
+        self.terminate_called = False
+        self.kill_called = False
+        self.stdin = _FakePipe()
+        self.stdout = _FakePipe()
+        self.stderr = _FakePipe()
+
+    def wait(self, timeout: float | None = None) -> int | None:
+        self.wait_calls.append(timeout)
+        if self._always_timeout:
+            raise subprocess.TimeoutExpired(cmd="fake", timeout=timeout if timeout is not None else 0)
+        if self._wait_effects:
+            effect = self._wait_effects.pop(0)
+            raise effect
+        return self.returncode
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.terminate_called = True
+
+    def kill(self) -> None:
+        self.kill_called = True
+
+
+class TestTerminateTimedOutProcess:
+    """Unit tests for ``_terminate_timed_out_process`` against a fake process, parametrized over
+    POSIX and Windows (``os.name``), so no real subprocess is spawned."""
+
+    @pytest.mark.parametrize("os_name", ["posix", "nt"])
+    def test_hard_kill_is_issued_even_when_the_grace_wait_is_interrupted(
+        self, monkeypatch: pytest.MonkeyPatch, os_name: str
+    ) -> None:
+        monkeypatch.setattr(os, "name", os_name)
+        killpg_calls: list[tuple[int, int]] = []
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: killpg_calls.append((pid, sig)), raising=False)
+        proc = _FakeProcess(wait_effects=[KeyboardInterrupt()])
+        with pytest.raises(KeyboardInterrupt):
+            _terminate_timed_out_process(proc)  # type: ignore[arg-type]
+        if os_name == "posix":
+            assert (proc.pid, signal.SIGKILL) in killpg_calls, (
+                f"hard kill must be issued even when the grace wait is interrupted; calls were {killpg_calls}"
+            )
+        else:
+            assert proc.kill_called, "kill() must be called even when the grace wait is interrupted"
+
+    @pytest.mark.parametrize("os_name", ["posix", "nt"])
+    def test_final_wait_is_bounded_and_logs_a_warning_on_expiry(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, os_name: str
+    ) -> None:
+        monkeypatch.setattr(os, "name", os_name)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None, raising=False)
+        proc = _FakeProcess(always_timeout=True, pid=9999)
+        caplog.set_level(logging.WARNING)
+        _terminate_timed_out_process(proc)  # type: ignore[arg-type]
+        assert proc.wait_calls, "expected at least one wait() call"
+        assert all(t is not None for t in proc.wait_calls), (
+            f"wait() must always use a bounded timeout, got {proc.wait_calls}"
+        )
+        warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+        assert any("9999" in record.getMessage() for record in warnings), (
+            f"expected a WARNING naming pid 9999; got {[record.getMessage() for record in warnings]}"
+        )
+
+    @pytest.mark.parametrize("os_name", ["posix", "nt"])
+    def test_pipes_closed_on_posix_only_after_normal_termination(
+        self, monkeypatch: pytest.MonkeyPatch, os_name: str
+    ) -> None:
+        monkeypatch.setattr(os, "name", os_name)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None, raising=False)
+        proc = _FakeProcess()
+        _terminate_timed_out_process(proc)  # type: ignore[arg-type]
+        if os_name == "posix":
+            assert proc.stdin.closed and proc.stdout.closed and proc.stderr.closed
+        else:
+            assert not proc.stdin.closed and not proc.stdout.closed and not proc.stderr.closed

@@ -125,6 +125,16 @@ def _write_output(data: bytes, output_path: Path | None) -> None:
     sys.stdout.buffer.flush()
 
 
+def _spawn_sleeping_child(config_path: Path | None) -> None:
+    """Spawn a child that sleeps, inheriting the pipes and process group, and write its pid to
+    ``parameters["pid_file"]`` (contract: Data handling); shared by ``hang_with_child`` and
+    ``exit_leaving_child``."""
+    loaded_config = _load_config(config_path)
+    pid_path = Path(loaded_config["parameters"]["pid_file"])
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])  # nosec B603
+    pid_path.write_text(str(child.pid), encoding="utf-8")
+
+
 def _run(mode: str, args: list[str]) -> int:
     config_path, input_path, output_path = _parse_run_args(args)
 
@@ -132,11 +142,14 @@ def _run(mode: str, args: list[str]) -> int:
         time.sleep(60)
         return 0
     if mode == "hang_with_child":
-        loaded_config = _load_config(config_path)
-        pid_path = Path(loaded_config["parameters"]["pid_file"])
-        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])  # nosec B603
-        pid_path.write_text(str(child.pid), encoding="utf-8")
+        _spawn_sleeping_child(config_path)
         time.sleep(60)
+        return 0
+    if mode == "exit_leaving_child":
+        # Spawns a sleeping child, then exits 0 right away: the leader is already dead by the time
+        # `run_binary` handles the exceptional exit, so a guard keyed on the leader's own liveness
+        # misses the still-live child (contract: Data handling, orphan detection).
+        _spawn_sleeping_child(config_path)
         return 0
     if mode == "hang_with_sigterm_ignoring_child":
         # The leader dies on SIGTERM; its child ignores SIGTERM and holds the inherited pipes open. The

@@ -147,6 +147,37 @@ def test_against_the_real_wheel_section_shows_the_setup_command() -> None:
     )
 
 
+def test_every_binary_model_mixin_classvar_is_named_in_the_key_characteristic_table() -> None:
+    """Every uppercase class attribute ``BinaryModelMixin`` declares (own annotations plus own
+    ``vars()``) must appear in the "## Key Characteristic" table, so a new ``ClassVar`` forces a
+    documentation update rather than going unmentioned."""
+    from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
+
+    names = {name for name in BinaryModelMixin.__annotations__ if name.isupper()}
+    names |= {name for name in vars(BinaryModelMixin) if name.isupper()}
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    section = _section(content, "## Key Characteristic", ("\n## ",))
+    missing = sorted(name for name in names if name not in section)
+    assert not missing, f"Key Characteristic table is missing class attributes {missing}"
+
+
+def test_binary_timeout_seconds_row_mentions_process_group_and_windows() -> None:
+    """The ``BINARY_TIMEOUT_SECONDS`` row must spell out that termination covers the whole process
+    group on POSIX but only the child on Windows, and a ``BINARY_PROBE_TIMEOUT_SECONDS`` row must
+    exist alongside it (contract: Invocation)."""
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    section = _section(content, "## Key Characteristic", ("\n## ",))
+    timeout_line = next(
+        (line for line in section.splitlines() if line.strip().startswith("| `BINARY_TIMEOUT_SECONDS`")), None
+    )
+    assert timeout_line is not None, "Key Characteristic table must have a `BINARY_TIMEOUT_SECONDS` row"
+    assert "process group" in timeout_line, f"`BINARY_TIMEOUT_SECONDS` row must mention 'process group': {timeout_line}"
+    assert "Windows" in timeout_line, f"`BINARY_TIMEOUT_SECONDS` row must mention 'Windows': {timeout_line}"
+    assert "BINARY_PROBE_TIMEOUT_SECONDS" in section, (
+        "Key Characteristic table must have a `BINARY_PROBE_TIMEOUT_SECONDS` row"
+    )
+
+
 def test_documented_uv_sync_commands_use_the_gate_flags_not_all_extras() -> None:
     """Documented ``uv sync`` commands must use the gate's flags (``--all-packages --extra dev``): ``--all-extras``
     also installs the real ``mloda-example-binary`` wheel (the ``wheel`` extra), which the suites assume is absent."""
