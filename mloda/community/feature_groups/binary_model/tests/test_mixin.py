@@ -167,9 +167,9 @@ class TestBinaryUnavailable:
             _MissingPathModel.run_binary_model(table, [], "hash", {}, {"result": "col_a_hash"})
 
     def test_tiny_run_timeout_does_not_starve_the_probes(self) -> None:
-        """C5: ``BINARY_TIMEOUT_SECONDS`` bounds only the ``run`` call; an extremely tight value
-        must not also starve the ``--version``/``--capabilities`` probes that ``resolved_binary``
-        issues (contract: Invocation, Capabilities)."""
+        """``BINARY_TIMEOUT_SECONDS`` bounds only the ``run`` call; an extremely tight value must
+        not also starve the ``--version``/``--capabilities`` probes that ``resolved_binary`` issues
+        (contract: Invocation, Capabilities)."""
 
         class _TightRunTimeoutModel(BinaryModelMixin):
             BINARY_PLUGIN_ID = PLUGIN_ID
@@ -180,8 +180,8 @@ class TestBinaryUnavailable:
         _TightRunTimeoutModel.resolved_binary()
 
     def test_tiny_probe_timeout_raises_binary_unavailable(self) -> None:
-        """C5: a dedicated ``BINARY_PROBE_TIMEOUT_SECONDS`` bounds the probes themselves, separate
-        from ``BINARY_TIMEOUT_SECONDS`` (contract: Invocation, Capabilities)."""
+        """A dedicated ``BINARY_PROBE_TIMEOUT_SECONDS`` bounds the probes themselves, separate from
+        ``BINARY_TIMEOUT_SECONDS`` (contract: Invocation, Capabilities)."""
 
         class _TightProbeTimeoutModel(BinaryModelMixin):
             BINARY_PLUGIN_ID = PLUGIN_ID

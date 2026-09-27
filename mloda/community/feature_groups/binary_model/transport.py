@@ -171,9 +171,8 @@ _REAP_WAIT_SECONDS = 5.0
 
 
 def _close_posix_pipes(proc: subprocess.Popen[bytes]) -> None:
-    """Close the child's own pipe ends after it has been reaped (contract: Data handling), POSIX
-    only: on Windows a reader thread may still be blocked in ``read()`` on the pipe, and closing it
-    there can hang, so those handles are left open there."""
+    """Close the child's pipe ends after it has been reaped (contract: Data handling); POSIX only,
+    since a reader thread on Windows may still be blocked in ``read()`` and closing there can hang."""
     for pipe in (proc.stdin, proc.stdout, proc.stderr):
         if pipe is not None:
             try:
@@ -203,14 +202,10 @@ def _hard_kill(proc: subprocess.Popen[bytes]) -> None:
 
 
 def _terminate_timed_out_process(proc: subprocess.Popen[bytes]) -> None:
-    """Terminate a hung binary after ``communicate`` times out, or on any exceptional exit
-    (contract: Errors, Data handling): on POSIX, the whole process group started with the child,
-    via ``start_new_session=True``, so a descendant it spawned does not outlive it; on Windows, the
-    child process alone. The hard kill always runs, in a ``finally``, even when the soft stop's
-    grace wait is itself interrupted, so an interrupt during that wait still reaches the hard kill
-    before propagating. After the hard kill, the reap is bounded: if the process still won't die
-    within ``_REAP_WAIT_SECONDS``, a warning naming only the pid is logged and this returns rather
-    than blocking forever."""
+    """Terminate a hung binary after ``communicate`` times out, or on any exceptional exit (contract:
+    Errors, Data handling): soft-stops then hard-kills the whole process group on POSIX, or just the
+    child on Windows. The hard kill always runs, even if the soft stop's grace wait is interrupted,
+    and the final reap is bounded, logging a warning rather than blocking forever."""
     try:
         _soft_stop(proc)
         try:
@@ -284,9 +279,8 @@ def run_binary(
         _terminate_timed_out_process(proc)
         raise BinaryTerminatedError(f"binary timed out after {timeout}s and was terminated")
     except BaseException:
-        # Unconditional: on POSIX an exited leader can still leave a live descendant in its process
-        # group, and killpg on an already-empty group just raises ProcessLookupError (swallowed);
-        # on Windows terminate()/kill() on an already-exited process are no-ops in CPython.
+        # Unconditional: an exited leader can still leave a live descendant in its process group,
+        # and terminating/killing an already-exited process is a harmless no-op.
         _terminate_timed_out_process(proc)
         raise
 

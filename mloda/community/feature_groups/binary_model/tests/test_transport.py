@@ -563,10 +563,9 @@ class TestRunBinary:
     def test_exceptional_exit_after_leader_already_exited_still_kills_descendant(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """C4: the leader (``exit_leaving_child``) spawns a descendant, writes its pid, and exits 0
-        right away; by the time ``run_binary``'s exceptional-exit handler runs, the leader is
-        already dead, so today's ``if proc.poll() is None`` guard skips termination and leaves the
-        descendant alive in the process group."""
+        """The leader (``exit_leaving_child``) spawns a descendant, writes its pid, and exits before
+        ``run_binary``'s exceptional-exit handler runs; the descendant must still be killed even
+        though the leader is already dead by then."""
         pid_file = tmp_path / "child.pid"
         spawned: list[subprocess.Popen[bytes]] = []
 

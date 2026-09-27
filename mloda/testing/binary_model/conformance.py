@@ -145,9 +145,9 @@ def run_binary(
 def stderr_error_object(stderr: bytes) -> dict[str, Any]:
     """Parse the last non-empty stderr line as the contract's ``{"code": ..., "message": ...}``
     object; earlier lines are free-form diagnostics (contract: Errors). Decodes with
-    ``errors="replace"`` so non-UTF-8 stderr fails an assertion here, not with an unhandled
-    ``UnicodeDecodeError``. Splits on ``"\\n"`` only, never ``str.splitlines()``, which also splits
-    on U+2028/U+2029/U+0085 and would corrupt a message containing one of them."""
+    ``errors="replace"`` (non-UTF-8 stderr fails an assertion here, not an unhandled
+    ``UnicodeDecodeError``) and splits on ``"\\n"`` only, never ``str.splitlines()``, which also
+    splits on U+2028/U+2029/U+0085."""
     text = stderr.decode("utf-8", errors="replace")
     lines = [line for line in text.split("\n") if line.strip()]
     assert lines, f"expected at least one non-empty stderr line, got {stderr!r}"
