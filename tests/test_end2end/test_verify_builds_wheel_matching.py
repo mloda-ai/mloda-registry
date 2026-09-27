@@ -446,6 +446,46 @@ def test_cli_wheels_exits_non_zero_when_published_wheels_raises(
     assert "mloda-registry" in err, f"stderr must name the offending package, got {err!r}"
 
 
+def _write_misordered_packages_config(root: Path) -> None:
+    """A published package naming a later-declared published sibling, both modes must report this cleanly."""
+    _write_packages_config(
+        root,
+        '[packages.pkg-a]\ndescription = "sandbox"\npath = "p/a"\npublished = true\n'
+        'dependencies = ["pkg-b>=1.0"]\n\n'
+        '[packages.pkg-b]\ndescription = "sandbox"\npath = "p/b"\npublished = true\n',
+    )
+
+
+@pytest.mark.parametrize("wheels_mode", [False, True], ids=["bare", "wheels"])
+def test_cli_reports_a_misordered_published_config_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], wheels_mode: bool
+) -> None:
+    """published_packages() raises ValueError for a mis-ordered config; main() must turn that into a clean
+    non-zero exit with the reason (naming both packages) on stderr, not an uncaught traceback, in both the
+    plain mode and '--wheels' mode."""
+    _write_misordered_packages_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    argv = ["published_packages.py", "--wheels", str(tmp_path)] if wheels_mode else ["published_packages.py"]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    main: Callable[[], int] | None = getattr(pp, "main", None)
+    assert callable(main), "published_packages.main must be a callable returning an exit code"
+    try:
+        exit_code = main()
+    except SystemExit as exc:
+        exit_code = exc.code if isinstance(exc.code, int) else 1
+
+    err = capsys.readouterr().err
+    mode = "--wheels" if wheels_mode else "bare"
+    assert exit_code != 0, (
+        f"published_packages.main() ({mode} mode) must exit non-zero for a mis-ordered published config, "
+        "not raise an uncaught ValueError"
+    )
+    assert "pkg-a" in err and "pkg-b" in err, (
+        f"published_packages.main() ({mode} mode) must name both pkg-a and pkg-b on stderr, got {err!r}"
+    )
+
+
 def test_cli_wheels_exits_non_zero_when_nothing_is_published(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

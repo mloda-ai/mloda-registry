@@ -260,12 +260,15 @@ def _internal_extra_entries(packages: dict[str, dict[str, Any]]) -> list[tuple[s
     return [(package, extra, list(members)) for package, extra, members in entries]
 
 
-def _verification_jobs(entries: list[tuple[str, str, list[str]]], version: str) -> list[tuple[str, bool, list[str]]]:
-    """The (specifier, expect_import, members) install jobs verify_extras derives from internal extra entries."""
+def _verification_jobs(
+    entries: list[tuple[str, str, list[str]]], version: str
+) -> list[tuple[str, str, bool, list[str]]]:
+    """The (owner, specifier, expect_import, members) install jobs verify_extras derives from internal extra
+    entries."""
     jobs = _script_fn(
         _EXTRAS_SCRIPT, "verification_jobs", "derive the deduplicated install jobs from internal_extra_members"
     )(entries, version)
-    return [(specifier, expect_import, list(members)) for specifier, expect_import, members in jobs]
+    return [(owner, specifier, expect_import, list(members)) for owner, specifier, expect_import, members in jobs]
 
 
 def _cli(monkeypatch: pytest.MonkeyPatch, cwd: Path, argv: list[str]) -> Callable[[], int]:
@@ -549,6 +552,12 @@ _ORDER_ACCEPTED_CASES = [
         },
         id="unpublished-sibling-listed-later",
     ),
+    pytest.param(
+        {
+            "pkg-a": _synthetic_pkg("p/a", optional_dependencies={"all": ["pkg-a[x]>={version}"]}),
+        },
+        id="pinned-extra-names-its-own-package",
+    ),
 ]
 
 
@@ -556,8 +565,9 @@ _ORDER_ACCEPTED_CASES = [
 def test_published_packages_accepts_orderings_with_no_ordering_requirement(
     packages: dict[str, dict[str, Any]],
 ) -> None:
-    """A bare (unpinned) extra entry, a 'dev' extra entry, and a dependency on an unpublished sibling never
-    create an ordering requirement, whatever position the named package sits at."""
+    """A bare (unpinned) extra entry, a 'dev' extra entry, a dependency on an unpublished sibling, and a
+    pinned extra naming the package's own name never create an ordering requirement, whatever position the
+    named package sits at."""
     _published_packages_fn()(packages)  # must not raise
 
 
@@ -1002,31 +1012,23 @@ def test_verification_jobs_yields_one_bare_job_per_package_then_its_gated_jobs()
     entries = _internal_extra_entries(_packages())
     jobs = _verification_jobs(entries, "9.9.9")
     expected = [
-        (f"{_COMMUNITY_EXAMPLE}==9.9.9", False, ["mloda-community-example-a"]),
-        (f"{_COMMUNITY_EXAMPLE}[all]==9.9.9", True, ["mloda-community-example-a"]),
-        (f"{_DATA_OPERATIONS}==9.9.9", False, _published_children()),
-        (f"{_DATA_OPERATIONS}[all]==9.9.9", True, _published_children()),
-        ("mloda-community==9.9.9", False, ["mloda-community-otel", "mloda-community-openlineage"]),
-        ("mloda-community[otel]==9.9.9", True, ["mloda-community-otel"]),
-        ("mloda-community[openlineage]==9.9.9", True, ["mloda-community-openlineage"]),
-        ("mloda-community[all]==9.9.9", True, ["mloda-community-otel", "mloda-community-openlineage"]),
-        ("mloda-enterprise==9.9.9", False, ["mloda-community-openlineage"]),
-        ("mloda-enterprise[openlineage]==9.9.9", True, ["mloda-community-openlineage"]),
+        (_COMMUNITY_EXAMPLE, f"{_COMMUNITY_EXAMPLE}==9.9.9", False, ["mloda-community-example-a"]),
+        (_COMMUNITY_EXAMPLE, f"{_COMMUNITY_EXAMPLE}[all]==9.9.9", True, ["mloda-community-example-a"]),
+        (_DATA_OPERATIONS, f"{_DATA_OPERATIONS}==9.9.9", False, _published_children()),
+        (_DATA_OPERATIONS, f"{_DATA_OPERATIONS}[all]==9.9.9", True, _published_children()),
+        ("mloda-community", "mloda-community==9.9.9", False, ["mloda-community-otel", "mloda-community-openlineage"]),
+        ("mloda-community", "mloda-community[otel]==9.9.9", True, ["mloda-community-otel"]),
+        ("mloda-community", "mloda-community[openlineage]==9.9.9", True, ["mloda-community-openlineage"]),
+        (
+            "mloda-community",
+            "mloda-community[all]==9.9.9",
+            True,
+            ["mloda-community-otel", "mloda-community-openlineage"],
+        ),
+        ("mloda-enterprise", "mloda-enterprise==9.9.9", False, ["mloda-community-openlineage"]),
+        ("mloda-enterprise", "mloda-enterprise[openlineage]==9.9.9", True, ["mloda-community-openlineage"]),
     ]
     assert jobs == expected, f"verification_jobs() yielded {jobs!r}, expected exactly {expected!r}"
-
-    community_jobs = [
-        job for job in jobs if job[0].startswith("mloda-community==") or job[0].startswith("mloda-community[")
-    ]
-    assert community_jobs == [
-        ("mloda-community==9.9.9", False, ["mloda-community-otel", "mloda-community-openlineage"]),
-        ("mloda-community[otel]==9.9.9", True, ["mloda-community-otel"]),
-        ("mloda-community[openlineage]==9.9.9", True, ["mloda-community-openlineage"]),
-        ("mloda-community[all]==9.9.9", True, ["mloda-community-otel", "mloda-community-openlineage"]),
-    ], (
-        f"verification_jobs() gave mloda-community the jobs {community_jobs!r}, expected exactly one bare job "
-        "with the deduplicated union of its extras' members, then one gated job per extra"
-    )
 
 
 def test_verification_jobs_dedupes_overlapping_extras_and_keeps_package_order() -> None:
@@ -1039,11 +1041,11 @@ def test_verification_jobs_dedupes_overlapping_extras_and_keeps_package_order() 
     ]
     jobs = _verification_jobs(entries, "9.9.9")
     expected = [
-        ("pkg-a==9.9.9", False, ["pkg-a-member-1", "pkg-a-member-2", "pkg-a-member-3"]),
-        ("pkg-a[x]==9.9.9", True, ["pkg-a-member-1", "pkg-a-member-2"]),
-        ("pkg-a[y]==9.9.9", True, ["pkg-a-member-2", "pkg-a-member-3"]),
-        ("pkg-b==9.9.9", False, ["pkg-b-member-1"]),
-        ("pkg-b[z]==9.9.9", True, ["pkg-b-member-1"]),
+        ("pkg-a", "pkg-a==9.9.9", False, ["pkg-a-member-1", "pkg-a-member-2", "pkg-a-member-3"]),
+        ("pkg-a", "pkg-a[x]==9.9.9", True, ["pkg-a-member-1", "pkg-a-member-2"]),
+        ("pkg-a", "pkg-a[y]==9.9.9", True, ["pkg-a-member-2", "pkg-a-member-3"]),
+        ("pkg-b", "pkg-b==9.9.9", False, ["pkg-b-member-1"]),
+        ("pkg-b", "pkg-b[z]==9.9.9", True, ["pkg-b-member-1"]),
     ]
     assert jobs == expected, (
         f"verification_jobs() yielded {jobs!r}, expected {expected!r}: one deduplicated bare job per package "
@@ -1165,16 +1167,32 @@ def test_unpublishing_a_child_keeps_it_out_of_the_base_wheel() -> None:
     )
 
 
-def test_example_b_stays_out_of_the_community_example_base_wheel_whatever_the_extras_say() -> None:
-    """A configured child's wheel boundary comes from the layout, not from any extra: example-b, nested
-    under the example base's path, never ships in the base wheel no matter what its extras list."""
+def test_shrinking_an_extra_keeps_a_configured_child_out_of_the_base_wheel() -> None:
+    """A configured child's wheel boundary comes from the layout, not from any extra: dropping example-a
+    from the example base's 'all' extra must not pull it, or example-b, into the base wheel."""
     packages = _packages()
+    unchanged_leaked = _entries_under(_wheel_packages(_COMMUNITY_EXAMPLE, packages), _dotted_path(_EXAMPLE_B))
+    assert unchanged_leaked == [], (
+        f"the {_COMMUNITY_EXAMPLE} wheel ships {unchanged_leaked}; a configured package nested under "
+        "another package's path belongs to its own wheel whatever the extras say."
+    )
 
-    leaked = _entries_under(_wheel_packages(_COMMUNITY_EXAMPLE, packages), _dotted_path(_EXAMPLE_B))
+    packages = deepcopy(_packages())
+    example_a = "mloda-community-example-a"
+    all_extra = packages[_COMMUNITY_EXAMPLE]["optional_dependencies"]["all"]
+    shrunk = [dep for dep in all_extra if gen.sibling_dependency_name(dep, packages) != example_a]
+    assert shrunk != all_extra, (
+        f"fixture assumption: {example_a} must be present in the {_COMMUNITY_EXAMPLE} 'all' extra {all_extra!r}"
+    )
+    packages[_COMMUNITY_EXAMPLE]["optional_dependencies"]["all"] = shrunk
 
-    assert leaked == [], (
-        f"the {_COMMUNITY_EXAMPLE} wheel ships {leaked}; a configured package nested under another "
-        "package's path belongs to its own wheel whatever the extras say."
+    listed = _wheel_packages(_COMMUNITY_EXAMPLE, packages)
+
+    assert _entries_under(listed, _dotted_path(example_a)) == [], (
+        f"the {_COMMUNITY_EXAMPLE} wheel must not ship {example_a} after it is removed from the 'all' extra"
+    )
+    assert _entries_under(listed, _dotted_path(_EXAMPLE_B)) == [], (
+        f"the {_COMMUNITY_EXAMPLE} wheel must not ship {_EXAMPLE_B} even after shrinking the 'all' extra"
     )
 
 

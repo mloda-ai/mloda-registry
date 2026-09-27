@@ -390,16 +390,23 @@ def _bundle_shipped_leaves_with_extra_only_external_dependency(packages: dict[st
     return found
 
 
-def test_rows_covers_exactly_the_extra_only_owned_community_leaves() -> None:
-    """_ROWS must name every mloda-community leaf owned only through a non-dev extra, so a future one
+def _entry_point_bundle_names(packages: dict[str, dict[str, Any]]) -> list[str]:
+    """Configured packages flagged 'entry_point_bundle = true', in config order."""
+    return [name for name, cfg in packages.items() if cfg.get("entry_point_bundle") is True]
+
+
+def test_rows_covers_exactly_the_extra_only_owned_leaves_of_every_bundle() -> None:
+    """_ROWS must name every leaf of any entry_point_bundle owned only through a non-dev extra, so one
     cannot silently escape the PluginLoader-skip coverage the parametrized test above gives them."""
     packages = _packages()
-    derived = _extra_only_owned_leaves_with_entry_points("mloda-community", packages)
-    assert derived, "expected mloda-community to own at least one leaf only through a non-dev extra"
+    derived: set[str] = set()
+    for bundle_name in _entry_point_bundle_names(packages):
+        derived |= _extra_only_owned_leaves_with_entry_points(bundle_name, packages)
+    assert derived, "expected some entry_point_bundle to own at least one leaf only through a non-dev extra"
 
     rows_leaves = {leaf_name for _, _, leaf_name, _, _ in _ROWS}
     assert derived == rows_leaves, (
-        f"mloda-community owns {sorted(derived)} only through a non-dev extra, but _ROWS names "
+        f"the entry_point_bundles own {sorted(derived)} only through a non-dev extra, but _ROWS names "
         f"{sorted(rows_leaves)}; add the missing leaf to _ROWS above"
     )
 
@@ -429,7 +436,7 @@ def test_bundle_shipped_leaves_helper_detects_an_extra_only_external_dependency(
         "sandbox-bundle-leaf": {
             "description": "sandbox",
             "path": "sandbox/bundle/leaf",
-            "published": True,
+            # Unpublished: the generator rejects a published nested package a bundle does not own.
             "entry_point_groups": ["mloda.extenders"],
             "dependencies": ["sandbox-thirdparty>=1.0"],
         },

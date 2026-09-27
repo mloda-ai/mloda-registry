@@ -44,13 +44,15 @@ def load_packages_config() -> dict[str, dict[str, Any]]:
 
 def _dependency_first_siblings(name: str, pkg_config: dict[str, Any], packages: dict[str, dict[str, Any]]) -> list[str]:
     """Published siblings ``name`` must see earlier in the published order: every sibling named in its own
-    ``dependencies``, plus every sibling named in a non-dev extra entry that carries the {version} placeholder."""
+    ``dependencies``, plus every sibling named in a non-dev extra entry that carries the {version} placeholder.
+    A bare, unpinned extra entry is excluded (it resolves at any already released version); so is an entry
+    naming ``name`` itself (a package never has to precede itself)."""
     raw_deps: list[str] = list(pkg_config.get("dependencies", []))
     for extra_name, deps in pkg_config.get("optional_dependencies", {}).items():
         if extra_name == "dev":
             continue
         raw_deps.extend(dep for dep in deps if "{version}" in dep)
-    siblings: list[str] = gen.sibling_dependency_names(raw_deps, packages)
+    siblings: list[str] = [sibling for sibling in gen.sibling_dependency_names(raw_deps, packages) if sibling != name]
     return siblings
 
 
@@ -130,29 +132,30 @@ def main() -> int:
         parser.error("--pin needs a version, got an empty value (is MLODA_REGISTRY_VERSION set?)")
 
     packages = load_packages_config()
-    names = published_packages(packages)
 
-    # An empty set would silently publish, verify or scan nothing.
-    if not names:
-        print(f"{PACKAGES_CONFIG}: no package is flagged 'published = true'", file=sys.stderr)
-        return 1
+    try:
+        names = published_packages(packages)
 
-    if args.wheels is not None:
-        try:
-            wheels = published_wheels(packages, Path(args.wheels))
-        except ValueError as exc:
-            print(str(exc), file=sys.stderr)
+        # An empty set would silently publish, verify or scan nothing.
+        if not names:
+            print(f"{PACKAGES_CONFIG}: no package is flagged 'published = true'", file=sys.stderr)
             return 1
-        for wheel in wheels:
-            print(wheel)
-        return 0
 
-    for name in names:
-        if args.exclude_newer_exempt:
-            print(f"--exclude-newer-package={name}=false")
-        else:
-            print(f"{name}=={args.pin}" if args.pin else name)
-    return 0
+        if args.wheels is not None:
+            wheels = published_wheels(packages, Path(args.wheels))
+            for wheel in wheels:
+                print(wheel)
+            return 0
+
+        for name in names:
+            if args.exclude_newer_exempt:
+                print(f"--exclude-newer-package={name}=false")
+            else:
+                print(f"{name}=={args.pin}" if args.pin else name)
+        return 0
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

@@ -119,7 +119,8 @@ The generator rejects a config that breaks ownership:
 - wheel boundaries from the layout: a nested package stays out of its parent's wheel,
   published or not; an `entry_point_bundle` ships all nested code except the own wheel
   packages of each package it owns (named in its own `dependencies` or a non-dev extra),
-  so an unowned package nested under an owned one still ships in the bundle wheel
+  so an unowned package nested under one it owns through `dependencies` still ships in the
+  bundle wheel
 
 **Default dev deps skipped for:** `mloda-testing`, `mloda-community`, `mloda-enterprise`
 
@@ -208,8 +209,8 @@ py_typed = true
 | `pip install mloda-community-example[all]` | Base + its published variants |
 | `pip install mloda-community-example-a` | Variant A + base |
 
-Entries in `optional_dependencies.all` are emitted unpinned and can only name published
-packages. `mloda-community-example-b` is unpublished, so it ships in the bundle wheel only.
+A base's `all` extra lists its variants unpinned. A published package can only name published
+packages there, so the unpublished `mloda-community-example-b` ships in the bundle wheel only.
 
 ## Entry points
 

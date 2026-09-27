@@ -164,7 +164,7 @@ jobs:
         # no policy.
         run: |
           if ! wheels=$(python scripts/published_packages.py --wheels dist); then
-            echo "::error ::scripts/published_packages.py could not match one wheel per published package in dist/"
+            echo "::error ::scripts/published_packages.py --wheels dist failed, see the message above"
             exit 1
           fi
           mapfile -t dists <<<"$wheels"

@@ -252,15 +252,38 @@ def bundle_owned_names(pkg_config: dict[str, Any], all_packages: dict[str, dict[
     return [name for name in nested_package_names(pkg_config["path"], all_packages) if name in owned]
 
 
+def skips_default_optional_dependencies(pkg_name: str) -> bool:
+    """Whether pkg_name assembles its own optional-dependencies table and skips the shared
+    [defaults].optional_dependencies merge."""
+    return pkg_name in ("mloda-testing", "mloda-community", "mloda-enterprise")
+
+
+def _merged_optional_dependencies(
+    pkg_name: str,
+    pkg_config: dict[str, Any],
+    shared: dict[str, Any],
+    all_packages: dict[str, dict[str, Any]],
+) -> dict[str, list[str]]:
+    """A package's own (raw, unresolved) optional_dependencies merged with the shared defaults, honoring
+    ``skips_default_optional_dependencies``."""
+    default_opt_deps = (
+        {}
+        if skips_default_optional_dependencies(pkg_name)
+        else shared.get("defaults", {}).get("optional_dependencies", {})
+    )
+    pkg_opt_deps = expand_published_children(pkg_config, all_packages)
+    return {**default_opt_deps, **pkg_opt_deps}
+
+
 def validate_ownership_and_publishing(
     pkg_name: str,
     pkg_config: dict[str, Any],
+    shared: dict[str, Any],
     all_packages: dict[str, dict[str, Any]],
 ) -> None:
-    """Raise ValueError for a bundle ownership violation or a published package's dependency or
-    non-dev extra on an unpublished configured sibling, read off the raw (unexpanded, unresolved)
-    config. Runs before any dependency/extra resolution, so a placeholder or a 'dev' extra entry
-    never reaches (and is masked by) an older, unrelated resolver error.
+    """Raise ValueError for a bundle ownership violation, or a published package's dependency or
+    non-dev extra (including one merged in from the shared defaults) naming an unpublished sibling.
+    Runs on the raw config before any resolution, so an older, unrelated resolver error cannot mask it.
     """
     raw_opt_deps: dict[str, list[str]] = pkg_config.get("optional_dependencies", {})
 
@@ -312,8 +335,9 @@ def validate_ownership_and_publishing(
                     )
 
     if pkg_config.get("published"):
+        merged_opt_deps = _merged_optional_dependencies(pkg_name, pkg_config, shared, all_packages)
         raw_deps = list(pkg_config.get("dependencies", []))
-        for group, deps in raw_opt_deps.items():
+        for group, deps in merged_opt_deps.items():
             if group != "dev":
                 raw_deps.extend(deps)
         for dep in raw_deps:
@@ -519,7 +543,7 @@ def generate_pyproject(
     if "workspace_deps" in pkg_config and "py_typed" in pkg_config:
         raise ValueError(f"{pkg_name}: workspace_deps and py_typed are mutually exclusive")
 
-    validate_ownership_and_publishing(pkg_name, pkg_config, all_packages)
+    validate_ownership_and_publishing(pkg_name, pkg_config, shared, all_packages)
 
     # Resolved early so a missing version raises this function's own ValueError, not a raw KeyError.
     defaults = shared.get("defaults", {})
@@ -569,13 +593,13 @@ def generate_pyproject(
     lines.append(f"requires-python = {quote_toml_basic_string(shared['project']['requires-python'])}")
     lines.append("")
 
-    # Optional dependencies - merge defaults with package-specific
-    # Skip defaults for specific packages
-    skip_defaults = pkg_name in ("mloda-testing", "mloda-community", "mloda-enterprise")
-    default_opt_deps = {} if skip_defaults else defaults.get("optional_dependencies", {})
-    pkg_opt_deps = expand_published_children(pkg_config, all_packages)
+    # Optional dependencies - merge defaults with package-specific (skipped for specific packages)
     merged_opt_deps = resolve_optional_dependencies(
-        pkg_name, {**default_opt_deps, **pkg_opt_deps}, shared, all_packages, nested_siblings
+        pkg_name,
+        _merged_optional_dependencies(pkg_name, pkg_config, shared, all_packages),
+        shared,
+        all_packages,
+        nested_siblings,
     )
     if merged_opt_deps:
         lines.append("[project.optional-dependencies]")
@@ -638,7 +662,7 @@ def generate_pyproject(
     # Also add mloda-testing for top-level packages that get it from defaults
     pkg_path = Path(pkg_config["path"])
     depth = len(pkg_path.parts)
-    gets_default_dev_deps = pkg_name not in ("mloda-testing", "mloda-community", "mloda-enterprise")
+    gets_default_dev_deps = not skips_default_optional_dependencies(pkg_name)
 
     if "workspace_deps" in pkg_config:
         lines.append("[tool.uv.sources]")

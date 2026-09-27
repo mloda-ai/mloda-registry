@@ -904,6 +904,66 @@ def test_published_package_dev_extra_naming_an_unpublished_sibling_is_accepted()
     gen.generate_pyproject(_DEP, packages[_DEP], shared, packages)  # must not raise
 
 
+# A real, unpublished configured package (see config/packages.toml), used to prove the unpublished-sibling
+# guard also covers extras merged in from [defaults].optional_dependencies.
+_UNPUBLISHED_REAL_PACKAGE = "mloda-community-example-b"
+
+# A real, published, non-bundle top-level package that declares no optional_dependencies of its own, so a
+# default extra is the only source of any extra it carries.
+_PUBLISHED_NON_BUNDLE_PACKAGE = "mloda-registry"
+
+
+def test_published_package_default_extra_naming_an_unpublished_sibling_is_rejected() -> None:
+    """The unpublished-sibling guard must also see a non-dev extra merged in from the shared
+    [defaults].optional_dependencies: a default extra naming an unpublished configured package must be
+    rejected the same as one in the package's own extras, even though the offending package itself
+    declares no such extra."""
+    shared, packages_config = gen.load_configs()
+    shared = deepcopy(shared)
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+
+    assert packages[_UNPUBLISHED_REAL_PACKAGE].get("published") is not True, (
+        f"fixture assumption: {_UNPUBLISHED_REAL_PACKAGE} is not published"
+    )
+    pkg_cfg = packages[_PUBLISHED_NON_BUNDLE_PACKAGE]
+    assert pkg_cfg.get("published") is True, f"fixture assumption: {_PUBLISHED_NON_BUNDLE_PACKAGE} is published"
+    assert not pkg_cfg.get("entry_point_bundle"), (
+        f"fixture assumption: {_PUBLISHED_NON_BUNDLE_PACKAGE} is not an entry_point_bundle"
+    )
+    assert _UNPUBLISHED_REAL_PACKAGE not in pkg_cfg.get("optional_dependencies", {}).get("extra_default", []), (
+        f"fixture assumption: {_PUBLISHED_NON_BUNDLE_PACKAGE} declares no 'extra_default' extra of its own"
+    )
+    shared["defaults"]["optional_dependencies"]["extra_default"] = [f"{_UNPUBLISHED_REAL_PACKAGE}>={{version}}"]
+
+    with pytest.raises(ValueError) as exc_info:
+        gen.generate_pyproject(_PUBLISHED_NON_BUNDLE_PACKAGE, pkg_cfg, shared, packages)
+
+    message = str(exc_info.value)
+    assert _PUBLISHED_NON_BUNDLE_PACKAGE in message, (
+        f"error message must name the package {_PUBLISHED_NON_BUNDLE_PACKAGE!r}, got: {message}"
+    )
+    assert _UNPUBLISHED_REAL_PACKAGE in message, (
+        f"error message must name the unpublished sibling {_UNPUBLISHED_REAL_PACKAGE!r}, got: {message}"
+    )
+
+
+def test_default_dev_extra_naming_an_unpublished_sibling_is_accepted() -> None:
+    """Mirrors the rejection above: the dev-extra exemption also applies through the shared
+    [defaults].optional_dependencies merge, so a default dev entry naming an unpublished configured
+    package must not be rejected."""
+    shared, packages_config = gen.load_configs()
+    shared = deepcopy(shared)
+    packages: dict[str, dict[str, Any]] = packages_config["packages"]
+
+    assert packages[_UNPUBLISHED_REAL_PACKAGE].get("published") is not True, (
+        f"fixture assumption: {_UNPUBLISHED_REAL_PACKAGE} is not published"
+    )
+    pkg_cfg = packages[_PUBLISHED_NON_BUNDLE_PACKAGE]
+    shared["defaults"]["optional_dependencies"]["dev"].append(f"{_UNPUBLISHED_REAL_PACKAGE}>={{version}}")
+
+    gen.generate_pyproject(_PUBLISHED_NON_BUNDLE_PACKAGE, pkg_cfg, shared, packages)  # must not raise
+
+
 def test_sibling_dependency_name_returns_the_configured_name_or_none() -> None:
     """sibling_dependency_name parses one requirement string, extras/markers ignored, the singular sibling
     of sibling_dependency_names, returning None when the requirement names no configured package."""

@@ -65,10 +65,13 @@ def internal_extra_members(packages: dict[str, dict[str, Any]]) -> list[tuple[st
     return entries
 
 
-def verification_jobs(entries: list[tuple[str, str, list[str]]], version: str) -> list[tuple[str, bool, list[str]]]:
-    """(specifier, expect_import, members) install jobs, deduplicated per owning package: one bare job
-    (the union of that package's extras' members, first-appearance order), then one gated job per extra,
-    both in entry order. A package installs bare exactly once, however many extras it has."""
+def verification_jobs(
+    entries: list[tuple[str, str, list[str]]], version: str
+) -> list[tuple[str, str, bool, list[str]]]:
+    """(owner, specifier, expect_import, members) install jobs, deduplicated per owning package: one bare
+    job (the union of that package's extras' members, first-appearance order), then one gated job per
+    extra, both in entry order. A package installs bare exactly once, however many extras it has. Each
+    job carries its owning package, so a caller never has to re-derive it by parsing the specifier."""
     bare_members: dict[str, list[str]] = {}
     gated_jobs: dict[str, list[tuple[str, str, list[str]]]] = {}
     for package, extra, members in entries:
@@ -78,11 +81,11 @@ def verification_jobs(entries: list[tuple[str, str, list[str]]], version: str) -
                 seen.append(member)
         gated_jobs.setdefault(package, []).append((package, extra, members))
 
-    jobs: list[tuple[str, bool, list[str]]] = []
+    jobs: list[tuple[str, str, bool, list[str]]] = []
     for package, members in bare_members.items():
-        jobs.append((f"{package}=={version}", False, members))
+        jobs.append((package, f"{package}=={version}", False, members))
         for _, extra, extra_members in gated_jobs[package]:
-            jobs.append((f"{package}[{extra}]=={version}", True, extra_members))
+            jobs.append((package, f"{package}[{extra}]=={version}", True, extra_members))
     return jobs
 
 
@@ -172,12 +175,8 @@ def main() -> int:
     workers = min(len(jobs), max_workers)
     print(f"\nInstalling {len(jobs)} jobs at {args.version}, {workers} at a time...")
 
-    def _owner(specifier: str) -> str:
-        return specifier.split("[")[0].split("==")[0]
-
-    def _run(job: tuple[str, bool, list[str]]) -> tuple[list[str], list[str]]:
-        specifier, expect_import, members = job
-        package = _owner(specifier)
+    def _run(job: tuple[str, str, bool, list[str]]) -> tuple[list[str], list[str]]:
+        package, specifier, expect_import, members = job
         owner_modules = surface(str(packages[package]["path"]))
         member_modules = {member: str(packages[member]["path"]).replace("/", ".") for member in members}
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -187,7 +186,7 @@ def main() -> int:
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
         # map() preserves job order, so per-job output stays deterministic.
         for job, (messages, job_errors) in zip(jobs, executor.map(_run, jobs)):
-            print(f"\nInstalling {job[0]}...")
+            print(f"\nInstalling {job[1]}...")
             for message in messages:
                 print(message)
             errors.extend(job_errors)
