@@ -523,7 +523,7 @@ def test_no_dotted_package_is_listed_by_two_reachable_distributions() -> None:
     owners: dict[str, str] = {}
     conflicts: dict[str, list[str]] = {}
     for name in reachable:
-        # An unpublished reached package is checked against what its stale PyPI release ships.
+        # For an unpublished reached package, its configured layout stands in for its last PyPI release.
         for entry in _wheel_packages(name, packages):
             previous = owners.get(entry)
             if previous is not None and previous != name:

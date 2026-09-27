@@ -317,6 +317,6 @@ A published community leaf goes behind a bundle extra the same way, spelled `"<l
 ### Add a variant to an existing plugin
 
 Same as [Add a new package](#add-a-new-package): the parent's `all` extra is
-`["{published_children}"]`, so set `published = true` on the variant (which also
-makes the bundle own it, per [Add a new package](#add-a-new-package)) rather than
-editing the extra. An unpublished variant stays out of every extra.
+`["{published_children}"]`, so set `published = true` on the variant and have the
+bundle own it (step 3 there) rather than editing the extra. An unpublished variant
+stays out of every extra.
