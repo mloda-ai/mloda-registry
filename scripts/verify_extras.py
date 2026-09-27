@@ -6,8 +6,7 @@ keys. ``{published_children}`` expands as the generator does; the shared default
 config/shared.toml declare only ``dev``, which is skipped, so they are never merged here.
 
 Jobs run concurrently through a bounded thread pool: one bare install per owning package (its
-extras' members combined), then one gated install per extra, instead of repeating the bare install
-once per extra.
+extras' members combined), then one gated install per extra.
 
 Run: python scripts/verify_extras.py <version>
 Exit code: 1 if any member imports without its extra or fails to import with it, 0 otherwise.
@@ -69,7 +68,7 @@ def internal_extra_members(packages: dict[str, dict[str, Any]]) -> list[tuple[st
 def verification_jobs(entries: list[tuple[str, str, list[str]]], version: str) -> list[tuple[str, bool, list[str]]]:
     """(specifier, expect_import, members) install jobs, deduplicated per owning package: one bare job
     (the union of that package's extras' members, first-appearance order), then one gated job per extra,
-    both in entry order. A package with three extras installs bare exactly once instead of three times."""
+    both in entry order. A package installs bare exactly once, however many extras it has."""
     bare_members: dict[str, list[str]] = {}
     gated_jobs: dict[str, list[tuple[str, str, list[str]]]] = {}
     for package, extra, members in entries:

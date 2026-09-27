@@ -519,7 +519,6 @@ def generate_pyproject(
     if "workspace_deps" in pkg_config and "py_typed" in pkg_config:
         raise ValueError(f"{pkg_name}: workspace_deps and py_typed are mutually exclusive")
 
-    # Ownership/publishing validation runs on the raw config, before any resolution below.
     validate_ownership_and_publishing(pkg_name, pkg_config, all_packages)
 
     # Resolved early so a missing version raises this function's own ValueError, not a raw KeyError.

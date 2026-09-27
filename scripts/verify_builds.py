@@ -55,7 +55,7 @@ PACKAGES = load_packages_from_config()
 
 
 # The single implementation both scripts expose; verify_build_floor.py and test_verify_builds_wheel_matching.py
-# call them through this module too, so there is exactly one implementation.
+# call them through this module too.
 escape_distribution_name: Callable[[str], str] = pp.escape_distribution_name
 find_wheels: Callable[[Path, str], list[Path]] = pp.find_wheels
 
