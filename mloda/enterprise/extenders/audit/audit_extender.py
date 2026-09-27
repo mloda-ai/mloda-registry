@@ -18,12 +18,14 @@ from mloda.enterprise.extenders.audit._records import _canonical_json as _canoni
 from mloda.enterprise.extenders.audit._records import _is_blank, _utc_now
 from mloda.enterprise.extenders.audit.run_manifest import (
     ManifestSigner,
+    ManifestVerificationError,
     RunAlreadySealedError,
     RunNotPendingError,
     _reject_aliased_paths,
     _signer_map,
     seal_ndjson_runs,
 )
+from mloda.enterprise.extenders.audit.run_manifest import _check_run_against_seal as _check_run_against_seal
 from mloda.enterprise.extenders.audit.run_manifest import _is_run_sealed_unverified as _is_run_sealed_unverified
 
 logger = logging.getLogger(__name__)
@@ -246,8 +248,9 @@ class AuditExtender(Extender):
         audit file or a run_id with no records is worth a steward's attention). Flushes the sink first, so a
         buffered record reaches the audit file before it is sealed. A pickled or copied instance has no
         signer (see __getstate__): it warns once per copy instead of raising or sealing anything.
-        RunAlreadySealedError is logged at ERROR (any record written for it after that seal lies outside it,
-        verification reports it); RunNotPendingError is logged at WARNING (recoverable: the run just wrote nothing
+        RunAlreadySealedError is logged at INFO when audit_path's records of the run still match its seal (e.g. a
+        refused re-run), else at ERROR with the reason (a record outside the seal, or a failed check);
+        RunNotPendingError is logged at WARNING (recoverable: the run just wrote nothing
         yet). Neither is raised. The run's cached answer is dropped, so a later call under it re-reads the
         manifest log (and is refused there). Every other exception, e.g. ManifestVerificationError, is not
         caught here either; core logs it at ERROR and never fails the run because of it, regardless of
@@ -284,12 +287,24 @@ class AuditExtender(Extender):
                 run_id=run_id,
             )
         except RunAlreadySealedError:
-            logger.error(
-                "AuditExtender: run_id %r is already sealed in manifest_path %s and was not sealed again; "
-                "any record written for it after that seal lies outside it (verification reports it)",
-                run_id,
-                self._manifest_path,
-            )
+            try:
+                _check_run_against_seal(self._audit_path, self._manifest_path, run_id)
+            except (ManifestVerificationError, OSError) as exc:
+                logger.error(
+                    "AuditExtender: run_id %r is already sealed in manifest_path %s and was not sealed again; "
+                    "its records in audit_path %s could not be confirmed to match that seal: %s",
+                    run_id,
+                    self._manifest_path,
+                    self._audit_path,
+                    exc,
+                )
+            else:
+                logger.info(
+                    "AuditExtender: run_id %r is already sealed in manifest_path %s and was not sealed again; "
+                    "nothing has been written for it since",
+                    run_id,
+                    self._manifest_path,
+                )
         except RunNotPendingError:
             logger.warning(
                 "AuditExtender: run_id %r has no audit records to seal in audit_path %s", run_id, self._audit_path

@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import importlib
 import json
+import logging
 import os
 import pickle  # nosec
 import re
@@ -4657,6 +4658,7 @@ class TestRunManifestRunAll:
         rerun_with: str,
         tmp_path: Path,
         request: pytest.FixtureRequest,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """A prepared session's run() reuses its run_id, so a second run() must be refused, not resealed,
         whether the refusal comes from the same extender instance or a fresh one built over the same
@@ -4698,16 +4700,19 @@ class TestRunManifestRunAll:
                 }
             )
 
-            with pytest.raises(SealedRunRefusedError):
-                session.run(
-                    parallelization_modes={mode},
-                    flight_server=flight_server,
-                    function_extender=rerun_extenders,
-                )
+            with caplog.at_level(logging.INFO):
+                with pytest.raises(SealedRunRefusedError):
+                    session.run(
+                        parallelization_modes={mode},
+                        flight_server=flight_server,
+                        function_extender=rerun_extenders,
+                    )
 
         assert audit_path.read_bytes() == audit_before
         assert manifest_path.read_bytes() == manifest_before
         verify_ndjson_log(audit_path, manifest_path, signer=signer)
+        # A refused re-run wrote nothing new: on_run_complete must not log an ERROR for it.
+        assert not any(r.levelno >= logging.ERROR and r.name == audit_extender_module.__name__ for r in caplog.records)
 
     @_both_algorithms
     def test_run_all_multiprocessing_auto_seal_waits_for_workers_to_be_joined(

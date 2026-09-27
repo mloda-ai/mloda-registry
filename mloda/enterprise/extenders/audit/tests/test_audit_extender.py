@@ -1090,28 +1090,35 @@ class TestAuditExtenderSealing:
         manifests = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()]
         assert "run-missing" not in {m.get("run_id") for m in manifests}
 
-    def test_second_call_for_an_already_sealed_run_with_no_new_records_logs_error_and_does_not_raise(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    @pytest.mark.parametrize(
+        "make_refuser",
+        [
+            pytest.param(_refuser_sealing_instance, id="sealing_instance"),
+            pytest.param(_refuser_second_instance, id="second_instance"),
+        ],
+    )
+    def test_a_refused_rerun_of_an_already_sealed_run_logs_no_error_and_does_not_raise(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        make_refuser: Callable[..., tuple[AuditExtender, Path]],
     ) -> None:
-        audit_path = tmp_path / "audit.ndjson"
-        manifest_path = tmp_path / "manifest.ndjson"
-        _append_records(audit_path, [_minimal_audit_record("run-1")])
-        extender = AuditExtender(
-            sink=NdjsonAuditSink(audit_path), audit_path=audit_path, manifest_path=manifest_path, signer=_hmac_signer()
-        )
-        extender.on_run_complete("run-1")
-        before = manifest_path.read_text(encoding="utf-8")
+        refuser, audit_path = make_refuser(tmp_path, False)
+        _, manifest_path = _sealing_config(tmp_path)
+        before = manifest_path.read_bytes()
 
-        with caplog.at_level(logging.ERROR):
-            extender.on_run_complete("run-1")  # must not raise
+        # The real re-run flow: a calculation under the sealed run_id is refused before writing anything.
+        with make_hook_context(run_id="run-1", tenant_id=_TENANT).activate():
+            with pytest.raises(SealedRunRefusedError):
+                refuser(_CountingCall())
 
-        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
-        assert any(
-            "run-1" in r.getMessage() and str(manifest_path) in r.getMessage() and "after that seal" in r.getMessage()
-            for r in errors
-        )
-        assert not any("another writer" in r.getMessage() for r in errors)
-        assert manifest_path.read_text(encoding="utf-8") == before
+        with caplog.at_level(logging.INFO):
+            refuser.on_run_complete("run-1")  # must not raise
+
+        assert not any(r.levelno >= logging.ERROR and r.name == audit_extender_module.__name__ for r in caplog.records)
+        infos = [r for r in caplog.records if r.levelno == logging.INFO and r.name == audit_extender_module.__name__]
+        assert any("run-1" in r.getMessage() and str(manifest_path) in r.getMessage() for r in infos)
+        assert manifest_path.read_bytes() == before
 
     def test_second_call_after_a_new_record_for_the_same_run_id_does_not_reseal_it(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -1132,12 +1139,33 @@ class TestAuditExtenderSealing:
             extender.on_run_complete("run-1")  # must not raise
 
         errors = [r for r in caplog.records if r.levelno == logging.ERROR]
-        assert any("run-1" in r.getMessage() and str(manifest_path) in r.getMessage() for r in errors)
+        assert any(
+            "run-1" in r.getMessage() and str(manifest_path) in r.getMessage() and str(audit_path) in r.getMessage()
+            for r in errors
+        )
+        assert any("beyond its seal" in r.getMessage() for r in errors)
         manifests = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()]
         assert len(manifests) == 1
         assert manifests[0]["record_count"] == 1
         with pytest.raises(ManifestVerificationError, match="beyond its seal"):
             verify_ndjson_log_coverage(audit_path, manifest_path, signer=signer)
+
+    def test_a_torn_line_in_audit_path_after_the_run_is_sealed_logs_error_and_does_not_raise(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        extender, audit_path = _extender_with_run_1_sealed(tmp_path)
+        _, manifest_path = _sealing_config(tmp_path)
+        before = manifest_path.read_bytes()
+        # A torn line: the record-hash check itself fails to read audit_path.
+        with open(audit_path, "ab") as audit_file:
+            audit_file.write(b'{"run_id": "run-1", "comp')
+
+        with caplog.at_level(logging.ERROR):
+            extender.on_run_complete("run-1")  # must not raise
+
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR and r.name == audit_extender_module.__name__]
+        assert any("run-1" in r.getMessage() for r in errors)
+        assert manifest_path.read_bytes() == before
 
     def test_manifest_verification_error_from_seal_ndjson_runs_propagates(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"
