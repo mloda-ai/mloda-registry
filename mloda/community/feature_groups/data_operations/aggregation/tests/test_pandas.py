@@ -39,6 +39,11 @@ class TestPandasAggregation(CapabilityHookTestMixin, PandasTestMixin, Aggregatio
             ("value__mode_agg", Options()),
         )
 
+    @classmethod
+    def nan_divergent_agg_types(cls) -> frozenset[str]:
+        """pandas' mode() treats NaN as a distinct, dropped value, not one counted value."""
+        return frozenset({"mode"})
+
 
 class TestPandasModeVectorized:
     """Targeted tests for the vectorized ``_compute_mode`` implementation.

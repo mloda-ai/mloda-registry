@@ -100,13 +100,11 @@ class TestPythonDictMinMaxSkipsNan:
     ``PythonDictFrameAggregate._reduce_window`` (python_dict_frame_aggregate.py
     lines 192-195) reduces a window's non-null values with Python's builtin
     ``min()``/``max()``, which short-circuits to NaN the moment any element
-    is NaN. This operation's own ``ReferenceFrameAggregate`` test reference
-    has the identical bug (it reduces windows via
-    ``aggregation_helpers.aggregate()``, which also calls builtin
-    ``min()``/``max()``), so it is NOT a valid oracle here either. This test
-    instead calls PyArrow's own ``pyarrow.compute.min``/``max`` directly (the
-    functions every genuine PyArrow-backed aggregation in this codebase
-    delegates to) on the window's non-NaN values as the live oracle.
+    is NaN, unlike ``aggregation_helpers.aggregate()`` (this operation's own
+    ``ReferenceFrameAggregate`` test reference), which now skips NaN for
+    ``min``/``max``. This test calls PyArrow's own ``pyarrow.compute.min``/``max``
+    directly (the functions every genuine PyArrow-backed aggregation in this
+    codebase delegates to) on the window's non-NaN values as the live oracle.
     """
 
     @staticmethod

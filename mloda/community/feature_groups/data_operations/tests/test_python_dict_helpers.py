@@ -262,6 +262,12 @@ class TestReduceAgg:
     def test_median_skips_none(self) -> None:
         assert reduce_agg("median", [None, 1.0, 2.0, 3.0]) == pytest.approx(2.0)
 
+    def test_median_skips_nan(self) -> None:
+        assert reduce_agg("median", [1.0, float("nan")]) == pytest.approx(1.0)
+
+    def test_median_all_nan_returns_none(self) -> None:
+        assert reduce_agg("median", [float("nan"), float("nan")]) is None
+
     def test_unsupported_agg_type_raises_value_error(self) -> None:
         with pytest.raises(ValueError):
             reduce_agg("not_a_real_agg_type", [1, 2, 3])
@@ -299,13 +305,6 @@ class TestReduceAgg:
 
         result = reduce_agg("mode", values)
         assert result is not None and math.isnan(result), f"mode={result!r} != PyArrow oracle mode={oracle!r} (nan)"
-
-
-class TestReduceAggMedianDoesNotSkipNanDocumentedDivergence:
-    def test_median_of_value_and_nan_returns_nan(self) -> None:
-        """Documented divergence: median does not skip NaN like pandas' skipna median."""
-        result = reduce_agg("median", [1.0, float("nan")])
-        assert result is not None and math.isnan(result)
 
 
 class TestGroupKeyValueMergesSignedZeroDocumentedDivergence:

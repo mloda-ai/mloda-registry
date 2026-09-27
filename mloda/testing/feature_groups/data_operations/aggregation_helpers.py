@@ -7,10 +7,20 @@ for operations that PyArrow's native group_by API does not support directly.
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from typing import Any
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
+
+# Sentinel key for NaN in mode's Counter: values come from to_pylist(), so every NaN
+# is a distinct float object and Counter cannot merge them by equality.
+_NAN_KEY = object()
+
+
+def _is_nan(v: Any) -> bool:
+    return isinstance(v, float) and math.isnan(v)
+
 
 _SUPPORTED_AGG_TYPES = {
     "sum",
@@ -47,10 +57,13 @@ def aggregate(values: list[Any], agg_type: str) -> Any:
         return sum(non_null) / len(non_null)
     if agg_type == "count":
         return len(non_null)
-    if agg_type == "min":
-        return min(non_null)
-    if agg_type == "max":
-        return max(non_null)
+    if agg_type in ("min", "max"):
+        non_nan = [v for v in non_null if not _is_nan(v)]
+        if not non_nan:
+            # non_null was non-empty and entirely NaN: pc.min/pc.max skip NaN but an
+            # all-NaN group still returns NaN (unlike median/quantile, which return null).
+            return float("nan")
+        return min(non_nan) if agg_type == "min" else max(non_nan)
     if agg_type in ("std", "std_pop"):
         return std(non_null, ddof=0)
     if agg_type in ("var", "var_pop"):
@@ -87,7 +100,11 @@ def var(values: list[Any], ddof: int = 0) -> Any:
 
 
 def median(values: list[Any]) -> Any:
-    s = sorted(values)
+    """Median, skipping NaN like pc.quantile (all-NaN, like all-null, returns None)."""
+    non_nan = [v for v in values if not _is_nan(v)]
+    if not non_nan:
+        return None
+    s = sorted(non_nan)
     n = len(s)
     mid = n // 2
     if n % 2 == 0:
@@ -96,7 +113,9 @@ def median(values: list[Any]) -> Any:
 
 
 def mode(values: list[Any]) -> Any:
+    """Mode, counting NaN as one value like pc.mode; ties keep first occurrence."""
     if not values:
         return None
-    counts = Counter(values)
-    return counts.most_common(1)[0][0]
+    counts = Counter(_NAN_KEY if _is_nan(v) else v for v in values)
+    winner = counts.most_common(1)[0][0]
+    return float("nan") if winner is _NAN_KEY else winner

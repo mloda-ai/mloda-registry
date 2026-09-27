@@ -18,6 +18,7 @@ class and add their own expected values and concrete test methods.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from typing import Any
 
 import pyarrow as pa
@@ -102,6 +103,38 @@ class DataOpsTestBase(ABC):
                     pytest.skip(f"{op} not supported by this framework")
                 return
         pytest.skip(f"{op} not supported by this framework")
+
+    # -- Shared NaN-policy fixture -----------------------------------------
+
+    @classmethod
+    def nan_policy_table(cls) -> pa.Table:
+        """Shared grp/ts/val fixture for median/mode/min/max NaN-policy tests.
+
+        val mixes NaN with real values, on purpose with no all-NaN group or window.
+        """
+        return pa.table(
+            {
+                "grp": ["A", "A", "A", "B", "B", "B", "B"],
+                "ts": [
+                    datetime(2024, 1, 1, tzinfo=timezone.utc),
+                    datetime(2024, 1, 2, tzinfo=timezone.utc),
+                    datetime(2024, 1, 3, tzinfo=timezone.utc),
+                    datetime(2024, 1, 1, tzinfo=timezone.utc),
+                    datetime(2024, 1, 2, tzinfo=timezone.utc),
+                    datetime(2024, 1, 3, tzinfo=timezone.utc),
+                    datetime(2024, 1, 4, tzinfo=timezone.utc),
+                ],
+                "val": pa.array([2.0, float("nan"), 1.0, 1.0, float("nan"), 3.0, float("nan")], type=pa.float64()),
+            }
+        )
+
+    @classmethod
+    def nan_divergent_agg_types(cls) -> frozenset[str]:
+        """Agg types where this framework pins a known NaN divergence instead of the policy.
+
+        Default: none. See docs/guides/data-operation-patterns/known-divergences.md.
+        """
+        return frozenset()
 
     # -- Cross-framework comparison --------------------------------------------
 

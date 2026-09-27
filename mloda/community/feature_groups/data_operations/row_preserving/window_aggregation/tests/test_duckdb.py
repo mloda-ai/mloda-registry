@@ -32,5 +32,10 @@ class TestDuckdbWindowAggregation(CapabilityHookTestMixin, DuckdbTestMixin, Wind
         return {*cls.ALL_AGG_TYPES, "mean"}
 
     @classmethod
+    def nan_divergent_agg_types(cls) -> frozenset[str]:
+        """DuckDB's MODE counts each NaN separately, and MAX propagates NaN instead of skipping it."""
+        return frozenset({"mode", "max"})
+
+    @classmethod
     def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
         return (("value__median_window", Options()),)

@@ -19,6 +19,7 @@ from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 
@@ -45,6 +46,18 @@ EXPECTED_STD_SAMP: float = EXPECTED_VAR_SAMP**0.5
 
 # Median of sorted non-null: [-10, -5, 0, 10, 15, 15, 20, 30, 40, 50, 60] -> 15.0
 EXPECTED_MEDIAN: float = 15.0
+
+# NaN policy (docs/guides/data-operation-patterns/03-reference-implementation.md), evaluated
+# on DataOpsTestBase.nan_policy_table() (grp/ts/val), whole column (no partition).
+NAN_POLICY_SCALAR: dict[str, list[float]] = {
+    "median": [1.5] * 7,
+    "min": [1.0] * 7,
+    "max": [3.0] * 7,
+}
+# Known per-backend divergences, pinned via nan_divergent_agg_types().
+NAN_DIVERGENT_SCALAR: dict[str, list[float]] = {
+    "max": [float("nan")] * 7,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -401,6 +414,31 @@ class ScalarAggregateTestBase(MaskTestMixin, DataOpsTestBase):
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         result_col = self.extract_column(result, feature_name)
         assert all(v == expected for v in result_col)
+
+    # -- NaN policy (median/min/max) -------------------------------------------
+    # The reference assertion pins the policy; ``nan_divergent_agg_types`` pins each
+    # backend's own known divergence.
+
+    @pytest.mark.parametrize("agg_type", sorted(NAN_POLICY_SCALAR), ids=sorted(NAN_POLICY_SCALAR))
+    def test_nan_policy_scalar(self, agg_type: str) -> None:
+        """median/min/max of a NaN-mixed column, broadcast to every row."""
+        self._skip_if_unsupported(agg_type)
+        table = self.nan_policy_table()
+        feature_name = f"val__{agg_type}_scalar"
+        fs = make_feature_set(feature_name)
+
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        ref_col = _extract_column(ref, feature_name)
+        assert ref_col == pytest.approx(NAN_POLICY_SCALAR[agg_type], nan_ok=True), f"reference: {ref_col!r}"
+
+        result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
+        result_col = self.extract_column(result, feature_name)
+        expected = (
+            NAN_DIVERGENT_SCALAR[agg_type]
+            if agg_type in self.nan_divergent_agg_types()
+            else NAN_POLICY_SCALAR[agg_type]
+        )
+        assert result_col == pytest.approx(expected, nan_ok=True), f"backend: {result_col!r}"
 
     # -- Mask tests ------------------------------------------------------------
 

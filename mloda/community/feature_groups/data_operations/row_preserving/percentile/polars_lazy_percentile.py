@@ -9,6 +9,7 @@ from mloda.provider import ComputeFramework
 from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe import PolarsLazyDataFrame
 
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
+from mloda.community.feature_groups.data_operations.polars_helpers import nan_to_null
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (
     PercentileFeatureGroup,
 )
@@ -33,7 +34,13 @@ class PolarsLazyPercentile(PercentileFeatureGroup):
         if mask_spec is not None:
             data, actual_source = apply_polars_mask(data, source_col, mask_spec)
 
-        expr = pl.col(actual_source).quantile(percentile, interpolation="linear").over(partition_by).alias(feature_name)
+        dtype = data.collect_schema()[actual_source]
+        expr = (
+            nan_to_null(pl.col(actual_source), dtype)
+            .quantile(percentile, interpolation="linear")
+            .over(partition_by)
+            .alias(feature_name)
+        )
         result = data.with_columns(expr)
         if mask_spec is not None:
             result = result.drop(_POLARS_MASK_TMP)

@@ -1,11 +1,17 @@
-"""Shared DuckDB helper utilities for time bucketization and resample.
+"""Shared DuckDB helper utilities for time bucketization, resample, and aggregation.
 
 Centralizes the epoch-anchored floor expression (and the interval-literal
 building block it depends on) so every DuckDB-based bucket/resample feature
-group floors timestamps identically.
+group floors timestamps identically, plus a column-type lookup and a
+float-only NaN-to-null wrap shared by aggregation feature groups.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 
 # DuckDB ``DATE_TRUNC`` unit names per logical unit.
 DUCKDB_TRUNC_UNIT: dict[str, str] = {
@@ -52,3 +58,16 @@ def floor_expr(quoted_source: str, n: int, unit: str) -> str:
     # TIMESTAMP and TIMESTAMPTZ so the same literal works for either
     # source column type.
     return f"time_bucket({interval}, {quoted_source}, DATE '1970-01-01')"
+
+
+def column_types(data: "DuckdbRelation") -> dict[str, str]:
+    """Column name -> DuckDB type string, read from the relation's schema."""
+    underlying = data._relation
+    return dict(zip(list(underlying.columns), [str(t) for t in underlying.types]))
+
+
+def nan_to_null_sql(expr: str, column_type: str) -> str:
+    """Wrap ``expr`` so NaN counts as null in aggregate functions, float columns only."""
+    if column_type.upper() in ("FLOAT", "DOUBLE"):
+        return f"NULLIF({expr}, 'NaN')"
+    return expr

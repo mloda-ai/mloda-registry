@@ -16,6 +16,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
     WindowFrame,
 )
 
+from mloda.community.feature_groups.data_operations.duckdb_helpers import column_types, nan_to_null_sql
 from mloda.community.feature_groups.data_operations.errors import (
     unsupported_agg_type_error,
     unsupported_frame_type_error,
@@ -94,6 +95,8 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
                 partition_by=partition_by,
                 quoted_order=quoted_order,
                 agg_func=agg_func,
+                agg_type=agg_type,
+                column_type=column_types(data)[source_col],
                 frame_size=frame_size,
                 frame_unit=frame_unit,
                 mask_spec=mask_spec,
@@ -122,8 +125,11 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         rel = data.with_row_number(rn)
 
         # Step 2: compute window function with frame
+        agg_source = source_sql
+        if agg_type == "median":
+            agg_source = nan_to_null_sql(source_sql, column_types(data)[source_col])
         rel = rel.window(
-            f"{agg_func}({source_sql})",
+            f"{agg_func}({agg_source})",
             feature_name,
             partition_by=partition_by,
             order_by=order_spec,
@@ -146,6 +152,8 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         partition_by: list[str],
         quoted_order: str,
         agg_func: str,
+        agg_type: str,
+        column_type: str,
         frame_size: int | None,
         frame_unit: str | None,
         mask_spec: list[tuple[str, str, Any]] | None,
@@ -178,6 +186,7 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
             if mask_spec is not None
             else inner_source
         )
+        agg_source_sql = nan_to_null_sql(inner_source_sql, column_type) if agg_type == "median" else inner_source_sql
 
         if partition_by:
             partition_eq = " AND ".join(
@@ -196,7 +205,7 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         sql = " ".join(  # nosec
             [
                 f"SELECT {keep},",
-                f"(SELECT {agg_func}({inner_source_sql})",
+                f"(SELECT {agg_func}({agg_source_sql})",
                 "FROM tagged s",
                 f"WHERE {partition_eq}",
                 "AND (",

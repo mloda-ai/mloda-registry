@@ -7,7 +7,6 @@ column and broadcast to every row, including masked-out rows.
 
 from __future__ import annotations
 
-import statistics
 from typing import Any
 
 from mloda.provider import ComputeFramework
@@ -25,6 +24,7 @@ from mloda.community.feature_groups.data_operations.python_dict_helpers import (
     STD_AGG_TYPES,
     VARIANCE_DDOF,
     is_nan,
+    reduce_agg,
     variance,
 )
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
@@ -65,7 +65,7 @@ class PythonDictScalarAggregate(ScalarAggregateFeatureGroup):
         if agg_type == "count":
             return len(non_null)
         if agg_type == "median":
-            return statistics.median(non_null) if non_null else None
+            return reduce_agg("median", non_null)
         if agg_type in VARIANCE_DDOF:
             return variance(non_null, ddof=VARIANCE_DDOF[agg_type], as_std=agg_type in STD_AGG_TYPES)
 

@@ -16,6 +16,7 @@ from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
+from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 
@@ -47,6 +48,10 @@ EXPECTED_P100_BY_REGION: list[float] = [20.0, 20.0, 20.0, 20.0, 60.0, 60.0, 60.0
 # C/Y: rows 8,10 values [15,40] sorted=[15,40] p50=27.5
 # C/X: row 9 values [15] p50=15.0
 # None/X: row 11 values [-10] p50=-10.0
+
+# NaN policy (docs/guides/data-operation-patterns/03-reference-implementation.md), evaluated
+# on DataOpsTestBase.nan_policy_table() (grp/ts/val), broadcast per grp. p50 == median.
+NAN_POLICY_P50: list[float] = [1.5, 1.5, 1.5, 2.0, 2.0, 2.0, 2.0]
 
 
 # ---------------------------------------------------------------------------
@@ -415,3 +420,21 @@ class PercentileTestBase(MaskTestMixin, DataOpsTestBase):
         result_col = self.extract_column(result, "w\u00e9rt__p50_percentile")
         # A: [10, 20] -> p50 = 15.0, B: [30, 40] -> p50 = 35.0
         assert result_col == pytest.approx([15.0, 15.0, 35.0, 35.0], rel=1e-6)
+
+    # -- NaN policy (p50) --------------------------------------------------
+    # p50 (median) has no known per-backend divergence once the float-only NaN
+    # wrap is applied, so both sides pin the same policy.
+
+    def test_nan_policy_p50(self) -> None:
+        """p50 (median) of a NaN-mixed column, broadcast per grp."""
+        table = self.nan_policy_table()
+        feature_name = "val__p50_percentile"
+        fs = make_feature_set(feature_name, ["grp"])
+
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        ref_col = _extract_column(ref, feature_name)
+        assert ref_col == pytest.approx(NAN_POLICY_P50, nan_ok=True), f"reference: {ref_col!r}"
+
+        result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
+        result_col = self.extract_column(result, feature_name)
+        assert result_col == pytest.approx(NAN_POLICY_P50, nan_ok=True), f"backend: {result_col!r}"

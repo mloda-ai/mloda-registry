@@ -9,7 +9,6 @@ because PyArrow has no exact grouped median or grouped mode function.
 
 from __future__ import annotations
 
-from collections import Counter
 from typing import Any
 
 import pyarrow as pa
@@ -22,6 +21,7 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import apply_pyarrow_mask
+from mloda.testing.feature_groups.data_operations import aggregation_helpers
 
 # Aggregation types with direct PyArrow group_by support.
 _PA_AGG_FUNCS: dict[str, str] = {
@@ -113,26 +113,10 @@ class ReferenceAggregation(AggregationFeatureGroup):
             if not non_null:
                 agg_values.append(None)
             elif agg_type == "median":
-                agg_values.append(cls._median(non_null))
+                agg_values.append(aggregation_helpers.median(non_null))
             else:
-                agg_values.append(cls._mode(non_null))
+                agg_values.append(aggregation_helpers.mode(non_null))
 
         arrays = [grouped.column(col) for col in partition_by]
         arrays.append(pa.array(agg_values))
         return pa.table(arrays, names=list(partition_by) + [feature_name])
-
-    @classmethod
-    def _median(cls, values: list[Any]) -> Any:
-        s = sorted(values)
-        n = len(s)
-        mid = n // 2
-        if n % 2 == 0:
-            return (s[mid - 1] + s[mid]) / 2.0
-        return float(s[mid])
-
-    @classmethod
-    def _mode(cls, values: list[Any]) -> Any:
-        if not values:
-            return None
-        counts = Counter(values)
-        return counts.most_common(1)[0][0]

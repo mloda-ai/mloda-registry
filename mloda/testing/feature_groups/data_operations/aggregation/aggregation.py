@@ -15,8 +15,10 @@ that any framework implementation inherits by subclassing and implementing
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
+import pyarrow as pa
 import pytest
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
@@ -75,6 +77,21 @@ ADVANCED_AGG_CASES: list[tuple[str, dict[Any, int]]] = [
     # None=[-10]. No group has a trailing null, so all frameworks agree on the last value.
     ("last", {"A": 20, "B": 60, "C": 40, None: -10}),
 ]
+
+# NaN policy (docs/guides/data-operation-patterns/03-reference-implementation.md): the
+# reference returns what PyArrow's ungrouped kernel returns for each op, evaluated on
+# DataOpsTestBase.nan_policy_table() (grp/ts/val), grouped by grp.
+NAN_POLICY_AGG: dict[str, dict[Any, float]] = {
+    "median": {"A": 1.5, "B": 2.0},
+    "mode": {"A": 2.0, "B": float("nan")},
+    "min": {"A": 1.0, "B": 1.0},
+    "max": {"A": 2.0, "B": 3.0},
+}
+# Known per-backend divergences, pinned via nan_divergent_agg_types().
+NAN_DIVERGENT_AGG: dict[str, dict[Any, float]] = {
+    "mode": {"A": 2.0, "B": 1.0},
+    "max": {"A": float("nan"), "B": float("nan")},
+}
 
 # (agg_type, needs_skip) for aggregations over the all-null ``score`` column.
 ALL_NULL_COLUMN_AGG_CASES: list[tuple[str, bool]] = [
@@ -145,6 +162,15 @@ class AggregationTestBase(MaskTestMixin, DataOpsTestBase):
     def supported_agg_types(cls) -> set[str]:
         """Aggregation types this framework supports. Override to restrict."""
         return cls.ALL_AGG_TYPES
+
+    @classmethod
+    def merges_signed_zero_keys(cls) -> bool:
+        """Whether this framework merges 0.0 and -0.0 partition keys into one group.
+
+        The reference splits them (PyArrow's Table.group_by() treats 0.0 and -0.0 as
+        distinct keys). Most backends merge them; TestPyArrowAggregation overrides to False.
+        """
+        return True
 
     # -- MaskTestMixin configuration -------------------------------------------
 
@@ -811,3 +837,57 @@ class AggregationTestBase(MaskTestMixin, DataOpsTestBase):
         assert result_map["B"] == 60
         assert result_map["C"] == 15
         assert result_map[None] == -10
+
+    # -- NaN policy (median/mode/min/max) ------------------------------------
+    # The reference assertion pins the policy; ``nan_divergent_agg_types`` pins each
+    # backend's own known divergence.
+
+    @pytest.mark.parametrize("agg_type", sorted(NAN_POLICY_AGG), ids=sorted(NAN_POLICY_AGG))
+    def test_nan_policy_agg(self, agg_type: str) -> None:
+        """median/mode/min/max of a NaN-mixed column, grouped by grp."""
+        self._skip_if_unsupported(agg_type)
+        table = self.nan_policy_table()
+        feature_name = f"val__{agg_type}_agg"
+        fs = make_feature_set(feature_name, ["grp"])
+
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        ref_map = _build_result_map(extract_column(ref, "grp"), extract_column(ref, feature_name))
+        assert ref_map == pytest.approx(NAN_POLICY_AGG[agg_type], nan_ok=True), f"reference: {ref_map!r}"
+
+        result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
+        result_map = _build_result_map(self.extract_column(result, "grp"), self.extract_column(result, feature_name))
+        expected = (
+            NAN_DIVERGENT_AGG[agg_type] if agg_type in self.nan_divergent_agg_types() else NAN_POLICY_AGG[agg_type]
+        )
+        assert result_map == pytest.approx(expected, nan_ok=True), f"backend: {result_map!r}"
+
+    # -- Signed-zero partition keys -------------------------------------------
+
+    def test_signed_zero_partition_keys(self) -> None:
+        """Partition keys 0.0 and -0.0: reference splits into two groups, most backends merge them."""
+        table = pa.table(
+            {
+                "k": pa.array([0.0, -0.0, -0.0], type=pa.float64()),
+                "v": pa.array([1, 2, 3], type=pa.int64()),
+            }
+        )
+        feature_name = "v__count_agg"
+        fs = make_feature_set(feature_name, ["k"])
+
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        assert ref.num_rows == 2, f"reference must split 0.0/-0.0 into two groups, got {ref.num_rows} rows"
+        ref_counts = sorted(extract_column(ref, feature_name))
+        assert ref_counts == [1, 2]
+
+        result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
+        result_counts = sorted(self.extract_column(result, feature_name))
+        if self.merges_signed_zero_keys():
+            row_count = self.get_row_count(result)
+            assert row_count == 1, f"expected one merged group, got {row_count} rows"
+            assert result_counts == [3]
+        else:
+            row_count = self.get_row_count(result)
+            assert row_count == 2, f"expected two split groups, got {row_count} rows"
+            assert result_counts == [1, 2]
+            signs = sorted(math.copysign(1, v) for v in self.extract_column(result, "k"))
+            assert signs == [-1.0, 1.0]

@@ -117,6 +117,20 @@ EXPECTED_EXPANDING_AVG: list[float] = [
     -10.0,
 ]
 
+# NaN policy (docs/guides/data-operation-patterns/03-reference-implementation.md), evaluated
+# on DataOpsTestBase.nan_policy_table() (grp/ts/val), rolling_3 ordered by ts.
+NAN_POLICY_ROLLING_3: dict[str, list[float]] = {
+    "median": [2.0, 2.0, 1.5, 1.0, 1.0, 2.0, 3.0],
+    "min": [2.0, 2.0, 1.0, 1.0, 1.0, 1.0, 3.0],
+    "max": [2.0, 2.0, 2.0, 1.0, 1.0, 3.0, 3.0],
+}
+# Known per-backend divergences, pinned via nan_divergent_agg_types(); DuckDB's rolling
+# window propagates NaN into MAX, and Polars' rolling window propagates NaN into both.
+NAN_DIVERGENT_ROLLING_3: dict[str, list[float]] = {
+    "min": [2.0, float("nan"), float("nan"), 1.0, float("nan"), float("nan"), float("nan")],
+    "max": [2.0, float("nan"), float("nan"), 1.0, float("nan"), float("nan"), float("nan")],
+}
+
 
 # ---------------------------------------------------------------------------
 # Capability-probe option builders (shared across backend test modules)
@@ -976,6 +990,56 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
         assert result_col[1] == 10
         assert result_col[2] == 30
         assert result_col[0] == 130
+
+    # -- NaN policy (median/min/max) -------------------------------------------
+    # The reference assertion pins the policy; ``nan_divergent_agg_types`` pins each
+    # backend's own known divergence. No ``supported_agg_types`` exists on this base,
+    # so support is probed directly via ``match_feature_group_criteria``.
+
+    def _skip_if_frame_feature_unsupported(self, feature_name: str, partition_by: list[str], order_by: str) -> None:
+        options = Options(context={"partition_by": partition_by, "order_by": order_by})
+        backend = self.implementation_class()
+        if not backend.match_feature_group_criteria(feature_name, options):
+            pytest.skip(f"{feature_name} not supported by this framework")
+        framework = self.compute_framework_class()  # type: ignore[attr-defined]
+        if not backend.supports_compute_framework(feature_name, options, framework):
+            pytest.skip(f"{feature_name} not supported by this framework")
+
+    @pytest.mark.parametrize("agg_type", sorted(NAN_POLICY_ROLLING_3), ids=sorted(NAN_POLICY_ROLLING_3))
+    def test_nan_policy_rolling_3(self, agg_type: str) -> None:
+        """Rolling-3 median/min/max of a NaN-mixed column, ordered by ts."""
+        feature_name = f"val__{agg_type}_rolling_3"
+        self._skip_if_frame_feature_unsupported(feature_name, ["grp"], "ts")
+        table = self.nan_policy_table()
+        fs = make_feature_set(feature_name, ["grp"], "ts")
+
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        ref_col = _extract_column(ref, feature_name)
+        assert ref_col == pytest.approx(NAN_POLICY_ROLLING_3[agg_type], nan_ok=True), f"reference: {ref_col!r}"
+
+        result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
+        result_col = self.extract_column(result, feature_name)
+        expected = (
+            NAN_DIVERGENT_ROLLING_3[agg_type]
+            if agg_type in self.nan_divergent_agg_types()
+            else NAN_POLICY_ROLLING_3[agg_type]
+        )
+        assert result_col == pytest.approx(expected, nan_ok=True), f"backend: {result_col!r}"
+
+    def test_nan_policy_time_window_median(self) -> None:
+        """A 2-day time-window median of a NaN-mixed column matches rolling_3 median."""
+        feature_name = "val__median_2_day_window"
+        self._skip_if_frame_feature_unsupported(feature_name, ["grp"], "ts")
+        table = self.nan_policy_table()
+        fs = make_feature_set(feature_name, ["grp"], "ts")
+
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        ref_col = _extract_column(ref, feature_name)
+        assert ref_col == pytest.approx(NAN_POLICY_ROLLING_3["median"], nan_ok=True), f"reference: {ref_col!r}"
+
+        result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
+        result_col = self.extract_column(result, feature_name)
+        assert result_col == pytest.approx(NAN_POLICY_ROLLING_3["median"], nan_ok=True), f"backend: {result_col!r}"
 
     # -- Row-order preservation ------------------------------------------------
 

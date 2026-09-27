@@ -10,7 +10,6 @@ function.
 
 from __future__ import annotations
 
-from collections import Counter
 from typing import Any
 
 import pyarrow as pa
@@ -23,6 +22,7 @@ from mloda.community.feature_groups.data_operations.mask_utils import apply_pyar
 from mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.base import (
     WindowAggregationFeatureGroup,
 )
+from mloda.testing.feature_groups.data_operations import aggregation_helpers
 
 _IDX_COL = "__mloda_wa_idx__"
 
@@ -163,9 +163,9 @@ class ReferenceWindowAggregation(WindowAggregationFeatureGroup):
             if not non_null:
                 agg_val = None
             elif agg_type == "median":
-                agg_val = _median(non_null)
+                agg_val = aggregation_helpers.median(non_null)
             else:
-                agg_val = _mode(non_null)
+                agg_val = aggregation_helpers.mode(non_null)
 
             for idx in indices:
                 result_values[idx] = agg_val
@@ -192,19 +192,3 @@ class ReferenceWindowAggregation(WindowAggregationFeatureGroup):
                 result_values[idx] = agg_val
 
         return original_table.append_column(feature_name, pa.array(result_values))
-
-
-def _median(values: list[Any]) -> Any:
-    s = sorted(values)
-    n = len(s)
-    mid = n // 2
-    if n % 2 == 0:
-        return (s[mid - 1] + s[mid]) / 2.0
-    return float(s[mid])
-
-
-def _mode(values: list[Any]) -> Any:
-    if not values:
-        return None
-    counts = Counter(values)
-    return counts.most_common(1)[0][0]

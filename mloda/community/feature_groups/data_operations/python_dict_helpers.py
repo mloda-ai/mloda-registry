@@ -183,8 +183,8 @@ def variance(non_null: list[float], *, ddof: int, as_std: bool) -> float | None:
 def reduce_agg(agg_type: str, values: list[Any]) -> Any:
     """Reduce one group's raw (possibly null-containing) values per *agg_type*.
 
-    NaN is skipped (in addition to None) for ``min``/``max``, matching PyArrow's
-    ``pc.min``/``pc.max``.
+    NaN is skipped (in addition to None) for ``min``/``max``/``median``, matching
+    PyArrow's ``pc.min``/``pc.max``/``pc.quantile``.
     """
     non_null = [v for v in values if v is not None]
 
@@ -201,7 +201,8 @@ def reduce_agg(agg_type: str, values: list[Any]) -> Any:
     if agg_type == "last":
         return non_null[-1] if non_null else None
     if agg_type == "median":
-        return statistics.median(non_null) if non_null else None
+        finite = [v for v in non_null if not is_nan(v)]
+        return statistics.median(finite) if finite else None
     if agg_type in VARIANCE_DDOF:
         return variance(non_null, ddof=VARIANCE_DDOF[agg_type], as_std=agg_type in STD_AGG_TYPES)
 

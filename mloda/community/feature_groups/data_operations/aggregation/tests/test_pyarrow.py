@@ -53,3 +53,8 @@ class TestPyArrowAggregation(CapabilityHookTestMixin, PyArrowTestMixin, Aggregat
             "first",
             "last",
         }
+
+    @classmethod
+    def merges_signed_zero_keys(cls) -> bool:
+        """PyArrow's own Table.group_by() splits 0.0/-0.0, matching the reference exactly."""
+        return False

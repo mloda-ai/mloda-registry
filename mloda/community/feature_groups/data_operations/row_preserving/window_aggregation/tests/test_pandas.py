@@ -30,6 +30,11 @@ class TestPandasWindowAggregation(PandasTestMixin, WindowAggregationTestBase):
     def supported_agg_types(cls) -> set[str]:
         return {*cls.ALL_AGG_TYPES, "mean"}
 
+    @classmethod
+    def nan_divergent_agg_types(cls) -> frozenset[str]:
+        """pandas' mode() treats NaN as a distinct, dropped value, not one counted value."""
+        return frozenset({"mode"})
+
 
 class TestPandasWindowModeVectorized:
     """Targeted tests for the vectorized window ``_compute_mode``.

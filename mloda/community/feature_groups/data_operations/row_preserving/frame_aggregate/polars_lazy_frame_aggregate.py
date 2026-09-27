@@ -14,6 +14,7 @@ from mloda.community.feature_groups.data_operations.errors import (
 )
 from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
+from mloda.community.feature_groups.data_operations.polars_helpers import nan_to_null
 from mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.base import (
     FrameAggregateFeatureGroup,
 )
@@ -58,8 +59,10 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
 
         # Cast Null-typed columns to Float64 so aggregation operations work.
         schema = data.collect_schema()
-        if schema[actual_source] == pl.Null:
+        source_dtype = schema[actual_source]
+        if source_dtype == pl.Null:
             data = data.cast({actual_source: pl.Float64})
+            source_dtype = pl.Float64()
 
         # Tag rows with original position
         data = data.with_row_index(rn_col)
@@ -107,7 +110,12 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
             elif agg_type == "var":
                 expr = col.rolling_var(window_size=window, min_samples=2, ddof=0).over(partition_by).alias(feature_name)
             elif agg_type == "median":
-                expr = col.rolling_median(window_size=window, min_samples=1).over(partition_by).alias(feature_name)
+                expr = (
+                    nan_to_null(col, source_dtype)
+                    .rolling_median(window_size=window, min_samples=1)
+                    .over(partition_by)
+                    .alias(feature_name)
+                )
             elif agg_type == "count":
                 expr = (
                     col.is_not_null()
@@ -217,7 +225,8 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
                 )
             elif agg_type == "median":
                 expr = (
-                    col.rolling_median_by(by_col, window_size=window_str, closed="both")
+                    nan_to_null(col, source_dtype)
+                    .rolling_median_by(by_col, window_size=window_str, closed="both")
                     .over(partition_by)
                     .alias(feature_name)
                 )

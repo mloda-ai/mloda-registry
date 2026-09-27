@@ -15,7 +15,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import floor_expr
+from mloda.community.feature_groups.data_operations.duckdb_helpers import column_types, floor_expr
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     RESAMPLE_AGGS,
     ResampleFeatureGroup,
@@ -40,13 +40,8 @@ class DuckdbResample(ResampleFeatureGroup):
         return {DuckDBFramework}
 
     @classmethod
-    def _column_types(cls, data: DuckdbRelation) -> dict[str, str]:
-        underlying = data._relation
-        return dict(zip(list(underlying.columns), [str(t) for t in underlying.types]))
-
-    @classmethod
     def _assert_time_column_present(cls, data: DuckdbRelation, time_column: str) -> None:
-        types = cls._column_types(data)
+        types = column_types(data)
         if time_column not in types:
             raise ValueError(
                 f"time_column {time_column!r} is not present in the DuckDB relation; available: {list(types)}."
@@ -54,7 +49,7 @@ class DuckdbResample(ResampleFeatureGroup):
 
     @classmethod
     def _assert_source_column_present(cls, data: DuckdbRelation, source_col: str) -> None:
-        types = cls._column_types(data)
+        types = column_types(data)
         if source_col not in types:
             raise ValueError(
                 f"Source column {source_col!r} is not present in the DuckDB relation; available: {list(types)}."

@@ -10,6 +10,7 @@ from mloda_plugins.compute_framework.base_implementations.polars.lazy_dataframe 
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
 from mloda.community.feature_groups.data_operations.mask_utils import _POLARS_MASK_TMP, apply_polars_mask
+from mloda.community.feature_groups.data_operations.polars_helpers import nan_to_null
 from mloda.community.feature_groups.data_operations.polars_mode_helpers import (
     ModeHelperCols,
     add_mode_helper_cols,
@@ -69,6 +70,9 @@ class PolarsLazyWindowAggregation(WindowAggregationFeatureGroup):
             expr = mode_window_expr(actual_source, partition_by, feature_name, mode_cols)
         elif agg_type in ("first", "last"):
             expr = cls._build_first_last_expr(actual_source, partition_by, agg_type, order_by, feature_name)
+        elif agg_type == "median":
+            dtype = data.collect_schema()[actual_source]
+            expr = nan_to_null(pl.col(actual_source), dtype).median().over(partition_by).alias(feature_name)
         elif agg_type in _POLARS_AGG_EXPRS:
             raw_expr = _POLARS_AGG_EXPRS[agg_type](actual_source).over(partition_by)
             if agg_type == "sum":

@@ -1,11 +1,14 @@
-"""Shared Polars duration-token helper for time bucketization and resample.
+"""Shared Polars helpers for time bucketization, resample, and aggregation.
 
 Centralizes the unit-alias table and the ``(n, unit)`` -> duration string
 formatting so every Polars-based bucket/resample feature group builds the
-same ``dt.truncate`` / ``dt.round`` tokens.
+same ``dt.truncate`` / ``dt.round`` tokens, plus a float-only NaN-to-null
+wrap shared by aggregation feature groups.
 """
 
 from __future__ import annotations
+
+import polars as pl
 
 # Polars duration aliases for each unit. Polars' ``dt.truncate('1w')`` is
 # Monday-anchored, which matches the ISO week convention pinned by the FG.
@@ -22,3 +25,10 @@ POLARS_UNIT_ALIASES: dict[str, str] = {
 def duration_token(n: int, unit: str) -> str:
     """Format the Polars duration token for ``(n, unit)`` (e.g. ``5m``, ``1d``)."""
     return f"{n}{POLARS_UNIT_ALIASES[unit]}"
+
+
+def nan_to_null(expr: pl.Expr, dtype: pl.DataType) -> pl.Expr:
+    """Fill NaN with null so NaN counts as null in aggregations, float dtypes only."""
+    if dtype.is_float():
+        return expr.fill_nan(None)
+    return expr

@@ -32,6 +32,11 @@ class TestDuckdbFrameAggregate(CapabilityHookTestMixin, DuckdbTestMixin, FrameAg
         return DuckdbFrameAggregate
 
     @classmethod
+    def nan_divergent_agg_types(cls) -> frozenset[str]:
+        """DuckDB's rolling window MAX propagates NaN instead of skipping it."""
+        return frozenset({"max"})
+
+    @classmethod
     def capability_supported(cls) -> tuple[tuple[str, Options], ...]:
         return (
             ("value_time_frame", time_frame_options("month")),
