@@ -21,6 +21,9 @@ workflow_dispatch → semantic-release → PyPI publish
 5. **PyPI publish**: the `publish` job checks out that exact SHA (not whatever `main`
    is when the job runs), then builds and uploads wheels with `twine --skip-existing`,
    so a rerun after a partial upload does not fail on the files that already made it.
+   Upload order is the published order (`scripts/published_packages.py`), dependencies first
+   and bundles last, so a partial upload leaves an installable prefix and never leaves the
+   previous release's bundle version unresolvable.
 
 The `prepareCmd` in `.releaserc.yaml` also seds a `MLODA_REGISTRY_VERSION:<version>}`
 default into `tox.ini`. No such default remains there, so that half of the command is
@@ -70,11 +73,17 @@ workflow can pace or retry around. See
 [pypi/support#10572](https://github.com/pypi/support/issues/10572) and
 [this monorepo release thread](https://discuss.python.org/t/request-temporary-new-project-rate-limit-lift-on-pypi-for-a-coordinated-monorepo-release-user-pace/108030).
 Because every leaf requires its base at the same version, a rejected, partial upload also
-leaves the already-uploaded leaves uninstallable until the rerun completes. `mloda-community`
-also requires `mloda-community-extenders-shared` at the same version, so a partial upload
-leaves it uninstallable until that package is uploaded too.
+leaves the already-uploaded leaves uninstallable until the rerun completes. Bundles upload
+last (see [Flow](#flow)), so a partial upload never leaves `mloda-community` itself
+unresolvable: an unpinned install still resolves the previous bundle version, whose exact pins
+are all already on PyPI. Installing both bundles needs `mloda-community` and `mloda-enterprise`
+at the same version, since `mloda-enterprise` requires `mloda-community-openlineage` (through
+its own `[openlineage]` extra) at that version too.
 
-After upgrading from a pre-fix `mloda-community`, run `pip install --force-reinstall mloda-community-extenders-shared`, because pip may remove the shared files when it uninstalls the old bundle.
+`pip install -U` from a `mloda-community` that still shipped these packages' files can delete
+the newly installed packages' files when it removes the old bundle, without `pip check`
+noticing (`uv pip install -U` is not affected). Run `pip install --force-reinstall
+mloda-community` to fix it.
 
 Not every package ships standalone. Most demo and example packages reach users inside the
 `mloda-community` / `mloda-enterprise` bundle wheels instead; `mloda-community-example`

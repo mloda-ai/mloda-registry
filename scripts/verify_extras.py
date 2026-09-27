@@ -34,19 +34,36 @@ _load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(REPO_ROOT / "scr
 
 
 def internal_extra_members(packages: dict[str, dict[str, Any]]) -> list[tuple[str, str, list[str]]]:
-    """(package, extra, members) per non-dev extra of a published package with configured members, in config order."""
-    expand: Callable[[dict[str, Any], dict[str, dict[str, Any]]], dict[str, list[str]]] = _load_sibling(
-        "generate_pyproject"
-    ).expand_published_children
+    """(package, extra, members) per non-dev extra of a published package with configured members, in config
+    order. A member is parsed from the requirement string (e.g. 'mloda-community-otel=={version}'), not
+    required to be a bare package name."""
+    gen = _load_sibling("generate_pyproject")
+    expand: Callable[[dict[str, Any], dict[str, dict[str, Any]]], dict[str, list[str]]] = gen.expand_published_children
+    normalize: Callable[[str], str] = gen.normalize_package_name
+    name_re = gen.DEP_NAME_RE
+
+    def _member(dep: str, configured: dict[str, str]) -> str | None:
+        """The configured package name a single dependency string names, or None, in list order
+        (unlike sibling_dependency_names, which sorts)."""
+        match = name_re.match(dep.split(";", 1)[0])
+        if match is None:
+            return None
+        return configured.get(normalize(match.group(1)))
+
     entries: list[tuple[str, str, list[str]]] = []
     for pkg_name, pkg_config in packages.items():
         if pkg_config.get("published") is not True:
             continue
+        configured = {normalize(name): name for name in packages}
         expanded = expand(pkg_config, packages)
         for extra, deps in expanded.items():
             if extra == DEV_EXTRA:
                 continue
-            members = [dep for dep in deps if dep in packages]
+            members = []
+            for dep in deps:
+                member = _member(dep, configured)
+                if member is not None:
+                    members.append(member)
             if members:
                 entries.append((pkg_name, extra, members))
     return entries

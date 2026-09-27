@@ -155,16 +155,37 @@ jobs:
           # published. Which limiter fires is still unconfirmed, so upload one file at a
           # time with a pause between them rather than one batch `twine upload dist/*`.
           PYPI_UPLOAD_DELAY_SECONDS: '5'
-        # --skip-existing keeps a rerun after a partial upload from failing on files already on PyPI.
-        # --verbose so a 429 prints the response body and the RateLimit / RateLimit-Policy
-        # headers; without it twine reports a bare "Too Many Requests" that names no policy.
+        # Upload order is the published order (scripts/published_packages.py): dependencies first,
+        # bundles last, so a partial upload (e.g. a PyPI 429) always leaves an installable prefix,
+        # instead of the dist/* bash glob order, which could upload a bundle before a package it
+        # depends on. --skip-existing keeps a rerun after a partial upload from failing on files
+        # already on PyPI. --verbose so a 429 prints the response body and the RateLimit /
+        # RateLimit-Policy headers; without it twine reports a bare "Too Many Requests" that names
+        # no policy.
         run: |
           shopt -s nullglob
-          dists=(dist/*)
-          if [ ${#dists[@]} -eq 0 ]; then
-            echo "::error ::No distributions found in dist/ to publish"
+
+          if ! packages=$(python scripts/published_packages.py); then
+            echo "::error ::scripts/published_packages.py failed"
             exit 1
           fi
+          if [ -z "$packages" ]; then
+            echo "::error ::scripts/published_packages.py returned no packages to publish"
+            exit 1
+          fi
+          mapfile -t packages <<<"$packages"
+
+          # One wheel per published name, in that order, not a dist/* glob (see comment above).
+          dists=()
+          for pkg in "${packages[@]}"; do
+            escaped="${pkg//-/_}"
+            matches=(dist/"$escaped"-*.whl)
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "::error ::expected exactly one wheel for $pkg in dist/, found ${#matches[@]}: ${matches[*]}"
+              exit 1
+            fi
+            dists+=("${matches[0]}")
+          done
 
           delay="${PYPI_UPLOAD_DELAY_SECONDS:-5}"
           total=${#dists[@]}

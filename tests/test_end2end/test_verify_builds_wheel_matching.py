@@ -68,6 +68,17 @@ def _write_wheel(out_dir: Path, pkg_name: str, version: str = _VERSION) -> Path:
     return path
 
 
+def _write_wheel_with_files(out_dir: Path, pkg_name: str, files: list[str], version: str = _VERSION) -> Path:
+    """Like ``_write_wheel``, but the zip also carries the given (already wheel-relative) file paths."""
+    path = out_dir / _wheel_name(pkg_name, version)
+    dist_info = f"{pkg_name.replace('-', '_')}-{version}.dist-info"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr(f"{dist_info}/METADATA", f"Metadata-Version: 2.4\nName: {pkg_name}\nVersion: {version}\n")
+        for file_path in files:
+            zf.writestr(file_path, "")
+    return path
+
+
 def _sandbox(root: Path, monkeypatch: pytest.MonkeyPatch, names: list[str]) -> list[tuple[str, str]]:
     """Run main() against a copy of the config; returns the (name, pyproject path) entries for ``names``."""
     (root / "config").mkdir(parents=True, exist_ok=True)
@@ -219,6 +230,59 @@ def test_a_normalized_wheel_version_is_diagnosed_as_a_version_mismatch(
     )
     assert "mloda-registry" not in built_wheels, "a wheel failing version verification must not be verified further"
     assert exit_code == 1, f"main() must fail on a version mismatch, returned {exit_code!r}"
+
+
+def _verify_published_wheels_have_a_single_owner() -> Callable[[dict[str, Path], list[str]], list[str]]:
+    """The published-pair overlap check verify_builds must expose, replacing verify_shared_wheel_has_single_owner."""
+    verify: Callable[[dict[str, Path], list[str]], list[str]] | None = getattr(
+        vb, "verify_published_wheels_have_a_single_owner", None
+    )
+    assert callable(verify), "verify_builds.verify_published_wheels_have_a_single_owner must be a callable"
+    return verify
+
+
+def test_overlap_between_two_published_wheels_is_reported(tmp_path: Path) -> None:
+    """A path shipped by two published wheels' file lists is a single-owner violation."""
+    verify = _verify_published_wheels_have_a_single_owner()
+    shared_path = "mloda/community/extenders/shared/foo.py"
+    bundle = _write_wheel_with_files(tmp_path, "mloda-community", ["mloda/community/py.typed", shared_path])
+    shared = _write_wheel_with_files(tmp_path, "mloda-community-extenders-shared", [shared_path])
+    wheels = {"mloda-community": bundle, "mloda-community-extenders-shared": shared}
+
+    errors = verify(wheels, ["mloda-community", "mloda-community-extenders-shared"])
+
+    assert any(shared_path in error for error in errors), (
+        f"expected an overlap error naming {shared_path!r}, got {errors!r}"
+    )
+
+
+def test_overlap_check_ignores_dist_info_entries(tmp_path: Path) -> None:
+    """Every wheel's own dist-info carries files (RECORD, METADATA, ...); those must never count as overlap."""
+    verify = _verify_published_wheels_have_a_single_owner()
+    # Same literal dist-info-relative path in both wheels, to isolate the ignore rule from real dist-info naming.
+    shared_dist_info_path = "shared.dist-info/RECORD"
+    one = _write_wheel_with_files(tmp_path, "mloda-registry", [shared_dist_info_path])
+    other = _write_wheel_with_files(tmp_path, "mloda-testing", [shared_dist_info_path])
+    wheels = {"mloda-registry": one, "mloda-testing": other}
+
+    errors = verify(wheels, ["mloda-registry", "mloda-testing"])
+
+    assert errors == [], f"a shared *.dist-info/ entry must never be reported as an overlap, got {errors!r}"
+
+
+def test_overlap_check_ignores_an_unpublished_wheel(tmp_path: Path) -> None:
+    """An overlap that involves a wheel outside the published set must not be reported."""
+    verify = _verify_published_wheels_have_a_single_owner()
+    shared_path = "mloda/community/extenders/shared/foo.py"
+    bundle = _write_wheel_with_files(tmp_path, "mloda-community", [shared_path])
+    unpublished = _write_wheel_with_files(tmp_path, "mloda-community-example-b", [shared_path])
+    wheels = {"mloda-community": bundle, "mloda-community-example-b": unpublished}
+
+    errors = verify(wheels, ["mloda-community"])
+
+    assert errors == [], (
+        f"an overlap with an unpublished wheel must be ignored, {shared_path!r} must not be reported: {errors!r}"
+    )
 
 
 def test_two_wheels_for_one_distribution_are_rejected_as_ambiguous(

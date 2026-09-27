@@ -11,58 +11,55 @@ version = "0.4.7"
 description = "All community plugins for mloda"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda>=0.14.0,<0.15.0", "mloda-community-extenders-shared>=0.4.7"]
+dependencies = ["mloda>=0.14.0,<0.15.0", "mloda-community-extenders-shared==0.4.7", "mloda-community-example==0.4.7", "mloda-community-example-a==0.4.7", "mloda-community-data-operations==0.4.7", "mloda-community-aggregation==0.4.7", "mloda-community-rank==0.4.7", "mloda-community-offset==0.4.7", "mloda-community-window-aggregation==0.4.7", "mloda-community-frame-aggregate==0.4.7", "mloda-community-scalar-aggregate==0.4.7", "mloda-community-scalar-arithmetic==0.4.7", "mloda-community-point-arithmetic==0.4.7", "mloda-community-datetime==0.4.7", "mloda-community-string==0.4.7", "mloda-community-binning==0.4.7", "mloda-community-percentile==0.4.7", "mloda-community-time-bucketization==0.4.7", "mloda-community-ffill==0.4.7", "mloda-community-ema==0.4.7", "mloda-community-sessionization==0.4.7", "mloda-community-resample==0.4.7"]
 requires-python = ">=3.10,<3.15"
 
 [project.optional-dependencies]
-otel = ["opentelemetry-api>=1.30,<2"]
-openlineage = ["openlineage-python>=1.20,<2"]
-all = ["opentelemetry-api>=1.30,<2", "openlineage-python>=1.20,<2"]
+otel = ["mloda-community-otel==0.4.7"]
+openlineage = ["mloda-community-openlineage==0.4.7"]
+all = ["mloda-community-otel==0.4.7", "mloda-community-openlineage==0.4.7"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
 [project.entry-points."mloda.feature_groups"]
-mloda-community-aggregation = "mloda.community.feature_groups.data_operations.aggregation.manifest:FEATURE_GROUPS"
-mloda-community-binning = "mloda.community.feature_groups.data_operations.row_preserving.binning.manifest:FEATURE_GROUPS"
-mloda-community-datetime = "mloda.community.feature_groups.data_operations.row_preserving.datetime.manifest:FEATURE_GROUPS"
-mloda-community-ema = "mloda.community.feature_groups.data_operations.row_preserving.ema.manifest:FEATURE_GROUPS"
-mloda-community-example = "mloda.community.feature_groups.example.manifest:FEATURE_GROUPS"
-mloda-community-example-a = "mloda.community.feature_groups.example.example_a.manifest:FEATURE_GROUPS"
 mloda-community-example-b = "mloda.community.feature_groups.example.example_b.manifest:FEATURE_GROUPS"
-mloda-community-ffill = "mloda.community.feature_groups.data_operations.row_preserving.ffill.manifest:FEATURE_GROUPS"
-mloda-community-frame-aggregate = "mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate.manifest:FEATURE_GROUPS"
-mloda-community-offset = "mloda.community.feature_groups.data_operations.row_preserving.offset.manifest:FEATURE_GROUPS"
-mloda-community-percentile = "mloda.community.feature_groups.data_operations.row_preserving.percentile.manifest:FEATURE_GROUPS"
-mloda-community-point-arithmetic = "mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.manifest:FEATURE_GROUPS"
-mloda-community-rank = "mloda.community.feature_groups.data_operations.row_preserving.rank.manifest:FEATURE_GROUPS"
-mloda-community-resample = "mloda.community.feature_groups.data_operations.row_changing.resample.manifest:FEATURE_GROUPS"
-mloda-community-scalar-aggregate = "mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.manifest:FEATURE_GROUPS"
-mloda-community-scalar-arithmetic = "mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.manifest:FEATURE_GROUPS"
-mloda-community-sessionization = "mloda.community.feature_groups.data_operations.row_preserving.sessionization.manifest:FEATURE_GROUPS"
-mloda-community-string = "mloda.community.feature_groups.data_operations.string.manifest:FEATURE_GROUPS"
-mloda-community-time-bucketization = "mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.manifest:FEATURE_GROUPS"
-mloda-community-window-aggregation = "mloda.community.feature_groups.data_operations.row_preserving.window_aggregation.manifest:FEATURE_GROUPS"
 
 [project.entry-points."mloda.compute_frameworks"]
 mloda-community-compute-frameworks-example = "mloda.community.compute_frameworks.example.manifest:COMPUTE_FRAMEWORKS"
 
 [project.entry-points."mloda.extenders"]
 mloda-community-extenders-example = "mloda.community.extenders.example.manifest:EXTENDERS"
-mloda-community-openlineage = "mloda.community.extenders.openlineage.manifest:EXTENDERS"
-mloda-community-otel = "mloda.community.extenders.otel.manifest:EXTENDERS"
-
-[project.entry-points."mloda.optional_dependencies"]
-mloda-community-openlineage = "mloda.community.extenders.openlineage._optional_dependencies:OPTIONAL_DEPENDENCIES"
-mloda-community-otel = "mloda.community.extenders.otel._optional_dependencies:OPTIONAL_DEPENDENCIES"
 
 [tool.setuptools]
 package-dir = {"" = "../.."}
-packages = ["mloda.community", "mloda.community.compute_frameworks.example", "mloda.community.extenders.example", "mloda.community.extenders.openlineage", "mloda.community.extenders.otel", "mloda.community.feature_groups.data_operations", "mloda.community.feature_groups.data_operations.aggregation", "mloda.community.feature_groups.data_operations.row_changing", "mloda.community.feature_groups.data_operations.row_changing.resample", "mloda.community.feature_groups.data_operations.row_preserving", "mloda.community.feature_groups.data_operations.row_preserving.arithmetic", "mloda.community.feature_groups.data_operations.row_preserving.binning", "mloda.community.feature_groups.data_operations.row_preserving.datetime", "mloda.community.feature_groups.data_operations.row_preserving.ema", "mloda.community.feature_groups.data_operations.row_preserving.ffill", "mloda.community.feature_groups.data_operations.row_preserving.frame_aggregate", "mloda.community.feature_groups.data_operations.row_preserving.offset", "mloda.community.feature_groups.data_operations.row_preserving.percentile", "mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic", "mloda.community.feature_groups.data_operations.row_preserving.rank", "mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate", "mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic", "mloda.community.feature_groups.data_operations.row_preserving.sessionization", "mloda.community.feature_groups.data_operations.row_preserving.time_bucketization", "mloda.community.feature_groups.data_operations.row_preserving.window_aggregation", "mloda.community.feature_groups.data_operations.string", "mloda.community.feature_groups.example", "mloda.community.feature_groups.example.example_a", "mloda.community.feature_groups.example.example_b"]
+packages = ["mloda.community", "mloda.community.compute_frameworks.example", "mloda.community.extenders.example", "mloda.community.feature_groups.example.example_b"]
 
 [tool.setuptools.package-data]
 "mloda.community" = ["py.typed"]
 
 [tool.uv.sources]
+mloda-community-aggregation = { workspace = true }
+mloda-community-binning = { workspace = true }
+mloda-community-data-operations = { workspace = true }
+mloda-community-datetime = { workspace = true }
+mloda-community-ema = { workspace = true }
+mloda-community-example = { workspace = true }
+mloda-community-example-a = { workspace = true }
 mloda-community-extenders-shared = { workspace = true }
+mloda-community-ffill = { workspace = true }
+mloda-community-frame-aggregate = { workspace = true }
+mloda-community-offset = { workspace = true }
+mloda-community-openlineage = { workspace = true }
+mloda-community-otel = { workspace = true }
+mloda-community-percentile = { workspace = true }
+mloda-community-point-arithmetic = { workspace = true }
+mloda-community-rank = { workspace = true }
+mloda-community-resample = { workspace = true }
+mloda-community-scalar-aggregate = { workspace = true }
+mloda-community-scalar-arithmetic = { workspace = true }
+mloda-community-sessionization = { workspace = true }
+mloda-community-string = { workspace = true }
+mloda-community-time-bucketization = { workspace = true }
+mloda-community-window-aggregation = { workspace = true }

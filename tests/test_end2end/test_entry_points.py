@@ -81,17 +81,14 @@ def test_plugin_package_declares_entry_point(pkg_name: str, group: str, entry: s
 
 
 def test_bundle_aggregates_child_entry_points() -> None:
-    """Bundle packages must aggregate the entry points of all nested plugin packages."""
+    """Bundle packages aggregate the entry points of nested plugin packages they do NOT own; an owned
+    package's own pyproject declares its entry points instead."""
     community = _generate("mloda-community")
 
     assert '[project.entry-points."mloda.feature_groups"]' in community, community
-    assert (
-        'mloda-community-ffill = "mloda.community.feature_groups.data_operations.row_preserving.ffill.manifest:FEATURE_GROUPS"'
-        in community
-    ), community
-    assert 'mloda-community-example = "mloda.community.feature_groups.example.manifest:FEATURE_GROUPS"' in community, (
+    assert 'mloda-community-example-b = "mloda.community.feature_groups.example.example_b.manifest:FEATURE_GROUPS"' in (
         community
-    )
+    ), community
 
     assert '[project.entry-points."mloda.compute_frameworks"]' in community, community
     assert (
@@ -103,6 +100,19 @@ def test_bundle_aggregates_child_entry_points() -> None:
     assert 'mloda-community-extenders-example = "mloda.community.extenders.example.manifest:EXTENDERS"' in community, (
         community
     )
+
+    # mloda-community owns ffill, example, example-a, otel and openlineage (named in its own dependencies
+    # or a non-dev extra), so it no longer aggregates any of their entry points, in any group.
+    for owned_entry in (
+        'mloda-community-ffill = "mloda.community.feature_groups.data_operations.row_preserving.ffill.manifest:FEATURE_GROUPS"',
+        'mloda-community-example = "mloda.community.feature_groups.example.manifest:FEATURE_GROUPS"',
+        'mloda-community-example-a = "mloda.community.feature_groups.example.example_a.manifest:FEATURE_GROUPS"',
+        'mloda-community-otel = "mloda.community.extenders.otel.manifest:EXTENDERS"',
+        'mloda-community-openlineage = "mloda.community.extenders.openlineage.manifest:EXTENDERS"',
+    ):
+        assert owned_entry not in community, (
+            f"mloda-community must not aggregate the entry point of an owned nested package: {owned_entry!r}\n{community}"
+        )
 
     enterprise = _generate("mloda-enterprise")
 

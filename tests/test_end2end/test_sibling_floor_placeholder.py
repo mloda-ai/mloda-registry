@@ -519,8 +519,20 @@ def test_top_level_package_with_default_dev_deps_and_no_sibling_keeps_only_mloda
     assert sources == {"mloda-testing": _WORKSPACE}, f"expected only the mloda-testing source, got {sources!r}"
 
 
+def _expected_top_level_sources(pkg_name: str, packages: dict[str, dict[str, Any]]) -> set[str]:
+    """Every sibling a top-level package's own dependencies or extras name, per the generator's own rule
+    (gen.sibling_dependency_names over its runtime dependencies plus its expanded optional dependencies)."""
+    cfg = packages[pkg_name]
+    deps = list(cfg.get("dependencies", []))
+    expanded = gen.expand_published_children(cfg, packages)
+    for extra_deps in expanded.values():
+        deps.extend(extra_deps)
+    return set(gen.sibling_dependency_names(deps, packages))
+
+
 def test_real_bundles_workspace_sources_follow_their_sibling_dependencies() -> None:
-    """Both bundles need a source for the shared extenders package or uv lock fails."""
+    """A bundle's workspace sources follow whatever siblings its own config names in dependencies or
+    extras, not a hardcoded set; both bundles still need the shared extenders package."""
     shared, packages_config = gen.load_configs()
     packages: dict[str, dict[str, Any]] = packages_config["packages"]
     sibling = "mloda-community-extenders-shared"
@@ -531,8 +543,12 @@ def test_real_bundles_workspace_sources_follow_their_sibling_dependencies() -> N
     assert enterprise_sources.get(sibling) == _WORKSPACE, (
         f"expected mloda-enterprise sources[{sibling!r}] == {_WORKSPACE!r}, got {enterprise_sources!r}"
     )
-    assert community_sources == {sibling: _WORKSPACE}, (
-        f"mloda-community depends on {sibling!r}, expected exactly that workspace source, got {community_sources!r}"
+
+    expected_community = _expected_top_level_sources("mloda-community", packages)
+    assert sibling in expected_community, f"fixture assumption: mloda-community depends on {sibling!r}"
+    assert community_sources == {name: _WORKSPACE for name in expected_community}, (
+        f"mloda-community sources must follow its configured sibling dependencies/extras {expected_community!r}, "
+        f"got {community_sources!r}"
     )
 
 
@@ -593,11 +609,67 @@ def test_bundle_dependency_on_an_unpublished_nested_package_is_rejected() -> Non
     assert _LEAF in message, f"error message must name the nested dependency {_LEAF!r}, got: {message}"
 
 
-def test_bundle_dependency_on_a_nested_package_with_entry_point_groups_is_rejected() -> None:
-    """A nested dependency that declares entry_point_groups would be registered twice (its wheel and the bundle)."""
+def test_bundle_dependency_on_a_nested_package_with_entry_point_groups_is_accepted() -> None:
+    """An owned package may declare entry_point_groups: the bundle's own entry points omit its label, and
+    the owned package's own generated pyproject still declares them."""
     shared, _packages_config = gen.load_configs()
-    packages = _synthetic_bundle(["{core_dependency}", f"{_LEAF}>={{version}}"])
+    packages = _synthetic_bundle(["{core_dependency}", f"{_LEAF}=={{version}}"])
     packages[_LEAF]["entry_point_groups"] = ["mloda.feature_groups"]
+
+    bundle_content = gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)  # must not raise
+    leaf_content = gen.generate_pyproject(_LEAF, packages[_LEAF], shared, packages)
+
+    leaf_entry = f'{_LEAF} = "{_LEAF_DOTTED}.manifest:FEATURE_GROUPS"'
+    assert leaf_entry not in bundle_content, (
+        f"the bundle must not aggregate the entry point of owned package {_LEAF!r}\n{bundle_content}"
+    )
+    assert '[project.entry-points."mloda.feature_groups"]' in leaf_content, leaf_content
+    assert leaf_entry in leaf_content, (
+        f"{_LEAF}'s own generated pyproject must declare its own entry point\n{leaf_content}"
+    )
+
+
+def test_bundle_dependency_on_a_nested_package_with_its_own_nested_packages_is_accepted() -> None:
+    """A bundle depending on _DEP owns only _DEP's own wheel packages, not everything nested under it: the
+    bundle still ships _LEAF, which is nested under owned _DEP."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_bundle(["{core_dependency}", f"{_DEP}=={{version}}"])
+
+    listed = _generated_wheel_packages(_DEPENDENT, packages, shared)
+
+    assert _DEP_DOTTED not in listed, f"the bundle wheel must not ship owned {_DEP!r}, but lists it: {listed!r}"
+    assert _LEAF_DOTTED in listed, (
+        f"the bundle wheel must still ship {_LEAF!r}, nested under owned {_DEP!r} but not itself owned: {listed!r}"
+    )
+
+
+def test_bundle_extra_ownership_excludes_the_wheel_and_entry_points() -> None:
+    """A bundle naming a nested package only in a non-dev extra excludes it from the wheel and from the
+    bundle's own aggregated entry points, same as a dependencies-owned package."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_bundle(["{core_dependency}"])
+    packages[_DEPENDENT]["optional_dependencies"] = {"extra": [f"{_LEAF}=={{version}}"]}
+    packages[_LEAF]["entry_point_groups"] = ["mloda.feature_groups"]
+
+    bundle_content = gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
+    leaf_content = gen.generate_pyproject(_LEAF, packages[_LEAF], shared, packages)
+    listed = tomllib.loads(bundle_content)["tool"]["setuptools"]["packages"]
+
+    assert _LEAF_DOTTED not in listed, f"an extra-owned nested package must not ship in the bundle wheel: {listed!r}"
+    leaf_entry = f'{_LEAF} = "{_LEAF_DOTTED}.manifest:FEATURE_GROUPS"'
+    assert leaf_entry not in bundle_content, (
+        f"the bundle must not aggregate the extra-owned package's entry point\n{bundle_content}"
+    )
+    assert '[project.entry-points."mloda.feature_groups"]' in leaf_content, leaf_content
+    assert leaf_entry in leaf_content, leaf_content
+
+
+def test_bundle_extra_ownership_of_an_unpublished_nested_package_is_rejected() -> None:
+    """Extra ownership needs the same guard as dependency ownership: the owned package must be published."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_bundle(["{core_dependency}"])
+    packages[_DEPENDENT]["optional_dependencies"] = {"extra": [f"{_LEAF}=={{version}}"]}
+    packages[_LEAF]["published"] = False
 
     with pytest.raises(ValueError) as exc_info:
         gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
@@ -607,14 +679,47 @@ def test_bundle_dependency_on_a_nested_package_with_entry_point_groups_is_reject
     assert _LEAF in message, f"error message must name the nested dependency {_LEAF!r}, got: {message}"
 
 
-def test_bundle_dependency_on_a_nested_package_with_its_own_nested_packages_is_rejected() -> None:
-    """A nested dependency that itself has packages nested under it would leave those without an owner."""
+@pytest.mark.parametrize("via_extra", [False, True], ids=["dependencies", "extra"])
+@pytest.mark.parametrize("with_extras", [False, True], ids=["plain", "with-extras"])
+def test_exact_operator_accepted_for_a_bundle_nested_sibling(with_extras: bool, via_extra: bool) -> None:
+    """'=={version}' is accepted, unlike everywhere else, for a bundle's own nested sibling, in either
+    'dependencies' or an extra, with or without a leading '[extras]'."""
     shared, _packages_config = gen.load_configs()
-    packages = _synthetic_bundle(["{core_dependency}", f"{_DEP}>={{version}}"])
+    suffix = "[all]" if with_extras else ""
+    dependency = f"{_LEAF}{suffix}=={{version}}"
+    expected = f"{_LEAF}{suffix}=={shared['project']['version']}"
+
+    if via_extra:
+        packages = _synthetic_bundle(["{core_dependency}"])
+        packages[_DEPENDENT]["optional_dependencies"] = {"extra": [dependency]}
+        opts = _generated_optional_dependencies(_DEPENDENT, packages, shared)
+        assert opts.get("extra") == [expected], (
+            f"expected the extra to expand to [{expected!r}], got {opts.get('extra')!r}"
+        )
+    else:
+        packages = _synthetic_bundle(["{core_dependency}", dependency])
+        deps = _generated_dependencies(_DEPENDENT, packages, shared)
+        assert expected in deps, f"expected {expected!r} in generated dependencies, got {deps!r}"
+
+
+def test_exact_operator_rejected_for_a_bundle_dependency_outside_its_path() -> None:
+    """'=={version}' is only accepted for a sibling nested under the bundle's own path."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_bundle(["{core_dependency}"])
+    outside_dependency = "mloda-outside-sibling=={version}"
+    packages["mloda-outside-sibling"] = {
+        "description": "outside",
+        "dependencies": ["{core_dependency}"],
+        "path": "mloda/outside_sibling",
+        "published": True,
+    }
+    packages[_DEPENDENT]["dependencies"].append(outside_dependency)
 
     with pytest.raises(ValueError) as exc_info:
         gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
 
     message = str(exc_info.value)
     assert _DEPENDENT in message, f"error message must name the bundle {_DEPENDENT!r}, got: {message}"
-    assert _DEP in message, f"error message must name the nested dependency {_DEP!r}, got: {message}"
+    assert outside_dependency in message, (
+        f"error message must name the offending dependency {outside_dependency!r}, got: {message}"
+    )

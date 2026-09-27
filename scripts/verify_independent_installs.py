@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Install each published distribution into its own venv and probe its full import surface,
 running the install-and-probe cycles concurrently through a bounded thread pool. An
-entry_point_bundle's probe also covers every package nested under its path, since its wheel
-ships that code (or, for a nested package it depends on, pulls it in via that dependency), so a
-payload-less bundle wheel fails; other wheels probe only their own.
+entry_point_bundle's probe also covers every nested package it ships or pulls in via its own
+``dependencies``, since a bare install carries that code; a nested package it owns only through
+an extra has no code in a bare install, so its surface is probed through its own distribution
+instead. Other wheels probe only their own.
 
 Run: python scripts/verify_independent_installs.py <version>
 Exit code: 1 if any distribution fails to install or import on its own, 0 otherwise.
@@ -43,18 +44,30 @@ def independent_distributions(packages: dict[str, dict[str, Any]]) -> list[str]:
 
 def probe_modules(name: str, packages: dict[str, dict[str, Any]]) -> list[str]:
     """The distribution's own import surface (root plus base/manifest modules). An entry_point_bundle
-    also ships every nested configured package's code in its wheel (or pulls it in as a dependency),
-    so its probe adds their surfaces too, in config order; a plain wheel excludes its nested
-    packages, so it probes only its own."""
+    also ships every nested configured package's code in its wheel, or pulls it in via its own
+    ``dependencies``, so its probe adds their surfaces too, in config order; a nested package the
+    bundle owns only through an extra has no code in a bare install (its own distribution probes it
+    instead); a plain wheel excludes its nested packages, so it probes only its own."""
     # The single derivation point for import surfaces lives in verify_published_imports.
     surface: Callable[[str], tuple[str, ...]] = _load_sibling("verify_published_imports").import_surface
-    path = str(packages[name]["path"]).rstrip("/")
+    sibling_names: Callable[[list[str], dict[str, dict[str, Any]]], list[str]] = _load_sibling(
+        "generate_pyproject"
+    ).sibling_dependency_names
+    owned_names: Callable[[dict[str, Any], dict[str, dict[str, Any]]], list[str]] = _load_sibling(
+        "generate_pyproject"
+    ).bundle_owned_names
+    pkg_config = packages[name]
+    path = str(pkg_config["path"]).rstrip("/")
     modules = list(surface(path))
-    if packages[name].get("entry_point_bundle") is not True:
+    if pkg_config.get("entry_point_bundle") is not True:
         return modules
+    dependency_owned = set(sibling_names(pkg_config.get("dependencies", []), packages))
+    extra_only_owned = set(owned_names(pkg_config, packages)) - dependency_owned
     prefix = path + "/"
-    for pkg_config in packages.values():
-        nested = str(pkg_config["path"]).rstrip("/")
+    for nested_name, nested_config in packages.items():
+        if nested_name in extra_only_owned:
+            continue
+        nested = str(nested_config["path"]).rstrip("/")
         if nested.startswith(prefix):
             modules.extend(surface(nested))
     return modules

@@ -260,9 +260,9 @@ def verify_dependency_relationships(wheels: dict[str, Path]) -> list[str]:
     - mloda-community-example-a depends on mloda-community-example
     - mloda-community-example-b depends on mloda-community-example
 
-    Note: mloda-community and mloda-enterprise are bundled packages that include
-    all sub-package code directly, so they don't have dependencies on sub-packages
-    (except on a nested published sub-package, or a sibling outside their path).
+    Note: mloda-community and mloda-enterprise are bundled packages that include all
+    sub-package code directly, except a nested published sub-package they own (named in
+    their own dependencies or a non-dev extra), whose own wheel ships it instead.
     """
     errors = []
 
@@ -291,13 +291,25 @@ def verify_dependency_relationships(wheels: dict[str, Path]) -> list[str]:
     return errors
 
 
-def verify_shared_wheel_has_single_owner(wheels: dict[str, Path]) -> list[str]:
-    """Verify no path appears in both the mloda-community wheel and the shared extenders wheel."""
-    bundle, shared = "mloda-community", "mloda-community-extenders-shared"
-    if bundle not in wheels or shared not in wheels:
-        return []
-    overlap = sorted(set(get_wheel_files(wheels[bundle])) & set(get_wheel_files(wheels[shared])))
-    return [f"{bundle} and {shared} wheels both ship {path}" for path in overlap]
+def verify_published_wheels_have_a_single_owner(wheels: dict[str, Path], published: list[str]) -> list[str]:
+    """Verify every path shipped by a published wheel has exactly one published owner.
+
+    Checks every pair of published wheels for an overlapping file path, ignoring each wheel's own
+    ``*.dist-info/`` entries (RECORD, METADATA, ...; never a real overlap). An unpublished wheel is
+    ignored: only the published set is the single-owner contract.
+    """
+    published_wheels = {name: path for name, path in wheels.items() if name in published}
+    files = {
+        name: {f for f in get_wheel_files(path) if ".dist-info/" not in f} for name, path in published_wheels.items()
+    }
+
+    errors: list[str] = []
+    names = sorted(files)
+    for i, one in enumerate(names):
+        for other in names[i + 1 :]:
+            overlap = sorted(files[one] & files[other])
+            errors.extend(f"{one} and {other} wheels both ship {path}" for path in overlap)
+    return errors
 
 
 def verify_pep420_source_compliance() -> list[str]:
@@ -403,13 +415,14 @@ def main() -> int:
         else:
             print("  ✓ package dependencies correct")
 
-        # Verify the shared extenders files have a single owning wheel
-        print("\nVerifying shared file ownership...")
-        overlap_errors = verify_shared_wheel_has_single_owner(built_wheels)
+        # Verify every published wheel's files have a single published owner
+        print("\nVerifying published wheel file ownership...")
+        published: list[str] = _load_sibling("published_packages").published_packages(load_packages_config())
+        overlap_errors = verify_published_wheels_have_a_single_owner(built_wheels, published)
         if overlap_errors:
             errors.extend(overlap_errors)
         else:
-            print("  ✓ shared files owned by one wheel")
+            print("  ✓ published wheel files each owned by one wheel")
 
         # Verify wheel metadata (top_level.txt, namespace compliance)
         print("\nVerifying wheel metadata...")
