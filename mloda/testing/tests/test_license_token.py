@@ -341,6 +341,20 @@ class TestVerifyLicenseTokenRejections:
         token = sign_v4_public(b'["not", "an", "object"]', footer, secret_seed=OFFICIAL_SECRET_SEED)
         self._reject(token)
 
+    @pytest.mark.parametrize("part", ["footer", "payload"], ids=["footer", "payload"])
+    def test_deeply_nested_footer_or_payload_rejected(self, part: str) -> None:
+        """JSON nested deeply enough to make ``json.loads`` raise ``RecursionError`` -- in either
+        the footer or the signed payload -- must be a ``LicenseVerificationError``, not an escaping
+        ``RecursionError`` (spec: Verification steps 2, 5)."""
+        deeply_nested = ("[" * 100000).encode("utf-8")
+        if part == "footer":
+            payload = json.dumps(_claims(), sort_keys=True, separators=(",", ":")).encode("utf-8")
+            token = sign_v4_public(payload, deeply_nested, secret_seed=OFFICIAL_SECRET_SEED)
+        else:
+            footer = json.dumps({"kid": UNIT_KID}, separators=(",", ":")).encode("utf-8")
+            token = sign_v4_public(deeply_nested, footer, secret_seed=OFFICIAL_SECRET_SEED)
+        self._reject(token)
+
     def test_not_a_token_text_rejected(self) -> None:
         self._reject("this is not a paseto token")
 

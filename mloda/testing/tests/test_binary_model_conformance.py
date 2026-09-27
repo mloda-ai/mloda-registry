@@ -8,6 +8,7 @@ hooks are overridable."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import ClassVar
 from unittest.mock import MagicMock
@@ -17,11 +18,16 @@ import pytest
 from mloda.testing.binary_model.conformance import (
     DATA_ERROR,
     DATA_FREE_MARKER,
+    USAGE_ERROR,
     BinaryModelConformanceBase,
     HashOperationConformanceMixin,
+    arrow_stream_bytes,
     arrow_stream_bytes_invalid_utf8,
     assert_error_response,
+    read_arrow_stream,
     run_binary,
+    stderr_error_object,
+    write_text,
 )
 
 _LICENSE_KEY = "MLODA_LICENSE_KEY"
@@ -56,6 +62,32 @@ class TestBinaryModelConformance(HashOperationConformanceMixin, BinaryModelConfo
         )
         assert_error_response(result, DATA_ERROR)
         assert DATA_FREE_MARKER.encode("utf-8") not in result.stderr
+
+    @pytest.mark.parametrize(
+        "config_text",
+        [
+            pytest.param("9" * 5000, id="oversized_int"),
+            pytest.param("[" * 100000, id="deeply_nested"),
+        ],
+    )
+    def test_simulated_binary_config_json_module_cannot_parse_is_usage_error(
+        self, valid_license_env: dict[str, str], tmp_path: Path, config_text: str
+    ) -> None:
+        """A `--config` file whose whole content is text ``json.loads`` itself cannot parse without
+        raising -- an oversized integer literal, or JSON deep enough to raise ``RecursionError`` --
+        is a usage error (exit 1), the same as any other malformed config, not an uncaught exception
+        reported as an internal error. Simulated-binary regression only, so it lives here and not in
+        the kit base (contract: Configuration, Errors)."""
+        config_path = write_text(tmp_path / "config.json", config_text)
+        input_bytes = arrow_stream_bytes(self.default_input_schema(), self.default_input_rows())
+        result = run_binary(
+            self.binary_cmd,
+            ["run", "--config", str(config_path)],
+            valid_license_env,
+            input_bytes=input_bytes,
+            timeout=self.binary_timeout_seconds,
+        )
+        assert_error_response(result, USAGE_ERROR)
 
 
 class _OverriddenLicenseVectors(BinaryModelConformanceBase):
@@ -159,6 +191,49 @@ def test_overriding_license_vectors_retargets_the_check(
     with pytest.raises(RuntimeError, match="stop-after-capture"):
         getattr(conformance, check_name)(*leading_args, *extra_args)
     assert _license_text_that_reached_the_binary(fake.call_args.args[2], channel) == marker
+
+
+@pytest.mark.parametrize(
+    "last_line",
+    [
+        pytest.param(b"9" * 5000, id="oversized_int"),
+        pytest.param(b"[" * 100000, id="deeply_nested"),
+        pytest.param(b"oops", id="not_json"),
+    ],
+)
+def test_stderr_error_object_unparseable_last_line_fails_an_assertion(last_line: bytes) -> None:
+    """``stderr_error_object`` must fail with an ``AssertionError`` on a last stderr line
+    ``json.loads`` cannot parse -- an oversized integer, JSON deep enough to raise
+    ``RecursionError``, or plain garbage -- not let ``ValueError``/``RecursionError``/
+    ``json.JSONDecodeError`` escape (contract: Errors)."""
+    with pytest.raises(AssertionError):
+        stderr_error_object(last_line + b"\n")
+
+
+def test_stderr_error_object_message_with_unicode_line_boundary_returns_full_message() -> None:
+    """The last stderr line is found by splitting on ``\\n`` only, not on ``str.splitlines()``'s
+    wider notion of a line boundary (U+2028, U+2029, ...): a message containing a raw U+2028
+    must come back whole (contract: Errors, Data handling)."""
+    message = "bad column a b"
+    stderr = json.dumps({"code": 5, "message": message}, ensure_ascii=False).encode("utf-8") + b"\n"
+    error = stderr_error_object(stderr)
+    assert error["message"] == message
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        pytest.param(b"garbage", id="not_arrow_at_all"),
+        pytest.param(None, id="invalid_utf8_value"),
+    ],
+)
+def test_read_arrow_stream_malformed_input_fails_an_assertion(data: bytes | None) -> None:
+    """``read_arrow_stream`` must fully validate its input and fail with an ``AssertionError``,
+    not let an Arrow-level error escape or silently return a table over invalid data (contract:
+    Data)."""
+    payload = data if data is not None else arrow_stream_bytes_invalid_utf8()
+    with pytest.raises(AssertionError):
+        read_arrow_stream(payload)
 
 
 def test_size_cap_constants_are_exported() -> None:

@@ -90,6 +90,12 @@ _GENERIC_MESSAGE_FALLBACK = "binary reported code {code} without a usable messag
 
 MAX_MESSAGE_BYTES = 1024
 
+# The tail of stderr scanned for the error line, bounded well above any single error line: a line
+# carries a JSON object whose `message` is capped at MAX_MESSAGE_BYTES, so a few KiB even with
+# `\u` escapes doubling every byte; 64 KiB leaves ample room regardless of how much free-form
+# diagnostic output precedes it.
+_STDERR_TAIL_WINDOW_BYTES = 64 * 1024
+
 
 def _truncate_message(message: str) -> str:
     """Sanitize and cap ``message`` at ``MAX_MESSAGE_BYTES`` UTF-8 bytes, cutting only on a character
@@ -98,10 +104,16 @@ def _truncate_message(message: str) -> str:
 
 
 def _last_non_empty_line(stderr: bytes) -> str | None:
-    text = stderr.decode("utf-8", errors="replace")
-    for line in reversed(text.splitlines()):
-        if line.strip():
-            return line
+    """The last non-blank line of ``stderr``'s trailing ``_STDERR_TAIL_WINDOW_BYTES``, split on
+    ``b"\\n"`` only, never ``str.splitlines()``, which also splits on U+2028/U+2029/U+0085 and would
+    corrupt a message containing one of them; a ``b"\\n"`` byte never occurs inside a multi-byte
+    UTF-8 sequence, so splitting the raw bytes first is safe. Each candidate line is decoded on its
+    own with ``errors="replace"``."""
+    tail = stderr[-_STDERR_TAIL_WINDOW_BYTES:]
+    for line in reversed(tail.split(b"\n")):
+        text = line.decode("utf-8", errors="replace")
+        if text.strip():
+            return text
     return None
 
 

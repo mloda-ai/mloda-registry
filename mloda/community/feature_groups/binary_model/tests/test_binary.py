@@ -117,11 +117,20 @@ class TestResolveBinary:
                 "faulty_binary", [*FAULTY_CMD, "--mode", "bad_capabilities"], env={"PATH": os.defpath}, timeout=10.0
             )
 
-    def test_capabilities_not_json_is_unavailable(self) -> None:
-        with pytest.raises(BinaryUnavailableError):
+    @pytest.mark.parametrize(
+        "mode",
+        ["capabilities_not_json", "capabilities_oversized_int", "capabilities_deeply_nested"],
+        ids=["not_json", "oversized_int", "deeply_nested"],
+    )
+    def test_capabilities_not_json_is_unavailable(self, mode: str) -> None:
+        """A ``--capabilities`` line that ``json.loads`` cannot parse -- not JSON at all, an int
+        past the interpreter's string-conversion limit, or JSON deep enough to raise
+        ``RecursionError`` -- is uniformly a ``BinaryUnavailableError``, not an escaping
+        ``ValueError``/``RecursionError`` (contract: Capabilities)."""
+        with pytest.raises(BinaryUnavailableError, match="not valid JSON"):
             binary.resolve_binary(
                 "faulty_binary",
-                [*FAULTY_CMD, "--mode", "capabilities_not_json"],
+                [*FAULTY_CMD, "--mode", mode],
                 env={"PATH": os.defpath},
                 timeout=10.0,
             )

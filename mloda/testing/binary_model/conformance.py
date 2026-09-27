@@ -144,11 +144,15 @@ def stderr_error_object(stderr: bytes) -> dict[str, Any]:
     """Parse the last non-empty stderr line as the contract's ``{"code": ..., "message": ...}``
     object; earlier lines are free-form diagnostics (contract: Errors). Decodes with
     ``errors="replace"`` so non-UTF-8 stderr fails an assertion here, not with an unhandled
-    ``UnicodeDecodeError``."""
+    ``UnicodeDecodeError``. Splits on ``"\\n"`` only, never ``str.splitlines()``, which also splits
+    on U+2028/U+2029/U+0085 and would corrupt a message containing one of them."""
     text = stderr.decode("utf-8", errors="replace")
-    lines = [line for line in text.splitlines() if line.strip()]
+    lines = [line for line in text.split("\n") if line.strip()]
     assert lines, f"expected at least one non-empty stderr line, got {stderr!r}"
-    obj = json.loads(lines[-1])
+    try:
+        obj = json.loads(lines[-1])
+    except (ValueError, RecursionError) as exc:
+        raise AssertionError(f"last non-empty stderr line is not valid JSON: {lines[-1][:200]!r}") from exc
     assert isinstance(obj, dict), f"last non-empty stderr line is not a JSON object: {lines[-1]!r}"
     return obj
 

@@ -64,9 +64,16 @@ def arrow_stream_bytes_multi_batch(schema: pa.Schema, batches_rows: list[dict[st
 
 
 def read_arrow_stream(data: bytes) -> pa.Table:
-    """Parse Arrow IPC stream bytes back into a table, for asserting on a binary's output
-    (contract: Data)."""
-    return pa.ipc.open_stream(data).read_all()
+    """Parse Arrow IPC stream bytes back into a table and fully validate it, for asserting on a
+    binary's output (contract: Data). Malformed output (not a valid IPC stream, or a value that
+    fails full validation, e.g. invalid UTF-8) fails an assertion here, not with an unhandled
+    pyarrow exception."""
+    try:
+        table = pa.ipc.open_stream(data).read_all()
+        table.validate(full=True)
+    except (pa.ArrowException, ValueError, OSError) as exc:
+        raise AssertionError(f"binary output is not a valid Arrow IPC stream: {exc}") from exc
+    return table
 
 
 def assert_ends_with_ipc_eos_marker(data: bytes) -> None:

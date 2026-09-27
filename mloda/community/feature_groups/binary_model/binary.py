@@ -130,7 +130,7 @@ def _parse_capabilities(argv: list[str], plugin_id: str, stdout: bytes) -> Binar
         )
     try:
         payload: Any = json.loads(lines[0])
-    except json.JSONDecodeError as exc:
+    except (ValueError, RecursionError) as exc:
         raise BinaryUnavailableError(f"binary {argv[0]!r} --capabilities output is not valid JSON: {exc}") from exc
     if not isinstance(payload, dict):
         raise BinaryUnavailableError(f"binary {argv[0]!r} --capabilities must print a JSON object")

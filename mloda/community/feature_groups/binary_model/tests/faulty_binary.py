@@ -69,6 +69,13 @@ def _capabilities(mode: str) -> int:
         print(json.dumps({"plugin_id": PLUGIN_ID}))
     elif mode == "capabilities_not_json":
         print("oops")
+    elif mode == "capabilities_oversized_int":
+        # A literal too large for json's int string conversion limit; must not be built with
+        # json.dumps of a huge int, which would crash this faulty binary itself.
+        print("9" * 5000)
+    elif mode == "capabilities_deeply_nested":
+        # Deeply nested JSON makes json.loads raise RecursionError on parse.
+        print("[" * 100000)
     else:
         print(
             json.dumps(
