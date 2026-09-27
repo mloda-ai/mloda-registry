@@ -774,26 +774,50 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
         with pytest.raises(ValueError, match="source_col == order_by"):
             self.implementation_class().calculate_feature(data, fs)
 
-    def test_cross_framework_time_window_with_mask(self) -> None:
-        """A masked time window must match the reference (predicate columns must scope correctly)."""
+    @pytest.mark.parametrize(
+        "table, mask_spec",
+        [
+            pytest.param(
+                pa.table(
+                    {
+                        "region": ["A"] * 5,
+                        "ts": [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
+                        "category": ["X", "Y", "X", "X", "Y"],
+                        "value": [10, 20, 30, 40, 50],
+                    }
+                ),
+                ("category", "equal", "X"),
+                id="category_equal",
+            ),
+            pytest.param(
+                pa.table(
+                    {
+                        "region": ["A"] * 5,
+                        "ts": [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
+                        # Every 3-day window keeps exactly one passing row (row0, row2, or row4),
+                        # so a wrongly-passing NaN (row1) or null (row3) widens the window instead
+                        # of leaving it empty, which would hit an unrelated fully-masked-window case.
+                        "metric": pa.array([20.0, float("nan"), 20.0, None, 20.0], type=pa.float64()),
+                        "value": [10, 20, 30, 40, 50],
+                    }
+                ),
+                ("metric", "greater_equal", 15.0),
+                id="metric_greater_equal_with_missing",
+            ),
+        ],
+    )
+    def test_cross_framework_time_window_with_mask(self, table: pa.Table, mask_spec: tuple[Any, ...]) -> None:
+        """A masked time window must match the reference; one case covers a mask column with NaN and null."""
         if "time" not in self.supported_frame_types():
             pytest.skip("This framework does not support time frames")
 
-        table = pa.table(
-            {
-                "region": ["A"] * 5,
-                "ts": [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
-                "category": ["X", "Y", "X", "X", "Y"],
-                "value": [10, 20, 30, 40, 50],
-            }
-        )
         data = self.create_test_data(table)
         feature_name = "value__sum_3_day_window"
         fs = make_feature_set(
             feature_name,
             partition_by=["region"],
             order_by="ts",
-            mask=("category", "equal", "X"),
+            mask=mask_spec,
         )
 
         result = self.implementation_class().calculate_feature(data, fs)

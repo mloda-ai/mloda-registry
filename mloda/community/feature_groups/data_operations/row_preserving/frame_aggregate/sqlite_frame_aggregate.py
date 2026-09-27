@@ -179,7 +179,11 @@ class SqliteFrameAggregate(FrameAggregateFeatureGroup):
 
         # Build the inner aggregate expression with the ``s.`` alias prefix.
         inner_source = f"s.{quoted_source}"
-        inner_source_sql = build_sql_case_when(SqliteFramework.mask_engine(), data, mask_spec, inner_source) if mask_spec is not None else inner_source
+        inner_source_sql = (
+            build_sql_case_when(SqliteFramework.mask_engine(), data, mask_spec, inner_source)
+            if mask_spec is not None
+            else inner_source
+        )
 
         if partition_by:
             partition_eq = " AND ".join(

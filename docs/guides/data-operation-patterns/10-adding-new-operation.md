@@ -219,7 +219,7 @@ class YourOpTestBase(MaskTestMixin, DataOpsTestBase):
     # mask_is_in_expected, mask_greater_than_expected, mask_no_mask_expected
 ```
 
-`MaskTestMixin` adds six inherited test methods covering equal, AND-combined, `is_in`, greater-than, fully-masked, and no-mask-baseline scenarios. See [Masking](../feature-group-patterns/25-masking.md) for the full user-facing spec.
+`MaskTestMixin` adds inherited test methods covering equal, AND-combined, `is_in`, greater-than, fully-masked, no-mask-baseline, and missing-value (null and NaN) scenarios. See [Masking](../feature-group-patterns/25-masking.md) for the full user-facing spec.
 
 ---
 

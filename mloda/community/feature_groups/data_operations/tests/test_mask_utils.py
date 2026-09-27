@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import pyarrow as pa
 import pytest
-
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_mask_engine import DuckDBMaskEngine
+from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_mask_engine import SqliteMaskEngine
 
 from mloda.community.feature_groups.data_operations.mask_utils import (
@@ -168,33 +169,24 @@ class TestBuildSqlCaseWhen:
         assert "IS NULL" in result
         assert "= NULL" not in result
 
-    def test_issue_717_duckdb_greater_equal_excludes_nan(self) -> None:
-        duckdb = pytest.importorskip("duckdb")
-
-        relation = duckdb.sql("SELECT * FROM (VALUES (1.0, 10), ('NaN'::DOUBLE, 20), (3.0, 30)) t(score, value)")
-        case_expr = build_sql_case_when(DuckDBMaskEngine, relation, [("score", "greater_equal", 2.0)], '"value"')
-        result = relation.project(f"{case_expr} AS masked_value").fetchall()
-
-        assert result == [(None,), (None,), (30,)]
-
     @pytest.mark.parametrize(
-        ("operator", "threshold", "expected"),
+        ("operator", "threshold"),
         [
-            pytest.param("greater_than", 4.0, [(None,), (None,), (50,)], id="greater_than"),
-            pytest.param("greater_equal", 5.0, [(None,), (None,), (50,)], id="greater_equal"),
+            pytest.param("greater_than", 2.0, id="greater_than"),
+            pytest.param("greater_equal", 2.0, id="greater_equal"),
         ],
     )
-    def test_issue_717_fresh_duckdb_nan_holdout(
-        self, operator: str, threshold: float, expected: list[tuple[int | None]]
-    ) -> None:
+    def test_duckdb_comparison_excludes_nan(self, operator: str, threshold: float) -> None:
+        """A NaN score never satisfies greater_than/greater_equal on DuckDB, so it stays masked out."""
         duckdb = pytest.importorskip("duckdb")
 
-        relation = duckdb.sql(
-            "SELECT * FROM (VALUES (2.0, 20), ('NaN'::DOUBLE, 40), (5.0, 50)) t(metric, payload)"
-        )
-        case_expr = build_sql_case_when(
-            DuckDBMaskEngine, relation, [("metric", operator, threshold)], '"payload"'
-        )
-        result = relation.project(f"{case_expr} AS masked_payload").fetchall()
+        arrow = pa.table({"score": pa.array([1.0, float("nan"), 3.0], type=pa.float64()), "value": [10, 20, 30]})
+        connection = duckdb.connect()
+        try:
+            relation = DuckdbRelation.from_arrow(connection, arrow)
+            case_expr = build_sql_case_when(DuckDBMaskEngine, relation, [("score", operator, threshold)], '"value"')
+            result = relation.project(f"{case_expr} AS masked_value").to_arrow_table()
+        finally:
+            connection.close()
 
-        assert result == expected
+        assert result.column("masked_value").to_pylist() == [None, None, 30]

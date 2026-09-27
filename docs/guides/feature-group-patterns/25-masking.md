@@ -57,7 +57,7 @@ Multiple conditions are combined with AND logic. All conditions must be true for
 
 ### Missing Values
 
-A null or NaN row never passes a comparison (`equal` with a non-missing value, `greater_than`, `greater_equal`, `less_than`, `less_equal`), so its value is masked. The 2-element `equal` form and an `is_in` list containing `None` match null and NaN rows; a NaN value counts as `None`. On DuckDB the `mask` option does not apply the NaN rule yet (core's `DuckDBMaskEngine` does, but the option's SQL does not use it): a NaN row passes `greater_than` and `greater_equal`, and the 2-element `equal` and `is_in` with `None` match null rows only. See [Mask Engine](https://mloda-ai.github.io/mloda/in_depth/mask_engine/) for the core contract.
+A null or NaN row never passes a comparison (`equal` with a non-missing value, `greater_than`, `greater_equal`, `less_than`, `less_equal`), so its value is masked. The 2-element `equal` form and an `is_in` list containing `None` match null and NaN rows; a NaN value counts as `None`. Every framework follows this rule. See [Mask Engine](https://mloda-ai.github.io/mloda/in_depth/mask_engine/) for the core contract.
 
 ---
 
@@ -155,7 +155,7 @@ The framework selection does not affect the mask spec format. The same `("column
 
 The testing library provides two mixins for verifying masking in custom feature groups:
 
-- `MaskTestMixin` provides 6 unit-level test methods covering equal, multiple conditions, is_in, greater_than, fully masked, and no-mask baseline scenarios.
+- `MaskTestMixin` provides unit-level test methods covering equal, multiple conditions, is_in, greater_than, fully masked, no-mask baseline, and missing-value (null and NaN) scenarios.
 - `MaskIntegrationTestMixin` provides 3 pipeline-level test methods that verify masking through the full `mloda.run_all` pipeline.
 
 Both mixins use overridable class methods for configuration:

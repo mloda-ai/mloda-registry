@@ -8,7 +8,8 @@ Provides mask-building strategies matched to framework capabilities:
    upstream ``PolarsExprMaskEngine`` (via ``build_mask_from_spec``) to build a
    ``pl.Expr`` boolean chain.
 3. ``build_sql_case_when`` -- for SQL-based frameworks (DuckDB, SQLite),
-   delegates to upstream ``SqlBaseMaskEngine`` for individual conditions,
+   delegates to the framework's concrete SQL mask engine (e.g.
+   ``DuckDBMaskEngine``, ``SqliteMaskEngine``) for individual conditions,
    then wraps them in a ``CASE WHEN ... THEN source END`` expression.
 
 Apply helpers ``apply_polars_mask`` and ``apply_pyarrow_mask`` build on
@@ -20,6 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 from mloda.provider import BaseMaskEngine
+
 MASK_KEY = "mask"
 
 _SUPPORTED_OPS: frozenset[str] = frozenset(
@@ -64,7 +66,7 @@ def parse_mask_spec(mask_option: Any) -> list[tuple[str, str, Any]] | None:
 
         if len(spec) == 2 and op != "equal":
             raise ValueError(
-                f"2-element mask tuple ('column', 'operator') is only valid for 'equal' (IS NULL). "
+                f"2-element mask tuple ('column', 'operator') is only valid for 'equal' (null or NaN). "
                 f"Operator '{op}' requires a value: ('column', '{op}', value)."
             )
 
@@ -174,13 +176,14 @@ def apply_pyarrow_mask(
     not matching the mask have null values.
     """
     import pyarrow as pa
+    import pyarrow.compute as pc
     from mloda_plugins.compute_framework.base_implementations.pyarrow.pyarrow_mask_engine import (
         PyArrowMaskEngine,
     )
 
     mask = build_mask_from_spec(PyArrowMaskEngine, table, mask_spec)
     null_scalar = pa.scalar(None, type=table.schema.field(source_col).type)
-    masked_col = pa.compute.if_else(mask, table.column(source_col), null_scalar)
+    masked_col = pc.if_else(mask, table.column(source_col), null_scalar)
     col_idx = table.schema.get_field_index(source_col)
     return table.set_column(col_idx, source_col, masked_col)
 
@@ -196,7 +199,11 @@ def build_sql_case_when(
     Delegates individual conditions to the framework's concrete mask engine
     so core null/NaN semantics are preserved.
 
-    *source_expr* should already be a quoted identifier.
+    *data* must be the relation the SQL runs against: it must hold every mask
+    column, since DuckDB's engine reads column types from it to add the NaN guard.
+
+    *source_expr* is a SQL expression, usually a quoted identifier (the
+    frame-aggregate caller passes an alias-qualified ``s."col"``).
     """
     conditions = []
     for col, op, val in mask_spec:
