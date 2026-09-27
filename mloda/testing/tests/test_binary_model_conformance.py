@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import ClassVar
 from unittest.mock import MagicMock
 
+import pyarrow as pa
 import pytest
 
 from mloda.testing.binary_model.conformance import (
@@ -24,6 +25,7 @@ from mloda.testing.binary_model.conformance import (
     arrow_stream_bytes,
     arrow_stream_bytes_invalid_utf8,
     assert_error_response,
+    corrupt_record_batch_message_after_schema,
     read_arrow_stream,
     run_binary,
     stderr_error_object,
@@ -210,11 +212,17 @@ def test_stderr_error_object_unparseable_last_line_fails_an_assertion(last_line:
         stderr_error_object(last_line + b"\n")
 
 
-def test_stderr_error_object_message_with_unicode_line_boundary_returns_full_message() -> None:
+@pytest.mark.parametrize(
+    "ch",
+    ["\u2028", "\u2029", "\u0085"],
+    ids=["line_separator", "paragraph_separator", "next_line"],
+)
+def test_stderr_error_object_message_with_unicode_line_boundary_returns_full_message(ch: str) -> None:
     """The last stderr line is found by splitting on ``\\n`` only, not on ``str.splitlines()``'s
-    wider notion of a line boundary (U+2028, U+2029, ...): a message containing a raw U+2028
-    must come back whole (contract: Errors, Data handling)."""
-    message = "bad column a b"
+    wider notion of a line boundary (U+2028 LINE SEPARATOR, U+2029 PARAGRAPH SEPARATOR, U+0085 NEXT
+    LINE): a message containing one of these characters must come back whole (contract: Errors,
+    Data handling)."""
+    message = f"bad column a{ch}b"
     stderr = json.dumps({"code": 5, "message": message}, ensure_ascii=False).encode("utf-8") + b"\n"
     error = stderr_error_object(stderr)
     assert error["message"] == message
@@ -224,16 +232,22 @@ def test_stderr_error_object_message_with_unicode_line_boundary_returns_full_mes
     "data",
     [
         pytest.param(b"garbage", id="not_arrow_at_all"),
-        pytest.param(None, id="invalid_utf8_value"),
+        pytest.param(arrow_stream_bytes_invalid_utf8(), id="invalid_utf8_value"),
+        pytest.param(
+            corrupt_record_batch_message_after_schema(
+                arrow_stream_bytes(pa.schema([pa.field("col_a", pa.int64())]), {"col_a": [1, 2, 3]})
+            ),
+            id="corrupted_record_batch_after_valid_schema",
+        ),
     ],
 )
-def test_read_arrow_stream_malformed_input_fails_an_assertion(data: bytes | None) -> None:
+def test_read_arrow_stream_malformed_input_fails_an_assertion(data: bytes) -> None:
     """``read_arrow_stream`` must fully validate its input and fail with an ``AssertionError``,
     not let an Arrow-level error escape or silently return a table over invalid data (contract:
-    Data)."""
-    payload = data if data is not None else arrow_stream_bytes_invalid_utf8()
+    Data). ``corrupted_record_batch_after_valid_schema`` parses its schema fine but fails on
+    ``read_all()``, unlike the other two cases, which fail earlier."""
     with pytest.raises(AssertionError):
-        read_arrow_stream(payload)
+        read_arrow_stream(data)
 
 
 def test_size_cap_constants_are_exported() -> None:

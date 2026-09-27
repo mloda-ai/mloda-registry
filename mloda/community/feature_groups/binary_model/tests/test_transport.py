@@ -32,6 +32,7 @@ from mloda.community.feature_groups.binary_model.errors import (
     OutputContractError,
     UnsupportedError,
 )
+from mloda.community.feature_groups.binary_model.tests.process_helpers import pid_running
 from mloda.community.feature_groups.binary_model.transport import (
     TEMP_PARENT_NAME,
     InvocationDirectory,
@@ -603,12 +604,14 @@ class TestRunBinary:
             assert pid_file.exists(), "faulty_binary never wrote the descendant's pid"
             child_pid = int(pid_file.read_text(encoding="utf-8"))
             deadline = time.monotonic() + 3.0
-            while time.monotonic() < deadline and pid_is_alive(child_pid):
+            while time.monotonic() < deadline and pid_running(child_pid):
                 time.sleep(0.05)
-            assert not pid_is_alive(child_pid), "descendant of an already-exited leader was left alive"
+            assert not pid_running(child_pid), "descendant of an already-exited leader was left alive"
         finally:
             monkeypatch.undo()
-            if child_pid is not None and pid_is_alive(child_pid):
+            if child_pid is None and pid_file.exists():
+                child_pid = int(pid_file.read_text(encoding="utf-8"))
+            if child_pid is not None and pid_running(child_pid):
                 os.kill(child_pid, signal.SIGKILL)
 
     def test_exit_before_reading_with_large_input_does_not_raise_broken_pipe(self, tmp_path: Path) -> None:
@@ -772,7 +775,18 @@ class TestTerminateTimedOutProcess:
     """Unit tests for ``_terminate_timed_out_process`` against a fake process, parametrized over
     POSIX and Windows (``os.name``), so no real subprocess is spawned."""
 
-    @pytest.mark.parametrize("os_name", ["posix", "nt"])
+    @pytest.mark.parametrize(
+        "os_name",
+        [
+            pytest.param(
+                "posix",
+                marks=pytest.mark.skipif(
+                    not hasattr(signal, "SIGKILL"), reason="asserts signal.SIGKILL, absent on a real Windows host"
+                ),
+            ),
+            "nt",
+        ],
+    )
     def test_hard_kill_is_issued_even_when_the_grace_wait_is_interrupted(
         self, monkeypatch: pytest.MonkeyPatch, os_name: str
     ) -> None:

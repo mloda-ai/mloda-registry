@@ -163,7 +163,7 @@ def test_error_from_exit_never_raises_on_an_oversized_integer_code() -> None:
 
 @pytest.mark.parametrize(
     "ch",
-    [" ", " ", "\u0085"],
+    ["\u2028", "\u2029", "\u0085"],
     ids=["line_separator", "paragraph_separator", "next_line"],
 )
 def test_error_from_exit_message_containing_unicode_line_boundary_is_not_split(ch: str) -> None:

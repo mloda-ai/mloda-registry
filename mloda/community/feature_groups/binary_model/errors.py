@@ -91,7 +91,8 @@ _GENERIC_MESSAGE_FALLBACK = "binary reported code {code} without a usable messag
 MAX_MESSAGE_BYTES = 1024
 
 # Bytes of stderr tail scanned for the error line, comfortably above the worst case (a `message`
-# capped at MAX_MESSAGE_BYTES, doubled by `\u` escapes).
+# capped at MAX_MESSAGE_BYTES, grown up to about sixfold by `\u` escapes). A longer, out-of-contract
+# error line falls back to BinaryInternalError.
 _STDERR_TAIL_WINDOW_BYTES = 64 * 1024
 
 

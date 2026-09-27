@@ -50,6 +50,10 @@ def _version(mode: str) -> int:
     if mode == "version_prerelease":
         print(f"{PLUGIN_ID} 0.0.1-rc.1+build.5")
         return 0
+    if mode == "version_non_ascii_digits":
+        # Arabic-Indic digits, which \d also matches under re's default (non-ASCII) mode.
+        sys.stdout.buffer.write(f"{PLUGIN_ID} \u0661.\u0662.\u0663\n".encode("utf-8"))
+        return 0
     print(f"{PLUGIN_ID} {VERSION}")
     if mode == "version_two_lines":
         print("unexpected second line")
@@ -76,6 +80,20 @@ def _capabilities(mode: str) -> int:
     elif mode == "capabilities_deeply_nested":
         # Deeply nested JSON makes json.loads raise RecursionError on parse.
         print("[" * 100000)
+    elif mode == "capabilities_unicode_line_separator":
+        # An unknown extra key (tolerated by contract) whose string value holds a raw U+2028: the
+        # conformance kit splits on b"\n" only, but str.splitlines() also splits on U+2028.
+        payload = {
+            "contract": 1,
+            "plugin_id": PLUGIN_ID,
+            "operations": ["hash"],
+            "column_types": sorted(COLUMN_TYPES),
+            "extra_unknown_key": "before\u2028after",
+        }
+        sys.stdout.buffer.write(json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\n")
+    elif mode == "capabilities_crlf":
+        payload = {"contract": 1, "plugin_id": PLUGIN_ID, "operations": ["hash"], "column_types": sorted(COLUMN_TYPES)}
+        sys.stdout.buffer.write(json.dumps(payload).encode("utf-8") + b"\r\n")
     else:
         print(
             json.dumps(

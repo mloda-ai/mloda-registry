@@ -171,8 +171,9 @@ _REAP_WAIT_SECONDS = 5.0
 
 
 def _close_posix_pipes(proc: subprocess.Popen[bytes]) -> None:
-    """Close the child's pipe ends after it has been reaped (contract: Data handling); POSIX only,
-    since a reader thread on Windows may still be blocked in ``read()`` and closing there can hang."""
+    """Close the parent's own pipe ends to the child, after the reap whether or not it completed
+    (contract: Data handling); POSIX only, since on Windows a reader thread may still block in
+    ``read()`` and closing there can hang."""
     for pipe in (proc.stdin, proc.stdout, proc.stderr):
         if pipe is not None:
             try:
@@ -279,8 +280,9 @@ def run_binary(
         _terminate_timed_out_process(proc)
         raise BinaryTerminatedError(f"binary timed out after {timeout}s and was terminated")
     except BaseException:
-        # Unconditional: an exited leader can still leave a live descendant in its process group,
-        # and terminating/killing an already-exited process is a harmless no-op.
+        # Unconditional: the process group persists while it has members, so this still reaches a
+        # descendant that outlives an already-exited leader; the only residual risk is the same
+        # pid-recycling race the timeout path above already accepts on an emptied group.
         _terminate_timed_out_process(proc)
         raise
 

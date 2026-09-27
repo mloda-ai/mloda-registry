@@ -15,7 +15,7 @@ CONTRACT_VERSION = 1
 
 # The `--version` output's semver pattern, unanchored so callers can embed it in a larger
 # expression (contract: Invocation).
-VERSION_PATTERN = r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+\-]+)?"
+VERSION_PATTERN = r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+\-]+)?"
 
 # Contract "Errors" table.
 USAGE_ERROR = 1

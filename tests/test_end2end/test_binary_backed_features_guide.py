@@ -163,8 +163,7 @@ def test_every_binary_model_mixin_classvar_is_named_in_the_key_characteristic_ta
 
 def test_binary_timeout_seconds_row_mentions_process_group_and_windows() -> None:
     """The ``BINARY_TIMEOUT_SECONDS`` row must spell out that termination covers the whole process
-    group on POSIX but only the child on Windows, and a ``BINARY_PROBE_TIMEOUT_SECONDS`` row must
-    exist alongside it (contract: Invocation)."""
+    group on POSIX but only the child on Windows (contract: Invocation)."""
     content = _GUIDE_PATH.read_text(encoding="utf-8")
     section = _section(content, "## Key Characteristic", ("\n## ",))
     timeout_line = next(
@@ -173,9 +172,6 @@ def test_binary_timeout_seconds_row_mentions_process_group_and_windows() -> None
     assert timeout_line is not None, "Key Characteristic table must have a `BINARY_TIMEOUT_SECONDS` row"
     assert "process group" in timeout_line, f"`BINARY_TIMEOUT_SECONDS` row must mention 'process group': {timeout_line}"
     assert "Windows" in timeout_line, f"`BINARY_TIMEOUT_SECONDS` row must mention 'Windows': {timeout_line}"
-    assert "BINARY_PROBE_TIMEOUT_SECONDS" in section, (
-        "Key Characteristic table must have a `BINARY_PROBE_TIMEOUT_SECONDS` row"
-    )
 
 
 def test_documented_uv_sync_commands_use_the_gate_flags_not_all_extras() -> None:
