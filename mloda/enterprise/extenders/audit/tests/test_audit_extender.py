@@ -163,8 +163,7 @@ def _minimal_audit_record(run_id: str | None, *, compliant: bool = True) -> dict
 
 
 def _sealing_config(tmp_path: Path) -> tuple[Path, Path]:
-    """audit_path, manifest_path for one sealing config; shared so a test building more than one
-    AuditExtender over the same config does not duplicate this path construction."""
+    """audit_path, manifest_path for one sealing config, shared to avoid duplicating this construction."""
     return tmp_path / "audit.ndjson", tmp_path / "manifest.ndjson"
 
 
@@ -189,9 +188,8 @@ def _second_extender_over_same_sealing_config(
     make: Callable[..., AuditExtender] = AuditExtender,
     **kwargs: Any,
 ) -> AuditExtender:
-    """A second, fresh AuditExtender over the same audit_path/manifest_path/signer as an existing one; it
-    never calls on_run_complete itself, so any refusal it raises must come from the shared manifest_path,
-    not from its own (empty) in-memory sealed set."""
+    """A second, fresh AuditExtender over the same sealing config; any refusal it raises must come from the
+    shared manifest_path, not its own empty in-memory sealed set."""
     return make(
         NdjsonAuditSink(audit_path), audit_path=audit_path, manifest_path=manifest_path, signer=signer, **kwargs
     )
@@ -203,8 +201,8 @@ def _refuser_sealing_instance(tmp_path: Path, fail_closed: bool) -> tuple[AuditE
 
 
 def _refuser_second_instance(tmp_path: Path, fail_closed: bool) -> tuple[AuditExtender, Path]:
-    """A fresh AuditExtender over the same sealing config, which never sealed run-1 itself: any refusal
-    it raises must come from reading the shared manifest_path."""
+    """A fresh AuditExtender over the same sealing config, which never sealed run-1 itself: any refusal it
+    raises must come from reading the shared manifest_path."""
     sealing_instance, audit_path = _extender_with_run_1_sealed(tmp_path, fail_closed=fail_closed)
     _, manifest_path = _sealing_config(tmp_path)
     second = _second_extender_over_same_sealing_config(
@@ -1249,9 +1247,7 @@ class TestAuditExtenderSealing:
         second = _second_extender_over_same_sealing_config(
             audit_path, manifest_path, _find_signer_attr(sealing_instance)
         )
-        # getattr, not a module-level import: the helper does not exist yet at Red time, and this
-        # lookup must not break collection of the rest of the module.
-        real_is_run_sealed_unverified = getattr(audit_extender_module, "_is_run_sealed_unverified")
+        real_is_run_sealed_unverified = audit_extender_module._is_run_sealed_unverified
 
         with patch.object(
             audit_extender_module, "_is_run_sealed_unverified", wraps=real_is_run_sealed_unverified

@@ -151,12 +151,12 @@ class AuditExtender(Extender):
     With raise_on_error=False (fail_closed=False), core instead logs the refusal and runs the call unaudited, as for a
     sink failure, so that re-run leaves no record for verification to find. A manifest read failure other than a
     missing file propagates like a sink failure. An AuditExtender without sealing config cannot check and is never
-    refused. A fail_closed=True deny record written at
-    plan time is a different, recoverable case: it is refused before setup, so on_run_complete never fires for it and it is never auto-sealed at all
-    (not sealed-with-strays); seal it later with seal_ndjson_runs targeted at that specific run_id (found via
+    refused. A fail_closed=True deny record written at plan time is a different, recoverable case: it is refused
+    before setup, so on_run_complete never fires for it and it is never auto-sealed at all (not sealed-with-strays);
+    seal it later with seal_ndjson_runs targeted at that specific run_id (found via
     verify_ndjson_log_coverage(...).unsealed_lines), not a blanket sweep, since a blanket sweep could seal a
-    different run that is still live. expected_head anchoring against a deleted or truncated manifest log is
-    not part of auto-sealing; call seal_ndjson_runs/verify_ndjson_log manually with expected_head for that."""
+    different run that is still live. expected_head anchoring against a deleted or truncated manifest log is not
+    part of auto-sealing; call seal_ndjson_runs/verify_ndjson_log manually with expected_head for that."""
 
     def __init__(
         self,
