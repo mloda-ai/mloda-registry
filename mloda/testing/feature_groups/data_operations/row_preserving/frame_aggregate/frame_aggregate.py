@@ -804,15 +804,32 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
                 ("metric", "greater_equal", 15.0),
                 id="metric_greater_equal_with_missing",
             ),
+            # Only row 2 passes the mask (category "X"); the 3-day windows of
+            # rows 0, 1 and 4 hold no passing row, so those windows must aggregate to null.
+            pytest.param(
+                pa.table(
+                    {
+                        "region": ["A"] * 5,
+                        "ts": [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 3, 5, 7, 10)],
+                        "category": ["Y", "Y", "X", "Y", "Y"],
+                        "value": [10, 20, 30, 40, 50],
+                    }
+                ),
+                ("category", "equal", "X"),
+                id="fully_masked_window",
+            ),
         ],
     )
-    def test_cross_framework_time_window_with_mask(self, table: pa.Table, mask_spec: tuple[Any, ...]) -> None:
-        """A masked time window must match the reference; one case covers a mask column with NaN and null."""
+    @pytest.mark.parametrize("agg_type", ["sum", "avg", "min", "max", "count"])
+    def test_cross_framework_time_window_with_mask(
+        self, table: pa.Table, mask_spec: tuple[Any, ...], agg_type: str
+    ) -> None:
+        """A masked time window must match the reference for every supported aggregation type."""
         if "time" not in self.supported_frame_types():
             pytest.skip("This framework does not support time frames")
 
         data = self.create_test_data(table)
-        feature_name = "value__sum_3_day_window"
+        feature_name = f"value__{agg_type}_3_day_window"
         fs = make_feature_set(
             feature_name,
             partition_by=["region"],

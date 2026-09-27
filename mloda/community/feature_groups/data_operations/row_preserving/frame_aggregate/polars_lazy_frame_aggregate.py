@@ -179,9 +179,16 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
             by_col = synth_ts_col
             window_str = f"{size}{unit_code}{row_count}ns"
             # closed="both" matches reference semantics: window is [ts - size, ts] inclusive.
+            # rolling_sum_by can sum an all-null window to 0, so a non-null-count guard
+            # maps an all-null window back to null; count reuses the same rolling count.
+            non_null_count = (
+                col.is_not_null().cast(pl.Int64).rolling_sum_by(by_col, window_size=window_str, closed="both")
+            )
             if agg_type == "sum":
                 expr = (
-                    col.rolling_sum_by(by_col, window_size=window_str, closed="both")
+                    pl.when(non_null_count > 0)
+                    .then(col.rolling_sum_by(by_col, window_size=window_str, closed="both"))
+                    .otherwise(None)
                     .over(partition_by)
                     .alias(feature_name)
                 )
@@ -222,13 +229,7 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
                     .alias(feature_name)
                 )
             elif agg_type == "count":
-                expr = (
-                    col.is_not_null()
-                    .cast(pl.Int64)
-                    .rolling_sum_by(by_col, window_size=window_str, closed="both")
-                    .over(partition_by)
-                    .alias(feature_name)
-                )
+                expr = non_null_count.over(partition_by).alias(feature_name)
             else:
                 raise unsupported_agg_type_error(
                     agg_type,

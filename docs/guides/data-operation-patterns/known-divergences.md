@@ -30,24 +30,26 @@ An entry is added here only after a cross-framework test or an explicit audit ha
 ### Polars `sum()` on an all-null group returns `0`
 
 <!-- machine-checked
-operation: aggregation, scalar_aggregate, window_aggregation
+operation: aggregation, scalar_aggregate, window_aggregation, frame_aggregate
 framework: polars_lazy
 condition: sum() on an all-null group returns 0 instead of PyArrow's null
 mitigation_location:
 - mloda/community/feature_groups/data_operations/aggregation/polars_lazy_aggregation.py
 - mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/polars_lazy_scalar_aggregate.py
 - mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/polars_lazy_window_aggregation.py
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/polars_lazy_frame_aggregate.py
 regression_test:
 - mloda/testing/feature_groups/data_operations/aggregation/aggregation.py::AggregationTestBase::test_all_null_column_per_group
+- mloda/testing/feature_groups/data_operations/row_preserving/frame_aggregate/frame_aggregate.py::FrameAggregateTestBase::test_cross_framework_time_window_with_mask
 -->
 
-- **Operations**: `aggregation`, `scalar_aggregate`, `window_aggregation`.
-- **Where it lives**: `mloda/community/feature_groups/data_operations/aggregation/polars_lazy_aggregation.py`, `.../row_preserving/scalar_aggregate/polars_lazy_scalar_aggregate.py`, `.../row_preserving/window_aggregation/polars_lazy_window_aggregation.py`.
+- **Operations**: `aggregation`, `scalar_aggregate`, `window_aggregation`, `frame_aggregate`.
+- **Where it lives**: `mloda/community/feature_groups/data_operations/aggregation/polars_lazy_aggregation.py`, `.../row_preserving/scalar_aggregate/polars_lazy_scalar_aggregate.py`, `.../row_preserving/window_aggregation/polars_lazy_window_aggregation.py`, `.../row_preserving/frame_aggregate/polars_lazy_frame_aggregate.py`.
 - **Reference behavior**: PyArrow's `pc.sum` returns `null` when every input value in the group is null.
-- **Native Polars behavior**: `pl.col(...).sum()` returns `0` for the same input.
+- **Native Polars behavior**: `pl.col(...).sum()` returns `0` for the same input; `rolling_sum_by` likewise returns `0` for an all-null window.
 - **Mitigation kind**: Implementation fix.
-- **How**: The Polars implementation wraps the `sum` expression with `pl.when(count > 0).then(sum).otherwise(None)`, so an all-null group maps back to `null`.
-- **Regression signal**: The canonical 12-row fixture has a `score` column that is all-null. `test_all_null_column_per_group[sum]` in `mloda/testing/feature_groups/data_operations/aggregation/aggregation.py` asserts `score__sum_agg` is all-null per region, and fails if this correction is removed.
+- **How**: The Polars implementation wraps the `sum` expression with `pl.when(count > 0).then(sum).otherwise(None)`, so an all-null group maps back to `null`. The frame aggregate time window applies the same guard using a rolling non-null count.
+- **Regression signal**: The canonical 12-row fixture has a `score` column that is all-null. `test_all_null_column_per_group[sum]` in `mloda/testing/feature_groups/data_operations/aggregation/aggregation.py` asserts `score__sum_agg` is all-null per region, and fails if this correction is removed. The `fully_masked_window` case of `test_cross_framework_time_window_with_mask` in `mloda/testing/feature_groups/data_operations/row_preserving/frame_aggregate/frame_aggregate.py` asserts a fully masked time window sums to null, not 0.
 
 ### Polars `rank()` returns null for null inputs
 
