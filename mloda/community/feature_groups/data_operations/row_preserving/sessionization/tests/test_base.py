@@ -2,7 +2,8 @@
 
 Covers the ``{ts}__sessionize_{n}_{unit}`` grammar: pattern matching (valid
 names accepted, invalid names rejected), the threshold parser
-(``n``/``unit`` -> seconds), and single-source-column enforcement.
+(``n``/``unit`` -> seconds), and name-based source extraction (a config-only
+feature, with no sessionize token in the name, is rejected).
 
 The matcher reads ``partition_by`` / ``order_by`` from the Options context, so
 match tests pass an Options carrying that config (mirroring ema's
@@ -181,29 +182,43 @@ class TestOrderByArity(ScalarArityTestBase):
         assert SessionizationFeatureGroup._extract_order_by(feature, "ts") == "ts"
 
 
-class TestSingleColumnEnforcement:
-    def test_input_features_rejects_multiple_option_in_features(self) -> None:
+class TestSourceExtraction:
+    @pytest.mark.parametrize(
+        "in_features",
+        [
+            pytest.param("ts", id="single"),
+            pytest.param(["ts_a", "ts_b"], id="multiple"),
+        ],
+    )
+    def test_input_features_rejects_config_only_feature(self, in_features: Any) -> None:
+        """The source must come from the ``{ts}__sessionize_{n}_{unit}`` name, not ``in_features``."""
         options = Options(
             context={
-                "in_features": ["ts_a", "ts_b"],
+                "in_features": in_features,
                 "partition_by": ["user"],
-                "order_by": "ts_a",
             }
         )
         instance = SessionizationFeatureGroup()
-        with pytest.raises(ValueError, match="at most 1"):
+        with pytest.raises(ValueError, match=r"(?i)feature name"):
             instance.input_features(options, FeatureName("my_result"))
 
-    def test_extract_source_features_rejects_multiple_in_features(self) -> None:
+    @pytest.mark.parametrize(
+        "in_features",
+        [
+            pytest.param("ts", id="single"),
+            pytest.param(["ts_a", "ts_b"], id="multiple"),
+        ],
+    )
+    def test_extract_source_features_rejects_config_only_feature(self, in_features: Any) -> None:
+        """The source must come from the ``{ts}__sessionize_{n}_{unit}`` name, not ``in_features``."""
         options = Options(
             context={
-                "in_features": ["ts_a", "ts_b"],
+                "in_features": in_features,
                 "partition_by": ["user"],
-                "order_by": "ts_a",
             }
         )
         feature = Feature("my_result", options=options)
-        with pytest.raises(ValueError, match="at most 1"):
+        with pytest.raises(ValueError, match=r"(?i)feature name"):
             SessionizationFeatureGroup._extract_source_features(feature)
 
     def test_extract_source_features_returns_single_item_for_string_pattern(self) -> None:

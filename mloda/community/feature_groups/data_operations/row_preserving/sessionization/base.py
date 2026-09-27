@@ -36,7 +36,7 @@ Options context:
 
 The source column always comes from the ``{ts}__sessionize_{n}_{unit}`` name;
 a config-only feature (source given via ``in_features`` instead of the name)
-is not matched.
+is rejected.
 
 Every backend (pandas, polars-lazy, PyArrow, DuckDB, SQLite) computes
 sessionization NATIVELY; there is no rejection of supported inputs. PyArrow is
@@ -51,7 +51,6 @@ import re
 from typing import Any
 
 from mloda.provider import (
-    DefaultOptionKeys,
     FeatureChainParser,
     FeatureChainParserMixin,
     FeatureGroup,
@@ -126,10 +125,6 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     ORDER_BY = "order_by"
 
     PROPERTY_MAPPING = {
-        DefaultOptionKeys.in_features: property_spec(
-            "Single source timestamp column to sessionize",
-            strict=False,
-        ),
         PARTITION_BY: property_spec(
             "List of columns to partition by (default: whole table as one stream)",
             strict=False,
@@ -157,55 +152,24 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return super().match_feature_group_criteria(feature_name, options, _data_access_collection)
 
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        _feature_name = str(feature_name)
-
-        prefix_patterns = self._get_prefix_patterns()
-        _operation_config, source_feature = FeatureChainParser.parse_feature_name(_feature_name, prefix_patterns)
-
-        if source_feature:
-            return {Feature(source_feature)}
-
-        in_features_set = options.get_in_features()
-        source_names = [str(f.name) for f in in_features_set]
-        if len(source_names) > self.MAX_IN_FEATURES:
-            raise ValueError(
-                f"sessionize supports at most {self.MAX_IN_FEATURES} source feature, "
-                f"but got {len(source_names)}: {source_names}"
-            )
-        return set(in_features_set)
+        source_feature = self._extract_source_features(Feature(str(feature_name), options=options))[0]
+        return {Feature(source_feature)}
 
     @classmethod
     def _extract_source_features(cls, feature: Feature) -> list[str]:
-        """Extract and validate the single source feature.
-
-        Returns a one-element list containing the source column name. Raises
-        ``ValueError`` if more than one source feature is found, since
-        sessionize supports at most one source column.
-        """
+        """Extract the single source feature from the feature name."""
         feature_name = feature.name
         prefix_patterns = cls._get_prefix_patterns()
 
         _operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
 
-        if source_feature:
-            return [source_feature]
-
-        in_features_set = feature.options.get_in_features()
-        source_names: list[str] = [str(f.name) for f in in_features_set]
-
-        if len(source_names) < cls.MIN_IN_FEATURES:
+        if not source_feature:
             raise ValueError(
-                f"sessionize requires at least {cls.MIN_IN_FEATURES} source feature, "
-                f"but got {len(source_names)} (in_features is empty)."
+                f"sessionize reads its source from the {{ts}}__sessionize_{{n}}_{{unit}} feature name, "
+                f"got {feature_name!r}."
             )
 
-        if len(source_names) > cls.MAX_IN_FEATURES:
-            raise ValueError(
-                f"sessionize supports at most {cls.MAX_IN_FEATURES} source feature, "
-                f"but got {len(source_names)}: {source_names}"
-            )
-
-        return source_names
+        return [source_feature]
 
     @classmethod
     def _extract_threshold_token(cls, feature: Feature) -> str:
