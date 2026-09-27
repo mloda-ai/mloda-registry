@@ -48,14 +48,6 @@ _ROWS: list[tuple[str, str, str, str, list[str]]] = [
     ("otel", "opentelemetry-api", "mloda-community-otel", "opentelemetry", ["OtelExtender"]),
 ]
 
-# Distribution name -> the import root that provides it, derived from _ROWS. Extend _ROWS above (not
-# here) when a bundle covers a new nested leaf's dependency only through an extra.
-_IMPORT_ROOT_OF_DISTRIBUTION = {distribution_name: root for _, distribution_name, _, root, _ in _ROWS}
-
-# Leaf package name -> attribute name(s) its own __init__ must not expose when its extra-only
-# dependency is absent, derived from _ROWS.
-_EXPOSED_EXTENDER_NAMES: dict[str, list[str]] = {leaf_name: exposed for _, _, leaf_name, _, exposed in _ROWS}
-
 gen = load_script("generate_pyproject", _GEN_PATH)
 
 
@@ -356,15 +348,23 @@ def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
             )
 
 
-def test_bundle_shipped_leaf_with_extra_only_dependency_skips_via_plugin_loader(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Future guard, derived from the config rather than _ROWS: a nested leaf the bundle SHIPS (does not
-    own) whose external dependency is covered only by one of the bundle's own extras must still degrade
-    import-safely through PluginLoader, not a direct manifest import. Owned leaves are covered by the
-    _ROWS-parametrized test above instead."""
-    packages = _packages()
+def _extra_only_owned_leaves_with_entry_points(bundle_name: str, packages: dict[str, dict[str, Any]]) -> set[str]:
+    """Nested packages a bundle owns ONLY through a non-dev extra (never named in its own
+    ``dependencies``) that declare ``entry_point_groups``. A bare bundle install carries no code for
+    these, so PluginLoader is their sole import-safety guard."""
+    bundle_cfg = packages[bundle_name]
+    owned = set(gen.bundle_owned_names(bundle_cfg, packages))
+    dependency_owned = set(gen.sibling_dependency_names(bundle_cfg.get("dependencies", []), packages))
+    extra_only_owned = owned - dependency_owned
+    return {name for name in extra_only_owned if packages[name].get("entry_point_groups")}
 
+
+def _bundle_shipped_leaves_with_extra_only_external_dependency(packages: dict[str, dict[str, Any]]) -> set[str]:
+    """Nested leaves an entry_point_bundle SHIPS (does not own) that declare ``entry_point_groups`` and
+    whose external runtime dependency is covered only by one of the bundle's own non-dev extras. A bare
+    bundle install carries such a leaf's code, but not the dependency that gates its entry points, so it
+    needs the same PluginLoader skip coverage the _ROWS test gives owned leaves; this must stay empty."""
+    found: set[str] = set()
     for bundle_name, bundle_cfg in packages.items():
         if bundle_cfg.get("entry_point_bundle") is not True:
             continue
@@ -382,68 +382,64 @@ def test_bundle_shipped_leaf_with_extra_only_dependency_skips_via_plugin_loader(
         for leaf_name, leaf_cfg in packages.items():
             if leaf_name == bundle_name or not leaf_cfg["path"].startswith(prefix) or leaf_name in owned:
                 continue
-            groups = leaf_cfg.get("entry_point_groups")
-            if not groups:
+            if not leaf_cfg.get("entry_point_groups"):
                 continue
-            # PluginLoader.load_entry_points(group=...) only accepts plugin-type groups.
-            groups = [g for g in groups if g != gen.OPTIONAL_DEPENDENCIES_GROUP]
-
             leaf_names = _external_dependency_names(leaf_cfg.get("dependencies", []), packages)
-            covered_only_by_extra = sorted(leaf_names & extra_only)
-            if not covered_only_by_extra:
-                continue
+            if leaf_names & extra_only:
+                found.add(leaf_name)
+    return found
 
-            dotted = leaf_cfg["path"].replace("/", ".")
 
-            # Scoped per leaf so a block/evict from one iteration never leaks into the next.
-            with pytest.MonkeyPatch.context() as mp:
-                for dist_name in covered_only_by_extra:
-                    root = _IMPORT_ROOT_OF_DISTRIBUTION.get(dist_name)
-                    assert root is not None, (
-                        f"{leaf_name} depends on {dist_name!r}, which {bundle_name} covers only through its "
-                        f"'{bundle_name}' optional extra; add {dist_name!r} to _IMPORT_ROOT_OF_DISTRIBUTION "
-                        "in this test so its manifest can be checked for an import-safe degrade"
-                    )
-                    block_root(mp, root)
+def test_rows_covers_exactly_the_extra_only_owned_community_leaves() -> None:
+    """_ROWS must name every mloda-community leaf owned only through a non-dev extra, so a future one
+    cannot silently escape the PluginLoader-skip coverage the parametrized test above gives them."""
+    packages = _packages()
+    derived = _extra_only_owned_leaves_with_entry_points("mloda-community", packages)
+    assert derived, "expected mloda-community to own at least one leaf only through a non-dev extra"
 
-                evict_package(mp, dotted)
+    rows_leaves = {leaf_name for _, _, leaf_name, _, _ in _ROWS}
+    assert derived == rows_leaves, (
+        f"mloda-community owns {sorted(derived)} only through a non-dev extra, but _ROWS names "
+        f"{sorted(rows_leaves)}; add the missing leaf to _ROWS above"
+    )
 
-                # See the matching comment in test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning:
-                # PluginLoader._skipped dedupes identical warnings process-wide, across tests.
-                PluginLoader.reset_cache()
-                caplog.clear()
-                with caplog.at_level(logging.WARNING, logger=_PLUGIN_LOADER_LOGGER):
-                    for group in groups:
-                        keys = PluginLoader().load_entry_points(group=group)
-                        assert not any(key.startswith(f"{dotted}.") for key in keys), (
-                            f"PluginLoader registered a class from {dotted}'s manifest even though "
-                            f"{covered_only_by_extra} was blocked; the entry point should have been skipped"
-                        )
 
-                plugin_loader_warnings = [
-                    record
-                    for record in caplog.records
-                    if record.name == _PLUGIN_LOADER_LOGGER
-                    and record.levelno == logging.WARNING
-                    and f"{dotted}.manifest:" in record.getMessage()
-                ]
-                assert plugin_loader_warnings, (
-                    f"PluginLoader.load_entry_points() logged no WARNING mentioning {dotted}.manifest: "
-                    f"while {covered_only_by_extra} was blocked"
-                )
+def test_no_bundle_shipped_leaf_has_an_extra_only_external_dependency() -> None:
+    """No nested leaf a bundle ships (rather than owns) may depend on something covered only by the
+    bundle's own extra; such a leaf would need PluginLoader skip coverage this file does not give it."""
+    found = _bundle_shipped_leaves_with_extra_only_external_dependency(_packages())
+    assert not found, (
+        f"{sorted(found)} are shipped (not owned) by their bundle but depend on something covered only "
+        "by one of the bundle's own extras; add PluginLoader skip coverage for them like the _ROWS "
+        "test gives owned leaves"
+    )
 
-                exposed_attrs = _EXPOSED_EXTENDER_NAMES.get(leaf_name)
-                assert exposed_attrs is not None, (
-                    f"{leaf_name} has no entry in _EXPOSED_EXTENDER_NAMES in this test; add the attribute "
-                    "name(s) its package __init__ must not expose when the extra-only dependency is absent"
-                )
-                leaf_module = importlib.import_module(dotted)
-                for attr in exposed_attrs:
-                    assert attr not in vars(leaf_module), (
-                        f"{dotted} still exposes {attr!r} after blocking {covered_only_by_extra}; "
-                        f"{leaf_name} is covered only through {bundle_name}'s extra, so the package's "
-                        "__init__ must not import it eagerly"
-                    )
+
+def test_bundle_shipped_leaves_helper_detects_an_extra_only_external_dependency() -> None:
+    """Proves the helper above can fail: a synthetic bundle-shipped leaf whose only external dependency
+    is covered by the bundle's own extra must be reported."""
+    packages: dict[str, dict[str, Any]] = {
+        "sandbox-bundle": {
+            "description": "sandbox",
+            "path": "sandbox/bundle",
+            "published": True,
+            "entry_point_bundle": True,
+            "optional_dependencies": {"extra": ["sandbox-thirdparty>=1.0"]},
+        },
+        "sandbox-bundle-leaf": {
+            "description": "sandbox",
+            "path": "sandbox/bundle/leaf",
+            "published": True,
+            "entry_point_groups": ["mloda.extenders"],
+            "dependencies": ["sandbox-thirdparty>=1.0"],
+        },
+    }
+
+    found = _bundle_shipped_leaves_with_extra_only_external_dependency(packages)
+
+    assert found == {"sandbox-bundle-leaf"}, (
+        f"expected the helper to report the synthetic shipped leaf, got {sorted(found)}"
+    )
 
     # No bundle-shipped (unowned) leaf has such a dependency today; the _ROWS-parametrized test above
     # exercises the same mechanism non-vacuously for the owned mloda-community-otel/-openlineage leaves.
