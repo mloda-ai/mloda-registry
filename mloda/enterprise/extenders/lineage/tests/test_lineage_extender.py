@@ -112,6 +112,17 @@ class _MultiOutput(_Derived):
     outputs = tuple(f"lineage_facets_multi_{suffix}" for suffix in "fcaebd")
 
 
+class _PerOutputInputs(_Derived):
+    """Two outputs whose input_features differ per output: the first reads only _ROOT_A, the second only _ROOT_B."""
+
+    outputs = ("lineage_facets_per_output_a", "lineage_facets_per_output_b")
+    inputs = (_ROOT_A, _ROOT_B)
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        by_output = dict(zip(self.outputs, self.inputs, strict=True))
+        return {Feature(by_output[str(feature_name)])}
+
+
 class _MaskedByAttribute(_Derived):
     outputs = ("lineage_facets_masked_attribute",)
     masking = True
@@ -669,48 +680,66 @@ class TestLineageFacetsColumnLineage:
                 column_lineage_dataset.Transformation(type="DIRECT", description=description)
             ]
 
+    @pytest.mark.parametrize(
+        ("feature_group", "expected_inputs_by_output"),
+        [
+            pytest.param(_MultiOutput, dict.fromkeys(_MultiOutput.outputs, (_ROOT,)), id="shared input"),
+            pytest.param(
+                _PerOutputInputs,
+                dict(zip(_PerOutputInputs.outputs, ((_ROOT_A,), (_ROOT_B,)), strict=True)),
+                id="distinct inputs per output",
+            ),
+        ],
+    )
     def test_run_all_multi_output_step_gives_each_output_its_own_declared_edge(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        feature_group: type[_Derived],
+        expected_inputs_by_output: dict[str, tuple[str, ...]],
     ) -> None:
         """Each output's edges come from input_feature_edges, so there is no step-level marker."""
         client, transport = ol_capture
 
-        _run(LineageFacetsExtender(client=client), list(_MultiOutput.outputs), _MultiOutput)
+        _run(LineageFacetsExtender(client=client), list(feature_group.outputs), feature_group)
 
-        complete = _complete(transport.events, _job(_MultiOutput))
-        assert sorted(output.name for output in complete.outputs or []) == sorted(_MultiOutput.outputs)
-        for name in _MultiOutput.outputs:
+        complete = _complete(transport.events, _job(feature_group))
+        assert sorted(output.name for output in complete.outputs or []) == sorted(feature_group.outputs)
+        for name, expected_inputs in expected_inputs_by_output.items():
             assert set(_column_lineage(complete, name).fields) == {name}
             input_fields = _column_lineage(complete, name).fields[name].inputFields
-            assert [input_field.name for input_field in input_fields] == [_ROOT]
-            assert _transformations(complete, name) == [column_lineage_dataset.Transformation(type="DIRECT")]
-
-    def test_input_feature_edges_give_each_output_exactly_its_own_edges_even_on_multi_output_steps(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
-    ) -> None:
-        client, transport = ol_capture
-        edges: dict[str, tuple[str, ...]] = {"a__sum": ("a",), "b__sum": ("b",)}
-
-        with make_hook_context(
-            feature_names=("a__sum", "b__sum"),
-            input_features=frozenset({"a", "b"}),
-            input_feature_edges=edges,
-        ).activate():
-            LineageFacetsExtender(client=client)(lambda: None)
-
-        for output, inputs in edges.items():
-            input_fields = _column_lineage(transport.events[-1], output).fields[output].inputFields
-            assert [input_field.name for input_field in input_fields] == list(inputs)
-            assert _transformations(transport.events[-1], output) == [
-                column_lineage_dataset.Transformation(type="DIRECT") for _ in inputs
+            assert [input_field.name for input_field in input_fields] == list(expected_inputs)
+            assert _transformations(complete, name) == [
+                column_lineage_dataset.Transformation(type="DIRECT") for _ in expected_inputs
             ]
 
-    def test_input_feature_edges_only_apply_to_outputs_with_an_entry(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    @pytest.mark.parametrize(
+        ("edges", "expected_by_output"),
+        [
+            pytest.param(
+                {"a__sum": ("a",), "b__sum": ("b",)},
+                {"a__sum": (("a",), None), "b__sum": (("b",), None)},
+                id="full map",
+            ),
+            pytest.param(
+                {"a__sum": ("a",)},
+                {"a__sum": (("a",), None), "b__sum": (("a", "b"), _STEP_LEVEL_MARKER)},
+                id="partial map falls back for the missing output",
+            ),
+            pytest.param(
+                {"a__sum": (), "b__sum": ("b",)},
+                {"a__sum": (("a", "b"), _STEP_LEVEL_MARKER), "b__sum": (("b",), None)},
+                id="empty-tuple entry falls back too",
+            ),
+        ],
+    )
+    def test_input_feature_edges_apply_only_where_declared(
+        self,
+        ol_capture: tuple[OpenLineageClient, RecordingTransport],
+        edges: dict[str, tuple[str, ...]],
+        expected_by_output: dict[str, tuple[tuple[str, ...], str | None]],
     ) -> None:
-        """An output missing from input_feature_edges falls back to all step inputs, with a step-level marker."""
+        """An output with a non-empty entry gets exactly those edges; otherwise it falls back to step-wide inputs."""
         client, transport = ol_capture
-        edges: dict[str, tuple[str, ...]] = {"a__sum": ("a",)}
 
         with make_hook_context(
             feature_names=("a__sum", "b__sum"),
@@ -719,18 +748,12 @@ class TestLineageFacetsColumnLineage:
         ).activate():
             LineageFacetsExtender(client=client)(lambda: None)
 
-        a_fields = _column_lineage(transport.events[-1], "a__sum").fields["a__sum"].inputFields
-        assert [input_field.name for input_field in a_fields] == ["a"]
-        assert _transformations(transport.events[-1], "a__sum") == [
-            column_lineage_dataset.Transformation(type="DIRECT")
-        ]
-
-        b_fields = _column_lineage(transport.events[-1], "b__sum").fields["b__sum"].inputFields
-        assert [input_field.name for input_field in b_fields] == ["a", "b"]
-        assert (
-            _transformations(transport.events[-1], "b__sum")
-            == [column_lineage_dataset.Transformation(type="DIRECT", description=_STEP_LEVEL_MARKER)] * 2
-        )
+        for output, (expected_inputs, description) in expected_by_output.items():
+            input_fields = _column_lineage(transport.events[-1], output).fields[output].inputFields
+            assert [input_field.name for input_field in input_fields] == list(expected_inputs)
+            assert _transformations(transport.events[-1], output) == [
+                column_lineage_dataset.Transformation(type="DIRECT", description=description) for _ in expected_inputs
+            ]
 
 
 _MASKED_CASES = [
