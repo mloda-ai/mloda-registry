@@ -205,7 +205,7 @@ The `mloda` facet's schema URL points at its module in this repository; it is no
 
 The OTel and OpenLineage mixins both enforce the same observability mandate: a wrapped failure is logged at WARNING with the extender name and message, but the message itself never reaches a span or an event.
 
-The registry's OTel and OpenLineage extenders log that message verbatim, once per extender and hook: `OtelExtender` logs a failed load for both the `mloda.load` and the enclosing `mloda.calculate` span. Core also logs the failure at ERROR with its traceback, and the caller's exception carries the same message. A failed load's message can hold a presigned URL or other data-access secret, so treat log sinks as holding data-access secrets and keep credentials out of a reader's exception messages.
+The registry's OTel and OpenLineage extenders log that message verbatim. `OtelExtender` logs a failed load twice, for the `mloda.load` and the enclosing `mloda.calculate` span; `OpenLineageExtender` and `LineageFacetsExtender` log it once, on the enclosing calculate run. Core also logs the failure at ERROR with its traceback, and the exception the caller receives carries the message. A failed load's message can hold a presigned URL or other data-access secret, so treat log sinks as holding data-access secrets. An input data reader whose client may put a credential in its error re-raises it with a sanitized message `from None`, since core's traceback also prints chained exceptions.
 
 ### ExtenderContractTestMixin
 
