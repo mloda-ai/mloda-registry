@@ -178,7 +178,7 @@ description = "Frame aggregate feature group (rolling, cumulative, expanding, ti
 dependencies = ["mloda-community-data-operations>={version}"]
 path = "mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate"
 published = true
-optional_dependencies = { sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas>=2.2"], all = ["polars>=1.21", "pandas>=2.2", "duckdb"] }
+optional_dependencies = { sqlite = [], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.38"], pandas = ["pandas>=2.2"], all = ["polars>=1.38", "pandas>=2.2", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
 [packages.mloda-community-scalar-aggregate]

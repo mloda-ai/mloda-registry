@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from packaging.requirements import Requirement
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -40,10 +42,22 @@ _BACKEND_PREFIXES = [
 # Backends needing their own pip package; python_dict and sqlite are always available.
 _PACKAGED_BACKENDS = {"pyarrow", "duckdb", "polars", "pandas"}
 
+# Per-package polars floors above mloda core's, where a leaf needs a newer polars than core requires.
+# frame-aggregate: time-window rolling_*_by rejects null values below polars 1.38.
+_POLARS_FLOOR_OVERRIDES: dict[str, str] = {"mloda-community-frame-aggregate": ">=1.38"}
+
 
 def _dep_name(spec: str) -> str:
     """Bare package name from a PEP 508 requirement string, e.g. 'pandas>=2.2' -> 'pandas'."""
     return re.split(r"[<>=!~;\s\[(@]", spec.strip(), maxsplit=1)[0]
+
+
+def _min_version(specifier: SpecifierSet) -> Version:
+    """Version of the '>=' specifier in a SpecifierSet, e.g. '>=1.21' -> Version('1.21')."""
+    for spec in specifier:
+        if spec.operator == ">=":
+            return Version(spec.version)
+    raise AssertionError(f"specifier {specifier} has no '>=' floor to compare")
 
 
 def _core_polars_requirement() -> Requirement:
@@ -134,11 +148,18 @@ def test_leaf_package_extras_match_registered_backends(package_name: str, entry:
             f"{package_name}: {backend} extra must depend on the '{backend}' package, got {deps!r}"
         )
         if backend == "polars":
+            override = _POLARS_FLOOR_OVERRIDES.get(package_name)
+            expected = SpecifierSet(override) if override is not None else _CORE_POLARS_REQUIREMENT.specifier
+            if override is not None:
+                assert _min_version(expected) >= _min_version(_CORE_POLARS_REQUIREMENT.specifier), (
+                    f"{package_name}: polars floor override {expected} must not be below mloda core's floor "
+                    f"({_CORE_POLARS_REQUIREMENT.specifier})"
+                )
             for dep in deps:
                 specifier = Requirement(dep).specifier
-                assert specifier == _CORE_POLARS_REQUIREMENT.specifier, (
-                    f"{package_name}: polars extra must require the same floor as mloda core's polars extra "
-                    f"({_CORE_POLARS_REQUIREMENT.specifier}), got {specifier}"
+                source = f"override for {package_name}" if override else "mloda core's polars extra floor"
+                assert specifier == expected, (
+                    f"{package_name}: polars extra must require {expected} ({source}), got {specifier}"
                 )
 
     expected_all = {dep for backend in backends & _PACKAGED_BACKENDS for dep in actual[backend]}

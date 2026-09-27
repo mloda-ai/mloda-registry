@@ -73,7 +73,9 @@ For a `data_operations` leaf package, `optional_dependencies` must declare exact
 extras its `manifest.py` registers, no more and no less, and its `polars` extra must use the same
 version floor as mloda core's own `polars` extra: `tests/test_end2end/test_backend_optional_dependencies.py`
 derives the expected set from each manifest, reads core's floor from its installed metadata, and fails
-the build on drift.
+the build on drift. A leaf may raise its `polars` floor above core's only through
+`_POLARS_FLOOR_OVERRIDES` in that same test (today `mloda-community-frame-aggregate`, `>=1.38`,
+because its time window's `rolling_*_by` rejects null values on older polars).
 
 A marker declares its whole subtree typed, including third-party distributions installed into it: on a namespace portion (`mloda/community`, `mloda/enterprise`) that is the entire namespace, on a shared base package (`mloda/community/feature_groups/data_operations`, `mloda/community/feature_groups/example`) it is everything published from below that base. mypy returns at the first `py.typed` on the module path, so those leaf packages need no flag of their own. The sibling dependency floor below already keeps the leaf at or above the release that first shipped the marker.
 
