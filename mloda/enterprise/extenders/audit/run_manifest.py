@@ -433,14 +433,22 @@ def _read_manifests(path: str | Path) -> list[dict[str, Any]]:
     return list(_iter_manifests(path))
 
 
-def _check_run_against_seal(audit_path: str | Path, manifest_path: str | Path, run_id: str) -> None:
-    """Raise ManifestVerificationError when audit_path's records of run_id no longer match its seal. The
-    manifest read is unverified: it only feeds a log message, not a refusal decision."""
+def _check_run_against_seal(
+    audit_path: str | Path,
+    manifest_path: str | Path,
+    run_id: str,
+    *,
+    signer: ManifestSigner,
+    previous_signers: Iterable[ManifestSigner] = (),
+) -> None:
+    """Raise ManifestVerificationError when run_id's manifest fails its signature/field checks, or when
+    audit_path's records of run_id no longer match it."""
     with _flock(manifest_path, exclusive=False):
         manifests = _read_manifests(manifest_path)
     manifest = next((m for m in manifests if m.get("run_id") == run_id), None)
     if manifest is None:
         raise ManifestVerificationError(f"run_id {run_id!r} has no manifest in {manifest_path}")
+    _verify_manifest_fields(manifest, signer, _signer_map(signer, previous_signers))
     _verify_digest(manifest, _digest_runs(audit_path, run_id.__eq__).get(run_id, _RunDigest()))
 
 

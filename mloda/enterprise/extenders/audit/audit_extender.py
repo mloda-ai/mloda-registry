@@ -21,11 +21,11 @@ from mloda.enterprise.extenders.audit.run_manifest import (
     ManifestVerificationError,
     RunAlreadySealedError,
     RunNotPendingError,
+    _check_run_against_seal,
     _reject_aliased_paths,
     _signer_map,
     seal_ndjson_runs,
 )
-from mloda.enterprise.extenders.audit.run_manifest import _check_run_against_seal as _check_run_against_seal
 from mloda.enterprise.extenders.audit.run_manifest import _is_run_sealed_unverified as _is_run_sealed_unverified
 
 logger = logging.getLogger(__name__)
@@ -288,7 +288,13 @@ class AuditExtender(Extender):
             )
         except RunAlreadySealedError:
             try:
-                _check_run_against_seal(self._audit_path, self._manifest_path, run_id)
+                _check_run_against_seal(
+                    self._audit_path,
+                    self._manifest_path,
+                    run_id,
+                    signer=self._signer,
+                    previous_signers=self._previous_signers,
+                )
             except (ManifestVerificationError, OSError) as exc:
                 logger.error(
                     "AuditExtender: run_id %r is already sealed in manifest_path %s and was not sealed again; "

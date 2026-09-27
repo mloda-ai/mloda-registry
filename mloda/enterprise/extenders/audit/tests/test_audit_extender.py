@@ -238,13 +238,16 @@ def _unterminated_seal_of_run_2_tail(audit_path: Path, manifest_path: Path, sign
     return "run-2"
 
 
+# The refusers that still hold a signer, shared with the refused-rerun test (which cannot use the pickled one:
+# it needs on_run_complete, which a pickled copy's dropped signer skips).
+_SIGNER_HOLDING_REFUSERS = [
+    pytest.param(_refuser_sealing_instance, id="sealing_instance"),
+    pytest.param(_refuser_second_instance, id="second_instance"),
+]
+
 _REFUSERS = pytest.mark.parametrize(
     "make_refuser",
-    [
-        pytest.param(_refuser_sealing_instance, id="sealing_instance"),
-        pytest.param(_refuser_second_instance, id="second_instance"),
-        pytest.param(_refuser_pickled_second_instance, id="pickled_second_instance"),
-    ],
+    [*_SIGNER_HOLDING_REFUSERS, pytest.param(_refuser_pickled_second_instance, id="pickled_second_instance")],
 )
 
 
@@ -1090,13 +1093,7 @@ class TestAuditExtenderSealing:
         manifests = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()]
         assert "run-missing" not in {m.get("run_id") for m in manifests}
 
-    @pytest.mark.parametrize(
-        "make_refuser",
-        [
-            pytest.param(_refuser_sealing_instance, id="sealing_instance"),
-            pytest.param(_refuser_second_instance, id="second_instance"),
-        ],
-    )
+    @pytest.mark.parametrize("make_refuser", _SIGNER_HOLDING_REFUSERS)
     def test_a_refused_rerun_of_an_already_sealed_run_logs_no_error_and_does_not_raise(
         self,
         tmp_path: Path,
@@ -1159,6 +1156,23 @@ class TestAuditExtenderSealing:
         # A torn line: the record-hash check itself fails to read audit_path.
         with open(audit_path, "ab") as audit_file:
             audit_file.write(b'{"run_id": "run-1", "comp')
+
+        with caplog.at_level(logging.ERROR):
+            extender.on_run_complete("run-1")  # must not raise
+
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR and r.name == audit_extender_module.__name__]
+        assert any("run-1" in r.getMessage() for r in errors)
+        assert manifest_path.read_bytes() == before
+
+    def test_audit_path_unreadable_after_the_run_is_sealed_logs_error_and_does_not_raise(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        extender, audit_path = _extender_with_run_1_sealed(tmp_path)
+        _, manifest_path = _sealing_config(tmp_path)
+        before = manifest_path.read_bytes()
+        # audit_path is now a directory: the record-hash check cannot even open it as a file.
+        audit_path.unlink()
+        audit_path.mkdir()
 
         with caplog.at_level(logging.ERROR):
             extender.on_run_complete("run-1")  # must not raise

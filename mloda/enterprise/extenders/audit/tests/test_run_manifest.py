@@ -1822,6 +1822,40 @@ class TestSealNdjsonRuns:
         assert manifest_path.read_bytes() == before
 
 
+class TestCheckRunAgainstSeal:
+    """_check_run_against_seal is what AuditExtender.on_run_complete calls when seal_ndjson_runs raises
+    RunAlreadySealedError, to tell an untouched re-run from a stray record written after the seal. It must
+    verify the manifest's signature and fields, not just compare digests against an unverified read."""
+
+    def test_untouched_sealed_run_does_not_raise(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record("run-1", 1)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+        # must not raise
+        run_manifest_module._check_run_against_seal(audit_path, manifest_path, "run-1", signer=_signer())
+
+    def test_a_manifest_edited_to_hide_a_stray_record_fails_the_signature_check(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record("run-1", 1)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+        _write_records(audit_path, [_record("run-1", 2)])  # a stray record, written after the seal
+        stray_hash = _sha256(audit_path.read_bytes().splitlines()[-1])
+        manifest = _read_lines(manifest_path)[0]
+        # The digest now covers the stray too, but the signature block is untouched: it no longer matches.
+        tampered = {
+            **manifest,
+            "record_count": manifest["record_count"] + 1,
+            "record_hashes": sorted([*manifest["record_hashes"], stray_hash]),
+        }
+        _rewrite_lines(manifest_path, [tampered])
+
+        with pytest.raises(ManifestVerificationError, match="signature"):
+            run_manifest_module._check_run_against_seal(audit_path, manifest_path, "run-1", signer=_signer())
+
+
 @_both_algorithms
 class TestRotateManifestKey:
     """Lock, fsync and rollback are covered in TestSealNdjsonRuns."""
@@ -4713,6 +4747,10 @@ class TestRunManifestRunAll:
         verify_ndjson_log(audit_path, manifest_path, signer=signer)
         # A refused re-run wrote nothing new: on_run_complete must not log an ERROR for it.
         assert not any(r.levelno >= logging.ERROR and r.name == audit_extender_module.__name__ for r in caplog.records)
+        # It logs an audit_extender INFO instead: core's own ERROR log of the raised SealedRunRefusedError
+        # (a different logger) must not stand in for it.
+        infos = [r for r in caplog.records if r.levelno == logging.INFO and r.name == audit_extender_module.__name__]
+        assert any("was not sealed again" in r.getMessage() for r in infos)
 
     @_both_algorithms
     def test_run_all_multiprocessing_auto_seal_waits_for_workers_to_be_joined(
