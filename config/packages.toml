@@ -32,7 +32,7 @@ description = "Example community FeatureGroup plugin for mloda"
 dependencies = ["{core_dependency}"]
 path = "mloda/community/feature_groups/example"
 published = true
-optional_dependencies = { all = ["mloda-community-example-a", "mloda-community-example-b"] }
+optional_dependencies = { all = ["{published_children}"] }
 entry_point_groups = ["mloda.feature_groups"]
 py_typed = true
 

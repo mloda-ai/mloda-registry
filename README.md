@@ -83,7 +83,7 @@ Options such as `partition_by` and `order_by`, plus the shared contracts, are in
 
 `mloda-community-openlineage`, behind `mloda-enterprise[openlineage]`, is what the lineage facets extender (`mloda-enterprise-lineage`) builds on; without the extra its entry point registers nothing.
 
-The remaining example packages are not on PyPI; install them from git, replacing the subdirectory with the package `path` from `config/packages.toml`:
+The remaining example packages are not on PyPI; install them from git, replacing the subdirectory with the package `path` from `config/packages.toml`, but not alongside the bundle (`mloda-community` or `mloda-enterprise`) that already ships them:
 
 ```bash
 pip install "git+https://github.com/mloda-ai/mloda-registry.git#subdirectory=mloda/community/feature_groups/example/example_b"

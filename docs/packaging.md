@@ -178,7 +178,7 @@ description = "Example community FeatureGroup plugin for mloda"
 dependencies = ["{core_dependency}"]
 path = "mloda/community/feature_groups/example"
 published = true
-optional_dependencies = { all = ["mloda-community-example-a", "mloda-community-example-b"] }
+optional_dependencies = { all = ["{published_children}"] }
 entry_point_groups = ["mloda.feature_groups"]
 py_typed = true
 ```
@@ -193,16 +193,13 @@ py_typed = true
 | `pip install mloda-enterprise[otel]` | The bundle plus the OTel audit log sink's dependency |
 | `pip install mloda-enterprise[openlineage]` | The bundle plus the OpenLineage emitter the lineage facets extender builds on |
 | `pip install mloda-community-example` | Base example only |
-| `pip install mloda-community-example[all]` | Base + all variants |
+| `pip install mloda-community-example[all]` | Base + every published variant |
 | `pip install mloda-community-example-a` | Variant A + base |
 
-Entries in `optional_dependencies.all` are emitted unpinned, so a variant only has
-to exist on PyPI at some version for the extra to resolve. A variant that is
-dropped from the release list therefore keeps resolving at its last published
-version, which is why `mloda-community-example-b` can lack `published = true`
-without breaking `[all]`. A variant that was
-never published at all is different: it cannot satisfy the extra at any version,
-so `[all]` fails outright.
+A base's `all` extra is `["{published_children}"]`, so only published variants enter
+it. An unpublished variant (like `mloda-community-example-b`) ships only inside the
+bundle wheel; naming it in a published package's extra would install its last PyPI
+release over the bundle's copy of the same files, giving them two owners.
 
 ## Entry points
 
@@ -319,6 +316,7 @@ A published community leaf goes behind a bundle extra the same way, spelled `"<l
 
 ### Add a variant to an existing plugin
 
-Same as [Add a new package](#add-a-new-package), plus add the variant to the parent's `optional_dependencies.all`.
-If that extra is `["{published_children}"]`, do not edit it: set `published = true`
-on the variant instead, and the placeholder picks it up.
+Same as [Add a new package](#add-a-new-package): the parent's `all` extra is
+`["{published_children}"]`, so set `published = true` on the variant (which also
+makes the bundle own it, per [Add a new package](#add-a-new-package)) rather than
+editing the extra. An unpublished variant stays out of every extra.

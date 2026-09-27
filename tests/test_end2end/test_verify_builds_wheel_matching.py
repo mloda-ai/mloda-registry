@@ -68,12 +68,22 @@ def _write_wheel(out_dir: Path, pkg_name: str, version: str = _VERSION) -> Path:
     return path
 
 
-def _write_wheel_with_files(out_dir: Path, pkg_name: str, files: list[str], version: str = _VERSION) -> Path:
-    """Like ``_write_wheel``, but the zip also carries the given (already wheel-relative) file paths."""
+def _write_wheel_with_files(
+    out_dir: Path,
+    pkg_name: str,
+    files: list[str],
+    version: str = _VERSION,
+    metadata_lines: list[str] | None = None,
+) -> Path:
+    """Like ``_write_wheel``, but the zip also carries the given (already wheel-relative) file paths and,
+    when given, extra lines appended to the METADATA."""
     path = out_dir / _wheel_name(pkg_name, version)
     dist_info = f"{pkg_name.replace('-', '_')}-{version}.dist-info"
+    metadata = f"Metadata-Version: 2.4\nName: {pkg_name}\nVersion: {version}\n"
+    if metadata_lines:
+        metadata += "\n".join(metadata_lines) + "\n"
     with zipfile.ZipFile(path, "w") as zf:
-        zf.writestr(f"{dist_info}/METADATA", f"Metadata-Version: 2.4\nName: {pkg_name}\nVersion: {version}\n")
+        zf.writestr(f"{dist_info}/METADATA", metadata)
         for file_path in files:
             zf.writestr(file_path, "")
     return path
@@ -283,6 +293,23 @@ def test_overlap_check_ignores_an_unpublished_wheel(tmp_path: Path) -> None:
     assert errors == [], (
         f"an overlap with an unpublished wheel must be ignored, {shared_path!r} must not be reported: {errors!r}"
     )
+
+
+def test_dependency_relationships_accept_an_example_wheel_without_example_b_in_all(tmp_path: Path) -> None:
+    """The example base wheel's 'all' extra owns only example-a; example-b is bundle-only, not a member."""
+    wheel = _write_wheel_with_files(
+        tmp_path,
+        "mloda-community-example",
+        [],
+        metadata_lines=[
+            "Provides-Extra: all",
+            'Requires-Dist: mloda-community-example-a; extra == "all"',
+        ],
+    )
+
+    errors = vb.verify_dependency_relationships({"mloda-community-example": wheel})
+
+    assert errors == [], f"expected no errors for an example wheel without example-b in 'all', got {errors!r}"
 
 
 def test_two_wheels_for_one_distribution_are_rejected_as_ambiguous(

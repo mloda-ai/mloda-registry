@@ -2,8 +2,8 @@
 
 The released set lives in exactly ONE place: a ``published = true`` flag per package in
 ``config/packages.toml``. The release workflow, the ``verify-published`` and ``security``
-tox envs and the data-operations ``all`` extra all derive from it through
-``scripts/published_packages.py``. Re-typed copies are how five distributions reached
+tox envs and the data-operations and community example ``all`` extras all derive from it
+through ``scripts/published_packages.py``. Re-typed copies are how five distributions reached
 three of the four and never the build array.
 
 The flag governs the released set only. Wheel boundaries come from the configured layout:
@@ -499,14 +499,31 @@ def test_published_set_is_dependency_first() -> None:
     )
 
 
-def test_no_dotted_package_is_listed_by_two_published_distributions() -> None:
-    """Definition-of-done: every path shipped by a published wheel has exactly one published owner."""
-    packages = _packages()
+def _reachable_distributions(packages: dict[str, dict[str, Any]]) -> list[str]:
+    """Published names in config order, then every configured package a published package's own
+    generated ``[project]`` metadata names (dependencies plus every optional-dependencies group,
+    dev included), deduplicated."""
     published = _published_packages_fn()(packages)
+    reached: list[str] = []
+    for name in published:
+        project = _generated(name, packages)["project"]
+        deps = list(project.get("dependencies", []))
+        for extra_deps in project.get("optional-dependencies", {}).values():
+            deps.extend(extra_deps)
+        reached.extend(gen.sibling_dependency_names(deps, packages))
+    return list(dict.fromkeys([*published, *reached]))
+
+
+def test_no_dotted_package_is_listed_by_two_reachable_distributions() -> None:
+    """Definition-of-done: every path shipped by a distribution reachable from a published one has exactly
+    one owner among the reachable distributions."""
+    packages = _packages()
+    reachable = _reachable_distributions(packages)
 
     owners: dict[str, str] = {}
     conflicts: dict[str, list[str]] = {}
-    for name in published:
+    for name in reachable:
+        # An unpublished reached package is checked against what its stale PyPI release ships.
         for entry in _wheel_packages(name, packages):
             previous = owners.get(entry)
             if previous is not None and previous != name:
@@ -515,8 +532,8 @@ def test_no_dotted_package_is_listed_by_two_published_distributions() -> None:
                 owners[entry] = name
 
     assert conflicts == {}, (
-        f"published distributions' generated [tool.setuptools] packages both list {conflicts}; each "
-        "shipped path must have exactly one published owner"
+        f"reachable distributions' generated [tool.setuptools] packages both list {conflicts}; each "
+        "shipped path must have exactly one owner among the distributions reachable from the published set"
     )
 
 
@@ -869,7 +886,7 @@ def test_internal_extra_members_yields_exactly_the_internal_extras() -> None:
     bare package name."""
     entries = _internal_extra_entries(_packages())
     expected = [
-        (_COMMUNITY_EXAMPLE, "all", ["mloda-community-example-a", _EXAMPLE_B]),
+        (_COMMUNITY_EXAMPLE, "all", ["mloda-community-example-a"]),
         (_DATA_OPERATIONS, "all", _published_children()),
         ("mloda-community", "otel", ["mloda-community-otel"]),
         ("mloda-community", "openlineage", ["mloda-community-openlineage"]),
@@ -924,26 +941,12 @@ def test_tox_env_installs_from_the_published_script(env_name: str) -> None:
     )
 
 
-def test_data_operations_extra_uses_the_published_children_placeholder() -> None:
+@pytest.mark.parametrize("base", [_DATA_OPERATIONS, _COMMUNITY_EXAMPLE])
+def test_base_extra_uses_the_published_children_placeholder(base: str) -> None:
     """The 'all' extra is derived from the flag, so an unpublished package can never enter it."""
-    extra = _packages()[_DATA_OPERATIONS].get("optional_dependencies", {}).get("all")
+    extra = _packages()[base].get("optional_dependencies", {}).get("all")
     assert extra == [_PUBLISHED_CHILDREN], (
-        f"config/packages.toml must declare the {_DATA_OPERATIONS} 'all' extra as "
-        f'["{_PUBLISHED_CHILDREN}"], got {extra!r}'
-    )
-
-
-def test_community_example_extra_keeps_the_unpublished_example_b() -> None:
-    """example-b is unpublished but still resolvable at its last version, and tox -e verify-extras installs it."""
-    packages = _packages()
-    extra = packages[_COMMUNITY_EXAMPLE].get("optional_dependencies", {}).get("all", [])
-    assert _EXAMPLE_B in extra, (
-        f"config/packages.toml dropped {_EXAMPLE_B} from the {_COMMUNITY_EXAMPLE} 'all' extra, got "
-        f"{extra!r}; tox -e verify-extras installs that extra and imports example_b from it."
-    )
-    assert not packages[_EXAMPLE_B].get("published"), (
-        f"{_EXAMPLE_B} is flagged published; this test pins that an unpublished package may stay in a "
-        "hand-written extra, so the extra must not be converted to the published-children placeholder."
+        f"config/packages.toml must declare the {base} 'all' extra as ['{_PUBLISHED_CHILDREN}'], got {extra!r}"
     )
 
 
@@ -983,19 +986,23 @@ def test_unpublishing_a_child_keeps_it_out_of_the_base_wheel() -> None:
     )
 
 
-def test_shrinking_an_extra_keeps_a_configured_child_out_of_the_base_wheel() -> None:
-    """Same coupling through a hand-written extra: the example base must not absorb example-b either."""
-    packages = deepcopy(_packages())
-    extra: list[str] = packages[_COMMUNITY_EXAMPLE]["optional_dependencies"]["all"]
-    assert _EXAMPLE_B in extra, f"fixture assumption: the {_COMMUNITY_EXAMPLE} 'all' extra lists {_EXAMPLE_B}"
-    packages[_COMMUNITY_EXAMPLE]["optional_dependencies"]["all"] = [dep for dep in extra if dep != _EXAMPLE_B]
+def test_a_child_outside_the_base_extra_stays_out_of_the_base_wheel() -> None:
+    """example-b is configured and nested under the example base path but absent from the base's 'all'
+    extra; it must still stay out of the base wheel."""
+    packages = _packages()
+    assert packages[_EXAMPLE_B]["path"].startswith(packages[_COMMUNITY_EXAMPLE]["path"] + "/"), (
+        f"fixture assumption: {_EXAMPLE_B} is nested under {_COMMUNITY_EXAMPLE}'s path"
+    )
+    extra = gen.expand_published_children(packages[_COMMUNITY_EXAMPLE], packages).get("all", [])
+    assert _EXAMPLE_B not in extra, (
+        f"fixture assumption: the expanded {_COMMUNITY_EXAMPLE} 'all' extra must not list {_EXAMPLE_B}, got {extra!r}"
+    )
 
     leaked = _entries_under(_wheel_packages(_COMMUNITY_EXAMPLE, packages), _dotted_path(_EXAMPLE_B))
 
     assert leaked == [], (
-        f"dropping {_EXAMPLE_B} from the {_COMMUNITY_EXAMPLE} 'all' extra absorbed {leaked} into the "
-        f"{_COMMUNITY_EXAMPLE} wheel; a configured package nested under another package's path belongs "
-        "to its own wheel whatever the extras say."
+        f"the {_COMMUNITY_EXAMPLE} wheel ships {leaked}; a configured package nested under another "
+        "package's path belongs to its own wheel whatever the extras say."
     )
 
 

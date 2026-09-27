@@ -256,7 +256,7 @@ def verify_dependency_relationships(wheels: dict[str, Path]) -> list[str]:
     """Verify dependency relationships in built wheels.
 
     Checks:
-    - mloda-community-example has 'all' extra with example-a and example-b
+    - mloda-community-example has 'all' extra with example-a
     - mloda-community-example-a depends on mloda-community-example
     - mloda-community-example-b depends on mloda-community-example
 
@@ -273,8 +273,6 @@ def verify_dependency_relationships(wheels: dict[str, Path]) -> list[str]:
             errors.append("mloda-community-example: missing 'all' extra")
         if 'mloda-community-example-a; extra == "all"' not in metadata:
             errors.append("mloda-community-example: 'all' extra missing example-a")
-        if 'mloda-community-example-b; extra == "all"' not in metadata:
-            errors.append("mloda-community-example: 'all' extra missing example-b")
 
     # Check example-a depends on base
     if "mloda-community-example-a" in wheels:
