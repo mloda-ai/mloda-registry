@@ -144,6 +144,12 @@ _SCRIPT_FILL_RE = re.compile(rf"^[^\n#]*=\s*\$\([^\n]*{re.escape(_SCRIPT_INVOCAT
 # mloda_community-*.whl before mloda_community_extenders_shared-*.whl).
 _DIST_STAR_GLOB_RE = re.compile(r"\(\s*dist/\*\s*\)")
 
+# The publish step's old bash re-implementation of PEP 427/503 distribution name escaping.
+_BASH_NAME_ESCAPE_RE = re.compile(r"//-/_")
+
+# The publish step's old per-package 'dist/<escaped>-*.whl' glob, re-implementing verify_builds.find_wheels.
+_DIST_NAME_GLOB_RE = re.compile(r"dist/\S*-\*\.whl")
+
 # A hand-written distribution name, quoted or bare. The leading boundary keeps the
 # ``/tmp/mloda-verify*`` paths and the dotted ``mloda.community....`` imports out.
 _DISTRIBUTION_NAME_RE = re.compile(r"(?<![\w/-])mloda-(?:registry|testing|community|enterprise)[a-z0-9-]*")
@@ -436,17 +442,17 @@ def test_published_packages_returns_the_flagged_names_in_config_order() -> None:
 
 
 def test_published_set_is_dependency_first() -> None:
-    """Every published sibling named in a package's own runtime dependencies, or in a non-dev extra whose
-    raw config entry carries the {version} placeholder (a same-release requirement, e.g. mloda-community
-    [otel] -> 'mloda-community-otel=={version}'), must appear earlier in the published order. A bare
-    {published_children}/'all' entry (e.g. data-operations[all], example[all]) is unpinned, resolves at
-    any already-published version, and is excluded here; its children depend on the base anyway, so they
-    still come after it."""
+    """published_packages() itself enforces the dependency-first order (every published sibling named in a
+    package's own runtime dependencies, or in a non-dev extra whose raw config entry carries the {version}
+    placeholder, must appear earlier in the published order), so calling it on the real, already-ordered
+    config must succeed. A bare {published_children}/'all' entry (e.g. data-operations[all], example[all])
+    is unpinned, resolves at any already-published version, and creates no ordering requirement; its
+    children depend on the base anyway, so they still come after it."""
     packages = _packages()
-    published = _published_packages_fn()(packages)
-    index = {name: position for position, name in enumerate(published)}
-    checked_community = False
 
+    published = _published_packages_fn()(packages)  # must not raise: config/packages.toml is already ordered
+
+    checked_community = False
     for name in published:
         cfg = packages[name]
         raw_deps = list(cfg.get("dependencies", []))
@@ -459,19 +465,92 @@ def test_published_set_is_dependency_first() -> None:
         if name == "mloda-community" and siblings:
             checked_community = True
 
-        for sibling in siblings:
-            if sibling not in index:
-                continue  # an unpublished sibling has no position to order against
-            assert index[sibling] < index[name], (
-                f"{name} depends on published sibling {sibling} at a pinned {{version}}, but the "
-                f"published order places {sibling} at {index[sibling]}, not before {name} at "
-                f"{index[name]}: {published!r}"
-            )
-
     assert checked_community, (
         "expected mloda-community to name at least one published sibling at a pinned {version}, or this "
         "test is vacuous for the bundle ownership edges"
     )
+
+
+def _synthetic_pkg(
+    path: str,
+    *,
+    published: bool | None = True,
+    dependencies: list[str] | None = None,
+    optional_dependencies: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
+    """A minimal synthetic packages.toml entry for the published-order tests."""
+    cfg: dict[str, Any] = {"description": "sandbox", "path": path}
+    if published is not None:
+        cfg["published"] = published
+    if dependencies is not None:
+        cfg["dependencies"] = dependencies
+    if optional_dependencies is not None:
+        cfg["optional_dependencies"] = optional_dependencies
+    return cfg
+
+
+_ORDER_VIOLATION_CASES = [
+    pytest.param(
+        {
+            "pkg-a": _synthetic_pkg("p/a", dependencies=["pkg-b>=1.0"]),
+            "pkg-b": _synthetic_pkg("p/b"),
+        },
+        id="dependencies-entry",
+    ),
+    pytest.param(
+        {
+            "pkg-a": _synthetic_pkg("p/a", optional_dependencies={"otel": ["pkg-b=={version}"]}),
+            "pkg-b": _synthetic_pkg("p/b"),
+        },
+        id="pinned-non-dev-extra-entry",
+    ),
+]
+
+
+@pytest.mark.parametrize("packages", _ORDER_VIOLATION_CASES)
+def test_published_packages_rejects_a_published_sibling_listed_later(packages: dict[str, dict[str, Any]]) -> None:
+    """A published package naming a published sibling, either in 'dependencies' or in a non-dev extra entry
+    carrying the {version} placeholder, that does not appear earlier in config order must raise, naming
+    both packages."""
+    with pytest.raises(ValueError) as exc_info:
+        _published_packages_fn()(packages)
+
+    message = str(exc_info.value)
+    assert "pkg-a" in message and "pkg-b" in message, f"error message must name both pkg-a and pkg-b, got: {message}"
+
+
+_ORDER_ACCEPTED_CASES = [
+    pytest.param(
+        {
+            "base": _synthetic_pkg("p/base", optional_dependencies={"all": ["child"]}),
+            "child": _synthetic_pkg("p/child"),
+        },
+        id="bare-extra-entry-child-after",
+    ),
+    pytest.param(
+        {
+            "base": _synthetic_pkg("p/base", optional_dependencies={"dev": ["child=={version}"]}),
+            "child": _synthetic_pkg("p/child"),
+        },
+        id="dev-extra-entry-child-after",
+    ),
+    pytest.param(
+        {
+            "pkg-a": _synthetic_pkg("p/a", dependencies=["pkg-b>=1.0"]),
+            "pkg-b": _synthetic_pkg("p/b", published=None),
+        },
+        id="unpublished-sibling-listed-later",
+    ),
+]
+
+
+@pytest.mark.parametrize("packages", _ORDER_ACCEPTED_CASES)
+def test_published_packages_accepts_orderings_with_no_ordering_requirement(
+    packages: dict[str, dict[str, Any]],
+) -> None:
+    """A bare (unpinned) extra entry, a 'dev' extra entry, and a dependency on an unpublished sibling never
+    create an ordering requirement, whatever position the named package sits at."""
+    _published_packages_fn()(packages)  # must not raise
 
 
 def test_no_dotted_package_is_listed_by_two_published_distributions() -> None:
@@ -633,17 +712,29 @@ def test_release_workflow_publish_step_fills_its_list_from_the_published_script(
     )
 
 
-def test_release_workflow_publish_step_does_not_iterate_dist_star() -> None:
+def test_release_workflow_publish_step_matches_wheels_through_published_wheels() -> None:
     """Bash glob order over dist/* puts mloda_community-* before mloda_community_extenders_shared-*,
-    uploading the bundle before the package it depends on."""
+    uploading the bundle before the package it depends on. The step must not re-implement wheel matching in
+    bash (name escaping, per-package glob) either: that duplicates and can drift from
+    scripts/verify_builds.py's escape_distribution_name/find_wheels, so it must match wheels through
+    'python scripts/published_packages.py --wheels dist' instead."""
     body = _workflow_step_body(_PUBLISH_STEP)
     assert _DIST_STAR_GLOB_RE.search(body) is None, (
         f".github/workflows/release.yaml step '{_PUBLISH_STEP}' still iterates every file in dist/ in "
         "bash glob order instead of one wheel per published name in script order."
     )
-    assert re.search(r"dist/\S*-\*\.whl", body) is not None, (
-        f".github/workflows/release.yaml step '{_PUBLISH_STEP}' must locate one wheel per published name "
-        "via a 'dist/<name with - as _>-*.whl' pattern."
+    assert "--wheels" in body, (
+        f".github/workflows/release.yaml step '{_PUBLISH_STEP}' must locate its wheels through "
+        f"'python {_SCRIPT_INVOCATION} --wheels dist', not a hand-written bash glob."
+    )
+    assert _BASH_NAME_ESCAPE_RE.search(body) is None, (
+        f".github/workflows/release.yaml step '{_PUBLISH_STEP}' must not re-implement distribution name "
+        'escaping in bash ("${pkg//-/_}"); scripts/published_packages.py\'s published_wheels() (backed by '
+        "verify_builds.escape_distribution_name) does the matching."
+    )
+    assert _DIST_NAME_GLOB_RE.search(body) is None, (
+        f".github/workflows/release.yaml step '{_PUBLISH_STEP}' must not glob 'dist/<name>-*.whl' itself; "
+        f"'python {_SCRIPT_INVOCATION} --wheels dist' returns the matched wheel paths directly."
     )
     for token in ("--skip-existing", "--verbose", "PYPI_UPLOAD_DELAY_SECONDS"):
         assert token in body, f".github/workflows/release.yaml step '{_PUBLISH_STEP}' must keep {token!r}"

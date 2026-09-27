@@ -5,6 +5,7 @@ version setuptools normalizes into the filename may decide which wheel a package
 from __future__ import annotations
 
 import shutil
+import sys
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
@@ -16,6 +17,7 @@ from tests.script_loader import load_script
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _VERIFY_BUILDS_PATH = _REPO_ROOT / "scripts" / "verify_builds.py"
+_PUBLISHED_PACKAGES_PATH = _REPO_ROOT / "scripts" / "published_packages.py"
 
 _VERSION = "0.4.0"
 
@@ -29,6 +31,7 @@ _STALE_VERSION = "0.3.9"
 _REORDERED_NAMES = ["mloda-community-example", "mloda-community-offset", "mloda-community", "mloda-registry"]
 
 vb = load_script("verify_builds", _VERIFY_BUILDS_PATH)
+pp = load_script("published_packages", _PUBLISHED_PACKAGES_PATH)
 
 
 def _find_wheels() -> Callable[[Path, str], list[Path]]:
@@ -325,3 +328,119 @@ def test_community_example_wheel_without_example_b_in_the_all_extra_reports_no_e
     errors = vb.verify_dependency_relationships({"mloda-community-example": wheel})
 
     assert errors == [], f"a wheel whose 'all' extra lists only example-a must report no error, got {errors!r}"
+
+
+def _published_wheels() -> Callable[[dict[str, dict[str, Any]], Path], list[Path]]:
+    """The one-wheel-per-published-distribution matcher published_packages.py must expose."""
+    fn: Callable[[dict[str, dict[str, Any]], Path], list[Path]] | None = getattr(pp, "published_wheels", None)
+    assert callable(fn), "published_packages.published_wheels(packages, out_dir) must be a callable"
+    return fn
+
+
+def test_published_wheels_follows_published_order_not_filename_order(tmp_path: Path) -> None:
+    """The returned list order is the published (config) order, not the filename/glob order on disk."""
+    packages: dict[str, dict[str, Any]] = {
+        "mloda-testing": {"description": "sandbox", "path": "mloda/testing", "published": True},
+        "mloda-registry": {"description": "sandbox", "path": "mloda/registry", "published": True},
+    }
+    # Filenames sort mloda-registry before mloda-testing, the reverse of the published (config) order above.
+    _write_wheel(tmp_path, "mloda-registry")
+    _write_wheel(tmp_path, "mloda-testing")
+
+    wheels = _published_wheels()(packages, tmp_path)
+
+    expected = [_wheel_name("mloda-testing"), _wheel_name("mloda-registry")]
+    assert [w.name for w in wheels] == expected, (
+        f"published_wheels() returned {[w.name for w in wheels]!r}, expected published order {expected!r}"
+    )
+
+
+def test_published_wheels_never_matches_a_prefix_sibling(tmp_path: Path) -> None:
+    """A prefix sibling on disk (e.g. mloda-community-offset) must never satisfy mloda-community."""
+    packages: dict[str, dict[str, Any]] = {
+        "mloda-community": {"description": "sandbox", "path": "mloda/community", "published": True},
+    }
+    own = _write_wheel(tmp_path, "mloda-community")
+    sibling = _write_wheel(tmp_path, "mloda-community-offset")
+
+    wheels = _published_wheels()(packages, tmp_path)
+
+    assert sibling not in wheels, f"published_wheels() matched the prefix sibling {sibling.name}"
+    assert wheels == [own], f"published_wheels() must match only {own.name}, got {[w.name for w in wheels]}"
+
+
+def test_published_wheels_raises_when_no_wheel_matches(tmp_path: Path) -> None:
+    """Zero matching wheels for a published package must raise, naming that package."""
+    packages: dict[str, dict[str, Any]] = {
+        "mloda-registry": {"description": "sandbox", "path": "mloda/registry", "published": True},
+    }
+
+    with pytest.raises(ValueError, match="mloda-registry"):
+        _published_wheels()(packages, tmp_path)
+
+
+def test_published_wheels_raises_when_two_wheels_match(tmp_path: Path) -> None:
+    """Two matching wheels for one published package (e.g. a stale wheel left in a reused out-dir) must
+    raise, naming that package, rather than silently picking one."""
+    packages: dict[str, dict[str, Any]] = {
+        "mloda-registry": {"description": "sandbox", "path": "mloda/registry", "published": True},
+    }
+    _write_wheel(tmp_path, "mloda-registry", _VERSION)
+    _write_wheel(tmp_path, "mloda-registry", _STALE_VERSION)
+
+    with pytest.raises(ValueError, match="mloda-registry"):
+        _published_wheels()(packages, tmp_path)
+
+
+def _write_packages_config(root: Path, body: str) -> None:
+    """A minimal config/packages.toml under ``root``, for driving published_packages.py's CLI."""
+    (root / "config").mkdir(parents=True, exist_ok=True)
+    (root / "config" / "packages.toml").write_text(body)
+
+
+def test_cli_wheels_prints_matched_wheel_paths_one_per_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--wheels DIR`` prints the matched wheel paths, one per line, in published order."""
+    _write_packages_config(
+        tmp_path,
+        '[packages.mloda-registry]\ndescription = "sandbox"\npath = "mloda/registry"\npublished = true\n',
+    )
+    wheel = _write_wheel(tmp_path, "mloda-registry")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["published_packages.py", "--wheels", str(tmp_path)])
+
+    main: Callable[[], int] | None = getattr(pp, "main", None)
+    assert callable(main), "published_packages.main must be a callable returning an exit code"
+    exit_code = main()
+
+    out = capsys.readouterr().out
+    assert exit_code == 0, f"'published_packages.py --wheels {tmp_path}' exited {exit_code!r}, expected 0"
+    assert out.strip().splitlines() == [str(wheel)], (
+        f"'published_packages.py --wheels {tmp_path}' printed {out!r}, expected exactly the matched wheel path"
+    )
+
+
+def test_cli_wheels_exits_non_zero_when_published_wheels_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A published_wheels() ValueError (no wheel found here) must become a non-zero exit with the reason on
+    stderr, not an uncaught traceback."""
+    _write_packages_config(
+        tmp_path,
+        '[packages.mloda-registry]\ndescription = "sandbox"\npath = "mloda/registry"\npublished = true\n',
+    )
+    # No wheel written: published_wheels() must raise, naming mloda-registry.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["published_packages.py", "--wheels", str(tmp_path)])
+
+    main: Callable[[], int] | None = getattr(pp, "main", None)
+    assert callable(main), "published_packages.main must be a callable returning an exit code"
+    try:
+        exit_code = main()
+    except SystemExit as exc:
+        exit_code = exc.code if isinstance(exc.code, int) else 1
+
+    err = capsys.readouterr().err
+    assert exit_code != 0, "published_packages.main() must exit non-zero when published_wheels() raises"
+    assert "mloda-registry" in err, f"stderr must name the offending package, got {err!r}"

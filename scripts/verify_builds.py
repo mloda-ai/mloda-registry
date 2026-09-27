@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import configparser
-import re
 import runpy
 import shutil
 import subprocess  # nosec
@@ -29,6 +28,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 # Not a plain import: this script is also loaded by file path in tests, where scripts/ is not on sys.path.
 _load_sibling: Callable[[str], ModuleType] = runpy.run_path(str(_SCRIPTS_DIR / "script_loader.py"))["load_sibling"]
 gen = _load_sibling("generate_pyproject")
+pp = _load_sibling("published_packages")
 
 # Each entry-point group's own (module suffix, attribute) pairing, derived from generate_pyproject's
 # own tables so the two scripts never drift apart.
@@ -54,15 +54,10 @@ def load_packages_from_config() -> list[tuple[str, str]]:
 PACKAGES = load_packages_from_config()
 
 
-def escape_distribution_name(name: str) -> str:
-    """Escape a distribution name the way a wheel filename carries it (PEP 427/503)."""
-    return re.sub(r"[-_.]+", "_", name.lower())
-
-
-def find_wheels(out_dir: Path, pkg_name: str) -> list[Path]:
-    """Wheels in out_dir whose distribution segment is exactly pkg_name, so prefix siblings never match."""
-    escaped = escape_distribution_name(pkg_name)
-    return sorted((path for path in out_dir.glob("*.whl") if path.name.split("-")[0] == escaped), key=lambda p: p.name)
+# The single implementation both scripts expose; verify_build_floor.py and test_verify_builds_wheel_matching.py
+# call them through this module too, so there is exactly one implementation.
+escape_distribution_name: Callable[[str], str] = pp.escape_distribution_name
+find_wheels: Callable[[Path, str], list[Path]] = pp.find_wheels
 
 
 def namespaced_entry_point_error(group: str, name: str, value: str) -> str | None:
@@ -415,7 +410,7 @@ def main() -> int:
 
         # Verify every published wheel's files have a single published owner
         print("\nVerifying published wheel file ownership...")
-        published: list[str] = _load_sibling("published_packages").published_packages(load_packages_config())
+        published: list[str] = pp.published_packages(load_packages_config())
         overlap_errors = verify_published_wheels_have_a_single_owner(built_wheels, published)
         if overlap_errors:
             errors.extend(overlap_errors)

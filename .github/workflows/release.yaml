@@ -163,29 +163,11 @@ jobs:
         # RateLimit-Policy headers; without it twine reports a bare "Too Many Requests" that names
         # no policy.
         run: |
-          shopt -s nullglob
-
-          if ! packages=$(python scripts/published_packages.py); then
-            echo "::error ::scripts/published_packages.py failed"
+          if ! wheels=$(python scripts/published_packages.py --wheels dist); then
+            echo "::error ::scripts/published_packages.py could not match one wheel per published package in dist/"
             exit 1
           fi
-          if [ -z "$packages" ]; then
-            echo "::error ::scripts/published_packages.py returned no packages to publish"
-            exit 1
-          fi
-          mapfile -t packages <<<"$packages"
-
-          # One wheel per published name, in that order, not a dist/* glob (see comment above).
-          dists=()
-          for pkg in "${packages[@]}"; do
-            escaped="${pkg//-/_}"
-            matches=(dist/"$escaped"-*.whl)
-            if [ "${#matches[@]}" -ne 1 ]; then
-              echo "::error ::expected exactly one wheel for $pkg in dist/, found ${#matches[@]}: ${matches[*]}"
-              exit 1
-            fi
-            dists+=("${matches[0]}")
-          done
+          mapfile -t dists <<<"$wheels"
 
           delay="${PYPI_UPLOAD_DELAY_SECONDS:-5}"
           total=${#dists[@]}
