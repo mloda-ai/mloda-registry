@@ -434,8 +434,8 @@ def _read_manifests(path: str | Path) -> list[dict[str, Any]]:
 
 
 def _check_run_against_seal(audit_path: str | Path, manifest_path: str | Path, run_id: str) -> None:
-    """Raise ManifestVerificationError when audit_path's records of run_id no longer match its seal. Reads the
-    manifest log unverified: it feeds a log line only."""
+    """Raise ManifestVerificationError when audit_path's records of run_id no longer match its seal. The
+    manifest read is unverified: it only feeds a log message, not a refusal decision."""
     with _flock(manifest_path, exclusive=False):
         manifests = _read_manifests(manifest_path)
     manifest = next((m for m in manifests if m.get("run_id") == run_id), None)
