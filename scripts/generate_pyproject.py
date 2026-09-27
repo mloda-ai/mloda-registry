@@ -41,10 +41,11 @@ DEP_NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 # A sibling requirement (marker already stripped), spelled exactly '<name>[extras]>={version}'.
 SIBLING_FLOOR_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?\s*>=\s*\{version\}\s*$")
 
-# Exact-operator variant, spelled '<name>[extras]=={version}'. Accepted only for a sibling nested under
-# an entry_point_bundle's own path, in that bundle's own dependencies or a non-dev extra: the bundle pins
-# the code it excludes from its own wheel exactly, since it ships that code (all packages release in
-# lockstep at one version).
+# Exact-operator variant, spelled '<name>[extras]=={version}'. Required (not merely accepted) for a
+# sibling nested under an entry_point_bundle's own path, named in that bundle's own dependencies or a
+# non-dev extra: such a requirement makes the bundle own (exclude from its own wheel) that sibling's
+# code, which its own distribution ships instead, so the bundle must pin it exactly, on every platform
+# (all packages release in lockstep at one version). No environment marker is accepted there either.
 SIBLING_EXACT_FLOOR_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?\s*==\s*\{version\}\s*$")
 
 # A bare sibling requirement: just the name (and optional extras), no specifier at all.
@@ -88,19 +89,32 @@ def _validate_sibling_spelling(
     allow_bare: bool,
     nested_siblings: set[str] | None = None,
 ) -> None:
-    """Raise if ``with_core`` hand-pins a sibling floor, or places {version} anywhere but
-    '<sibling>[extras]>={version}' (or, for a sibling in ``nested_siblings``, the exact-operator
-    '<sibling>[extras]=={version}')."""
+    """Raise if ``with_core`` hand-pins a sibling floor, or misuses {version}.
+
+    A plain sibling dependency must be spelled '<sibling>[extras]>={version}' (bare allowed only in an
+    extra). A requirement in ``nested_siblings`` instead owns that sibling (excludes its code from the
+    bundle's own wheel), so it must be spelled exactly '<sibling>[extras]=={version}', with no
+    environment marker, regardless of ``allow_bare``.
+    """
     requirement = with_core.split(";", 1)[0]
+    has_marker = ";" in with_core
     match = DEP_NAME_RE.match(requirement)
     sibling_name = normalize_package_name(match.group(1)) if match is not None else None
     is_sibling = sibling_name is not None and sibling_name in canonical_siblings
-    is_nested_sibling = is_sibling and nested_siblings is not None and sibling_name in nested_siblings
-    spelled_as_floor = is_sibling and SIBLING_FLOOR_RE.match(requirement) is not None
-    spelled_as_exact_floor = is_nested_sibling and SIBLING_EXACT_FLOOR_RE.match(requirement) is not None
-    spelled_as_floor = spelled_as_floor or spelled_as_exact_floor
+    owns_nested = is_sibling and nested_siblings is not None and sibling_name in nested_siblings
 
-    if is_sibling and not spelled_as_floor and not (allow_bare and BARE_SIBLING_RE.match(requirement) is not None):
+    if owns_nested:
+        if has_marker or SIBLING_EXACT_FLOOR_RE.match(requirement) is None:
+            raise ValueError(
+                f"{pkg_name}: {dep!r} owns nested sibling {sibling_name!r}, which must be spelled exactly "
+                "'<sibling>[extras]=={version}' with no environment marker"
+            )
+        return
+
+    spelled_as_floor = is_sibling and SIBLING_FLOOR_RE.match(requirement) is not None
+    is_bare = allow_bare and BARE_SIBLING_RE.match(requirement) is not None
+
+    if is_sibling and not spelled_as_floor and not is_bare and VERSION_PLACEHOLDER not in with_core:
         raise ValueError(
             f"{pkg_name}: sibling dependency {dep!r} must use the {{version}} placeholder instead of a hand-written floor"
         )
@@ -176,13 +190,35 @@ def resolve_optional_dependencies(
     nested_siblings: set[str] | None = None,
 ) -> dict[str, list[str]]:
     """Expand {core_dependency} and {version} placeholders in a package's merged ``optional_dependencies``; a
-    sibling entry here may also be bare, unlike plain ``dependencies``' strict '<name>[extras]>={version}'."""
+    sibling entry here may also be bare, unlike plain ``dependencies``' strict '<name>[extras]>={version}'.
+    ``nested_siblings`` (bundle ownership, see ``_validate_sibling_spelling``) applies to every group except
+    ``dev``: a dev-only dependency never ships, so it cannot own a sibling's code."""
     return {
         group: _resolve_dep_list(
-            pkg_name, deps, shared, all_packages, allow_bare_sibling=True, nested_siblings=nested_siblings
+            pkg_name,
+            deps,
+            shared,
+            all_packages,
+            allow_bare_sibling=True,
+            nested_siblings=None if group == "dev" else nested_siblings,
         )
         for group, deps in opt_deps.items()
     }
+
+
+def sibling_dependency_name(
+    dep: str,
+    all_packages: dict[str, dict[str, Any]],
+    configured: dict[str, str] | None = None,
+) -> str | None:
+    """The configured package name (as spelled in config) one requirement string names, extras and
+    markers ignored, or None if it names no configured package. ``configured`` lets a caller looping
+    over many requirements build the normalized name lookup once instead of per call."""
+    lookup = configured if configured is not None else {normalize_package_name(name): name for name in all_packages}
+    match = DEP_NAME_RE.match(dep.split(";", 1)[0])
+    if match is None:
+        return None
+    return lookup.get(normalize_package_name(match.group(1)))
 
 
 def sibling_dependency_names(deps: list[str], all_packages: dict[str, dict[str, Any]]) -> list[str]:
@@ -190,9 +226,9 @@ def sibling_dependency_names(deps: list[str], all_packages: dict[str, dict[str, 
     configured = {normalize_package_name(name): name for name in all_packages}
     names: set[str] = set()
     for dep in deps:
-        match = DEP_NAME_RE.match(dep.split(";", 1)[0])
-        if match is not None and normalize_package_name(match.group(1)) in configured:
-            names.add(configured[normalize_package_name(match.group(1))])
+        name = sibling_dependency_name(dep, all_packages, configured)
+        if name is not None:
+            names.add(name)
     return sorted(names)
 
 
