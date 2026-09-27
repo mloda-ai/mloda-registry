@@ -237,11 +237,13 @@ def test_read_arrow_stream_malformed_input_fails_an_assertion(data: bytes | None
 
 
 def test_size_cap_constants_are_exported() -> None:
-    """`MESSAGE_MAX_BYTES` and `STDERR_SOFT_CAP_BYTES` belong on the conformance kit's public
-    surface, re-exported via `__all__` for external consumers (contract: Data handling)."""
+    """`MESSAGE_MAX_BYTES`, `STDERR_SOFT_CAP_BYTES` and `VERSION_PATTERN` belong on the conformance
+    kit's public surface, re-exported via `__all__` for external consumers (contract: Data handling,
+    Invocation)."""
     from mloda.testing.binary_model import conformance
 
     assert "MESSAGE_MAX_BYTES" in conformance.__all__
     assert "STDERR_SOFT_CAP_BYTES" in conformance.__all__
     assert "COLUMN_TYPES" in conformance.__all__
+    assert "VERSION_PATTERN" in conformance.__all__
     assert [name for name in conformance.__all__ if not hasattr(conformance, name)] == []

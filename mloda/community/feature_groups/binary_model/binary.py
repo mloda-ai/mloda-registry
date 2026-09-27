@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 
 CONTRACT_VERSION = 1
 COLUMN_TYPE_VOCABULARY = frozenset({"int64", "float64", "utf8", "boolean"})
-_SEMVER_PATTERN = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+\-]+)?$")
+# Kept in step with mloda.testing.binary_model.VERSION_PATTERN, pinned by a drift test.
+VERSION_PATTERN = r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+\-]+)?"
 
 _CacheKey = tuple[str, tuple[str, ...], int, int]
 
@@ -110,7 +111,7 @@ def _parse_version(argv: list[str], plugin_id: str, stdout: bytes) -> str:
     if len(lines) != 1:
         raise BinaryUnavailableError(f"binary {argv[0]!r} --version must print exactly one line, got {len(lines)}")
     parts = lines[0].split(" ")
-    if len(parts) != 2 or parts[0] != plugin_id or _SEMVER_PATTERN.match(parts[1]) is None:
+    if len(parts) != 2 or parts[0] != plugin_id or re.fullmatch(VERSION_PATTERN, parts[1]) is None:
         raise BinaryUnavailableError(
             f"binary {argv[0]!r} --version must print '{plugin_id} <semver>', got {lines[0]!r}"
         )

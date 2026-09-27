@@ -42,6 +42,7 @@ from mloda.testing.binary_model import (
     MESSAGE_MAX_BYTES,
     UNSUPPORTED,
     USAGE_ERROR,
+    VERSION_PATTERN,
     hash_reference,
     license_vectors,
 )
@@ -70,6 +71,7 @@ __all__ = [
     "STDERR_SOFT_CAP_BYTES",
     "UNSUPPORTED",
     "USAGE_ERROR",
+    "VERSION_PATTERN",
     "arrow_file_format_bytes",
     "arrow_stream_bytes",
     "arrow_stream_bytes_from_arrays",
@@ -386,7 +388,7 @@ class BinaryModelConformanceBase:
     def test_version_prints_single_line_no_license_required(self, hermetic_env: dict[str, str]) -> None:
         """`--version` prints exactly one `<plugin_id> <semver>` line to stdout and exits 0, with no
         license variables set at all (contract: Invocation)."""
-        version_pattern = re.compile(rf"^{re.escape(self.plugin_id)} \d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+\-]+)?$")
+        version_pattern = re.compile(rf"{re.escape(self.plugin_id)} {VERSION_PATTERN}")
         result = run_binary(self.binary_cmd, ["--version"], hermetic_env, timeout=self.binary_timeout_seconds)
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         lines = result.stdout.decode("utf-8").splitlines()

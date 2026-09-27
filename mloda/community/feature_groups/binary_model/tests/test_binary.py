@@ -264,3 +264,20 @@ class TestVersionMustBeSemVer:
             "faulty_binary", [*FAULTY_CMD, "--mode", "version_prerelease"], env={"PATH": os.defpath}, timeout=10.0
         )
         assert resolved.capabilities.version == "0.0.1-rc.1+build.5"
+
+
+class TestContractConstantsMatchTestingKit:
+    """`binary.py` cannot import `mloda.testing` (dev-only), so it keeps its own copies of two
+    contract constants; this pins them equal to the testing kit's own copies (contract: Invocation,
+    Data handling)."""
+
+    def test_version_pattern_matches_testing_kit(self) -> None:
+        from mloda.testing.binary_model import VERSION_PATTERN as kit_version_pattern
+
+        assert binary.VERSION_PATTERN == kit_version_pattern
+
+    def test_max_message_bytes_matches_testing_kit(self) -> None:
+        from mloda.community.feature_groups.binary_model import errors
+        from mloda.testing.binary_model import MESSAGE_MAX_BYTES as kit_message_max_bytes
+
+        assert errors.MAX_MESSAGE_BYTES == kit_message_max_bytes
