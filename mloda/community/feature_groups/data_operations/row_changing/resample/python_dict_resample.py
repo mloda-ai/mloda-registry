@@ -50,20 +50,6 @@ class PythonDictResample(ResampleFeatureGroup):
         return {PythonDictFramework}
 
     @classmethod
-    def _assert_time_column_present(cls, data: dict[str, list[Any]], time_column: str) -> None:
-        if time_column not in data:
-            raise ValueError(
-                f"time_column {time_column!r} is not present in the PythonDict data; available: {list(data)}."
-            )
-
-    @classmethod
-    def _assert_source_column_present(cls, data: dict[str, list[Any]], source_col: str) -> None:
-        if source_col not in data:
-            raise ValueError(
-                f"Source column {source_col!r} is not present in the PythonDict data; available: {list(data)}."
-            )
-
-    @classmethod
     def _compute_resample(
         cls,
         data: dict[str, list[Any]],

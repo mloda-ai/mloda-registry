@@ -37,13 +37,6 @@ class PythonDictSessionization(SessionizationFeatureGroup):
         return {PythonDictFramework}
 
     @classmethod
-    def _assert_source_column_present(cls, data: dict[str, list[Any]], order_col: str) -> None:
-        if order_col not in data:
-            raise ValueError(
-                f"Source column {order_col!r} is not present in the PythonDict data; available: {list(data.keys())}."
-            )
-
-    @classmethod
     def _compute_session(
         cls,
         data: dict[str, list[Any]],

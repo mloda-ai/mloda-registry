@@ -26,7 +26,8 @@ Null rules pinned across all backends:
 - Non-null source values pass through unchanged.
 
 PyArrow is the cross-framework reference. Subclasses implement ``_compute_ffill``
-(the backend-specific fill) and ``_assert_source_column_present`` (the guard).
+(the backend-specific fill); the source-column presence guard is shared
+(``assert_source_columns_present``).
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ from mloda.user import Feature, FeatureName, Options
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
     always_required,
+    assert_source_columns_present,
     column_ref_value,
     is_column_ref,
 )
@@ -153,19 +155,13 @@ class FfillFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
             source_features = cls._extract_source_features(feature)
             source_col = source_features[0]
+            assert_source_columns_present(data, [source_col])
             partition_by = cls._extract_partition_by(feature)
             order_by = cls._extract_order_by(feature)
-
-            cls._assert_source_column_present(table, source_col)
 
             table = cls._compute_ffill(table, feature_name, source_col, partition_by, order_by)
 
         return table
-
-    @classmethod
-    def _assert_source_column_present(cls, data: Any, source_col: str) -> None:
-        """Reject a missing source column with a clear ``ValueError`` (backend-specific)."""
-        raise NotImplementedError
 
     @classmethod
     def _compute_ffill(

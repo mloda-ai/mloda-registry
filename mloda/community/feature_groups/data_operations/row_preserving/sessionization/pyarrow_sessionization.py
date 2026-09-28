@@ -28,13 +28,6 @@ class PyArrowSessionization(SessionizationFeatureGroup):
         return {PyArrowTable}
 
     @classmethod
-    def _assert_source_column_present(cls, data: pa.Table, order_col: str) -> None:
-        if order_col not in data.column_names:
-            raise ValueError(
-                f"Source column {order_col!r} is not present in the PyArrow table; available: {data.column_names}."
-            )
-
-    @classmethod
     def _compute_session(
         cls,
         data: pa.Table,

@@ -37,6 +37,7 @@ import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
@@ -130,9 +131,11 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
                 {"datetime_op": "year", "in_features": ["timestamp", "event_date"]},
                 "at most 1",
             ),
-            "missing_source_column": (
-                "known gap: datetime extraction does not reject it up front "
-                "(KeyError/engine error, or deferred on lazy backends)"
+            "missing_source_column": InputValidationCase(
+                "timestamp__year",
+                {},
+                "Source column 'timestamp' is not present",
+                table=PyArrowDataOpsTestDataCreator.create().drop_columns(["timestamp"]),
             ),
             "empty_partition_by": None,
         }

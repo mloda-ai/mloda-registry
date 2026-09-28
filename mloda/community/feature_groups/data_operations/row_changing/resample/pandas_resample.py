@@ -34,20 +34,6 @@ class PandasResample(ResampleFeatureGroup):
         return {PandasDataFrame}
 
     @classmethod
-    def _assert_time_column_present(cls, data: pd.DataFrame, time_column: str) -> None:
-        if time_column not in data.columns:
-            raise ValueError(
-                f"time_column {time_column!r} is not present in the Pandas DataFrame; available: {list(data.columns)}."
-            )
-
-    @classmethod
-    def _assert_source_column_present(cls, data: pd.DataFrame, source_col: str) -> None:
-        if source_col not in data.columns:
-            raise ValueError(
-                f"Source column {source_col!r} is not present in the Pandas DataFrame; available: {list(data.columns)}."
-            )
-
-    @classmethod
     def _compute_resample(
         cls,
         data: pd.DataFrame,

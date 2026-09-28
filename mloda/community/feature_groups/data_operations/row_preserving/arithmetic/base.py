@@ -74,15 +74,6 @@ class ArithmeticFeatureGroupBase(FeatureChainParserMixin, FeatureGroup):
         raise ValueError(f"Source column {source_col!r} must be numeric for {cls.OPERATION_LABEL}; got {got}.")
 
     @classmethod
-    def _input_columns_and_framework(cls, data: Any) -> tuple[list[str], str]:
-        """Return ``(column_names, framework_label)`` for ``data``.
-
-        Backend-specific; implemented per backend so the base class has no
-        compile-time or import-time dependency on any compute framework.
-        """
-        raise NotImplementedError
-
-    @classmethod
     def _non_numeric_descriptor(cls, data: Any, source_col: str) -> object | None:
         """Return a native dtype/affinity descriptor when ``source_col`` is NOT numeric.
 

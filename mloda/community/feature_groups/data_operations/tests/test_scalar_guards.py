@@ -11,12 +11,15 @@ at match time rather than inside ``calculate_feature``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
+import pyarrow as pa
 import pytest
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.base import (
+    assert_source_columns_present,
+    available_columns,
     column_ref_value,
     is_column_ref,
     is_positive_int,
@@ -27,6 +30,47 @@ from mloda.community.feature_groups.data_operations.base import (
 from mloda.community.feature_groups.data_operations.row_preserving.binning.base import BinningFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow_ffill import PyArrowFfill
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import RankFeatureGroup
+
+# ---------------------------------------------------------------------------
+# available_columns / assert_source_columns_present: one data factory per
+# framework input type, lazily importing (and skipping) its optional dep.
+# ---------------------------------------------------------------------------
+
+
+_DEFAULT_COLUMNS: dict[str, list[int]] = {"a": [1], "b": [2]}
+
+
+def _dict_data(columns: dict[str, list[int]] | None = None) -> dict[str, list[int]]:
+    return columns or _DEFAULT_COLUMNS
+
+
+def _pandas_data(columns: dict[str, list[int]] | None = None) -> Any:
+    pd = pytest.importorskip("pandas")
+    return pd.DataFrame(columns or _DEFAULT_COLUMNS)
+
+
+def _pyarrow_data(columns: dict[str, list[int]] | None = None) -> Any:
+    return pa.table(columns or _DEFAULT_COLUMNS)
+
+
+def _polars_lazy_data(columns: dict[str, list[int]] | None = None) -> Any:
+    pl = pytest.importorskip("polars")
+    return pl.from_arrow(pa.table(columns or _DEFAULT_COLUMNS)).lazy()
+
+
+def _duckdb_data(columns: dict[str, list[int]] | None = None) -> Any:
+    duckdb = pytest.importorskip("duckdb")
+    from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
+
+    return DuckdbRelation.from_arrow(duckdb.connect(), pa.table(columns or _DEFAULT_COLUMNS))
+
+
+def _sqlite_data(columns: dict[str, list[int]] | None = None) -> Any:
+    import sqlite3
+
+    from mloda_plugins.compute_framework.base_implementations.sqlite.sqlite_relation import SqliteRelation
+
+    return SqliteRelation.from_arrow(sqlite3.connect(":memory:"), pa.table(columns or _DEFAULT_COLUMNS))
 
 
 class TestIsColumnRefAccepts:
@@ -225,3 +269,75 @@ class TestSingletonMatchesEndToEnd:
     def test_non_string_order_by_rejected(self) -> None:
         options = Options(context={"order_by": 123, "partition_by": ["region"]})
         assert PyArrowFfill.match_feature_group_criteria("amount__ffill", options, None) is False
+
+
+class TestAvailableColumns:
+    """``available_columns`` dispatches on the input type, one factory per framework."""
+
+    @pytest.mark.parametrize(
+        "make_data",
+        [
+            pytest.param(_dict_data, id="dict"),
+            pytest.param(_pandas_data, id="pandas"),
+            pytest.param(_pyarrow_data, id="pyarrow"),
+            pytest.param(_polars_lazy_data, id="polars_lazy"),
+            pytest.param(_duckdb_data, id="duckdb"),
+            pytest.param(_sqlite_data, id="sqlite"),
+        ],
+    )
+    def test_returns_column_names_per_framework(self, make_data: Callable[[], Any]) -> None:
+        assert available_columns(make_data()) == ["a", "b"]
+
+    def test_pandas_column_name_collision_with_dispatch_helper_names(self) -> None:
+        """Dispatch is on the class, so a pandas column named ``column_names`` or
+        ``collect_schema`` must not hijack the pandas branch."""
+        pd = pytest.importorskip("pandas")
+        df = pd.DataFrame({"column_names": [1], "collect_schema": [2]})
+        assert available_columns(df) == ["column_names", "collect_schema"]
+
+
+class TestAssertSourceColumnsPresent:
+    """``assert_source_columns_present`` raises on the first missing column, with a fixed message shape."""
+
+    def test_passes_when_all_columns_present(self) -> None:
+        assert_source_columns_present({"a": [1], "b": [2]}, ["a", "b"])
+
+    def test_raises_for_first_missing_column(self) -> None:
+        with pytest.raises(
+            ValueError,
+            match=r"Source column 'c' is not present in the dict input; available: \['a', 'b'\]",
+        ):
+            assert_source_columns_present({"a": [1], "b": [2]}, ["a", "c"])
+
+    def test_message_names_the_input_type(self) -> None:
+        pd = pytest.importorskip("pandas")
+        df = pd.DataFrame({"a": [1]})
+        with pytest.raises(ValueError, match=r"is not present in the DataFrame input; available: \['a'\]"):
+            assert_source_columns_present(df, ["missing"])
+
+    # -- Case sensitivity: strict everywhere except SQL relations -----------
+
+    @pytest.mark.parametrize(
+        "make_data",
+        [
+            pytest.param(lambda: _dict_data({"Val": [1]}), id="dict"),
+            pytest.param(lambda: _pandas_data({"Val": [1]}), id="pandas"),
+            pytest.param(lambda: _pyarrow_data({"Val": [1]}), id="pyarrow"),
+            pytest.param(lambda: _polars_lazy_data({"Val": [1]}), id="polars_lazy"),
+        ],
+    )
+    def test_case_mismatch_rejected_for_non_sql_frameworks(self, make_data: Callable[[], Any]) -> None:
+        """Only column 'Val' exists; requesting 'val' must be rejected (case-sensitive match)."""
+        with pytest.raises(ValueError, match=r"Source column 'val' is not present"):
+            assert_source_columns_present(make_data(), ["val"])
+
+    @pytest.mark.parametrize(
+        "make_data",
+        [
+            pytest.param(lambda: _duckdb_data({"Val": [1]}), id="duckdb"),
+            pytest.param(lambda: _sqlite_data({"Val": [1]}), id="sqlite"),
+        ],
+    )
+    def test_case_mismatch_accepted_for_sql_relations(self, make_data: Callable[[], Any]) -> None:
+        """SQL engines bind identifiers case-insensitively, so 'val' must match column 'Val'."""
+        assert_source_columns_present(make_data(), ["val"])

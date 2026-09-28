@@ -16,6 +16,7 @@ from mloda.user import DataType, Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.base import (
     OP_TOKEN_EXPECTED,
+    assert_source_columns_present,
     is_op_token,
     op_token_value,
 )
@@ -173,6 +174,7 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             feature_name = feature.name
 
             source_col = cls._extract_single_source_feature(feature)
+            assert_source_columns_present(data, [source_col])
             op = cls._extract_datetime_op(feature)
 
             table = cls._compute_datetime(table, feature_name, source_col, op)

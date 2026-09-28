@@ -10,7 +10,11 @@ from mloda.community.feature_groups.data_operations.aggregation_base import (
     AGGREGATION_TYPES,
     AggregationFeatureGroupBase,
 )
-from mloda.community.feature_groups.data_operations.base import OP_TOKEN_EXPECTED, is_op_token
+from mloda.community.feature_groups.data_operations.base import (
+    OP_TOKEN_EXPECTED,
+    assert_source_columns_present,
+    is_op_token,
+)
 from mloda.community.feature_groups.data_operations.mask_utils import MASK_KEY, parse_mask_spec
 
 
@@ -152,6 +156,7 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase):
             feature_name = feature.name
 
             source_col = cls._extract_single_source_feature(feature)
+            assert_source_columns_present(data, [source_col])
             agg_type = cls._extract_aggregation_type(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))

@@ -37,6 +37,7 @@ File: `mloda/community/feature_groups/data_operations/{category}/{your_op}/base.
 ```python
 from typing import Any
 from mloda.provider import FeatureGroup, FeatureSet
+from mloda.community.feature_groups.data_operations.base import assert_source_columns_present
 
 
 YOUR_OPS = {
@@ -53,6 +54,7 @@ class YourOpFeatureGroup(FeatureGroup):
         table = data
         for feature in features.features:
             source_col = cls._extract_source_features(feature)[0]
+            assert_source_columns_present(data, [source_col])
             op = cls._extract_op(feature)
             table = cls._compute(table, feature.name, source_col, op)
         return table
@@ -67,6 +69,7 @@ The base class owns:
 - The feature-name regex.
 - The loop over `features.features`.
 - Extraction of source column, operation, and any options from `Options(context=...)`.
+- The shared `assert_source_columns_present` presence guard, called once per feature before any per-backend dtype guard.
 - Delegation to a per-framework `_compute` hook.
 
 Existing bases to crib from: `row_preserving/binning/base.py` (simple), `row_preserving/window_aggregation/base.py` (with `partition_by`/`order_by`/masks). They compose `FeatureChainParserMixin` to parse the suffix of the feature name; copy that detail verbatim from the closest existing base.
@@ -234,6 +237,7 @@ Every op test base also wires up `InputValidationTestMixin` (`mloda/testing/feat
 ## Checklist
 
 - [ ] Base class with `PREFIX_PATTERN`, `calculate_feature`, and an abstract `_compute` hook.
+- [ ] `calculate_feature` calls `assert_source_columns_present(data, [...])` once per feature, before any per-backend dtype guard.
 - [ ] PyArrow implementation first; it is the reference.
 - [ ] Test base in `mloda/testing/.../{your_op}.py` with inherited test methods.
 - [ ] One framework implementation per target framework, each respecting row-preserving if applicable.

@@ -191,12 +191,7 @@ class SqliteTimeBucketization(TimeBucketizationFeatureGroup):
         """
         rows = data.connection.execute(f"PRAGMA table_info({quote_ident(data.table_name)})").fetchall()
         affinity_by_column = {row[1]: (row[2] or "").upper() for row in rows}
-        affinity = affinity_by_column.get(source_col)
-        if affinity is None:
-            raise ValueError(
-                f"Source column {source_col!r} is not present in the SQLite table; "
-                f"available: {list(affinity_by_column)}."
-            )
+        affinity = affinity_by_column[source_col]
         if affinity not in _SQLITE_TIMESTAMP_AFFINITIES:
             cls._raise_non_timestamp_source(source_col, f"SQLite affinity {affinity!r}")
 

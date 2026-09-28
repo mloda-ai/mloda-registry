@@ -38,22 +38,6 @@ class PolarsLazyResample(ResampleFeatureGroup):
         return {PolarsLazyDataFrame}
 
     @classmethod
-    def _assert_time_column_present(cls, data: pl.LazyFrame, time_column: str) -> None:
-        schema = data.collect_schema()
-        if time_column not in schema:
-            raise ValueError(
-                f"time_column {time_column!r} is not present in the Polars LazyFrame; available: {list(schema)}."
-            )
-
-    @classmethod
-    def _assert_source_column_present(cls, data: pl.LazyFrame, source_col: str) -> None:
-        schema = data.collect_schema()
-        if source_col not in schema:
-            raise ValueError(
-                f"Source column {source_col!r} is not present in the Polars LazyFrame; available: {list(schema)}."
-            )
-
-    @classmethod
     def _compute_resample(
         cls,
         data: pl.LazyFrame,

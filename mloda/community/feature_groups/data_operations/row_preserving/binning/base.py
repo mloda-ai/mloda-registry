@@ -20,6 +20,7 @@ from mloda.user import DataType, Feature, FeatureName, Options
 from mloda.community.feature_groups.data_operations.base import (
     OP_TOKEN_EXPECTED,
     POSITIVE_INT_EXPECTED,
+    assert_source_columns_present,
     is_op_token,
     is_positive_int,
     op_token_value,
@@ -196,6 +197,7 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             feature_name = feature.name
 
             source_col = cls._extract_single_source_feature(feature)
+            assert_source_columns_present(data, [source_col])
             op, n_bins = cls._extract_binning_params(feature)
 
             table = cls._compute_binning(table, feature_name, source_col, op, n_bins)

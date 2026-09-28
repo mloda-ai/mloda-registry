@@ -31,6 +31,7 @@ from mloda.user import Feature, FeatureName, Options
 from mloda.community.feature_groups.data_operations.base import (
     OP_TOKEN_EXPECTED,
     SCALAR_NUMBER_EXPECTED,
+    assert_source_columns_present,
     is_number_element,
     is_op_token,
     is_scalar_number,
@@ -154,6 +155,7 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
 
             source_features = cls._extract_source_features(feature)
             source_col = source_features[0]
+            assert_source_columns_present(data, [source_col])
             op = cls._extract_arithmetic_op(feature)
 
             cls._assert_source_column_is_numeric(data, source_col)

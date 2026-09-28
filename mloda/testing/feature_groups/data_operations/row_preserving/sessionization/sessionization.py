@@ -376,7 +376,7 @@ class SessionizationTestBase(
             "missing_source_column": InputValidationCase(
                 "ts__sessionize_30_minute",
                 {"partition_by": ["user"], "order_by": "ts"},
-                "Source column 'ts'",
+                "Source column 'ts' is not present",
                 table=missing_ts_table,
             ),
             "empty_partition_by": None,

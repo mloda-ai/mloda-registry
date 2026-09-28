@@ -16,12 +16,6 @@ class PolarsLazyFfill(FfillFeatureGroup):
         return {PolarsLazyDataFrame}
 
     @classmethod
-    def _assert_source_column_present(cls, data: pl.LazyFrame, source_col: str) -> None:
-        names = data.collect_schema().names()
-        if source_col not in names:
-            raise ValueError(f"Source column {source_col!r} is not present in the polars frame; available: {names}.")
-
-    @classmethod
     def _compute_ffill(
         cls,
         data: pl.LazyFrame,

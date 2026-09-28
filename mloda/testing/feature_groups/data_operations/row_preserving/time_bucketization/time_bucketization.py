@@ -515,7 +515,7 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
             "missing_source_column": InputValidationCase(
                 "timestamp__floor_1_day",
                 {},
-                "Source column 'timestamp'",
+                "Source column 'timestamp' is not present",
                 table=missing_timestamp_table,
             ),
             "empty_partition_by": None,

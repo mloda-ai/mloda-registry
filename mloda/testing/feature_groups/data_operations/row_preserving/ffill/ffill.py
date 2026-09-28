@@ -349,7 +349,7 @@ class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedC
             "missing_source_column": InputValidationCase(
                 "value__ffill",
                 {"partition_by": ["region"], "order_by": "ts"},
-                "Source column 'value'",
+                "Source column 'value' is not present",
                 table=missing_value_table,
             ),
             "empty_partition_by": None,

@@ -41,8 +41,8 @@ is not matched.
 Every backend (pandas, polars-lazy, PyArrow, DuckDB, SQLite) computes
 sessionization NATIVELY; there is no rejection of supported inputs. PyArrow is
 the cross-framework reference oracle. Compute subclasses implement
-``_compute_session`` (the backend gap-and-cumsum) and
-``_assert_source_column_present`` (the guard).
+``_compute_session`` (the backend gap-and-cumsum); the source-column presence
+guard is shared (``assert_source_columns_present``).
 """
 
 from __future__ import annotations
@@ -61,6 +61,7 @@ from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
+    assert_source_columns_present,
     column_ref_value,
     is_column_ref,
 )
@@ -214,16 +215,11 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             partition_by = cls._extract_partition_by(feature)
             order_by = cls._extract_order_by(feature, source_col)
 
-            cls._assert_source_column_present(table, order_by)
+            assert_source_columns_present(data, [order_by])
 
             table = cls._compute_session(table, feature_name, order_by, threshold_seconds, partition_by)
 
         return table
-
-    @classmethod
-    def _assert_source_column_present(cls, data: Any, order_col: str) -> None:
-        """Reject a missing source column with a clear ``ValueError`` (backend-specific)."""
-        raise NotImplementedError
 
     @classmethod
     def _compute_session(

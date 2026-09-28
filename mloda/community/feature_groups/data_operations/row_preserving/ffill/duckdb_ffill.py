@@ -22,13 +22,6 @@ class DuckdbFfill(FfillFeatureGroup):
         return {DuckDBFramework}
 
     @classmethod
-    def _assert_source_column_present(cls, data: DuckdbRelation, source_col: str) -> None:
-        if source_col not in data.columns:
-            raise ValueError(
-                f"Source column {source_col!r} is not present in the DuckDB relation; available: {data.columns}."
-            )
-
-    @classmethod
     def _compute_ffill(
         cls,
         data: DuckdbRelation,

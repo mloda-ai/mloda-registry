@@ -25,7 +25,11 @@ from typing import Any
 from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureSet, property_spec
 from mloda.user import Feature
 
-from mloda.community.feature_groups.data_operations.base import OP_TOKEN_EXPECTED, is_op_token
+from mloda.community.feature_groups.data_operations.base import (
+    OP_TOKEN_EXPECTED,
+    assert_source_columns_present,
+    is_op_token,
+)
 from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import ArithmeticFeatureGroupBase
 
 ARITHMETIC_OPERATIONS: dict[str, str] = {
@@ -135,8 +139,6 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
         Each feature produces one new column containing ``col_a {op} col_b``.
         Null values in either source propagate to the result.
         """
-        column_names, _framework_label = cls._input_columns_and_framework(data)
-
         table = data
 
         for feature in features.features:
@@ -145,9 +147,7 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
             source_features = cls._extract_source_features(feature)
             col_a, col_b = source_features[0], source_features[1]
 
-            for source_col in (col_a, col_b):
-                if source_col not in column_names:
-                    raise ValueError(f"Source column {source_col!r} not found in input data")
+            assert_source_columns_present(data, [col_a, col_b])
 
             cls._assert_source_column_is_numeric(data, col_a)
             cls._assert_source_column_is_numeric(data, col_b)

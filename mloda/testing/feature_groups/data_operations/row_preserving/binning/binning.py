@@ -18,6 +18,7 @@ import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
@@ -95,8 +96,11 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
                 {"binning_op": "bin", "n_bins": 3, "in_features": ["value_int", "value_float"]},
                 "at most 1",
             ),
-            "missing_source_column": (
-                "known gap: binning does not reject it up front (KeyError/engine error, or deferred on lazy backends)"
+            "missing_source_column": InputValidationCase(
+                "value_int__bin_3",
+                {},
+                "Source column 'value_int' is not present",
+                table=PyArrowDataOpsTestDataCreator.create().drop_columns(["value_int"]),
             ),
             "empty_partition_by": None,
         }

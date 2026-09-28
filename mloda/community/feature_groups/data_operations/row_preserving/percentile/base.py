@@ -19,6 +19,7 @@ from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.base import (
     SCALAR_NUMBER_EXPECTED,
+    assert_source_columns_present,
     is_scalar_number,
     scalar_number_value,
 )
@@ -297,6 +298,7 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
             source_features = cls._extract_source_features(feature)
             source_col = source_features[0]
+            assert_source_columns_present(data, [source_col])
             percentile = cls._extract_percentile(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
             if not isinstance(partition_by, (list, tuple)) or not partition_by:

@@ -12,9 +12,9 @@ The target shape they pin:
 - The mixins are plain classes at runtime, NOT ``FeatureGroup`` subclasses, so
   they never show up in the FeatureGroup subclass tree / plugin discovery.
 - Each mixin contributes only the ``_non_numeric_descriptor`` hook (plus
-  ``compute_framework_rule`` / ``_input_columns_and_framework``); the
-  ``_assert_source_column_is_numeric`` template lives solely on
-  ``ArithmeticFeatureGroupBase`` and nobody overrides it.
+  ``compute_framework_rule``); the ``_assert_source_column_is_numeric``
+  template lives solely on ``ArithmeticFeatureGroupBase`` and nobody
+  overrides it.
 - Both concrete classes per backend (point and scalar) bind the mixin's hook
   and the base's template, with the mixin preceding the family base in the MRO.
 - The SQL operator map exists once as ``base.SQL_ARITHMETIC_OPS``; the DuckDB
@@ -102,9 +102,6 @@ class TestMixinHookBindings:
         ), (
             f"{concrete_cls.__name__} must not override the _assert_source_column_is_numeric "
             "template owned by ArithmeticFeatureGroupBase"
-        )
-        assert concrete_cls._input_columns_and_framework.__func__ is mixin_cls._input_columns_and_framework.__func__, (
-            f"{concrete_cls.__name__} must inherit _input_columns_and_framework from {mixin_cls.__name__}"
         )
         assert concrete_cls.compute_framework_rule.__func__ is mixin_cls.compute_framework_rule.__func__, (
             f"{concrete_cls.__name__} must inherit compute_framework_rule from {mixin_cls.__name__}"

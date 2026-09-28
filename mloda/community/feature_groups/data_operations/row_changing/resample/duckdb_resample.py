@@ -17,7 +17,6 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
 from mloda.community.feature_groups.data_operations.duckdb_helpers import (
-    column_types,
     floor_expr,
     nan_policy_agg_sql,
 )
@@ -44,22 +43,6 @@ class DuckdbResample(ResampleFeatureGroup):
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {DuckDBFramework}
-
-    @classmethod
-    def _assert_time_column_present(cls, data: DuckdbRelation, time_column: str) -> None:
-        types = column_types(data)
-        if time_column not in types:
-            raise ValueError(
-                f"time_column {time_column!r} is not present in the DuckDB relation; available: {list(types)}."
-            )
-
-    @classmethod
-    def _assert_source_column_present(cls, data: DuckdbRelation, source_col: str) -> None:
-        types = column_types(data)
-        if source_col not in types:
-            raise ValueError(
-                f"Source column {source_col!r} is not present in the DuckDB relation; available: {list(types)}."
-            )
 
     @classmethod
     def _compute_resample(

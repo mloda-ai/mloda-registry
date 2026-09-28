@@ -26,6 +26,7 @@ import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
@@ -111,8 +112,11 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
                 {"string_op": "length", "in_features": ["name", "category"]},
                 "at most 1",
             ),
-            "missing_source_column": (
-                "known gap: string ops do not reject it up front (KeyError/engine error, or deferred on lazy backends)"
+            "missing_source_column": InputValidationCase(
+                "name__trim",
+                {},
+                "Source column 'name' is not present",
+                table=PyArrowDataOpsTestDataCreator.create().drop_columns(["name"]),
             ),
             "empty_partition_by": None,
         }

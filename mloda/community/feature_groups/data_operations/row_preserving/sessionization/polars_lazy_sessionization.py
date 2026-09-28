@@ -20,12 +20,6 @@ class PolarsLazySessionization(SessionizationFeatureGroup):
         return {PolarsLazyDataFrame}
 
     @classmethod
-    def _assert_source_column_present(cls, data: pl.LazyFrame, order_col: str) -> None:
-        names = data.collect_schema().names()
-        if order_col not in names:
-            raise ValueError(f"Source column {order_col!r} is not present in the polars frame; available: {names}.")
-
-    @classmethod
     def _compute_session(
         cls,
         data: pl.LazyFrame,

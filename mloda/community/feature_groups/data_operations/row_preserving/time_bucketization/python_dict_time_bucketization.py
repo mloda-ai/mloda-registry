@@ -173,10 +173,6 @@ class PythonDictTimeBucketization(TimeBucketizationFeatureGroup):
     @classmethod
     def _assert_source_column_is_timestamp(cls, data: dict[str, list[Any]], source_col: str) -> None:
         """Reject ``datetime.date`` (DATE-only, no time component) sources; mirrors the DuckDB DATE-affinity guard."""
-        if source_col not in data:
-            raise ValueError(
-                f"Source column {source_col!r} is not present in the PythonDict data; available: {list(data)}."
-            )
         for value in data[source_col]:
             if value is None:
                 continue

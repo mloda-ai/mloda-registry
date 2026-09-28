@@ -27,13 +27,6 @@ class PyArrowFfill(FfillFeatureGroup):
         return {PyArrowTable}
 
     @classmethod
-    def _assert_source_column_present(cls, data: pa.Table, source_col: str) -> None:
-        if source_col not in data.schema.names:
-            raise ValueError(
-                f"Source column {source_col!r} is not present in the PyArrow table; available: {data.schema.names}."
-            )
-
-    @classmethod
     def _compute_ffill(
         cls,
         data: pa.Table,

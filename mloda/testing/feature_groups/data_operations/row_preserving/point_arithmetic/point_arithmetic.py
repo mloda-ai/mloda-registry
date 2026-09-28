@@ -17,11 +17,11 @@ from __future__ import annotations
 import math
 from typing import Any
 
-import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
@@ -104,7 +104,6 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
 
     @classmethod
     def input_validation_cases(cls) -> dict[str, Any]:
-        missing_value_int_table = pa.table({"amount": pa.array(AMOUNT, type=pa.float64())})
         return {
             "multi_column_in_features": InputValidationCase(
                 "bad_too_many",
@@ -114,8 +113,8 @@ class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin,
             "missing_source_column": InputValidationCase(
                 "value_int&amount__add_point",
                 {},
-                "Source column 'value_int' not found in input data",
-                table=missing_value_int_table,
+                "Source column 'value_int' is not present",
+                table=PyArrowDataOpsTestDataCreator.create().drop_columns(["value_int"]),
             ),
             "empty_partition_by": None,
         }

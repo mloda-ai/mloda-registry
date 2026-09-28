@@ -11,10 +11,7 @@ from mloda_plugins.compute_framework.base_implementations.python_dict.python_dic
 )
 
 from mloda.community.feature_groups.data_operations.errors import unsupported_op_error
-from mloda.community.feature_groups.data_operations.python_dict_helpers import (
-    input_columns_and_framework,
-    non_numeric_descriptor,
-)
+from mloda.community.feature_groups.data_operations.python_dict_helpers import non_numeric_descriptor
 from mloda.community.feature_groups.data_operations.row_preserving.point_arithmetic.base import (
     ARITHMETIC_OPERATIONS,
     PointArithmeticFeatureGroup,
@@ -45,10 +42,6 @@ class PythonDictPointArithmetic(PointArithmeticFeatureGroup):
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {PythonDictFramework}
-
-    @classmethod
-    def _input_columns_and_framework(cls, data: dict[str, list[Any]]) -> tuple[list[str], str]:
-        return input_columns_and_framework(data)
 
     @classmethod
     def _non_numeric_descriptor(cls, data: dict[str, list[Any]], source_col: str) -> object | None:

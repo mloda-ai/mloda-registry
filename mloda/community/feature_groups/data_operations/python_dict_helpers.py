@@ -276,11 +276,6 @@ def floor_fixed_duration(dt: datetime, n: int, unit: str) -> datetime:
     return attach_tzinfo(naive, dt.tzinfo)
 
 
-def input_columns_and_framework(data: dict[str, list[Any]]) -> tuple[list[str], str]:
-    """All dict keys are input columns; framework label is always ``"PythonDict"``."""
-    return list(data.keys()), "PythonDict"
-
-
 def non_numeric_descriptor(data: dict[str, list[Any]], source_col: str) -> object | None:
     """Type-name descriptor for ``source_col``'s first non-numeric value, else ``None`` (bool counts as non-numeric)."""
     for value in data[source_col]:

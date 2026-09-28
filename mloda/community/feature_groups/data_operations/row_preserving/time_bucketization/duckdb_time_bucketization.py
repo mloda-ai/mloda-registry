@@ -63,12 +63,7 @@ class DuckdbTimeBucketization(TimeBucketizationFeatureGroup):
     @classmethod
     def _assert_source_column_is_timestamp(cls, data: DuckdbRelation, source_col: str) -> None:
         type_by_column = column_types(data)
-        dtype_str = type_by_column.get(source_col)
-        if dtype_str is None:
-            raise ValueError(
-                f"Source column {source_col!r} is not present in the DuckDB relation; "
-                f"available: {list(type_by_column)}."
-            )
+        dtype_str = type_by_column[source_col]
         upper = dtype_str.upper()
         if not any(upper == p or upper.startswith(p) for p in _DUCKDB_TIMESTAMP_PREFIXES):
             cls._raise_non_timestamp_source(source_col, dtype_str)

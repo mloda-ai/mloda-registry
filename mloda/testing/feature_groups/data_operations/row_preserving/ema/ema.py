@@ -417,7 +417,7 @@ class EmaTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedCol
             "missing_source_column": InputValidationCase(
                 "value__ema_2",
                 {"partition_by": ["region"], "order_by": "ts"},
-                "Source column 'value'",
+                "Source column 'value' is not present",
                 table=missing_value_table,
             ),
             "empty_partition_by": None,

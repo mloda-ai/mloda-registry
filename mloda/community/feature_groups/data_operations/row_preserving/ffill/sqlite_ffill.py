@@ -22,13 +22,6 @@ class SqliteFfill(FfillFeatureGroup):
         return {SqliteFramework}
 
     @classmethod
-    def _assert_source_column_present(cls, data: SqliteRelation, source_col: str) -> None:
-        if source_col not in data.columns:
-            raise ValueError(
-                f"Source column {source_col!r} is not present in the SQLite relation; available: {data.columns}."
-            )
-
-    @classmethod
     def _compute_ffill(
         cls,
         data: SqliteRelation,

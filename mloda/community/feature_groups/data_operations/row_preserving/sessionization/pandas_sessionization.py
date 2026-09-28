@@ -18,13 +18,6 @@ class PandasSessionization(SessionizationFeatureGroup):
         return {PandasDataFrame}
 
     @classmethod
-    def _assert_source_column_present(cls, data: pd.DataFrame, order_col: str) -> None:
-        if order_col not in data.columns:
-            raise ValueError(
-                f"Source column {order_col!r} is not present in the pandas DataFrame; available: {list(data.columns)}."
-            )
-
-    @classmethod
     def _compute_session(
         cls,
         data: pd.DataFrame,

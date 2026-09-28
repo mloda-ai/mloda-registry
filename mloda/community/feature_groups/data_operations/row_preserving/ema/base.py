@@ -34,8 +34,8 @@ mapping internally.
 Only pandas and polars-lazy compute EMA natively. PyArrow, DuckDB and SQLite
 have no native exponentially weighted compute and a Python emulation is
 forbidden by the CFW-backend rule, so they ship no backend for EMA (absence).
-Compute subclasses implement ``_compute_ema`` (the backend EWM) and
-``_assert_source_column_present`` (the guard).
+Compute subclasses implement ``_compute_ema`` (the backend EWM); the
+source-column presence guard is shared (``assert_source_columns_present``).
 """
 
 from __future__ import annotations
@@ -55,6 +55,7 @@ from mloda.user import Feature, FeatureName, Options
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
     always_required,
+    assert_source_columns_present,
     column_ref_value,
     is_column_ref,
 )
@@ -172,20 +173,14 @@ class EmaFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
             source_features = cls._extract_source_features(feature)
             source_col = source_features[0]
+            assert_source_columns_present(data, [source_col])
             span = cls._extract_span(feature)
             partition_by = cls._extract_partition_by(feature)
             order_by = cls._extract_order_by(feature)
 
-            cls._assert_source_column_present(table, source_col)
-
             table = cls._compute_ema(table, feature_name, source_col, span, partition_by, order_by)
 
         return table
-
-    @classmethod
-    def _assert_source_column_present(cls, data: Any, source_col: str) -> None:
-        """Reject a missing source column with a clear ``ValueError`` (backend-specific)."""
-        raise NotImplementedError
 
     @classmethod
     def _compute_ema(

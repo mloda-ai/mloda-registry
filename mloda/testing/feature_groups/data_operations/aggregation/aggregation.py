@@ -23,6 +23,7 @@ import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Options
 
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
     assert_values_with_nulls,
@@ -285,9 +286,11 @@ class AggregationTestBase(
                 {"aggregation_type": "sum", "partition_by": ["region"], "in_features": ["value_int", "value_float"]},
                 "at most 1",
             ),
-            "missing_source_column": (
-                "known gap: aggregation does not reject it up front "
-                "(KeyError/engine error, or deferred on lazy backends)"
+            "missing_source_column": InputValidationCase(
+                "value_int__sum_agg",
+                {"partition_by": ["region"]},
+                "Source column 'value_int' is not present",
+                table=PyArrowDataOpsTestDataCreator.create().drop_columns(["value_int"]),
             ),
             # partition_by=[] means one whole-table group; every backend must support it.
             "empty_partition_by": None,

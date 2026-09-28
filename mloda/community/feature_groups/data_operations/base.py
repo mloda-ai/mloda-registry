@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from enum import Enum
 from typing import Any, TypeVar
 
 from mloda.provider import FeatureChainParserMixin
 from mloda.user import Options
+from mloda_plugins.compute_framework.base_implementations.sql.sql_base_relation import SqlBaseRelation
 
 T = TypeVar("T")
 
@@ -231,6 +232,47 @@ _PARAMETRIC_SUFFIX_PATTERN = re.compile(r"[1-9][0-9]*")
 def is_parametric_suffix(suffix: str) -> bool:
     """True for the ASCII positive-integer suffix of a parametric operation token (e.g. the 4 in ntile_4)."""
     return _PARAMETRIC_SUFFIX_PATTERN.fullmatch(suffix) is not None
+
+
+# ---------------------------------------------------------------------------
+# Shared source-column presence guard
+# ---------------------------------------------------------------------------
+
+
+def available_columns(data: Any) -> list[str]:
+    """Column names of ``data``, dispatched by type across supported frameworks.
+
+    Dispatch is on ``type(data)``, not the instance, since a pandas column named
+    ``column_names`` or ``collect_schema`` would otherwise hijack instance attribute lookup;
+    pyarrow uses ``column_names`` because its ``.columns`` holds arrays, not names.
+    """
+    if isinstance(data, dict):
+        return list(data.keys())
+    cls = type(data)
+    if hasattr(cls, "collect_schema"):
+        return list(data.collect_schema().names())
+    if hasattr(cls, "column_names"):
+        return list(data.column_names)
+    return list(data.columns)
+
+
+def assert_source_columns_present(data: Any, columns: Iterable[str]) -> None:
+    """Raise ``ValueError`` naming the first of ``columns`` absent from ``data``.
+
+    SQL relations match case-insensitively (their own engine semantics); every other
+    input matches exactly.
+    """
+    names = available_columns(data)
+    case_insensitive = isinstance(data, SqlBaseRelation)
+    lower_names = {name.lower() for name in names} if case_insensitive else set()
+    for col in columns:
+        if col in names:
+            continue
+        if case_insensitive and col.lower() in lower_names:
+            continue
+        raise ValueError(
+            f"Source column {col!r} is not present in the {type(data).__name__} input; available: {names}."
+        )
 
 
 # Deprecated alias: released leaves still import this name.

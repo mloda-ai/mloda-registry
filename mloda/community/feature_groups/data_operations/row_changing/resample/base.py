@@ -31,7 +31,8 @@ Output columns are the ``partition_by`` columns, the bucketed ``time_column``
 ``{src}__resample_{n}_{unit}_{agg}``. Output row order is not guaranteed.
 
 PyArrow is the cross-framework reference. Subclasses implement ``_compute_resample``
-(the backend floor + group + aggregate) and the two presence guards.
+(the backend floor + group + aggregate); presence guards are shared via
+``assert_source_columns_present``.
 """
 
 from __future__ import annotations
@@ -51,6 +52,7 @@ from mloda.user import DataType, Feature, FeatureName, Options
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
     always_required,
+    assert_source_columns_present,
     column_ref_value,
     is_column_ref,
     is_op_token,
@@ -123,7 +125,7 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     """Base class for resample operations that CHANGE the row count.
 
     Subclasses must implement ``_compute_resample`` (the backend-specific
-    floor + group-by + aggregate) and the two presence guards.
+    floor + group-by + aggregate); presence guards are shared.
     """
 
     MIN_IN_FEATURES = 1
@@ -261,22 +263,11 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             partition_by = cls._extract_partition_by(feature)
             time_column = cls._extract_time_column(feature)
 
-            cls._assert_time_column_present(table, time_column)
-            cls._assert_source_column_present(table, source_col)
+            assert_source_columns_present(data, [time_column, source_col])
 
             table = cls._compute_resample(table, feature_name, source_col, time_column, partition_by, n, unit, agg)
 
         return table
-
-    @classmethod
-    def _assert_time_column_present(cls, data: Any, time_column: str) -> None:
-        """Reject a missing time column with a clear ``ValueError`` (backend-specific)."""
-        raise NotImplementedError
-
-    @classmethod
-    def _assert_source_column_present(cls, data: Any, source_col: str) -> None:
-        """Reject a missing source column with a clear ``ValueError`` (backend-specific)."""
-        raise NotImplementedError
 
     @classmethod
     def _compute_resample(

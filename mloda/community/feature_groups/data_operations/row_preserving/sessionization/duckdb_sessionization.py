@@ -26,13 +26,6 @@ class DuckdbSessionization(SessionizationFeatureGroup):
         return {DuckDBFramework}
 
     @classmethod
-    def _assert_source_column_present(cls, data: DuckdbRelation, order_col: str) -> None:
-        if order_col not in data.columns:
-            raise ValueError(
-                f"Source column {order_col!r} is not present in the DuckDB relation; available: {data.columns}."
-            )
-
-    @classmethod
     def _compute_session(
         cls,
         data: DuckdbRelation,

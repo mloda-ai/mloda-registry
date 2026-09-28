@@ -16,13 +16,6 @@ class PandasFfill(FfillFeatureGroup):
         return {PandasDataFrame}
 
     @classmethod
-    def _assert_source_column_present(cls, data: pd.DataFrame, source_col: str) -> None:
-        if source_col not in data.columns:
-            raise ValueError(
-                f"Source column {source_col!r} is not present in the pandas DataFrame; available: {list(data.columns)}."
-            )
-
-    @classmethod
     def _compute_ffill(
         cls,
         data: pd.DataFrame,

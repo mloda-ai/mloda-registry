@@ -25,13 +25,6 @@ class PythonDictFfill(FfillFeatureGroup):
         return {PythonDictFramework}
 
     @classmethod
-    def _assert_source_column_present(cls, data: dict[str, list[Any]], source_col: str) -> None:
-        if source_col not in data:
-            raise ValueError(
-                f"Source column {source_col!r} is not present in the PythonDict data; available: {list(data.keys())}."
-            )
-
-    @classmethod
     def _compute_ffill(
         cls,
         data: dict[str, list[Any]],

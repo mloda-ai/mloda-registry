@@ -2,12 +2,12 @@
 
 ``SqliteArithmeticMixin`` is a plain runtime class typed against
 ``ArithmeticFeatureGroupBase`` for mypy only, so it stays out of FeatureGroup
-plugin discovery. It supplies ``compute_framework_rule``,
-``_input_columns_and_framework``, and the ``_non_numeric_descriptor`` hook
-consumed by the base's ``_assert_source_column_is_numeric`` template; the
-structural guards live in ``tests/test_numeric_source.py``. The concrete
-SQLite backends import ``SQLITE_ARITHMETIC_OPS`` from here (an alias of the
-shared ``SQL_ARITHMETIC_OPS``). Keeping one mixin per module preserves
+plugin discovery. It supplies ``compute_framework_rule`` and the
+``_non_numeric_descriptor`` hook consumed by the base's
+``_assert_source_column_is_numeric`` template; the structural guards live in
+``tests/test_numeric_source.py``. The concrete SQLite backends import
+``SQLITE_ARITHMETIC_OPS`` from here (an alias of the shared
+``SQL_ARITHMETIC_OPS``). Keeping one mixin per module preserves
 optional-dependency isolation: this module imports only the SQLite backend.
 """
 
@@ -38,10 +38,6 @@ class SqliteArithmeticMixin(_ArithmeticMixinBase):
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
         return {SqliteFramework}
-
-    @classmethod
-    def _input_columns_and_framework(cls, data: SqliteRelation) -> tuple[list[str], str]:
-        return list(data.columns), "SQLite"
 
     @classmethod
     def _non_numeric_descriptor(cls, data: SqliteRelation, source_col: str) -> object | None:

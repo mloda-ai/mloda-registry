@@ -49,6 +49,7 @@ from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.base import (
     OP_TOKEN_EXPECTED,
+    assert_source_columns_present,
     is_op_token,
     op_token_value,
 )
@@ -276,8 +277,9 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         2. Extract the op token (string-pattern or Options).
         3. Parse the op token via ``_parse_bucket_op`` (raises ValueError on
            invalid tokens such as ``n=0`` or ``floor_2_week``).
-        4. Assert the source column is a timestamp/datetime type.
-        5. Dispatch to ``_compute_bucket`` for the backend-specific math.
+        4. Assert the source column is present.
+        5. Assert the source column is a timestamp/datetime type.
+        6. Dispatch to ``_compute_bucket`` for the backend-specific math.
 
         Null timestamps propagate to null output. The output column has the
         same timestamp type (resolution, tz) as the input.
@@ -289,6 +291,7 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
             source_features = cls._extract_source_features(feature)
             source_col = source_features[0]
+            assert_source_columns_present(data, [source_col])
             op_token = cls._extract_bucket_op(feature)
 
             op, n, unit = _parse_bucket_op(op_token)
