@@ -12,6 +12,7 @@ import functools
 import json
 import os
 import subprocess  # nosec
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, ClassVar
@@ -552,3 +553,35 @@ def test_size_cap_constants_are_exported() -> None:
     assert "COLUMN_TYPES" in conformance.__all__
     assert "VERSION_PATTERN" in conformance.__all__
     assert [name for name in conformance.__all__ if not hasattr(conformance, name)] == []
+
+
+_MODULE_PROBE_TEMPLATE = """
+import json
+import sys
+
+sys.argv = ["simulated_binary", {flag!r}]
+from mloda.testing.binary_model import simulated_binary
+
+code = simulated_binary.main()
+loaded = sorted(m for m in ("pyarrow", "numpy", "cryptography") if m in sys.modules)
+print(json.dumps({{"code": code, "loaded": loaded}}))
+"""
+
+
+@pytest.mark.parametrize(
+    "flag", [pytest.param("--version", id="version"), pytest.param("--capabilities", id="capabilities")]
+)
+def test_simulated_binary_light_flags_do_not_import_pyarrow(flag: str) -> None:
+    """`--version` and `--capabilities` must not import pyarrow, numpy, or cryptography; those load only when needed."""
+    script = _MODULE_PROBE_TEMPLATE.format(flag=flag)
+    completed = subprocess.run(  # nosec B603
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=60
+    )
+    assert completed.returncode == 0, f"probe subprocess failed: {completed.stderr}"
+    lines = completed.stdout.splitlines()
+    if flag == "--version":
+        assert lines[0].startswith("example_binary "), lines
+    else:
+        assert isinstance(json.loads(lines[0]), dict), lines
+    summary = json.loads(lines[-1])
+    assert summary == {"code": 0, "loaded": []}, summary

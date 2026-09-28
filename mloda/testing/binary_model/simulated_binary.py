@@ -17,9 +17,11 @@ import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pyarrow as pa
+if TYPE_CHECKING:
+    # Imported inside the run-path functions so --version and --capabilities skip the pyarrow import.
+    import pyarrow as pa
 
 from mloda.testing.binary_model import (
     COLUMN_TYPES,
@@ -54,6 +56,8 @@ def _classify_column_type(arrow_type: pa.DataType) -> str | None:
     (contract: Capabilities). Only bare ``pa.string()`` counts as this contract's ``utf8``:
     ``pa.large_string()`` and ``pa.string_view()`` are distinct Arrow types outside the
     vocabulary, not accepted as an alias for it."""
+    import pyarrow as pa
+
     if pa.types.is_int64(arrow_type):
         return "int64"
     if pa.types.is_float64(arrow_type):
@@ -401,6 +405,8 @@ def _open_ipc_stream_reader(source: pa.BufferReader) -> pa.RecordBatchReader:
     parsing, reported as a data error (contract: Data). A ``pa.BufferReader`` is used, not raw
     bytes, so its ``.tell()`` afterward reports bytes consumed, which
     ``_assert_no_trailing_data`` needs to detect trailing/concatenated data."""
+    import pyarrow as pa
+
     try:
         return pa.ipc.open_stream(source)
     except pa.ArrowException as exc:
@@ -410,6 +416,8 @@ def _open_ipc_stream_reader(source: pa.BufferReader) -> pa.RecordBatchReader:
 def _read_all_batches(reader: pa.RecordBatchReader) -> pa.Table:
     """Malformed record-batch data after a valid schema message fails here, not at
     ``open_stream()``, and is reported the same way: a data error (contract: Data)."""
+    import pyarrow as pa
+
     try:
         table = reader.read_all()
         table.validate(full=True)
@@ -440,6 +448,8 @@ def _assert_no_compressed_record_batch(raw: bytes) -> None:
     """Malformed message metadata encountered while sweeping the raw bytes for a compressed
     record-batch body must be reported the same way as any other malformed record-batch data: a
     data error (contract: Data), not an uncaught ``pa.ArrowException``."""
+    import pyarrow as pa
+
     try:
         message_reader = pa.ipc.MessageReader.open_stream(pa.py_buffer(raw))
         while True:
@@ -476,6 +486,8 @@ def _compute_hash_output(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Sc
     (contract: Data, Configuration). Uses ``compute_expected_hash`` -- the same algorithm
     ``HashOperationConformanceMixin`` computes expected values with, so the two can't drift. Builds
     a fresh output schema, so no input Arrow metadata is ever propagated to the output."""
+    import pyarrow as pa
+
     input_columns = config["input_columns"]
     key: str | None = config["parameters"].get("key")
     written_name = config["output_columns"]["result"]
@@ -492,6 +504,8 @@ def _build_ipc_stream_bytes(schema: pa.Schema, arrays: list[pa.Array]) -> bytes:
     """Write ``arrays`` (aligned to ``schema``) to Arrow IPC stream bytes, ending with the
     end-of-stream marker. Zero rows produces a schema-only stream (no record-batch message at all,
     not one with zero rows) (contract: Data -- a schema-only input yields a schema-only output)."""
+    import pyarrow as pa
+
     num_rows = len(arrays[0]) if arrays else 0
     buf = io.BytesIO()
     with pa.ipc.new_stream(buf, schema) as writer:
@@ -515,6 +529,8 @@ def _run_data_stage(raw: bytes, config: dict[str, Any], output_path: Path | None
     to stdout or ``--output`` (contract: Data). Reads the whole input into memory first; a real
     Rust binary should stream batches instead (contract: Invocation), acceptable for this stub.
     """
+    import pyarrow as pa
+
     if len(raw) == 0:
         raise _CliError(DATA_ERROR, "input is zero bytes, not an Arrow IPC stream")
 
