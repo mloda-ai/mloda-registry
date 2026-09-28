@@ -79,6 +79,8 @@ filterwarnings = [
 [tool.mypy]
 namespace_packages = true
 explicit_package_bases = true
+# Skip local build/dist output at any depth; a real source dir with either name would be skipped too.
+exclude = ['(^|/)(build|dist)/']
 
 [[tool.mypy.overrides]]
 # pyarrow.compute registers functions dynamically from the C++ kernel
