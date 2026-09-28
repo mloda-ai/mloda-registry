@@ -90,6 +90,11 @@ _GENERIC_MESSAGE_FALLBACK = "binary reported code {code} without a usable messag
 
 MAX_MESSAGE_BYTES = 1024
 
+# Bytes of stderr tail scanned for the error line, comfortably above the worst case (a `message`
+# capped at MAX_MESSAGE_BYTES, grown up to about sixfold by `\u` escapes). A longer, out-of-contract
+# error line falls back to BinaryInternalError.
+_STDERR_TAIL_WINDOW_BYTES = 64 * 1024
+
 
 def _truncate_message(message: str) -> str:
     """Sanitize and cap ``message`` at ``MAX_MESSAGE_BYTES`` UTF-8 bytes, cutting only on a character
@@ -98,10 +103,14 @@ def _truncate_message(message: str) -> str:
 
 
 def _last_non_empty_line(stderr: bytes) -> str | None:
-    text = stderr.decode("utf-8", errors="replace")
-    for line in reversed(text.splitlines()):
-        if line.strip():
-            return line
+    """The last non-blank line of stderr's trailing tail window, split on ``b"\\n"`` only, never
+    ``str.splitlines()``, which also splits on U+2028/U+2029/U+0085 and would corrupt a message
+    containing one of them."""
+    tail = stderr[-_STDERR_TAIL_WINDOW_BYTES:]
+    for line in reversed(tail.split(b"\n")):
+        text = line.decode("utf-8", errors="replace")
+        if text.strip():
+            return text
     return None
 
 

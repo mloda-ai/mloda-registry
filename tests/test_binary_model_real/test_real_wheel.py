@@ -33,6 +33,7 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 from mloda.community.feature_groups.binary_model.binary import CONTRACT_VERSION
 from mloda.community.feature_groups.binary_model.errors import LicenseInvalidError, LicenseMissingError
 from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
+from mloda.testing.binary_model import VERSION_PATTERN
 from mloda.testing.binary_model.conformance import run_binary
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
 from mloda.testing.binary_model.license_vectors import valid_license_token
@@ -77,7 +78,7 @@ def test_version_probe_succeeds_and_matches_plugin_id_and_semver() -> None:
     result = run_binary([str(_BINARY_PATH)], ["--version"], probe_environment())
     assert result.returncode == 0, f"stderr={result.stderr!r}"
     line = result.stdout.decode("utf-8").strip()
-    assert re.fullmatch(rf"{re.escape(_PLUGIN_ID)} \d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?", line), line
+    assert re.fullmatch(rf"{re.escape(_PLUGIN_ID)} {VERSION_PATTERN}", line), line
 
 
 def test_capabilities_reports_contract_and_plugin_id() -> None:

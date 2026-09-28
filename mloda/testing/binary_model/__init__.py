@@ -3,14 +3,19 @@
 copy.
 
 Kept intentionally small: only values that are part of the contract itself (version number, error
-codes, column-type vocabulary, message size cap). Everything else (the worked example, Arrow IPC
-mechanics, the "hash" algorithm, license-token shapes) lives in this package's other modules.
+codes, column-type vocabulary, message size cap, version-string pattern). Everything else (the
+worked example, Arrow IPC mechanics, the "hash" algorithm, license-token shapes) lives in this
+package's other modules.
 """
 
 from __future__ import annotations
 
 # The contract's own version number, reported by --capabilities (contract: Capabilities).
 CONTRACT_VERSION = 1
+
+# The `--version` output's semver pattern, unanchored so callers can embed it in a larger
+# expression (contract: Invocation).
+VERSION_PATTERN = r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+\-]+)?"
 
 # Contract "Errors" table.
 USAGE_ERROR = 1

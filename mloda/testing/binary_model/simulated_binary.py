@@ -290,7 +290,7 @@ def _load_config(path: Path) -> dict[str, Any]:
         raise _CliError(USAGE_ERROR, f"--config not readable: {exc}") from exc
     try:
         data = json.loads(text)
-    except json.JSONDecodeError as exc:
+    except (ValueError, RecursionError) as exc:
         raise _CliError(USAGE_ERROR, f"--config is not valid JSON: {exc}") from exc
     if not isinstance(data, dict):
         raise _CliError(USAGE_ERROR, "--config must be a JSON object")

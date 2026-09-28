@@ -117,14 +117,46 @@ class TestResolveBinary:
                 "faulty_binary", [*FAULTY_CMD, "--mode", "bad_capabilities"], env={"PATH": os.defpath}, timeout=10.0
             )
 
-    def test_capabilities_not_json_is_unavailable(self) -> None:
-        with pytest.raises(BinaryUnavailableError):
+    @pytest.mark.parametrize(
+        "mode, match",
+        [
+            pytest.param("capabilities_not_json", "not valid JSON", id="not_json"),
+            pytest.param("capabilities_oversized_int", "not valid JSON|must print a JSON object", id="oversized_int"),
+            pytest.param("capabilities_deeply_nested", "not valid JSON", id="deeply_nested"),
+        ],
+    )
+    def test_capabilities_not_json_is_unavailable(self, mode: str, match: str) -> None:
+        """A ``--capabilities`` line that ``json.loads`` cannot parse -- not JSON at all, an int
+        past the interpreter's string-conversion limit, or JSON deep enough to raise
+        ``RecursionError`` -- is uniformly a ``BinaryUnavailableError``, not an escaping
+        ``ValueError``/``RecursionError`` (contract: Capabilities). ``oversized_int`` accepts either
+        message: with ``PYTHONINTMAXSTRDIGITS=0`` (or on CPython < 3.10.7) the digit string parses as
+        a plain ``int``, so rejection instead happens on the "not a JSON object" check."""
+        with pytest.raises(BinaryUnavailableError, match=match):
             binary.resolve_binary(
                 "faulty_binary",
-                [*FAULTY_CMD, "--mode", "capabilities_not_json"],
+                [*FAULTY_CMD, "--mode", mode],
                 env={"PATH": os.defpath},
                 timeout=10.0,
             )
+
+    @pytest.mark.parametrize(
+        "mode",
+        ["capabilities_unicode_line_separator", "capabilities_crlf"],
+        ids=["unicode_line_separator", "crlf"],
+    )
+    def test_capabilities_line_split_tolerates_non_lf_line_content(self, mode: str) -> None:
+        """``_parse_capabilities`` must split on the same notion of "one line" as the conformance
+        kit's own ``test_capabilities_prints_single_json_object_no_license_required`` check, which
+        counts ``b"\\n"`` only (contract: Capabilities). ``unicode_line_separator`` puts a raw
+        U+2028 inside a tolerated unknown extra value: ``str.splitlines()`` (used by
+        ``_parse_capabilities``) also splits on U+2028, so it currently sees 2 lines and rejects a
+        binary the kit accepts. ``crlf`` is a regression guard for the same code today accepting a
+        ``\\r\\n``-terminated line."""
+        resolved = binary.resolve_binary(
+            "faulty_binary", [*FAULTY_CMD, "--mode", mode], env={"PATH": os.defpath}, timeout=10.0
+        )
+        assert "hash" in resolved.capabilities.operations
 
     def test_version_two_lines_is_unavailable(self) -> None:
         with pytest.raises(BinaryUnavailableError):
@@ -240,8 +272,8 @@ class TestVersionMustBeSemVer:
 
     @pytest.mark.parametrize(
         "mode",
-        ["version_not_semver", "version_empty", "version_no_second_token"],
-        ids=["not_semver", "empty", "no_second_token"],
+        ["version_not_semver", "version_empty", "version_no_second_token", "version_non_ascii_digits"],
+        ids=["not_semver", "empty", "no_second_token", "non_ascii_digits"],
     )
     def test_non_semver_version_is_unavailable(self, mode: str) -> None:
         with pytest.raises(BinaryUnavailableError) as excinfo:
@@ -255,3 +287,30 @@ class TestVersionMustBeSemVer:
             "faulty_binary", [*FAULTY_CMD, "--mode", "version_prerelease"], env={"PATH": os.defpath}, timeout=10.0
         )
         assert resolved.capabilities.version == "0.0.1-rc.1+build.5"
+
+
+class TestContractConstantsMatchTestingKit:
+    """`binary.py` cannot import `mloda.testing` (dev-only), so it keeps its own copies of four
+    contract constants; this pins them equal to the testing kit's own copies (contract: Invocation,
+    Data handling)."""
+
+    def test_version_pattern_matches_testing_kit(self) -> None:
+        from mloda.testing.binary_model import VERSION_PATTERN as kit_version_pattern
+
+        assert binary.VERSION_PATTERN == kit_version_pattern
+
+    def test_max_message_bytes_matches_testing_kit(self) -> None:
+        from mloda.community.feature_groups.binary_model import errors
+        from mloda.testing.binary_model import MESSAGE_MAX_BYTES as kit_message_max_bytes
+
+        assert errors.MAX_MESSAGE_BYTES == kit_message_max_bytes
+
+    def test_contract_version_matches_testing_kit(self) -> None:
+        from mloda.testing.binary_model import CONTRACT_VERSION as kit_contract_version
+
+        assert binary.CONTRACT_VERSION == kit_contract_version
+
+    def test_column_type_vocabulary_matches_testing_kit(self) -> None:
+        from mloda.testing.binary_model import COLUMN_TYPES as kit_column_types
+
+        assert binary.COLUMN_TYPE_VOCABULARY == kit_column_types
