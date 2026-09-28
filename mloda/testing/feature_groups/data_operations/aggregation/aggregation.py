@@ -24,7 +24,11 @@ import pytest
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import SingleValueStdVarTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import (
+    SINGLE_VALUE_STD,
+    SINGLE_VALUE_VAR,
+    SingleValueStdVarTestMixin,
+)
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -40,11 +44,9 @@ EXPECTED_MAX_BY_REGION: dict[Any, int] = {"A": 20, "B": 60, "C": 40, None: -10}
 
 # Single-value std/var (see SingleValueStdVarTestMixin): grp A=[10,20,30] (population
 # std/var), grp B=[40] is a single-value group and must resolve to 0.0, not null.
-_SINGLE_VALUE_STD = math.sqrt(200 / 3)
-_SINGLE_VALUE_VAR = 200 / 3
 SINGLE_VALUE_STD_VAR_AGG: dict[str, dict[str, float]] = {
-    "std": {"A": _SINGLE_VALUE_STD, "B": 0.0},
-    "var": {"A": _SINGLE_VALUE_VAR, "B": 0.0},
+    "std": {"A": SINGLE_VALUE_STD, "B": 0.0},
+    "var": {"A": SINGLE_VALUE_VAR, "B": 0.0},
 }
 
 

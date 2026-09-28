@@ -12,7 +12,6 @@ methods. This follows the same pattern as mloda core's ``DataFrameTestBase`` in
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import pyarrow as pa
@@ -24,7 +23,11 @@ from mloda.testing.feature_groups.data_operations.helpers import extract_column 
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import SingleValueStdVarTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import (
+    SINGLE_VALUE_STD,
+    SINGLE_VALUE_VAR,
+    SingleValueStdVarTestMixin,
+)
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants, also usable standalone)
@@ -79,11 +82,9 @@ NAN_DIVERGENT_WINDOW: dict[str, list[float]] = {
 
 # Single-value std/var (see SingleValueStdVarTestMixin): grp A=[10,20,30] (population
 # std/var), grp B=[40] is a single-value group and must resolve to 0.0, not null.
-_SINGLE_VALUE_STD = math.sqrt(200 / 3)
-_SINGLE_VALUE_VAR = 200 / 3
 SINGLE_VALUE_STD_VAR_WINDOW: dict[str, list[float]] = {
-    "std": [_SINGLE_VALUE_STD, _SINGLE_VALUE_STD, _SINGLE_VALUE_STD, 0.0],
-    "var": [_SINGLE_VALUE_VAR, _SINGLE_VALUE_VAR, _SINGLE_VALUE_VAR, 0.0],
+    "std": [SINGLE_VALUE_STD, SINGLE_VALUE_STD, SINGLE_VALUE_STD, 0.0],
+    "var": [SINGLE_VALUE_VAR, SINGLE_VALUE_VAR, SINGLE_VALUE_VAR, 0.0],
 }
 
 
