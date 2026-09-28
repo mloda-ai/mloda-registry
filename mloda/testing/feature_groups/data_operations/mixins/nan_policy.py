@@ -39,7 +39,7 @@ class NanPolicyTestMixin(CaseParametrizationTestMixin):
 
     A concrete class that mixes this in without overriding ``nan_policy_cases()``
     fails at collection time (``CaseParametrizationTestMixin.pytest_generate_tests``
-    calls it at collection time to build the parametrization), not at test-run time.
+    calls it eagerly to build the parametrization), not at test-run time.
     """
 
     _case_fixtures: ClassVar[dict[str, str]] = {"nan_policy_case": "nan_policy_cases"}

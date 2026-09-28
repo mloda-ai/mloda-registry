@@ -50,8 +50,8 @@ class SingleValueStdVarTestMixin(CaseParametrizationTestMixin):
     Feature-group test bases mix this in and override the configuration methods
     below to adapt the generic test to their semantics. A missing override of
     ``single_value_cases()`` fails at collection time:
-    ``CaseParametrizationTestMixin.pytest_generate_tests`` calls it at collection
-    time to build the parametrize list.
+    ``CaseParametrizationTestMixin.pytest_generate_tests`` calls it eagerly to
+    build the parametrize list.
 
     Requires the host class to provide (from DataOpsTestBase):
     - ``implementation_class()``

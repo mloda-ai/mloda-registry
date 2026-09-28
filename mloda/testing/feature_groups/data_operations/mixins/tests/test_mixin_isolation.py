@@ -9,9 +9,8 @@ Two failure modes go unnoticed by pytest and silently drop coverage:
    defined on more than one ancestor in its MRO. The ancestor later in the
    MRO is shadowed, so any test it contributes is dropped without warning.
 3. A mixin defines its own class-level ``pytest_generate_tests`` instead of
-   going through ``CaseParametrizationTestMixin``. pytest only calls the
-   first hook found via MRO, so a second, non-chaining hook silently drops
-   another mixin's case parametrization.
+   going through ``CaseParametrizationTestMixin``, silently dropping another
+   mixin's case parametrization.
 
 These checks are structural and cheap, so they run as part of the normal
 test suite.
@@ -177,12 +176,7 @@ class TestMixinIsolation:
         assert not shadowed, "test_* methods shadowed in concrete class MRO:\n" + "\n".join(shadowed)
 
     def test_pytest_generate_tests_is_only_defined_by_case_parametrization_mixin(self) -> None:
-        """Only ``CaseParametrizationTestMixin`` may define its own ``pytest_generate_tests``.
-
-        pytest calls a single ``pytest_generate_tests`` per MRO (the first one found), so a
-        second, non-chaining hook anywhere in the MRO would silently drop the shared base's
-        case parametrization.
-        """
+        """Only ``CaseParametrizationTestMixin`` may define its own ``pytest_generate_tests``."""
         offenders: list[str] = []
         seen: set[type] = set()
         all_classes: list[type] = []
@@ -224,10 +218,7 @@ class TestMixinIsolation:
         assert found_any, "no concrete Test* class declares _case_fixtures; discovery is broken"
 
     def test_case_parametrization_mixin_chains_and_skips_unrequested_fixtures(self) -> None:
-        """A case mixin combined with a parent hook must parametrize its fixtures and chain to the parent.
-
-        A fixture declared but not present in ``metafunc.fixturenames`` must not be parametrized.
-        """
+        """A case mixin parametrizes only its requested fixtures and chains to a parent hook."""
         calls: list[str] = []
 
         class Parent:
