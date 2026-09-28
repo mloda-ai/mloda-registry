@@ -14,8 +14,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureSet, property_spec
-from mloda.user import Feature, FeatureName, Options
+from mloda.provider import DefaultOptionKeys, FeatureSet, property_spec
 
 from mloda.community.feature_groups.data_operations.aggregation_base import AggregationFeatureGroupBase
 from mloda.community.feature_groups.data_operations.base import (
@@ -72,19 +71,6 @@ class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase):
             default=None,
         ),
     }
-
-    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        _feature_name = str(feature_name)
-
-        prefix_patterns = self._get_prefix_patterns()
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(_feature_name, prefix_patterns)
-
-        if operation_config is not None and source_feature is not None and source_feature:
-            return {Feature(source_feature)}
-
-        in_features_set = options.get_in_features()
-        self._validate_in_feature_count(list(in_features_set), _feature_name)
-        return set(in_features_set)
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

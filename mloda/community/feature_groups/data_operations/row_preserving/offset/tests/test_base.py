@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from mloda.user import DataType, Feature, Options
+from mloda.user import DataType, Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.offset.base import OffsetFeatureGroup
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
@@ -389,3 +389,20 @@ class TestOffsetMatchValidation(MatchValidationTestBase):
             PyArrowDataOpsTestDataCreator.create(), feature_set_for("my_lag", options)
         )
         return extract_column(result, "my_lag")
+
+
+class TestNameAuthoritativeSource:
+    """A name carrying the source wins over a conflicting in_features option."""
+
+    def _options(self) -> Options:
+        return Options(
+            context={"in_features": ["a", "b"], "partition_by": ["region"], "order_by": "value_int"},
+        )
+
+    def test_name_match_ignores_option_in_features(self) -> None:
+        name = "value_int__lag_1_offset"
+        assert OffsetFeatureGroup.match_feature_group_criteria(name, self._options(), None) is True
+
+    def test_name_source_wins_in_input_features(self) -> None:
+        name = "value_int__lag_1_offset"
+        assert OffsetFeatureGroup().input_features(self._options(), FeatureName(name)) == {Feature("value_int")}

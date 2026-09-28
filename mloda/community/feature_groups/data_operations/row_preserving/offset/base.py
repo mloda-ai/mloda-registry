@@ -179,7 +179,7 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         options: Any,
         _data_access_collection: Any = None,
     ) -> bool:
-        """Extend mixin matching with partition_by, order_by, and in_features validation."""
+        """Extend mixin matching with partition_by and order_by validation."""
         if not super().match_feature_group_criteria(feature_name, options, _data_access_collection):
             return False
 
@@ -193,12 +193,6 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
 
         if not is_column_ref(options.get(cls.ORDER_BY)):
             return False
-
-        in_features_raw = options.get(DefaultOptionKeys.in_features)
-        if in_features_raw is not None:
-            in_features = options.get_in_features()
-            if len(in_features) > cls.MAX_IN_FEATURES:
-                return False
 
         return True
 

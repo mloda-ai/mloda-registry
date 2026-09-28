@@ -17,7 +17,7 @@ from mloda.provider import (
     property_spec,
     record_match_rejection,
 )
-from mloda.user import DataType, Feature, FeatureName, Options
+from mloda.user import DataType, Feature, Options
 
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
@@ -293,15 +293,6 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
             default=None,
         ),
     }
-
-    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        """Parse input features from the four frame patterns or config fallback."""
-        name = str(feature_name)
-        parsed = self._parse_frame_feature(name)
-        if parsed is not None:
-            return {Feature(parsed["source_col"])}
-        in_features_set = options.get_in_features()
-        return set(in_features_set)
 
     @classmethod
     def _extract_source_features(cls, feature: Feature) -> list[str]:

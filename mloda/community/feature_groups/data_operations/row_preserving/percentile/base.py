@@ -15,7 +15,7 @@ from mloda.provider import (
     FeatureSet,
     property_spec,
 )
-from mloda.user import Feature, FeatureName, Options
+from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.base import (
     SCALAR_NUMBER_EXPECTED,
@@ -243,20 +243,6 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         if percentile is None:
             raise ValueError(f"Could not extract percentile for {feature_name}")
         return percentile
-
-    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        """Parse input features from feature name or options."""
-        _feature_name = str(feature_name)
-
-        prefix_patterns = self._get_prefix_patterns()
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(_feature_name, prefix_patterns)
-
-        if operation_config is not None and source_feature is not None and source_feature:
-            return {Feature(source_feature)}
-
-        in_features_set = options.get_in_features()
-        self._validate_in_feature_count(list(in_features_set), _feature_name)
-        return set(in_features_set)
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:

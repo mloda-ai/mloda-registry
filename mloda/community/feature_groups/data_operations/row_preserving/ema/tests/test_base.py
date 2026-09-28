@@ -15,7 +15,7 @@ import pytest
 
 pd = pytest.importorskip("pandas")
 
-from mloda.user import Feature, Options
+from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.ema.base import EmaFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.ema.pandas_ema import PandasEma
@@ -63,3 +63,11 @@ class TestOrderByArity(ScalarArityTestBase):
         df = pd.DataFrame(DataOperationsTestDataCreator.get_raw_data())
         result = PandasEma.calculate_feature(df, feature_set_for(FEATURE_NAME, options))
         return [str(value) for value in extract_column(result, FEATURE_NAME)]
+
+
+class TestInputFeaturesCount:
+    """input_features validates the source count, so a multi-source name is rejected."""
+
+    def test_multi_source_name_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="at most 1"):
+            EmaFeatureGroup().input_features(Options(), FeatureName("a&b__ema_3"))

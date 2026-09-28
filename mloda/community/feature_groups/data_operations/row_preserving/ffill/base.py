@@ -36,13 +36,12 @@ from typing import Any
 
 from mloda.provider import (
     DefaultOptionKeys,
-    FeatureChainParser,
     FeatureChainParserMixin,
     FeatureGroup,
     FeatureSet,
     property_spec,
 )
-from mloda.user import Feature, FeatureName, Options
+from mloda.user import Feature
 
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
@@ -85,18 +84,6 @@ class FfillFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             required_when=always_required,
         ),
     }
-
-    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-        _feature_name = str(feature_name)
-
-        prefix_patterns = self._get_prefix_patterns()
-        _operation_config, source_feature = FeatureChainParser.parse_feature_name(_feature_name, prefix_patterns)
-
-        if source_feature:
-            return {Feature(source_feature)}
-
-        in_features_set = options.get_in_features()
-        return set(in_features_set)
 
     @classmethod
     def _extract_partition_by(cls, feature: Feature) -> list[str]:
