@@ -275,7 +275,8 @@ python scripts/generate_pyproject.py    # Regenerate
    `tests/test_end2end/test_published_set_single_source.py` pins the expected set in
    `_EXPECTED_PUBLISHED` (bundle-only packages go into `_BUNDLE_ONLY`), and every
    published distribution needs a smoke import line in the `verify-published` tox env.
-   The flag takes effect at the next release, so that env fails for it until then.
+   The flag takes effect at the next release. The weekly verification checks out the release
+   tag, so only a local run of that env from main fails for it until then.
    If the package is nested under an `entry_point_bundle`'s own path (`mloda-community` or
    `mloda-enterprise`), the bundle must also own it: add `"<name>=={version}"` to the bundle's
    own `dependencies` or a non-dev extra (see [Bundled packages](#bundled-packages)), or

@@ -36,7 +36,9 @@ Verification is not part of the release. It runs in a separate workflow,
 Monday cron plus manual dispatch, so a fresh release stays unverified until the next
 run. To check a release immediately, dispatch that workflow.
 
-It sets `MLODA_REGISTRY_VERSION` and runs these tox envs:
+The workflow resolves the latest release first and checks out its tag, so the published
+set, tox envs and verify scripts are the ones that release shipped, not main's. It sets
+`MLODA_REGISTRY_VERSION` and runs these tox envs:
 
 | Env | Checks |
 |-----|--------|
@@ -48,14 +50,13 @@ It sets `MLODA_REGISTRY_VERSION` and runs these tox envs:
 `verify-published` installs with the `exclude-newer` window lifted for the released set; see
 [Published packages](#published-packages) below.
 
-`verify-typed-install` follows the fails-until-release pattern `verify-published` has: it
-goes red until the base's `py.typed` marker ships. `verify-extras` follows the same pattern
-for a newly owned bundle extra (`mloda-community[otel]` / `[openlineage]`): it goes red until
-the first release that ships the owned leaves, since the previous bundle version still
-contains their code directly. Sibling dependency floors need no dedicated verification env:
-`verify-published-independent` already covers each leaf installing alone at its
-generator-derived floor, and `verify-extras` covers each base resolving together with its
-children (see [packaging.md](packaging.md#sibling-dependency-floors)).
+A change on main (a newly published package, the base's `py.typed` marker, a newly owned
+bundle extra) is therefore verified only once a release ships it, so the weekly job does not
+go red for it before then. The flip side: a fix to a verify script or tox env on main takes
+effect in the weekly job only from the next release. Sibling dependency floors need no
+dedicated verification env: `verify-published-independent` already covers each leaf
+installing alone at its generator-derived floor, and `verify-extras` covers each base
+resolving together with its children (see [packaging.md](packaging.md#sibling-dependency-floors)).
 
 ## Published packages
 
@@ -67,8 +68,10 @@ are both filled from that one command, so they cannot drift apart.
 and `verify-extras` derives its internal extras from `config/packages.toml`'s
 `optional_dependencies`, so neither script names a package by hand.
 
-Flagging a package does not publish it: it ships with the next release run, and
-`tox -e verify-published` fails for it until then.
+Flagging a package does not publish it: it ships with the next release run, and the weekly
+verification picks it up from that release's tag, so it does not fail before then. A local
+`tox -e verify-published` run from main still pins the latest release and fails for it until
+the next release.
 
 The root `pyproject.toml`'s `exclude-newer` window would hide a release younger than
 seven days, so `verify-published` passes `--exclude-newer-exempt`, which

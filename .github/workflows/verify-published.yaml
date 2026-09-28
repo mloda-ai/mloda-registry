@@ -14,8 +14,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-
     - name: Set up Python 3.10
       uses: actions/setup-python@v5
       with:
@@ -31,10 +29,19 @@ jobs:
       id: get_version
       env:
         GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
       run: |
-        LATEST_VERSION=$(gh release view --json tagName -q '.tagName' | sed 's/^v//')
+        LATEST_TAG=$(gh release view --json tagName -q '.tagName')
+        LATEST_VERSION=${LATEST_TAG#v}
+        echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
         echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
         echo "Latest mloda-registry version: $LATEST_VERSION"
+
+    # The published set, tox.ini and verify scripts must describe the release being verified, not main.
+    - name: Check out the release under test
+      uses: actions/checkout@v4
+      with:
+        ref: refs/tags/${{ steps.get_version.outputs.tag }}
 
     - name: Verify published packages (all together)
       env:
