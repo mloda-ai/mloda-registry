@@ -178,9 +178,11 @@ def normalize_dependency_name(dep: str) -> str | None:
 
 
 def _required_elsewhere_workspace_names(all_packages: dict[str, dict[str, Any]]) -> set[str]:
-    """Configured-package names that some package's plain (required) ``dependencies`` names: these
-    already need ``workspace = true`` at that required edge, so uv treats any other reference to
-    the same name (even an optional one) as ambiguous unless it is annotated too."""
+    """Configured-package names that some package's plain (required) ``dependencies`` names. Once
+    any workspace member requires a name, uv requires ``workspace = true`` on every reference to
+    that name across the whole workspace, even an optional one elsewhere -- regardless of whether
+    the requiring package's own pyproject.toml ends up with a ``[tool.uv.sources]`` table at all (a
+    nested package, ``depth > 2``, never gets one; see the ``elif depth <= 2`` branch below)."""
     names: set[str] = set()
     for cfg in all_packages.values():
         for dep in cfg.get("dependencies", []):

@@ -202,9 +202,11 @@ Conventions:
 For top-level packages (depth <= 2) the generator emits `[tool.uv.sources]` with
 `{ workspace = true }` for `mloda-testing` when the package receives default dev deps,
 and for every runtime dependency naming a configured package (so a bundle can depend on
-a sibling bundle, as `mloda-enterprise` does on `mloda-community`). Nested packages
-cannot use workspace sources due to uv resolution limits; they get dev deps but rely on
-root workspace resolution.
+a sibling bundle, as `mloda-enterprise` does on `mloda-community`). An optional dependency
+on a sibling that some other package requires in plain `dependencies` also gets a
+`workspace = true` source, since uv treats any unannotated reference to that name as
+ambiguous once one reference is annotated. Nested packages cannot use workspace sources
+due to uv resolution limits; they get dev deps but rely on root workspace resolution.
 
 ## Common workflows
 

@@ -81,8 +81,9 @@ def _capabilities(mode: str) -> int:
         # Deeply nested JSON makes json.loads raise RecursionError on parse.
         print("[" * 100000)
     elif mode == "capabilities_unicode_line_separator":
-        # An unknown extra key (tolerated by contract) whose string value holds a raw U+2028: the
-        # conformance kit splits on b"\n" only, but str.splitlines() also splits on U+2028.
+        # An unknown extra key (tolerated by contract) whose string value holds a raw U+2028: both the
+        # mixin and the conformance kit split on b"\n" only, via contract.split_output_lines, so this
+        # must still be read as a single line.
         payload = {
             "contract": 1,
             "plugin_id": PLUGIN_ID,

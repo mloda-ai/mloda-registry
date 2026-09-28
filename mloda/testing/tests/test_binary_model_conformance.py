@@ -9,6 +9,7 @@ hooks are overridable."""
 from __future__ import annotations
 
 import json
+import subprocess  # nosec
 from pathlib import Path
 from typing import ClassVar
 from unittest.mock import MagicMock
@@ -25,6 +26,7 @@ from mloda.testing.binary_model.conformance import (
     arrow_stream_bytes,
     arrow_stream_bytes_invalid_utf8,
     assert_error_response,
+    assert_not_rejected_with,
     corrupt_record_batch_message_after_schema,
     read_arrow_stream,
     run_binary,
@@ -244,6 +246,74 @@ def test_kit_reexported_constants_are_the_contract_objects() -> None:
 
     assert kit.VERSION_PATTERN is contract.VERSION_PATTERN
     assert kit.COLUMN_TYPES is contract.COLUMN_TYPES
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["USAGE_ERROR", "LICENSE_MISSING", "LICENSE_INVALID", "UNSUPPORTED", "DATA_ERROR", "INTERNAL_ERROR"],
+)
+def test_kit_error_code_constants_are_defined_on_contract(name: str) -> None:
+    """The contract's own module must define every exit-code constant the kit re-exports, equal as
+    ints, so the exit-code table has one source too (contract: Errors)."""
+    from mloda.community.feature_groups.binary_model import contract
+    from mloda.testing import binary_model as kit
+
+    assert hasattr(contract, name), f"contract module is missing {name}"
+    assert getattr(kit, name) == getattr(contract, name)
+
+
+def test_capabilities_check_rejects_boolean_contract_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The kit's own `--capabilities` check must delegate to the mixin's capabilities parser, which
+    rejects a boolean `contract` value: `True == 1` in Python, but the contract's own value is never
+    a bool (contract: Capabilities)."""
+    conformance = BinaryModelConformanceBase()
+    fake_stdout = (
+        json.dumps(
+            {
+                "contract": True,
+                "plugin_id": conformance.plugin_id,
+                "operations": conformance.operations,
+                "column_types": sorted(conformance.column_types),
+            }
+        )
+        + "\n"
+    ).encode("utf-8")
+    fake_result = subprocess.CompletedProcess(args=[], returncode=0, stdout=fake_stdout, stderr=b"")
+    monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", lambda *args, **kwargs: fake_result)
+    with pytest.raises(AssertionError):
+        conformance.test_capabilities_prints_single_json_object_no_license_required({})
+
+
+def test_assert_error_response_rejects_float_code_equal_to_expected() -> None:
+    """A `code` of `5.0` must not satisfy the contract's integer error code: JSON's `5.0` is a
+    float, even though `5.0 == 5` in Python (contract: Errors)."""
+    result = subprocess.CompletedProcess(args=[], returncode=5, stdout=b"", stderr=b'{"code": 5.0, "message": "m"}\n')
+    with pytest.raises(AssertionError):
+        assert_error_response(result, 5)
+
+
+def test_assert_error_response_rejects_boolean_true_code() -> None:
+    """A `code` of `true` must not satisfy the contract's integer error code: `True == 1` in
+    Python, but the contract's error code is never a boolean (contract: Errors)."""
+    result = subprocess.CompletedProcess(args=[], returncode=1, stdout=b"", stderr=b'{"code": true, "message": "m"}\n')
+    with pytest.raises(AssertionError):
+        assert_error_response(result, 1)
+
+
+def test_assert_not_rejected_with_rejects_float_code_equal_to_returncode() -> None:
+    """Same float-code rule for `assert_not_rejected_with`'s own error-object check (contract:
+    Errors)."""
+    result = subprocess.CompletedProcess(args=[], returncode=5, stdout=b"", stderr=b'{"code": 5.0, "message": "m"}\n')
+    with pytest.raises(AssertionError):
+        assert_not_rejected_with(result, {99})
+
+
+def test_assert_not_rejected_with_rejects_boolean_true_code() -> None:
+    """Same boolean-code rule for `assert_not_rejected_with`'s own error-object check (contract:
+    Errors)."""
+    result = subprocess.CompletedProcess(args=[], returncode=1, stdout=b"", stderr=b'{"code": true, "message": "m"}\n')
+    with pytest.raises(AssertionError):
+        assert_not_rejected_with(result, {99})
 
 
 @pytest.mark.parametrize(

@@ -144,6 +144,83 @@ def test_sources_table_is_emitted_once_and_entries_are_sorted() -> None:
     assert community_idx < registry_idx < testing_idx, content
 
 
+def test_mloda_testing_gets_source_entry_for_its_optional_community_dependency() -> None:
+    """mloda-testing's `binary-model` extra optionally depends on mloda-community, which
+    mloda-enterprise requires in plain `dependencies`: that optional edge must be annotated with
+    `workspace = true` too, or uv treats it as ambiguous."""
+    content = _generate("mloda-testing")
+    assert _sources(content) == {"mloda-community": {"workspace": True}}, content
+
+
+def _all_packages_with_many(cfgs: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Real configured packages plus several synthetic packages registered under their own names."""
+    _shared, packages_config = gen.load_configs()
+    packages: dict[str, dict[str, Any]] = dict(packages_config["packages"])
+    packages.update(cfgs)
+    return packages
+
+
+def test_optional_dependency_on_a_name_required_elsewhere_gets_a_source_entry() -> None:
+    """A package's optional dependency on a configured-package name that some other package
+    requires in plain `dependencies` gets its own `[tool.uv.sources]` entry too, matching
+    `workspace_source_names`'s "required elsewhere" rule."""
+    shared, _packages_config = gen.load_configs()
+    requirer_cfg: dict[str, Any] = {
+        "description": "requirer",
+        "path": "mloda/sandbox_requirer",
+        "dependencies": ["{core_dependency}", "mloda-sandbox-target>={version}"],
+    }
+    target_cfg: dict[str, Any] = {
+        "description": "target",
+        "path": "mloda/sandbox_target",
+        "dependencies": ["{core_dependency}"],
+    }
+    optional_cfg: dict[str, Any] = {
+        "description": "optional",
+        "path": "mloda/sandbox_optional",
+        "dependencies": ["{core_dependency}"],
+        "optional_dependencies": {"extra": ["mloda-sandbox-target>={version}"]},
+    }
+    all_packages = _all_packages_with_many(
+        {
+            "mloda-sandbox-requirer": requirer_cfg,
+            "mloda-sandbox-target": target_cfg,
+            "mloda-sandbox-optional": optional_cfg,
+        }
+    )
+    content = str(gen.generate_pyproject("mloda-sandbox-optional", optional_cfg, shared, all_packages))
+    assert _sources(content) == {
+        "mloda-sandbox-target": {"workspace": True},
+        "mloda-testing": {"workspace": True},
+    }, content
+
+
+def test_optional_dependency_on_a_name_required_nowhere_gets_no_source_entry() -> None:
+    """Without any package requiring the target name in plain `dependencies`, an optional
+    dependency on it alone gets no `[tool.uv.sources]` entry: only a required edge establishes
+    `workspace = true` for uv, not an optional one on its own."""
+    shared, _packages_config = gen.load_configs()
+    target_cfg: dict[str, Any] = {
+        "description": "target",
+        "path": "mloda/sandbox_target",
+        "dependencies": ["{core_dependency}"],
+    }
+    optional_cfg: dict[str, Any] = {
+        "description": "optional",
+        "path": "mloda/sandbox_optional",
+        "dependencies": ["{core_dependency}"],
+        "optional_dependencies": {"extra": ["mloda-sandbox-target>={version}"]},
+    }
+    all_packages = _all_packages_with_many(
+        {
+            "mloda-sandbox-target": target_cfg,
+            "mloda-sandbox-optional": optional_cfg,
+        }
+    )
+    content = str(gen.generate_pyproject("mloda-sandbox-optional", optional_cfg, shared, all_packages))
+    assert _sources(content) == {"mloda-testing": {"workspace": True}}, content
+
+
 def test_computed_source_names_are_emitted_as_flat_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     """Forced dotted name (normalization rules it out in real config): an unquoted dot would parse as a nested table."""
 

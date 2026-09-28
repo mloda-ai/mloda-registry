@@ -103,7 +103,7 @@ def _run_probe(argv: list[str], flag: str, env: Mapping[str, str], timeout: floa
     return bytes(result.stdout)
 
 
-def _parse_version(argv: list[str], plugin_id: str, stdout: bytes) -> str:
+def parse_version(argv: list[str], plugin_id: str, stdout: bytes) -> str:
     try:
         text = stdout.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -119,7 +119,7 @@ def _parse_version(argv: list[str], plugin_id: str, stdout: bytes) -> str:
     return parts[1]
 
 
-def _parse_capabilities(argv: list[str], plugin_id: str, stdout: bytes) -> BinaryCapabilities:
+def parse_capabilities(argv: list[str], plugin_id: str, stdout: bytes) -> BinaryCapabilities:
     try:
         text = stdout.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -197,10 +197,10 @@ def resolve_binary(
     probe_env = {key: value for key, value in env.items() if key not in ("MLODA_LICENSE_FILE", "MLODA_LICENSE_KEY")}
 
     version_stdout = _run_probe(argv, "--version", probe_env, timeout)
-    version = _parse_version(argv, plugin_id, version_stdout)
+    version = parse_version(argv, plugin_id, version_stdout)
 
     capabilities_stdout = _run_probe(argv, "--capabilities", probe_env, timeout)
-    capabilities = _parse_capabilities(argv, plugin_id, capabilities_stdout)
+    capabilities = parse_capabilities(argv, plugin_id, capabilities_stdout)
     capabilities = BinaryCapabilities(
         contract=capabilities.contract,
         plugin_id=capabilities.plugin_id,

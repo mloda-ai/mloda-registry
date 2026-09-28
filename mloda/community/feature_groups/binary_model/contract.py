@@ -18,6 +18,14 @@ COLUMN_TYPES = frozenset({"int64", "float64", "utf8", "boolean"})
 # Contract "Data handling": an error object's `message` is at most this many UTF-8 bytes.
 MESSAGE_MAX_BYTES = 1024
 
+# Contract "Errors" table: the exit code each error kind reports.
+USAGE_ERROR = 1
+LICENSE_MISSING = 2
+LICENSE_INVALID = 3
+UNSUPPORTED = 4
+DATA_ERROR = 5
+INTERNAL_ERROR = 6
+
 # Bytes of stderr tail scanned for the error line, comfortably above the worst case (a `message`
 # capped at MESSAGE_MAX_BYTES, grown up to about sixfold by `\u` escapes). A longer, out-of-contract
 # error line falls back to BinaryInternalError.
@@ -40,6 +48,6 @@ def split_output_lines(text: str) -> list[str]:
     """Split ``text`` on ``"\\n"`` only, dropping one trailing empty element."""
     # "\n" only: str.splitlines() also splits on U+2028/U+2029/U+0085, legal raw inside JSON strings.
     lines = text.split("\n")
-    if lines and lines[-1] == "":
+    if lines[-1] == "":
         lines.pop()
     return lines
