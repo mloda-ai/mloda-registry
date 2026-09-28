@@ -55,10 +55,9 @@ class PandasAggregation(AggregationFeatureGroup):
             if mask_spec is None:
                 data = data.copy()
             if len(data) == 0:
-                # A zero-row groupby yields zero groups. The whole table is still one group,
-                # so seed it with one all-null row: every agg path below already treats an
-                # all-null group correctly (null result, count/nunique 0).
-                data = pd.DataFrame([[pd.NA] * len(data.columns)], columns=data.columns)
+                # A zero-row groupby yields no groups; seed one all-null row. Reindex keeps
+                # numeric columns numeric (NaN), since an object column makes median warn.
+                data = data.reindex(range(1))
             data[helper_col] = 0
             partition_by = [helper_col]
 
