@@ -19,14 +19,14 @@ _CHECKED = [
     "mloda/rebuild/mod.py",
     "mloda/build_utils/mod.py",
     "mloda/pkg/distutils_like/mod.py",
-    "mloda/pkg/build.py",
+    "mloda/tools/build.py",
 ]
 
 
 def test_mypy_skips_build_output_but_checks_lookalikes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Build/dist copies are excluded; the real file and lookalikes are still collected."""
-    # parse_config_file sets MYPY_CONFIG_FILE_DIR process-wide; clear it so runs stay independent.
-    monkeypatch.delenv("MYPY_CONFIG_FILE_DIR", raising=False)
+    # parse_config_file sets MYPY_CONFIG_FILE_DIR process-wide; register it so teardown restores it.
+    monkeypatch.setenv("MYPY_CONFIG_FILE_DIR", str(_REPO_ROOT))
     options = Options()
     parse_config_file(options, lambda: None, str(_PYPROJECT))
 
