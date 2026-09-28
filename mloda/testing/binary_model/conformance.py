@@ -59,6 +59,7 @@ from mloda.testing.binary_model.arrow import (
     arrow_stream_bytes_invalid_utf8,
     arrow_stream_bytes_multi_batch,
     assert_ends_with_ipc_eos_marker,
+    assert_output_contract,
     corrupt_record_batch_message_after_schema,
     enumerate_ipc_message_types,
     read_arrow_stream,
@@ -86,6 +87,7 @@ __all__ = [
     "assert_ends_with_ipc_eos_marker",
     "assert_error_response",
     "assert_not_rejected_with",
+    "assert_output_contract",
     "corrupt_record_batch_message_after_schema",
     "enumerate_ipc_message_types",
     "read_arrow_stream",
@@ -968,6 +970,9 @@ class BinaryModelConformanceBase:
         )
         assert baseline_result.returncode == 0, f"stderr={baseline_result.stderr!r}"
         table = read_arrow_stream(output_bytes)
+        assert_output_contract(
+            table, config["output_columns"], len(next(iter(self.default_input_rows().values()))), self.column_types
+        )
         baseline_table = read_arrow_stream(baseline_output)
         assert table.schema.equals(baseline_table.schema), (
             f"transport combination produced a different schema: {table.schema!r} vs {baseline_table.schema!r}"
@@ -998,7 +1003,8 @@ class BinaryModelConformanceBase:
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         assert result.stdout == b"", f"expected empty stdout when --output is used, got {result.stdout!r}"
         table = read_arrow_stream(output_bytes)
-        assert table.num_rows == len(next(iter(self.default_input_rows().values())))
+        expected_rows = len(next(iter(self.default_input_rows().values())))
+        assert_output_contract(table, config["output_columns"], expected_rows, self.column_types)
 
     def test_input_file_given_ignores_stdin(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
         """`--input <path>` means stdin is never read (contract: Invocation): garbage fed on stdin
@@ -1221,8 +1227,7 @@ class BinaryModelConformanceBase:
         )
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         table = read_arrow_stream(result.stdout)
-        assert table.num_rows == 0
-        assert table.schema.names == [self.default_output_column_name]
+        assert_output_contract(table, config["output_columns"], 0, self.column_types)
         assert table.schema.field(self.default_output_column_name).type == self.default_output_column_type()
 
     def test_schema_only_input_bad_license_still_rejected(self, valid_config_path: Path, tmp_path: Path) -> None:
@@ -1659,7 +1664,7 @@ class BinaryModelConformanceBase:
         )
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         table = read_arrow_stream(result.stdout)
-        assert table.num_rows == len(next(iter(rows.values())))
+        assert_output_contract(table, config["output_columns"], len(next(iter(rows.values()))), self.column_types)
 
     def test_no_files_created_outside_output_in_read_only_cwd(
         self, valid_license_env: dict[str, str], tmp_path: Path
@@ -1697,7 +1702,7 @@ class BinaryModelConformanceBase:
 
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         table = read_arrow_stream(result.stdout)
-        assert table.num_rows == len(next(iter(rows.values())))
+        assert_output_contract(table, config["output_columns"], len(next(iter(rows.values()))), self.column_types)
         leftover = list(readonly_cwd.iterdir())
         assert leftover == [], f"expected no files created in the read-only cwd, found {leftover!r}"
 
@@ -1719,7 +1724,7 @@ class BinaryModelConformanceBase:
         )
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         table = read_arrow_stream(result.stdout)
-        assert table.num_rows == len(next(iter(rows.values())))
+        assert_output_contract(table, config["output_columns"], len(next(iter(rows.values()))), self.column_types)
 
     # -------------------------------------------------------------------------------------------
     # 12. Corrected error classification (contract: Errors, License, Configuration, Data)
@@ -1868,7 +1873,7 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         )
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         table = read_arrow_stream(result.stdout)
-        assert table.num_rows == len(case["expected"]), f"row count mismatch: {table.num_rows}"
+        assert_output_contract(table, case["config"]["output_columns"], len(case["expected"]), self.column_types)
         assert table.column(self.default_output_column_name).to_pylist() == case["expected"]
 
     def test_hash_with_key_parameter_matches_reference_algorithm_and_changes_result(
@@ -1911,7 +1916,7 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         )
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         table = read_arrow_stream(result.stdout)
-        assert table.num_rows == len(case["rows"]["id"])
+        assert_output_contract(table, case["config"]["output_columns"], len(case["rows"]["id"]), self.column_types)
         actual = table.column(self.default_output_column_name).to_pylist()
         for row_index, (expected_value, row_id) in enumerate(zip(case["expected"], case["rows"]["id"])):
             assert actual[row_index] == expected_value, (
@@ -1935,9 +1940,7 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         )
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         table = read_arrow_stream(result.stdout)
-        assert table.schema.names == [self.default_output_column_name], (
-            f"unexpected output schema field names: {table.schema.names!r}"
-        )
+        assert_output_contract(table, case["config"]["output_columns"], len(case["rows"]["id"]), self.column_types)
         assert pa.types.is_int64(table.schema.field(self.default_output_column_name).type), (
             f"expected int64 output type, got {table.schema.field(self.default_output_column_name).type!r}"
         )
@@ -2033,7 +2036,7 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
             "id": batch_one["id"] + batch_two["id"],
             "value": batch_one["value"] + batch_two["value"],
         }
-        assert table.num_rows == len(combined_rows["id"]), f"row count mismatch: {table.num_rows}"
+        assert_output_contract(table, config["output_columns"], len(combined_rows["id"]), self.column_types)
         expected = self.compute_expected_hash_column(combined_rows, input_columns, key=None)
         assert table.column(self.default_output_column_name).to_pylist() == expected
 
