@@ -421,7 +421,7 @@ class TestMixinIsolation:
                     raise ValueError("Feature 'f' requires at least 1 in_feature(s), but found 0")
                 return data
 
-        def make_host(case: Any) -> type:
+        def make_host(case: Any, impl: type = _FakeImplementation) -> type:
             class Host(InputValidationTestMixin):
                 test_data: ClassVar[Any] = pa.table({"a": [1]})
 
@@ -431,7 +431,7 @@ class TestMixinIsolation:
 
                 @staticmethod
                 def implementation_class() -> type:
-                    return _FakeImplementation
+                    return impl
 
                 @classmethod
                 def input_validation_cases(cls) -> dict[str, Any]:
@@ -465,24 +465,6 @@ class TestMixinIsolation:
             def calculate_feature(data: Any, fs: Any) -> Any:
                 return data
 
-        class HostNeverRaises(InputValidationTestMixin):
-            test_data: ClassVar[Any] = pa.table({"a": [1]})
-
-            @staticmethod
-            def create_test_data(table: Any) -> Any:
-                return table
-
-            @staticmethod
-            def implementation_class() -> type:
-                return _NeverRaisingImplementation
-
-            @classmethod
-            def input_validation_cases(cls) -> dict[str, Any]:
-                return {
-                    "multi_column_in_features": real_case,
-                    "missing_source_column": "n/a",
-                    "empty_partition_by": None,
-                }
-
+        HostNeverRaises = make_host(real_case, impl=_NeverRaisingImplementation)
         with pytest.raises(pytest.fail.Exception):
             HostNeverRaises().test_mixin_empty_in_features()

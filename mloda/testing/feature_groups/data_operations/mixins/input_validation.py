@@ -116,14 +116,14 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
         """Derive a zero-length in_features rejection from the multi_column_in_features case."""
         case = self.input_validation_cases()["multi_column_in_features"]
         if case is None:
-            pytest.skip("no multi_column_in_features case to derive an empty in_features case from")
+            pytest.skip("op has no config in_features (source comes from the feature name)")
         if isinstance(case, str):
             pytest.skip(case)
 
         data = self._case_test_data(case)
+        # Empty both the raw option and the resolved value, since some ops read the raw option instead.
         fs = make_feature_set(case.feature_name, **{**case.context, "in_features": []})
         feature = next(iter(fs.features))
-        # Empty both the raw option and the resolved value, since some ops read the raw option instead.
         with patch.object(feature.options, "get_in_features", return_value=frozenset()):
-            with pytest.raises(ValueError, match="at least"):
+            with pytest.raises(ValueError, match=r"requires at least \d+ in_feature"):
                 self.implementation_class().calculate_feature(data, fs)  # type: ignore[attr-defined]
