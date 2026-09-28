@@ -927,14 +927,18 @@ class TestTimeoutTerminatesPosixDescendants:
         pid_file = tmp_path / "child.pid"
         model = _faulty_model("hang_with_child", BINARY_TIMEOUT_SECONDS=5.0)
         table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryTerminatedError):
-            model.run_binary_model(table, ["col_a"], "hash", {"pid_file": str(pid_file)}, {"result": "col_a_hash"})
-        assert pid_file.exists(), "faulty_binary never wrote the descendant's pid"
-        child_pid = int(pid_file.read_text(encoding="utf-8"))
-        deadline = time.monotonic() + 2.0
-        while pid_running(child_pid) and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert not pid_running(child_pid)
+        child_pid: int | None = None
+        try:
+            with pytest.raises(BinaryTerminatedError):
+                model.run_binary_model(table, ["col_a"], "hash", {"pid_file": str(pid_file)}, {"result": "col_a_hash"})
+            assert pid_file.exists(), "faulty_binary never wrote the descendant's pid"
+            child_pid = int(pid_file.read_text(encoding="utf-8"))
+            deadline = time.monotonic() + 2.0
+            while pid_running(child_pid) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert not pid_running(child_pid)
+        finally:
+            kill_descendant_if_running(pid_file, child_pid)
 
     @pytest.mark.skipif(os.name != "posix", reason="process-group termination is POSIX-only")
     @pytest.mark.skipif(not os.path.exists("/proc/self/stat"), reason="zombie check reads /proc")
