@@ -17,7 +17,7 @@ Run a compiled binary (a model shipped as a wheel, usually license-gated) as the
 | `BINARY_COMMAND_OVERRIDE` | Explicit argv prefix or path used instead of the wheel; tests point it at the simulated binary. No environment variable can redirect the binary |
 | `LICENSE_FILE_OVERRIDE`, `LICENSE_KEY_OVERRIDE` | Values for `MLODA_LICENSE_FILE` / `MLODA_LICENSE_KEY` in the binary's environment; unset, the caller's own values are forwarded, and an empty string suppresses that forwarding |
 | `BINARY_TIMEOUT_SECONDS` | Wall-clock limit per `run` invocation, probes excluded; on timeout the whole process group is terminated on POSIX, only the child on Windows, and `BinaryTerminatedError` raised |
-| `BINARY_PROBE_TIMEOUT_SECONDS` | Wall-clock limit per probe (each of `--version` and `--capabilities`, default 60s); a probe over it raises `BinaryUnavailableError` |
+| `BINARY_PROBE_TIMEOUT_SECONDS` | Wall-clock limit per probe (each of `--version` and `--capabilities`, default 60s); on timeout the probe's whole process group is terminated on POSIX, only the child on Windows, and `BinaryUnavailableError` raised |
 | `FILE_TRANSPORT_THRESHOLD_BYTES` | Inputs above it travel through `--input` / `--output` files instead of stdin / stdout |
 | `MAX_BATCH_BYTES` | Upper bound per record batch sent to the binary; oversized batches are split until they fit, keeping `utf8` arrays clear of the 2 GiB offset limit |
 

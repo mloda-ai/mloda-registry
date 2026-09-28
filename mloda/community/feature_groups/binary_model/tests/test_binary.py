@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess  # nosec
 import sys
+import time
 import types
 from collections.abc import Callable
 from pathlib import Path
@@ -18,6 +20,7 @@ import pytest
 
 from mloda.community.feature_groups.binary_model import binary, contract
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError
+from mloda.community.feature_groups.binary_model.tests.process_helpers import pid_running
 
 STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
 FAULTY_CMD = [sys.executable, "-m", "mloda.community.feature_groups.binary_model.tests.faulty_binary"]
@@ -30,22 +33,23 @@ def _clear_capability_cache_before_each_test() -> None:
 
 
 class _CountingRun:
-    """Wraps the real ``subprocess.run`` to count calls, so cache-hit tests can assert no process
-    was spawned. Patches the stdlib ``subprocess`` module object directly (not
+    """Wraps the real ``subprocess.Popen`` to count constructions, so cache-hit tests can assert no
+    process was spawned. Patches the stdlib ``subprocess`` module object directly (not
     ``binary.subprocess``, which mypy's ``--strict`` (no implicit re-export) rejects from outside
-    the module): ``binary.py`` doing ``import subprocess`` and calling ``subprocess.run(...)``
-    shares this very same module object at runtime, so patching it here is equally effective.
+    the module): ``binary.py`` doing ``import subprocess`` and constructing ``subprocess.Popen(...)``
+    (directly, or indirectly via ``subprocess.run``) shares this very same module object at
+    runtime, so patching it here is equally effective.
     """
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self.count = 0
-        real_run = subprocess.run
+        real_popen = subprocess.Popen
 
-        def counting_run(*args: Any, **kwargs: Any) -> Any:
+        def counting_popen(*args: Any, **kwargs: Any) -> Any:
             self.count += 1
-            return real_run(*args, **kwargs)
+            return real_popen(*args, **kwargs)
 
-        monkeypatch.setattr(subprocess, "run", counting_run)
+        monkeypatch.setattr(subprocess, "Popen", counting_popen)
 
 
 def _install_fake_module(monkeypatch: pytest.MonkeyPatch, plugin_id: str, binary_path: Callable[[], Path]) -> None:
@@ -306,6 +310,43 @@ def test_split_output_lines_drops_one_trailing_empty_element(text: str, expected
     """``contract.split_output_lines`` is the single source for the ``--capabilities`` line split
     (contract: Capabilities)."""
     assert contract.split_output_lines(text) == expected
+
+
+class TestProbeTimeoutKillsDescendants:
+    """A probe (``--version``/``--capabilities``) that times out must kill the whole process
+    group, not just the probed leader, so a helper the leader spawned before hanging does not
+    leak past the timeout (contract: Invocation, orphan detection)."""
+
+    @pytest.mark.skipif(os.name != "posix", reason="process-group kill is POSIX-only")
+    def test_version_timeout_kills_a_child_spawned_by_the_probed_binary(self, tmp_path: Path) -> None:
+        pid_file = tmp_path / "child.pid"
+        binary.clear_capability_cache()
+        pid: int | None = None
+        try:
+            started = time.monotonic()
+            with pytest.raises(BinaryUnavailableError, match="timed out probing --version"):
+                binary.resolve_binary(
+                    "faulty_binary",
+                    [*FAULTY_CMD, "--mode", "version_hang_with_child"],
+                    env={"PATH": os.defpath, "FAULTY_PID_FILE": str(pid_file)},
+                    timeout=3.0,
+                )
+            elapsed = time.monotonic() - started
+            assert elapsed < 3.0 + 1.0 + 2.0
+            assert pid_file.exists(), "faulty_binary never wrote the child pid before the probe timed out"
+            pid = int(pid_file.read_text(encoding="utf-8"))
+            deadline = time.monotonic() + 2.0
+            while pid_running(pid) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert not pid_running(pid)
+        finally:
+            if pid is None and pid_file.exists():
+                pid = int(pid_file.read_text(encoding="utf-8"))
+            if pid is not None and pid_running(pid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
 
 
 class TestPublicParseFunctions:

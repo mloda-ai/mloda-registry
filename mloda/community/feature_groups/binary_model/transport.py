@@ -225,6 +225,24 @@ def _terminate_timed_out_process(proc: subprocess.Popen[bytes]) -> None:
                 _close_posix_pipes(proc)
 
 
+def communicate_or_terminate(
+    proc: subprocess.Popen[bytes], input_bytes: bytes | None, timeout: float | None
+) -> tuple[bytes, bytes]:
+    """Run ``proc.communicate``, terminating the whole process group and re-raising on a timeout
+    or any other exception (contract: Errors, Data handling)."""
+    try:
+        return proc.communicate(input_bytes, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _terminate_timed_out_process(proc)
+        raise
+    except BaseException:
+        # Unconditional: the process group persists while it has members, so this still reaches a
+        # descendant that outlives an already-exited leader; the only residual risk is the same
+        # pid-recycling race the timeout path above already accepts on an emptied group.
+        _terminate_timed_out_process(proc)
+        raise
+
+
 def run_binary(
     argv: Sequence[str],
     env: Mapping[str, str],
@@ -275,16 +293,9 @@ def run_binary(
         raise BinaryUnavailableError(f"cannot spawn binary {argv[0]!r}: {exc}") from exc
 
     try:
-        stdout, stderr = proc.communicate(stdin_bytes, timeout=timeout)
+        stdout, stderr = communicate_or_terminate(proc, stdin_bytes, timeout)
     except subprocess.TimeoutExpired:
-        _terminate_timed_out_process(proc)
         raise BinaryTerminatedError(f"binary timed out after {timeout}s and was terminated")
-    except BaseException:
-        # Unconditional: the process group persists while it has members, so this still reaches a
-        # descendant that outlives an already-exited leader; the only residual risk is the same
-        # pid-recycling race the timeout path above already accepts on an emptied group.
-        _terminate_timed_out_process(proc)
-        raise
 
     logger.debug("binary exited with code %s", proc.returncode)
 

@@ -24,6 +24,7 @@ from mloda.community.feature_groups.binary_model.contract import (
     split_output_lines,
 )
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError
+from mloda.community.feature_groups.binary_model.transport import communicate_or_terminate
 
 logger = logging.getLogger(__name__)
 
@@ -91,16 +92,25 @@ def _build_argv(plugin_id: str, override: Sequence[str] | str | os.PathLike[str]
 
 def _run_probe(argv: list[str], flag: str, env: Mapping[str, str], timeout: float | None) -> bytes:
     try:
-        result = subprocess.run(  # nosec B603
-            [*argv, flag], env=dict(env), capture_output=True, timeout=timeout
+        proc = subprocess.Popen(  # nosec B603
+            [*argv, flag],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=dict(env),
+            start_new_session=os.name != "nt",
         )
+    except OSError as exc:
+        raise BinaryUnavailableError(f"binary {argv[0]!r} could not be run for {flag}: {exc}") from exc
+
+    try:
+        stdout, _stderr = communicate_or_terminate(proc, None, timeout)
     except subprocess.TimeoutExpired as exc:
         raise BinaryUnavailableError(f"binary {argv[0]!r} timed out probing {flag}") from exc
     except OSError as exc:
         raise BinaryUnavailableError(f"binary {argv[0]!r} could not be run for {flag}: {exc}") from exc
-    if result.returncode != 0:
-        raise BinaryUnavailableError(f"binary {argv[0]!r} exited {result.returncode} probing {flag}")
-    return bytes(result.stdout)
+    if proc.returncode != 0:
+        raise BinaryUnavailableError(f"binary {argv[0]!r} exited {proc.returncode} probing {flag}")
+    return bytes(stdout)
 
 
 def parse_version(argv: list[str], plugin_id: str, stdout: bytes) -> str:
