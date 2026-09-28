@@ -191,7 +191,7 @@ description = "Example community FeatureGroup plugin for mloda"
 dependencies = ["{core_dependency}"]
 path = "mloda/community/feature_groups/example"
 published = true
-optional_dependencies = { all = ["mloda-community-example-a"] }
+optional_dependencies = { all = ["{published_children}"] }
 entry_point_groups = ["mloda.feature_groups"]
 py_typed = true
 ```
@@ -209,8 +209,8 @@ py_typed = true
 | `pip install mloda-community-example[all]` | Base + its published variants |
 | `pip install mloda-community-example-a` | Variant A + base |
 
-A base's `all` extra lists its variants unpinned. A published package can only name published
-packages there, so the unpublished `mloda-community-example-b` ships in the bundle wheel only.
+The base's `all` extra uses `{published_children}`, so it can only name published variants.
+`mloda-community-example-b`, being unpublished, ships in the bundle wheel only.
 
 ## Entry points
 

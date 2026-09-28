@@ -1081,12 +1081,12 @@ def test_tox_env_installs_from_the_published_script(env_name: str) -> None:
     )
 
 
-def test_data_operations_extra_uses_the_published_children_placeholder() -> None:
+@pytest.mark.parametrize("base", [_DATA_OPERATIONS, _COMMUNITY_EXAMPLE])
+def test_base_package_extra_uses_the_published_children_placeholder(base: str) -> None:
     """The 'all' extra is derived from the flag, so an unpublished package can never enter it."""
-    extra = _packages()[_DATA_OPERATIONS].get("optional_dependencies", {}).get("all")
+    extra = _packages()[base].get("optional_dependencies", {}).get("all")
     assert extra == [_PUBLISHED_CHILDREN], (
-        f"config/packages.toml must declare the {_DATA_OPERATIONS} 'all' extra as "
-        f'["{_PUBLISHED_CHILDREN}"], got {extra!r}'
+        f"config/packages.toml must declare the {base} 'all' extra as ['{_PUBLISHED_CHILDREN}'], got {extra!r}"
     )
 
 
@@ -1168,8 +1168,8 @@ def test_unpublishing_a_child_keeps_it_out_of_the_base_wheel() -> None:
 
 
 def test_shrinking_an_extra_keeps_a_configured_child_out_of_the_base_wheel() -> None:
-    """A configured child's wheel boundary comes from the layout, not from any extra: dropping example-a
-    from the example base's 'all' extra must not pull it, or example-b, into the base wheel."""
+    """A configured child's wheel boundary comes from the layout, not from any extra: emptying the example
+    base's 'all' extra must not pull example-a, or example-b, into the base wheel."""
     packages = _packages()
     unchanged_leaked = _entries_under(_wheel_packages(_COMMUNITY_EXAMPLE, packages), _dotted_path(_EXAMPLE_B))
     assert unchanged_leaked == [], (
@@ -1179,20 +1179,15 @@ def test_shrinking_an_extra_keeps_a_configured_child_out_of_the_base_wheel() -> 
 
     packages = deepcopy(_packages())
     example_a = "mloda-community-example-a"
-    all_extra = packages[_COMMUNITY_EXAMPLE]["optional_dependencies"]["all"]
-    shrunk = [dep for dep in all_extra if gen.sibling_dependency_name(dep, packages) != example_a]
-    assert shrunk != all_extra, (
-        f"fixture assumption: {example_a} must be present in the {_COMMUNITY_EXAMPLE} 'all' extra {all_extra!r}"
-    )
-    packages[_COMMUNITY_EXAMPLE]["optional_dependencies"]["all"] = shrunk
+    packages[_COMMUNITY_EXAMPLE]["optional_dependencies"]["all"] = []
 
     listed = _wheel_packages(_COMMUNITY_EXAMPLE, packages)
 
     assert _entries_under(listed, _dotted_path(example_a)) == [], (
-        f"the {_COMMUNITY_EXAMPLE} wheel must not ship {example_a} after it is removed from the 'all' extra"
+        f"the {_COMMUNITY_EXAMPLE} wheel must not ship {example_a} after the 'all' extra is emptied"
     )
     assert _entries_under(listed, _dotted_path(_EXAMPLE_B)) == [], (
-        f"the {_COMMUNITY_EXAMPLE} wheel must not ship {_EXAMPLE_B} even after shrinking the 'all' extra"
+        f"the {_COMMUNITY_EXAMPLE} wheel must not ship {_EXAMPLE_B} even after emptying the 'all' extra"
     )
 
 
