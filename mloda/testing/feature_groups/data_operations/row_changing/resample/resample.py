@@ -68,6 +68,7 @@ from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
 _U = timezone.utc
 
@@ -262,7 +263,7 @@ NAN_DIVERGENT_RESAMPLE: dict[str, dict[tuple[Any, ...], Any]] = {
 # ---------------------------------------------------------------------------
 
 
-class ResampleTestBase(NanPolicyTestMixin, DataOpsTestBase):
+class ResampleTestBase(OutputContractTestMixin, NanPolicyTestMixin, DataOpsTestBase):
     """Abstract base class for resample framework tests.
 
     Subclasses combine this with a framework mixin (``PyArrowTestMixin``,
@@ -274,6 +275,15 @@ class ResampleTestBase(NanPolicyTestMixin, DataOpsTestBase):
     ``PolarsLazyResample`` and ``DuckdbResample``. SQLite is deferred to a
     later version and is intentionally not tested here.
     """
+
+    # -- OutputContractTestMixin configuration ----------------------------------
+
+    def output_contract_feature_set(self) -> FeatureSet:
+        return self._resample_fs("value__resample_1_hour_mean", ["region"])
+
+    def output_contract_expected_row_count(self) -> int | None:
+        # Bucket count depends on the data; resample changes the row count.
+        return None
 
     @classmethod
     def reference_implementation_class(cls) -> Any:
@@ -561,12 +571,6 @@ class ResampleTestBase(NanPolicyTestMixin, DataOpsTestBase):
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         col = self.extract_column(result, feature_name)
         assert len(col) == len(EXPECTED_1_HOUR_MEAN)
-
-    def test_result_has_correct_type(self) -> None:
-        feature_name = "value__resample_1_hour_mean"
-        fs = self._resample_fs(feature_name, ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        assert isinstance(result, self.get_expected_type())
 
     # -- Option-based configuration -----------------------------------------
 

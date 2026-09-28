@@ -35,9 +35,11 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
+from mloda.provider import FeatureSet
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants, canonical 12-row dataset)
@@ -106,8 +108,13 @@ def _create_varied_times_arrow_table() -> pa.Table:
 # ---------------------------------------------------------------------------
 
 
-class DateTimeTestBase(DataOpsTestBase):
+class DateTimeTestBase(OutputContractTestMixin, DataOpsTestBase):
     """Abstract base class for datetime extraction framework tests."""
+
+    # -- OutputContractTestMixin configuration ----------------------------------
+
+    def output_contract_feature_set(self) -> FeatureSet:
+        return make_feature_set("timestamp__year")
 
     @classmethod
     def reference_implementation_class(cls) -> Any:
@@ -255,27 +262,6 @@ class DateTimeTestBase(DataOpsTestBase):
             result = self.implementation_class().calculate_feature(self.test_data, fs)
             result_col = self.extract_column(result, f"timestamp__{op}")
             assert result_col[10] is None, f"Expected None at row 10 for {op}, got {result_col[10]}"
-
-    # -- Row-preserving and type checks --------------------------------------
-
-    def test_output_rows_equal_input_rows(self) -> None:
-        """Output must have exactly 12 rows, same as input."""
-        fs = make_feature_set("timestamp__year")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        assert self.get_row_count(result) == 12
-
-    def test_new_column_added(self) -> None:
-        """The extracted column should be added to the output."""
-        fs = make_feature_set("timestamp__day")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        result_col = self.extract_column(result, "timestamp__day")
-        assert len(result_col) == 12
-
-    def test_result_has_correct_type(self) -> None:
-        """The result of calculate_feature must be the expected framework type."""
-        fs = make_feature_set("timestamp__year")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        assert isinstance(result, self.get_expected_type())
 
     # -- Cross-framework comparison (matches reference) --------------
 

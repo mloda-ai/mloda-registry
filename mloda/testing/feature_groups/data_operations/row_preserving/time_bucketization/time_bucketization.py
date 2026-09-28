@@ -44,6 +44,7 @@ from mloda.user import Feature, Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
 # ---------------------------------------------------------------------------
 # Dedicated 8-row fixture (UTC timestamps)
@@ -207,7 +208,7 @@ EXPECTED_ROUND_1_DAY: list[Any] = [
 # ---------------------------------------------------------------------------
 
 
-class TimeBucketizationTestBase(DataOpsTestBase):
+class TimeBucketizationTestBase(OutputContractTestMixin, DataOpsTestBase):
     """Abstract base class for time-bucketization framework tests.
 
     Subclasses combine this with a framework mixin (``PyArrowTestMixin``,
@@ -219,6 +220,11 @@ class TimeBucketizationTestBase(DataOpsTestBase):
     ``supported_ops`` classmethod reports the three op subtypes; framework
     test classes may override to a subset.
     """
+
+    # -- OutputContractTestMixin configuration ----------------------------------
+
+    def output_contract_feature_set(self) -> FeatureSet:
+        return make_feature_set("timestamp__floor_1_day")
 
     ALL_OPS = {"floor", "ceil", "round"}
 
@@ -384,22 +390,6 @@ class TimeBucketizationTestBase(DataOpsTestBase):
         sample = non_null[0]
         assert sample.tzinfo is not None, f"expected tz-aware datetime, got naive {sample!r}"
         assert sample.utcoffset() == timedelta(0), f"expected UTC offset 0 (input was UTC), got {sample.utcoffset()!r}"
-
-    def test_output_rows_equal_input_rows(self) -> None:
-        fs = make_feature_set("timestamp__floor_1_day")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        assert self.get_row_count(result) == 8
-
-    def test_new_column_added(self) -> None:
-        fs = make_feature_set("timestamp__floor_1_day")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        col = self.extract_column(result, "timestamp__floor_1_day")
-        assert len(col) == 8
-
-    def test_result_has_correct_type(self) -> None:
-        fs = make_feature_set("timestamp__floor_1_day")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        assert isinstance(result, self.get_expected_type())
 
     def test_option_based_floor(self) -> None:
         """Option-based configuration (no string pattern) produces the same result."""

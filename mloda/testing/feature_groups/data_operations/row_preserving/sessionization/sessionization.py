@@ -76,6 +76,7 @@ from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 
 _U = timezone.utc
@@ -144,7 +145,7 @@ EXPECTED_SESSION_30_MINUTE_WHOLE: list[int] = [2, 0, 1, 2, 1, 1, 2, 1, 1]
 # ---------------------------------------------------------------------------
 
 
-class SessionizationTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
+class SessionizationTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase):
     """Abstract base class for sessionization framework tests.
 
     Subclasses combine this with a framework mixin (``PandasTestMixin``,
@@ -155,6 +156,11 @@ class SessionizationTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
     there is no ``supported_ops`` machinery here. All five backends support
     sessionization natively; there are no rejections of supported inputs.
     """
+
+    # -- OutputContractTestMixin configuration ----------------------------------
+
+    def output_contract_feature_set(self) -> FeatureSet:
+        return self._session_feature_set(30, "minute")
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 
@@ -313,11 +319,6 @@ class SessionizationTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
 
     # -- Row-preserving semantics -------------------------------------------
 
-    def test_output_rows_equal_input_rows(self) -> None:
-        fs = self._session_feature_set(30, "minute")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        assert self.get_row_count(result) == 9
-
     def test_original_row_order_preserved(self) -> None:
         """The passthrough ``id`` column must be unchanged in original row order."""
         fs = self._session_feature_set(30, "minute")
@@ -331,17 +332,6 @@ class SessionizationTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         src = self.extract_column(result, "ts")
         assert list(src) == list(_SESSION_TIMESTAMPS), f"ts column changed: {src!r}"
-
-    def test_new_column_added(self) -> None:
-        fs = self._session_feature_set(30, "minute")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        col = self.extract_column(result, "ts__sessionize_30_minute")
-        assert len(col) == 9
-
-    def test_result_has_correct_type(self) -> None:
-        fs = self._session_feature_set(30, "minute")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        assert isinstance(result, self.get_expected_type())
 
     # -- Option-based configuration -----------------------------------------
 

@@ -22,6 +22,7 @@ from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -85,8 +86,13 @@ NAN_DIVERGENT_SCALAR: dict[str, list[float]] = {
 # ---------------------------------------------------------------------------
 
 
-class ScalarAggregateTestBase(NanPolicyTestMixin, MaskTestMixin, DataOpsTestBase):
+class ScalarAggregateTestBase(OutputContractTestMixin, NanPolicyTestMixin, MaskTestMixin, DataOpsTestBase):
     """Abstract base class for scalar aggregate framework tests."""
+
+    # -- OutputContractTestMixin configuration ----------------------------------
+
+    def output_contract_feature_set(self) -> FeatureSet:
+        return make_feature_set("value_int__sum_scalar")
 
     ALL_AGG_TYPES = {
         "sum",
@@ -270,25 +276,6 @@ class ScalarAggregateTestBase(NanPolicyTestMixin, MaskTestMixin, DataOpsTestBase
 
         result_col = self.extract_column(result, "value_int__median_scalar")
         assert all(v == pytest.approx(EXPECTED_MEDIAN, rel=1e-6) for v in result_col)
-
-    def test_output_rows_equal_input_rows(self) -> None:
-        fs = make_feature_set("value_int__sum_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        assert self.get_row_count(result) == 12
-
-    def test_result_has_correct_type(self) -> None:
-        fs = make_feature_set("value_int__sum_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        assert isinstance(result, self.get_expected_type())
-
-    def test_new_column_added(self) -> None:
-        fs = make_feature_set("value_int__max_scalar")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "value_int__max_scalar")
-        assert len(result_col) == 12
 
     def test_broadcast_uniform(self) -> None:
         """All rows should have the same aggregated value."""

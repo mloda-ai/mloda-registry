@@ -20,11 +20,13 @@ from typing import Any, Callable
 
 import pyarrow as pa
 import pytest
+from mloda.provider import FeatureSet
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import (
     SINGLE_VALUE_STD,
     SINGLE_VALUE_VAR,
@@ -158,7 +160,9 @@ def _build_result_map(
 # ---------------------------------------------------------------------------
 
 
-class AggregationTestBase(NanPolicyTestMixin, SingleValueStdVarTestMixin, MaskTestMixin, DataOpsTestBase):
+class AggregationTestBase(
+    OutputContractTestMixin, NanPolicyTestMixin, SingleValueStdVarTestMixin, MaskTestMixin, DataOpsTestBase
+):
     """Abstract base class for aggregation framework tests.
 
     Subclasses implement 5 abstract methods to wire up their framework,
@@ -168,6 +172,15 @@ class AggregationTestBase(NanPolicyTestMixin, SingleValueStdVarTestMixin, MaskTe
     Connection-based frameworks (DuckDB, SQLite) need ~25 lines
     (add setup_method/teardown_method for connection lifecycle).
     """
+
+    # -- OutputContractTestMixin configuration ----------------------------------
+
+    def output_contract_feature_set(self) -> FeatureSet:
+        return make_feature_set("value_int__max_agg", ["region"])
+
+    def output_contract_expected_row_count(self) -> int | None:
+        # One row per region group (A, B, C, None); the null region is its own group.
+        return 4
 
     # -- Overridable methods --------------------------------------------------
 
@@ -388,21 +401,6 @@ class AggregationTestBase(NanPolicyTestMixin, SingleValueStdVarTestMixin, MaskTe
         result = self.implementation_class().calculate_feature(self.test_data, fs)
 
         assert self.get_row_count(result) == 4
-
-    def test_new_column_added(self) -> None:
-        """The aggregation result column should be present in the output."""
-        fs = make_feature_set("value_int__max_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_cols = self.extract_column(result, "value_int__max_agg")
-        assert len(result_cols) == 4
-
-    def test_result_has_correct_type(self) -> None:
-        """The result of calculate_feature must be the expected framework type."""
-        fs = make_feature_set("value_int__min_agg", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        assert isinstance(result, self.get_expected_type())
 
     # -- Cross-framework comparison (matches reference) --------------
 

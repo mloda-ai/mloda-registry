@@ -23,6 +23,7 @@ from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
 # ---------------------------------------------------------------------------
 # Source columns and expected values (module-level constants)
@@ -84,8 +85,13 @@ EXPECTED_DIVIDE_NULL_FOR_ZERO: list[Any] = _expected_divide(zero_to_null=True)
 # ---------------------------------------------------------------------------
 
 
-class PointArithmeticTestBase(DataOpsTestBase):
+class PointArithmeticTestBase(OutputContractTestMixin, DataOpsTestBase):
     """Abstract base class for two-column point arithmetic framework tests."""
+
+    # -- OutputContractTestMixin configuration ----------------------------------
+
+    def output_contract_feature_set(self) -> FeatureSet:
+        return make_feature_set("value_int&amount__add_point")
 
     ALL_OPS = {"add", "subtract", "multiply", "divide"}
 
@@ -185,25 +191,6 @@ class PointArithmeticTestBase(DataOpsTestBase):
                 assert actual is None
             else:
                 assert actual == pytest.approx(expected, rel=1e-6)
-
-    def test_output_rows_equal_input_rows(self) -> None:
-        fs = make_feature_set("value_int&amount__add_point")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        assert self.get_row_count(result) == 12
-
-    def test_result_has_correct_type(self) -> None:
-        fs = make_feature_set("value_int&amount__multiply_point")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        assert isinstance(result, self.get_expected_type())
-
-    def test_new_column_added(self) -> None:
-        fs = make_feature_set("value_int&amount__add_point")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "value_int&amount__add_point")
-        assert len(result_col) == 12
 
     def test_null_propagates_when_col_a_is_null(self) -> None:
         """A null in col_a propagates to None in the result regardless of op.

@@ -31,6 +31,7 @@ from mloda.testing.feature_groups.data_operations.helpers import (
 )
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import (
     SINGLE_VALUE_STD,
@@ -282,9 +283,19 @@ def _assert_values_with_nulls(actual: list[Any], expected: list[Any]) -> None:
 
 
 class FrameAggregateTestBase(
-    NanPolicyTestMixin, SingleValueStdVarTestMixin, ReservedColumnsTestMixin, MaskTestMixin, DataOpsTestBase
+    OutputContractTestMixin,
+    NanPolicyTestMixin,
+    SingleValueStdVarTestMixin,
+    ReservedColumnsTestMixin,
+    MaskTestMixin,
+    DataOpsTestBase,
 ):
     """Abstract base class for frame aggregate framework tests."""
+
+    # -- OutputContractTestMixin configuration ----------------------------------
+
+    def output_contract_feature_set(self) -> FeatureSet:
+        return make_feature_set("value_int__sum_rolling_3", ["region"], "value_int")
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 
@@ -491,22 +502,6 @@ class FrameAggregateTestBase(
 
         result_col = self.extract_column(result, "value_int__expanding_avg")
         assert result_col == pytest.approx(EXPECTED_EXPANDING_AVG, rel=1e-3)
-
-    # -- Row preservation ----------------------------------------------------
-
-    def test_output_rows_equal_input_rows(self) -> None:
-        """Output must have exactly 12 rows, same as input."""
-        fs = make_feature_set("value_int__sum_rolling_3", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        assert self.get_row_count(result) == 12
-
-    def test_result_has_correct_type(self) -> None:
-        """The result of calculate_feature must be the expected framework type."""
-        fs = make_feature_set("value_int__cumsum", ["region"], "value_int")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        assert isinstance(result, self.get_expected_type())
 
     # -- Time window support tests -------------------------------------------
 

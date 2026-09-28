@@ -59,6 +59,7 @@ from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 
 _U = timezone.utc
@@ -156,7 +157,7 @@ NAIVE_WHOLE_TABLE_FFILL: list[Any] = [
 # ---------------------------------------------------------------------------
 
 
-class FfillTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
+class FfillTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase):
     """Abstract base class for ffill-by-time framework tests.
 
     Subclasses combine this with a framework mixin (``PyArrowTestMixin``,
@@ -167,6 +168,11 @@ class FfillTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
     ``supported_ops`` machinery here. All five backends support ffill
     natively; there are no rejections of supported inputs.
     """
+
+    # -- OutputContractTestMixin configuration ----------------------------------
+
+    def output_contract_feature_set(self) -> FeatureSet:
+        return self._ffill_feature_set()
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 
@@ -274,11 +280,6 @@ class FfillTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
 
     # -- Row-preserving semantics -------------------------------------------
 
-    def test_output_rows_equal_input_rows(self) -> None:
-        fs = self._ffill_feature_set()
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        assert self.get_row_count(result) == 10
-
     def test_original_row_order_preserved(self) -> None:
         """The passthrough ``id`` column must be unchanged in original row order."""
         fs = self._ffill_feature_set()
@@ -292,17 +293,6 @@ class FfillTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         src = self.extract_column(result, "value")
         self._assert_float_list_with_nulls(src, _FFILL_VALUES)
-
-    def test_new_column_added(self) -> None:
-        fs = self._ffill_feature_set()
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        col = self.extract_column(result, "value__ffill")
-        assert len(col) == 10
-
-    def test_result_has_correct_type(self) -> None:
-        fs = self._ffill_feature_set()
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        assert isinstance(result, self.get_expected_type())
 
     # -- Option-based configuration -----------------------------------------
 

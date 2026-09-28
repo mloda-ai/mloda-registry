@@ -28,6 +28,7 @@ import pytest
 
 import mloda.community.feature_groups.data_operations as data_operations_pkg
 import mloda.testing.feature_groups.data_operations.mixins as mixins_pkg
+from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 
 # Dunders that every class carries purely from being a class; they are not
@@ -311,3 +312,18 @@ class TestMixinIsolation:
         SubExtending().pytest_generate_tests(cast(pytest.Metafunc, stub_extending))
         assert stub_extending.recorded["override_case"] == ["a"]
         assert stub_extending.recorded["extra_case"] == ["e"]
+
+    def test_every_data_ops_test_class_mixes_in_output_contract(self) -> None:
+        """Every concrete ``DataOpsTestBase`` subclass must also mix in ``OutputContractTestMixin``."""
+        from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
+
+        offenders: list[str] = []
+        concrete_classes = [cls for cls in _iter_concrete_test_classes() if issubclass(cls, DataOpsTestBase)]
+        assert concrete_classes, "no concrete DataOpsTestBase subclasses discovered; discovery is broken"
+
+        for cls in concrete_classes:
+            if not issubclass(cls, OutputContractTestMixin):
+                offenders.append(f"{cls.__module__}.{cls.__name__}")
+        assert not offenders, "DataOpsTestBase subclasses missing OutputContractTestMixin:\n" + "\n".join(
+            sorted(offenders)
+        )

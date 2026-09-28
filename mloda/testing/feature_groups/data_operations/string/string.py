@@ -24,9 +24,11 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
+from mloda.provider import FeatureSet
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -84,8 +86,14 @@ EXPECTED_REVERSE: list[Any] = [
 # ---------------------------------------------------------------------------
 
 
-class StringTestBase(DataOpsTestBase):
+class StringTestBase(OutputContractTestMixin, DataOpsTestBase):
     """Abstract base class for string operation framework tests."""
+
+    # -- OutputContractTestMixin configuration ----------------------------------
+    # trim is supported by every framework, unlike upper/lower/reverse.
+
+    def output_contract_feature_set(self) -> FeatureSet:
+        return make_feature_set("name__trim")
 
     ALL_STRING_OPS = {"upper", "lower", "trim", "length", "reverse"}
 
@@ -216,31 +224,6 @@ class StringTestBase(DataOpsTestBase):
         result_col = self.extract_column(result, "name__trim")
         assert result_col[4] == "Eve"
         assert result_col[8] == ""
-
-    # -- Row-preserving and type checks --------------------------------------
-
-    def test_output_rows_equal_input_rows(self) -> None:
-        """Output must have exactly 12 rows, same as input. Uses 'trim' so
-        the test is independent of which ops a given framework supports."""
-        fs = make_feature_set("name__trim")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        assert self.get_row_count(result) == 12
-
-    def test_new_column_added(self) -> None:
-        """The string result column should be added to the output. Uses 'trim'
-        so the test is independent of which ops a given framework supports."""
-        fs = make_feature_set("name__trim")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        result_col = self.extract_column(result, "name__trim")
-        assert len(result_col) == 12
-
-    def test_result_has_correct_type(self) -> None:
-        """The result of calculate_feature must be the expected framework type.
-        Uses 'trim' so the test is independent of which ops a given framework
-        supports."""
-        fs = make_feature_set("name__trim")
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        assert isinstance(result, self.get_expected_type())
 
     # -- Cross-framework comparison (matches reference) --------------
 

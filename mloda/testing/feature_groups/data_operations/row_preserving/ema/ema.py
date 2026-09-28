@@ -80,6 +80,7 @@ from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 
 _U = timezone.utc
@@ -212,7 +213,7 @@ EXPECTED_EMA_WHOLE_SPAN3: list[Any] = [
 # ---------------------------------------------------------------------------
 
 
-class EmaTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
+class EmaTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase):
     """Reusable test base for EMA on backends that compute it NATIVELY.
 
     Subclasses combine this with a framework mixin (``PandasTestMixin``,
@@ -225,6 +226,11 @@ class EmaTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
     ship no backend at all (absence), so there is no value-test base for them
     here.
     """
+
+    # -- OutputContractTestMixin configuration ----------------------------------
+
+    def output_contract_feature_set(self) -> FeatureSet:
+        return self._ema_feature_set(2)
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 
@@ -364,11 +370,6 @@ class EmaTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
 
     # -- Row-preserving semantics -------------------------------------------
 
-    def test_output_rows_equal_input_rows(self) -> None:
-        fs = self._ema_feature_set(2)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        assert self.get_row_count(result) == 12
-
     def test_original_row_order_preserved(self) -> None:
         """The passthrough ``id`` column must be unchanged in original row order."""
         fs = self._ema_feature_set(2)
@@ -382,17 +383,6 @@ class EmaTestBase(ReservedColumnsTestMixin, DataOpsTestBase):
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         src = self.extract_column(result, "value")
         self._assert_float_list_with_nulls(src, _EMA_VALUES)
-
-    def test_new_column_added(self) -> None:
-        fs = self._ema_feature_set(2)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        col = self.extract_column(result, "value__ema_2")
-        assert len(col) == 12
-
-    def test_result_has_correct_type(self) -> None:
-        fs = self._ema_feature_set(2)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        assert isinstance(result, self.get_expected_type())
 
     # -- Option-based configuration -----------------------------------------
 

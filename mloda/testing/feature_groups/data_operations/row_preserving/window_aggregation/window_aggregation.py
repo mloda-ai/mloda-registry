@@ -16,12 +16,14 @@ from typing import Any
 
 import pyarrow as pa
 import pytest
+from mloda.provider import FeatureSet
 from mloda.user import Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import (
     SINGLE_VALUE_STD,
@@ -113,9 +115,19 @@ SINGLE_VALUE_STD_VAR_WINDOW: dict[str, list[float]] = {
 
 
 class WindowAggregationTestBase(
-    NanPolicyTestMixin, SingleValueStdVarTestMixin, ReservedColumnsTestMixin, MaskTestMixin, DataOpsTestBase
+    OutputContractTestMixin,
+    NanPolicyTestMixin,
+    SingleValueStdVarTestMixin,
+    ReservedColumnsTestMixin,
+    MaskTestMixin,
+    DataOpsTestBase,
 ):
     """Abstract base class for window aggregation framework tests."""
+
+    # -- OutputContractTestMixin configuration ----------------------------------
+
+    def output_contract_feature_set(self) -> FeatureSet:
+        return make_feature_set("value_int__sum_window", ["region"])
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 
@@ -296,28 +308,6 @@ class WindowAggregationTestBase(
 
         result_col = self.extract_column(result, "value_int__sum_window")
         assert result_col[11] == NULL_GROUP_SUM_EXPECTED
-
-    def test_output_rows_equal_input_rows(self) -> None:
-        """Output must have exactly 12 rows, same as input."""
-        fs = make_feature_set("value_int__sum_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        assert self.get_row_count(result) == 12
-
-    def test_new_column_added(self) -> None:
-        """The aggregation result column should be added to the output."""
-        fs = make_feature_set("value_int__max_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_cols = self.extract_column(result, "value_int__max_window")
-        assert len(result_cols) == 12
-
-    def test_result_has_correct_type(self) -> None:
-        """The result of calculate_feature must be the expected framework type."""
-        fs = make_feature_set("value_int__min_window", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        assert isinstance(result, self.get_expected_type())
 
     # -- Cross-framework comparison (matches reference) --------------
 

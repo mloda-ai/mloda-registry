@@ -19,6 +19,7 @@ from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -59,8 +60,13 @@ NAN_POLICY_P50: list[float] = [1.5, 1.5, 1.5, 2.0, 2.0, 2.0, 2.0]
 # ---------------------------------------------------------------------------
 
 
-class PercentileTestBase(NanPolicyTestMixin, MaskTestMixin, DataOpsTestBase):
+class PercentileTestBase(OutputContractTestMixin, NanPolicyTestMixin, MaskTestMixin, DataOpsTestBase):
     """Abstract base class for percentile framework tests."""
+
+    # -- OutputContractTestMixin configuration ----------------------------------
+
+    def output_contract_feature_set(self) -> FeatureSet:
+        return make_feature_set("value_int__p50_percentile", ["region"])
 
     # -- MaskTestMixin configuration -------------------------------------------
 
@@ -186,28 +192,6 @@ class PercentileTestBase(NanPolicyTestMixin, MaskTestMixin, DataOpsTestBase):
 
         result_col = self.extract_column(result, "value_int__p50_percentile")
         assert result_col[11] == pytest.approx(-10.0, rel=1e-6)
-
-    def test_output_rows_equal_input_rows(self) -> None:
-        """Output must have exactly 12 rows, same as input."""
-        fs = make_feature_set("value_int__p50_percentile", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        assert self.get_row_count(result) == 12
-
-    def test_new_column_added(self) -> None:
-        """The percentile result column should be added to the output."""
-        fs = make_feature_set("value_int__p50_percentile", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        result_col = self.extract_column(result, "value_int__p50_percentile")
-        assert len(result_col) == 12
-
-    def test_result_has_correct_type(self) -> None:
-        """The result of calculate_feature must be the expected framework type."""
-        fs = make_feature_set("value_int__p50_percentile", ["region"])
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-
-        assert isinstance(result, self.get_expected_type())
 
     def test_null_policy_skip_all_null_column(self) -> None:
         """NullPolicy.SKIP: score column is all null. Percentile should produce all nulls."""
