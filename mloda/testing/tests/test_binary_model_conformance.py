@@ -17,7 +17,9 @@ from unittest.mock import MagicMock
 import pyarrow as pa
 import pytest
 
+from mloda.community.feature_groups.binary_model.errors import OutputContractError
 from mloda.testing.binary_model.conformance import (
+    COLUMN_TYPES,
     DATA_ERROR,
     DATA_FREE_MARKER,
     USAGE_ERROR,
@@ -27,6 +29,7 @@ from mloda.testing.binary_model.conformance import (
     arrow_stream_bytes_invalid_utf8,
     assert_error_response,
     assert_not_rejected_with,
+    assert_output_contract,
     corrupt_record_batch_message_after_schema,
     read_arrow_stream,
     run_binary,
@@ -336,6 +339,87 @@ def test_read_arrow_stream_malformed_input_fails_an_assertion(data: bytes) -> No
     ``read_all()``, unlike the other two cases, which fail earlier."""
     with pytest.raises(AssertionError):
         read_arrow_stream(data)
+
+
+@pytest.mark.parametrize(
+    "table, output_columns, expected_rows, column_types",
+    [
+        pytest.param(
+            pa.Table.from_arrays(
+                [pa.array([1, 2, 3], type=pa.int64()), pa.array([4, 5, 6], type=pa.int64())],
+                names=["col_a_hash", "col_a_hash"],
+            ),
+            {"result": "col_a_hash"},
+            3,
+            COLUMN_TYPES,
+            id="duplicate_output_names",
+        ),
+        pytest.param(
+            pa.table({"unexpected_name": pa.array([1, 2, 3], type=pa.int64())}),
+            {"result": "col_a_hash"},
+            3,
+            COLUMN_TYPES,
+            id="name_set_mismatch",
+        ),
+        pytest.param(
+            pa.table({"col_a_hash": pa.array([1, 2, 3], type=pa.int32())}),
+            {"result": "col_a_hash"},
+            3,
+            COLUMN_TYPES,
+            id="type_outside_vocabulary",
+        ),
+        pytest.param(
+            pa.table({"col_a_hash": pa.array([True, False, True])}),
+            {"result": "col_a_hash"},
+            3,
+            frozenset({"int64"}),
+            id="type_not_advertised_by_binary",
+        ),
+        pytest.param(
+            pa.table({"col_a_hash": pa.array([1, 2], type=pa.int64())}),
+            {"result": "col_a_hash"},
+            3,
+            COLUMN_TYPES,
+            id="row_count_mismatch",
+        ),
+    ],
+)
+def test_assert_output_contract_violations_raise_assertion_with_output_contract_error_cause(
+    table: pa.Table, output_columns: dict[str, str], expected_rows: int, column_types: frozenset[str]
+) -> None:
+    """``assert_output_contract`` must delegate to the mixin's own ``verify_output_contract`` and
+    convert the ``OutputContractError`` it raises into an ``AssertionError``, keeping the original
+    as ``__cause__`` (contract: Data)."""
+    with pytest.raises(AssertionError) as exc_info:
+        assert_output_contract(table, output_columns, expected_rows, column_types)
+    assert isinstance(exc_info.value.__cause__, OutputContractError)
+
+
+def test_assert_output_contract_accepts_a_valid_table() -> None:
+    """A table matching the contract (unique names, matching name set, a vocabulary type this
+    binary advertises, matching row count) must pass without raising (contract: Data)."""
+    table = pa.table({"col_a_hash": pa.array([1, 2, 3], type=pa.int64())})
+    assert_output_contract(table, {"result": "col_a_hash"}, 3, COLUMN_TYPES)
+
+
+def test_minimal_environment_allowlist_only_delegates_to_output_contract_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The kit's own `test_minimal_environment_allowlist_only` check must verify the binary's
+    output against the full output contract (name set, types, row count), not row count alone: a
+    binary returning the correct row count under the wrong output column name must still fail this
+    check (contract: Data)."""
+    conformance = BinaryModelConformanceBase()
+    rows = conformance.default_input_rows()
+    expected_rows = len(next(iter(rows.values())))
+    fake_stdout = arrow_stream_bytes(
+        pa.schema([pa.field("unexpected_name", pa.int64())]),
+        {"unexpected_name": list(range(expected_rows))},
+    )
+    fake_result = subprocess.CompletedProcess(args=[], returncode=0, stdout=fake_stdout, stderr=b"")
+    monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", lambda *args, **kwargs: fake_result)
+    with pytest.raises(AssertionError):
+        conformance.test_minimal_environment_allowlist_only(tmp_path)
 
 
 def test_size_cap_constants_are_exported() -> None:

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import struct
+from collections.abc import Mapping
 from typing import Any
 
 import pyarrow as pa
@@ -72,6 +73,17 @@ def read_arrow_stream(data: bytes) -> pa.Table:
     same way the mixin does."""
     try:
         return mixin.read_output_stream(data)
+    except OutputContractError as exc:
+        raise AssertionError(str(exc)) from exc
+
+
+def assert_output_contract(
+    table: pa.Table, output_columns: Mapping[str, str], expected_rows: int, column_types: frozenset[str]
+) -> None:
+    """Assert ``table`` satisfies the output contract (contract: Data), delegating to the mixin's
+    own ``verify_output_contract`` so the kit checks output the same way the mixin does."""
+    try:
+        mixin.verify_output_contract(table, output_columns, expected_rows, column_types)
     except OutputContractError as exc:
         raise AssertionError(str(exc)) from exc
 

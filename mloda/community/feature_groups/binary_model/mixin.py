@@ -188,12 +188,13 @@ def read_output_stream(data: bytes) -> pa.Table:
         raise OutputContractError(f"binary output is not a valid Arrow IPC stream: {exc}") from exc
 
 
-def _verify_output_contract(
+def verify_output_contract(
     result: pa.Table, output_columns: Mapping[str, str], expected_rows: int, column_types: frozenset[str]
 ) -> None:
     """Verify the binary's output against the contract (contract: Data): no duplicate field names,
     the column-name set, every type in this binary's own advertised ``column_types``, and the row
-    count, each reported by name only, never by value."""
+    count, each reported by name only, never by value. Public: also used by
+    ``arrow.assert_output_contract`` in the testing kit."""
     if len(result.column_names) != len(set(result.column_names)):
         raise OutputContractError(f"binary output contains duplicate column names: {result.column_names}")
     expected_names = set(output_columns.values())
@@ -320,5 +321,5 @@ class BinaryModelMixin:
         )
 
         result = read_output_stream(output_bytes)
-        _verify_output_contract(result, output_columns, table.num_rows, resolved.capabilities.column_types)
+        verify_output_contract(result, output_columns, table.num_rows, resolved.capabilities.column_types)
         return _finalize_output(result, table)
