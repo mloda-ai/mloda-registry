@@ -8,20 +8,28 @@ hooks are overridable."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import ClassVar
 from unittest.mock import MagicMock
 
+import pyarrow as pa
 import pytest
 
 from mloda.testing.binary_model.conformance import (
     DATA_ERROR,
     DATA_FREE_MARKER,
+    USAGE_ERROR,
     BinaryModelConformanceBase,
     HashOperationConformanceMixin,
+    arrow_stream_bytes,
     arrow_stream_bytes_invalid_utf8,
     assert_error_response,
+    corrupt_record_batch_message_after_schema,
+    read_arrow_stream,
     run_binary,
+    stderr_error_object,
+    write_text,
 )
 
 _LICENSE_KEY = "MLODA_LICENSE_KEY"
@@ -56,6 +64,32 @@ class TestBinaryModelConformance(HashOperationConformanceMixin, BinaryModelConfo
         )
         assert_error_response(result, DATA_ERROR)
         assert DATA_FREE_MARKER.encode("utf-8") not in result.stderr
+
+    @pytest.mark.parametrize(
+        "config_text",
+        [
+            pytest.param("9" * 5000, id="oversized_int"),
+            pytest.param("[" * 100000, id="deeply_nested"),
+        ],
+    )
+    def test_simulated_binary_config_json_module_cannot_parse_is_usage_error(
+        self, valid_license_env: dict[str, str], tmp_path: Path, config_text: str
+    ) -> None:
+        """A `--config` file whose whole content is text ``json.loads`` itself cannot parse without
+        raising -- an oversized integer literal, or JSON deep enough to raise ``RecursionError`` --
+        is a usage error (exit 1), the same as any other malformed config, not an uncaught exception
+        reported as an internal error. Simulated-binary regression only, so it lives here and not in
+        the kit base (contract: Configuration, Errors)."""
+        config_path = write_text(tmp_path / "config.json", config_text)
+        input_bytes = arrow_stream_bytes(self.default_input_schema(), self.default_input_rows())
+        result = run_binary(
+            self.binary_cmd,
+            ["run", "--config", str(config_path)],
+            valid_license_env,
+            input_bytes=input_bytes,
+            timeout=self.binary_timeout_seconds,
+        )
+        assert_error_response(result, USAGE_ERROR)
 
 
 class _OverriddenLicenseVectors(BinaryModelConformanceBase):
@@ -161,12 +195,69 @@ def test_overriding_license_vectors_retargets_the_check(
     assert _license_text_that_reached_the_binary(fake.call_args.args[2], channel) == marker
 
 
+@pytest.mark.parametrize(
+    "last_line",
+    [
+        pytest.param(b"9" * 5000, id="oversized_int"),
+        pytest.param(b"[" * 100000, id="deeply_nested"),
+        pytest.param(b"oops", id="not_json"),
+    ],
+)
+def test_stderr_error_object_unparseable_last_line_fails_an_assertion(last_line: bytes) -> None:
+    """``stderr_error_object`` must fail with an ``AssertionError`` on a last stderr line
+    ``json.loads`` cannot parse -- an oversized integer, JSON deep enough to raise
+    ``RecursionError``, or plain garbage -- not let ``ValueError``/``RecursionError``/
+    ``json.JSONDecodeError`` escape (contract: Errors)."""
+    with pytest.raises(AssertionError):
+        stderr_error_object(last_line + b"\n")
+
+
+@pytest.mark.parametrize(
+    "ch",
+    ["\u2028", "\u2029", "\u0085"],
+    ids=["line_separator", "paragraph_separator", "next_line"],
+)
+def test_stderr_error_object_message_with_unicode_line_boundary_returns_full_message(ch: str) -> None:
+    """The last stderr line is found by splitting on ``\\n`` only, not on ``str.splitlines()``'s
+    wider notion of a line boundary (U+2028 LINE SEPARATOR, U+2029 PARAGRAPH SEPARATOR, U+0085 NEXT
+    LINE): a message containing one of these characters must come back whole (contract: Errors,
+    Data handling)."""
+    message = f"bad column a{ch}b"
+    stderr = json.dumps({"code": 5, "message": message}, ensure_ascii=False).encode("utf-8") + b"\n"
+    error = stderr_error_object(stderr)
+    assert error["message"] == message
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        pytest.param(b"garbage", id="not_arrow_at_all"),
+        pytest.param(arrow_stream_bytes_invalid_utf8(), id="invalid_utf8_value"),
+        pytest.param(
+            corrupt_record_batch_message_after_schema(
+                arrow_stream_bytes(pa.schema([pa.field("col_a", pa.int64())]), {"col_a": [1, 2, 3]})
+            ),
+            id="corrupted_record_batch_after_valid_schema",
+        ),
+    ],
+)
+def test_read_arrow_stream_malformed_input_fails_an_assertion(data: bytes) -> None:
+    """``read_arrow_stream`` must fully validate its input and fail with an ``AssertionError``,
+    not let an Arrow-level error escape or silently return a table over invalid data (contract:
+    Data). ``corrupted_record_batch_after_valid_schema`` parses its schema fine but fails on
+    ``read_all()``, unlike the other two cases, which fail earlier."""
+    with pytest.raises(AssertionError):
+        read_arrow_stream(data)
+
+
 def test_size_cap_constants_are_exported() -> None:
-    """`MESSAGE_MAX_BYTES` and `STDERR_SOFT_CAP_BYTES` belong on the conformance kit's public
-    surface, re-exported via `__all__` for external consumers (contract: Data handling)."""
+    """`MESSAGE_MAX_BYTES`, `STDERR_SOFT_CAP_BYTES` and `VERSION_PATTERN` belong on the conformance
+    kit's public surface, re-exported via `__all__` for external consumers (contract: Data handling,
+    Invocation)."""
     from mloda.testing.binary_model import conformance
 
     assert "MESSAGE_MAX_BYTES" in conformance.__all__
     assert "STDERR_SOFT_CAP_BYTES" in conformance.__all__
     assert "COLUMN_TYPES" in conformance.__all__
+    assert "VERSION_PATTERN" in conformance.__all__
     assert [name for name in conformance.__all__ if not hasattr(conformance, name)] == []

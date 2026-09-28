@@ -50,6 +50,10 @@ def _version(mode: str) -> int:
     if mode == "version_prerelease":
         print(f"{PLUGIN_ID} 0.0.1-rc.1+build.5")
         return 0
+    if mode == "version_non_ascii_digits":
+        # Arabic-Indic digits, which \d also matches under re's default (non-ASCII) mode.
+        sys.stdout.buffer.write(f"{PLUGIN_ID} \u0661.\u0662.\u0663\n".encode("utf-8"))
+        return 0
     print(f"{PLUGIN_ID} {VERSION}")
     if mode == "version_two_lines":
         print("unexpected second line")
@@ -69,6 +73,27 @@ def _capabilities(mode: str) -> int:
         print(json.dumps({"plugin_id": PLUGIN_ID}))
     elif mode == "capabilities_not_json":
         print("oops")
+    elif mode == "capabilities_oversized_int":
+        # A literal too large for json's int string conversion limit; must not be built with
+        # json.dumps of a huge int, which would crash this faulty binary itself.
+        print("9" * 5000)
+    elif mode == "capabilities_deeply_nested":
+        # Deeply nested JSON makes json.loads raise RecursionError on parse.
+        print("[" * 100000)
+    elif mode == "capabilities_unicode_line_separator":
+        # An unknown extra key (tolerated by contract) whose string value holds a raw U+2028: the
+        # conformance kit splits on b"\n" only, but str.splitlines() also splits on U+2028.
+        payload = {
+            "contract": 1,
+            "plugin_id": PLUGIN_ID,
+            "operations": ["hash"],
+            "column_types": sorted(COLUMN_TYPES),
+            "extra_unknown_key": "before\u2028after",
+        }
+        sys.stdout.buffer.write(json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\n")
+    elif mode == "capabilities_crlf":
+        payload = {"contract": 1, "plugin_id": PLUGIN_ID, "operations": ["hash"], "column_types": sorted(COLUMN_TYPES)}
+        sys.stdout.buffer.write(json.dumps(payload).encode("utf-8") + b"\r\n")
     else:
         print(
             json.dumps(
@@ -118,6 +143,16 @@ def _write_output(data: bytes, output_path: Path | None) -> None:
     sys.stdout.buffer.flush()
 
 
+def _spawn_sleeping_child(config_path: Path | None) -> None:
+    """Spawn a child that sleeps, inheriting the pipes and process group, and write its pid to
+    ``parameters["pid_file"]`` (contract: Data handling); shared by ``hang_with_child`` and
+    ``exit_leaving_child``."""
+    loaded_config = _load_config(config_path)
+    pid_path = Path(loaded_config["parameters"]["pid_file"])
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])  # nosec B603
+    pid_path.write_text(str(child.pid), encoding="utf-8")
+
+
 def _run(mode: str, args: list[str]) -> int:
     config_path, input_path, output_path = _parse_run_args(args)
 
@@ -125,11 +160,14 @@ def _run(mode: str, args: list[str]) -> int:
         time.sleep(60)
         return 0
     if mode == "hang_with_child":
-        loaded_config = _load_config(config_path)
-        pid_path = Path(loaded_config["parameters"]["pid_file"])
-        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])  # nosec B603
-        pid_path.write_text(str(child.pid), encoding="utf-8")
+        _spawn_sleeping_child(config_path)
         time.sleep(60)
+        return 0
+    if mode == "exit_leaving_child":
+        # Spawns a sleeping child, then exits 0 right away: the leader is already dead by the time
+        # `run_binary` handles the exceptional exit, so a guard keyed on the leader's own liveness
+        # misses the still-live child (contract: Data handling, orphan detection).
+        _spawn_sleeping_child(config_path)
         return 0
     if mode == "hang_with_sigterm_ignoring_child":
         # The leader dies on SIGTERM; its child ignores SIGTERM and holds the inherited pipes open. The

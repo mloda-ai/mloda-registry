@@ -31,6 +31,7 @@ from mloda.community.feature_groups.binary_model.errors import (
     UnsupportedError,
 )
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
+from mloda.community.feature_groups.binary_model.tests.process_helpers import pid_running
 from mloda.community.feature_groups.binary_model.transport import TEMP_PARENT_NAME, pid_is_alive
 from mloda.testing.binary_model.arrow import arrow_stream_bytes_invalid_utf8
 from mloda.testing.binary_model.conformance import BinaryModelConformanceBase, HashOperationConformanceMixin
@@ -165,6 +166,34 @@ class TestBinaryUnavailable:
         table = pa.table({"col_a": ["alpha"]})
         with pytest.raises(BinaryUnavailableError):
             _MissingPathModel.run_binary_model(table, [], "hash", {}, {"result": "col_a_hash"})
+
+
+# -------------------------------------------------------------------------------------------
+# 1b. Probe timeout: separate from the run timeout, bounds --version/--capabilities themselves
+# -------------------------------------------------------------------------------------------
+
+
+class TestProbeTimeout:
+    def test_tiny_run_timeout_does_not_starve_the_probes(self) -> None:
+        """``BINARY_TIMEOUT_SECONDS`` bounds only the ``run`` call; an extremely tight value must
+        not also starve the ``--version``/``--capabilities`` probes that ``resolved_binary`` issues
+        (contract: Invocation, Capabilities)."""
+
+        class _TightRunTimeoutModel(StubModel):
+            BINARY_TIMEOUT_SECONDS: ClassVar[float | None] = 1e-6
+
+        resolved = _TightRunTimeoutModel.resolved_binary()
+        assert resolved.capabilities.plugin_id == PLUGIN_ID
+
+    def test_tiny_probe_timeout_raises_binary_unavailable(self) -> None:
+        """A dedicated ``BINARY_PROBE_TIMEOUT_SECONDS`` bounds the probes themselves, separate from
+        ``BINARY_TIMEOUT_SECONDS`` (contract: Invocation, Capabilities)."""
+
+        class _TightProbeTimeoutModel(StubModel):
+            BINARY_PROBE_TIMEOUT_SECONDS: ClassVar[float | None] = 1e-6
+
+        with pytest.raises(BinaryUnavailableError, match="timed out probing"):
+            _TightProbeTimeoutModel.resolved_binary()
 
 
 # -------------------------------------------------------------------------------------------
@@ -889,17 +918,6 @@ class TestRelativeLicenseFileIsAbsolutized:
 # -------------------------------------------------------------------------------------------
 
 
-def _pid_running(pid: int) -> bool:
-    """Alive and not a zombie (a killed process awaiting reaping counts as dead)."""
-    if not pid_is_alive(pid):
-        return False
-    try:
-        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
-    except OSError:
-        return True
-    return stat.rsplit(")", 1)[-1].split()[0] != "Z"
-
-
 class TestTimeoutTerminatesPosixDescendants:
     """A hung binary that has spawned a child of its own must not leave that child running after
     ``BinaryTerminatedError`` is raised (contract: Errors, Data handling): the whole process group is
@@ -930,13 +948,13 @@ class TestTimeoutTerminatesPosixDescendants:
                 model.run_binary_model(table, ["col_a"], "hash", {"pid_file": str(pid_file)}, {"result": "col_a_hash"})
             child_pid = int(pid_file.read_text(encoding="utf-8"))
             deadline = time.monotonic() + 2.0
-            while _pid_running(child_pid) and time.monotonic() < deadline:
+            while pid_running(child_pid) and time.monotonic() < deadline:
                 time.sleep(0.05)
-            assert not _pid_running(child_pid)
+            assert not pid_running(child_pid)
         finally:
             if child_pid is None and pid_file.exists():
                 child_pid = int(pid_file.read_text(encoding="utf-8"))
-            if child_pid is not None and _pid_running(child_pid):
+            if child_pid is not None and pid_running(child_pid):
                 try:
                     os.kill(child_pid, signal.SIGKILL)
                 except OSError:

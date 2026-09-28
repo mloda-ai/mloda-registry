@@ -240,6 +240,7 @@ class BinaryModelMixin:
     LICENSE_FILE_OVERRIDE: ClassVar[str | None] = None
     LICENSE_KEY_OVERRIDE: ClassVar[str | None] = None
     BINARY_TIMEOUT_SECONDS: ClassVar[float | None] = 600.0
+    BINARY_PROBE_TIMEOUT_SECONDS: ClassVar[float | None] = 60.0
     FILE_TRANSPORT_THRESHOLD_BYTES: ClassVar[int] = 64 * 1024 * 1024
     MAX_BATCH_BYTES: ClassVar[int] = 1 << 30
 
@@ -255,7 +256,7 @@ class BinaryModelMixin:
             cls.BINARY_PLUGIN_ID,
             cls.BINARY_COMMAND_OVERRIDE,
             env=cls.binary_environment(),
-            timeout=cls.BINARY_TIMEOUT_SECONDS,
+            timeout=cls.BINARY_PROBE_TIMEOUT_SECONDS,
         )
 
     @classmethod

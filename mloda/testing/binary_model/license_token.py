@@ -121,7 +121,7 @@ def _parse_footer_kid(footer: bytes) -> str:
     """The footer must be a JSON object with a string ``kid`` (spec: Verification step 2)."""
     try:
         parsed = json.loads(footer.decode("utf-8"))
-    except ValueError as error:
+    except (ValueError, RecursionError) as error:
         raise LicenseVerificationError(f"license footer is not JSON: {error}") from error
     kid = parsed.get("kid") if isinstance(parsed, dict) else None
     if not isinstance(kid, str):
@@ -133,7 +133,7 @@ def _parse_payload(payload: bytes) -> dict[str, Any]:
     """The signed payload must be one JSON object (spec: Verification step 5)."""
     try:
         parsed = json.loads(payload.decode("utf-8"))
-    except ValueError as error:
+    except (ValueError, RecursionError) as error:
         raise LicenseVerificationError(f"license payload is not JSON: {error}") from error
     if not isinstance(parsed, dict):
         raise LicenseVerificationError("license payload must be a JSON object")

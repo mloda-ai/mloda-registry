@@ -161,6 +161,42 @@ def test_error_from_exit_never_raises_on_an_oversized_integer_code() -> None:
     assert exc.code == 6
 
 
+@pytest.mark.parametrize(
+    "ch",
+    ["\u2028", "\u2029", "\u0085"],
+    ids=["line_separator", "paragraph_separator", "next_line"],
+)
+def test_error_from_exit_message_containing_unicode_line_boundary_is_not_split(ch: str) -> None:
+    """``str.splitlines()`` treats U+2028 (LINE SEPARATOR), U+2029 (PARAGRAPH SEPARATOR) and
+    U+0085 (NEXT LINE) as line boundaries, unlike a real stderr line terminator, which is always
+    ``\\n``. A message containing one of these characters must still map to its reported class
+    with the character intact, not be corrupted by splitting on it (contract: Errors, Data
+    handling)."""
+    message = f"bad column a{ch}b"
+    stderr = json.dumps({"code": 5, "message": message}, ensure_ascii=False).encode("utf-8") + b"\n"
+    exc = error_from_exit(5, stderr)
+    assert isinstance(exc, DataError)
+    assert ch in exc.message
+
+
+def test_error_from_exit_matches_reported_code_after_many_kib_of_diagnostics() -> None:
+    """The error line still maps to its reported class even after more than 64 KiB of earlier
+    free-form diagnostic lines (contract: Errors)."""
+    stderr = (b"free-form diagnostic line\n" * 4000) + _stderr_line(5, "malformed input")
+    assert len(stderr) > 64 * 1024
+    exc = error_from_exit(5, stderr)
+    assert isinstance(exc, DataError)
+    assert exc.message == "malformed input"
+
+
+def test_error_from_exit_matches_reported_code_with_crlf_line_ending() -> None:
+    """A CRLF-terminated error line still maps to its reported class (contract: Errors)."""
+    stderr = json.dumps({"code": 5, "message": "malformed input"}).encode("utf-8") + b"\r\n"
+    exc = error_from_exit(5, stderr)
+    assert isinstance(exc, DataError)
+    assert exc.message == "malformed input"
+
+
 def test_error_from_exit_truncates_a_long_message_on_a_utf8_character_boundary() -> None:
     """A ``message`` longer than 1024 UTF-8 bytes is truncated to at most 1024 bytes, cutting only
     on a character boundary (contract: Data handling). The snowman character is 3 bytes in UTF-8,

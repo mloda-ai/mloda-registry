@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 
 CONTRACT_VERSION = 1
 COLUMN_TYPE_VOCABULARY = frozenset({"int64", "float64", "utf8", "boolean"})
-_SEMVER_PATTERN = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+\-]+)?$")
+# Kept in step with mloda.testing.binary_model.VERSION_PATTERN, pinned by a drift test.
+VERSION_PATTERN = r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+\-]+)?"
 
 _CacheKey = tuple[str, tuple[str, ...], int, int]
 
@@ -110,7 +111,7 @@ def _parse_version(argv: list[str], plugin_id: str, stdout: bytes) -> str:
     if len(lines) != 1:
         raise BinaryUnavailableError(f"binary {argv[0]!r} --version must print exactly one line, got {len(lines)}")
     parts = lines[0].split(" ")
-    if len(parts) != 2 or parts[0] != plugin_id or _SEMVER_PATTERN.match(parts[1]) is None:
+    if len(parts) != 2 or parts[0] != plugin_id or re.fullmatch(VERSION_PATTERN, parts[1]) is None:
         raise BinaryUnavailableError(
             f"binary {argv[0]!r} --version must print '{plugin_id} <semver>', got {lines[0]!r}"
         )
@@ -123,14 +124,17 @@ def _parse_capabilities(argv: list[str], plugin_id: str, stdout: bytes) -> Binar
     except UnicodeDecodeError as exc:
         raise BinaryUnavailableError(f"binary {argv[0]!r} --capabilities output is not valid UTF-8: {exc}") from exc
 
-    lines = text.splitlines()
+    # "\n" only: str.splitlines() also splits on U+2028/U+2029/U+0085, legal raw inside JSON strings.
+    lines = text.split("\n")
+    if lines[-1] == "":
+        lines.pop()
     if len(lines) != 1:
         raise BinaryUnavailableError(
             f"binary {argv[0]!r} --capabilities must print exactly one JSON object line, got {len(lines)} lines"
         )
     try:
         payload: Any = json.loads(lines[0])
-    except json.JSONDecodeError as exc:
+    except (ValueError, RecursionError) as exc:
         raise BinaryUnavailableError(f"binary {argv[0]!r} --capabilities output is not valid JSON: {exc}") from exc
     if not isinstance(payload, dict):
         raise BinaryUnavailableError(f"binary {argv[0]!r} --capabilities must print a JSON object")

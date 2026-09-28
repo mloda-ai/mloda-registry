@@ -42,6 +42,7 @@ from mloda.testing.binary_model import (
     MESSAGE_MAX_BYTES,
     UNSUPPORTED,
     USAGE_ERROR,
+    VERSION_PATTERN,
     hash_reference,
     license_vectors,
 )
@@ -70,6 +71,7 @@ __all__ = [
     "STDERR_SOFT_CAP_BYTES",
     "UNSUPPORTED",
     "USAGE_ERROR",
+    "VERSION_PATTERN",
     "arrow_file_format_bytes",
     "arrow_stream_bytes",
     "arrow_stream_bytes_from_arrays",
@@ -143,12 +145,16 @@ def run_binary(
 def stderr_error_object(stderr: bytes) -> dict[str, Any]:
     """Parse the last non-empty stderr line as the contract's ``{"code": ..., "message": ...}``
     object; earlier lines are free-form diagnostics (contract: Errors). Decodes with
-    ``errors="replace"`` so non-UTF-8 stderr fails an assertion here, not with an unhandled
-    ``UnicodeDecodeError``."""
+    ``errors="replace"`` (non-UTF-8 stderr fails an assertion here, not an unhandled
+    ``UnicodeDecodeError``) and splits on ``"\\n"`` only, never ``str.splitlines()``, which also
+    splits on U+2028/U+2029/U+0085."""
     text = stderr.decode("utf-8", errors="replace")
-    lines = [line for line in text.splitlines() if line.strip()]
+    lines = [line for line in text.split("\n") if line.strip()]
     assert lines, f"expected at least one non-empty stderr line, got {stderr!r}"
-    obj = json.loads(lines[-1])
+    try:
+        obj = json.loads(lines[-1])
+    except (ValueError, RecursionError) as exc:
+        raise AssertionError(f"last non-empty stderr line is not valid JSON: {lines[-1][:200]!r}") from exc
     assert isinstance(obj, dict), f"last non-empty stderr line is not a JSON object: {lines[-1]!r}"
     return obj
 
@@ -382,7 +388,7 @@ class BinaryModelConformanceBase:
     def test_version_prints_single_line_no_license_required(self, hermetic_env: dict[str, str]) -> None:
         """`--version` prints exactly one `<plugin_id> <semver>` line to stdout and exits 0, with no
         license variables set at all (contract: Invocation)."""
-        version_pattern = re.compile(rf"^{re.escape(self.plugin_id)} \d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+\-]+)?$")
+        version_pattern = re.compile(rf"{re.escape(self.plugin_id)} {VERSION_PATTERN}")
         result = run_binary(self.binary_cmd, ["--version"], hermetic_env, timeout=self.binary_timeout_seconds)
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         lines = result.stdout.decode("utf-8").splitlines()
