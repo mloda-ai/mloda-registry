@@ -401,13 +401,32 @@ regression_test:
 - mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/tests/test_sqlite.py::TestSqliteFrameAggregate::test_mixin_nan_policy
 -->
 
-- **Operations**: `aggregation`/`window_aggregation` `mode`/`sum`/`avg`/`count` (Pandas and SQLite); `resample` `sum`/`mean`/`count`/`min`/`max` (Pandas only); `scalar_aggregate` `sum`/`avg`/`count` (Pandas and SQLite); `frame_aggregate` `sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var` (Pandas only; SQLite has no frame std/var).
+- **Operations**: `aggregation`/`window_aggregation` `mode`/`sum`/`avg`/`count` (Pandas and SQLite); `resample` `sum`/`mean`/`count`/`min`/`max` (Pandas only); `scalar_aggregate` `sum`/`avg`/`count` (Pandas and SQLite); `frame_aggregate` `sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var` (Pandas only).
 - **Where it lives**: `pandas_helpers.py`'s `compute_mode_winners`, shared by `pandas_aggregation.py` and `pandas_window_aggregation.py`; `pandas_resample.py`; `sqlite_aggregation.py`; `sqlite_window_aggregation.py`; `pandas_scalar_aggregate.py`; `sqlite_scalar_aggregate.py`; `pandas_frame_aggregate.py`; `sqlite_frame_aggregate.py`.
 - **Reference behavior**: Under the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier), `mode` counts NaN as one value like `pc.mode`, and `sum`/`avg`/`mean` propagate NaN and count it toward `count`; `std`/`var` propagate NaN too, like `pc.stddev`/`pc.variance`. An all-NaN resample bucket keeps NaN for `min`/`max`/`sum`/`mean`. DuckDB and Polars now follow this natively for mode/min/max.
 - **Native behavior**: Pandas never calls `Series.mode()`; `compute_mode_winners` drops NaN via `.notna()` before counting. A float64 pandas column cannot distinguish NaN from null, so pandas' `sum`/`mean`/`count`/`std`/`var` skip NaN the same way they skip null, and pandas resample returns null (count 0) for an all-NaN bucket. The sqlite3 driver coerces NaN to `NULL` on ingest, so SQLite's `SUM`/`AVG`/`COUNT` never see a NaN to propagate or count either; SQLite has no `frame_aggregate` std/var support, and no resample backend yet.
 - **Mitigation kind**: Accepted divergence. Neither pandas nor SQLite can represent NaN separately from null.
 - **How**: Each framework's `nan_divergent_agg_types()` hook pins its diverging agg types instead of the policy value in the shared `NanPolicyTestMixin.test_mixin_nan_policy` test: Pandas pins `{"mode", "sum", "avg", "count"}` for aggregation/window_aggregation, `{"sum", "mean", "count", "min", "max"}` for resample, `{"sum", "avg", "count"}` for scalar_aggregate, and `{"sum", "avg", "count", "std", "var"}` for frame_aggregate; SQLite pins `{"sum", "avg", "count"}` for aggregation/window_aggregation/scalar_aggregate/frame_aggregate.
 - **Regression signal**: The tests run the fixture through the reference and each backend (policy, or the pinned divergence map for Pandas/SQLite); a fix matching the policy on any of these agg types would need the corresponding hook narrowed or removed.
+
+### DuckDB std/var raise on NaN input
+
+<!-- machine-checked
+operation: frame_aggregate
+framework: duckdb
+condition: DuckDB STDDEV_POP/VAR_POP raise OutOfRangeException when the frame holds NaN instead of propagating NaN
+mitigation_location:
+- mloda/community/feature_groups/data_operations/duckdb_helpers.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/tests/test_duckdb.py::TestDuckdbFrameAggregate::test_mixin_nan_policy
+-->
+
+- **Operations**: `frame_aggregate` `std`/`var`. `aggregation`, `window_aggregation`, and `scalar_aggregate` map to the same `STDDEV_POP`/`VAR_POP` DuckDB functions and are expected to behave the same, but are not yet covered by a NaN std/var case in those operations.
+- **Where it lives**: `nan_policy_agg_sql` in `mloda/community/feature_groups/data_operations/duckdb_helpers.py`, where the `STDDEV_POP`/`VAR_POP` aggregate SQL is emitted.
+- **Reference behavior**: `std`/`var` propagate NaN, like `pc.stddev`/`pc.variance`.
+- **Native behavior**: DuckDB's `STDDEV_POP`/`VAR_POP` raise `duckdb.OutOfRangeException` ("Out of Range Error: STDDEV_POP/VARPOP is out of range!") when the input contains NaN, instead of propagating NaN.
+- **Mitigation kind**: None yet (open bug). `TestDuckdbFrameAggregate.nan_policy_skip_if_unsupported` pins the crash: it runs the `std`/`var` case through the backend, asserts `duckdb.OutOfRangeException` is raised, then skips.
+- **Regression signal**: The skip hook asserts the raise before skipping, so a DuckDB change that stops raising fails `test_mixin_nan_policy` and the skip should then be removed.
 
 ### PythonDict `group_key_value` merges `0.0` and `-0.0` into one group
 

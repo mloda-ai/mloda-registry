@@ -152,7 +152,7 @@ class DataOpsTestBase(ABC):
     def nan_divergent_agg_types(cls) -> frozenset[str]:
         """Agg types where this framework pins a known NaN divergence instead of the policy (default: none).
 
-        See docs/guides/data-operation-patterns/known-divergences.md.
+        Read by ``NanPolicyTestMixin.test_mixin_nan_policy``; see docs/guides/data-operation-patterns/known-divergences.md.
         """
         return frozenset()
 

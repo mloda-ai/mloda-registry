@@ -57,6 +57,7 @@ NAN_POLICY_SCALAR: dict[str, list[float]] = {
     "avg": [float("nan")] * 7,
     "count": [7] * 7,
 }
+
 # Known per-backend divergence, pinned via nan_divergent_agg_types(): pandas and
 # SQLite can't tell NaN from null, so both skip it in sum/avg/count.
 NAN_DIVERGENT_SCALAR: dict[str, list[float]] = {
