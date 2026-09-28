@@ -16,7 +16,8 @@ from typing import Any, ClassVar
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from mloda.community.feature_groups.binary_model.binary import COLUMN_TYPE_VOCABULARY, ResolvedBinary, resolve_binary
+from mloda.community.feature_groups.binary_model.binary import ResolvedBinary, resolve_binary
+from mloda.community.feature_groups.binary_model.contract import COLUMN_TYPES
 from mloda.community.feature_groups.binary_model.errors import (
     BinaryModelError,
     BinaryUsageError,
@@ -51,7 +52,7 @@ def _classify_column_type(arrow_type: pa.DataType) -> str | None:
         name = "utf8"
     else:
         return None
-    return name if name in COLUMN_TYPE_VOCABULARY else None
+    return name if name in COLUMN_TYPES else None
 
 
 def _assert_parameters_mapping(parameters: Any) -> None:
@@ -175,7 +176,10 @@ def _write_ipc_stream(table: pa.Table, max_batch_bytes: int) -> bytes:
     return buffer.getvalue()
 
 
-def _parse_output_stream(data: bytes) -> pa.Table:
+def read_output_stream(data: bytes) -> pa.Table:
+    """Parse Arrow IPC stream bytes back into a fully validated table, or raise
+    ``OutputContractError`` (contract: Data). Public: also used by the testing kit's
+    ``arrow.read_arrow_stream``."""
     try:
         table = pa.ipc.open_stream(data).read_all()
         table.validate(full=True)  # full validation catches e.g. invalid UTF-8 in string columns
@@ -315,6 +319,6 @@ class BinaryModelMixin:
             "binary %s version %s exited with code 0", resolved.capabilities.plugin_id, resolved.capabilities.version
         )
 
-        result = _parse_output_stream(output_bytes)
+        result = read_output_stream(output_bytes)
         _verify_output_contract(result, output_columns, table.num_rows, resolved.capabilities.column_types)
         return _finalize_output(result, table)

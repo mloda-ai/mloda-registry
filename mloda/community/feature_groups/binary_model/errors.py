@@ -7,6 +7,8 @@ from __future__ import annotations
 import json
 from typing import ClassVar
 
+from mloda.community.feature_groups.binary_model import contract
+
 
 class BinaryModelError(ValueError):
     """Base class for every binary-model error; ``CODE`` is the contract exit code, or ``None``
@@ -88,36 +90,17 @@ ERROR_CLASS_BY_CODE: dict[int, type[BinaryModelError]] = {
 
 _GENERIC_MESSAGE_FALLBACK = "binary reported code {code} without a usable message"
 
-MAX_MESSAGE_BYTES = 1024
-
-# Bytes of stderr tail scanned for the error line, comfortably above the worst case (a `message`
-# capped at MAX_MESSAGE_BYTES, grown up to about sixfold by `\u` escapes). A longer, out-of-contract
-# error line falls back to BinaryInternalError.
-_STDERR_TAIL_WINDOW_BYTES = 64 * 1024
-
 
 def _truncate_message(message: str) -> str:
-    """Sanitize and cap ``message`` at ``MAX_MESSAGE_BYTES`` UTF-8 bytes, cutting only on a character
-    boundary (contract: Data handling)."""
-    return message.encode("utf-8", errors="replace")[:MAX_MESSAGE_BYTES].decode("utf-8", errors="ignore")
-
-
-def _last_non_empty_line(stderr: bytes) -> str | None:
-    """The last non-blank line of stderr's trailing tail window, split on ``b"\\n"`` only, never
-    ``str.splitlines()``, which also splits on U+2028/U+2029/U+0085 and would corrupt a message
-    containing one of them."""
-    tail = stderr[-_STDERR_TAIL_WINDOW_BYTES:]
-    for line in reversed(tail.split(b"\n")):
-        text = line.decode("utf-8", errors="replace")
-        if text.strip():
-            return text
-    return None
+    """Sanitize and cap ``message`` at ``contract.MESSAGE_MAX_BYTES`` UTF-8 bytes, cutting only on a
+    character boundary (contract: Data handling)."""
+    return message.encode("utf-8", errors="replace")[: contract.MESSAGE_MAX_BYTES].decode("utf-8", errors="ignore")
 
 
 def error_from_exit(returncode: int, stderr: bytes) -> BinaryModelError:
     """Map a process exit code and its stderr to one ``BinaryModelError`` (contract: Errors).
     Never raises: any malformed input falls back to ``BinaryInternalError``."""
-    line = _last_non_empty_line(stderr)
+    line = contract.last_non_empty_stderr_line(stderr)
     if line is not None:
         try:
             payload = json.loads(line)

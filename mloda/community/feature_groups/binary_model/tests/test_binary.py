@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from mloda.community.feature_groups.binary_model import binary
+from mloda.community.feature_groups.binary_model import binary, contract
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError
 
 STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
@@ -65,7 +65,7 @@ class TestResolveBinary:
             plugin_id=PLUGIN_ID,
             version="1.0.0",
             operations=frozenset({"hash"}),
-            column_types=binary.COLUMN_TYPE_VOCABULARY,
+            column_types=contract.COLUMN_TYPES,
         )
 
     def test_str_path_override_missing_file_is_unavailable(self, tmp_path: Path) -> None:
@@ -157,6 +157,25 @@ class TestResolveBinary:
             "faulty_binary", [*FAULTY_CMD, "--mode", mode], env={"PATH": os.defpath}, timeout=10.0
         )
         assert "hash" in resolved.capabilities.operations
+
+    @pytest.mark.parametrize(
+        "text, expected",
+        [
+            pytest.param("a\n", ["a"], id="single_line_trailing_newline"),
+            pytest.param("a", ["a"], id="single_line_no_trailing_newline"),
+            pytest.param("a\u2028b\n", ["a\u2028b"], id="line_separator_not_split"),
+            pytest.param("a\u2029b\n", ["a\u2029b"], id="paragraph_separator_not_split"),
+            pytest.param("a\u0085b\n", ["a\u0085b"], id="next_line_not_split"),
+            pytest.param("a\nb\n", ["a", "b"], id="two_lines"),
+            pytest.param("a\n\n", ["a", ""], id="trailing_blank_line_kept"),
+            pytest.param("", [], id="empty_text"),
+        ],
+    )
+    def test_split_output_lines_drops_one_trailing_empty_element(self, text: str, expected: list[str]) -> None:
+        """``contract.split_output_lines`` is the single source for the ``--capabilities`` line
+        split: it splits on ``\\n`` only and drops one trailing empty element (contract:
+        Capabilities)."""
+        assert contract.split_output_lines(text) == expected
 
     def test_version_two_lines_is_unavailable(self) -> None:
         with pytest.raises(BinaryUnavailableError):
@@ -287,30 +306,3 @@ class TestVersionMustBeSemVer:
             "faulty_binary", [*FAULTY_CMD, "--mode", "version_prerelease"], env={"PATH": os.defpath}, timeout=10.0
         )
         assert resolved.capabilities.version == "0.0.1-rc.1+build.5"
-
-
-class TestContractConstantsMatchTestingKit:
-    """`binary.py` cannot import `mloda.testing` (dev-only), so it keeps its own copies of four
-    contract constants; this pins them equal to the testing kit's own copies (contract: Invocation,
-    Data handling)."""
-
-    def test_version_pattern_matches_testing_kit(self) -> None:
-        from mloda.testing.binary_model import VERSION_PATTERN as kit_version_pattern
-
-        assert binary.VERSION_PATTERN == kit_version_pattern
-
-    def test_max_message_bytes_matches_testing_kit(self) -> None:
-        from mloda.community.feature_groups.binary_model import errors
-        from mloda.testing.binary_model import MESSAGE_MAX_BYTES as kit_message_max_bytes
-
-        assert errors.MAX_MESSAGE_BYTES == kit_message_max_bytes
-
-    def test_contract_version_matches_testing_kit(self) -> None:
-        from mloda.testing.binary_model import CONTRACT_VERSION as kit_contract_version
-
-        assert binary.CONTRACT_VERSION == kit_contract_version
-
-    def test_column_type_vocabulary_matches_testing_kit(self) -> None:
-        from mloda.testing.binary_model import COLUMN_TYPES as kit_column_types
-
-        assert binary.COLUMN_TYPE_VOCABULARY == kit_column_types

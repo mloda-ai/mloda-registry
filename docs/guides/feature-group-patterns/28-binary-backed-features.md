@@ -159,6 +159,7 @@ The full expired/in-grace/valid license state machine is covered against the rea
 ## Packaging Rules
 
 - `mloda-testing[binary-model]` (the stub, Arrow helpers, license vectors) is a `dev` extra only; nothing under `mloda/community/` or `mloda/enterprise/` imports `mloda.testing` at runtime.
+- The contract rules (constants, line/stream parsing) live in `mloda.community.feature_groups.binary_model.contract`. `mloda-testing[binary-model]` depends on `mloda-community` to import them, since the kit checks what the mixin accepts; the reverse stays forbidden. The resulting dev-only cycle, through the mixin package's `dev` extra, is intended.
 - The wheel is never a hard dependency of the plugin package; without it the call rejects, discovery still works.
 - A binary that implements the contract is verified with `mloda.testing.binary_model.conformance.BinaryModelConformanceBase`, the same kit the simulated binary passes.
 - The wheel's distribution (`BINARY_WHEEL_DISTRIBUTION`) is declared under `optional_dependencies` with a version range, never under `dependencies` or `dev`; install it with `pip install mloda-example-binary`.

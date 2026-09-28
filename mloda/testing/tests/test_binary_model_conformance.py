@@ -228,6 +228,27 @@ def test_stderr_error_object_message_with_unicode_line_boundary_returns_full_mes
     assert error["message"] == message
 
 
+def test_stderr_error_object_final_line_over_64_kib_fails_an_assertion() -> None:
+    """``stderr_error_object`` must scan only the trailing 64 KiB tail, matching the mixin's own
+    window: a final error-object line longer than that must fail an ``AssertionError``, not parse
+    (contract: Errors, Data handling)."""
+    oversized_message = "x" * 70_000
+    stderr = json.dumps({"code": 5, "message": oversized_message}).encode("utf-8") + b"\n"
+    with pytest.raises(AssertionError):
+        stderr_error_object(stderr)
+
+
+def test_kit_reexported_constants_are_the_contract_objects() -> None:
+    """`mloda.testing.binary_model`'s re-exported `VERSION_PATTERN`/`COLUMN_TYPES` must be the
+    single-source `contract` module's own objects, not copies, now that the community binary-model
+    mixin and the testing kit share one source (contract: Invocation, Capabilities)."""
+    from mloda.community.feature_groups.binary_model import contract
+    from mloda.testing import binary_model as kit
+
+    assert kit.VERSION_PATTERN is contract.VERSION_PATTERN
+    assert kit.COLUMN_TYPES is contract.COLUMN_TYPES
+
+
 @pytest.mark.parametrize(
     "data",
     [

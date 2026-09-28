@@ -17,7 +17,7 @@ description = "Test utilities for mloda plugin development"
 dependencies = ["{core_dependency}", "pytest>=9.0.3", "pyarrow"]
 path = "mloda/testing"
 published = true
-optional_dependencies = { dev = ["pytest>=9.0.3"], otel = ["opentelemetry-sdk>=1.30,<2"], openlineage = ["openlineage-python>=1.20,<2"], binary-model = ["pyarrow>=25", "cryptography>=44"] }
+optional_dependencies = { dev = ["pytest>=9.0.3"], otel = ["opentelemetry-sdk>=1.30,<2"], openlineage = ["openlineage-python>=1.20,<2"], binary-model = ["pyarrow>=25", "cryptography>=44", "mloda-community>={version}"] }
 py_typed = true
 
 [packages.mloda-community]
@@ -58,6 +58,9 @@ entry_point_groups = ["mloda.feature_groups"]
 # The mixin ships in the community bundle, the example in the enterprise bundle; neither is published
 # standalone yet. mloda-testing[binary-model] (the simulated binary and the conformance kit) is a dev
 # dependency only: nothing under mloda/community or mloda/enterprise imports mloda.testing at runtime.
+# The contract rules (constants, line/stream parsing) live in the mixin's own
+# mloda.community.feature_groups.binary_model.contract; mloda-testing[binary-model] takes them from
+# mloda-community, since the kit checks what the mixin accepts. Never the reverse.
 
 [packages.mloda-community-binary-model]
 description = "Mixin running an external binary as a model over Arrow IPC, the base for binary-backed FeatureGroups"

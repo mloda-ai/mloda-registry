@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+from mloda.community.feature_groups.binary_model import contract
 from mloda.community.feature_groups.binary_model.errors import (
     ERROR_CLASS_BY_CODE,
     BinaryInternalError,
@@ -212,3 +213,26 @@ def test_error_from_exit_truncates_a_long_message_on_a_utf8_character_boundary()
     assert len(encoded) <= 1024
     assert len(exc.message) > 0
     assert exc.message != long_message
+
+
+@pytest.mark.parametrize(
+    "stderr, expected",
+    [
+        pytest.param(b"one\ntwo\n\n\n", "two", id="trailing_blank_lines_skipped"),
+        pytest.param("bad column a\u2028b\n".encode("utf-8"), "bad column a\u2028b", id="unicode_line_separator_kept"),
+        pytest.param(b"", None, id="empty_stderr_is_none"),
+    ],
+)
+def test_last_non_empty_stderr_line_moved_to_contract(stderr: bytes, expected: str | None) -> None:
+    """``contract.last_non_empty_stderr_line`` is the single source moved from
+    ``errors._last_non_empty_line`` (contract: Errors, Data handling)."""
+    assert contract.last_non_empty_stderr_line(stderr) == expected
+
+
+def test_last_non_empty_stderr_line_only_scans_the_trailing_64_kib_tail() -> None:
+    """A final line longer than the 64 KiB tail window is cut, so the result is not the full line
+    (contract: Data handling)."""
+    long_line = b"x" * (70 * 1024)
+    result = contract.last_non_empty_stderr_line(long_line)
+    assert result is not None
+    assert result != long_line.decode("utf-8")

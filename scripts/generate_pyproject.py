@@ -177,6 +177,19 @@ def normalize_dependency_name(dep: str) -> str | None:
     return normalize_package_name(match.group(1))
 
 
+def _required_elsewhere_workspace_names(all_packages: dict[str, dict[str, Any]]) -> set[str]:
+    """Configured-package names that some package's plain (required) ``dependencies`` names: these
+    already need ``workspace = true`` at that required edge, so uv treats any other reference to
+    the same name (even an optional one) as ambiguous unless it is annotated too."""
+    names: set[str] = set()
+    for cfg in all_packages.values():
+        for dep in cfg.get("dependencies", []):
+            normalized = normalize_dependency_name(dep)
+            if normalized and normalized in all_packages:
+                names.add(normalized)
+    return names
+
+
 def workspace_source_names(
     pkg_name: str,
     pkg_config: dict[str, Any],
@@ -188,6 +201,15 @@ def workspace_source_names(
         normalized = normalize_dependency_name(dep)
         if normalized and normalized != pkg_name and normalized in all_packages:
             names.add(normalized)
+
+    # An optional dependency on a name that is required (hence already `workspace = true`)
+    # somewhere else in the workspace must be annotated here too, or uv sees it as ambiguous.
+    required_elsewhere = _required_elsewhere_workspace_names(all_packages)
+    for deps in pkg_config.get("optional_dependencies", {}).values():
+        for dep in deps:
+            normalized = normalize_dependency_name(dep)
+            if normalized and normalized != pkg_name and normalized in required_elsewhere:
+                names.add(normalized)
     return sorted(names)
 
 

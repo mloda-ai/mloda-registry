@@ -31,6 +31,7 @@ from typing import Any, ClassVar
 import pyarrow as pa
 import pytest
 
+from mloda.community.feature_groups.binary_model.contract import last_non_empty_stderr_line, split_output_lines
 from mloda.testing.binary_model import (
     COLUMN_TYPES,
     CONTRACT_VERSION,
@@ -144,18 +145,15 @@ def run_binary(
 
 def stderr_error_object(stderr: bytes) -> dict[str, Any]:
     """Parse the last non-empty stderr line as the contract's ``{"code": ..., "message": ...}``
-    object; earlier lines are free-form diagnostics (contract: Errors). Decodes with
-    ``errors="replace"`` (non-UTF-8 stderr fails an assertion here, not an unhandled
-    ``UnicodeDecodeError``) and splits on ``"\\n"`` only, never ``str.splitlines()``, which also
-    splits on U+2028/U+2029/U+0085."""
-    text = stderr.decode("utf-8", errors="replace")
-    lines = [line for line in text.split("\n") if line.strip()]
-    assert lines, f"expected at least one non-empty stderr line, got {stderr!r}"
+    object; earlier lines are free-form diagnostics (contract: Errors). Uses the mixin's own
+    ``contract.last_non_empty_stderr_line``, so this matches its 64 KiB tail window exactly."""
+    line = last_non_empty_stderr_line(stderr)
+    assert line is not None, f"expected at least one non-empty stderr line, got {stderr!r}"
     try:
-        obj = json.loads(lines[-1])
+        obj = json.loads(line)
     except (ValueError, RecursionError) as exc:
-        raise AssertionError(f"last non-empty stderr line is not valid JSON: {lines[-1][:200]!r}") from exc
-    assert isinstance(obj, dict), f"last non-empty stderr line is not a JSON object: {lines[-1]!r}"
+        raise AssertionError(f"last non-empty stderr line is not valid JSON: {line[:200]!r}") from exc
+    assert isinstance(obj, dict), f"last non-empty stderr line is not a JSON object: {line!r}"
     return obj
 
 
@@ -401,12 +399,10 @@ class BinaryModelConformanceBase:
         result = run_binary(self.binary_cmd, ["--capabilities"], hermetic_env, timeout=self.binary_timeout_seconds)
         assert result.returncode == 0, f"stderr={result.stderr!r}"
 
-        stdout = result.stdout
-        assert stdout.count(b"\n") <= 1, f"expected at most one trailing newline, got {stdout!r}"
-        body_bytes = stdout[:-1] if stdout.endswith(b"\n") else stdout
-        assert b"\n" not in body_bytes, f"expected exactly one JSON object on stdout, got {stdout!r}"
+        lines = split_output_lines(result.stdout.decode("utf-8"))
+        assert len(lines) == 1, f"expected exactly one JSON object line on stdout, got {result.stdout!r}"
 
-        body = json.loads(body_bytes.decode("utf-8"))
+        body = json.loads(lines[0])
         assert isinstance(body, dict), f"expected a JSON object, got {body!r}"
         assert body.get("contract") == CONTRACT_VERSION, f"unexpected contract value: {body!r}"
         assert body.get("plugin_id") == self.plugin_id, f"unexpected plugin_id: {body!r}"

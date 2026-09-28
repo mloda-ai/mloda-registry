@@ -15,6 +15,8 @@ from typing import Any
 
 import pyarrow as pa
 
+from mloda.community.feature_groups.binary_model import mixin
+from mloda.community.feature_groups.binary_model.errors import OutputContractError
 from mloda.testing.binary_model import IPC_END_OF_STREAM_MARKER
 
 
@@ -66,13 +68,12 @@ def arrow_stream_bytes_multi_batch(schema: pa.Schema, batches_rows: list[dict[st
 def read_arrow_stream(data: bytes) -> pa.Table:
     """Parse Arrow IPC stream bytes back into a table, fully validated, for asserting on a binary's
     output (contract: Data); malformed output fails an assertion here, not an unhandled pyarrow
-    exception."""
+    exception. Delegates to the mixin's own ``read_output_stream``, so the kit checks output the
+    same way the mixin does."""
     try:
-        table = pa.ipc.open_stream(data).read_all()
-        table.validate(full=True)
-    except (pa.ArrowException, ValueError, OSError) as exc:
-        raise AssertionError(f"binary output is not a valid Arrow IPC stream: {exc}") from exc
-    return table
+        return mixin.read_output_stream(data)
+    except OutputContractError as exc:
+        raise AssertionError(str(exc)) from exc
 
 
 def assert_ends_with_ipc_eos_marker(data: bytes) -> None:
