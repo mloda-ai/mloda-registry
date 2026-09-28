@@ -395,10 +395,12 @@ class ResampleTestBase(NanPolicyTestMixin, DataOpsTestBase):
         feature_name: str,
         column: Callable[[Any, str], list[Any]],
     ) -> Any:
-        return self._build_resample_map(result, feature_name, "ts", ["grp"], column)
-
-    def nan_policy_assert_equal(self, actual: Any, expected: Any, label: str) -> None:
-        self._assert_map_equals(actual, expected, use_approx=True)
+        bucket_map = self._build_resample_map(result, feature_name, "ts", ["grp"], column)
+        row_count = len(column(result, feature_name))
+        assert row_count == len(bucket_map), (
+            f"{row_count} rows collapsed to {len(bucket_map)} map entries; duplicate (grp, bucket) rows?"
+        )
+        return bucket_map
 
     # -- Core per-partition value tests -------------------------------------
 

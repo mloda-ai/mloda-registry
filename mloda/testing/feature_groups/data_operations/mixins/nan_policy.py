@@ -26,9 +26,22 @@ class NanPolicyTestMixin:
 
     Feature-group test bases mix this in and override the configuration methods
     below to adapt the generic test to their semantics.
+
+    Requires the host class to provide (from DataOpsTestBase):
+    - ``nan_policy_table()``
+    - ``reference_implementation_class()``
+    - ``implementation_class()``
+    - ``create_test_data(arrow_table)``
+    - ``extract_column(result, column_name)``
+    - ``nan_divergent_agg_types()``
+    - ``_skip_if_unsupported(op)`` (only used by the default skip hook)
+
+    A concrete class that mixes this in without overriding ``nan_policy_cases()``
+    fails at collection time (``pytest_generate_tests`` calls it eagerly to build
+    the parametrization), not at test-run time.
     """
 
-    def pytest_generate_tests(self, metafunc: Any) -> None:
+    def pytest_generate_tests(self, metafunc: pytest.Metafunc) -> None:
         """Parametrize ``nan_policy_case`` over ``sorted(nan_policy_cases())``.
 
         Chains cooperatively via ``super()`` so another mixin can add its own
@@ -76,10 +89,6 @@ class NanPolicyTestMixin:
         """Extract the comparable values from a result via ``column``. Default: a plain list column."""
         return column(result, feature_name)
 
-    def nan_policy_assert_equal(self, actual: Any, expected: Any, label: str) -> None:
-        """Compare extracted values against the expected policy/divergence value."""
-        assert actual == pytest.approx(expected, nan_ok=True), f"{label}: {actual!r}"
-
     # -- Concrete test method ----------------------------------------------
 
     def test_mixin_nan_policy(self, nan_policy_case: str) -> None:
@@ -95,9 +104,14 @@ class NanPolicyTestMixin:
 
         ref = self.reference_implementation_class().calculate_feature(table, fs)  # type: ignore[attr-defined]
         ref_values = self.nan_policy_extract_values(ref, feature_name, _extract_column)
-        self.nan_policy_assert_equal(ref_values, policy_expected, f"{case} reference")
+        assert ref_values == pytest.approx(policy_expected, nan_ok=True), f"{case} reference: {ref_values!r}"
 
         divergent_cases = self.nan_policy_divergent_cases()
+        if agg_type in self.nan_divergent_agg_types():  # type: ignore[attr-defined]
+            assert any(self.nan_policy_agg_type(divergent_case) == agg_type for divergent_case in divergent_cases), (
+                f"{type(self).__name__} pins {agg_type!r} via nan_divergent_agg_types(), but no case in "
+                "nan_policy_divergent_cases() has that agg type (stale hook)"
+            )
         expected = (
             divergent_cases[case]
             if case in divergent_cases and agg_type in self.nan_divergent_agg_types()  # type: ignore[attr-defined]
@@ -113,4 +127,4 @@ class NanPolicyTestMixin:
             feature_name,
             self.extract_column,  # type: ignore[attr-defined]
         )
-        self.nan_policy_assert_equal(result_values, expected, f"{case} backend")
+        assert result_values == pytest.approx(expected, nan_ok=True), f"{case} backend: {result_values!r}"

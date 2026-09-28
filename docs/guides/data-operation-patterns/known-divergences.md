@@ -386,7 +386,11 @@ mitigation_location:
 - mloda/community/feature_groups/data_operations/aggregation/sqlite_aggregation.py
 - mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/sqlite_window_aggregation.py
 regression_test:
-- mloda/testing/feature_groups/data_operations/mixins/nan_policy.py::NanPolicyTestMixin::test_mixin_nan_policy
+- mloda/community/feature_groups/data_operations/aggregation/tests/test_pandas.py::TestPandasAggregation::test_mixin_nan_policy
+- mloda/community/feature_groups/data_operations/aggregation/tests/test_sqlite.py::TestSqliteAggregation::test_mixin_nan_policy
+- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/tests/test_pandas.py::TestPandasWindowAggregation::test_mixin_nan_policy
+- mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/tests/test_sqlite.py::TestSqliteWindowAggregation::test_mixin_nan_policy
+- mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_pandas.py::TestPandasResample::test_mixin_nan_policy
 -->
 
 - **Operations**: `aggregation`/`window_aggregation` `mode`/`sum`/`avg`/`count` (Pandas and SQLite); `resample` `sum`/`mean`/`count`/`min`/`max` (Pandas only).
