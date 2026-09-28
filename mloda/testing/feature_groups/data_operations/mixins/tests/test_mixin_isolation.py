@@ -24,6 +24,7 @@ from itertools import combinations
 from types import ModuleType
 from typing import Any, ClassVar, Iterator, cast
 
+import pyarrow as pa
 import pytest
 
 import mloda.community.feature_groups.data_operations as data_operations_pkg
@@ -403,3 +404,85 @@ class TestMixinIsolation:
 
         with pytest.raises(TypeError, match="InputValidationCase"):
             EmptyReason.input_validation_case_ids()
+
+    def test_input_validation_empty_in_features_derived_from_multi_column_case(self) -> None:
+        """test_mixin_empty_in_features derives a zero-in_features check from the multi_column case."""
+
+        class _FakeImplementation:
+            @staticmethod
+            def calculate_feature(data: Any, fs: Any) -> Any:
+                feature = next(iter(fs.features))
+                in_features_ctx = feature.options.get("in_features")
+                try:
+                    resolved = feature.options.get_in_features()
+                except ValueError:
+                    resolved = None
+                if in_features_ctx == [] and resolved == frozenset():
+                    raise ValueError("Feature 'f' requires at least 1 in_feature(s), but found 0")
+                return data
+
+        def make_host(case: Any) -> type:
+            class Host(InputValidationTestMixin):
+                test_data: ClassVar[Any] = pa.table({"a": [1]})
+
+                @staticmethod
+                def create_test_data(table: Any) -> Any:
+                    return table
+
+                @staticmethod
+                def implementation_class() -> type:
+                    return _FakeImplementation
+
+                @classmethod
+                def input_validation_cases(cls) -> dict[str, Any]:
+                    return {
+                        "multi_column_in_features": case,
+                        "missing_source_column": "n/a",
+                        "empty_partition_by": None,
+                    }
+
+            return Host
+
+        # 1. A real case with two in_features passes only because the mixin empties both the
+        # context and get_in_features.
+        real_case = InputValidationCase("f", {"in_features": ["a", "b"]}, "requires at least")
+        Host = make_host(real_case)
+        Host().test_mixin_empty_in_features()
+
+        # 2. None skips.
+        HostNone = make_host(None)
+        with pytest.raises(pytest.skip.Exception):
+            HostNone().test_mixin_empty_in_features()
+
+        # 3. A reason string skips with that reason.
+        HostReason = make_host("n/a for this op")
+        with pytest.raises(pytest.skip.Exception, match="n/a for this op"):
+            HostReason().test_mixin_empty_in_features()
+
+        # 4. An implementation that never raises must fail the test with pytest.fail.
+        class _NeverRaisingImplementation:
+            @staticmethod
+            def calculate_feature(data: Any, fs: Any) -> Any:
+                return data
+
+        class HostNeverRaises(InputValidationTestMixin):
+            test_data: ClassVar[Any] = pa.table({"a": [1]})
+
+            @staticmethod
+            def create_test_data(table: Any) -> Any:
+                return table
+
+            @staticmethod
+            def implementation_class() -> type:
+                return _NeverRaisingImplementation
+
+            @classmethod
+            def input_validation_cases(cls) -> dict[str, Any]:
+                return {
+                    "multi_column_in_features": real_case,
+                    "missing_source_column": "n/a",
+                    "empty_partition_by": None,
+                }
+
+        with pytest.raises(pytest.fail.Exception):
+            HostNeverRaises().test_mixin_empty_in_features()

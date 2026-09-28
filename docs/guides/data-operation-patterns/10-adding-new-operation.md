@@ -230,7 +230,7 @@ A new case-parametrized test mixin inherits `CaseParametrizationTestMixin` (`mlo
 
 Every test base also mixes in `OutputContractTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/output_contract.py`), which covers the result-type, row-count, and new-column checks that used to be hand-written per base. Override `output_contract_feature_set` (an instance method) to return the `FeatureSet` to exercise, and `output_contract_expected_row_count` when the op changes the row count (return the expected count for the test dataset).
 
-Every op test base also wires up `InputValidationTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/input_validation.py`) and overrides `input_validation_cases()`, declaring each of `multi_column_in_features`, `missing_source_column`, and `empty_partition_by` as an `InputValidationCase` (feature name, context, `match`, and optionally a `table` for fresh test data), a reason string (skips with that reason), or `None` (does not apply to this op).
+Every op test base also wires up `InputValidationTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/input_validation.py`) and overrides `input_validation_cases()`, declaring each of `multi_column_in_features`, `missing_source_column`, and `empty_partition_by` as an `InputValidationCase` (feature name, context, `match`, and optionally a `table` for fresh test data), a reason string (skips with that reason), or `None` (does not apply to this op). The `multi_column_in_features` case also drives the inherited `test_mixin_empty_in_features` zero-in_features check, so declare it as an `InputValidationCase` (config-based) or a reason string to skip.
 
 ---
 
