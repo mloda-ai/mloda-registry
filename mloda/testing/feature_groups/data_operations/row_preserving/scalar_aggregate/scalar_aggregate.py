@@ -20,6 +20,10 @@ from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
@@ -86,13 +90,32 @@ NAN_DIVERGENT_SCALAR: dict[str, list[float]] = {
 # ---------------------------------------------------------------------------
 
 
-class ScalarAggregateTestBase(OutputContractTestMixin, NanPolicyTestMixin, MaskTestMixin, DataOpsTestBase):
+class ScalarAggregateTestBase(
+    InputValidationTestMixin, OutputContractTestMixin, NanPolicyTestMixin, MaskTestMixin, DataOpsTestBase
+):
     """Abstract base class for scalar aggregate framework tests."""
 
     # -- OutputContractTestMixin configuration ----------------------------------
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__sum_scalar")
+
+    # -- InputValidationTestMixin configuration ---------------------------------
+
+    @classmethod
+    def input_validation_cases(cls) -> dict[str, Any]:
+        return {
+            "multi_column_in_features": InputValidationCase(
+                "bad_multi",
+                {"aggregation_type": "sum", "in_features": ["value_int", "value_float"]},
+                "at most 1",
+            ),
+            "missing_source_column": (
+                "known gap: scalar aggregate does not reject it up front "
+                "(KeyError/engine error, or deferred on lazy backends)"
+            ),
+            "empty_partition_by": None,
+        }
 
     ALL_AGG_TYPES = {
         "sum",
@@ -347,26 +370,6 @@ class ScalarAggregateTestBase(OutputContractTestMixin, NanPolicyTestMixin, MaskT
         result_col = self.extract_column(result, "my_max")
         assert all(v == EXPECTED_MAX for v in result_col)
         assert len(result_col) == 12
-
-    def test_multi_column_in_features_rejected_at_calculate(self) -> None:
-        """calculate_feature must reject features with multiple in_features.
-
-        This verifies the safety guard in _extract_source_features() that
-        prevents silent truncation to a single column.
-        """
-        feature = Feature(
-            "bad_multi",
-            options=Options(
-                context={
-                    "aggregation_type": "sum",
-                    "in_features": ["value_int", "value_float"],
-                }
-            ),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        with pytest.raises(ValueError, match="at most 1"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
 
     # -- Cross-framework comparison ------------------------------------------
 

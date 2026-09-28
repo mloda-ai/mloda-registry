@@ -77,7 +77,7 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase):
     ### Context Parameters
     - ``aggregation_type``: The type of aggregation to perform
     - ``in_features``: The source feature to aggregate
-    - ``partition_by``: List of columns to partition by
+    - ``partition_by``: List of columns to partition by; ``[]`` aggregates the whole table into one row
     """
 
     PREFIX_PATTERN = r".*__([\w]+)_agg$"
@@ -151,8 +151,7 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase):
         for feature in features.features:
             feature_name = feature.name
 
-            source_features = cls._extract_source_features(feature)
-            source_col = source_features[0]
+            source_col = cls._extract_single_source_feature(feature)
             agg_type = cls._extract_aggregation_type(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))

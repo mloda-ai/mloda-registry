@@ -482,9 +482,8 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
                 "order_by": order_by,
             }
 
-        source_features = cls._extract_source_features(feature)
         return {
-            "source_col": source_features[0],
+            "source_col": cls._extract_single_source_feature(feature),
             "agg_type": op_token_value(feature.options.get(cls.AGGREGATION_TYPE)),
             "frame_type": op_token_value(feature.options.get(cls.FRAME_TYPE)),
             "frame_size": option_value(feature.options, cls.FRAME_SIZE, positive_int_value),

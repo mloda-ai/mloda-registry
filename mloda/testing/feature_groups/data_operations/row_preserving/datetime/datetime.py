@@ -39,6 +39,10 @@ from mloda.provider import FeatureSet
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
 # ---------------------------------------------------------------------------
@@ -108,13 +112,30 @@ def _create_varied_times_arrow_table() -> pa.Table:
 # ---------------------------------------------------------------------------
 
 
-class DateTimeTestBase(OutputContractTestMixin, DataOpsTestBase):
+class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
     """Abstract base class for datetime extraction framework tests."""
 
     # -- OutputContractTestMixin configuration ----------------------------------
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("timestamp__year")
+
+    # -- InputValidationTestMixin configuration ---------------------------------
+
+    @classmethod
+    def input_validation_cases(cls) -> dict[str, Any]:
+        return {
+            "multi_column_in_features": InputValidationCase(
+                "bad_multi",
+                {"datetime_op": "year", "in_features": ["timestamp", "event_date"]},
+                "at most 1",
+            ),
+            "missing_source_column": (
+                "known gap: datetime extraction does not reject it up front "
+                "(KeyError/engine error, or deferred on lazy backends)"
+            ),
+            "empty_partition_by": None,
+        }
 
     @classmethod
     def reference_implementation_class(cls) -> Any:

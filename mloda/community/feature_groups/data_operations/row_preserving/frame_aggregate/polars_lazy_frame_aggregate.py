@@ -23,6 +23,11 @@ _CUMULATIVE_AGG_TYPES = {"sum", "min", "max", "count", "avg"}
 _ROLLING_AGG_TYPES = {"sum", "avg", "min", "max", "std", "var", "median", "count"}
 
 
+def _over(expr: pl.Expr, partition_by: list[str]) -> pl.Expr:
+    """expr.over(partition_by) when partitioned; unpartitioned otherwise already spans the whole frame."""
+    return expr.over(partition_by) if partition_by else expr
+
+
 class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
     @classmethod
     def compute_framework_rule(cls) -> set[type[ComputeFramework]] | None:
@@ -77,16 +82,16 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
             # forward_fill() after cumulative ops ensures null source values carry
             # forward the last valid aggregate instead of propagating null.
             if agg_type == "sum":
-                expr = col.cum_sum().forward_fill().over(partition_by).alias(feature_name)
+                expr = col.cum_sum().forward_fill().pipe(_over, partition_by).alias(feature_name)
             elif agg_type == "min":
-                expr = col.cum_min().forward_fill().over(partition_by).alias(feature_name)
+                expr = col.cum_min().forward_fill().pipe(_over, partition_by).alias(feature_name)
             elif agg_type == "max":
-                expr = col.cum_max().forward_fill().over(partition_by).alias(feature_name)
+                expr = col.cum_max().forward_fill().pipe(_over, partition_by).alias(feature_name)
             elif agg_type == "count":
-                expr = col.cum_count().over(partition_by).alias(feature_name)
+                expr = col.cum_count().pipe(_over, partition_by).alias(feature_name)
             elif agg_type == "avg":
-                cum_sum = col.cum_sum().forward_fill().over(partition_by)
-                cum_count = col.cum_count().over(partition_by).cast(pl.Float64)
+                cum_sum = col.cum_sum().forward_fill().pipe(_over, partition_by)
+                cum_count = col.cum_count().pipe(_over, partition_by).cast(pl.Float64)
                 expr = (cum_sum / cum_count).alias(feature_name)
             else:
                 raise unsupported_agg_type_error(
@@ -98,30 +103,38 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
         elif frame_type == "rolling":
             window = int(frame_size) if frame_size is not None else 1
             if agg_type == "sum":
-                expr = col.rolling_sum(window_size=window, min_samples=1).over(partition_by).alias(feature_name)
+                expr = col.rolling_sum(window_size=window, min_samples=1).pipe(_over, partition_by).alias(feature_name)
             elif agg_type == "avg":
-                expr = col.rolling_mean(window_size=window, min_samples=1).over(partition_by).alias(feature_name)
+                expr = col.rolling_mean(window_size=window, min_samples=1).pipe(_over, partition_by).alias(feature_name)
             elif agg_type == "min":
                 expr = (
                     nan_skipping_extreme(lambda c: c.rolling_min(window_size=window, min_samples=1), col, source_dtype)
-                    .over(partition_by)
+                    .pipe(_over, partition_by)
                     .alias(feature_name)
                 )
             elif agg_type == "max":
                 expr = (
                     nan_skipping_extreme(lambda c: c.rolling_max(window_size=window, min_samples=1), col, source_dtype)
-                    .over(partition_by)
+                    .pipe(_over, partition_by)
                     .alias(feature_name)
                 )
             elif agg_type == "std":
-                expr = col.rolling_std(window_size=window, min_samples=1, ddof=0).over(partition_by).alias(feature_name)
+                expr = (
+                    col.rolling_std(window_size=window, min_samples=1, ddof=0)
+                    .pipe(_over, partition_by)
+                    .alias(feature_name)
+                )
             elif agg_type == "var":
-                expr = col.rolling_var(window_size=window, min_samples=1, ddof=0).over(partition_by).alias(feature_name)
+                expr = (
+                    col.rolling_var(window_size=window, min_samples=1, ddof=0)
+                    .pipe(_over, partition_by)
+                    .alias(feature_name)
+                )
             elif agg_type == "median":
                 expr = (
                     nan_to_null(col, source_dtype)
                     .rolling_median(window_size=window, min_samples=1)
-                    .over(partition_by)
+                    .pipe(_over, partition_by)
                     .alias(feature_name)
                 )
             elif agg_type == "count":
@@ -129,7 +142,7 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
                     col.is_not_null()
                     .cast(pl.Int64)
                     .rolling_sum(window_size=window, min_samples=1)
-                    .over(partition_by)
+                    .pipe(_over, partition_by)
                     .alias(feature_name)
                 )
             else:
@@ -205,13 +218,13 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
                     pl.when(non_null_count > 0)
                     .then(col.rolling_sum_by(by_col, window_size=window_str, closed="both"))
                     .otherwise(None)
-                    .over(partition_by)
+                    .pipe(_over, partition_by)
                     .alias(feature_name)
                 )
             elif agg_type == "avg":
                 expr = (
                     col.rolling_mean_by(by_col, window_size=window_str, closed="both")
-                    .over(partition_by)
+                    .pipe(_over, partition_by)
                     .alias(feature_name)
                 )
             elif agg_type == "min":
@@ -221,7 +234,7 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
                         col,
                         source_dtype,
                     )
-                    .over(partition_by)
+                    .pipe(_over, partition_by)
                     .alias(feature_name)
                 )
             elif agg_type == "max":
@@ -231,30 +244,30 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
                         col,
                         source_dtype,
                     )
-                    .over(partition_by)
+                    .pipe(_over, partition_by)
                     .alias(feature_name)
                 )
             elif agg_type == "std":
                 expr = (
                     col.rolling_std_by(by_col, window_size=window_str, ddof=0, closed="both")
-                    .over(partition_by)
+                    .pipe(_over, partition_by)
                     .alias(feature_name)
                 )
             elif agg_type == "var":
                 expr = (
                     col.rolling_var_by(by_col, window_size=window_str, ddof=0, closed="both")
-                    .over(partition_by)
+                    .pipe(_over, partition_by)
                     .alias(feature_name)
                 )
             elif agg_type == "median":
                 expr = (
                     nan_to_null(col, source_dtype)
                     .rolling_median_by(by_col, window_size=window_str, closed="both")
-                    .over(partition_by)
+                    .pipe(_over, partition_by)
                     .alias(feature_name)
                 )
             elif agg_type == "count":
-                expr = non_null_count.over(partition_by).alias(feature_name)
+                expr = non_null_count.pipe(_over, partition_by).alias(feature_name)
             else:
                 raise unsupported_agg_type_error(
                     agg_type,

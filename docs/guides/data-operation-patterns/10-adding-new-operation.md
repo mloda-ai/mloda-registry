@@ -227,6 +227,8 @@ A new case-parametrized test mixin inherits `CaseParametrizationTestMixin` (`mlo
 
 Every test base also mixes in `OutputContractTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/output_contract.py`), which covers the result-type, row-count, and new-column checks that used to be hand-written per base. Override `output_contract_feature_set` (an instance method) to return the `FeatureSet` to exercise, and `output_contract_expected_row_count` when the op changes the row count (return the expected count for the test dataset).
 
+Every op test base also wires up `InputValidationTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/input_validation.py`) and overrides `input_validation_cases()`, declaring each of `multi_column_in_features`, `missing_source_column`, and `empty_partition_by` as an `InputValidationCase` (feature name, context, `match`, and optionally a `table` for fresh test data), a reason string (skips with that reason), or `None` (does not apply to this op).
+
 ---
 
 ## Checklist
@@ -239,6 +241,7 @@ Every test base also mixes in `OutputContractTestMixin` (`mloda/testing/feature_
 - [ ] `supported_ops()` overrides only where the framework genuinely cannot do the op.
 - [ ] Mask tests wired if the op consumes values that benefit from conditional inclusion.
 - [ ] `OutputContractTestMixin` mixed in, with `output_contract_feature_set` overridden (and `output_contract_expected_row_count` overridden when the op changes the row count).
+- [ ] `InputValidationTestMixin` wired with `input_validation_cases()` covering all three kinds.
 
 ---
 

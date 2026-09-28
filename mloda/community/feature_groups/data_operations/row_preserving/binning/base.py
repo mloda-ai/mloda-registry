@@ -195,8 +195,7 @@ class BinningFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         for feature in features.features:
             feature_name = feature.name
 
-            source_features = cls._extract_source_features(feature)
-            source_col = source_features[0]
+            source_col = cls._extract_single_source_feature(feature)
             op, n_bins = cls._extract_binning_params(feature)
 
             table = cls._compute_binning(table, feature_name, source_col, op, n_bins)

@@ -30,6 +30,10 @@ import mloda.community.feature_groups.data_operations as data_operations_pkg
 import mloda.testing.feature_groups.data_operations.mixins as mixins_pkg
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
 # Dunders that every class carries purely from being a class; they are not
@@ -326,3 +330,76 @@ class TestMixinIsolation:
         assert not offenders, "DataOpsTestBase subclasses missing OutputContractTestMixin:\n" + "\n".join(
             sorted(offenders)
         )
+
+    def test_input_validation_missing_or_unknown_kind_raises(self) -> None:
+        """A subclass whose input_validation_cases() misses or adds a kind fails at collection time."""
+
+        class MissingKind(InputValidationTestMixin):
+            @classmethod
+            def input_validation_cases(cls) -> dict[str, Any]:
+                return {"multi_column_in_features": "n/a", "missing_source_column": "n/a"}
+
+        stub = _StubMetafunc(["input_validation_case"])
+        with pytest.raises(TypeError, match="must declare exactly"):
+            MissingKind().pytest_generate_tests(cast(pytest.Metafunc, stub))
+
+        class UnknownKind(InputValidationTestMixin):
+            @classmethod
+            def input_validation_cases(cls) -> dict[str, Any]:
+                return {
+                    "multi_column_in_features": "n/a",
+                    "missing_source_column": "n/a",
+                    "empty_partition_by": "n/a",
+                    "bogus_kind": "n/a",
+                }
+
+        stub2 = _StubMetafunc(["input_validation_case"])
+        with pytest.raises(TypeError, match="must declare exactly"):
+            UnknownKind().pytest_generate_tests(cast(pytest.Metafunc, stub2))
+
+    def test_input_validation_none_not_parametrized_and_str_skips(self) -> None:
+        """None omits a kind; str and InputValidationCase values are parametrized; a str value skips."""
+
+        class Declared(InputValidationTestMixin):
+            @classmethod
+            def input_validation_cases(cls) -> dict[str, Any]:
+                return {
+                    "multi_column_in_features": InputValidationCase("f", {}, "boom"),
+                    "missing_source_column": "known gap",
+                    "empty_partition_by": None,
+                }
+
+        stub = _StubMetafunc(["input_validation_case"])
+        Declared().pytest_generate_tests(cast(pytest.Metafunc, stub))
+        assert set(stub.recorded["input_validation_case"]) == {"multi_column_in_features", "missing_source_column"}
+
+        instance = Declared()
+        with pytest.raises(pytest.skip.Exception):
+            instance.test_mixin_input_validation("missing_source_column")
+
+    def test_input_validation_case_ids_rejects_bad_value_types(self) -> None:
+        """A value that is not InputValidationCase, str, or None must raise TypeError."""
+
+        class BadValueType(InputValidationTestMixin):
+            @classmethod
+            def input_validation_cases(cls) -> dict[str, Any]:
+                return {
+                    "multi_column_in_features": 1,
+                    "missing_source_column": "known gap",
+                    "empty_partition_by": None,
+                }
+
+        with pytest.raises(TypeError, match="InputValidationCase"):
+            BadValueType.input_validation_case_ids()
+
+        class EmptyReason(InputValidationTestMixin):
+            @classmethod
+            def input_validation_cases(cls) -> dict[str, Any]:
+                return {
+                    "multi_column_in_features": "",
+                    "missing_source_column": "known gap",
+                    "empty_partition_by": None,
+                }
+
+        with pytest.raises(TypeError, match="InputValidationCase"):
+            EmptyReason.input_validation_case_ids()

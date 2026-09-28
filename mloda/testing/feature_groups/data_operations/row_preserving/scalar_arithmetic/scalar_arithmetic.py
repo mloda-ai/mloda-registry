@@ -20,6 +20,10 @@ from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
 # ---------------------------------------------------------------------------
@@ -45,7 +49,7 @@ EXPECTED_DIVIDE_2: list[Any] = _apply(VALUE_INT, lambda v: v / 2.0)
 # ---------------------------------------------------------------------------
 
 
-class ScalarArithmeticTestBase(OutputContractTestMixin, DataOpsTestBase):
+class ScalarArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
     """Abstract base class for scalar arithmetic framework tests."""
 
     # -- OutputContractTestMixin configuration ----------------------------------
@@ -54,6 +58,23 @@ class ScalarArithmeticTestBase(OutputContractTestMixin, DataOpsTestBase):
         return make_feature_set("value_int__add_constant", constant=5)
 
     ALL_OPS = {"add", "subtract", "multiply", "divide"}
+
+    # -- InputValidationTestMixin configuration ---------------------------------
+
+    @classmethod
+    def input_validation_cases(cls) -> dict[str, Any]:
+        return {
+            "multi_column_in_features": InputValidationCase(
+                "bad_multi",
+                {"arithmetic_op": "add", "in_features": ["value_int", "value_float"], "constant": 5},
+                "at most 1",
+            ),
+            "missing_source_column": (
+                "known gap: scalar arithmetic does not reject it up front "
+                "(KeyError/engine error, or deferred on lazy backends)"
+            ),
+            "empty_partition_by": None,
+        }
 
     @classmethod
     def supported_ops(cls) -> set[str]:
@@ -201,26 +222,6 @@ class ScalarArithmeticTestBase(OutputContractTestMixin, DataOpsTestBase):
                 assert actual is None
             else:
                 assert actual == pytest.approx(expected, rel=1e-6)
-
-    def test_multi_column_in_features_rejected_at_calculate(self) -> None:
-        """calculate_feature must reject features with multiple in_features.
-
-        Scalar arithmetic supports exactly one source column.
-        """
-        feature = Feature(
-            "bad_multi",
-            options=Options(
-                context={
-                    "arithmetic_op": "add",
-                    "in_features": ["value_int", "value_float"],
-                    "constant": 5,
-                }
-            ),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        with pytest.raises(ValueError, match="at most 1"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
 
     # ---- Source-column dtype contract (shared across backends) ----
 

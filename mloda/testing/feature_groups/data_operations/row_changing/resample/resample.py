@@ -67,6 +67,10 @@ from mloda.user import Feature, Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
@@ -263,7 +267,7 @@ NAN_DIVERGENT_RESAMPLE: dict[str, dict[tuple[Any, ...], Any]] = {
 # ---------------------------------------------------------------------------
 
 
-class ResampleTestBase(OutputContractTestMixin, NanPolicyTestMixin, DataOpsTestBase):
+class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPolicyTestMixin, DataOpsTestBase):
     """Abstract base class for resample framework tests.
 
     Subclasses combine this with a framework mixin (``PyArrowTestMixin``,
@@ -664,33 +668,28 @@ class ResampleTestBase(OutputContractTestMixin, NanPolicyTestMixin, DataOpsTestB
         with pytest.raises(ValueError, match=r"(?i)ts|time_column|missing|column"):
             self.implementation_class().calculate_feature(data, fs)
 
-    def test_missing_source_column_rejected(self) -> None:
-        """A missing source value column must raise a clear ValueError naming it."""
-        table = pa.table(
+    # -- InputValidationTestMixin configuration ---------------------------------
+
+    @classmethod
+    def input_validation_cases(cls) -> dict[str, Any]:
+        missing_value_table = pa.table(
             {
                 "id": pa.array(_RESAMPLE_IDS, type=pa.int64()),
                 "region": pa.array(_RESAMPLE_REGIONS, type=pa.string()),
                 "ts": pa.array(_RESAMPLE_TIMESTAMPS, type=pa.timestamp("us", tz="UTC")),
             }
         )
-        data = self.create_test_data(table)
-        fs = self._resample_fs("value__resample_1_hour_mean", ["region"])
-        with pytest.raises(ValueError, match=r"(?i)value|missing|column"):
-            self.implementation_class().calculate_feature(data, fs)
-
-    def test_multi_column_in_features_rejected(self) -> None:
-        """calculate_feature must reject features with multiple in_features (MAX_IN_FEATURES=1)."""
-        feature = Feature(
-            "bad_multi_col",
-            options=Options(
-                context={
-                    "in_features": ["value", "other_value"],
-                    "time_column": "ts",
-                    "partition_by": ["region"],
-                }
+        return {
+            "multi_column_in_features": InputValidationCase(
+                "bad_multi_col",
+                {"in_features": ["value", "other_value"], "time_column": "ts", "partition_by": ["region"]},
+                "at most 1",
             ),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        with pytest.raises(ValueError, match=r"(?i)at most 1|in_features|single"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            "missing_source_column": InputValidationCase(
+                "value__resample_1_hour_mean",
+                {"partition_by": ["region"], "time_column": "ts"},
+                "Source column 'value'",
+                table=missing_value_table,
+            ),
+            "empty_partition_by": None,
+        }

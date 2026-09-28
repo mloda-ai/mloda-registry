@@ -76,6 +76,10 @@ from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls, make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 
@@ -145,7 +149,9 @@ EXPECTED_SESSION_30_MINUTE_WHOLE: list[int] = [2, 0, 1, 2, 1, 1, 2, 1, 1]
 # ---------------------------------------------------------------------------
 
 
-class SessionizationTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase):
+class SessionizationTestBase(
+    InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase
+):
     """Abstract base class for sessionization framework tests.
 
     Subclasses combine this with a framework mixin (``PandasTestMixin``,
@@ -354,24 +360,29 @@ class SessionizationTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, 
             order_by="ts",
         )
 
-    # -- Error / validation --------------------------------------------------
+    # -- InputValidationTestMixin configuration ---------------------------------
 
-    def test_missing_source_column_raises_value_error(self) -> None:
-        """A missing source ``ts`` column must raise a clear ValueError.
-
-        The table keeps ``id`` / ``user`` so the error isolates the missing
-        ``ts`` column.
-        """
-        table = pa.table(
+    @classmethod
+    def input_validation_cases(cls) -> dict[str, Any]:
+        missing_ts_table = pa.table(
             {
                 "id": pa.array(_SESSION_IDS, type=pa.int64()),
                 "user": pa.array(_SESSION_USERS, type=pa.string()),
             }
         )
-        data = self.create_test_data(table)
-        fs = make_feature_set("ts__sessionize_30_minute", partition_by=["user"], order_by="ts")
-        with pytest.raises(ValueError, match=r"(?i)ts|missing|column"):
-            self.implementation_class().calculate_feature(data, fs)
+        return {
+            # sessionization has no in_features option; the source comes from the name.
+            "multi_column_in_features": None,
+            "missing_source_column": InputValidationCase(
+                "ts__sessionize_30_minute",
+                {"partition_by": ["user"], "order_by": "ts"},
+                "Source column 'ts'",
+                table=missing_ts_table,
+            ),
+            "empty_partition_by": None,
+        }
+
+    # -- Error / validation --------------------------------------------------
 
     def test_config_only_feature_rejected_at_calculate(self) -> None:
         """calculate_feature must reject a config-only feature name (source must come from the name)."""

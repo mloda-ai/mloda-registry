@@ -27,6 +27,10 @@ from mloda.community.feature_groups.data_operations.row_preserving.rank.base imp
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
 # ---------------------------------------------------------------------------
@@ -82,7 +86,7 @@ EXPECTED_NONE_NAN_PERCENT_RANK_TIED = [1 / 3, 1 / 3, 1 / 3, 0.0]
 # ---------------------------------------------------------------------------
 
 
-class RankTestBase(OutputContractTestMixin, DataOpsTestBase):
+class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
     """Abstract base class for rank framework tests.
 
     Subclasses implement the abstract adapter methods from ``DataOpsTestBase``
@@ -95,6 +99,23 @@ class RankTestBase(OutputContractTestMixin, DataOpsTestBase):
         return make_feature_set("value_int__row_number_ranked", ["region"], "value_int")
 
     ALL_RANK_TYPES = set(RankFeatureGroup.RANK_TYPES) | set(RankFeatureGroup.PARAMETRIC_RANK_FAMILIES)
+
+    # -- InputValidationTestMixin configuration ---------------------------------
+
+    @classmethod
+    def input_validation_cases(cls) -> dict[str, Any]:
+        return {
+            "multi_column_in_features": (
+                "rank ignores its source column, so calculate_feature accepts extra in_features (match rejects them)"
+            ),
+            # rank never reads its source column, so there is nothing to reject here.
+            "missing_source_column": None,
+            "empty_partition_by": InputValidationCase(
+                "value_int__row_number_ranked",
+                {"partition_by": [], "order_by": "value_int"},
+                "non-empty partition_by",
+            ),
+        }
 
     @classmethod
     def supported_rank_types(cls) -> set[str]:
@@ -456,25 +477,6 @@ class RankTestBase(OutputContractTestMixin, DataOpsTestBase):
         fs = FeatureSet()
         fs.add(feature)
         with pytest.raises((ValueError, KeyError)):
-            self.implementation_class().calculate_feature(self.test_data, fs)
-
-    def test_partition_by_empty_raises(self) -> None:
-        """Calling calculate_feature directly with partition_by=[] should raise a clear ValueError."""
-        from mloda.provider import FeatureSet
-        from mloda.user import Feature, Options
-
-        feature = Feature(
-            "value_int__row_number_ranked",
-            options=Options(
-                context={
-                    "partition_by": [],
-                    "order_by": "value_int",
-                }
-            ),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        with pytest.raises(ValueError, match="non-empty partition_by"):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
     # -- Tier 3: Partition / order_by null tests ------------------------------

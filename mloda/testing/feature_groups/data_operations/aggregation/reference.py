@@ -103,7 +103,20 @@ class ReferenceAggregation(AggregationFeatureGroup):
 
         This avoids row-by-row .as_py() calls: PyArrow builds the per-group
         lists in C++, and we only cross into Python once per group.
+
+        ``partition_by=[]`` bypasses ``group_by([]).aggregate(..., "list")``, which PyArrow
+        rejects, and collects the whole column directly instead.
         """
+        if not partition_by:
+            non_null = [v for v in table.column(source_col).to_pylist() if v is not None]
+            if not non_null:
+                agg_value = None
+            elif agg_type == "median":
+                agg_value = aggregation_helpers.median(non_null)
+            else:
+                agg_value = aggregation_helpers.mode(non_null)
+            return pa.table([pa.array([agg_value])], names=[feature_name])
+
         grouped = table.group_by(partition_by).aggregate([(source_col, "list")])
         list_col = f"{source_col}_list"
         agg_values: list[Any] = []

@@ -57,6 +57,9 @@ class PythonDictAggregation(AggregationFeatureGroup):
         partition_cols = [data[col] for col in partition_by]
 
         groups: dict[tuple[Any, ...], list[int]] = {}
+        if not partition_by:
+            # No partition columns: the whole table is one group, even with zero rows.
+            groups[()] = []
         for i in range(len(source_values)):
             key = tuple(group_key_value(col[i]) for col in partition_cols)
             groups.setdefault(key, []).append(i)
@@ -65,9 +68,10 @@ class PythonDictAggregation(AggregationFeatureGroup):
         result[feature_name] = []
 
         for indices in groups.values():
-            first_idx = indices[0]
-            for col_name, col in zip(partition_by, partition_cols):
-                result[col_name].append(col[first_idx])
+            if partition_by:
+                first_idx = indices[0]
+                for col_name, col in zip(partition_by, partition_cols):
+                    result[col_name].append(col[first_idx])
             values = [source_values[i] for i in indices]
             result[feature_name].append(reduce_agg(agg_type, values))
 

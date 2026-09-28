@@ -17,6 +17,10 @@ from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
@@ -60,13 +64,36 @@ NAN_POLICY_P50: list[float] = [1.5, 1.5, 1.5, 2.0, 2.0, 2.0, 2.0]
 # ---------------------------------------------------------------------------
 
 
-class PercentileTestBase(OutputContractTestMixin, NanPolicyTestMixin, MaskTestMixin, DataOpsTestBase):
+class PercentileTestBase(
+    InputValidationTestMixin, OutputContractTestMixin, NanPolicyTestMixin, MaskTestMixin, DataOpsTestBase
+):
     """Abstract base class for percentile framework tests."""
 
     # -- OutputContractTestMixin configuration ----------------------------------
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__p50_percentile", ["region"])
+
+    # -- InputValidationTestMixin configuration ---------------------------------
+
+    @classmethod
+    def input_validation_cases(cls) -> dict[str, Any]:
+        return {
+            "multi_column_in_features": InputValidationCase(
+                "bad_multi",
+                {"percentile": 0.5, "in_features": ["value_int", "value_float"], "partition_by": ["region"]},
+                "at most 1",
+            ),
+            "missing_source_column": (
+                "known gap: percentile does not reject it up front "
+                "(KeyError/engine error, or deferred on lazy backends)"
+            ),
+            "empty_partition_by": InputValidationCase(
+                "my_result",
+                {"percentile": 0.5, "in_features": "value_int", "partition_by": []},
+                "non-empty partition_by",
+            ),
+        }
 
     # -- MaskTestMixin configuration -------------------------------------------
 
@@ -253,42 +280,6 @@ class PercentileTestBase(OutputContractTestMixin, NanPolicyTestMixin, MaskTestMi
         # A/Y: [2.5, 0.0] -> sorted = [0.0, 2.5] -> p50 = 1.25
         assert result_col[1] == pytest.approx(1.25, rel=1e-6)
         assert result_col[3] == pytest.approx(1.25, rel=1e-6)
-
-    # -- Multi-column in_features rejection ------------------------------------
-
-    def test_multi_column_in_features_rejected_at_calculate(self) -> None:
-        """calculate_feature must reject features with multiple in_features."""
-        feature = Feature(
-            "bad_multi",
-            options=Options(
-                context={
-                    "percentile": 0.5,
-                    "in_features": ["value_int", "value_float"],
-                    "partition_by": ["region"],
-                }
-            ),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        with pytest.raises(ValueError, match="at most 1"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
-
-    def test_partition_by_empty_raises(self) -> None:
-        """calculate_feature must reject an empty partition_by with a clear ValueError naming it."""
-        feature = Feature(
-            "my_result",
-            options=Options(
-                context={
-                    "percentile": 0.5,
-                    "in_features": "value_int",
-                    "partition_by": [],
-                }
-            ),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        with pytest.raises(ValueError, match="non-empty partition_by"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
 
     # -- Null consistency tests (multi-null columns) ---------------------------
 

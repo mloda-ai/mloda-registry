@@ -85,7 +85,8 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         taken = taken | {rn_col}
         data[rn_col] = range(len(data))
 
-        data = data.sort_values(by=[*partition_by, order_by], na_position="last")
+        # kind="mergesort" (stable) preserves original row order on order_by ties.
+        data = data.sort_values(by=[*partition_by, order_by], na_position="last", kind="mergesort")
 
         # PyArrow parity: the reference applies masks before aggregation but
         # sorts on unmasked values. Apply mask AFTER sorting so that sort
@@ -117,15 +118,16 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
             else:
                 data[source_col] = data[source_col].where(mask)
 
-        grouped = null_safe_groupby(data, partition_by, agg_col)
+        # partition_by=[]: apply expanding/rolling directly on the column instead of grouping.
+        window_source = data[agg_col] if not partition_by else null_safe_groupby(data, partition_by, agg_col)
 
         reset_levels = list(range(len(partition_by)))
 
         if frame_type in ("cumulative", "expanding"):
-            window_obj = grouped.expanding(min_periods=1)
+            window_obj = window_source.expanding(min_periods=1)
         elif frame_type == "rolling":
             window = int(frame_size) if frame_size is not None else 1
-            window_obj = grouped.rolling(window=window, min_periods=1)
+            window_obj = window_source.rolling(window=window, min_periods=1)
         elif frame_type == "time":
             size = int(frame_size) if frame_size is not None else 1
             unit = str(frame_unit or "day")
@@ -208,14 +210,22 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
             window_str = f"{size * 7}D"
         else:
             window_str = f"{size}{cls._FIXED_FREQ_CODES[unit]}"
-        by: str | list[str] = partition_by[0] if len(partition_by) == 1 else partition_by
-
-        rolling_obj = data.groupby(by, dropna=False).rolling(
-            window=window_str,
-            on=order_by,
-            closed="both",
-            min_periods=1,
-        )[source_col]
+        # partition_by=[]: roll directly on the frame instead of grouping.
+        if not partition_by:
+            rolling_obj = data.rolling(
+                window=window_str,
+                on=order_by,
+                closed="both",
+                min_periods=1,
+            )[source_col]
+        else:
+            by: str | list[str] = partition_by[0] if len(partition_by) == 1 else partition_by
+            rolling_obj = data.groupby(by, dropna=False).rolling(
+                window=window_str,
+                on=order_by,
+                closed="both",
+                min_periods=1,
+            )[source_col]
 
         if agg_type in ("std", "var"):
             rolled = getattr(rolling_obj, pandas_func)(ddof=0)

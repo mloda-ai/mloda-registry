@@ -21,6 +21,10 @@ from mloda.user import Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
@@ -115,6 +119,7 @@ SINGLE_VALUE_STD_VAR_WINDOW: dict[str, list[float]] = {
 
 
 class WindowAggregationTestBase(
+    InputValidationTestMixin,
     OutputContractTestMixin,
     NanPolicyTestMixin,
     SingleValueStdVarTestMixin,
@@ -128,6 +133,27 @@ class WindowAggregationTestBase(
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__sum_window", ["region"])
+
+    # -- InputValidationTestMixin configuration ---------------------------------
+
+    @classmethod
+    def input_validation_cases(cls) -> dict[str, Any]:
+        return {
+            "multi_column_in_features": InputValidationCase(
+                "bad_multi",
+                {"aggregation_type": "sum", "partition_by": ["region"], "in_features": ["value_int", "value_float"]},
+                "at most 1",
+            ),
+            "missing_source_column": (
+                "known gap: window aggregate does not reject it up front "
+                "(KeyError/engine error, or deferred on lazy backends)"
+            ),
+            "empty_partition_by": InputValidationCase(
+                "value_int__sum_window",
+                {"partition_by": []},
+                "non-empty partition_by",
+            ),
+        }
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 
@@ -884,20 +910,6 @@ class WindowAggregationTestBase(
 
         valid_options = Options(context={"partition_by": ["region"]})
         assert self.implementation_class().match_feature_group_criteria("value_int__sum_window", valid_options, None)
-
-    def test_partition_by_empty_raises(self) -> None:
-        """Calling calculate_feature directly with partition_by=[] should raise a clear ValueError naming it."""
-        from mloda.provider import FeatureSet
-        from mloda.user import Feature
-
-        feature = Feature(
-            "value_int__sum_window",
-            options=Options(context={"partition_by": []}),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        with pytest.raises(ValueError, match="non-empty partition_by"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
 
     # -- Row-order preservation ------------------------------------------------
 

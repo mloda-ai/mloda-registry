@@ -2,10 +2,12 @@
 
 Provides:
 - ``extract_column``: Extract a column from any framework result as a Python list.
+- ``result_column_names``: The column names of any framework result.
 - ``make_feature_set``: Build a FeatureSet with optional partition_by/order_by.
 - ``feature_set_for``: Build a FeatureSet around an Options that already exists.
 - ``is_null``: True for None or a float NaN.
 - ``assert_values_with_nulls``: Assert two lists match, null-aware, with optional cast/approx.
+- ``canonical_table_empty``: Canonical table with the same schema and zero rows, for empty-input cases.
 """
 
 from __future__ import annotations
@@ -17,6 +19,26 @@ import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
+
+from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+
+
+def canonical_table_empty() -> pa.Table:
+    """Return the canonical table's schema with zero rows, for empty-input cases."""
+    return PyArrowDataOpsTestDataCreator.create().schema.empty_table()
+
+
+def result_column_names(result: Any) -> list[str]:
+    """The column names of a framework result, mirroring ``extract_column``'s dispatch."""
+    if isinstance(result, dict):
+        return list(result.keys())
+    if isinstance(result, pa.Table):
+        return list(result.column_names)
+    if hasattr(result, "to_arrow_table"):
+        return list(result.to_arrow_table().column_names)
+    if hasattr(result, "collect"):
+        return list(result.collect().columns)
+    return list(result.columns)
 
 
 def is_null(value: Any) -> bool:

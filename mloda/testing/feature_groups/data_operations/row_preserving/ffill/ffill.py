@@ -59,6 +59,10 @@ from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls, make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 
@@ -157,7 +161,7 @@ NAIVE_WHOLE_TABLE_FFILL: list[Any] = [
 # ---------------------------------------------------------------------------
 
 
-class FfillTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase):
+class FfillTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase):
     """Abstract base class for ffill-by-time framework tests.
 
     Subclasses combine this with a framework mixin (``PyArrowTestMixin``,
@@ -325,39 +329,28 @@ class FfillTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTe
             order_by="ts",
         )
 
-    # -- Error / validation --------------------------------------------------
+    # -- InputValidationTestMixin configuration ---------------------------------
 
-    def test_missing_source_column_raises_value_error(self) -> None:
-        """A missing source value column must raise a clear ValueError naming the column.
-
-        The table keeps ``id`` / ``region`` / ``ts`` so the error isolates the
-        missing ``value`` column (not a missing order_by / partition column).
-        """
-        table = pa.table(
+    @classmethod
+    def input_validation_cases(cls) -> dict[str, Any]:
+        missing_value_table = pa.table(
             {
                 "id": pa.array(_FFILL_IDS, type=pa.int64()),
                 "region": pa.array(_FFILL_REGIONS, type=pa.string()),
                 "ts": pa.array(_FFILL_TIMESTAMPS, type=pa.timestamp("us", tz="UTC")),
             }
         )
-        data = self.create_test_data(table)
-        fs = make_feature_set("value__ffill", partition_by=["region"], order_by="ts")
-        with pytest.raises(ValueError, match=r"(?i)value|missing|column"):
-            self.implementation_class().calculate_feature(data, fs)
-
-    def test_multi_column_in_features_rejected_at_calculate(self) -> None:
-        """calculate_feature must reject features with multiple in_features (MAX_IN_FEATURES=1)."""
-        feature = Feature(
-            "bad_multi_col",
-            options=Options(
-                context={
-                    "in_features": ["value", "other_value"],
-                    "partition_by": ["region"],
-                    "order_by": "ts",
-                }
+        return {
+            "multi_column_in_features": InputValidationCase(
+                "bad_multi_col",
+                {"in_features": ["value", "other_value"], "partition_by": ["region"], "order_by": "ts"},
+                "at most 1",
             ),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        with pytest.raises(ValueError, match=r"(?i)at most 1|in_features|single"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            "missing_source_column": InputValidationCase(
+                "value__ffill",
+                {"partition_by": ["region"], "order_by": "ts"},
+                "Source column 'value'",
+                table=missing_value_table,
+            ),
+            "empty_partition_by": None,
+        }

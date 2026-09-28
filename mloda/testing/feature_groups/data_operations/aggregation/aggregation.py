@@ -21,9 +21,20 @@ from typing import Any, Callable
 import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
+from mloda.user import Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import (
+    assert_values_with_nulls,
+    canonical_table_empty,
+    extract_column,
+    make_feature_set,
+    result_column_names,
+)
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
@@ -161,7 +172,12 @@ def _build_result_map(
 
 
 class AggregationTestBase(
-    OutputContractTestMixin, NanPolicyTestMixin, SingleValueStdVarTestMixin, MaskTestMixin, DataOpsTestBase
+    InputValidationTestMixin,
+    OutputContractTestMixin,
+    NanPolicyTestMixin,
+    SingleValueStdVarTestMixin,
+    MaskTestMixin,
+    DataOpsTestBase,
 ):
     """Abstract base class for aggregation framework tests.
 
@@ -258,6 +274,24 @@ class AggregationTestBase(
     @classmethod
     def mask_no_mask_expected(cls) -> dict[Any, Any]:
         return dict(EXPECTED_SUM_BY_REGION)
+
+    # -- InputValidationTestMixin configuration ---------------------------------
+
+    @classmethod
+    def input_validation_cases(cls) -> dict[str, Any]:
+        return {
+            "multi_column_in_features": InputValidationCase(
+                "bad_multi",
+                {"aggregation_type": "sum", "partition_by": ["region"], "in_features": ["value_int", "value_float"]},
+                "at most 1",
+            ),
+            "missing_source_column": (
+                "known gap: aggregation does not reject it up front "
+                "(KeyError/engine error, or deferred on lazy backends)"
+            ),
+            # partition_by=[] means one whole-table group; every backend must support it.
+            "empty_partition_by": None,
+        }
 
     # -- SingleValueStdVarTestMixin configuration -------------------------------
 
@@ -409,6 +443,7 @@ class AggregationTestBase(
         feature_name: str,
         partition_by: list[str],
         use_approx: bool = False,
+        table: pa.Table | None = None,
     ) -> None:
         """Run the feature through this framework and the reference, assert results match.
 
@@ -416,10 +451,30 @@ class AggregationTestBase(
         framework must produce identical results.  If a framework cannot match
         the reference for a given operation, it should exclude that operation
         from supported_agg_types().
+
+        ``partition_by=[]`` means one whole-table group: the comparison collapses to a
+        single scalar, and the result's column set must be exactly ``{feature_name}``
+        (catches a leaked helper column). ``table`` defaults to the canonical 12-row
+        table; pass an alternate (e.g. an empty variant) to exercise edge cases.
         """
+        arrow_table = self._arrow_table if table is None else table
+        test_data = self.test_data if table is None else self.create_test_data(table)
         fs = make_feature_set(feature_name, partition_by)
-        result = self.implementation_class().calculate_feature(self.test_data, fs)
-        ref = self.reference_implementation_class().calculate_feature(self._arrow_table, fs)
+        result = self.implementation_class().calculate_feature(test_data, fs)
+        ref = self.reference_implementation_class().calculate_feature(arrow_table, fs)
+
+        if not partition_by:
+            assert self.get_row_count(result) == 1, (
+                f"partition_by=[] must produce one row, got {self.get_row_count(result)}"
+            )
+            assert set(result_column_names(result)) == {feature_name}, (
+                f"partition_by=[] must produce only {feature_name!r}, got {result_column_names(result)}"
+            )
+
+            assert_values_with_nulls(
+                self.extract_column(result, feature_name), extract_column(ref, feature_name), approx=use_approx
+            )
+            return
 
         region_col = self.extract_column(result, partition_by[0])
         result_col = self.extract_column(result, feature_name)
@@ -441,15 +496,49 @@ class AggregationTestBase(
             else:
                 assert result_map[key] == ref_map[key], f"group {key}: {result_map[key]} != reference {ref_map[key]}"
 
+    @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
     @pytest.mark.parametrize(
         ("agg_type", "needs_skip", "use_approx"),
         CROSS_FRAMEWORK_AGG_CASES,
         ids=[case[0] for case in CROSS_FRAMEWORK_AGG_CASES],
     )
-    def test_cross_framework_agg(self, agg_type: str, needs_skip: bool, use_approx: bool) -> None:
+    def test_cross_framework_agg(
+        self, agg_type: str, needs_skip: bool, use_approx: bool, partition_by: list[str]
+    ) -> None:
         if needs_skip:
             self._skip_if_unsupported(agg_type)
-        self._compare_agg_with_reference(f"value_int__{agg_type}_agg", ["region"], use_approx=use_approx)
+        self._compare_agg_with_reference(f"value_int__{agg_type}_agg", partition_by, use_approx=use_approx)
+
+    # -- partition_by=[] on an empty table (one row: sum None, count 0) ------
+
+    @pytest.mark.parametrize(
+        ("agg_type", "needs_skip", "use_approx"),
+        CROSS_FRAMEWORK_AGG_CASES,
+        ids=[case[0] for case in CROSS_FRAMEWORK_AGG_CASES],
+    )
+    def test_cross_framework_agg_global_empty_input(self, agg_type: str, needs_skip: bool, use_approx: bool) -> None:
+        """partition_by=[] on a zero-row table must still produce one row, like the reference."""
+        if needs_skip:
+            self._skip_if_unsupported(agg_type)
+        self._compare_agg_with_reference(
+            f"value_int__{agg_type}_agg", [], use_approx=use_approx, table=canonical_table_empty()
+        )
+
+    def test_sum_agg_global(self) -> None:
+        """Sum of value_int with partition_by=[]: the whole-table total, in one row."""
+        fs = make_feature_set("value_int__sum_agg", [])
+        result = self.implementation_class().calculate_feature(self.test_data, fs)
+
+        assert isinstance(result, self.get_expected_type())
+        assert self.get_row_count(result) == 1
+
+        result_col = self.extract_column(result, "value_int__sum_agg")
+        # 25 (A) + 140 (B) + 70 (C) + -10 (None) = 225.
+        assert result_col == [225]
+
+    def test_match_accepts_empty_partition_by(self) -> None:
+        options = Options(context={"partition_by": []})
+        assert self.implementation_class().match_feature_group_criteria("value_int__sum_agg", options)
 
     # -- Statistical aggregation tests (skipped if unsupported) --------------
 

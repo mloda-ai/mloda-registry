@@ -30,6 +30,10 @@ from mloda.testing.feature_groups.data_operations.helpers import (
 from mloda.testing.feature_groups.data_operations.helpers import (
     extract_column as _extract_column,
 )
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
@@ -260,6 +264,7 @@ def config_frame_options(agg_type: str, frame_type: str, frame_size: int = 3) ->
 
 
 class FrameAggregateTestBase(
+    InputValidationTestMixin,
     OutputContractTestMixin,
     NanPolicyTestMixin,
     SingleValueStdVarTestMixin,
@@ -273,6 +278,32 @@ class FrameAggregateTestBase(
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__sum_rolling_3", ["region"], "value_int")
+
+    # -- InputValidationTestMixin configuration ---------------------------------
+
+    @classmethod
+    def input_validation_cases(cls) -> dict[str, Any]:
+        return {
+            # order_by is set because the config path checks it before the in_features count.
+            "multi_column_in_features": InputValidationCase(
+                "bad_multi",
+                {
+                    "aggregation_type": "sum",
+                    "frame_type": "rolling",
+                    "frame_size": 3,
+                    "partition_by": ["region"],
+                    "order_by": "value_int",
+                    "in_features": ["value_int", "value_float"],
+                },
+                "at most 1",
+            ),
+            "missing_source_column": (
+                "known gap: frame aggregate does not reject it up front "
+                "(KeyError/engine error, or deferred on lazy backends)"
+            ),
+            # partition_by=[] means one whole-table group; every backend must support it.
+            "empty_partition_by": None,
+        }
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 
@@ -638,31 +669,54 @@ class FrameAggregateTestBase(
 
     # -- Cross-framework comparison ------------------------------------------
 
-    def test_cross_framework_rolling_sum(self) -> None:
-        """Rolling sum must match reference."""
-        self._compare_with_reference("value_int__sum_rolling_3", partition_by=["region"], order_by="value_int")
+    # -- Cross-framework parity across partition_by=["region"] and partition_by=[] ----
 
-    def test_cross_framework_cumsum(self) -> None:
-        """Cumulative sum must match reference."""
-        self._compare_with_reference("value_int__cumsum", partition_by=["region"], order_by="value_int")
+    @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
+    def test_cross_framework_rolling_sum(self, partition_by: list[str]) -> None:
+        """Rolling sum must match reference, whole-table (partition_by=[]) included."""
+        self._compare_with_reference("value_int__sum_rolling_3", partition_by=partition_by, order_by="value_int")
 
-    def test_cross_framework_expanding_avg(self) -> None:
-        """Expanding avg must match reference."""
+    @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
+    def test_cross_framework_cumsum(self, partition_by: list[str]) -> None:
+        """Cumulative sum must match reference, whole-table (partition_by=[]) included."""
+        self._compare_with_reference("value_int__cumsum", partition_by=partition_by, order_by="value_int")
+
+    @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
+    def test_cross_framework_expanding_avg(self, partition_by: list[str]) -> None:
+        """Expanding avg must match reference, whole-table (partition_by=[]) included."""
         self._compare_with_reference(
-            "value_int__expanding_avg", partition_by=["region"], order_by="value_int", use_approx=True
+            "value_int__expanding_avg", partition_by=partition_by, order_by="value_int", use_approx=True
         )
 
-    def test_cross_framework_rolling_avg(self) -> None:
-        """Rolling avg must match reference."""
+    @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
+    def test_cross_framework_rolling_avg(self, partition_by: list[str]) -> None:
+        """Rolling avg must match reference, whole-table (partition_by=[]) included."""
         self._compare_with_reference(
-            "value_int__avg_rolling_2", partition_by=["region"], order_by="value_int", use_approx=True
+            "value_int__avg_rolling_2", partition_by=partition_by, order_by="value_int", use_approx=True
         )
 
-    def test_cross_framework_time_window_day(self) -> None:
-        """A 3-day time window must match the reference on integer sums."""
+    @pytest.mark.parametrize("agg_type", ["std", "var"])
+    @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
+    def test_cross_framework_cumulative_std_var(self, partition_by: list[str], agg_type: str) -> None:
+        """Cumulative std/var must match reference, whole-table (partition_by=[]) included."""
+        feature_name = f"value_int__cum{agg_type}"
+        self._skip_if_frame_feature_unsupported(feature_name, partition_by, "value_int")
+        self._compare_with_reference(feature_name, partition_by=partition_by, order_by="value_int", use_approx=True)
+
+    def test_match_accepts_empty_partition_by(self) -> None:
+        options = Options(context={"partition_by": [], "order_by": "value_int"})
+        assert self.implementation_class().match_feature_group_criteria("value_int__cumsum", options)
+
+    @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
+    def test_cross_framework_time_window_day(self, partition_by: list[str]) -> None:
+        """A 3-day time window must match the reference on integer sums.
+
+        Regions interleave (A/B/A/B/A) so partition_by=[] is not indistinguishable
+        from partition_by=["region"]: the global window can span both regions.
+        """
         table = pa.table(
             {
-                "region": ["A", "A", "A", "A", "A"],
+                "region": ["A", "B", "A", "B", "A"],
                 "ts": [
                     datetime(2023, 1, 1, tzinfo=timezone.utc),
                     datetime(2023, 1, 3, tzinfo=timezone.utc),
@@ -677,7 +731,7 @@ class FrameAggregateTestBase(
         feature_name = "value__sum_3_day_window"
         feature = Feature(
             feature_name,
-            options=Options(context={"partition_by": ["region"], "order_by": "ts"}),
+            options=Options(context={"partition_by": partition_by, "order_by": "ts"}),
         )
         fs = FeatureSet()
         fs.add(feature)
@@ -685,6 +739,7 @@ class FrameAggregateTestBase(
         result = self.implementation_class().calculate_feature(data, fs)
         ref = self.reference_implementation_class().calculate_feature(table, fs)
 
+        assert self.get_row_count(result) == 5
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
         assert result_col == ref_col
@@ -936,10 +991,11 @@ class FrameAggregateTestBase(
         ],
     )
     @pytest.mark.parametrize("agg_type", ["sum", "avg", "min", "max", "count"])
+    @pytest.mark.parametrize("partition_by", [["region"], []], ids=["region", "global"])
     def test_cross_framework_time_window_with_mask(
-        self, table: pa.Table, mask_spec: tuple[Any, ...], agg_type: str
+        self, table: pa.Table, mask_spec: tuple[Any, ...], agg_type: str, partition_by: list[str]
     ) -> None:
-        """A masked time window must match the reference for every supported aggregation type."""
+        """A masked time window must match the reference, whole-table (partition_by=[]) included."""
         if "time" not in self.supported_frame_types():
             pytest.skip("This framework does not support time frames")
 
@@ -947,7 +1003,7 @@ class FrameAggregateTestBase(
         feature_name = f"value__{agg_type}_3_day_window"
         fs = make_feature_set(
             feature_name,
-            partition_by=["region"],
+            partition_by=partition_by,
             order_by="ts",
             mask=mask_spec,
         )

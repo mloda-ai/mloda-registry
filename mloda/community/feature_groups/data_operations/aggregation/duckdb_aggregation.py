@@ -75,6 +75,10 @@ class DuckdbAggregation(AggregationFeatureGroup):
 
         # Use lazy relation methods (aggregate + order) instead of eager query()
         # so DuckDB defers execution until the result is consumed.
-        rel: DuckdbRelation = data.aggregate(f"{partition_cols}, {agg_expr} AS {quoted_feature}", partition_cols)
-        rel = rel.order(partition_cols)
+        select_expr = f"{agg_expr} AS {quoted_feature}"
+        if partition_cols:
+            select_expr = f"{partition_cols}, {select_expr}"
+        rel: DuckdbRelation = data.aggregate(select_expr, partition_cols)
+        if partition_cols:
+            rel = rel.order(partition_cols)
         return rel

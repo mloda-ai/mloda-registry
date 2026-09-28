@@ -172,8 +172,7 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         for feature in features.features:
             feature_name = feature.name
 
-            source_features = cls._extract_source_features(feature)
-            source_col = source_features[0]
+            source_col = cls._extract_single_source_feature(feature)
             op = cls._extract_datetime_op(feature)
 
             table = cls._compute_datetime(table, feature_name, source_col, op)

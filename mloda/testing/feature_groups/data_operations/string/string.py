@@ -28,6 +28,10 @@ from mloda.provider import FeatureSet
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
 # ---------------------------------------------------------------------------
@@ -86,7 +90,7 @@ EXPECTED_REVERSE: list[Any] = [
 # ---------------------------------------------------------------------------
 
 
-class StringTestBase(OutputContractTestMixin, DataOpsTestBase):
+class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
     """Abstract base class for string operation framework tests."""
 
     # -- OutputContractTestMixin configuration ----------------------------------
@@ -96,6 +100,22 @@ class StringTestBase(OutputContractTestMixin, DataOpsTestBase):
         return make_feature_set("name__trim")
 
     ALL_STRING_OPS = {"upper", "lower", "trim", "length", "reverse"}
+
+    # -- InputValidationTestMixin configuration ---------------------------------
+
+    @classmethod
+    def input_validation_cases(cls) -> dict[str, Any]:
+        return {
+            "multi_column_in_features": InputValidationCase(
+                "bad_multi",
+                {"string_op": "length", "in_features": ["name", "category"]},
+                "at most 1",
+            ),
+            "missing_source_column": (
+                "known gap: string ops do not reject it up front (KeyError/engine error, or deferred on lazy backends)"
+            ),
+            "empty_partition_by": None,
+        }
 
     @classmethod
     def supported_ops(cls) -> set[str]:

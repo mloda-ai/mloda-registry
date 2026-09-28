@@ -57,13 +57,15 @@ class SqliteAggregation(AggregationFeatureGroup):
         if mask_spec is not None:
             source_sql = build_sql_case_when(SqliteFramework.mask_engine(), data, mask_spec, quoted_source)
 
+        select_cols = f"{partition_cols}, " if partition_cols else ""
+        group_by_clause = f" GROUP BY {partition_cols}" if partition_cols else ""
         new_name = _next_table_name()
         sql = (
             f"CREATE TEMP VIEW {quote_ident(new_name)} AS "  # nosec
-            f"SELECT {partition_cols}, "
+            f"SELECT {select_cols}"
             f"{agg_func}({source_sql}) AS {quoted_feature} "
-            f"FROM {quote_ident(data.table_name)} "
-            f"GROUP BY {partition_cols}"
+            f"FROM {quote_ident(data.table_name)}"
+            f"{group_by_clause}"
         )
         data.connection.execute(sql)
         return SqliteRelation(data.connection, new_name, _is_view=True)

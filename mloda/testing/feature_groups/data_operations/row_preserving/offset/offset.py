@@ -21,6 +21,10 @@ from mloda.user import Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 
@@ -56,13 +60,38 @@ EXPECTED_FIRST_VALUE = [-5, -5, -5, -5, 30, 30, 30, 30, 15, 15, 15, -10]
 EXPECTED_LAST_VALUE = [20, 20, 20, 20, 60, 60, 60, 60, 40, 40, 40, -10]
 
 
-class OffsetTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase):
+class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTestBase):
     """Abstract base class for offset framework tests."""
 
     # -- OutputContractTestMixin configuration ----------------------------------
 
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__lag_1_offset", ["region"], "value_int")
+
+    # -- InputValidationTestMixin configuration ---------------------------------
+
+    @classmethod
+    def input_validation_cases(cls) -> dict[str, Any]:
+        return {
+            "multi_column_in_features": InputValidationCase(
+                "bad_multi",
+                {
+                    "offset_type": "lag_1",
+                    "partition_by": ["region"],
+                    "order_by": "value_int",
+                    "in_features": ["value_int", "value_float"],
+                },
+                "at most 1",
+            ),
+            "missing_source_column": (
+                "known gap: offset does not reject it up front (KeyError/engine error, or deferred on lazy backends)"
+            ),
+            "empty_partition_by": InputValidationCase(
+                "value_int__lag_1_offset",
+                {"partition_by": [], "order_by": "value_int"},
+                "non-empty partition_by",
+            ),
+        }
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
 
@@ -301,25 +330,6 @@ class OffsetTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsT
         fs = FeatureSet()
         fs.add(feature)
         with pytest.raises((ValueError, KeyError)):
-            self.implementation_class().calculate_feature(self.test_data, fs)
-
-    def test_partition_by_empty_raises(self) -> None:
-        """Calling calculate_feature directly with partition_by=[] should raise a clear ValueError."""
-        from mloda.provider import FeatureSet
-        from mloda.user import Feature
-
-        feature = Feature(
-            "value_int__lag_1_offset",
-            options=Options(
-                context={
-                    "partition_by": [],
-                    "order_by": "value_int",
-                }
-            ),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        with pytest.raises(ValueError, match="non-empty partition_by"):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
     # -- Matching tests -------------------------------------------------------

@@ -44,6 +44,10 @@ from mloda.user import Feature, Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls, make_feature_set
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
 # ---------------------------------------------------------------------------
@@ -208,7 +212,7 @@ EXPECTED_ROUND_1_DAY: list[Any] = [
 # ---------------------------------------------------------------------------
 
 
-class TimeBucketizationTestBase(OutputContractTestMixin, DataOpsTestBase):
+class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
     """Abstract base class for time-bucketization framework tests.
 
     Subclasses combine this with a framework mixin (``PyArrowTestMixin``,
@@ -497,40 +501,22 @@ class TimeBucketizationTestBase(OutputContractTestMixin, DataOpsTestBase):
             f"Expected source column 'name' to be named in the error, got: {exc_info.value!r}"
         )
 
-    def test_missing_source_column_raises_value_error(self) -> None:
-        """All backends must raise ValueError (not KeyError or silent SQL error) when source col is absent.
+    # -- InputValidationTestMixin configuration ---------------------------------
 
-        Today the behaviour diverges by backend:
-        - DuckDB / SQLite: ``_assert_source_column_is_timestamp`` looks up a
-          dtype map keyed on the column name; the missing key gives ``None``
-          which fails the timestamp check silently (returns early), letting
-          downstream SQL raise an opaque engine error.
-        - Polars: ``data.collect_schema()[source_col]`` raises ``KeyError``.
-        - Pandas: ``data[source_col]`` raises ``KeyError``.
-        - PyArrow: ``data.column(source_col)`` raises ``KeyError`` /
-          ``ArrowKeyError``.
-
-        We want every backend to raise a clear ``ValueError`` naming the
-        missing column.
-        """
-        other_table = pa.table({"not_timestamp": pa.array([1, 2, 3], type=pa.int64())})
-        data = self.create_test_data(other_table)
-        fs = make_feature_set("timestamp__floor_1_day")
-        with pytest.raises(ValueError, match=r"(?i)timestamp|missing|column"):
-            self.implementation_class().calculate_feature(data, fs)
-
-    def test_multi_column_in_features_rejected_at_calculate(self) -> None:
-        """calculate_feature must reject features with multiple in_features."""
-        feature = Feature(
-            "bad_multi_col",
-            options=Options(
-                context={
-                    "bucket_op": "floor_1_day",
-                    "in_features": ["timestamp", "other_ts"],
-                }
+    @classmethod
+    def input_validation_cases(cls) -> dict[str, Any]:
+        missing_timestamp_table = pa.table({"not_timestamp": pa.array([1, 2, 3], type=pa.int64())})
+        return {
+            "multi_column_in_features": InputValidationCase(
+                "bad_multi_col",
+                {"bucket_op": "floor_1_day", "in_features": ["timestamp", "other_ts"]},
+                "at most 1",
             ),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        with pytest.raises(ValueError, match="at most 1"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
+            "missing_source_column": InputValidationCase(
+                "timestamp__floor_1_day",
+                {},
+                "Source column 'timestamp'",
+                table=missing_timestamp_table,
+            ),
+            "empty_partition_by": None,
+        }

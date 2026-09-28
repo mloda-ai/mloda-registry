@@ -17,12 +17,17 @@ from __future__ import annotations
 import math
 from typing import Any
 
+import pyarrow as pa
 import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.input_validation import (
+    InputValidationCase,
+    InputValidationTestMixin,
+)
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
 # ---------------------------------------------------------------------------
@@ -85,7 +90,7 @@ EXPECTED_DIVIDE_NULL_FOR_ZERO: list[Any] = _expected_divide(zero_to_null=True)
 # ---------------------------------------------------------------------------
 
 
-class PointArithmeticTestBase(OutputContractTestMixin, DataOpsTestBase):
+class PointArithmeticTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTestBase):
     """Abstract base class for two-column point arithmetic framework tests."""
 
     # -- OutputContractTestMixin configuration ----------------------------------
@@ -94,6 +99,26 @@ class PointArithmeticTestBase(OutputContractTestMixin, DataOpsTestBase):
         return make_feature_set("value_int&amount__add_point")
 
     ALL_OPS = {"add", "subtract", "multiply", "divide"}
+
+    # -- InputValidationTestMixin configuration ---------------------------------
+
+    @classmethod
+    def input_validation_cases(cls) -> dict[str, Any]:
+        missing_value_int_table = pa.table({"amount": pa.array(AMOUNT, type=pa.float64())})
+        return {
+            "multi_column_in_features": InputValidationCase(
+                "bad_too_many",
+                {"arithmetic_op": "add", "in_features": ["value_int", "amount", "value_float"]},
+                "at most 2",
+            ),
+            "missing_source_column": InputValidationCase(
+                "value_int&amount__add_point",
+                {},
+                "Source column 'value_int' not found in input data",
+                table=missing_value_int_table,
+            ),
+            "empty_partition_by": None,
+        }
 
     @classmethod
     def supported_ops(cls) -> set[str]:
@@ -310,22 +335,6 @@ class PointArithmeticTestBase(OutputContractTestMixin, DataOpsTestBase):
         fs = FeatureSet()
         fs.add(feature)
         with pytest.raises(ValueError, match="at least 2"):
-            self.implementation_class().calculate_feature(self.test_data, fs)
-
-    def test_too_many_in_features_rejected_at_calculate(self) -> None:
-        """calculate_feature must reject features with more than 2 in_features."""
-        feature = Feature(
-            "bad_too_many",
-            options=Options(
-                context={
-                    "arithmetic_op": "add",
-                    "in_features": ["value_int", "amount", "value_float"],
-                }
-            ),
-        )
-        fs = FeatureSet()
-        fs.add(feature)
-        with pytest.raises(ValueError, match="at most 2"):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
     # -- Source-column dtype enforcement ------------------------------------

@@ -140,7 +140,7 @@ All frame-aggregate variants accept:
 
 | Key | Type | Purpose |
 |---|---|---|
-| `partition_by` | `list[str]` | Resets the window at each partition boundary |
+| `partition_by` | `list[str]` | Resets the window at each partition boundary. An empty list (`[]`) means one whole-table partition. |
 | `order_by` | `str` | Required for rolling, time-window, cumulative, and expanding |
 | `mask` | tuple or list of tuples | Conditional aggregation; see [Masking](../feature-group-patterns/25-masking.md) |
 
@@ -161,7 +161,7 @@ Six nearby concepts; easy to mix up.
 | Point arithmetic | `_point` | Preserves (per-row col_a `op` col_b) | Each row independently |
 | Window aggregation | `_window` | Preserves (broadcasts per partition) | Partition |
 | Frame aggregate | `_rolling_N`, `_{size}_{unit}_window`, `cum*`, `expanding_*` | Preserves (broadcasts per bounded window) | Row-relative window |
-| Aggregation | `_agg` | Reduces to one row per group | Partition |
+| Aggregation | `_agg` | Reduces to one row per group (`partition_by: []` gives one whole-table row) | Partition |
 
 Pick by what your downstream step needs: same row count and a reference value (scalar), same row count with an element-wise arithmetic adjustment by a constant (scalar arithmetic) or by another column (point arithmetic), same row count and per-partition context (window), same row count with a moving window (frame), or a collapsed group-by table (aggregation).
 

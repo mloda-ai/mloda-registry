@@ -15,6 +15,7 @@ from mloda.community.feature_groups.data_operations.aggregation.base import (
     AggregationFeatureGroup,
 )
 from mloda.community.feature_groups.data_operations.errors import unsupported_agg_type_error
+from mloda.community.feature_groups.data_operations.helper_columns import unique_helper_name
 from mloda.community.feature_groups.data_operations.mask_utils import build_mask_from_spec
 from mloda.community.feature_groups.data_operations.pandas_helpers import (
     PANDAS_AGG_FUNCS,
@@ -47,18 +48,35 @@ class PandasAggregation(AggregationFeatureGroup):
             data = data.copy()
             data[source_col] = data[source_col].where(mask)
 
+        # No partition columns: fold the whole table into one group via a constant helper column.
+        helper_col: str | None = None
+        if not partition_by:
+            helper_col = unique_helper_name("__mloda_global_partition__", set(data.columns) | {feature_name})
+            if mask_spec is None:
+                data = data.copy()
+            if len(data) == 0:
+                # A zero-row groupby yields zero groups. The whole table is still one group,
+                # so seed it with one all-null row: every agg path below already treats an
+                # all-null group correctly (null result, count/nunique 0).
+                data = pd.DataFrame([[pd.NA] * len(data.columns)], columns=data.columns)
+            data[helper_col] = 0
+            partition_by = [helper_col]
+
         if agg_type == "mode":
-            return cls._compute_mode(data, feature_name, source_col, partition_by)
+            result = cls._compute_mode(data, feature_name, source_col, partition_by)
+        else:
+            pandas_func = PANDAS_AGG_FUNCS.get(agg_type)
+            if pandas_func is None:
+                raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Pandas")
 
-        pandas_func = PANDAS_AGG_FUNCS.get(agg_type)
-        if pandas_func is None:
-            raise unsupported_agg_type_error(agg_type, _SUPPORTED_AGG_TYPES, framework="Pandas")
+            grouped = null_safe_groupby(data, partition_by, source_col)
+            result = apply_null_safe_agg(grouped, pandas_func, agg_type).reset_index()
+            result = result.rename(columns={source_col: feature_name})
 
-        grouped = null_safe_groupby(data, partition_by, source_col)
-        result = apply_null_safe_agg(grouped, pandas_func, agg_type).reset_index()
-        result = result.rename(columns={source_col: feature_name})
+            coerce_count_dtype(result, feature_name, agg_type)
 
-        coerce_count_dtype(result, feature_name, agg_type)
+        if helper_col is not None:
+            result = result.drop(columns=[helper_col])
 
         return result
 
