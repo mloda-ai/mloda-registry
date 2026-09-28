@@ -2182,6 +2182,7 @@ dependencies = [
 [package.optional-dependencies]
 binary-model = [
     { name = "cryptography" },
+    { name = "mloda-community" },
     { name = "pyarrow" },
 ]
 dev = [
@@ -2198,6 +2199,7 @@ otel = [
 requires-dist = [
     { name = "cryptography", marker = "extra == 'binary-model'", specifier = ">=44" },
     { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda-community", marker = "extra == 'binary-model'", editable = "mloda/community" },
     { name = "openlineage-python", marker = "extra == 'openlineage'", specifier = ">=1.20,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30,<2" },
     { name = "pyarrow" },

@@ -452,7 +452,7 @@ class TestOutputVerification:
         still be rejected at parse time, not later as a ``UnicodeDecodeError`` (contract: Data)."""
         data = arrow_stream_bytes_invalid_utf8()
         with pytest.raises(OutputContractError):
-            mixin._parse_output_stream(data)
+            mixin.read_output_stream(data)
 
     def test_wrong_field_name_raises_output_contract_error(self) -> None:
         model = _faulty_model("wrong_schema")

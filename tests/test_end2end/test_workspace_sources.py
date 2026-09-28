@@ -144,6 +144,13 @@ def test_sources_table_is_emitted_once_and_entries_are_sorted() -> None:
     assert community_idx < registry_idx < testing_idx, content
 
 
+def test_mloda_testing_gets_source_entry_for_its_optional_community_dependency() -> None:
+    """mloda-testing's `binary-model` extra names mloda-community, a sibling only in an extra: it
+    still needs a `workspace = true` source, or uv will not lock."""
+    content = _generate("mloda-testing")
+    assert _sources(content) == {"mloda-community": {"workspace": True}}, content
+
+
 def test_computed_source_names_are_emitted_as_flat_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     """Forced dotted name (normalization rules it out in real config): an unquoted dot would parse as a nested table."""
 

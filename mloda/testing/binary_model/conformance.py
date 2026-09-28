@@ -31,9 +31,11 @@ from typing import Any, ClassVar
 import pyarrow as pa
 import pytest
 
+from mloda.community.feature_groups.binary_model import binary
+from mloda.community.feature_groups.binary_model.contract import last_non_empty_stderr_line
+from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError, reported_error
 from mloda.testing.binary_model import (
     COLUMN_TYPES,
-    CONTRACT_VERSION,
     DATA_ERROR,
     INTERNAL_ERROR,
     IPC_END_OF_STREAM_MARKER,
@@ -42,10 +44,14 @@ from mloda.testing.binary_model import (
     MESSAGE_MAX_BYTES,
     UNSUPPORTED,
     USAGE_ERROR,
-    VERSION_PATTERN,
     hash_reference,
     license_vectors,
 )
+
+# Re-exported via __all__ below for external consumers, unused in this module's own logic now that
+# the version/capabilities shape checks delegate to binary.parse_version/parse_capabilities.
+from mloda.testing.binary_model import CONTRACT_VERSION as CONTRACT_VERSION
+from mloda.testing.binary_model import VERSION_PATTERN as VERSION_PATTERN
 from mloda.testing.binary_model.arrow import (
     arrow_file_format_bytes,
     arrow_stream_bytes,
@@ -144,18 +150,15 @@ def run_binary(
 
 def stderr_error_object(stderr: bytes) -> dict[str, Any]:
     """Parse the last non-empty stderr line as the contract's ``{"code": ..., "message": ...}``
-    object; earlier lines are free-form diagnostics (contract: Errors). Decodes with
-    ``errors="replace"`` (non-UTF-8 stderr fails an assertion here, not an unhandled
-    ``UnicodeDecodeError``) and splits on ``"\\n"`` only, never ``str.splitlines()``, which also
-    splits on U+2028/U+2029/U+0085."""
-    text = stderr.decode("utf-8", errors="replace")
-    lines = [line for line in text.split("\n") if line.strip()]
-    assert lines, f"expected at least one non-empty stderr line, got {stderr!r}"
+    object; earlier lines are free-form diagnostics (contract: Errors). Uses the mixin's own
+    ``contract.last_non_empty_stderr_line``, so this matches its 64 KiB tail window exactly."""
+    line = last_non_empty_stderr_line(stderr)
+    assert line is not None, f"expected at least one non-empty stderr line, got {stderr!r}"
     try:
-        obj = json.loads(lines[-1])
+        obj = json.loads(line)
     except (ValueError, RecursionError) as exc:
-        raise AssertionError(f"last non-empty stderr line is not valid JSON: {lines[-1][:200]!r}") from exc
-    assert isinstance(obj, dict), f"last non-empty stderr line is not a JSON object: {lines[-1]!r}"
+        raise AssertionError(f"last non-empty stderr line is not valid JSON: {line[:200]!r}") from exc
+    assert isinstance(obj, dict), f"last non-empty stderr line is not a JSON object: {line!r}"
     return obj
 
 
@@ -178,6 +181,9 @@ def assert_error_response(result: subprocess.CompletedProcess[bytes], expected_c
     assert len(result.stderr) <= STDERR_SOFT_CAP_BYTES, (
         f"stderr exceeds the {STDERR_SOFT_CAP_BYTES}-byte soft cap: {len(result.stderr)} bytes"
     )
+    assert reported_error(result.returncode, result.stderr) is not None, (
+        f"error object is not a mixin-parseable error (the mixin would treat it as unparseable): {error!r}"
+    )
     return error
 
 
@@ -193,6 +199,9 @@ def assert_not_rejected_with(result: subprocess.CompletedProcess[bytes], forbidd
         assert error.get("code") == result.returncode, f"error object code mismatch: {error!r}"
         message = error.get("message")
         assert isinstance(message, str) and message, f"error object missing a non-empty message: {error!r}"
+        assert reported_error(result.returncode, result.stderr) is not None, (
+            f"error object is not a mixin-parseable error (the mixin would treat it as unparseable): {error!r}"
+        )
 
 
 def run_binary_with_transport(
@@ -387,36 +396,32 @@ class BinaryModelConformanceBase:
 
     def test_version_prints_single_line_no_license_required(self, hermetic_env: dict[str, str]) -> None:
         """`--version` prints exactly one `<plugin_id> <semver>` line to stdout and exits 0, with no
-        license variables set at all (contract: Invocation)."""
-        version_pattern = re.compile(rf"{re.escape(self.plugin_id)} {VERSION_PATTERN}")
+        license variables set at all (contract: Invocation). Delegates the line/shape rule to the
+        mixin's own ``binary.parse_version``, so the kit checks exactly what the mixin accepts."""
         result = run_binary(self.binary_cmd, ["--version"], hermetic_env, timeout=self.binary_timeout_seconds)
         assert result.returncode == 0, f"stderr={result.stderr!r}"
-        lines = result.stdout.decode("utf-8").splitlines()
-        assert len(lines) == 1, f"expected exactly one stdout line, got {lines!r}"
-        assert version_pattern.fullmatch(lines[0]), f"line does not match '<plugin_id> <semver>': {lines[0]!r}"
+        try:
+            binary.parse_version(self.binary_cmd, self.plugin_id, result.stdout)
+        except BinaryUnavailableError as exc:
+            raise AssertionError(str(exc)) from exc
 
     def test_capabilities_prints_single_json_object_no_license_required(self, hermetic_env: dict[str, str]) -> None:
         """Unknown extra keys in the capabilities object are tolerated (contract: Invocation,
-        Capabilities)."""
+        Capabilities). Delegates the shape rule to the mixin's own ``binary.parse_capabilities``,
+        so the kit checks exactly what the mixin accepts, then asserts on the kit-specific fixture
+        values."""
         result = run_binary(self.binary_cmd, ["--capabilities"], hermetic_env, timeout=self.binary_timeout_seconds)
         assert result.returncode == 0, f"stderr={result.stderr!r}"
+        try:
+            capabilities = binary.parse_capabilities(self.binary_cmd, self.plugin_id, result.stdout)
+        except BinaryUnavailableError as exc:
+            raise AssertionError(str(exc)) from exc
 
-        stdout = result.stdout
-        assert stdout.count(b"\n") <= 1, f"expected at most one trailing newline, got {stdout!r}"
-        body_bytes = stdout[:-1] if stdout.endswith(b"\n") else stdout
-        assert b"\n" not in body_bytes, f"expected exactly one JSON object on stdout, got {stdout!r}"
-
-        body = json.loads(body_bytes.decode("utf-8"))
-        assert isinstance(body, dict), f"expected a JSON object, got {body!r}"
-        assert body.get("contract") == CONTRACT_VERSION, f"unexpected contract value: {body!r}"
-        assert body.get("plugin_id") == self.plugin_id, f"unexpected plugin_id: {body!r}"
-        operations = body.get("operations")
-        assert isinstance(operations, list), f"operations must be a list: {body!r}"
         for op in self.operations:
-            assert op in operations, f"expected operation {op!r} in {operations!r}"
-        column_types = body.get("column_types")
-        assert isinstance(column_types, list), f"column_types must be a list: {body!r}"
-        assert set(column_types) == set(self.column_types), f"column_types mismatch: {column_types!r}"
+            assert op in capabilities.operations, f"expected operation {op!r} in {capabilities.operations!r}"
+        assert capabilities.column_types == set(self.column_types), (
+            f"column_types mismatch: {capabilities.column_types!r}"
+        )
 
     def test_no_arguments_is_usage_error(self, hermetic_env: dict[str, str]) -> None:
         """No license required: a flag-parsing error happens before any license check (contract:

@@ -17,14 +17,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from mloda.community.feature_groups.binary_model.contract import (
+    COLUMN_TYPES,
+    CONTRACT_VERSION,
+    VERSION_PATTERN,
+    split_output_lines,
+)
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError
 
 logger = logging.getLogger(__name__)
-
-CONTRACT_VERSION = 1
-COLUMN_TYPE_VOCABULARY = frozenset({"int64", "float64", "utf8", "boolean"})
-# Kept in step with mloda.testing.binary_model.VERSION_PATTERN, pinned by a drift test.
-VERSION_PATTERN = r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+\-]+)?"
 
 _CacheKey = tuple[str, tuple[str, ...], int, int]
 
@@ -102,7 +103,7 @@ def _run_probe(argv: list[str], flag: str, env: Mapping[str, str], timeout: floa
     return bytes(result.stdout)
 
 
-def _parse_version(argv: list[str], plugin_id: str, stdout: bytes) -> str:
+def parse_version(argv: list[str], plugin_id: str, stdout: bytes) -> str:
     try:
         text = stdout.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -118,16 +119,13 @@ def _parse_version(argv: list[str], plugin_id: str, stdout: bytes) -> str:
     return parts[1]
 
 
-def _parse_capabilities(argv: list[str], plugin_id: str, stdout: bytes) -> BinaryCapabilities:
+def parse_capabilities(argv: list[str], plugin_id: str, stdout: bytes) -> BinaryCapabilities:
     try:
         text = stdout.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise BinaryUnavailableError(f"binary {argv[0]!r} --capabilities output is not valid UTF-8: {exc}") from exc
 
-    # "\n" only: str.splitlines() also splits on U+2028/U+2029/U+0085, legal raw inside JSON strings.
-    lines = text.split("\n")
-    if lines[-1] == "":
-        lines.pop()
+    lines = split_output_lines(text)
     if len(lines) != 1:
         raise BinaryUnavailableError(
             f"binary {argv[0]!r} --capabilities must print exactly one JSON object line, got {len(lines)} lines"
@@ -161,10 +159,10 @@ def _parse_capabilities(argv: list[str], plugin_id: str, stdout: bytes) -> Binar
     if not isinstance(column_types, list) or not all(isinstance(ct, str) for ct in column_types):
         raise BinaryUnavailableError(f"binary {argv[0]!r} --capabilities 'column_types' must be a list of strings")
     column_types_set = frozenset(column_types)
-    if not column_types_set <= COLUMN_TYPE_VOCABULARY:
+    if not column_types_set <= COLUMN_TYPES:
         raise BinaryUnavailableError(
             f"binary {argv[0]!r} --capabilities 'column_types' {sorted(column_types_set)} "
-            f"is not a subset of {sorted(COLUMN_TYPE_VOCABULARY)}"
+            f"is not a subset of {sorted(COLUMN_TYPES)}"
         )
 
     return BinaryCapabilities(
@@ -199,10 +197,10 @@ def resolve_binary(
     probe_env = {key: value for key, value in env.items() if key not in ("MLODA_LICENSE_FILE", "MLODA_LICENSE_KEY")}
 
     version_stdout = _run_probe(argv, "--version", probe_env, timeout)
-    version = _parse_version(argv, plugin_id, version_stdout)
+    version = parse_version(argv, plugin_id, version_stdout)
 
     capabilities_stdout = _run_probe(argv, "--capabilities", probe_env, timeout)
-    capabilities = _parse_capabilities(argv, plugin_id, capabilities_stdout)
+    capabilities = parse_capabilities(argv, plugin_id, capabilities_stdout)
     capabilities = BinaryCapabilities(
         contract=capabilities.contract,
         plugin_id=capabilities.plugin_id,

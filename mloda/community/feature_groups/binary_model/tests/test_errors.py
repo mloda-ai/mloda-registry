@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+from mloda.community.feature_groups.binary_model import contract, errors
 from mloda.community.feature_groups.binary_model.errors import (
     ERROR_CLASS_BY_CODE,
     BinaryInternalError,
@@ -65,6 +66,28 @@ def test_error_class_by_code_maps_binary_reported_codes_only() -> None:
         5: DataError,
         6: BinaryInternalError,
     }
+
+
+@pytest.mark.parametrize(
+    "code_name, error_class",
+    [
+        ("USAGE_ERROR", BinaryUsageError),
+        ("LICENSE_MISSING", LicenseMissingError),
+        ("LICENSE_INVALID", LicenseInvalidError),
+        ("UNSUPPORTED", UnsupportedError),
+        ("DATA_ERROR", DataError),
+        ("INTERNAL_ERROR", BinaryInternalError),
+    ],
+)
+def test_error_class_by_code_matches_contract_exit_code_constants(
+    code_name: str, error_class: type[BinaryModelError]
+) -> None:
+    """Each contract exit-code constant (`contract.USAGE_ERROR`, ..., `contract.INTERNAL_ERROR`)
+    must map to its error class in `ERROR_CLASS_BY_CODE`, the single source for both the mixin and
+    the testing kit (contract: Errors). ``getattr`` is looked up at test-run time so a missing
+    constant fails this one case, not the whole module's collection."""
+    code = getattr(contract, code_name)
+    assert ERROR_CLASS_BY_CODE[code] is error_class
 
 
 def _stderr_line(code: int, message: str) -> bytes:
@@ -212,3 +235,46 @@ def test_error_from_exit_truncates_a_long_message_on_a_utf8_character_boundary()
     assert len(encoded) <= 1024
     assert len(exc.message) > 0
     assert exc.message != long_message
+
+
+def test_last_non_empty_stderr_line_skips_trailing_blank_lines() -> None:
+    """``contract.last_non_empty_stderr_line`` skips over trailing blank lines to find the last
+    non-blank one (contract: Errors, Data handling). The U+2028-kept and empty-stderr cases are
+    already covered indirectly via ``error_from_exit`` elsewhere in this file."""
+    assert contract.last_non_empty_stderr_line(b"one\ntwo\n\n\n") == "two"
+
+
+def test_last_non_empty_stderr_line_only_scans_the_trailing_64_kib_tail() -> None:
+    """A final line longer than the 64 KiB tail window is cut to exactly that window's length, a
+    single ASCII line with no embedded newline (contract: Data handling)."""
+    long_line = b"x" * (70 * 1024)
+    result = contract.last_non_empty_stderr_line(long_line)
+    assert result is not None
+    assert len(result) == 64 * 1024
+
+
+# -- `errors.reported_error`: a pure, non-raising mapping used by the testing kit's own assertions --
+
+
+def test_reported_error_valid_error_object_returns_mapped_error_instance() -> None:
+    """A stderr line whose code matches the returncode and lies within 1..6 maps to the same class
+    as ``error_from_exit`` (contract: Errors)."""
+    result = errors.reported_error(5, _stderr_line(5, "malformed input"))
+    assert isinstance(result, DataError)
+    assert result.message == "malformed input"
+
+
+@pytest.mark.parametrize(
+    "returncode, stderr",
+    [
+        pytest.param(1, b'{"code": 5.0, "message": "m"}\n', id="float_code"),
+        pytest.param(1, b'{"code": true, "message": "m"}\n', id="boolean_code"),
+        pytest.param(5, b'{"code": 3, "message": "m"}\n', id="code_mismatch"),
+        pytest.param(5, b"not json at all\n", id="non_json"),
+        pytest.param(5, b"", id="empty_stderr"),
+    ],
+)
+def test_reported_error_malformed_or_mismatched_returns_none(returncode: int, stderr: bytes) -> None:
+    """A code that isn't a plain int (a float, a bool), doesn't match the returncode, or isn't
+    parseable JSON at all must map to ``None``, never raise (contract: Errors)."""
+    assert errors.reported_error(returncode, stderr) is None

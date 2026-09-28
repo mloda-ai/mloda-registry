@@ -7,6 +7,8 @@ from __future__ import annotations
 import json
 from typing import ClassVar
 
+from mloda.community.feature_groups.binary_model import contract
+
 
 class BinaryModelError(ValueError):
     """Base class for every binary-model error; ``CODE`` is the contract exit code, or ``None``
@@ -29,95 +31,77 @@ class BinaryUnavailableError(BinaryModelError):
 class BinaryUsageError(BinaryModelError):
     """Contract exit code 1: bad flags or paths, malformed or unknown config keys."""
 
-    CODE: ClassVar[int | None] = 1
+    CODE: ClassVar[int | None] = contract.USAGE_ERROR
 
 
 class LicenseMissingError(BinaryModelError):
     """Contract exit code 2: no usable license source."""
 
-    CODE: ClassVar[int | None] = 2
+    CODE: ClassVar[int | None] = contract.LICENSE_MISSING
 
 
 class LicenseInvalidError(BinaryModelError):
     """Contract exit code 3: license invalid, expired, or insufficient entitlement."""
 
-    CODE: ClassVar[int | None] = 3
+    CODE: ClassVar[int | None] = contract.LICENSE_INVALID
 
 
 class UnsupportedError(BinaryModelError):
     """Contract exit code 4: unsupported operation or column type."""
 
-    CODE: ClassVar[int | None] = 4
+    CODE: ClassVar[int | None] = contract.UNSUPPORTED
 
 
 class DataError(BinaryModelError):
     """Contract exit code 5: malformed input or schema mismatch."""
 
-    CODE: ClassVar[int | None] = 5
+    CODE: ClassVar[int | None] = contract.DATA_ERROR
 
 
 class BinaryInternalError(BinaryModelError):
     """Contract exit code 6, as reported by the binary itself (a crash, an unrecognized exit
     code, or an unparseable stderr error object)."""
 
-    CODE: ClassVar[int | None] = 6
+    CODE: ClassVar[int | None] = contract.INTERNAL_ERROR
 
 
 class BinaryTerminatedError(BinaryModelError):
     """Contract exit code 6, mixin-initiated: the binary was terminated (timeout or
     cancellation), not a binary-reported failure."""
 
-    CODE: ClassVar[int | None] = 6
+    CODE: ClassVar[int | None] = contract.INTERNAL_ERROR
 
 
 class OutputContractError(BinaryModelError):
     """Contract exit code 6, mixin-initiated: the binary's output violated the output contract
     (wrong schema, row count, or an unparseable stream) despite exit 0."""
 
-    CODE: ClassVar[int | None] = 6
+    CODE: ClassVar[int | None] = contract.INTERNAL_ERROR
 
 
 ERROR_CLASS_BY_CODE: dict[int, type[BinaryModelError]] = {
-    1: BinaryUsageError,
-    2: LicenseMissingError,
-    3: LicenseInvalidError,
-    4: UnsupportedError,
-    5: DataError,
-    6: BinaryInternalError,
+    contract.USAGE_ERROR: BinaryUsageError,
+    contract.LICENSE_MISSING: LicenseMissingError,
+    contract.LICENSE_INVALID: LicenseInvalidError,
+    contract.UNSUPPORTED: UnsupportedError,
+    contract.DATA_ERROR: DataError,
+    contract.INTERNAL_ERROR: BinaryInternalError,
 }
 
 _GENERIC_MESSAGE_FALLBACK = "binary reported code {code} without a usable message"
 
-MAX_MESSAGE_BYTES = 1024
-
-# Bytes of stderr tail scanned for the error line, comfortably above the worst case (a `message`
-# capped at MAX_MESSAGE_BYTES, grown up to about sixfold by `\u` escapes). A longer, out-of-contract
-# error line falls back to BinaryInternalError.
-_STDERR_TAIL_WINDOW_BYTES = 64 * 1024
-
 
 def _truncate_message(message: str) -> str:
-    """Sanitize and cap ``message`` at ``MAX_MESSAGE_BYTES`` UTF-8 bytes, cutting only on a character
-    boundary (contract: Data handling)."""
-    return message.encode("utf-8", errors="replace")[:MAX_MESSAGE_BYTES].decode("utf-8", errors="ignore")
+    """Sanitize and cap ``message`` at ``contract.MESSAGE_MAX_BYTES`` UTF-8 bytes, cutting only on a
+    character boundary (contract: Data handling)."""
+    return message.encode("utf-8", errors="replace")[: contract.MESSAGE_MAX_BYTES].decode("utf-8", errors="ignore")
 
 
-def _last_non_empty_line(stderr: bytes) -> str | None:
-    """The last non-blank line of stderr's trailing tail window, split on ``b"\\n"`` only, never
-    ``str.splitlines()``, which also splits on U+2028/U+2029/U+0085 and would corrupt a message
-    containing one of them."""
-    tail = stderr[-_STDERR_TAIL_WINDOW_BYTES:]
-    for line in reversed(tail.split(b"\n")):
-        text = line.decode("utf-8", errors="replace")
-        if text.strip():
-            return text
-    return None
-
-
-def error_from_exit(returncode: int, stderr: bytes) -> BinaryModelError:
-    """Map a process exit code and its stderr to one ``BinaryModelError`` (contract: Errors).
-    Never raises: any malformed input falls back to ``BinaryInternalError``."""
-    line = _last_non_empty_line(stderr)
+def reported_error(returncode: int, stderr: bytes) -> BinaryModelError | None:
+    """Parse stderr's last non-empty line as the contract's error object and map it to a
+    ``BinaryModelError`` (contract: Errors), or ``None`` if it is not a valid, matching one.
+    Never raises."""
+    line = contract.last_non_empty_stderr_line(stderr)
     if line is not None:
         try:
             payload = json.loads(line)
@@ -135,6 +119,15 @@ def error_from_exit(returncode: int, stderr: bytes) -> BinaryModelError:
                 if not isinstance(message, str) or not message:
                     message = _GENERIC_MESSAGE_FALLBACK.format(code=code)
                 return ERROR_CLASS_BY_CODE[code](_truncate_message(message))
+    return None
+
+
+def error_from_exit(returncode: int, stderr: bytes) -> BinaryModelError:
+    """Map a process exit code and its stderr to one ``BinaryModelError`` (contract: Errors).
+    Never raises: any malformed input falls back to ``BinaryInternalError``."""
+    error = reported_error(returncode, stderr)
+    if error is not None:
+        return error
 
     kind = "signal" if returncode < 0 else "exit code"
     return BinaryInternalError(f"binary failed with unrecognized {kind} {returncode} and no parseable error object")

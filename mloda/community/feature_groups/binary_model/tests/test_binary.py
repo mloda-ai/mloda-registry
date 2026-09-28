@@ -5,6 +5,7 @@ caching the probe result per process so a warm binary is never re-probed.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess  # nosec
 import sys
@@ -15,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from mloda.community.feature_groups.binary_model import binary
+from mloda.community.feature_groups.binary_model import binary, contract
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError
 
 STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
@@ -65,7 +66,7 @@ class TestResolveBinary:
             plugin_id=PLUGIN_ID,
             version="1.0.0",
             operations=frozenset({"hash"}),
-            column_types=binary.COLUMN_TYPE_VOCABULARY,
+            column_types=contract.COLUMN_TYPES,
         )
 
     def test_str_path_override_missing_file_is_unavailable(self, tmp_path: Path) -> None:
@@ -146,13 +147,12 @@ class TestResolveBinary:
         ids=["unicode_line_separator", "crlf"],
     )
     def test_capabilities_line_split_tolerates_non_lf_line_content(self, mode: str) -> None:
-        """``_parse_capabilities`` must split on the same notion of "one line" as the conformance
-        kit's own ``test_capabilities_prints_single_json_object_no_license_required`` check, which
-        counts ``b"\\n"`` only (contract: Capabilities). ``unicode_line_separator`` puts a raw
-        U+2028 inside a tolerated unknown extra value: ``str.splitlines()`` (used by
-        ``_parse_capabilities``) also splits on U+2028, so it currently sees 2 lines and rejects a
-        binary the kit accepts. ``crlf`` is a regression guard for the same code today accepting a
-        ``\\r\\n``-terminated line."""
+        """The capabilities parser splits output via ``contract.split_output_lines``, the same
+        "one line" notion as the conformance kit's own
+        ``test_capabilities_prints_single_json_object_no_license_required`` check: split on
+        ``b"\\n"`` only (contract: Capabilities). ``unicode_line_separator`` puts a raw U+2028
+        inside a tolerated unknown extra value, which must not be treated as a second line.
+        ``crlf`` is a regression guard for a ``\\r\\n``-terminated line, also accepted."""
         resolved = binary.resolve_binary(
             "faulty_binary", [*FAULTY_CMD, "--mode", mode], env={"PATH": os.defpath}, timeout=10.0
         )
@@ -289,28 +289,69 @@ class TestVersionMustBeSemVer:
         assert resolved.capabilities.version == "0.0.1-rc.1+build.5"
 
 
-class TestContractConstantsMatchTestingKit:
-    """`binary.py` cannot import `mloda.testing` (dev-only), so it keeps its own copies of four
-    contract constants; this pins them equal to the testing kit's own copies (contract: Invocation,
-    Data handling)."""
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        pytest.param("a\n", ["a"], id="single_line_trailing_newline"),
+        pytest.param("a", ["a"], id="single_line_no_trailing_newline"),
+        pytest.param("a\u2028b\n", ["a\u2028b"], id="line_separator_not_split"),
+        pytest.param("a\u2029b\n", ["a\u2029b"], id="paragraph_separator_not_split"),
+        pytest.param("a\u0085b\n", ["a\u0085b"], id="next_line_not_split"),
+        pytest.param("a\nb\n", ["a", "b"], id="two_lines"),
+        pytest.param("a\n\n", ["a", ""], id="trailing_blank_line_kept"),
+        pytest.param("", [], id="empty_text"),
+    ],
+)
+def test_split_output_lines_drops_one_trailing_empty_element(text: str, expected: list[str]) -> None:
+    """``contract.split_output_lines`` is the single source for the ``--capabilities`` line split
+    (contract: Capabilities)."""
+    assert contract.split_output_lines(text) == expected
 
-    def test_version_pattern_matches_testing_kit(self) -> None:
-        from mloda.testing.binary_model import VERSION_PATTERN as kit_version_pattern
 
-        assert binary.VERSION_PATTERN == kit_version_pattern
+class TestPublicParseFunctions:
+    """``_parse_capabilities``/``_parse_version`` become the mixin's public parsing API
+    (``binary.parse_capabilities``/``binary.parse_version``), so the conformance kit can delegate to
+    them instead of duplicating the same checks and drifting out of sync (contract: Invocation,
+    Capabilities)."""
 
-    def test_max_message_bytes_matches_testing_kit(self) -> None:
-        from mloda.community.feature_groups.binary_model import errors
-        from mloda.testing.binary_model import MESSAGE_MAX_BYTES as kit_message_max_bytes
+    def test_parse_capabilities_is_public(self) -> None:
+        """``binary.parse_capabilities`` must exist as a public name."""
+        assert hasattr(binary, "parse_capabilities"), "binary.parse_capabilities does not exist yet"
 
-        assert errors.MAX_MESSAGE_BYTES == kit_message_max_bytes
+    def test_parse_version_is_public(self) -> None:
+        """``binary.parse_version`` must exist as a public name."""
+        assert hasattr(binary, "parse_version"), "binary.parse_version does not exist yet"
 
-    def test_contract_version_matches_testing_kit(self) -> None:
-        from mloda.testing.binary_model import CONTRACT_VERSION as kit_contract_version
+    def test_parse_capabilities_rejects_boolean_contract_value(self) -> None:
+        """A ``"contract": true`` value must be rejected: ``True == 1`` in Python, but the
+        contract's own ``contract`` value is never a bool (contract: Capabilities)."""
+        payload = (
+            json.dumps(
+                {
+                    "contract": True,
+                    "plugin_id": PLUGIN_ID,
+                    "operations": ["hash"],
+                    "column_types": sorted(contract.COLUMN_TYPES),
+                }
+            )
+            + "\n"
+        ).encode("utf-8")
+        with pytest.raises(BinaryUnavailableError):
+            binary.parse_capabilities(STUB_CMD, PLUGIN_ID, payload)
 
-        assert binary.CONTRACT_VERSION == kit_contract_version
-
-    def test_column_type_vocabulary_matches_testing_kit(self) -> None:
-        from mloda.testing.binary_model import COLUMN_TYPES as kit_column_types
-
-        assert binary.COLUMN_TYPE_VOCABULARY == kit_column_types
+    def test_parse_capabilities_rejects_non_string_operations_element(self) -> None:
+        """Every element of ``operations`` must be a string; a non-string element is rejected
+        (contract: Capabilities)."""
+        payload = (
+            json.dumps(
+                {
+                    "contract": contract.CONTRACT_VERSION,
+                    "plugin_id": PLUGIN_ID,
+                    "operations": ["hash", 1],
+                    "column_types": sorted(contract.COLUMN_TYPES),
+                }
+            )
+            + "\n"
+        ).encode("utf-8")
+        with pytest.raises(BinaryUnavailableError):
+            binary.parse_capabilities(STUB_CMD, PLUGIN_ID, payload)

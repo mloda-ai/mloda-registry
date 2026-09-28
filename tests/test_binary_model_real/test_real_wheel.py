@@ -30,7 +30,7 @@ from mloda.provider import ApiInputDataFeature, FeatureSet
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.binary_model.binary import CONTRACT_VERSION
+from mloda.community.feature_groups.binary_model.contract import CONTRACT_VERSION
 from mloda.community.feature_groups.binary_model.errors import LicenseInvalidError, LicenseMissingError
 from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
 from mloda.testing.binary_model import VERSION_PATTERN
