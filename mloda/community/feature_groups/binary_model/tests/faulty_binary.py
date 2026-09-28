@@ -153,7 +153,9 @@ def _spawn_sleeping_child(pid_path: Path) -> None:
     ``pid_path`` (contract: Data handling); shared by ``hang_with_child``, ``exit_leaving_child``,
     and the ``--version`` probe mode ``version_hang_with_child``."""
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])  # nosec B603
-    pid_path.write_text(str(child.pid), encoding="utf-8")
+    tmp_path = pid_path.with_name(pid_path.name + ".tmp")
+    tmp_path.write_text(str(child.pid), encoding="utf-8")
+    os.replace(tmp_path, pid_path)
 
 
 def _run(mode: str, args: list[str]) -> int:

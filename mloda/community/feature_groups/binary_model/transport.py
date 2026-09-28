@@ -228,17 +228,15 @@ def _terminate_timed_out_process(proc: subprocess.Popen[bytes]) -> None:
 def communicate_or_terminate(
     proc: subprocess.Popen[bytes], input_bytes: bytes | None, timeout: float | None
 ) -> tuple[bytes, bytes]:
-    """Run ``proc.communicate``, terminating the whole process group and re-raising on a timeout
-    or any other exception (contract: Errors, Data handling)."""
+    """Run ``proc.communicate``; on any exception terminate ``proc`` and re-raise: its whole process
+    group on POSIX (so ``proc`` must start with ``start_new_session=True``), only the child on Windows
+    (contract: Errors, Data handling)."""
     try:
         return proc.communicate(input_bytes, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        _terminate_timed_out_process(proc)
-        raise
     except BaseException:
         # Unconditional: the process group persists while it has members, so this still reaches a
         # descendant that outlives an already-exited leader; the only residual risk is the same
-        # pid-recycling race the timeout path above already accepts on an emptied group.
+        # pid-recycling race already accepted on an emptied group.
         _terminate_timed_out_process(proc)
         raise
 

@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from mloda.community.feature_groups.binary_model import binary, contract
+from mloda.community.feature_groups.binary_model import binary, contract, transport
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError
 from mloda.community.feature_groups.binary_model.tests.process_helpers import pid_running
 
@@ -32,7 +32,7 @@ def _clear_capability_cache_before_each_test() -> None:
     binary.clear_capability_cache()
 
 
-class _CountingRun:
+class _CountingPopen:
     """Wraps the real ``subprocess.Popen`` to count constructions, so cache-hit tests can assert no
     process was spawned. Patches the stdlib ``subprocess`` module object directly (not
     ``binary.subprocess``, which mypy's ``--strict`` (no implicit re-export) rejects from outside
@@ -171,7 +171,7 @@ class TestResolveBinary:
 
 class TestCapabilityCache:
     def test_second_call_with_same_argv_spawns_no_process(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        counter = _CountingRun(monkeypatch)
+        counter = _CountingPopen(monkeypatch)
         binary.resolve_binary(PLUGIN_ID, STUB_CMD, env={"PATH": os.defpath}, timeout=10.0)
         warm_calls = counter.count
         assert warm_calls > 0
@@ -179,7 +179,7 @@ class TestCapabilityCache:
         assert counter.count == warm_calls
 
     def test_clear_capability_cache_forces_reprobe(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        counter = _CountingRun(monkeypatch)
+        counter = _CountingPopen(monkeypatch)
         binary.resolve_binary(PLUGIN_ID, STUB_CMD, env={"PATH": os.defpath}, timeout=10.0)
         warm_calls = counter.count
         binary.clear_capability_cache()
@@ -187,7 +187,7 @@ class TestCapabilityCache:
         assert counter.count > warm_calls
 
     def test_different_argv_suffix_is_a_different_cache_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        counter = _CountingRun(monkeypatch)
+        counter = _CountingPopen(monkeypatch)
         binary.resolve_binary(PLUGIN_ID, STUB_CMD, env={"PATH": os.defpath}, timeout=10.0)
         warm_calls = counter.count
         with pytest.raises(BinaryUnavailableError):
@@ -320,7 +320,7 @@ class TestProbeTimeoutKillsDescendants:
     @pytest.mark.skipif(os.name != "posix", reason="process-group kill is POSIX-only")
     def test_version_timeout_kills_a_child_spawned_by_the_probed_binary(self, tmp_path: Path) -> None:
         pid_file = tmp_path / "child.pid"
-        binary.clear_capability_cache()
+        timeout = 3.0
         pid: int | None = None
         try:
             started = time.monotonic()
@@ -329,10 +329,10 @@ class TestProbeTimeoutKillsDescendants:
                     "faulty_binary",
                     [*FAULTY_CMD, "--mode", "version_hang_with_child"],
                     env={"PATH": os.defpath, "FAULTY_PID_FILE": str(pid_file)},
-                    timeout=3.0,
+                    timeout=timeout,
                 )
             elapsed = time.monotonic() - started
-            assert elapsed < 3.0 + 1.0 + 2.0
+            assert elapsed < timeout + transport._GRACE_WAIT_SECONDS + transport._REAP_WAIT_SECONDS
             assert pid_file.exists(), "faulty_binary never wrote the child pid before the probe timed out"
             pid = int(pid_file.read_text(encoding="utf-8"))
             deadline = time.monotonic() + 2.0
