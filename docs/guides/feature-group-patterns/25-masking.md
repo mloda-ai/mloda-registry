@@ -155,7 +155,7 @@ The framework selection does not affect the mask spec format. The same `("column
 
 The testing library provides two mixins for verifying masking in custom feature groups:
 
-- `MaskTestMixin` provides unit-level test methods covering equal, multiple conditions, is_in, greater_than, fully masked, no-mask baseline, and missing-value (null and NaN) scenarios.
+- `MaskTestMixin` provides unit-level test methods covering equal, multiple conditions, is_in, greater_than, fully masked, no-mask baseline, and missing-value (null and NaN) scenarios, and a missing mask column.
 - `MaskIntegrationTestMixin` provides 3 pipeline-level test methods that verify masking through the full `mloda.run_all` pipeline.
 
 Both mixins use overridable class methods for configuration:

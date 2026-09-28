@@ -388,7 +388,7 @@ class SessionizationTestBase(
             "missing_order_by_column": InputValidationCase(
                 "ts__sessionize_30_minute",
                 {"partition_by": ["user"], "order_by": "no_such_col"},
-                "Source column 'no_such_col' is not present",
+                "order_by 'no_such_col' is not present",
             ),
         }
 
