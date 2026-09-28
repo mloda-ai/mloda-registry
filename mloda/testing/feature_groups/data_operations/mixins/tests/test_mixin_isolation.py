@@ -8,6 +8,10 @@ Two failure modes go unnoticed by pytest and silently drop coverage:
 2. A concrete ``Test{Framework}{Op}`` class ends up with a ``test_*`` method
    defined on more than one ancestor in its MRO. The ancestor later in the
    MRO is shadowed, so any test it contributes is dropped without warning.
+3. A mixin defines its own class-level ``pytest_generate_tests`` instead of
+   going through ``CaseParametrizationTestMixin``. pytest only calls the
+   first hook found via MRO, so a second, non-chaining hook silently drops
+   another mixin's case parametrization.
 
 These checks are structural and cheap, so they run as part of the normal
 test suite.
@@ -19,10 +23,13 @@ import importlib
 import pkgutil
 from itertools import combinations
 from types import ModuleType
-from typing import Iterator
+from typing import Any, ClassVar, Iterator, cast
+
+import pytest
 
 import mloda.community.feature_groups.data_operations as data_operations_pkg
 import mloda.testing.feature_groups.data_operations.mixins as mixins_pkg
+from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 
 # Dunders that every class carries purely from being a class; they are not
 # "methods the author added" and must be excluded from collision detection.
@@ -106,6 +113,17 @@ def _iter_concrete_test_classes() -> Iterator[type]:
             yield obj
 
 
+class _StubMetafunc:
+    """Minimal stand-in for pytest.Metafunc: records parametrize() calls by argnames."""
+
+    def __init__(self, fixturenames: list[str]) -> None:
+        self.fixturenames = fixturenames
+        self.recorded: dict[str, list[Any]] = {}
+
+    def parametrize(self, argnames: str, argvalues: Any, ids: Any = None, **kwargs: Any) -> None:
+        self.recorded[argnames] = list(argvalues)
+
+
 class TestMixinIsolation:
     """Structural guards against silent mixin/MRO shadowing."""
 
@@ -157,3 +175,109 @@ class TestMixinIsolation:
             if duplicated:
                 shadowed.append(f"{cls.__module__}.{cls.__name__}: {duplicated}")
         assert not shadowed, "test_* methods shadowed in concrete class MRO:\n" + "\n".join(shadowed)
+
+    def test_pytest_generate_tests_is_only_defined_by_case_parametrization_mixin(self) -> None:
+        """Only ``CaseParametrizationTestMixin`` may define its own ``pytest_generate_tests``.
+
+        pytest calls a single ``pytest_generate_tests`` per MRO (the first one found), so a
+        second, non-chaining hook anywhere in the MRO would silently drop the shared base's
+        case parametrization.
+        """
+        offenders: list[str] = []
+        seen: set[type] = set()
+        all_classes: list[type] = []
+        for cls in _iter_concrete_test_classes():
+            all_classes.extend(cls.__mro__)
+        for cls in _discover_mixin_classes():
+            all_classes.extend(cls.__mro__)
+        assert all_classes, "no classes collected; discovery is broken"
+
+        for klass in all_classes:
+            if klass in seen:
+                continue
+            seen.add(klass)
+            if "pytest_generate_tests" in vars(klass) and klass is not CaseParametrizationTestMixin:
+                offenders.append(f"{klass.__module__}.{klass.__name__}")
+        assert not offenders, (
+            "classes defining their own pytest_generate_tests "
+            "(must inherit CaseParametrizationTestMixin instead):\n" + "\n".join(sorted(offenders))
+        )
+
+    def test_case_parametrization_mixin_parametrizes_all_declared_fixtures(self) -> None:
+        """Every fixture in a concrete class's merged ``_case_fixtures`` must be parametrized."""
+        found_any = False
+        for cls in _iter_concrete_test_classes():
+            merged: dict[str, str] = {}
+            for klass in cls.__mro__:
+                own = vars(klass).get("_case_fixtures")
+                if own:
+                    merged.update(own)
+            if not merged:
+                continue
+            found_any = True
+            instance = cls()
+            stub = _StubMetafunc(list(merged))
+            instance.pytest_generate_tests(cast(pytest.Metafunc, stub))
+            assert set(stub.recorded) == set(merged), (
+                f"{cls.__module__}.{cls.__name__}: expected fixtures {sorted(merged)}, got {sorted(stub.recorded)}"
+            )
+        assert found_any, "no concrete Test* class declares _case_fixtures; discovery is broken"
+
+    def test_case_parametrization_mixin_chains_and_skips_unrequested_fixtures(self) -> None:
+        """A case mixin combined with a parent hook must parametrize its fixtures and chain to the parent.
+
+        A fixture declared but not present in ``metafunc.fixturenames`` must not be parametrized.
+        """
+        calls: list[str] = []
+
+        class Parent:
+            def pytest_generate_tests(self, metafunc: pytest.Metafunc) -> None:
+                calls.append("parent")
+
+        class CaseMixin(CaseParametrizationTestMixin):
+            _case_fixtures: ClassVar[dict[str, str]] = {
+                "synthetic_case": "synthetic_cases",
+                "other_case": "other_cases",
+            }
+
+            @classmethod
+            def synthetic_cases(cls) -> dict[str, Any]:
+                return {"a": 1, "b": 2}
+
+            @classmethod
+            def other_cases(cls) -> dict[str, Any]:
+                return {"c": 3}
+
+        class Combined(CaseMixin, Parent):
+            pass
+
+        stub = _StubMetafunc(["synthetic_case"])
+        Combined().pytest_generate_tests(cast(pytest.Metafunc, stub))
+
+        assert stub.recorded.get("synthetic_case") == ["a", "b"]
+        assert "other_case" not in stub.recorded
+        assert calls == ["parent"]
+
+    def test_case_parametrization_mixin_raises_on_duplicate_fixture_declaration(self) -> None:
+        """Two mixins declaring the same fixture name must raise ``TypeError``."""
+
+        class CaseMixinA(CaseParametrizationTestMixin):
+            _case_fixtures: ClassVar[dict[str, str]] = {"dup_case": "cases_a"}
+
+            @classmethod
+            def cases_a(cls) -> dict[str, Any]:
+                return {"a": 1}
+
+        class CaseMixinB(CaseParametrizationTestMixin):
+            _case_fixtures: ClassVar[dict[str, str]] = {"dup_case": "cases_b"}
+
+            @classmethod
+            def cases_b(cls) -> dict[str, Any]:
+                return {"b": 2}
+
+        class Combined(CaseMixinA, CaseMixinB):
+            pass
+
+        stub = _StubMetafunc(["dup_case"])
+        with pytest.raises(TypeError):
+            Combined().pytest_generate_tests(cast(pytest.Metafunc, stub))

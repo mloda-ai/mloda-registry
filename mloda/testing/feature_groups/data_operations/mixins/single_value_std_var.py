@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar
 
 import pyarrow as pa
 import pytest
@@ -22,6 +22,7 @@ from mloda.provider import FeatureSet
 
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 
 # grp A holds three values (Jan 1, 10, 11); grp B holds exactly one value (Jan 1),
 # the single-value group each case's std/var must resolve to 0.0 for.
@@ -43,13 +44,14 @@ SINGLE_VALUE_STD = math.sqrt(200 / 3)
 SINGLE_VALUE_VAR = 200 / 3
 
 
-class SingleValueStdVarTestMixin:
+class SingleValueStdVarTestMixin(CaseParametrizationTestMixin):
     """Mixin providing a standardized single-value std/var test.
 
     Feature-group test bases mix this in and override the configuration methods
     below to adapt the generic test to their semantics. A missing override of
-    ``single_value_cases()`` fails at collection time: ``pytest_generate_tests``
-    calls it to build the parametrize list.
+    ``single_value_cases()`` fails at collection time:
+    ``CaseParametrizationTestMixin.pytest_generate_tests`` calls it at collection
+    time to build the parametrize list.
 
     Requires the host class to provide (from DataOpsTestBase):
     - ``implementation_class()``
@@ -59,18 +61,7 @@ class SingleValueStdVarTestMixin:
     - ``_skip_if_unsupported(op)`` (used by the default skip hook)
     """
 
-    def pytest_generate_tests(self, metafunc: pytest.Metafunc) -> None:
-        """Parametrize ``single_value_case`` over ``sorted(single_value_cases())``.
-
-        Chains cooperatively via ``super()`` so another mixin can add its own
-        class-level ``pytest_generate_tests`` hook.
-        """
-        if "single_value_case" in metafunc.fixturenames:
-            cases = sorted(self.single_value_cases())
-            metafunc.parametrize("single_value_case", cases, ids=cases)
-        parent = getattr(super(), "pytest_generate_tests", None)
-        if parent is not None:
-            parent(metafunc)
+    _case_fixtures: ClassVar[dict[str, str]] = {"single_value_case": "single_value_cases"}
 
     # -- Configuration methods (override per feature group) --------------------
 

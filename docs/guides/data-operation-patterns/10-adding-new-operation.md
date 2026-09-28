@@ -223,6 +223,8 @@ class YourOpTestBase(MaskTestMixin, DataOpsTestBase):
 
 If the new op has a documented NaN policy (see [the reference-implementation guide](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier)), wire it up to `NanPolicyTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/nan_policy.py`) instead of writing a bespoke `test_nan_policy_*` method. Override `nan_policy_cases` (case id -> expected value, required) and `nan_policy_feature_name` (case id -> feature name, required); `nan_policy_agg_type` defaults to the case id, `nan_policy_feature_set` defaults to partitioning by `"grp"`, `nan_policy_divergent_cases` defaults to no divergences, and `nan_policy_extract_values` defaults to a plain list column. A divergent case only applies for a concrete framework test class that names its agg type (via `nan_policy_agg_type`) in that class's own `nan_divergent_agg_types()`; a framework with no divergence for the op does not need to override `nan_policy_divergent_cases` at all. The default skip hook calls `_skip_if_unsupported`, which needs a `supported_*` set on the base (e.g. `supported_agg_types`); ops without one (resample, percentile) must override `nan_policy_skip_if_unsupported` instead.
 
+A new case-parametrized test mixin inherits `CaseParametrizationTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/case_parametrization.py`) and declares its fixture in `_case_fixtures`; it never defines its own `pytest_generate_tests`, since pytest calls only the first hook found via MRO and `mixins/tests/test_mixin_isolation.py` enforces this structurally.
+
 ---
 
 ## Checklist

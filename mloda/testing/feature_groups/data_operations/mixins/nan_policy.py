@@ -12,16 +12,17 @@ for shared mixin tests (see ``MaskTestMixin``, ``ReservedColumnsTestMixin``).
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar
 
 import pytest
 from mloda.provider import FeatureSet
 
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 
 
-class NanPolicyTestMixin:
+class NanPolicyTestMixin(CaseParametrizationTestMixin):
     """Mixin providing a standardized NaN-policy test.
 
     Feature-group test bases mix this in and override the configuration methods
@@ -37,22 +38,11 @@ class NanPolicyTestMixin:
     - ``_skip_if_unsupported(op)`` (only used by the default skip hook)
 
     A concrete class that mixes this in without overriding ``nan_policy_cases()``
-    fails at collection time (``pytest_generate_tests`` calls it eagerly to build
-    the parametrization), not at test-run time.
+    fails at collection time (``CaseParametrizationTestMixin.pytest_generate_tests``
+    calls it at collection time to build the parametrization), not at test-run time.
     """
 
-    def pytest_generate_tests(self, metafunc: pytest.Metafunc) -> None:
-        """Parametrize ``nan_policy_case`` over ``sorted(nan_policy_cases())``.
-
-        Chains cooperatively via ``super()`` so another mixin can add its own
-        class-level ``pytest_generate_tests`` hook.
-        """
-        if "nan_policy_case" in metafunc.fixturenames:
-            cases = sorted(self.nan_policy_cases())
-            metafunc.parametrize("nan_policy_case", cases, ids=cases)
-        parent = getattr(super(), "pytest_generate_tests", None)
-        if parent is not None:
-            parent(metafunc)
+    _case_fixtures: ClassVar[dict[str, str]] = {"nan_policy_case": "nan_policy_cases"}
 
     # -- Configuration methods (override per feature group) --------------------
 
