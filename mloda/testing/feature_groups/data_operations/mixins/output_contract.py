@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
 from mloda.provider import FeatureSet
 
 
@@ -17,6 +16,7 @@ class OutputContractTestMixin:
     Requires the host class to provide (from DataOpsTestBase):
     - ``implementation_class()``
     - ``test_data`` attribute (set in setup_method)
+    - ``_arrow_table`` attribute (set in setup_method)
     - ``extract_column(result, column_name)``
     - ``get_row_count(result)``
     - ``get_expected_type()``
@@ -33,12 +33,8 @@ class OutputContractTestMixin:
         """
         raise NotImplementedError
 
-    def output_contract_expected_row_count(self) -> int | None:
-        """Expected output row count. Default: same as the input table (row-preserving).
-
-        ``None`` means the op has no fixed output row count (e.g. resample,
-        whose bucket count depends on the data); the row-count test skips.
-        """
+    def output_contract_expected_row_count(self) -> int:
+        """Defaults to the input row count; override for ops that change the row count."""
         return int(self._arrow_table.num_rows)  # type: ignore[attr-defined]
 
     # -- Helper ------------------------------------------------------------
@@ -56,18 +52,12 @@ class OutputContractTestMixin:
         assert isinstance(result, self.get_expected_type())  # type: ignore[attr-defined]
 
     def test_mixin_output_contract_row_count(self) -> None:
-        """Output row count matches the op's contract, when the op has a fixed one."""
-        expected = self.output_contract_expected_row_count()
-        if expected is None:
-            pytest.skip("op has no fixed output row count")
+        """Output row count matches the op's contract."""
         result, _ = self._output_contract_result()
-        assert self.get_row_count(result) == expected  # type: ignore[attr-defined]
+        assert self.get_row_count(result) == self.output_contract_expected_row_count()  # type: ignore[attr-defined]
 
     def test_mixin_output_contract_new_column(self) -> None:
         """The result column should be present in the output, one value per output row."""
         result, name = self._output_contract_result()
         col = self.extract_column(result, name)  # type: ignore[attr-defined]
-        assert len(col) == self.get_row_count(result)  # type: ignore[attr-defined]
-        expected = self.output_contract_expected_row_count()
-        if expected is not None:
-            assert len(col) == expected
+        assert len(col) == self.output_contract_expected_row_count()

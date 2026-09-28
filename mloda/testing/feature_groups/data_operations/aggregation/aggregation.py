@@ -178,7 +178,7 @@ class AggregationTestBase(
     def output_contract_feature_set(self) -> FeatureSet:
         return make_feature_set("value_int__max_agg", ["region"])
 
-    def output_contract_expected_row_count(self) -> int | None:
+    def output_contract_expected_row_count(self) -> int:
         # One row per region group (A, B, C, None); the null region is its own group.
         return 4
 

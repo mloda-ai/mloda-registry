@@ -30,6 +30,7 @@ import mloda.community.feature_groups.data_operations as data_operations_pkg
 import mloda.testing.feature_groups.data_operations.mixins as mixins_pkg
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 
 # Dunders that every class carries purely from being a class; they are not
 # "methods the author added" and must be excluded from collision detection.
@@ -315,8 +316,6 @@ class TestMixinIsolation:
 
     def test_every_data_ops_test_class_mixes_in_output_contract(self) -> None:
         """Every concrete ``DataOpsTestBase`` subclass must also mix in ``OutputContractTestMixin``."""
-        from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
-
         offenders: list[str] = []
         concrete_classes = [cls for cls in _iter_concrete_test_classes() if issubclass(cls, DataOpsTestBase)]
         assert concrete_classes, "no concrete DataOpsTestBase subclasses discovered; discovery is broken"

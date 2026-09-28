@@ -281,9 +281,9 @@ class ResampleTestBase(OutputContractTestMixin, NanPolicyTestMixin, DataOpsTestB
     def output_contract_feature_set(self) -> FeatureSet:
         return self._resample_fs("value__resample_1_hour_mean", ["region"])
 
-    def output_contract_expected_row_count(self) -> int | None:
-        # Bucket count depends on the data; resample changes the row count.
-        return None
+    def output_contract_expected_row_count(self) -> int:
+        # One row per region and hour bucket.
+        return len(EXPECTED_1_HOUR_MEAN)
 
     @classmethod
     def reference_implementation_class(cls) -> Any:

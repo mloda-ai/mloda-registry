@@ -225,7 +225,7 @@ If the new op has a documented NaN policy (see [the reference-implementation gui
 
 A new case-parametrized test mixin inherits `CaseParametrizationTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/case_parametrization.py`) and declares its fixture in `_case_fixtures`, rather than defining its own `pytest_generate_tests`; `mixins/tests/test_mixin_isolation.py` enforces this structurally.
 
-Every test base also mixes in `OutputContractTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/output_contract.py`), which covers the result-type, row-count, and new-column checks that used to be hand-written per base. Override `output_contract_feature_set` (an instance method) to return the `FeatureSet` to exercise, and `output_contract_expected_row_count` if the op changes the row count (return the new count, or `None` when it's data-dependent, e.g. resample).
+Every test base also mixes in `OutputContractTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/output_contract.py`), which covers the result-type, row-count, and new-column checks that used to be hand-written per base. Override `output_contract_feature_set` (an instance method) to return the `FeatureSet` to exercise, and `output_contract_expected_row_count` when the op changes the row count (return the expected count for the test dataset).
 
 ---
 
@@ -238,7 +238,7 @@ Every test base also mixes in `OutputContractTestMixin` (`mloda/testing/feature_
 - [ ] One `tests/test_{framework}.py` per framework, importing the framework mixin.
 - [ ] `supported_ops()` overrides only where the framework genuinely cannot do the op.
 - [ ] Mask tests wired if the op consumes values that benefit from conditional inclusion.
-- [ ] `OutputContractTestMixin` mixed in, with `output_contract_feature_set` overridden (and `output_contract_expected_row_count` overridden if the op changes the row count).
+- [ ] `OutputContractTestMixin` mixed in, with `output_contract_feature_set` overridden (and `output_contract_expected_row_count` overridden when the op changes the row count).
 
 ---
 
