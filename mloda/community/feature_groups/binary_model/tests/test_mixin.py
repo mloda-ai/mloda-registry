@@ -32,7 +32,7 @@ from mloda.community.feature_groups.binary_model.errors import (
 )
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
 from mloda.community.feature_groups.binary_model.tests.process_helpers import pid_running
-from mloda.community.feature_groups.binary_model.transport import TEMP_PARENT_NAME, pid_is_alive
+from mloda.community.feature_groups.binary_model.transport import TEMP_PARENT_NAME
 from mloda.testing.binary_model.arrow import arrow_stream_bytes_invalid_utf8
 from mloda.testing.binary_model.conformance import BinaryModelConformanceBase, HashOperationConformanceMixin
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
@@ -926,15 +926,16 @@ class TestTimeoutTerminatesPosixDescendants:
     @pytest.mark.skipif(os.name != "posix", reason="process-group termination is POSIX-only")
     def test_hanging_binary_with_a_child_process_leaves_no_live_descendant(self, tmp_path: Path) -> None:
         pid_file = tmp_path / "child.pid"
-        model = _faulty_model("hang_with_child", BINARY_TIMEOUT_SECONDS=0.5)
+        model = _faulty_model("hang_with_child", BINARY_TIMEOUT_SECONDS=5.0)
         table = pa.table({"col_a": ["alpha"]})
         with pytest.raises(BinaryTerminatedError):
             model.run_binary_model(table, ["col_a"], "hash", {"pid_file": str(pid_file)}, {"result": "col_a_hash"})
+        assert pid_file.exists(), "faulty_binary never wrote the descendant's pid"
         child_pid = int(pid_file.read_text(encoding="utf-8"))
         deadline = time.monotonic() + 2.0
-        while pid_is_alive(child_pid) and time.monotonic() < deadline:
+        while pid_running(child_pid) and time.monotonic() < deadline:
             time.sleep(0.05)
-        assert not pid_is_alive(child_pid)
+        assert not pid_running(child_pid)
 
     @pytest.mark.skipif(os.name != "posix", reason="process-group termination is POSIX-only")
     @pytest.mark.skipif(not os.path.exists("/proc/self/stat"), reason="zombie check reads /proc")
