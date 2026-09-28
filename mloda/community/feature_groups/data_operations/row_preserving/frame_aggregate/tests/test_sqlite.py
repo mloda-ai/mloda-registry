@@ -54,6 +54,11 @@ class TestSqliteFrameAggregate(CapabilityHookTestMixin, SqliteTestMixin, FrameAg
         )
 
     @classmethod
+    def nan_divergent_agg_types(cls) -> frozenset[str]:
+        """sqlite3 coerces NaN to NULL on ingest, so it skips NaN in sum/avg/count."""
+        return frozenset({"sum", "avg", "count"})
+
+    @classmethod
     def supported_time_units(cls) -> set[str]:
         # SQLite's native ``datetime(ts, '-N months')`` rolls over by day-of-month
         # (Mar 31 -1mo = Mar 3) whereas the reference uses ``relativedelta``

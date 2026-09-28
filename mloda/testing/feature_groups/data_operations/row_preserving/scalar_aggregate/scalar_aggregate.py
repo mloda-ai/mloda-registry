@@ -53,6 +53,16 @@ NAN_POLICY_SCALAR: dict[str, list[float]] = {
     "median": [1.5] * 7,
     "min": [1.0] * 7,
     "max": [3.0] * 7,
+    "sum": [float("nan")] * 7,
+    "avg": [float("nan")] * 7,
+    "count": [7] * 7,
+}
+# Known per-backend divergence, pinned via nan_divergent_agg_types(): pandas and
+# SQLite can't tell NaN from null, so both skip it in sum/avg/count.
+NAN_DIVERGENT_SCALAR: dict[str, list[float]] = {
+    "sum": [7.0] * 7,
+    "avg": [1.75] * 7,
+    "count": [4] * 7,
 }
 
 
@@ -125,6 +135,10 @@ class ScalarAggregateTestBase(NanPolicyTestMixin, MaskTestMixin, DataOpsTestBase
     @classmethod
     def nan_policy_cases(cls) -> dict[str, Any]:
         return NAN_POLICY_SCALAR
+
+    @classmethod
+    def nan_policy_divergent_cases(cls) -> dict[str, Any]:
+        return NAN_DIVERGENT_SCALAR
 
     @classmethod
     def nan_policy_feature_name(cls, case: str) -> str:

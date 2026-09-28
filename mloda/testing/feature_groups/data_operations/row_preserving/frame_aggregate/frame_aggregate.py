@@ -129,15 +129,25 @@ NAN_POLICY_ROLLING_3: dict[str, list[float]] = {
     "median": [2.0, 2.0, 1.5, 1.0, 1.0, 2.0, 3.0],
     "min": [2.0, 2.0, 1.0, 1.0, 1.0, 1.0, 3.0],
     "max": [2.0, 2.0, 2.0, 1.0, 1.0, 3.0, 3.0],
+    "sum": [2.0, float("nan"), float("nan"), 1.0, float("nan"), float("nan"), float("nan")],
+    "avg": [2.0, float("nan"), float("nan"), 1.0, float("nan"), float("nan"), float("nan")],
+    "count": [1, 2, 3, 1, 2, 3, 3],
+    "std": [0.0, float("nan"), float("nan"), 0.0, float("nan"), float("nan"), float("nan")],
+    "var": [0.0, float("nan"), float("nan"), 0.0, float("nan"), float("nan"), float("nan")],
 }
 
-# Cumulative and expanding aggregate to the running median/min/max over the same
-# grp/ts/val fixture as NAN_POLICY_ROLLING_3, but over the whole preceding run rather
-# than a fixed-size window; both frame kinds share these values.
+# Cumulative and expanding aggregate to the running median/min/max/sum/avg/count/std/var
+# over the same grp/ts/val fixture as NAN_POLICY_ROLLING_3, but over the whole preceding
+# run rather than a fixed-size window; both frame kinds share these values.
 NAN_POLICY_CUMULATIVE_EXPANDING: dict[str, list[float]] = {
     "median": [2.0, 2.0, 1.5, 1.0, 1.0, 2.0, 2.0],
     "min": [2.0, 2.0, 1.0, 1.0, 1.0, 1.0, 1.0],
     "max": [2.0, 2.0, 2.0, 1.0, 1.0, 3.0, 3.0],
+    "sum": [2.0, float("nan"), float("nan"), 1.0, float("nan"), float("nan"), float("nan")],
+    "avg": [2.0, float("nan"), float("nan"), 1.0, float("nan"), float("nan"), float("nan")],
+    "count": [1, 2, 3, 1, 2, 3, 4],
+    "std": [0.0, float("nan"), float("nan"), 0.0, float("nan"), float("nan"), float("nan")],
+    "var": [0.0, float("nan"), float("nan"), 0.0, float("nan"), float("nan"), float("nan")],
 }
 
 # Feature-name templates and expected values for each frame kind the NaN policy test
@@ -149,6 +159,39 @@ NAN_POLICY_FRAME_KINDS: dict[str, tuple[str, dict[str, list[float]]]] = {
     "cumulative": ("val__cum{agg_type}", NAN_POLICY_CUMULATIVE_EXPANDING),
     "expanding": ("val__expanding_{agg_type}", NAN_POLICY_CUMULATIVE_EXPANDING),
 }
+
+# Known per-backend divergences, pinned via nan_divergent_agg_types(): pandas and
+# SQLite can't tell NaN from null, so both skip it in sum/avg/count; pandas also
+# skips it in std/var (SQLite has no frame std/var support).
+NAN_DIVERGENT_ROLLING_3: dict[str, list[float]] = {
+    "sum": [2.0, 2.0, 3.0, 1.0, 1.0, 4.0, 3.0],
+    "avg": [2.0, 2.0, 1.5, 1.0, 1.0, 2.0, 3.0],
+    "count": [1, 1, 2, 1, 1, 2, 1],
+    "std": [0.0, 0.0, 0.5, 0.0, 0.0, 1.0, 0.0],
+    "var": [0.0, 0.0, 0.25, 0.0, 0.0, 1.0, 0.0],
+}
+NAN_DIVERGENT_CUMULATIVE_EXPANDING: dict[str, list[float]] = {
+    "sum": [2.0, 2.0, 3.0, 1.0, 1.0, 4.0, 4.0],
+    "avg": [2.0, 2.0, 1.5, 1.0, 1.0, 2.0, 2.0],
+    "count": [1, 1, 2, 1, 1, 2, 2],
+    "std": [0.0, 0.0, 0.5, 0.0, 0.0, 1.0, 1.0],
+    "var": [0.0, 0.0, 0.25, 0.0, 0.0, 1.0, 1.0],
+}
+NAN_DIVERGENT_FRAME_KINDS: dict[str, dict[str, list[float]]] = {
+    "rolling_3": NAN_DIVERGENT_ROLLING_3,
+    "2_day_window": NAN_DIVERGENT_ROLLING_3,
+    "cumulative": NAN_DIVERGENT_CUMULATIVE_EXPANDING,
+    "expanding": NAN_DIVERGENT_CUMULATIVE_EXPANDING,
+}
+
+
+def _frame_kind_cases(expected_by_kind: dict[str, dict[str, list[float]]]) -> dict[str, list[float]]:
+    """Flatten a frame-kind -> agg_type -> expected mapping into "{frame_kind}-{agg_type}" case ids."""
+    return {
+        f"{frame_kind}-{agg_type}": expected
+        for frame_kind, expected_by_agg_type in expected_by_kind.items()
+        for agg_type, expected in expected_by_agg_type.items()
+    }
 
 
 # Single-value std/var (see SingleValueStdVarTestMixin): std/var over a window or
@@ -333,11 +376,16 @@ class FrameAggregateTestBase(
 
     @classmethod
     def nan_policy_cases(cls) -> dict[str, Any]:
-        return {
-            f"{frame_kind}-{agg_type}": expected_by_agg_type[agg_type]
-            for frame_kind, (_, expected_by_agg_type) in NAN_POLICY_FRAME_KINDS.items()
-            for agg_type in expected_by_agg_type
-        }
+        return _frame_kind_cases(
+            {
+                frame_kind: expected_by_agg_type
+                for frame_kind, (_, expected_by_agg_type) in NAN_POLICY_FRAME_KINDS.items()
+            }
+        )
+
+    @classmethod
+    def nan_policy_divergent_cases(cls) -> dict[str, Any]:
+        return _frame_kind_cases(NAN_DIVERGENT_FRAME_KINDS)
 
     @classmethod
     def nan_policy_agg_type(cls, case: str) -> str:

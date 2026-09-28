@@ -52,6 +52,11 @@ class TestPandasFrameAggregate(CapabilityHookTestMixin, PandasTestMixin, FrameAg
         return {"second", "minute", "hour", "day", "week"}
 
     @classmethod
+    def nan_divergent_agg_types(cls) -> frozenset[str]:
+        """pandas cannot tell NaN from null, so it skips NaN in sum/avg/count/std/var."""
+        return frozenset({"sum", "avg", "count", "std", "var"})
+
+    @classmethod
     def supports_null_order_in_time_window(cls) -> bool:
         # pandas groupby().rolling(on=ts) raises "ts values must not have NaT"
         # when the order_by column contains null timestamps. The implementation

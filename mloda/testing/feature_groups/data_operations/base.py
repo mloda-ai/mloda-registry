@@ -125,7 +125,7 @@ class DataOpsTestBase(ABC):
 
     @classmethod
     def nan_policy_table(cls) -> pa.Table:
-        """Shared grp/ts/val fixture for sum/avg/count/median/mode/min/max NaN-policy tests.
+        """Shared grp/ts/val fixture for sum/avg/count/median/mode/min/max/std/var NaN-policy tests.
 
         Consumed by ``NanPolicyTestMixin.test_mixin_nan_policy`` (see
         ``mloda/testing/feature_groups/data_operations/mixins/nan_policy.py``).
@@ -150,11 +150,8 @@ class DataOpsTestBase(ABC):
 
     @classmethod
     def nan_divergent_agg_types(cls) -> frozenset[str]:
-        """Agg types where this framework pins a known NaN divergence instead of the policy.
+        """Agg types where this framework pins a known NaN divergence instead of the policy (default: none).
 
-        Read by ``NanPolicyTestMixin.test_mixin_nan_policy`` for aggregation,
-        window_aggregation, and resample, for pandas' mode() divergence and
-        pandas'/SQLite's inability to tell NaN from null. Default: none.
         See docs/guides/data-operation-patterns/known-divergences.md.
         """
         return frozenset()

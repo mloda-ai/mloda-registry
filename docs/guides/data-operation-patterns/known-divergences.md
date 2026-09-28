@@ -375,9 +375,9 @@ regression_test:
 ### Pandas and SQLite cannot tell NaN from null
 
 <!-- machine-checked
-operation: aggregation, window_aggregation, resample
+operation: aggregation, window_aggregation, resample, scalar_aggregate, frame_aggregate
 framework: pandas, sqlite
-condition: pandas and SQLite skip NaN in sum/avg/count (pandas also in mode) and pandas resample returns null for an all-NaN bucket
+condition: pandas and SQLite skip NaN in sum/avg/count (pandas also in mode, and in frame_aggregate std/var), pandas resample returns null for an all-NaN bucket
 mitigation_location:
 - mloda/community/feature_groups/data_operations/pandas_helpers.py
 - mloda/community/feature_groups/data_operations/aggregation/pandas_aggregation.py
@@ -385,20 +385,28 @@ mitigation_location:
 - mloda/community/feature_groups/data_operations/row_changing/resample/pandas_resample.py
 - mloda/community/feature_groups/data_operations/aggregation/sqlite_aggregation.py
 - mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/sqlite_window_aggregation.py
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/pandas_scalar_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/sqlite_scalar_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/pandas_frame_aggregate.py
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/sqlite_frame_aggregate.py
 regression_test:
 - mloda/community/feature_groups/data_operations/aggregation/tests/test_pandas.py::TestPandasAggregation::test_mixin_nan_policy
 - mloda/community/feature_groups/data_operations/aggregation/tests/test_sqlite.py::TestSqliteAggregation::test_mixin_nan_policy
 - mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/tests/test_pandas.py::TestPandasWindowAggregation::test_mixin_nan_policy
 - mloda/community/feature_groups/data_operations/row_preserving/window_aggregation/tests/test_sqlite.py::TestSqliteWindowAggregation::test_mixin_nan_policy
 - mloda/community/feature_groups/data_operations/row_changing/resample/tests/test_pandas.py::TestPandasResample::test_mixin_nan_policy
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/tests/test_pandas.py::TestPandasScalarAggregate::test_mixin_nan_policy
+- mloda/community/feature_groups/data_operations/row_preserving/scalar_aggregate/tests/test_sqlite.py::TestSqliteScalarAggregate::test_mixin_nan_policy
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/tests/test_pandas.py::TestPandasFrameAggregate::test_mixin_nan_policy
+- mloda/community/feature_groups/data_operations/row_preserving/frame_aggregate/tests/test_sqlite.py::TestSqliteFrameAggregate::test_mixin_nan_policy
 -->
 
-- **Operations**: `aggregation`/`window_aggregation` `mode`/`sum`/`avg`/`count` (Pandas and SQLite); `resample` `sum`/`mean`/`count`/`min`/`max` (Pandas only).
-- **Where it lives**: `pandas_helpers.py`'s `compute_mode_winners`, shared by `pandas_aggregation.py` and `pandas_window_aggregation.py`; `pandas_resample.py`; `sqlite_aggregation.py`; `sqlite_window_aggregation.py`.
-- **Reference behavior**: Under the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier), `mode` counts NaN as one value like `pc.mode`, and `sum`/`avg`/`mean` propagate NaN and count it toward `count`. An all-NaN resample bucket keeps NaN for `min`/`max`/`sum`/`mean`. DuckDB and Polars now follow this natively for mode/min/max.
-- **Native behavior**: Pandas never calls `Series.mode()`; `compute_mode_winners` drops NaN via `.notna()` before counting. A float64 pandas column cannot distinguish NaN from null, so pandas' `sum`/`mean`/`count` skip NaN the same way they skip null, and pandas resample returns null (count 0) for an all-NaN bucket. The sqlite3 driver coerces NaN to `NULL` on ingest, so SQLite's `SUM`/`AVG`/`COUNT` never see a NaN to propagate or count either; SQLite has no resample backend yet.
+- **Operations**: `aggregation`/`window_aggregation` `mode`/`sum`/`avg`/`count` (Pandas and SQLite); `resample` `sum`/`mean`/`count`/`min`/`max` (Pandas only); `scalar_aggregate` `sum`/`avg`/`count` (Pandas and SQLite); `frame_aggregate` `sum`/`avg`/`count` (Pandas and SQLite) plus `std`/`var` (Pandas only; SQLite has no frame std/var).
+- **Where it lives**: `pandas_helpers.py`'s `compute_mode_winners`, shared by `pandas_aggregation.py` and `pandas_window_aggregation.py`; `pandas_resample.py`; `sqlite_aggregation.py`; `sqlite_window_aggregation.py`; `pandas_scalar_aggregate.py`; `sqlite_scalar_aggregate.py`; `pandas_frame_aggregate.py`; `sqlite_frame_aggregate.py`.
+- **Reference behavior**: Under the [reference policy](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier), `mode` counts NaN as one value like `pc.mode`, and `sum`/`avg`/`mean` propagate NaN and count it toward `count`; `std`/`var` propagate NaN too, like `pc.stddev`/`pc.variance`. An all-NaN resample bucket keeps NaN for `min`/`max`/`sum`/`mean`. DuckDB and Polars now follow this natively for mode/min/max.
+- **Native behavior**: Pandas never calls `Series.mode()`; `compute_mode_winners` drops NaN via `.notna()` before counting. A float64 pandas column cannot distinguish NaN from null, so pandas' `sum`/`mean`/`count`/`std`/`var` skip NaN the same way they skip null, and pandas resample returns null (count 0) for an all-NaN bucket. The sqlite3 driver coerces NaN to `NULL` on ingest, so SQLite's `SUM`/`AVG`/`COUNT` never see a NaN to propagate or count either; SQLite has no `frame_aggregate` std/var support, and no resample backend yet.
 - **Mitigation kind**: Accepted divergence. Neither pandas nor SQLite can represent NaN separately from null.
-- **How**: Each framework's `nan_divergent_agg_types()` hook pins its diverging agg types instead of the policy value in the shared `NanPolicyTestMixin.test_mixin_nan_policy` test: Pandas pins `{"mode", "sum", "avg", "count"}` for aggregation/window_aggregation and `{"sum", "mean", "count", "min", "max"}` for resample; SQLite pins `{"sum", "avg", "count"}` for aggregation/window_aggregation.
+- **How**: Each framework's `nan_divergent_agg_types()` hook pins its diverging agg types instead of the policy value in the shared `NanPolicyTestMixin.test_mixin_nan_policy` test: Pandas pins `{"mode", "sum", "avg", "count"}` for aggregation/window_aggregation, `{"sum", "mean", "count", "min", "max"}` for resample, `{"sum", "avg", "count"}` for scalar_aggregate, and `{"sum", "avg", "count", "std", "var"}` for frame_aggregate; SQLite pins `{"sum", "avg", "count"}` for aggregation/window_aggregation/scalar_aggregate/frame_aggregate.
 - **Regression signal**: The tests run the fixture through the reference and each backend (policy, or the pinned divergence map for Pandas/SQLite); a fix matching the policy on any of these agg types would need the corresponding hook narrowed or removed.
 
 ### PythonDict `group_key_value` merges `0.0` and `-0.0` into one group
