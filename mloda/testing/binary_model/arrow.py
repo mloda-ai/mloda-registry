@@ -1,7 +1,8 @@
 """Arrow IPC stream mechanics for the binary-model conformance kit: building input streams (single
-batch, multi-batch, schema-only, IPC file/Feather format), reading output back into a table, and
-raw-bytes/raw-message helpers for conditions pyarrow's own reader can't distinguish (schema-only vs
-zero-row batch) or works around (compressed bodies, corrupted messages after a valid schema).
+batch, multi-batch, schema-only, IPC file/Feather format), reading output back into a table and
+verifying it against the output contract, and raw-bytes/raw-message helpers for conditions
+pyarrow's own reader can't distinguish (schema-only vs zero-row batch) or works around (compressed
+bodies, corrupted messages after a valid schema).
 
 The pytest-facing surface (fixtures, assertions, conformance-check classes) lives in
 ``conformance.py``, which imports and re-exports these helpers.

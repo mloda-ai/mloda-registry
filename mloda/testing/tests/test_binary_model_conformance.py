@@ -418,8 +418,9 @@ def test_minimal_environment_allowlist_only_delegates_to_output_contract_check(
     )
     fake_result = subprocess.CompletedProcess(args=[], returncode=0, stdout=fake_stdout, stderr=b"")
     monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", lambda *args, **kwargs: fake_result)
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError) as exc_info:
         conformance.test_minimal_environment_allowlist_only(tmp_path)
+    assert isinstance(exc_info.value.__cause__, OutputContractError)
 
 
 def test_size_cap_constants_are_exported() -> None:

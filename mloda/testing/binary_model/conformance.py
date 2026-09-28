@@ -970,9 +970,8 @@ class BinaryModelConformanceBase:
         )
         assert baseline_result.returncode == 0, f"stderr={baseline_result.stderr!r}"
         table = read_arrow_stream(output_bytes)
-        assert_output_contract(
-            table, config["output_columns"], len(next(iter(self.default_input_rows().values()))), self.column_types
-        )
+        expected_rows = len(next(iter(self.default_input_rows().values())))
+        assert_output_contract(table, config["output_columns"], expected_rows, self.column_types)
         baseline_table = read_arrow_stream(baseline_output)
         assert table.schema.equals(baseline_table.schema), (
             f"transport combination produced a different schema: {table.schema!r} vs {baseline_table.schema!r}"
