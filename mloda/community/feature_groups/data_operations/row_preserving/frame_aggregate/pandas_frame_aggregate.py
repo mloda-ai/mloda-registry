@@ -119,15 +119,13 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
 
         grouped = null_safe_groupby(data, partition_by, agg_col)
 
-        # std/var require at least 2 observations for a meaningful result
-        min_periods = 2 if agg_type in ("std", "var") else 1
         reset_levels = list(range(len(partition_by)))
 
         if frame_type in ("cumulative", "expanding"):
-            window_obj = grouped.expanding(min_periods=min_periods)
+            window_obj = grouped.expanding(min_periods=1)
         elif frame_type == "rolling":
             window = int(frame_size) if frame_size is not None else 1
-            window_obj = grouped.rolling(window=window, min_periods=min_periods)
+            window_obj = grouped.rolling(window=window, min_periods=1)
         elif frame_type == "time":
             size = int(frame_size) if frame_size is not None else 1
             unit = str(frame_unit or "day")
@@ -150,7 +148,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
                     "not support. See known-divergences.md."
                 )
             data[feature_name] = cls._compute_fixed_freq_time(
-                data, agg_col, partition_by, order_by, agg_type, size, unit, min_periods
+                data, agg_col, partition_by, order_by, agg_type, size, unit
             )
             coerce_count_dtype(data, feature_name, agg_type)
             data = data.sort_values(by=rn_col)
@@ -193,7 +191,6 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
         agg_type: str,
         size: int,
         unit: str,
-        min_periods: int,
     ) -> pd.Series:
         """Time window using pandas native rolling on a fixed-frequency offset.
 
@@ -217,7 +214,7 @@ class PandasFrameAggregate(FrameAggregateFeatureGroup):
             window=window_str,
             on=order_by,
             closed="both",
-            min_periods=min_periods,
+            min_periods=1,
         )[source_col]
 
         if agg_type in ("std", "var"):

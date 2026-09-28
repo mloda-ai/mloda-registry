@@ -114,9 +114,9 @@ class PolarsLazyFrameAggregate(FrameAggregateFeatureGroup):
                     .alias(feature_name)
                 )
             elif agg_type == "std":
-                expr = col.rolling_std(window_size=window, min_samples=2, ddof=0).over(partition_by).alias(feature_name)
+                expr = col.rolling_std(window_size=window, min_samples=1, ddof=0).over(partition_by).alias(feature_name)
             elif agg_type == "var":
-                expr = col.rolling_var(window_size=window, min_samples=2, ddof=0).over(partition_by).alias(feature_name)
+                expr = col.rolling_var(window_size=window, min_samples=1, ddof=0).over(partition_by).alias(feature_name)
             elif agg_type == "median":
                 expr = (
                     nan_to_null(col, source_dtype)

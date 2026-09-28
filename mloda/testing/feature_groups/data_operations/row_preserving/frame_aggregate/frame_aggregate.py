@@ -145,6 +145,20 @@ NAN_POLICY_FRAME_KINDS: dict[str, tuple[str, dict[str, list[float]]]] = {
 }
 
 
+# Std/var over a window holding exactly one value must be 0.0 (population, ddof=0),
+# not null. Table: region A/A/A, ts=(Jan1, Jan10, Jan11), value=(10, 20, 30).
+SINGLE_VALUE_WINDOW_STD_VAR: dict[str, list[float]] = {
+    "value__std_3_day_window": [0.0, 0.0, 5.0],
+    "value__var_3_day_window": [0.0, 0.0, 25.0],
+    "value__std_rolling_3": [0.0, 5.0, math.sqrt(200 / 3)],
+    "value__var_rolling_3": [0.0, 25.0, 200 / 3],
+    "value__expanding_std": [0.0, 5.0, math.sqrt(200 / 3)],
+    "value__expanding_var": [0.0, 25.0, 200 / 3],
+    "value__cumstd": [0.0, 5.0, math.sqrt(200 / 3)],
+    "value__cumvar": [0.0, 25.0, 200 / 3],
+}
+
+
 # ---------------------------------------------------------------------------
 # Capability-probe option builders (shared across backend test modules)
 # ---------------------------------------------------------------------------
@@ -870,6 +884,31 @@ class FrameAggregateTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTes
         result_col = self.extract_column(result, feature_name)
         ref_col = _extract_column(ref, feature_name)
         assert result_col == ref_col
+
+    @pytest.mark.parametrize(
+        "feature_name, expected",
+        sorted(SINGLE_VALUE_WINDOW_STD_VAR.items()),
+        ids=sorted(SINGLE_VALUE_WINDOW_STD_VAR),
+    )
+    def test_cross_framework_single_value_window_std_var(self, feature_name: str, expected: list[float]) -> None:
+        """std/var of a window holding exactly one value must be 0.0, not null."""
+        self._skip_if_frame_feature_unsupported(feature_name, ["region"], "ts")
+        table = pa.table(
+            {
+                "region": ["A", "A", "A"],
+                "ts": [datetime(2023, 1, d, tzinfo=timezone.utc) for d in (1, 10, 11)],
+                "value": [10, 20, 30],
+            }
+        )
+        fs = make_feature_set(feature_name, ["region"], "ts")
+
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        ref_col = _extract_column(ref, feature_name)
+        _assert_values_with_nulls(ref_col, expected)
+
+        result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
+        result_col = self.extract_column(result, feature_name)
+        _assert_values_with_nulls(result_col, expected)
 
     # -- Edge case tests -----------------------------------------------------
 
