@@ -125,7 +125,7 @@ class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGr
 
     ### Context Parameters
     - ``rank_type``: The type of ranking to perform
-    - ``in_features``: The source feature (used for ordering)
+    - ``in_features``: The source feature (names the result; ordering comes from ``order_by``)
     - ``partition_by``: List of columns to partition by
     - ``order_by``: Column to order by within each partition
     """
@@ -157,7 +157,7 @@ class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGr
             expected=OP_TOKEN_EXPECTED,
         ),
         DefaultOptionKeys.in_features: property_spec(
-            "Source feature for rank ordering",
+            "Source feature (ordering comes from order_by)",
             strict=False,
             match_guard=is_in_features_value,
             expected=IN_FEATURES_EXPECTED,
