@@ -109,11 +109,11 @@ results = mloda.run_all(features=["my_feature"], function_extender={MyExtender()
 
 ## Reading the hook context
 
-`HookContext.current()` inside `__call__` returns the context of the hook being dispatched, or `None` outside a hook call (a direct call, a unit test without an activated context). It is set only on the dispatching thread, so capture it before handing work to another thread.
+`HookContext.current()` inside `__call__` returns the context of the hook being dispatched, or `None` outside a hook call (a direct call, a unit test without an activated context). It is set only on the dispatching thread, so capture it before handing work to another thread, or run that work under `contextvars.copy_context().run`.
 
-- Before `func` runs: `hook`, `feature_group_class` (`module.qualname`), `feature_group_version`, `plugin_version`, `feature_names`, `input_features`, `input_feature_edges`, `compute_framework_name`, `rows_in`, `run_id`, `carrier`, `worker_index`, and the verified `tenant_id`, `project_id` and `principal` (see [Verified run context](#verified-run-context)).
-- After `func` returns or raises: `rows_out`, `output_schema`, `duration_seconds` and `status` (`"success"` or `"error"`, for the wrapped call only).
-- Per hook: `INPUT_DATA_LOAD` adds the data-access fields (see [Hook context for data loads](#hook-context-for-data-loads)), `JOIN` adds `join_type` and `join_keys`, and `FEATURE_GROUP_MATCHED` adds the running `plan_feature_count`, `plan_node_count` and `plan_depth`. Fields a hook does not fill stay `None`.
+- Before `func` runs, on the calculate and validate hooks: `hook`, `feature_group_class` (`module.qualname`), `feature_group_version`, `plugin_version`, `feature_names`, `input_features`, `input_feature_edges`, `compute_framework_name`, `rows_in`, `run_id`, `carrier`, `worker_index`, and the verified `tenant_id`, `project_id` and `principal` (see [Verified run context](#verified-run-context)).
+- After `func`: `duration_seconds` and `status` (`"success"` or `"error"`, for the wrapped call only), also when it raises; on success, `rows_out` (calculate, data loads) and `output_schema` (calculate, validate-output).
+- Per hook: `INPUT_DATA_LOAD` inherits the calculation's identity fields and adds the data-access fields (see [Hook context for data loads](#hook-context-for-data-loads)). `JOIN` and `FEATURE_GROUP_MATCHED` carry no feature-group identity, only `run_id`, the verified identity and their own fields: `join_type` and `join_keys`, or `feature_names` and the running `plan_feature_count`, `plan_node_count` and `plan_depth`; the match hook sets `feature_group_class` only after `func` returns. Unfilled fields keep their defaults (`None`, `""` or `()`).
 
 ```python
 import logging
@@ -132,15 +132,20 @@ class FactsExtender(Extender):
         return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
-        result = func(*args, **kwargs)
-        context = HookContext.current()
-        if context is not None:
-            logger.info("%s took %ss, status %s", context.feature_group_class, context.duration_seconds, context.status)
-        return result
+        try:
+            return func(*args, **kwargs)
+        finally:
+            context = HookContext.current()
+            if context is not None:
+                logger.info(
+                    "%s took %ss, status %s", context.feature_group_class, context.duration_seconds, context.status
+                )
 
 
-# Outside a run, activate a hand-built context (tests can use mloda.testing's make_hook_context).
-# Core fills duration_seconds and status only during a run, so both log as None here.
+# Outside a run, activate a hand-built context (tests can use make_hook_context from
+# mloda.testing.extenders.hook_context). Core fills duration_seconds and status only
+# during a run, so both log as None here.
+logging.basicConfig(level=logging.INFO)
 context = HookContext(
     hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
     feature_group_class="my_plugin.MyFeatureGroup",
@@ -159,7 +164,7 @@ See core's [HookContext facts](https://github.com/mloda-ai/mloda/blob/0.14.0/doc
 
 Its `HookContext` inherits the enclosing calculation's feature-group and feature identity fields (`feature_group_class`, `feature_group_version`, `plugin_version`, `feature_names`, `input_features`, `input_feature_edges`), then adds `data_access_identity` and `data_access_format` for the input being read. The enclosing calculation context does not carry those data-access fields, and `rows_in` is left unset here.
 
-The `data_access_identity` that core supplies on the context comes from the reader's default-deny `data_access_identity(data_access)` classmethod (see `BaseInputData.data_access_identity`); a reader may override it to publish more, and then owns what it publishes. See core's contract for [reading call facts via `HookContext`](https://github.com/mloda-ai/mloda/blob/0.14.0/docs/docs/chapter1/extender.md#5-reading-call-facts-via-hookcontext).
+The `data_access_identity` that core supplies on the context comes from the reader's default-deny `data_access_identity(data_access)` classmethod (see `BaseInputData.data_access_identity`); a reader may override it to publish more, and then owns what it publishes.
 
 Record `context.data_access_identity` as given, never the raw data access (`args[0]` of the wrapped load call), which can carry credentials that core's identity leaves out. `AuditExtender`, `OpenLineageExtender`, `LineageFacetsExtender` and `OtelExtender` all do: it is the audit entry, the dataset name (and its dedupe key), and the `mloda.data_access.identity` span attribute. With core's default, a keyword DSN or ODBC string is recorded as `str`, a mapping as its sorted key names (`{host, password}`), and a URI as its scheme, host and path, without user information, query or fragment. Azure `abfs`, `abfss`, `wasb` and `wasbs` URIs keep the container, so `abfss://raw@acct...` and `abfss://curated@acct...` with the same path stay two datasets. Known limits: sources core does not tell apart become one dataset, namely HTTP sources that differ only in their query, `jdbc:` URIs (cut to the host), percent-encoded paths (cut to the directory), every string core cannot parse or find (a DSN, a missing path, a URI with a space, several hosts or an `@` in its query), which are all `str`, and any other data access (a number, a missing `PurePath`, a connection object), recorded as its type name. A reader that needs a finer identity overrides `data_access_identity` (see [Non-File / HTTP Sources](feature-group-patterns/27-input-data-readers.md#non-file--http-sources)). Identities recorded by earlier registry versions, which sanitized the raw data access, do not join to these. `data_access_identity` and `data_access_format` are index-aligned lists with one entry per distinct (identity, format) pair the call attempted, in first-seen order: repeats collapse, a load without an identity is omitted, and `[]` means none. An absent key means not recorded, since keys may be added within `record_version` 1.
 
