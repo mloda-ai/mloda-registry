@@ -17,6 +17,7 @@ import pyarrow as pa
 
 from mloda.testing.binary_model import CONTRACT_VERSION
 from mloda.testing.binary_model.arrow import arrow_stream_bytes_from_arrays, read_arrow_stream
+from mloda.testing.binary_model.arrow_arrays import array_from_values
 
 VERSION = "1.0.0"
 
@@ -94,9 +95,9 @@ def _run_echo_utf8(args: list[str]) -> int:
     input_column = config["input_columns"][0]
     written_name = next(iter(config["output_columns"].values()))
     table = read_arrow_stream(_read_input_bytes(input_path))
-    values = table.column(input_column).cast(pa.string()).to_pylist()
+    values = table.column(input_column).cast(pa.string()).combine_chunks()
     schema = pa.schema([pa.field(written_name, pa.string())])
-    data = arrow_stream_bytes_from_arrays(schema, [pa.array(values, type=pa.string())])
+    data = arrow_stream_bytes_from_arrays(schema, [values])
     _write_output(data, output_path)
     return 0
 
@@ -121,7 +122,7 @@ def _run_boolean_output_not_advertised(args: list[str]) -> int:
     table = read_arrow_stream(_read_input_bytes(input_path))
     num_rows = table.num_rows
     schema = pa.schema([pa.field(written_name, pa.bool_())])
-    data = arrow_stream_bytes_from_arrays(schema, [pa.array([True] * num_rows, type=pa.bool_())])
+    data = arrow_stream_bytes_from_arrays(schema, [array_from_values([True] * num_rows, pa.bool_())])
     _write_output(data, output_path)
     return 0
 

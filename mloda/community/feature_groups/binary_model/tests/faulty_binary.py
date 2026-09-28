@@ -19,6 +19,7 @@ import pyarrow as pa
 
 from mloda.testing.binary_model import COLUMN_TYPES
 from mloda.testing.binary_model.arrow import arrow_stream_bytes_from_arrays, read_arrow_stream
+from mloda.testing.binary_model.arrow_arrays import array_from_values
 
 PLUGIN_ID = "faulty_binary"
 VERSION = "0.0.1"
@@ -233,13 +234,13 @@ def _run(mode: str, args: list[str]) -> int:
         # arrow_stream_bytes_from_arrays, which accepts duplicate field names.
         dup_schema = pa.schema([pa.field(field_name, column_type), pa.field(field_name, column_type)])
         dup_data = arrow_stream_bytes_from_arrays(
-            dup_schema, [pa.array([0] * num_rows, type=column_type), pa.array([0] * num_rows, type=column_type)]
+            dup_schema, [array_from_values([0] * num_rows, column_type), array_from_values([0] * num_rows, column_type)]
         )
         _write_output(dup_data, output_path)
         return 0
 
     schema = pa.schema([pa.field(field_name, column_type)])
-    data = arrow_stream_bytes_from_arrays(schema, [pa.array([0] * num_rows, type=column_type)])
+    data = arrow_stream_bytes_from_arrays(schema, [array_from_values([0] * num_rows, column_type)])
     if mode == "missing_eos":
         data = data[:-8]
     _write_output(data, output_path)

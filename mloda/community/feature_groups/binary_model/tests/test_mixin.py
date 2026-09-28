@@ -32,10 +32,15 @@ from mloda.community.feature_groups.binary_model.errors import (
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
 from mloda.community.feature_groups.binary_model.tests.process_helpers import kill_descendant_if_running, pid_running
 from mloda.community.feature_groups.binary_model.transport import TEMP_PARENT_NAME
-from mloda.testing.binary_model.arrow import arrow_stream_bytes_invalid_utf8
-from mloda.testing.binary_model.conformance import BinaryModelConformanceBase, HashOperationConformanceMixin
+from mloda.testing.binary_model.arrow import arrow_stream_bytes, arrow_stream_bytes_invalid_utf8
+from mloda.testing.binary_model.conformance import (
+    BinaryModelConformanceBase,
+    HashOperationConformanceMixin,
+    write_json,
+)
 from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
 from mloda.testing.binary_model.license_vectors import expired_license_token, valid_license_token
+from mloda.testing.tests._module_probe import run_module_probe
 
 STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
 FAULTY_CMD = [sys.executable, "-m", "mloda.community.feature_groups.binary_model.tests.faulty_binary"]
@@ -957,3 +962,29 @@ class TestTimeoutTerminatesPosixDescendants:
             assert not pid_running(child_pid)
         finally:
             kill_descendant_if_running(pid_file, child_pid)
+
+
+@pytest.mark.parametrize(
+    ("cmd", "operation"),
+    [
+        # "ok" is no named mode: it falls through to faulty_binary's well-formed default output path.
+        pytest.param([*FAULTY_CMD, "--mode", "ok"], "hash", id="faulty_ok"),
+        pytest.param([*FAULTY_CMD, "--mode", "duplicate_output_names"], "hash", id="faulty_duplicate_output_names"),
+        pytest.param(ECHO_UTF8_CMD, "echo", id="mixin_fixtures_echo_utf8"),
+        pytest.param(BOOLEAN_OUTPUT_NOT_ADVERTISED_CMD, "flag", id="mixin_fixtures_boolean_output_not_advertised"),
+    ],
+)
+def test_fake_binary_run_does_not_import_pandas(tmp_path: Path, cmd: list[str], operation: str) -> None:
+    """A `run` that writes output must never import pandas: pyarrow's Python-to-Arrow constructors
+    load it lazily, costing every fake-binary invocation a pandas import it never uses."""
+    config_path = write_json(
+        tmp_path / "config.json",
+        {"input_columns": ["col_a"], "operation": operation, "parameters": {}, "output_columns": {"result": "out"}},
+    )
+    input_path = tmp_path / "input.arrows"
+    input_path.write_bytes(arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["x", "y"]}))
+    output_path = tmp_path / "output.arrows"
+    args = ["run", "--config", str(config_path), "--input", str(input_path), "--output", str(output_path)]
+    completed, summary = run_module_probe(cmd[2], [*cmd[3:], *args], ("pandas",), {})
+    assert summary == {"code": 0, "loaded": []}, (summary, completed.stderr)
+    assert output_path.stat().st_size > 0

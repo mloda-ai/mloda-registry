@@ -12,7 +12,6 @@ import functools
 import json
 import os
 import subprocess  # nosec
-import sys
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, ClassVar
@@ -38,8 +37,14 @@ from mloda.testing.binary_model.conformance import (
     read_arrow_stream,
     run_binary,
     stderr_error_object,
+    write_json,
     write_text,
 )
+from mloda.testing.binary_model.license_vectors import valid_license_token
+from mloda.testing.tests._module_probe import run_module_probe
+from mloda.testing.tests._second_fake_binary import OPERATION as SECOND_OPERATION
+from mloda.testing.tests._second_fake_binary import OUTPUT_KEY as SECOND_OUTPUT_KEY
+from mloda.testing.tests._second_fake_binary import PLUGIN_ID as SECOND_PLUGIN_ID
 
 _LICENSE_KEY = "MLODA_LICENSE_KEY"
 _LICENSE_FILE = "MLODA_LICENSE_FILE"
@@ -555,17 +560,7 @@ def test_size_cap_constants_are_exported() -> None:
     assert [name for name in conformance.__all__ if not hasattr(conformance, name)] == []
 
 
-_MODULE_PROBE_TEMPLATE = """
-import json
-import sys
-
-sys.argv = ["simulated_binary", {flag!r}]
-from mloda.testing.binary_model import simulated_binary
-
-code = simulated_binary.main()
-loaded = sorted(m for m in ("pyarrow", "numpy", "cryptography") if m in sys.modules)
-print(json.dumps({{"code": code, "loaded": loaded}}))
-"""
+_SIMULATED_BINARY_MODULE = "mloda.testing.binary_model.simulated_binary"
 
 
 @pytest.mark.parametrize(
@@ -573,15 +568,42 @@ print(json.dumps({{"code": code, "loaded": loaded}}))
 )
 def test_simulated_binary_light_flags_do_not_import_pyarrow(flag: str) -> None:
     """`--version` and `--capabilities` must not import pyarrow, numpy, or cryptography; those load only when needed."""
-    script = _MODULE_PROBE_TEMPLATE.format(flag=flag)
-    completed = subprocess.run(  # nosec B603
-        [sys.executable, "-c", script], capture_output=True, text=True, timeout=60
-    )
-    assert completed.returncode == 0, f"probe subprocess failed: {completed.stderr}"
+    completed, summary = run_module_probe(_SIMULATED_BINARY_MODULE, [flag], ("pyarrow", "numpy", "cryptography"))
     lines = completed.stdout.splitlines()
     if flag == "--version":
         assert lines[0].startswith("example_binary "), lines
     else:
         assert isinstance(json.loads(lines[0]), dict), lines
-    summary = json.loads(lines[-1])
     assert summary == {"code": 0, "loaded": []}, summary
+
+
+@pytest.mark.parametrize(
+    ("module", "plugin_id", "operation", "output_key"),
+    [
+        pytest.param(_SIMULATED_BINARY_MODULE, "example_binary", "hash", "result", id="simulated_binary"),
+        pytest.param(
+            "mloda.testing.tests._second_fake_binary",
+            SECOND_PLUGIN_ID,
+            SECOND_OPERATION,
+            SECOND_OUTPUT_KEY,
+            id="second_fake_binary",
+        ),
+    ],
+)
+def test_fake_binary_run_does_not_import_pandas(
+    tmp_path: Path, module: str, plugin_id: str, operation: str, output_key: str
+) -> None:
+    """A successful `run` must never import pandas: pyarrow's Python-to-Arrow constructors load it
+    lazily, costing every fake-binary invocation a pandas import it never uses."""
+    config_path = write_json(
+        tmp_path / "config.json",
+        {"input_columns": ["col_a"], "operation": operation, "parameters": {}, "output_columns": {output_key: "out"}},
+    )
+    input_path = tmp_path / "input.arrows"
+    input_path.write_bytes(arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["x", "y"]}))
+    output_path = tmp_path / "output.arrows"
+    args = ["run", "--config", str(config_path), "--input", str(input_path), "--output", str(output_path)]
+    env = {_LICENSE_KEY: valid_license_token([plugin_id])}
+    completed, summary = run_module_probe(module, args, ("pandas",), env)
+    assert summary == {"code": 0, "loaded": []}, (summary, completed.stderr)
+    assert read_arrow_stream(output_path.read_bytes()).num_rows == 2

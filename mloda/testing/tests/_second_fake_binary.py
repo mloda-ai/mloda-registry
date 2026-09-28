@@ -20,6 +20,7 @@ from typing import Any
 import pyarrow as pa
 
 from mloda.testing.binary_model import simulated_binary
+from mloda.testing.binary_model.arrow_arrays import array_from_values
 from mloda.testing.binary_model.hash_reference import compute_expected_hash
 
 # Deliberately not "example_binary" / "hash" / "result" (contract: Identifier, Capabilities,
@@ -45,7 +46,7 @@ def _compute_frobnicate_output(table: pa.Table, config: dict[str, Any]) -> tuple
         for row_index in range(table.num_rows)
     ]
     output_schema = pa.schema([pa.field(written_name, pa.int64())])
-    return output_schema, [pa.array(values, type=pa.int64())]
+    return output_schema, [array_from_values(values, pa.int64())]
 
 
 def _install_second_binary_identity() -> None:
