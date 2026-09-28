@@ -16,7 +16,7 @@ that any framework implementation inherits by subclassing and implementing
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Callable
 
 import pyarrow as pa
 import pytest
@@ -24,6 +24,7 @@ import pytest
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import SingleValueStdVarTestMixin
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -36,6 +37,15 @@ EXPECTED_AVG_BY_REGION: dict[Any, float] = {"A": 6.25, "B": 46.667, "C": 23.333,
 EXPECTED_COUNT_BY_REGION: dict[Any, int] = {"A": 4, "B": 3, "C": 3, None: 1}
 EXPECTED_MIN_BY_REGION: dict[Any, int] = {"A": -5, "B": 30, "C": 15, None: -10}
 EXPECTED_MAX_BY_REGION: dict[Any, int] = {"A": 20, "B": 60, "C": 40, None: -10}
+
+# Single-value std/var (see SingleValueStdVarTestMixin): grp A=[10,20,30] (population
+# std/var), grp B=[40] is a single-value group and must resolve to 0.0, not null.
+_SINGLE_VALUE_STD = math.sqrt(200 / 3)
+_SINGLE_VALUE_VAR = 200 / 3
+SINGLE_VALUE_STD_VAR_AGG: dict[str, dict[str, float]] = {
+    "std": {"A": _SINGLE_VALUE_STD, "B": 0.0},
+    "var": {"A": _SINGLE_VALUE_VAR, "B": 0.0},
+}
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +136,7 @@ def _build_result_map(
 # ---------------------------------------------------------------------------
 
 
-class AggregationTestBase(MaskTestMixin, DataOpsTestBase):
+class AggregationTestBase(SingleValueStdVarTestMixin, MaskTestMixin, DataOpsTestBase):
     """Abstract base class for aggregation framework tests.
 
     Subclasses implement 5 abstract methods to wire up their framework,
@@ -213,6 +223,21 @@ class AggregationTestBase(MaskTestMixin, DataOpsTestBase):
     @classmethod
     def mask_no_mask_expected(cls) -> dict[Any, Any]:
         return dict(EXPECTED_SUM_BY_REGION)
+
+    # -- SingleValueStdVarTestMixin configuration -------------------------------
+
+    @classmethod
+    def single_value_cases(cls) -> dict[str, Any]:
+        return SINGLE_VALUE_STD_VAR_AGG
+
+    @classmethod
+    def single_value_feature_name(cls, case: str) -> str:
+        return f"val__{case}_agg"
+
+    def single_value_extract_values(
+        self, result: Any, feature_name: str, column: Callable[[Any, str], list[Any]]
+    ) -> Any:
+        return _build_result_map(column(result, "grp"), column(result, feature_name))
 
     # -- Reference implementation (for cross-framework comparison) -------------------
 

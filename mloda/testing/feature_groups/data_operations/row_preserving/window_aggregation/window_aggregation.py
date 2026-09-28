@@ -12,6 +12,7 @@ methods. This follows the same pattern as mloda core's ``DataFrameTestBase`` in
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import pyarrow as pa
@@ -23,6 +24,7 @@ from mloda.testing.feature_groups.data_operations.helpers import extract_column 
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import SingleValueStdVarTestMixin
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants, also usable standalone)
@@ -75,13 +77,22 @@ NAN_DIVERGENT_WINDOW: dict[str, list[float]] = {
     "mode": [2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 1.0],
 }
 
+# Single-value std/var (see SingleValueStdVarTestMixin): grp A=[10,20,30] (population
+# std/var), grp B=[40] is a single-value group and must resolve to 0.0, not null.
+_SINGLE_VALUE_STD = math.sqrt(200 / 3)
+_SINGLE_VALUE_VAR = 200 / 3
+SINGLE_VALUE_STD_VAR_WINDOW: dict[str, list[float]] = {
+    "std": [_SINGLE_VALUE_STD, _SINGLE_VALUE_STD, _SINGLE_VALUE_STD, 0.0],
+    "var": [_SINGLE_VALUE_VAR, _SINGLE_VALUE_VAR, _SINGLE_VALUE_VAR, 0.0],
+}
+
 
 # ---------------------------------------------------------------------------
 # Reusable test base class
 # ---------------------------------------------------------------------------
 
 
-class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOpsTestBase):
+class WindowAggregationTestBase(SingleValueStdVarTestMixin, ReservedColumnsTestMixin, MaskTestMixin, DataOpsTestBase):
     """Abstract base class for window aggregation framework tests."""
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
@@ -155,6 +166,16 @@ class WindowAggregationTestBase(ReservedColumnsTestMixin, MaskTestMixin, DataOps
     @classmethod
     def mask_no_mask_expected(cls) -> list[Any]:
         return list(EXPECTED_SUM_BY_REGION)
+
+    # -- SingleValueStdVarTestMixin configuration -------------------------------
+
+    @classmethod
+    def single_value_cases(cls) -> dict[str, Any]:
+        return SINGLE_VALUE_STD_VAR_WINDOW
+
+    @classmethod
+    def single_value_feature_name(cls, case: str) -> str:
+        return f"val__{case}_window"
 
     @classmethod
     def reference_implementation_class(cls) -> Any:
