@@ -16,7 +16,7 @@ from mloda_plugins.compute_framework.base_implementations.sql.sql_window import 
     WindowFrame,
 )
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import nan_policy_agg_sql
+from mloda.community.feature_groups.data_operations.duckdb_helpers import nan_policy_agg_sql, nan_policy_window
 from mloda.community.feature_groups.data_operations.errors import (
     unsupported_agg_type_error,
     unsupported_frame_type_error,
@@ -128,9 +128,12 @@ class DuckdbFrameAggregate(FrameAggregateFeatureGroup):
         rel = data.with_row_number(rn)
 
         # Step 2: compute window function with frame
-        agg_call = nan_policy_agg_sql(data, source_col, source_sql, agg_type, agg_func)
-        rel = rel.window(
-            agg_call,
+        rel = nan_policy_window(
+            rel,
+            source_col,
+            source_sql,
+            agg_type,
+            agg_func,
             feature_name,
             partition_by=partition_by,
             order_by=order_spec,

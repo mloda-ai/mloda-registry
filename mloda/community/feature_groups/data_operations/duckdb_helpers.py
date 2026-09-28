@@ -8,7 +8,9 @@ float-only NaN-to-null wrap shared by aggregation feature groups.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
 if TYPE_CHECKING:
     from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
@@ -72,11 +74,37 @@ def nan_to_null_sql(expr: str, column_type: str) -> str:
     return expr
 
 
+# std/var agg_type -> the COVAR_POP/COVAR_SAMP call it maps to on float columns.
+# STDDEV_*/VAR_* raise OutOfRangeException on NaN input; COVAR_*(x, x) equals VAR_*(x)
+# but propagates NaN instead of raising.
+_FLOAT_VAR_COVAR: dict[str, str] = {
+    "var": "COVAR_POP",
+    "var_pop": "COVAR_POP",
+    "var_samp": "COVAR_SAMP",
+}
+_FLOAT_STD_COVAR: dict[str, str] = {
+    "std": "COVAR_POP",
+    "std_pop": "COVAR_POP",
+    "std_samp": "COVAR_SAMP",
+}
+
+
+def float_std_var_covar_call(source_sql: str, agg_type: str) -> str | None:
+    """``COVAR_*(x, x)`` call for a float std/var ``agg_type``, or ``None`` if not applicable."""
+    if agg_type in _FLOAT_VAR_COVAR:
+        return f"{_FLOAT_VAR_COVAR[agg_type]}({source_sql}, {source_sql})"
+    if agg_type in _FLOAT_STD_COVAR:
+        return f"{_FLOAT_STD_COVAR[agg_type]}({source_sql}, {source_sql})"
+    return None
+
+
 def nan_policy_agg_sql(data: "DuckdbRelation", source_col: str, source_sql: str, agg_type: str, agg_func: str) -> str:
     """Full aggregate call for ``agg_type``, applying the NaN policy natively.
 
     ``mode`` returns a struct, so callers must extract ``.v``. Float ``max`` becomes
     ``-MIN(-x)``: DuckDB sorts NaN highest, so MIN skips it and an all-NaN input stays NaN.
+    Float std/var become ``COVAR_POP``/``COVAR_SAMP`` (``std`` wrapped in ``SQRT``), which
+    propagate NaN instead of raising.
     """
     if agg_type == "mode":
         return f"MODE(CASE WHEN {source_sql} IS NOT NULL THEN struct_pack(v := {source_sql}) END)"
@@ -88,4 +116,46 @@ def nan_policy_agg_sql(data: "DuckdbRelation", source_col: str, source_sql: str,
         return f"{agg_func}({nan_to_null_sql(source_sql, column_type)})"
     if is_float and agg_type == "max":
         return f"-MIN(-({source_sql}))"
+    if is_float:
+        covar_call = float_std_var_covar_call(source_sql, agg_type)
+        if covar_call is not None:
+            return f"SQRT({covar_call})" if agg_type in _FLOAT_STD_COVAR else covar_call
     return f"{agg_func}({source_sql})"
+
+
+def nan_policy_window(
+    data: "DuckdbRelation",
+    source_col: str,
+    source_sql: str,
+    agg_type: str,
+    agg_func: str,
+    feature_name: str,
+    **window_kwargs: Any,
+) -> "DuckdbRelation":
+    """``data.window(...)`` applying the NaN policy.
+
+    ``window()`` takes a single aggregate call, so std passes the variance call in and
+    wraps the resulting column in ``SQRT`` afterward.
+    """
+    column_type = column_types(data).get(source_col, "")
+    is_float = column_type.upper() in ("FLOAT", "DOUBLE")
+    is_std = is_float and agg_type in _FLOAT_STD_COVAR
+
+    if is_std:
+        var_agg_type = "var_samp" if agg_type == "std_samp" else "var_pop"
+        agg_call = float_std_var_covar_call(source_sql, var_agg_type)
+        assert agg_call is not None  # narrows for mypy: is_std implies var mapping exists
+    else:
+        agg_call = nan_policy_agg_sql(data, source_col, source_sql, agg_type, agg_func)
+
+    result = data.window(agg_call, feature_name, **window_kwargs)
+
+    if is_std:
+        quoted_feature = quote_ident(feature_name)
+        keep = ", ".join(
+            f"SQRT({quoted_feature}) AS {quoted_feature}" if c == feature_name else quote_ident(c)
+            for c in result.columns
+        )
+        result = result.project(keep)
+
+    return result

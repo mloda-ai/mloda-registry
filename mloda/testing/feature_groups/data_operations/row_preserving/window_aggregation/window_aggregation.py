@@ -76,15 +76,27 @@ NAN_POLICY_WINDOW: dict[str, list[float]] = {
     "sum": [float("nan"), float("nan"), float("nan"), float("nan"), float("nan"), float("nan"), float("nan")],
     "avg": [float("nan"), float("nan"), float("nan"), float("nan"), float("nan"), float("nan"), float("nan")],
     "count": [3, 3, 3, 4, 4, 4, 4],
+    "std": [float("nan")] * 7,
+    "var": [float("nan")] * 7,
+    "std_pop": [float("nan")] * 7,
+    "var_pop": [float("nan")] * 7,
+    "std_samp": [float("nan")] * 7,
+    "var_samp": [float("nan")] * 7,
 }
 # Known per-backend divergences, pinned via nan_divergent_agg_types(): pandas' mode()
 # drops NaN instead of counting it; pandas and SQLite can't tell NaN from null, so
-# both skip it in sum/avg/count.
+# both skip it in sum/avg/count; pandas also skips NaN in std/var.
 NAN_DIVERGENT_WINDOW: dict[str, list[float]] = {
     "mode": [2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 1.0],
     "sum": [3.0, 3.0, 3.0, 4.0, 4.0, 4.0, 4.0],
     "avg": [1.5, 1.5, 1.5, 2.0, 2.0, 2.0, 2.0],
     "count": [2, 2, 2, 2, 2, 2, 2],
+    "std": [0.5] * 3 + [1.0] * 4,
+    "std_pop": [0.5] * 3 + [1.0] * 4,
+    "var": [0.25] * 3 + [1.0] * 4,
+    "var_pop": [0.25] * 3 + [1.0] * 4,
+    "std_samp": [0.5**0.5] * 3 + [2.0**0.5] * 4,
+    "var_samp": [0.5] * 3 + [2.0] * 4,
 }
 
 # Single-value std/var (see SingleValueStdVarTestMixin): grp A=[10,20,30] (population
