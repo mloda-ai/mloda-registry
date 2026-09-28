@@ -49,3 +49,8 @@ class TestSqliteAggregation(CapabilityHookTestMixin, SqliteTestMixin, Aggregatio
                 ),
             ),
         )
+
+    @classmethod
+    def nan_divergent_agg_types(cls) -> frozenset[str]:
+        """sqlite3 coerces NaN to NULL on ingest, so it skips NaN in sum/avg/count."""
+        return frozenset({"sum", "avg", "count"})

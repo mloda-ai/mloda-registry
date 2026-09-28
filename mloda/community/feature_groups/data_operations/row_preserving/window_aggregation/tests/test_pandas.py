@@ -32,8 +32,8 @@ class TestPandasWindowAggregation(PandasTestMixin, WindowAggregationTestBase):
 
     @classmethod
     def nan_divergent_agg_types(cls) -> frozenset[str]:
-        """pandas' mode() treats NaN as a distinct, dropped value, not one counted value."""
-        return frozenset({"mode"})
+        """pandas cannot tell NaN from null, so it skips NaN in sum/avg/count and mode()."""
+        return frozenset({"mode", "sum", "avg", "count"})
 
 
 class TestPandasWindowModeVectorized:

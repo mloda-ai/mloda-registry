@@ -73,11 +73,18 @@ NAN_POLICY_WINDOW: dict[str, list[float]] = {
     "mode": [2.0, 2.0, 2.0, float("nan"), float("nan"), float("nan"), float("nan")],
     "min": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
     "max": [2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0],
+    "sum": [float("nan"), float("nan"), float("nan"), float("nan"), float("nan"), float("nan"), float("nan")],
+    "avg": [float("nan"), float("nan"), float("nan"), float("nan"), float("nan"), float("nan"), float("nan")],
+    "count": [3, 3, 3, 4, 4, 4, 4],
 }
-# Known per-backend divergence, pinned via nan_divergent_agg_types(): pandas' mode()
-# treats NaN as a distinct, dropped value rather than one counted value.
+# Known per-backend divergences, pinned via nan_divergent_agg_types(): pandas' mode()
+# drops NaN instead of counting it; pandas and SQLite can't tell NaN from null, so
+# both skip it in sum/avg/count.
 NAN_DIVERGENT_WINDOW: dict[str, list[float]] = {
     "mode": [2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 1.0],
+    "sum": [3.0, 3.0, 3.0, 4.0, 4.0, 4.0, 4.0],
+    "avg": [1.5, 1.5, 1.5, 2.0, 2.0, 2.0, 2.0],
+    "count": [2, 2, 2, 2, 2, 2, 2],
 }
 
 # Single-value std/var (see SingleValueStdVarTestMixin): grp A=[10,20,30] (population
@@ -903,13 +910,13 @@ class WindowAggregationTestBase(SingleValueStdVarTestMixin, ReservedColumnsTestM
         )
         assert output_id == input_id
 
-    # -- NaN policy (median/mode/min/max) ------------------------------------
-    # The reference assertion pins the policy; ``nan_divergent_agg_types`` pins pandas'
-    # mode() divergence (the only backend divergence left).
+    # -- NaN policy (sum/avg/count/median/mode/min/max) ----------------------
+    # The reference assertion pins the policy; ``nan_divergent_agg_types`` pins the
+    # pandas/SQLite divergences.
 
     @pytest.mark.parametrize("agg_type", sorted(NAN_POLICY_WINDOW), ids=sorted(NAN_POLICY_WINDOW))
     def test_nan_policy_window(self, agg_type: str) -> None:
-        """median/mode/min/max of a NaN-mixed column, broadcast per grp."""
+        """sum/avg/count/median/mode/min/max of a NaN-mixed column, broadcast per grp."""
         self._skip_if_unsupported(agg_type)
         table = self.nan_policy_table()
         feature_name = f"val__{agg_type}_window"

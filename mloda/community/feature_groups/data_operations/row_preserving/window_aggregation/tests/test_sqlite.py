@@ -30,3 +30,8 @@ class TestSqliteWindowAggregation(CapabilityHookTestMixin, SqliteTestMixin, Wind
     @classmethod
     def capability_unsupported(cls) -> tuple[tuple[str, Options], ...]:
         return (("value__median_window", Options()),)
+
+    @classmethod
+    def nan_divergent_agg_types(cls) -> frozenset[str]:
+        """sqlite3 coerces NaN to NULL on ingest, so it skips NaN in sum/avg/count."""
+        return frozenset({"sum", "avg", "count"})

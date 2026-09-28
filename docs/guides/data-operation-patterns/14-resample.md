@@ -45,7 +45,7 @@ value__resample_1_day_count
 - **Bucket anchor.** The `time_column` is floored to its `n * unit` bucket using the same epoch-anchored fixed-frequency floor as [time bucketization](11-time-bucketization.md), so buckets align identically across backends.
 - **One row per non-empty bucket.** Empty (gap) buckets are not emitted. The pandas backend groups by the floored timestamp rather than using `.resample()`, which would otherwise materialize gap rows that the group-by backends omit.
 - **Output columns.** The `partition_by` columns, the bucketed `time_column` (same name, holding the bucket start), and the aggregated column named exactly `{col}__resample_{n}_{unit}_{agg}`. Output row order is not guaranteed.
-- **Null handling (pinned to the PyArrow oracle).** `mean` / `sum` / `min` / `max` skip nulls; `count` counts non-null values. A bucket that has rows but whose values are all null still emits, with `count = 0` and `mean` / `sum = None`. `min` / `max` also skip NaN per the reference policy.
+- **Null handling (pinned to the PyArrow oracle).** `mean` / `sum` / `min` / `max` skip nulls; `count` counts non-null values. A bucket that has rows but whose values are all null still emits, with `count = 0` and `mean` / `sum = None`. NaN, unlike null, propagates into `mean` / `sum` and counts toward `count`, and an all-NaN bucket keeps NaN for `min` / `max` / `sum` / `mean` too. Pandas cannot tell NaN from null and diverges here; see [known divergences](known-divergences.md).
 
 The all-null `sum` cell is the one place backends disagree by default (pandas → `0.0`, PyArrow → `None`); the implementation forces every backend to the PyArrow `None` (pandas `min_count=1`, polars `when(count > 0)` guard, DuckDB/SQL `SUM` returns `NULL` natively).
 

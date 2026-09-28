@@ -98,11 +98,18 @@ NAN_POLICY_AGG: dict[str, dict[Any, float]] = {
     "mode": {"A": 2.0, "B": float("nan")},
     "min": {"A": 1.0, "B": 1.0},
     "max": {"A": 2.0, "B": 3.0},
+    "sum": {"A": float("nan"), "B": float("nan")},
+    "avg": {"A": float("nan"), "B": float("nan")},
+    "count": {"A": 3, "B": 4},
 }
-# Known per-backend divergence, pinned via nan_divergent_agg_types(): pandas' mode()
-# treats NaN as a distinct, dropped value rather than one counted value.
+# Known per-backend divergences, pinned via nan_divergent_agg_types(): pandas' mode()
+# drops NaN instead of counting it; pandas and SQLite can't tell NaN from null, so
+# both skip it in sum/avg/count.
 NAN_DIVERGENT_AGG: dict[str, dict[Any, float]] = {
     "mode": {"A": 2.0, "B": 1.0},
+    "sum": {"A": 3.0, "B": 4.0},
+    "avg": {"A": 1.5, "B": 2.0},
+    "count": {"A": 2, "B": 2},
 }
 
 # (agg_type, needs_skip) for aggregations over the all-null ``score`` column.
@@ -865,13 +872,13 @@ class AggregationTestBase(SingleValueStdVarTestMixin, MaskTestMixin, DataOpsTest
         assert result_map["C"] == 15
         assert result_map[None] == -10
 
-    # -- NaN policy (median/mode/min/max) ------------------------------------
-    # The reference assertion pins the policy; ``nan_divergent_agg_types`` pins pandas'
-    # mode() divergence (the only backend divergence left).
+    # -- NaN policy (sum/avg/count/median/mode/min/max) ----------------------
+    # The reference assertion pins the policy; ``nan_divergent_agg_types`` pins the
+    # pandas/SQLite divergences.
 
     @pytest.mark.parametrize("agg_type", sorted(NAN_POLICY_AGG), ids=sorted(NAN_POLICY_AGG))
     def test_nan_policy_agg(self, agg_type: str) -> None:
-        """median/mode/min/max of a NaN-mixed column, grouped by grp."""
+        """sum/avg/count/median/mode/min/max of a NaN-mixed column, grouped by grp."""
         self._skip_if_unsupported(agg_type)
         table = self.nan_policy_table()
         feature_name = f"val__{agg_type}_agg"

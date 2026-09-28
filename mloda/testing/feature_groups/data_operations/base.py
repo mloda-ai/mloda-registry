@@ -125,9 +125,10 @@ class DataOpsTestBase(ABC):
 
     @classmethod
     def nan_policy_table(cls) -> pa.Table:
-        """Shared grp/ts/val fixture for median/mode/min/max NaN-policy tests.
+        """Shared grp/ts/val fixture for sum/avg/count/median/mode/min/max NaN-policy tests.
 
-        val mixes NaN with real values, on purpose with no all-NaN group or window.
+        val mixes NaN with real values; no grp or window is all-NaN, but resampling into
+        1-day buckets does produce all-NaN buckets on purpose.
         """
         return pa.table(
             {
@@ -149,7 +150,8 @@ class DataOpsTestBase(ABC):
     def nan_divergent_agg_types(cls) -> frozenset[str]:
         """Agg types where this framework pins a known NaN divergence instead of the policy.
 
-        Only aggregation/window_aggregation read this, for pandas' mode() divergence. Default: none.
+        Read by aggregation, window_aggregation, and resample, for pandas' mode() divergence
+        and pandas'/SQLite's inability to tell NaN from null. Default: none.
         See docs/guides/data-operation-patterns/known-divergences.md.
         """
         return frozenset()

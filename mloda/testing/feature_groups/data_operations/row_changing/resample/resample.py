@@ -183,13 +183,76 @@ EXPECTED_1_HOUR_MEAN_WHOLE: dict[tuple[Any, ...], Any] = {
     (_h(10),): 75.0,  # [100, 50] -> 75
 }
 
-# 11-day buckets put every nan_policy_table() row into one bucket per grp:
-# 2024-01-01 is epoch day 19723 = 11 * 1793.
+# NaN-policy resample buckets, evaluated on DataOpsTestBase.nan_policy_table() (grp/ts/val).
+# 11-day buckets: one per grp. 1-day buckets: one per row, including three all-NaN
+# buckets where the reference propagates NaN and still counts the row.
 _BUCKET = datetime(2024, 1, 1, tzinfo=_U)
 
+
+def _d(day: int) -> datetime:
+    return datetime(2024, 1, day, tzinfo=_U)
+
+
+_NAN = float("nan")
+
+# sum/mean/min/max share one 1-day map: the reference value per bucket, with NaN on
+# the three all-NaN buckets (A,01-02), (B,01-02), (B,01-04).
+_NAN_1_DAY: dict[tuple[Any, ...], Any] = {
+    ("A", _d(1)): 2.0,
+    ("A", _d(2)): _NAN,
+    ("A", _d(3)): 1.0,
+    ("B", _d(1)): 1.0,
+    ("B", _d(2)): _NAN,
+    ("B", _d(3)): 3.0,
+    ("B", _d(4)): _NAN,
+}
+
+# pandas' divergent counterpart: same as _NAN_1_DAY but None on the all-NaN buckets.
+_NONE_1_DAY: dict[tuple[Any, ...], Any] = {
+    ("A", _d(1)): 2.0,
+    ("A", _d(2)): None,
+    ("A", _d(3)): 1.0,
+    ("B", _d(1)): 1.0,
+    ("B", _d(2)): None,
+    ("B", _d(3)): 3.0,
+    ("B", _d(4)): None,
+}
+
 NAN_POLICY_RESAMPLE: dict[str, dict[tuple[Any, ...], Any]] = {
-    "min": {("A", _BUCKET): 1.0, ("B", _BUCKET): 1.0},
-    "max": {("A", _BUCKET): 2.0, ("B", _BUCKET): 3.0},
+    "11_day_min": {("A", _BUCKET): 1.0, ("B", _BUCKET): 1.0},
+    "11_day_max": {("A", _BUCKET): 2.0, ("B", _BUCKET): 3.0},
+    "11_day_sum": {("A", _BUCKET): _NAN, ("B", _BUCKET): _NAN},
+    "11_day_mean": {("A", _BUCKET): _NAN, ("B", _BUCKET): _NAN},
+    "11_day_count": {("A", _BUCKET): 3, ("B", _BUCKET): 4},
+    **{f"1_day_{agg}": _NAN_1_DAY for agg in ("sum", "mean", "min", "max")},
+    "1_day_count": {
+        ("A", _d(1)): 1,
+        ("A", _d(2)): 1,
+        ("A", _d(3)): 1,
+        ("B", _d(1)): 1,
+        ("B", _d(2)): 1,
+        ("B", _d(3)): 1,
+        ("B", _d(4)): 1,
+    },
+}
+
+# Known per-backend divergence, pinned via nan_divergent_agg_types(): pandas skips NaN
+# in sum/mean/count and returns null (count 0) for an all-NaN bucket. 11-day min/max
+# match the policy, so they carry no entry here.
+NAN_DIVERGENT_RESAMPLE: dict[str, dict[tuple[Any, ...], Any]] = {
+    "11_day_sum": {("A", _BUCKET): 3.0, ("B", _BUCKET): 4.0},
+    "11_day_mean": {("A", _BUCKET): 1.5, ("B", _BUCKET): 2.0},
+    "11_day_count": {("A", _BUCKET): 2, ("B", _BUCKET): 2},
+    **{f"1_day_{agg}": _NONE_1_DAY for agg in ("sum", "mean", "min", "max")},
+    "1_day_count": {
+        ("A", _d(1)): 1,
+        ("A", _d(2)): 0,
+        ("A", _d(3)): 1,
+        ("B", _d(1)): 1,
+        ("B", _d(2)): 0,
+        ("B", _d(3)): 1,
+        ("B", _d(4)): 0,
+    },
 }
 
 
@@ -286,7 +349,7 @@ class ResampleTestBase(DataOpsTestBase):
             if exp is None:
                 assert got is None, f"bucket {key!r}: expected None, got {got!r}"
             elif use_approx:
-                assert got == pytest.approx(exp, rel=1e-6), f"bucket {key!r}: {got!r} != {exp!r}"
+                assert got == pytest.approx(exp, rel=1e-6, nan_ok=True), f"bucket {key!r}: {got!r} != {exp!r}"
             else:
                 assert got == exp, f"bucket {key!r}: {got!r} != {exp!r}"
 
@@ -445,25 +508,32 @@ class ResampleTestBase(DataOpsTestBase):
 
     # -- NaN policy -----------------------------------------------------------
 
-    @pytest.mark.parametrize("agg", sorted(NAN_POLICY_RESAMPLE), ids=sorted(NAN_POLICY_RESAMPLE))
-    def test_nan_policy_resample(self, agg: str) -> None:
-        """min/max of a NaN-mixed column, grouped by grp, 11-day bucket."""
+    @pytest.mark.parametrize("token", sorted(NAN_POLICY_RESAMPLE), ids=sorted(NAN_POLICY_RESAMPLE))
+    def test_nan_policy_resample(self, token: str) -> None:
+        """sum/mean/count/min/max of a NaN-mixed column, grouped by grp, 11-day and 1-day buckets."""
         table = self.nan_policy_table()
-        feature_name = f"val__resample_11_day_{agg}"
+        feature_name = f"val__resample_{token}"
         fs = self._resample_fs(feature_name, ["grp"])
 
         ref = self.reference_implementation_class().calculate_feature(table, fs)
-        assert ref.num_rows == 2
+        assert ref.num_rows == len(NAN_POLICY_RESAMPLE[token])
         ref_bucket = [self._normalize_bucket_key(v) for v in _extract_column(ref, "ts")]
         ref_agg = _extract_column(ref, feature_name)
         ref_grp = _extract_column(ref, "grp")
         ref_map = {(ref_grp[i], ref_bucket[i]): ref_agg[i] for i in range(len(ref_bucket))}
-        self._assert_map_equals(ref_map, NAN_POLICY_RESAMPLE[agg], use_approx=True)
+        self._assert_map_equals(ref_map, NAN_POLICY_RESAMPLE[token], use_approx=True)
+
+        agg_type = token.rsplit("_", 1)[1]
+        expected = (
+            NAN_DIVERGENT_RESAMPLE[token]
+            if token in NAN_DIVERGENT_RESAMPLE and agg_type in self.nan_divergent_agg_types()
+            else NAN_POLICY_RESAMPLE[token]
+        )
 
         result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
-        assert self.get_row_count(result) == 2
+        assert self.get_row_count(result) == len(expected)
         result_map = self._build_resample_map(result, feature_name, "ts", ["grp"])
-        self._assert_map_equals(result_map, NAN_POLICY_RESAMPLE[agg], use_approx=True)
+        self._assert_map_equals(result_map, expected, use_approx=True)
 
     # -- New column / type ---------------------------------------------------
 
