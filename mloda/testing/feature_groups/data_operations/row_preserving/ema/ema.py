@@ -79,7 +79,7 @@ from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 
@@ -248,22 +248,11 @@ class EmaTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTest
 
     # -- Setup: use the dedicated 12-row EMA fixture ------------------------
 
-    def setup_method(self) -> None:
-        """Override the canonical-fixture setup to use the dedicated 12-row table."""
-        super().setup_method()  # connections + canonical data (mostly unused)
-        self._arrow_table = _create_ema_arrow_table()
-        self.test_data = self.create_test_data(self._arrow_table)
+    @classmethod
+    def source_arrow_table(cls) -> pa.Table:
+        return _create_ema_arrow_table()
 
     # -- Helpers ------------------------------------------------------------
-
-    def _assert_float_list_with_nulls(self, actual: list[Any], expected: list[Any]) -> None:
-        assert len(actual) == len(expected), f"row count {len(actual)} != expected {len(expected)}"
-        for i, (a, e) in enumerate(zip(actual, expected)):
-            if e is None:
-                assert a is None, f"row {i}: expected None, got {a!r}"
-            else:
-                assert a is not None, f"row {i}: expected {e!r}, got None"
-                assert float(a) == pytest.approx(e), f"row {i}: {a!r} != {e!r}"
 
     def _ema_feature_set(self, span: int) -> FeatureSet:
         return make_feature_set(f"value__ema_{span}", partition_by=["region"], order_by="ts")
@@ -276,28 +265,28 @@ class EmaTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTest
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         assert isinstance(result, self.get_expected_type())
         col = self.extract_column(result, "value__ema_2")
-        self._assert_float_list_with_nulls(col, EXPECTED_EMA_SPAN2)
+        assert_values_with_nulls(col, EXPECTED_EMA_SPAN2, cast=float, approx=True)
 
     def test_ema_span3_per_partition(self) -> None:
         """Per-partition EMA span=3 matches pinned EXPECTED_EMA_SPAN3."""
         fs = self._ema_feature_set(3)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         col = self.extract_column(result, "value__ema_3")
-        self._assert_float_list_with_nulls(col, EXPECTED_EMA_SPAN3)
+        assert_values_with_nulls(col, EXPECTED_EMA_SPAN3, cast=float, approx=True)
 
     def test_ema_whole_table_span2(self) -> None:
         """With order_by only (no partition), EMA treats the whole table as one group."""
         fs = make_feature_set("value__ema_2", order_by="ts")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         col = self.extract_column(result, "value__ema_2")
-        self._assert_float_list_with_nulls(col, EXPECTED_EMA_WHOLE_SPAN2)
+        assert_values_with_nulls(col, EXPECTED_EMA_WHOLE_SPAN2, cast=float, approx=True)
 
     def test_ema_whole_table_span3(self) -> None:
         """Whole-table EMA span=3 matches pinned EXPECTED_EMA_WHOLE_SPAN3."""
         fs = make_feature_set("value__ema_3", order_by="ts")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         col = self.extract_column(result, "value__ema_3")
-        self._assert_float_list_with_nulls(col, EXPECTED_EMA_WHOLE_SPAN3)
+        assert_values_with_nulls(col, EXPECTED_EMA_WHOLE_SPAN3, cast=float, approx=True)
 
     def test_partition_aware_differs_from_whole_table(self) -> None:
         """Partition-aware EMA must NOT equal the whole-table EMA.
@@ -382,7 +371,7 @@ class EmaTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTest
         fs = self._ema_feature_set(2)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         src = self.extract_column(result, "value")
-        self._assert_float_list_with_nulls(src, _EMA_VALUES)
+        assert_values_with_nulls(src, _EMA_VALUES, cast=float, approx=True)
 
     # -- Option-based configuration -----------------------------------------
 
@@ -402,7 +391,7 @@ class EmaTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, DataOpsTest
         fs.add(feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         col = self.extract_column(result, "value__ema_2")
-        self._assert_float_list_with_nulls(col, EXPECTED_EMA_SPAN2)
+        assert_values_with_nulls(col, EXPECTED_EMA_SPAN2, cast=float, approx=True)
 
     # -- Error / validation -------------------------------------------------
 

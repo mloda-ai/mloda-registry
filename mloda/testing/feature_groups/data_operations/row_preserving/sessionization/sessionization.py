@@ -75,7 +75,7 @@ from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.output_contract import OutputContractTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 
@@ -194,18 +194,11 @@ class SessionizationTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, 
 
     # -- Setup: use the dedicated 9-row sessionization fixture ---------------
 
-    def setup_method(self) -> None:
-        """Override the canonical-fixture setup to use the dedicated 9-row table."""
-        super().setup_method()  # connections + canonical data (mostly unused)
-        self._arrow_table = _create_sessionization_arrow_table()
-        self.test_data = self.create_test_data(self._arrow_table)
+    @classmethod
+    def source_arrow_table(cls) -> pa.Table:
+        return _create_sessionization_arrow_table()
 
     # -- Helpers ------------------------------------------------------------
-
-    def _assert_int_list(self, actual: list[Any], expected: list[int]) -> None:
-        assert len(actual) == len(expected), f"row count {len(actual)} != expected {len(expected)}"
-        normalized = [None if v is None else int(v) for v in actual]
-        assert normalized == expected, f"session ids {normalized!r} != expected {expected!r}"
 
     def _session_feature_set(
         self,
@@ -236,21 +229,21 @@ class SessionizationTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, 
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         assert isinstance(result, self.get_expected_type())
         col = self.extract_column(result, "ts__sessionize_30_minute")
-        self._assert_int_list(col, EXPECTED_SESSION_30_MINUTE)
+        assert_values_with_nulls(col, EXPECTED_SESSION_30_MINUTE, cast=int)
 
     def test_per_partition_1_hour(self) -> None:
         """Per-user 1-hour sessionization (order_by passed EXPLICITLY)."""
         fs = self._session_feature_set(1, "hour", partition_by=["user"], order_by="ts")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         col = self.extract_column(result, "ts__sessionize_1_hour")
-        self._assert_int_list(col, EXPECTED_SESSION_1_HOUR)
+        assert_values_with_nulls(col, EXPECTED_SESSION_1_HOUR, cast=int)
 
     def test_whole_table_30_minute(self) -> None:
         """With order_by only (no partition), sessionize treats the whole table as one stream."""
         fs = self._session_feature_set(30, "minute", partition_by=[], order_by="ts")
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         col = self.extract_column(result, "ts__sessionize_30_minute")
-        self._assert_int_list(col, EXPECTED_SESSION_30_MINUTE_WHOLE)
+        assert_values_with_nulls(col, EXPECTED_SESSION_30_MINUTE_WHOLE, cast=int)
 
     def test_partition_aware_differs_from_whole_table(self) -> None:
         """Partition-aware result must match per-user pins AND NOT equal the whole-table list.
@@ -290,7 +283,7 @@ class SessionizationTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, 
         fs = make_feature_set("ts__sessionize_1_minute", partition_by=[], order_by="ts")
         result = self.implementation_class().calculate_feature(data, fs)
         col = self.extract_column(result, "ts__sessionize_1_minute")
-        self._assert_int_list(col, [0, 0, 1])
+        assert_values_with_nulls(col, [0, 0, 1], cast=int)
 
     def test_helper_column_name_collision(self) -> None:
         """Passthrough columns named ``is_new`` / ``sid`` must not collide with internal aliases.
@@ -313,7 +306,7 @@ class SessionizationTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, 
         fs = self._session_feature_set(30, "minute")
         result = self.implementation_class().calculate_feature(data, fs)
         col = self.extract_column(result, "ts__sessionize_30_minute")
-        self._assert_int_list(col, EXPECTED_SESSION_30_MINUTE)
+        assert_values_with_nulls(col, EXPECTED_SESSION_30_MINUTE, cast=int)
         is_new = [int(v) for v in self.extract_column(result, "is_new")]
         assert is_new == list(range(100, 109)), f"is_new passthrough changed: {is_new!r}"
 
@@ -349,7 +342,7 @@ class SessionizationTestBase(OutputContractTestMixin, ReservedColumnsTestMixin, 
         fs.add(feature)
         result = self.implementation_class().calculate_feature(self.test_data, fs)
         col = self.extract_column(result, "ts__sessionize_30_minute")
-        self._assert_int_list(col, EXPECTED_SESSION_30_MINUTE)
+        assert_values_with_nulls(col, EXPECTED_SESSION_30_MINUTE, cast=int)
 
     # -- Cross-framework comparison -----------------------------------------
 

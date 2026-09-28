@@ -12,22 +12,12 @@ with existing inline mask tests on each feature group's test base.
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import pyarrow as pa
 import pytest
 
-from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
-
-
-def _is_null(value: Any) -> bool:
-    """Check if a value is null (None or NaN)."""
-    if value is None:
-        return True
-    if isinstance(value, float) and math.isnan(value):
-        return True
-    return False
+from mloda.testing.feature_groups.data_operations.helpers import is_null, make_feature_set
 
 
 class MaskTestMixin:
@@ -118,8 +108,8 @@ class MaskTestMixin:
             result_map = {region_col[i]: result_col[i] for i in range(len(region_col))}
             for key, exp in expected.items():  # type: ignore[union-attr]
                 actual = result_map[key]
-                if _is_null(exp):
-                    assert _is_null(actual), f"region={key}: expected null, got {actual}"
+                if is_null(exp):
+                    assert is_null(actual), f"region={key}: expected null, got {actual}"
                 elif self.mask_use_approx() and isinstance(exp, float):
                     assert actual == pytest.approx(exp, rel=1e-3), f"region={key}: {actual} != {exp}"
                 else:
@@ -128,8 +118,8 @@ class MaskTestMixin:
             result_col = self.extract_column(result, feature_name)  # type: ignore[attr-defined]
             assert len(result_col) == len(expected), f"length {len(result_col)} != {len(expected)}"
             for i, (actual, exp) in enumerate(zip(result_col, expected)):
-                if _is_null(exp):
-                    assert _is_null(actual), f"row {i}: expected null, got {actual}"
+                if is_null(exp):
+                    assert is_null(actual), f"row {i}: expected null, got {actual}"
                 elif self.mask_use_approx() and isinstance(exp, float):
                     assert actual == pytest.approx(exp, rel=1e-3), f"row {i}: {actual} != {exp}"
                 else:
@@ -196,7 +186,7 @@ class MaskTestMixin:
         result = self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
         assert self.get_row_count(result) == self.mask_expected_row_count()  # type: ignore[attr-defined]
         result_col = self.extract_column(result, self.mask_feature_name())  # type: ignore[attr-defined]
-        assert all(_is_null(v) for v in result_col)
+        assert all(is_null(v) for v in result_col)
 
     def test_mixin_mask_no_mask_baseline(self) -> None:
         """Mixin: without mask, results match the standard unmasked value."""

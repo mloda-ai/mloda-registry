@@ -299,11 +299,9 @@ class ResampleTestBase(OutputContractTestMixin, NanPolicyTestMixin, DataOpsTestB
 
     # -- Setup: use the dedicated 12-row resample fixture -------------------
 
-    def setup_method(self) -> None:
-        """Override the canonical-fixture setup to use the dedicated 12-row table."""
-        super().setup_method()  # connections + canonical data (mostly unused)
-        self._arrow_table = _create_resample_arrow_table()
-        self.test_data = self.create_test_data(self._arrow_table)
+    @classmethod
+    def source_arrow_table(cls) -> pa.Table:
+        return _create_resample_arrow_table()
 
     # -- Result-map helpers -------------------------------------------------
 

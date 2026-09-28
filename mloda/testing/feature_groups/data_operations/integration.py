@@ -34,6 +34,8 @@ import pyarrow as pa
 import pytest
 from mloda.user import Feature, Options, PluginCollector, mloda
 
+from mloda.testing.feature_groups.data_operations.helpers import assert_values_with_nulls
+
 
 class DataOpsIntegrationTestBase(ABC):
     """Abstract base class for data-ops integration tests through mloda pipeline.
@@ -171,10 +173,7 @@ class DataOpsIntegrationTestBase(ABC):
             actual = sorted(actual, key=lambda x: (x is None, x))
             expected = sorted(expected, key=lambda x: (x is None, x))
 
-        if self.use_approx():
-            assert actual == pytest.approx(expected, rel=self.approx_rel())
-        else:
-            assert actual == expected
+        assert_values_with_nulls(actual, expected, approx=self.use_approx(), rel=self.approx_rel())
 
     # -- Concrete test methods (inherited for free) ---------------------------
 

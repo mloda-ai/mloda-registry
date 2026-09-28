@@ -584,10 +584,6 @@ class RankTestBase(OutputContractTestMixin, DataOpsTestBase):
 
     # -- Helper methods ------------------------------------------------------
 
-    def _skip_if_unsupported(self, rank_type: str) -> None:
-        if rank_type not in self.supported_rank_types():
-            pytest.skip(f"{rank_type} not supported by this framework")
-
     def _none_and_nan_order_by(self, rank_type: str) -> tuple[list[Any], list[Any]]:
         """Run ``val__<rank_type>_ranked`` on a None/NaN order_by mix.
 

@@ -7,6 +7,7 @@ offset, rank, binning, datetime, frame_aggregate, string). It provides:
 - 5 abstract adapter methods (implementation_class, create_test_data,
   extract_column, get_row_count, get_expected_type) that framework mixins
   or concrete test classes implement once.
+- ``source_arrow_table``: overridable hook for the fixture setup_method builds from.
 - Shared setup_method / teardown_method (connection lifecycle).
 - A ``_skip_if_unsupported`` helper for operations not available on every framework.
 - A ``_compare_with_reference`` cross-framework comparison helper.
@@ -83,13 +84,21 @@ class DataOpsTestBase(ABC):
 
     # -- Setup / teardown ------------------------------------------------------
 
+    @classmethod
+    def source_arrow_table(cls) -> pa.Table:
+        """PyArrow table setup_method builds ``self._arrow_table`` / ``self.test_data`` from.
+
+        Default: canonical 12-row dataset, override for a dedicated fixture.
+        """
+        return PyArrowDataOpsTestDataCreator.create()
+
     def setup_method(self) -> None:
-        """Create test data from the canonical 12-row dataset.
+        """Create test data from ``source_arrow_table()``.
 
         Connection-based mixins (DuckdbTestMixin, SqliteTestMixin) create
         ``self.conn`` first, then call ``super().setup_method()``.
         """
-        self._arrow_table = PyArrowDataOpsTestDataCreator.create()
+        self._arrow_table = self.source_arrow_table()
         self.test_data = self.create_test_data(self._arrow_table)
 
     def teardown_method(self) -> None:

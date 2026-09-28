@@ -4,15 +4,62 @@ Provides:
 - ``extract_column``: Extract a column from any framework result as a Python list.
 - ``make_feature_set``: Build a FeatureSet with optional partition_by/order_by.
 - ``feature_set_for``: Build a FeatureSet around an Options that already exists.
+- ``is_null``: True for None or a float NaN.
+- ``assert_values_with_nulls``: Assert two lists match, null-aware, with optional cast/approx.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime
+from typing import Any, Callable
 
 import pyarrow as pa
+import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
+
+
+def is_null(value: Any) -> bool:
+    """True for None or a float NaN."""
+    if value is None:
+        return True
+    if isinstance(value, float) and value != value:
+        return True
+    return False
+
+
+def assert_values_with_nulls(
+    actual: list[Any],
+    expected: list[Any],
+    *,
+    approx: bool = False,
+    rel: float = 1e-6,
+    nan_is_null: bool = False,
+    parse_iso: bool = False,
+    cast: Callable[[Any], Any] | None = None,
+) -> None:
+    """Assert two lists are equal row by row, treating null consistently.
+
+    ``nan_is_null`` treats NaN and None as interchangeable nulls, ``parse_iso`` parses a str
+    actual value via ``datetime.fromisoformat``, ``cast`` converts the actual value before
+    comparing, and ``approx`` compares with ``pytest.approx`` instead of exact equality.
+    """
+    assert len(actual) == len(expected), f"row count {len(actual)} != expected {len(expected)}"
+    for i, (a, e) in enumerate(zip(actual, expected)):
+        expected_null = e is None or (nan_is_null and is_null(e))
+        if expected_null:
+            actual_null = a is None or (nan_is_null and is_null(a))
+            assert actual_null, f"row {i}: expected None, got {a!r}"
+        else:
+            assert a is not None, f"row {i}: expected {e!r}, got None"
+            if parse_iso and isinstance(a, str):
+                a = datetime.fromisoformat(a)
+            if cast is not None:
+                a = cast(a)
+            if approx:
+                assert a == pytest.approx(e, rel=rel), f"row {i}: {a!r} != {e!r}"
+            else:
+                assert a == e, f"row {i}: {a!r} != {e!r}"
 
 
 def extract_column(result: Any, column_name: str) -> list[Any]:

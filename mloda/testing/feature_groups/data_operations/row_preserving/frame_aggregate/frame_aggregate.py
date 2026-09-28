@@ -13,7 +13,6 @@ small set of abstract methods. This follows the same pattern as
 
 from __future__ import annotations
 
-import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -24,10 +23,12 @@ from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import (
-    extract_column as _extract_column,
+    assert_values_with_nulls,
+    is_null,
+    make_feature_set,
 )
 from mloda.testing.feature_groups.data_operations.helpers import (
-    make_feature_set,
+    extract_column as _extract_column,
 )
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
@@ -251,30 +252,6 @@ def config_frame_options(agg_type: str, frame_type: str, frame_size: int = 3) ->
             "order_by": "ts",
         }
     )
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _is_null(value: Any) -> bool:
-    """Check if a value is null (None or NaN)."""
-    if value is None:
-        return True
-    if isinstance(value, float) and math.isnan(value):
-        return True
-    return False
-
-
-def _assert_values_with_nulls(actual: list[Any], expected: list[Any]) -> None:
-    """Assert two lists are equal, treating None and NaN as equivalent nulls."""
-    assert len(actual) == len(expected), f"length {len(actual)} != {len(expected)}"
-    for i, (a, e) in enumerate(zip(actual, expected)):
-        if _is_null(e):
-            assert _is_null(a), f"row {i}: expected null, got {a}"
-        else:
-            assert a == pytest.approx(e, rel=1e-6), f"row {i}: {a} != {e}"
 
 
 # ---------------------------------------------------------------------------
@@ -639,7 +616,7 @@ class FrameAggregateTestBase(
         #   Masked: (null[Y], 15[X], null[Y]) -> cumsum: null, 15, 15
         # None group: (-10) = row 11 -> cumsum: -10
         expected = [10, None, 0, 10, 60, None, None, 60, None, 15, 15, -10]
-        _assert_values_with_nulls(result_col, expected)
+        assert_values_with_nulls(result_col, expected, nan_is_null=True, approx=True, rel=1e-6)
 
     def test_mask_rolling_sum_equal(self) -> None:
         """Rolling sum (window 3) where category='X', partitioned by region, ordered by value_int."""
@@ -657,7 +634,7 @@ class FrameAggregateTestBase(
         #   Masked: (null, 15, null) -> rolling_3 sum: null, 15, 15
         # None group: (-10) = row 11 -> -10
         expected = [10, None, 0, 10, 60, None, None, 60, None, 15, 15, -10]
-        _assert_values_with_nulls(result_col, expected)
+        assert_values_with_nulls(result_col, expected, nan_is_null=True, approx=True, rel=1e-6)
 
     # -- Cross-framework comparison ------------------------------------------
 
@@ -996,7 +973,7 @@ class FrameAggregateTestBase(
         # Original row order: [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
         # Nulls in sum_rolling_1 should produce None (or NaN in Pandas).
         expected = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
-        _assert_values_with_nulls(result_col, expected)
+        assert_values_with_nulls(result_col, expected, nan_is_null=True, approx=True, rel=1e-6)
 
     def test_all_null_values_returns_null(self) -> None:
         """When all values in the source column are null, results should be null."""
@@ -1013,7 +990,7 @@ class FrameAggregateTestBase(
         assert self.get_row_count(result) == 3
         result_col = self.extract_column(result, "value_int__cumsum")
         for i, val in enumerate(result_col):
-            assert _is_null(val), f"row {i}: expected null, got {val}"
+            assert is_null(val), f"row {i}: expected null, got {val}"
 
     def test_window_larger_than_partition(self) -> None:
         """Rolling window larger than partition should include all rows in the partition."""

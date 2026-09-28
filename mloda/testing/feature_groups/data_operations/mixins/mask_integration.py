@@ -9,21 +9,13 @@ and overrides the configuration methods to adapt to its specific feature group.
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import pyarrow as pa
 import pytest
 from mloda.user import Feature, Options, mloda
 
-
-def _is_null(value: Any) -> bool:
-    """Check if a value is null (None or NaN)."""
-    if value is None:
-        return True
-    if isinstance(value, float) and math.isnan(value):
-        return True
-    return False
+from mloda.testing.feature_groups.data_operations.helpers import is_null
 
 
 class MaskIntegrationTestMixin:
@@ -98,8 +90,8 @@ class MaskIntegrationTestMixin:
 
         assert len(actual) == len(expected), f"length {len(actual)} != {len(expected)}"
         for i, (a, e) in enumerate(zip(actual, expected)):
-            if _is_null(e):
-                assert _is_null(a), f"row {i}: expected null, got {a}"
+            if is_null(e):
+                assert is_null(a), f"row {i}: expected null, got {a}"
             elif self.mask_integration_use_approx() and isinstance(e, float):
                 assert a == pytest.approx(e, rel=1e-3), f"row {i}: {a} != {e}"
             else:
