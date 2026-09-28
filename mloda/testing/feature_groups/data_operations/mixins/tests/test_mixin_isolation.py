@@ -118,9 +118,11 @@ class _StubMetafunc:
     def __init__(self, fixturenames: list[str]) -> None:
         self.fixturenames = fixturenames
         self.recorded: dict[str, list[Any]] = {}
+        self.recorded_ids: dict[str, list[Any] | None] = {}
 
     def parametrize(self, argnames: str, argvalues: Any, ids: Any = None, **kwargs: Any) -> None:
         self.recorded[argnames] = list(argvalues)
+        self.recorded_ids[argnames] = list(ids) if ids is not None else None
 
 
 class TestMixinIsolation:
@@ -201,19 +203,19 @@ class TestMixinIsolation:
         """Every fixture in a concrete class's merged ``_case_fixtures`` must be parametrized."""
         found_any = False
         for cls in _iter_concrete_test_classes():
-            merged: dict[str, str] = {}
+            expected: set[str] = set()
             for klass in cls.__mro__:
                 own = vars(klass).get("_case_fixtures")
                 if own:
-                    merged.update(own)
-            if not merged:
+                    expected.update(own)
+            if not expected:
                 continue
             found_any = True
             instance = cls()
-            stub = _StubMetafunc(list(merged))
+            stub = _StubMetafunc(list(expected))
             instance.pytest_generate_tests(cast(pytest.Metafunc, stub))
-            assert set(stub.recorded) == set(merged), (
-                f"{cls.__module__}.{cls.__name__}: expected fixtures {sorted(merged)}, got {sorted(stub.recorded)}"
+            assert set(stub.recorded) == expected, (
+                f"{cls.__module__}.{cls.__name__}: expected fixtures {sorted(expected)}, got {sorted(stub.recorded)}"
             )
         assert found_any, "no concrete Test* class declares _case_fixtures; discovery is broken"
 
@@ -246,6 +248,7 @@ class TestMixinIsolation:
         Combined().pytest_generate_tests(cast(pytest.Metafunc, stub))
 
         assert stub.recorded.get("synthetic_case") == ["a", "b"]
+        assert stub.recorded_ids["synthetic_case"] == ["a", "b"]
         assert "other_case" not in stub.recorded
         assert calls == ["parent"]
 
@@ -272,3 +275,39 @@ class TestMixinIsolation:
         stub = _StubMetafunc(["dup_case"])
         with pytest.raises(TypeError):
             Combined().pytest_generate_tests(cast(pytest.Metafunc, stub))
+
+    def test_case_parametrization_mixin_subclass_overrides_ancestor_fixture(self) -> None:
+        """A subclass redeclaring an ancestor's fixture wins; it is not a duplicate declaration."""
+
+        class CaseMixin(CaseParametrizationTestMixin):
+            _case_fixtures: ClassVar[dict[str, str]] = {"override_case": "base_cases"}
+
+            @classmethod
+            def base_cases(cls) -> dict[str, Any]:
+                return {"a": 1}
+
+        class Sub(CaseMixin):
+            _case_fixtures: ClassVar[dict[str, str]] = {"override_case": "sub_cases"}
+
+            @classmethod
+            def sub_cases(cls) -> dict[str, Any]:
+                return {"z": 9}
+
+        stub = _StubMetafunc(["override_case"])
+        Sub().pytest_generate_tests(cast(pytest.Metafunc, stub))
+        assert stub.recorded["override_case"] == ["z"]
+
+        class SubExtending(CaseMixin):
+            _case_fixtures: ClassVar[dict[str, str]] = {
+                **CaseMixin._case_fixtures,
+                "extra_case": "extra_cases",
+            }
+
+            @classmethod
+            def extra_cases(cls) -> dict[str, Any]:
+                return {"e": 5}
+
+        stub_extending = _StubMetafunc(["override_case", "extra_case"])
+        SubExtending().pytest_generate_tests(cast(pytest.Metafunc, stub_extending))
+        assert stub_extending.recorded["override_case"] == ["a"]
+        assert stub_extending.recorded["extra_case"] == ["e"]
