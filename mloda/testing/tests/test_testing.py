@@ -1,5 +1,7 @@
 """Tests for mloda.testing package."""
 
+import subprocess  # nosec
+import sys
 from typing import Any
 
 import pytest
@@ -12,6 +14,17 @@ from mloda.testing.extenders.contract import ExtenderContractTestMixin
 def test_feature_group_test_base_import() -> None:
     """Verify FeatureGroupTestBase can be imported."""
     assert FeatureGroupTestBase is not None
+
+
+def test_import_does_not_load_pytest_outside_pytest() -> None:
+    """Importing mloda.testing must not import pytest in a process where pytest is not loaded."""
+    result = subprocess.run(  # nosec
+        [sys.executable, "-c", "import sys, mloda.testing; print('pytest' in sys.modules)"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "False"
 
 
 def test_contract_mixin_assert_reports_compared_values() -> None:
