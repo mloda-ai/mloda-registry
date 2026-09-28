@@ -665,7 +665,7 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         )
         data = self.create_test_data(table)
         fs = self._resample_fs("value__resample_1_hour_mean", ["region"])
-        with pytest.raises(ValueError, match=r"(?i)ts|time_column|missing|column"):
+        with pytest.raises(ValueError, match=r"time_column 'ts' is not present"):
             self.implementation_class().calculate_feature(data, fs)
 
     # -- InputValidationTestMixin configuration ---------------------------------

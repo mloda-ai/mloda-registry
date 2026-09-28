@@ -9,7 +9,6 @@ from typing import Any, TypeVar
 
 from mloda.provider import FeatureChainParserMixin
 from mloda.user import Options
-from mloda_plugins.compute_framework.base_implementations.sql.sql_base_relation import SqlBaseRelation
 
 T = TypeVar("T")
 
@@ -256,23 +255,12 @@ def available_columns(data: Any) -> list[str]:
     return list(data.columns)
 
 
-def assert_source_columns_present(data: Any, columns: Iterable[str]) -> None:
-    """Raise ``ValueError`` naming the first of ``columns`` absent from ``data``.
-
-    SQL relations match case-insensitively (their own engine semantics); every other
-    input matches exactly.
-    """
+def assert_source_columns_present(data: Any, columns: Iterable[str], label: str = "Source column") -> None:
+    """Raise ``ValueError`` naming the first of ``columns`` absent from ``data`` (exact match)."""
     names = available_columns(data)
-    case_insensitive = isinstance(data, SqlBaseRelation)
-    lower_names = {name.lower() for name in names} if case_insensitive else set()
     for col in columns:
-        if col in names:
-            continue
-        if case_insensitive and col.lower() in lower_names:
-            continue
-        raise ValueError(
-            f"Source column {col!r} is not present in the {type(data).__name__} input; available: {names}."
-        )
+        if col not in names:
+            raise ValueError(f"{label} {col!r} is not present in the {type(data).__name__} input; available: {names}.")
 
 
 # Deprecated alias: released leaves still import this name.

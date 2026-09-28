@@ -155,3 +155,15 @@ class TestReleasedLeafImportCompat:
         from mloda.community.feature_groups.data_operations.base import RejectionReasonMixin
 
         assert RejectionReasonMixin is FeatureChainParserMixin
+
+    def test_deprecated_input_columns_and_framework_shims_still_work(self) -> None:
+        """Old leaves pinned against >= this base still call these two removed hooks."""
+        from mloda.community.feature_groups.data_operations.python_dict_helpers import (
+            input_columns_and_framework,
+        )
+        from mloda.community.feature_groups.data_operations.row_preserving.arithmetic.base import (
+            ArithmeticFeatureGroupBase,
+        )
+
+        assert input_columns_and_framework({"a": [1]}) == (["a"], "PythonDict")
+        assert ArithmeticFeatureGroupBase._input_columns_and_framework({"a": [1]}) == (["a"], "dict")

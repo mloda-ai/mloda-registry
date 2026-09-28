@@ -315,7 +315,7 @@ class TestAssertSourceColumnsPresent:
         with pytest.raises(ValueError, match=r"is not present in the DataFrame input; available: \['a'\]"):
             assert_source_columns_present(df, ["missing"])
 
-    # -- Case sensitivity: strict everywhere except SQL relations -----------
+    # -- Case sensitivity: exact match everywhere, SQL relations included ---
 
     @pytest.mark.parametrize(
         "make_data",
@@ -324,20 +324,15 @@ class TestAssertSourceColumnsPresent:
             pytest.param(lambda: _pandas_data({"Val": [1]}), id="pandas"),
             pytest.param(lambda: _pyarrow_data({"Val": [1]}), id="pyarrow"),
             pytest.param(lambda: _polars_lazy_data({"Val": [1]}), id="polars_lazy"),
-        ],
-    )
-    def test_case_mismatch_rejected_for_non_sql_frameworks(self, make_data: Callable[[], Any]) -> None:
-        """Only column 'Val' exists; requesting 'val' must be rejected (case-sensitive match)."""
-        with pytest.raises(ValueError, match=r"Source column 'val' is not present"):
-            assert_source_columns_present(make_data(), ["val"])
-
-    @pytest.mark.parametrize(
-        "make_data",
-        [
             pytest.param(lambda: _duckdb_data({"Val": [1]}), id="duckdb"),
             pytest.param(lambda: _sqlite_data({"Val": [1]}), id="sqlite"),
         ],
     )
-    def test_case_mismatch_accepted_for_sql_relations(self, make_data: Callable[[], Any]) -> None:
-        """SQL engines bind identifiers case-insensitively, so 'val' must match column 'Val'."""
-        assert_source_columns_present(make_data(), ["val"])
+    def test_case_mismatch_rejected_for_every_framework(self, make_data: Callable[[], Any]) -> None:
+        """Only column 'Val' exists; requesting 'val' must be rejected (exact-name match, no SQL case folding)."""
+        with pytest.raises(ValueError, match=r"Source column 'val' is not present"):
+            assert_source_columns_present(make_data(), ["val"])
+
+    def test_label_overrides_the_message_prefix(self) -> None:
+        with pytest.raises(ValueError, match=r"time_column 'ts' is not present in the dict input"):
+            assert_source_columns_present({"a": [1]}, ["ts"], label="time_column")

@@ -23,7 +23,7 @@ from typing import Any
 from mloda.provider import FeatureChainParser, FeatureChainParserMixin, FeatureGroup
 from mloda.user import Feature
 
-from mloda.community.feature_groups.data_operations.base import op_token_value
+from mloda.community.feature_groups.data_operations.base import available_columns, op_token_value
 
 ARITHMETIC_OP_NAMES: frozenset[str] = frozenset({"add", "subtract", "multiply", "divide"})
 
@@ -94,3 +94,9 @@ class ArithmeticFeatureGroupBase(FeatureChainParserMixin, FeatureGroup):
         descriptor = cls._non_numeric_descriptor(data, source_col)
         if descriptor is not None:
             cls._raise_non_numeric_source(source_col, descriptor)
+
+    # Deprecated alias: released leaves still import this name.
+    @classmethod
+    def _input_columns_and_framework(cls, data: Any) -> tuple[list[str], str]:
+        """Column names and the input's class name, for a leaf still calling the removed hook."""
+        return available_columns(data), type(data).__name__

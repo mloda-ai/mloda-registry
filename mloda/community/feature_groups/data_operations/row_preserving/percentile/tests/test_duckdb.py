@@ -24,14 +24,9 @@ class TestDuckdbPercentile(DuckdbTestMixin, PercentileTestBase):
 
 
 class TestDuckdbPercentileColumnCaseMismatch:
-    """A source column whose case differs from the feature name must still resolve.
+    """Case-mismatched source column names are rejected up front on every backend."""
 
-    DuckDB binds identifiers case-insensitively, so ``val`` in the feature name
-    and ``Val`` in the table refer to the same column at the SQL level; the
-    column-type lookup used to wrap NaN as null must resolve it too.
-    """
-
-    def test_case_mismatched_column_computes_without_error(self) -> None:
+    def test_case_mismatched_column_rejected(self) -> None:
         import duckdb
         import pyarrow as pa
         from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
@@ -50,6 +45,5 @@ class TestDuckdbPercentileColumnCaseMismatch:
         rel = DuckdbRelation.from_arrow(con, table)
         fs = make_feature_set("val__p50_percentile", partition_by=["grp"])
 
-        result = DuckdbPercentile.calculate_feature(rel, fs)
-
-        assert result.to_arrow_table().num_rows == 3
+        with pytest.raises(ValueError, match=r"Source column 'val' is not present"):
+            DuckdbPercentile.calculate_feature(rel, fs)

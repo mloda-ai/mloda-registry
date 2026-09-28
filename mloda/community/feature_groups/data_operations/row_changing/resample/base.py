@@ -263,7 +263,8 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             partition_by = cls._extract_partition_by(feature)
             time_column = cls._extract_time_column(feature)
 
-            assert_source_columns_present(data, [time_column, source_col])
+            assert_source_columns_present(data, [time_column], label="time_column")
+            assert_source_columns_present(data, [source_col])
 
             table = cls._compute_resample(table, feature_name, source_col, time_column, partition_by, n, unit, agg)
 

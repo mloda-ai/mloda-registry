@@ -287,3 +287,9 @@ def non_numeric_descriptor(data: dict[str, list[Any]], source_col: str) -> objec
             continue
         return type(value).__name__
     return None
+
+
+# Deprecated alias: released leaves still import this name.
+def input_columns_and_framework(data: dict[str, list[Any]]) -> tuple[list[str], str]:
+    """All dict keys are input columns; framework label is always ``"PythonDict"``."""
+    return list(data.keys()), "PythonDict"
