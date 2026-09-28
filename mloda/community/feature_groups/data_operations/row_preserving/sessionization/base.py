@@ -152,7 +152,7 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             return False
         return super().match_feature_group_criteria(feature_name, options, _data_access_collection)
 
-    # Kept: the source comes only from the name; core would fall back to a config-only in_features.
+    # Kept: a config-only feature must raise here, not fall back to in_features as core does.
     def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         source_feature = self._extract_source_features(Feature(str(feature_name), options=options))[0]
         return {Feature(source_feature)}
