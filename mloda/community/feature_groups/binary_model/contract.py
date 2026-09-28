@@ -1,8 +1,6 @@
-"""Single source for the binary-model contract's own constants and line/stream parsing
-(contract: Invocation, Capabilities, Errors, Data handling), stdlib-only so the runtime mixin
-never needs ``mloda.testing``; ``mloda.testing.binary_model`` re-exports these for the conformance
-kit.
-"""
+"""Single source for the binary-model contract's constants and line/stream parsing, stdlib-only so
+the runtime mixin never needs ``mloda.testing``; ``mloda.testing.binary_model`` re-exports these for
+the conformance kit."""
 
 from __future__ import annotations
 

@@ -172,9 +172,8 @@ class TestResolveBinary:
         ],
     )
     def test_split_output_lines_drops_one_trailing_empty_element(self, text: str, expected: list[str]) -> None:
-        """``contract.split_output_lines`` is the single source for the ``--capabilities`` line
-        split: it splits on ``\\n`` only and drops one trailing empty element (contract:
-        Capabilities)."""
+        """``contract.split_output_lines`` is the single source for the ``--capabilities`` line split
+        (contract: Capabilities)."""
         assert contract.split_output_lines(text) == expected
 
     def test_version_two_lines_is_unavailable(self) -> None:

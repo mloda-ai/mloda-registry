@@ -60,7 +60,7 @@ entry_point_groups = ["mloda.feature_groups"]
 # dependency only: nothing under mloda/community or mloda/enterprise imports mloda.testing at runtime.
 # The contract rules (constants, line/stream parsing) live in the mixin's own
 # mloda.community.feature_groups.binary_model.contract; mloda-testing[binary-model] takes them from
-# mloda-community, since the kit checks what the mixin accepts. Never the reverse.
+# mloda-community, never the reverse.
 
 [packages.mloda-community-binary-model]
 description = "Mixin running an external binary as a model over Arrow IPC, the base for binary-backed FeatureGroups"

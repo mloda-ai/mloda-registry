@@ -2,11 +2,10 @@
 (``simulated_binary.py``) and the conformance suite (``conformance.py``), so neither keeps its own
 copy.
 
-``CONTRACT_VERSION``, ``VERSION_PATTERN``, ``COLUMN_TYPES`` and ``MESSAGE_MAX_BYTES`` are re-exported
-from the mixin's own ``mloda.community.feature_groups.binary_model.contract``, the single source of
-the contract rules; the kit depends on the mixin, never the reverse. Everything else (error codes,
-the worked example, Arrow IPC mechanics, the "hash" algorithm, license-token shapes) lives in this
-package's own modules.
+The re-exported constants below come from the mixin's own
+``mloda.community.feature_groups.binary_model.contract``, the single source of the contract rules;
+the kit depends on the mixin, never the reverse. Everything else (error codes, the worked example,
+Arrow IPC mechanics, the "hash" algorithm, license-token shapes) lives in this package's own modules.
 """
 
 from __future__ import annotations
