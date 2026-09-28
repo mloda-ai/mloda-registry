@@ -1967,7 +1967,7 @@ name = "mloda-enterprise-binary-example"
 version = "0.4.7"
 source = { editable = "mloda/enterprise/feature_groups/binary_example" }
 dependencies = [
-    { name = "mloda-community-binary-model" },
+    { name = "mloda-community" },
 ]
 
 [package.optional-dependencies]
@@ -1984,7 +1984,7 @@ wheel = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda-community-binary-model", specifier = ">=0.4.7" },
+    { name = "mloda-community", specifier = ">=0.4.7" },
     { name = "mloda-example-binary", marker = "extra == 'wheel'", specifier = ">=0.1.0,<0.2.0" },
     { name = "mloda-testing", extras = ["binary-model"], marker = "extra == 'dev'" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=25" },

@@ -4456,6 +4456,17 @@ class TestEd25519PublicKeyOnly:
 
         assert _snapshot(tmp_path) == before
 
+    def test_a_rotation_entry_repair_cannot_sign_its_trace_so_it_raises_and_leaves_the_log_alone(
+        self, tmp_path: Path
+    ) -> None:
+        _, manifest_path, anchor = _log_with_rotation_entry(tmp_path)
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ValueError, match="public key"):
+            _quarantine_from_entry(tmp_path, manifest_path, signer=_verify_only(), expected_head=anchor)
+
+        assert _snapshot(tmp_path) == before
+
     def test_sealing_a_pending_run_raises_value_error_and_writes_nothing(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
         _write_records(audit_path, [_record("run-d", 7)])
@@ -4720,7 +4731,7 @@ class TestEd25519WithoutCryptography:
         assert Ed25519Signer.from_public_key(public_key, "k").verify(b"payload", signature) is True
 
 
-# (mode, fail_closed) combos for TestRunManifestRunAll.
+@_both_algorithms
 class TestQuarantineFromRotationEntry:
     """Drops a rotation entry and everything after it, anchored on the head just before the entry."""
 
@@ -4875,11 +4886,8 @@ class TestQuarantineFromRotationEntry:
         probes: list[tuple[str, bool]] = []
         real_truncate = os.truncate
 
-        class _LockProbeSigner(HmacSha256Signer):
-            def sign(self, payload: bytes) -> str:
-                # Verifying and the trace both sign.
-                probes.append(("sign", _lock_refused(manifest_path)))
-                return super().sign(payload)
+        def probe_signing(payload: bytes) -> None:
+            probes.append(("sign", _lock_refused(manifest_path)))
 
         def spy_append(*args: Any, **kwargs: Any) -> None:
             probes.append(("append", _lock_refused(manifest_path)))
@@ -4892,9 +4900,9 @@ class TestQuarantineFromRotationEntry:
         monkeypatch.setattr(run_manifest_module, "_append_records", spy_append)
         monkeypatch.setattr(os, "truncate", spy_truncate)
 
-        removed = _quarantine_from_entry(
-            tmp_path, manifest_path, signer=_LockProbeSigner(_KEY, "key-1"), expected_head=anchor
-        )
+        # Verifying and the trace both use the signer, so the wrapper probes both hooks.
+        probing = _HookedSigner(_signer(), on_sign=probe_signing, on_verify=probe_signing)
+        removed = _quarantine_from_entry(tmp_path, manifest_path, signer=probing, expected_head=anchor)
 
         assert len(removed) == 2
         assert {stage for stage, _ in probes} == {"sign", "append", "truncate"}
@@ -5015,6 +5023,7 @@ class TestQuarantineFromRotationEntry:
         assert _snapshot(tmp_path) == before
 
 
+# (mode, fail_closed) combos for TestRunManifestRunAll.
 _RUN_ALL_MODE_AND_FAIL_CLOSED = [
     (ParallelizationMode.SYNC, False),
     (ParallelizationMode.THREADING, False),

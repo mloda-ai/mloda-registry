@@ -1,6 +1,8 @@
 """``[tool.uv.sources]`` generation for top-level packages: a package depending on another
 configured package (as ``mloda-enterprise`` depends on ``mloda-community``) needs a workspace
-source entry for it, or ``uv lock`` fails.
+source entry for it, or ``uv lock`` fails. A top-level package gets one source entry per configured
+sibling named in its own dependencies or an ``optional_dependencies`` extra, plus the default
+``mloda-testing`` entry unless it skips default dev deps (see ``skips_default_optional_dependencies``).
 
 The generator lives at ``scripts/generate_pyproject.py`` (a script, not an installed package), so it
 is loaded here by file path through ``tests.script_loader``.
@@ -78,9 +80,14 @@ def _sandbox_content(dependencies: list[str]) -> str:
 
 
 def test_enterprise_bundle_gets_source_entry_for_its_community_dependency() -> None:
-    """mloda-enterprise has no default dev deps but depends on the mloda-community workspace member."""
+    """mloda-enterprise has no default dev deps but depends on the mloda-community workspace member,
+    plus its own extenders-shared dependency and its openlineage extra's sibling."""
     content = _generate("mloda-enterprise")
-    assert _sources(content) == {"mloda-community": {"workspace": True}}, content
+    assert _sources(content) == {
+        "mloda-community": {"workspace": True},
+        "mloda-community-extenders-shared": {"workspace": True},
+        "mloda-community-openlineage": {"workspace": True},
+    }, content
 
 
 def test_registry_keeps_its_existing_default_dev_deps_source() -> None:
@@ -89,10 +96,18 @@ def test_registry_keeps_its_existing_default_dev_deps_source() -> None:
     assert _sources(content) == {"mloda-testing": {"workspace": True}}, content
 
 
-def test_community_bundle_has_no_sources_table() -> None:
-    """mloda-community has no configured-package dependency and no default dev deps."""
+def test_community_bundle_gets_a_source_for_every_configured_sibling_it_names() -> None:
+    """mloda-community pins its nested siblings with ``==`` in its own dependencies and extras,
+    each of which needs a workspace source; it has no default dev deps, so mloda-testing is absent."""
     content = _generate("mloda-community")
-    assert _sources(content) is None, content
+
+    sources = _sources(content)
+    assert sources is not None, content
+    assert "mloda-community-extenders-shared" in sources, content
+    assert "mloda-community-aggregation" in sources, content
+    assert "mloda-community-otel" in sources, content  # from the "otel" extra
+    assert "mloda-community-openlineage" in sources, content  # from the "openlineage" extra
+    assert "mloda-testing" not in sources, content
 
 
 def test_nested_package_with_configured_dependency_has_no_sources_table() -> None:
@@ -155,17 +170,17 @@ def test_computed_source_names_are_emitted_as_flat_keys(monkeypatch: pytest.Monk
     """Forced dotted name (normalization rules it out in real config): an unquoted dot would parse as a nested table."""
 
     def dotted_source_names(
-        pkg_name: str,
-        pkg_config: dict[str, Any],
+        deps: list[str],
         all_packages: dict[str, dict[str, Any]],
     ) -> list[str]:
         return ["mloda-registry", "mloda.foo"]
 
-    monkeypatch.setattr(gen, "workspace_source_names", dotted_source_names)
+    monkeypatch.setattr(gen, "sibling_dependency_names", dotted_source_names)
 
     content = _sandbox_content(["{core_dependency}"])
 
     assert _sources(content) == {
         "mloda.foo": {"workspace": True},
         "mloda-registry": {"workspace": True},
+        "mloda-testing": {"workspace": True},
     }, content

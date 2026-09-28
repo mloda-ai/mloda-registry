@@ -58,7 +58,8 @@ optional_dependencies = { pyarrow = ["pyarrow>=25"], dev = ["mloda-testing[binar
 
 [packages.mloda-enterprise-binary-example]
 description = "Example enterprise FeatureGroup backed by a licensed binary model"
-dependencies = ["mloda-community-binary-model>={version}"]
+# The mixin package is unpublished and ships only inside the mloda-community bundle.
+dependencies = ["mloda-community>={version}"]
 path = "mloda/enterprise/feature_groups/binary_example"
 # The wheel is an optional extra from the mloda-binary-wrapper repo, never a hard dependency.
 optional_dependencies = { pyarrow = ["pyarrow>=25"], wheel = ["mloda-example-binary>=0.1.0,<0.2.0"], dev = ["mloda-testing[binary-model]", "pytest>=9.0.3"] }
