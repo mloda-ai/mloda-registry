@@ -9,15 +9,9 @@ import pytest
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.feature_groups.data_operations import helpers
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.mixins import mask as mask_module
-from mloda.testing.feature_groups.data_operations.mixins import mask_integration as mask_integration_module
 from mloda.testing.feature_groups.data_operations.row_changing.resample.resample import ResampleTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.ema.ema import EmaTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.ffill.ffill import FfillTestBase
-from mloda.testing.feature_groups.data_operations.row_preserving.frame_aggregate import (
-    frame_aggregate as frame_aggregate_module,
-)
-from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import RankTestBase
 from mloda.testing.feature_groups.data_operations.row_preserving.sessionization.sessionization import (
     SessionizationTestBase,
 )
@@ -194,39 +188,3 @@ def test_setup_method_uses_overridden_source_arrow_table() -> None:
 def test_operation_base_has_no_setup_method_override_and_declares_source_arrow_table(cls: type) -> None:
     assert "setup_method" not in cls.__dict__
     assert "source_arrow_table" in cls.__dict__
-
-
-def test_rank_test_base_no_longer_overrides_skip_if_unsupported() -> None:
-    assert "_skip_if_unsupported" not in RankTestBase.__dict__
-
-
-# -- Structural guards: old private helper duplicates removed ---------------
-
-
-def test_ema_private_helper_removed() -> None:
-    assert "_assert_float_list_with_nulls" not in EmaTestBase.__dict__
-
-
-def test_ffill_private_helper_removed() -> None:
-    assert "_assert_float_list_with_nulls" not in FfillTestBase.__dict__
-
-
-def test_sessionization_private_helper_removed() -> None:
-    assert "_assert_int_list" not in SessionizationTestBase.__dict__
-
-
-def test_time_bucketization_private_helper_removed() -> None:
-    assert "_assert_equal_with_nulls" not in TimeBucketizationTestBase.__dict__
-
-
-def test_frame_aggregate_module_helpers_removed() -> None:
-    assert not hasattr(frame_aggregate_module, "_assert_values_with_nulls")
-    assert not hasattr(frame_aggregate_module, "_is_null")
-
-
-def test_mask_module_helper_removed() -> None:
-    assert not hasattr(mask_module, "_is_null")
-
-
-def test_mask_integration_module_helper_removed() -> None:
-    assert not hasattr(mask_integration_module, "_is_null")

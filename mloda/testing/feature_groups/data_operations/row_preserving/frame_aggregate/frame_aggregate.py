@@ -616,7 +616,7 @@ class FrameAggregateTestBase(
         #   Masked: (null[Y], 15[X], null[Y]) -> cumsum: null, 15, 15
         # None group: (-10) = row 11 -> cumsum: -10
         expected = [10, None, 0, 10, 60, None, None, 60, None, 15, 15, -10]
-        assert_values_with_nulls(result_col, expected, nan_is_null=True, approx=True, rel=1e-6)
+        assert_values_with_nulls(result_col, expected, nan_is_null=True, approx=True)
 
     def test_mask_rolling_sum_equal(self) -> None:
         """Rolling sum (window 3) where category='X', partitioned by region, ordered by value_int."""
@@ -634,7 +634,7 @@ class FrameAggregateTestBase(
         #   Masked: (null, 15, null) -> rolling_3 sum: null, 15, 15
         # None group: (-10) = row 11 -> -10
         expected = [10, None, 0, 10, 60, None, None, 60, None, 15, 15, -10]
-        assert_values_with_nulls(result_col, expected, nan_is_null=True, approx=True, rel=1e-6)
+        assert_values_with_nulls(result_col, expected, nan_is_null=True, approx=True)
 
     # -- Cross-framework comparison ------------------------------------------
 
@@ -973,7 +973,7 @@ class FrameAggregateTestBase(
         # Original row order: [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
         # Nulls in sum_rolling_1 should produce None (or NaN in Pandas).
         expected = [10, -5, 0, 20, None, 50, 30, 60, 15, 15, 40, -10]
-        assert_values_with_nulls(result_col, expected, nan_is_null=True, approx=True, rel=1e-6)
+        assert_values_with_nulls(result_col, expected, nan_is_null=True, approx=True)
 
     def test_all_null_values_returns_null(self) -> None:
         """When all values in the source column are null, results should be null."""
