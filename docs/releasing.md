@@ -22,8 +22,9 @@ workflow_dispatch → semantic-release → PyPI publish
    is when the job runs), then builds and uploads wheels with `twine --skip-existing`,
    so a rerun after a partial upload does not fail on the files that already made it.
    Upload order is the published order (`scripts/published_packages.py`, which rejects a
-   config that is not dependency-first), bundles last, so a new bundle version appears on
-   PyPI only after everything it pins is already there.
+   config that is not dependency-first), bundles after everything they pin (only
+   `mloda-testing` follows them, for its `binary-model` extra's `mloda-community` pin), so a
+   new bundle version appears on PyPI only after everything it pins is already there.
 
 The `prepareCmd` in `.releaserc.yaml` also seds a `MLODA_REGISTRY_VERSION:<version>}`
 default into `tox.ini`. No such default remains there, so that half of the command is

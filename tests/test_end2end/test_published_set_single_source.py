@@ -44,13 +44,12 @@ _TOX_INI = _REPO_ROOT / "tox.ini"
 # The bundle distributions, always part of the released set.
 _BUNDLES = ["mloda-registry", "mloda-testing", "mloda-community", "mloda-enterprise"]
 
-# The released set, in config order: registry and testing, the shared extenders package, the examples,
-# the otel and openlineage extenders, the data-operations base plus its plugin packages, and finally the
-# two bundles, which own (dependencies/extras) every published package nested under their path, so the
-# published order is dependency-first.
+# The released set, in config order: registry, the shared extenders package, the examples, the otel and
+# openlineage extenders, the data-operations base plus its plugin packages, the two bundles, which own
+# (dependencies/extras) every published package nested under their path, and finally testing, whose
+# binary-model extra pins mloda-community, so the published order is dependency-first.
 _EXPECTED_PUBLISHED = [
     "mloda-registry",
-    "mloda-testing",
     "mloda-community-extenders-shared",
     "mloda-community-example",
     "mloda-community-example-a",
@@ -76,6 +75,7 @@ _EXPECTED_PUBLISHED = [
     "mloda-community-resample",
     "mloda-community",
     "mloda-enterprise",
+    "mloda-testing",
 ]
 
 # Example/demo packages that reach users only inside the community and enterprise bundle wheels.
@@ -966,6 +966,7 @@ def test_internal_extra_members_yields_exactly_the_internal_extras() -> None:
         ("mloda-community", "openlineage", ["mloda-community-openlineage"]),
         ("mloda-community", "all", ["mloda-community-otel", "mloda-community-openlineage"]),
         ("mloda-enterprise", "openlineage", ["mloda-community-openlineage"]),
+        ("mloda-testing", "binary-model", ["mloda-community"]),
     ]
     assert entries == expected, f"internal_extra_members() yielded {entries!r}, expected exactly {expected!r}"
 
@@ -1027,6 +1028,8 @@ def test_verification_jobs_yields_one_bare_job_per_package_then_its_gated_jobs()
         ),
         ("mloda-enterprise", "mloda-enterprise==9.9.9", False, ["mloda-community-openlineage"]),
         ("mloda-enterprise", "mloda-enterprise[openlineage]==9.9.9", True, ["mloda-community-openlineage"]),
+        ("mloda-testing", "mloda-testing==9.9.9", False, ["mloda-community"]),
+        ("mloda-testing", "mloda-testing[binary-model]==9.9.9", True, ["mloda-community"]),
     ]
     assert jobs == expected, f"verification_jobs() yielded {jobs!r}, expected exactly {expected!r}"
 
