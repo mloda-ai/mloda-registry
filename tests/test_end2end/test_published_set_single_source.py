@@ -1,8 +1,8 @@
 """Tests that the set of distributions published to PyPI is declared in a single source of truth.
 
 The released set lives in exactly ONE place: a ``published = true`` flag per package in
-``config/packages.toml``. The release workflow, the ``verify-published`` and ``security``
-tox envs and the data-operations ``all`` extra all derive from it through
+``config/packages.toml``. The release workflow, the ``verify-published``
+tox env and the data-operations ``all`` extra all derive from it through
 ``scripts/published_packages.py``. Re-typed copies are how five distributions reached
 three of the four and never the build array.
 
@@ -104,7 +104,7 @@ _ENTRY_POINT_BUNDLES = ["mloda-community", "mloda-enterprise"]
 _PUBLISHED_CHILDREN = "{published_children}"
 
 # The tox envs that install the released set from PyPI.
-_TOX_PUBLISHED_ENVS = ["verify-published", "security"]
+_TOX_PUBLISHED_ENVS = ["verify-published"]
 
 # The tox env that import-checks every installed distribution.
 _VERIFY_PUBLISHED_ENV = "verify-published"

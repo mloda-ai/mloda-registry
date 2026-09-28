@@ -56,8 +56,8 @@ resolving together with its children (see
 
 The released set is the `published = true` flag in `config/packages.toml`.
 `scripts/published_packages.py` prints it, plain or pinned; the build array in
-`.github/workflows/release.yaml` and the install lists of the `verify-published` and
-`security` tox envs are all filled from that one command, so they cannot drift apart.
+`.github/workflows/release.yaml` and the install list of the `verify-published` tox env
+are both filled from that one command, so they cannot drift apart.
 `verify-published-independent` derives its installed set from that same `published` flag,
 and `verify-extras` derives its internal extras from `config/packages.toml`'s
 `optional_dependencies`, so neither script names a package by hand.
@@ -66,7 +66,7 @@ Flagging a package does not publish it: it ships with the next release run, and
 `tox -e verify-published` fails for it until then.
 
 The root `pyproject.toml`'s `exclude-newer` window would hide a release younger than
-seven days, so `verify-published` and `security` pass `--exclude-newer-exempt`, which
+seven days, so `verify-published` passes `--exclude-newer-exempt`, which
 lifts the cutoff for the released distributions only; third-party dependencies stay
 behind the window. The script-driven verify envs install from a temporary directory,
 where no project config applies.

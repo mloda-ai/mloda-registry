@@ -2,7 +2,7 @@ name: Weekly Package Verification
 
 on:
   schedule:
-    # Run every Monday at 10:00 AM UTC (after security scan)
+    # Run every Monday at 10:00 AM UTC
     - cron: '0 10 * * 1'
   workflow_dispatch:  # Allow manual triggering
 
