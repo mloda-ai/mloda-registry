@@ -38,6 +38,10 @@ def _license_env_present() -> bool:
 def _version(mode: str) -> int:
     if mode == "reject_license_at_probe" and _license_env_present():
         return _emit_error(1, "probing must not receive a license (simulated by faulty_binary reject_license_at_probe)")
+    if mode == "version_hang_with_child":
+        _spawn_sleeping_child(Path(os.environ["FAULTY_PID_FILE"]))
+        time.sleep(60)
+        return 0
     if mode == "version_not_semver":
         print(f"{PLUGIN_ID} 1")
         return 0
@@ -144,14 +148,14 @@ def _write_output(data: bytes, output_path: Path | None) -> None:
     sys.stdout.buffer.flush()
 
 
-def _spawn_sleeping_child(config_path: Path | None) -> None:
+def _spawn_sleeping_child(pid_path: Path) -> None:
     """Spawn a child that sleeps, inheriting the pipes and process group, and write its pid to
-    ``parameters["pid_file"]`` (contract: Data handling); shared by ``hang_with_child`` and
-    ``exit_leaving_child``."""
-    loaded_config = _load_config(config_path)
-    pid_path = Path(loaded_config["parameters"]["pid_file"])
+    ``pid_path`` (contract: Data handling); shared by ``hang_with_child``, ``exit_leaving_child``,
+    and the ``--version`` probe mode ``version_hang_with_child``."""
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])  # nosec B603
-    pid_path.write_text(str(child.pid), encoding="utf-8")
+    tmp_path = pid_path.with_name(pid_path.name + ".tmp")
+    tmp_path.write_text(str(child.pid), encoding="utf-8")
+    os.replace(tmp_path, pid_path)
 
 
 def _run(mode: str, args: list[str]) -> int:
@@ -161,14 +165,16 @@ def _run(mode: str, args: list[str]) -> int:
         time.sleep(60)
         return 0
     if mode == "hang_with_child":
-        _spawn_sleeping_child(config_path)
+        loaded_config = _load_config(config_path)
+        _spawn_sleeping_child(Path(loaded_config["parameters"]["pid_file"]))
         time.sleep(60)
         return 0
     if mode == "exit_leaving_child":
         # Spawns a sleeping child, then exits 0 right away: the leader is already dead by the time
         # `run_binary` handles the exceptional exit, so a guard keyed on the leader's own liveness
         # misses the still-live child (contract: Data handling, orphan detection).
-        _spawn_sleeping_child(config_path)
+        loaded_config = _load_config(config_path)
+        _spawn_sleeping_child(Path(loaded_config["parameters"]["pid_file"]))
         return 0
     if mode == "hang_with_sigterm_ignoring_child":
         # The leader dies on SIGTERM; its child ignores SIGTERM and holds the inherited pipes open. The
