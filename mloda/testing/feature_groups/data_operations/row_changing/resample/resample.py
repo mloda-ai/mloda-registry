@@ -183,6 +183,15 @@ EXPECTED_1_HOUR_MEAN_WHOLE: dict[tuple[Any, ...], Any] = {
     (_h(10),): 75.0,  # [100, 50] -> 75
 }
 
+# 11-day buckets put every nan_policy_table() row into one bucket per grp:
+# 2024-01-01 is epoch day 19723 = 11 * 1793.
+_BUCKET = datetime(2024, 1, 1, tzinfo=_U)
+
+NAN_POLICY_RESAMPLE: dict[str, dict[tuple[Any, ...], Any]] = {
+    "min": {("A", _BUCKET): 1.0, ("B", _BUCKET): 1.0},
+    "max": {("A", _BUCKET): 2.0, ("B", _BUCKET): 3.0},
+}
+
 
 # ---------------------------------------------------------------------------
 # Reusable test base class
@@ -433,6 +442,28 @@ class ResampleTestBase(DataOpsTestBase):
         max_result = self.implementation_class().calculate_feature(self.test_data, max_fs)
         max_map = self._build_resample_map(max_result, "value__resample_1_hour_max", "ts", ["region"])
         assert max_map[("A", _h(8))] == pytest.approx(10.0)
+
+    # -- NaN policy -----------------------------------------------------------
+
+    @pytest.mark.parametrize("agg", sorted(NAN_POLICY_RESAMPLE), ids=sorted(NAN_POLICY_RESAMPLE))
+    def test_nan_policy_resample(self, agg: str) -> None:
+        """min/max of a NaN-mixed column, grouped by grp, 11-day bucket."""
+        table = self.nan_policy_table()
+        feature_name = f"val__resample_11_day_{agg}"
+        fs = self._resample_fs(feature_name, ["grp"])
+
+        ref = self.reference_implementation_class().calculate_feature(table, fs)
+        assert ref.num_rows == 2
+        ref_bucket = [self._normalize_bucket_key(v) for v in _extract_column(ref, "ts")]
+        ref_agg = _extract_column(ref, feature_name)
+        ref_grp = _extract_column(ref, "grp")
+        ref_map = {(ref_grp[i], ref_bucket[i]): ref_agg[i] for i in range(len(ref_bucket))}
+        self._assert_map_equals(ref_map, NAN_POLICY_RESAMPLE[agg], use_approx=True)
+
+        result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
+        assert self.get_row_count(result) == 2
+        result_map = self._build_resample_map(result, feature_name, "ts", ["grp"])
+        self._assert_map_equals(result_map, NAN_POLICY_RESAMPLE[agg], use_approx=True)
 
     # -- New column / type ---------------------------------------------------
 

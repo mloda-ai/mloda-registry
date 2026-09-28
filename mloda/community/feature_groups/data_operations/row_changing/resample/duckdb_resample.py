@@ -5,7 +5,8 @@ expression (``DATE_TRUNC`` for n=1, ``time_bucket`` with a
 ``DATE '1970-01-01'`` origin for n>1 -- NOT the native 2000-01-03 anchor) so
 buckets align with the PyArrow oracle. SQL ``SUM`` / ``AVG`` ignore nulls and
 return NULL for all-null groups, and ``COUNT(col)`` counts non-null values, so
-the null semantics already match the oracle.
+the null semantics already match the oracle. Float ``max`` also skips NaN,
+matching PyArrow's ``pc.max``.
 """
 
 from __future__ import annotations
@@ -15,14 +16,19 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_framewor
 from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import column_types, floor_expr
+from mloda.community.feature_groups.data_operations.duckdb_helpers import (
+    column_types,
+    floor_expr,
+    nan_policy_agg_sql,
+)
 from mloda.community.feature_groups.data_operations.row_changing.resample.base import (
     RESAMPLE_AGGS,
     ResampleFeatureGroup,
 )
 
 # Resample agg -> DuckDB aggregate function. SUM/AVG/MIN/MAX ignore nulls and
-# return NULL for all-null groups; COUNT(col) counts non-null values.
+# return NULL for all-null groups; COUNT(col) counts non-null values. Float
+# max additionally skips NaN.
 _DUCKDB_AGG_FUNCS: dict[str, str] = {
     "mean": "AVG",
     "sum": "SUM",
@@ -82,10 +88,11 @@ class DuckdbResample(ResampleFeatureGroup):
         partition_quoted = [quote_ident(col) for col in partition_by]
         group_exprs = [*partition_quoted, floor_sql]
 
+        agg_call = nan_policy_agg_sql(data, source_col, quoted_source, agg, agg_func)
         select_parts = [
             *partition_quoted,
             f"{floor_sql} AS {quoted_time}",
-            f"{agg_func}({quoted_source}) AS {quoted_feature}",
+            f"{agg_call} AS {quoted_feature}",
         ]
 
         agg_sql = ", ".join(select_parts)
