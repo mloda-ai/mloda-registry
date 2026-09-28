@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import os
-import signal
 import subprocess  # nosec
 import sys
 import time
@@ -20,7 +19,7 @@ import pytest
 
 from mloda.community.feature_groups.binary_model import binary, contract, transport
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError
-from mloda.community.feature_groups.binary_model.tests.process_helpers import pid_running
+from mloda.community.feature_groups.binary_model.tests.process_helpers import kill_descendant_if_running, pid_running
 
 STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
 FAULTY_CMD = [sys.executable, "-m", "mloda.community.feature_groups.binary_model.tests.faulty_binary"]
@@ -340,13 +339,7 @@ class TestProbeTimeoutKillsDescendants:
                 time.sleep(0.05)
             assert not pid_running(pid)
         finally:
-            if pid is None and pid_file.exists():
-                pid = int(pid_file.read_text(encoding="utf-8"))
-            if pid is not None and pid_running(pid):
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
+            kill_descendant_if_running(pid_file, pid)
 
 
 class TestPublicParseFunctions:

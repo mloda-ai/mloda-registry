@@ -8,7 +8,6 @@ from __future__ import annotations
 import datetime
 import logging
 import os
-import signal
 import sys
 import tempfile
 import time
@@ -31,7 +30,7 @@ from mloda.community.feature_groups.binary_model.errors import (
     UnsupportedError,
 )
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
-from mloda.community.feature_groups.binary_model.tests.process_helpers import pid_running
+from mloda.community.feature_groups.binary_model.tests.process_helpers import kill_descendant_if_running, pid_running
 from mloda.community.feature_groups.binary_model.transport import TEMP_PARENT_NAME
 from mloda.testing.binary_model.arrow import arrow_stream_bytes_invalid_utf8
 from mloda.testing.binary_model.conformance import BinaryModelConformanceBase, HashOperationConformanceMixin
@@ -953,10 +952,4 @@ class TestTimeoutTerminatesPosixDescendants:
                 time.sleep(0.05)
             assert not pid_running(child_pid)
         finally:
-            if child_pid is None and pid_file.exists():
-                child_pid = int(pid_file.read_text(encoding="utf-8"))
-            if child_pid is not None and pid_running(child_pid):
-                try:
-                    os.kill(child_pid, signal.SIGKILL)
-                except OSError:
-                    pass
+            kill_descendant_if_running(pid_file, child_pid)

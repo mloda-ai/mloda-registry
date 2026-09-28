@@ -32,7 +32,7 @@ from mloda.community.feature_groups.binary_model.errors import (
     OutputContractError,
     UnsupportedError,
 )
-from mloda.community.feature_groups.binary_model.tests.process_helpers import pid_running
+from mloda.community.feature_groups.binary_model.tests.process_helpers import kill_descendant_if_running, pid_running
 from mloda.community.feature_groups.binary_model.transport import (
     TEMP_PARENT_NAME,
     InvocationDirectory,
@@ -609,10 +609,7 @@ class TestRunBinary:
             assert not pid_running(child_pid), "descendant of an already-exited leader was left alive"
         finally:
             monkeypatch.undo()
-            if child_pid is None and pid_file.exists():
-                child_pid = int(pid_file.read_text(encoding="utf-8"))
-            if child_pid is not None and pid_running(child_pid):
-                os.kill(child_pid, signal.SIGKILL)
+            kill_descendant_if_running(pid_file, child_pid)
 
     def test_exit_before_reading_with_large_input_does_not_raise_broken_pipe(self, tmp_path: Path) -> None:
         large_input = os.urandom(4 * 1024 * 1024)
