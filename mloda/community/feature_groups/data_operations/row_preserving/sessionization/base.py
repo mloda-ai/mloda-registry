@@ -207,8 +207,7 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         for feature in features.features:
             feature_name = feature.name
 
-            source_features = cls._extract_source_features(feature)
-            source_col = source_features[0]
+            source_col = cls._extract_single_source_feature(feature)
             token = cls._extract_threshold_token(feature)
             n, unit = _parse_sessionize_op(token)
             threshold_seconds = _sessionize_threshold_seconds(n, unit)

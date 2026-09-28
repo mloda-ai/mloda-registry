@@ -92,33 +92,6 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
         return set(in_features_set)
 
     @classmethod
-    def _extract_source_features(cls, feature: Feature) -> list[str]:
-        """Extract and validate the single source feature for the arithmetic op.
-
-        Returns a one-element list containing the source column name.
-        Raises ValueError if more than one source feature is found, since
-        this package only supports single-column arithmetic.
-        """
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-
-        if operation_config and source_feature:
-            return [source_feature]
-
-        in_features_set = feature.options.get_in_features()
-        source_names: list[str] = [str(f.name) for f in in_features_set]
-
-        if len(source_names) > cls.MAX_IN_FEATURES:
-            raise ValueError(
-                f"Scalar arithmetic supports at most {cls.MAX_IN_FEATURES} source feature, "
-                f"but got {len(source_names)}: {source_names}"
-            )
-
-        return source_names
-
-    @classmethod
     def _extract_constant(cls, feature: Feature) -> int | float:
         """Return the constant as a bare number, unwrapped from its container.
 
@@ -153,8 +126,7 @@ class ScalarArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
         for feature in features.features:
             feature_name = feature.name
 
-            source_features = cls._extract_source_features(feature)
-            source_col = source_features[0]
+            source_col = cls._extract_single_source_feature(feature)
             assert_source_columns_present(data, [source_col])
             op = cls._extract_arithmetic_op(feature)
 

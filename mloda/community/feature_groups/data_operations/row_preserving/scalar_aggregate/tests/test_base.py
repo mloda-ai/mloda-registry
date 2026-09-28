@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import patch
 
 import pytest
+from mloda.provider import FeatureSet
 from mloda.user import DataType, Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_aggregate.base import (
@@ -118,7 +120,7 @@ class TestSingleColumnEnforcement:
     The aggregation package computes a scalar aggregate over one source
     column and broadcasts it to every row. Multiple in_features are
     rejected at two levels: input_features() validates the count during
-    feature resolution, and _extract_source_features() validates it
+    feature resolution, and _extract_single_source_feature() validates it
     again during calculate_feature() to prevent silent truncation.
     """
 
@@ -137,8 +139,8 @@ class TestSingleColumnEnforcement:
         with pytest.raises(ValueError, match="at most 1"):
             instance.input_features(options, FeatureName("my_result"))
 
-    def test_extract_source_features_rejects_multiple_in_features(self) -> None:
-        """_extract_source_features must reject multiple source features.
+    def test_extract_single_source_feature_rejects_multiple_in_features(self) -> None:
+        """_extract_single_source_feature must reject multiple source features.
 
         This guards against silent truncation to a single column if
         calculate_feature() is invoked with multi-column options that
@@ -152,7 +154,24 @@ class TestSingleColumnEnforcement:
         )
         feature = Feature("my_result", options=options)
         with pytest.raises(ValueError, match="at most 1"):
-            ScalarAggregateFeatureGroup._extract_source_features(feature)
+            ScalarAggregateFeatureGroup._extract_single_source_feature(feature)
+
+    def test_calculate_feature_rejects_empty_in_features(self) -> None:
+        """Empty in_features at calculate time must raise ValueError, not a bare IndexError."""
+        feature = Feature(
+            "my_result",
+            options=Options(
+                context={
+                    "aggregation_type": "sum",
+                    "in_features": "placeholder",
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        with patch.object(feature.options, "get_in_features", return_value=frozenset()):
+            with pytest.raises(ValueError, match="at least 1"):
+                ScalarAggregateFeatureGroup.calculate_feature(None, fs)
 
     def test_extract_source_features_returns_single_item_for_string_pattern(self) -> None:
         feature = Feature("value_int__sum_scalar", options=Options())

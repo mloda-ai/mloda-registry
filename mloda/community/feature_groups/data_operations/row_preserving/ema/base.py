@@ -101,38 +101,6 @@ class EmaFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return set(in_features_set)
 
     @classmethod
-    def _extract_source_features(cls, feature: Feature) -> list[str]:
-        """Extract and validate the single source feature.
-
-        Returns a one-element list containing the source column name. Raises
-        ``ValueError`` if more than one source feature is found, since EMA
-        supports at most one source column.
-        """
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-
-        _operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-
-        if source_feature:
-            return [source_feature]
-
-        in_features_set = feature.options.get_in_features()
-        source_names: list[str] = [str(f.name) for f in in_features_set]
-
-        if len(source_names) < cls.MIN_IN_FEATURES:
-            raise ValueError(
-                f"ema requires at least {cls.MIN_IN_FEATURES} source feature, "
-                f"but got {len(source_names)} (in_features is empty)."
-            )
-
-        if len(source_names) > cls.MAX_IN_FEATURES:
-            raise ValueError(
-                f"ema supports at most {cls.MAX_IN_FEATURES} source feature, but got {len(source_names)}: {source_names}"
-            )
-
-        return source_names
-
-    @classmethod
     def _extract_span(cls, feature: Feature) -> int:
         """Parse the positive-integer span from the ``{col}__ema_{span}`` name."""
         name = feature.name
@@ -171,8 +139,7 @@ class EmaFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         for feature in features.features:
             feature_name = feature.name
 
-            source_features = cls._extract_source_features(feature)
-            source_col = source_features[0]
+            source_col = cls._extract_single_source_feature(feature)
             assert_source_columns_present(data, [source_col])
             span = cls._extract_span(feature)
             partition_by = cls._extract_partition_by(feature)

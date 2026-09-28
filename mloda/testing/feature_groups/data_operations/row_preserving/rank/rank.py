@@ -105,8 +105,15 @@ class RankTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsTes
     @classmethod
     def input_validation_cases(cls) -> dict[str, Any]:
         return {
-            "multi_column_in_features": (
-                "rank ignores its source column, so calculate_feature accepts extra in_features (match rejects them)"
+            "multi_column_in_features": InputValidationCase(
+                "bad_multi",
+                {
+                    "rank_type": "row_number",
+                    "in_features": ["value_int", "value_float"],
+                    "partition_by": ["region"],
+                    "order_by": "value_int",
+                },
+                "at most 1",
             ),
             # rank never reads its source column, so there is nothing to reject here.
             "missing_source_column": None,

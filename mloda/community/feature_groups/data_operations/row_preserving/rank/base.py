@@ -290,6 +290,8 @@ class RankFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin, FeatureGr
         for feature in features.features:
             feature_name = feature.name
 
+            # rank never reads its source column; this call only enforces the in_features count.
+            cls._extract_single_source_feature(feature)
             rank_type = cls._extract_rank_type(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
             if not isinstance(partition_by, (list, tuple)) or not partition_by:

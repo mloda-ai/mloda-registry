@@ -36,7 +36,7 @@ File: `mloda/community/feature_groups/data_operations/{category}/{your_op}/base.
 
 ```python
 from typing import Any
-from mloda.provider import FeatureGroup, FeatureSet
+from mloda.provider import FeatureChainParserMixin, FeatureGroup, FeatureSet
 from mloda.community.feature_groups.data_operations.base import assert_source_columns_present
 
 
@@ -46,14 +46,14 @@ YOUR_OPS = {
 }
 
 
-class YourOpFeatureGroup(FeatureGroup):
+class YourOpFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     PREFIX_PATTERN = r".+__(op_a|op_b)$"
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         table = data
         for feature in features.features:
-            source_col = cls._extract_source_features(feature)[0]
+            source_col = cls._extract_single_source_feature(feature)
             assert_source_columns_present(data, [source_col])
             op = cls._extract_op(feature)
             table = cls._compute(table, feature.name, source_col, op)
@@ -72,7 +72,7 @@ The base class owns:
 - The shared `assert_source_columns_present` presence guard, called once per feature before any per-backend dtype guard.
 - Delegation to a per-framework `_compute` hook.
 
-Existing bases to crib from: `row_preserving/binning/base.py` (simple), `row_preserving/window_aggregation/base.py` (with `partition_by`/`order_by`/masks). They compose `FeatureChainParserMixin` to parse the suffix of the feature name; copy that detail verbatim from the closest existing base.
+Existing bases to crib from: `row_preserving/binning/base.py` (simple), `row_preserving/window_aggregation/base.py` (with `partition_by`/`order_by`/masks). They compose `FeatureChainParserMixin` to parse the suffix of the feature name; copy that detail verbatim from the closest existing base. Single-input ops use `_extract_single_source_feature` so the MIN/MAX in_features check lives in the core helper, not a per-op override.
 
 ---
 

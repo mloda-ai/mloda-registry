@@ -187,31 +187,6 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
     # -- Name / token parsing ----------------------------------------------
 
     @classmethod
-    def _extract_source_features(cls, feature: Feature) -> list[str]:
-        """Extract the single source feature, from the name if possible, else from ``in_features``."""
-        prefix_patterns = cls._get_prefix_patterns()
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(feature.name, prefix_patterns)
-        if operation_config and source_feature:
-            return [source_feature]
-
-        in_features_set = feature.options.get_in_features()
-        source_names: list[str] = [str(f.name) for f in in_features_set]
-
-        if len(source_names) < cls.MIN_IN_FEATURES:
-            raise ValueError(
-                f"resample requires at least {cls.MIN_IN_FEATURES} source feature, "
-                f"but got {len(source_names)} (in_features is empty)."
-            )
-
-        if len(source_names) > cls.MAX_IN_FEATURES:
-            raise ValueError(
-                f"resample supports at most {cls.MAX_IN_FEATURES} source feature, but got {len(source_names)}: "
-                f"{source_names}"
-            )
-
-        return source_names
-
-    @classmethod
     def _extract_resample_op(cls, feature: Feature) -> str:
         """Extract the raw ``{n}_{unit}_{agg}`` token from the name or Options."""
         prefix_patterns = cls._get_prefix_patterns()
@@ -256,8 +231,7 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         for feature in features.features:
             feature_name = feature.name
 
-            source_features = cls._extract_source_features(feature)
-            source_col = source_features[0]
+            source_col = cls._extract_single_source_feature(feature)
             op_token = cls._extract_resample_op(feature)
             n, unit, agg = _parse_resample_op(op_token)
             partition_by = cls._extract_partition_by(feature)

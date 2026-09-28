@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 from typing import Any
+from unittest.mock import patch
 
 import pytest
+from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.percentile.base import (
@@ -97,6 +99,24 @@ class TestPatternParsing:
         )
         source_features = PercentileFeatureGroup._extract_source_features(feature)
         assert source_features == ["my_value"]
+
+    def test_calculate_feature_rejects_empty_in_features(self) -> None:
+        """Empty in_features at calculate time must raise ValueError, not a bare IndexError."""
+        feature = Feature(
+            "my_result",
+            options=Options(
+                context={
+                    "percentile": 0.5,
+                    "in_features": "placeholder",
+                    "partition_by": ["region"],
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        with patch.object(feature.options, "get_in_features", return_value=frozenset()):
+            with pytest.raises(ValueError, match="at least 1"):
+                PercentileFeatureGroup.calculate_feature(None, fs)
 
 
 class TestConfigBasedFeatures:

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import patch
 
 import pytest
+from mloda.provider import FeatureSet
 from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.scalar_arithmetic.base import (
@@ -236,7 +238,7 @@ class TestSingleColumnEnforcement:
         with pytest.raises(ValueError, match="at most 1"):
             instance.input_features(options, FeatureName("my_result"))
 
-    def test_extract_source_features_rejects_multiple_in_features(self) -> None:
+    def test_extract_single_source_feature_rejects_multiple_in_features(self) -> None:
         options = Options(
             context={
                 "arithmetic_op": "add",
@@ -246,7 +248,25 @@ class TestSingleColumnEnforcement:
         )
         feature = Feature("my_result", options=options)
         with pytest.raises(ValueError, match="at most 1"):
-            ScalarArithmeticFeatureGroup._extract_source_features(feature)
+            ScalarArithmeticFeatureGroup._extract_single_source_feature(feature)
+
+    def test_calculate_feature_rejects_empty_in_features(self) -> None:
+        """Empty in_features at calculate time must raise ValueError, not a bare IndexError."""
+        feature = Feature(
+            "my_result",
+            options=Options(
+                context={
+                    "arithmetic_op": "add",
+                    "in_features": "placeholder",
+                    "constant": 5,
+                }
+            ),
+        )
+        fs = FeatureSet()
+        fs.add(feature)
+        with patch.object(feature.options, "get_in_features", return_value=frozenset()):
+            with pytest.raises(ValueError, match="at least 1"):
+                ScalarArithmeticFeatureGroup.calculate_feature(None, fs)
 
     def test_extract_source_features_returns_single_item_for_string_pattern(self) -> None:
         feature = Feature("value_int__multiply_constant", options=Options(context={"constant": 2}))
