@@ -26,5 +26,5 @@ class TestPandasResample(PandasTestMixin, ResampleTestBase):
 
     @classmethod
     def nan_divergent_agg_types(cls) -> frozenset[str]:
-        """pandas cannot tell NaN from null, so it skips it in sum/mean/count/min/max."""
+        """pandas skips NaN in sum/mean/count and returns null for an all-NaN bucket."""
         return frozenset({"sum", "mean", "count", "min", "max"})
