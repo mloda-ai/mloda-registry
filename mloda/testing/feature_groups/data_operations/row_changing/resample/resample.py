@@ -57,7 +57,7 @@ partitions ``region`` A / B)::
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 import pyarrow as pa
 import pytest
@@ -67,6 +67,7 @@ from mloda.user import Feature, Options
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
 from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 
 _U = timezone.utc
 
@@ -261,7 +262,7 @@ NAN_DIVERGENT_RESAMPLE: dict[str, dict[tuple[Any, ...], Any]] = {
 # ---------------------------------------------------------------------------
 
 
-class ResampleTestBase(DataOpsTestBase):
+class ResampleTestBase(NanPolicyTestMixin, DataOpsTestBase):
     """Abstract base class for resample framework tests.
 
     Subclasses combine this with a framework mixin (``PyArrowTestMixin``,
@@ -323,11 +324,18 @@ class ResampleTestBase(DataOpsTestBase):
         feature_name: str,
         time_column: str,
         partition_by: list[str],
+        column: Callable[[Any, str], list[Any]] | None = None,
     ) -> dict[tuple[Any, ...], Any]:
-        """Build a ``{(partition..., bucket_start): agg_value}`` map from a result."""
-        bucket_col = [self._normalize_bucket_key(v) for v in self.extract_column(result, time_column)]
-        agg_col = self.extract_column(result, feature_name)
-        partition_cols = [self.extract_column(result, p) for p in partition_by]
+        """Build a ``{(partition..., bucket_start): agg_value}`` map from a result.
+
+        ``column`` extracts a named column as a Python list; defaults to
+        ``self.extract_column`` so existing call sites are unaffected. Pass
+        ``helpers.extract_column`` to build a map from a reference (PyArrow) result.
+        """
+        column = column or self.extract_column
+        bucket_col = [self._normalize_bucket_key(v) for v in column(result, time_column)]
+        agg_col = column(result, feature_name)
+        partition_cols = [column(result, p) for p in partition_by]
 
         out: dict[tuple[Any, ...], Any] = {}
         for i in range(len(bucket_col)):
@@ -355,6 +363,42 @@ class ResampleTestBase(DataOpsTestBase):
 
     def _resample_fs(self, feature_name: str, partition_by: list[str]) -> FeatureSet:
         return make_feature_set(feature_name, partition_by=partition_by, time_column="ts")
+
+    # -- NanPolicyTestMixin configuration ---------------------------------------
+
+    @classmethod
+    def nan_policy_cases(cls) -> dict[str, Any]:
+        return NAN_POLICY_RESAMPLE
+
+    @classmethod
+    def nan_policy_divergent_cases(cls) -> dict[str, Any]:
+        return NAN_DIVERGENT_RESAMPLE
+
+    @classmethod
+    def nan_policy_feature_name(cls, case: str) -> str:
+        return f"val__resample_{case}"
+
+    @classmethod
+    def nan_policy_agg_type(cls, case: str) -> str:
+        return case.rsplit("_", 1)[1]
+
+    @classmethod
+    def nan_policy_feature_set(cls, feature_name: str) -> FeatureSet:
+        return make_feature_set(feature_name, partition_by=["grp"], time_column="ts")
+
+    def nan_policy_skip_if_unsupported(self, case: str, agg_type: str, feature_name: str) -> None:
+        """Resample skips nothing: every token in NAN_POLICY_RESAMPLE is always supported."""
+
+    def nan_policy_extract_values(
+        self,
+        result: Any,
+        feature_name: str,
+        column: Callable[[Any, str], list[Any]],
+    ) -> Any:
+        return self._build_resample_map(result, feature_name, "ts", ["grp"], column)
+
+    def nan_policy_assert_equal(self, actual: Any, expected: Any, label: str) -> None:
+        self._assert_map_equals(actual, expected, use_approx=True)
 
     # -- Core per-partition value tests -------------------------------------
 
@@ -505,35 +549,6 @@ class ResampleTestBase(DataOpsTestBase):
         max_result = self.implementation_class().calculate_feature(self.test_data, max_fs)
         max_map = self._build_resample_map(max_result, "value__resample_1_hour_max", "ts", ["region"])
         assert max_map[("A", _h(8))] == pytest.approx(10.0)
-
-    # -- NaN policy -----------------------------------------------------------
-
-    @pytest.mark.parametrize("token", sorted(NAN_POLICY_RESAMPLE), ids=sorted(NAN_POLICY_RESAMPLE))
-    def test_nan_policy_resample(self, token: str) -> None:
-        """sum/mean/count/min/max of a NaN-mixed column, grouped by grp, 11-day and 1-day buckets."""
-        table = self.nan_policy_table()
-        feature_name = f"val__resample_{token}"
-        fs = self._resample_fs(feature_name, ["grp"])
-
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
-        assert ref.num_rows == len(NAN_POLICY_RESAMPLE[token])
-        ref_bucket = [self._normalize_bucket_key(v) for v in _extract_column(ref, "ts")]
-        ref_agg = _extract_column(ref, feature_name)
-        ref_grp = _extract_column(ref, "grp")
-        ref_map = {(ref_grp[i], ref_bucket[i]): ref_agg[i] for i in range(len(ref_bucket))}
-        self._assert_map_equals(ref_map, NAN_POLICY_RESAMPLE[token], use_approx=True)
-
-        agg_type = token.rsplit("_", 1)[1]
-        expected = (
-            NAN_DIVERGENT_RESAMPLE[token]
-            if token in NAN_DIVERGENT_RESAMPLE and agg_type in self.nan_divergent_agg_types()
-            else NAN_POLICY_RESAMPLE[token]
-        )
-
-        result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
-        assert self.get_row_count(result) == len(expected)
-        result_map = self._build_resample_map(result, feature_name, "ts", ["grp"])
-        self._assert_map_equals(result_map, expected, use_approx=True)
 
     # -- New column / type ---------------------------------------------------
 

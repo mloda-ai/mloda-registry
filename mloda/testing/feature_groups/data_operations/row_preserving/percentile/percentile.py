@@ -16,9 +16,9 @@ from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
 from mloda.testing.feature_groups.data_operations.base import DataOpsTestBase
-from mloda.testing.feature_groups.data_operations.helpers import extract_column as _extract_column
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 
 # ---------------------------------------------------------------------------
 # Expected values (module-level constants)
@@ -59,7 +59,7 @@ NAN_POLICY_P50: list[float] = [1.5, 1.5, 1.5, 2.0, 2.0, 2.0, 2.0]
 # ---------------------------------------------------------------------------
 
 
-class PercentileTestBase(MaskTestMixin, DataOpsTestBase):
+class PercentileTestBase(NanPolicyTestMixin, MaskTestMixin, DataOpsTestBase):
     """Abstract base class for percentile framework tests."""
 
     # -- MaskTestMixin configuration -------------------------------------------
@@ -101,6 +101,19 @@ class PercentileTestBase(MaskTestMixin, DataOpsTestBase):
     @classmethod
     def mask_no_mask_expected(cls) -> list[Any]:
         return list(EXPECTED_P50_BY_REGION)
+
+    # -- NanPolicyTestMixin configuration ---------------------------------------
+
+    @classmethod
+    def nan_policy_cases(cls) -> dict[str, Any]:
+        return {"p50": NAN_POLICY_P50}
+
+    @classmethod
+    def nan_policy_feature_name(cls, case: str) -> str:
+        return f"val__{case}_percentile"
+
+    def nan_policy_skip_if_unsupported(self, case: str, agg_type: str, feature_name: str) -> None:
+        """p50/median has no unsupported case; percentile skips nothing."""
 
     @classmethod
     def reference_implementation_class(cls) -> Any:
@@ -420,21 +433,3 @@ class PercentileTestBase(MaskTestMixin, DataOpsTestBase):
         result_col = self.extract_column(result, "w\u00e9rt__p50_percentile")
         # A: [10, 20] -> p50 = 15.0, B: [30, 40] -> p50 = 35.0
         assert result_col == pytest.approx([15.0, 15.0, 35.0, 35.0], rel=1e-6)
-
-    # -- NaN policy (p50) --------------------------------------------------
-    # p50 (median) has no known per-backend divergence once the float-only NaN
-    # wrap is applied, so both sides pin the same policy.
-
-    def test_nan_policy_p50(self) -> None:
-        """p50 (median) of a NaN-mixed column, broadcast per grp."""
-        table = self.nan_policy_table()
-        feature_name = "val__p50_percentile"
-        fs = make_feature_set(feature_name, ["grp"])
-
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
-        ref_col = _extract_column(ref, feature_name)
-        assert ref_col == pytest.approx(NAN_POLICY_P50, nan_ok=True), f"reference: {ref_col!r}"
-
-        result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
-        result_col = self.extract_column(result, feature_name)
-        assert result_col == pytest.approx(NAN_POLICY_P50, nan_ok=True), f"backend: {result_col!r}"

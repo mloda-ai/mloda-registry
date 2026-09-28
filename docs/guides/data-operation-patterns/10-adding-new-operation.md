@@ -221,6 +221,8 @@ class YourOpTestBase(MaskTestMixin, DataOpsTestBase):
 
 `MaskTestMixin` adds inherited test methods covering equal, AND-combined, `is_in`, greater-than, fully-masked, no-mask-baseline, and missing-value (null and NaN) scenarios. See [Masking](../feature-group-patterns/25-masking.md) for the full user-facing spec.
 
+If the new op has a documented NaN policy (see [the reference-implementation guide](03-reference-implementation.md#when-pyarrow-has-no-kernel-or-is-the-outlier)), wire it up to `NanPolicyTestMixin` (`mloda/testing/feature_groups/data_operations/mixins/nan_policy.py`) instead of writing a bespoke `test_nan_policy_*` method: override `nan_policy_cases`, `nan_policy_feature_name`, and, if the framework can diverge from the policy, `nan_policy_divergent_cases`.
+
 ---
 
 ## Checklist

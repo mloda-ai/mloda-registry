@@ -30,6 +30,7 @@ from mloda.testing.feature_groups.data_operations.helpers import (
     make_feature_set,
 )
 from mloda.testing.feature_groups.data_operations.mixins.mask import MaskTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.nan_policy import NanPolicyTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.single_value_std_var import (
     SINGLE_VALUE_STD,
@@ -237,7 +238,9 @@ def _assert_values_with_nulls(actual: list[Any], expected: list[Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-class FrameAggregateTestBase(SingleValueStdVarTestMixin, ReservedColumnsTestMixin, MaskTestMixin, DataOpsTestBase):
+class FrameAggregateTestBase(
+    NanPolicyTestMixin, SingleValueStdVarTestMixin, ReservedColumnsTestMixin, MaskTestMixin, DataOpsTestBase
+):
     """Abstract base class for frame aggregate framework tests."""
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
@@ -324,6 +327,34 @@ class FrameAggregateTestBase(SingleValueStdVarTestMixin, ReservedColumnsTestMixi
         return make_feature_set(feature_name, ["grp"], "ts")
 
     def single_value_skip_if_unsupported(self, case: str, agg_type: str, feature_name: str) -> None:
+        self._skip_if_frame_feature_unsupported(feature_name, ["grp"], "ts")
+
+    # -- NanPolicyTestMixin configuration ---------------------------------------
+
+    @classmethod
+    def nan_policy_cases(cls) -> dict[str, Any]:
+        return {
+            f"{frame_kind}-{agg_type}": expected_by_agg_type[agg_type]
+            for frame_kind, (_, expected_by_agg_type) in NAN_POLICY_FRAME_KINDS.items()
+            for agg_type in expected_by_agg_type
+        }
+
+    @classmethod
+    def nan_policy_agg_type(cls, case: str) -> str:
+        _frame_kind, agg_type = case.split("-", 1)
+        return agg_type
+
+    @classmethod
+    def nan_policy_feature_name(cls, case: str) -> str:
+        frame_kind, agg_type = case.split("-", 1)
+        name_template, _expected_by_agg_type = NAN_POLICY_FRAME_KINDS[frame_kind]
+        return name_template.format(agg_type=agg_type)
+
+    @classmethod
+    def nan_policy_feature_set(cls, feature_name: str) -> FeatureSet:
+        return make_feature_set(feature_name, ["grp"], "ts")
+
+    def nan_policy_skip_if_unsupported(self, case: str, agg_type: str, feature_name: str) -> None:
         self._skip_if_frame_feature_unsupported(feature_name, ["grp"], "ts")
 
     @classmethod
@@ -1058,11 +1089,8 @@ class FrameAggregateTestBase(SingleValueStdVarTestMixin, ReservedColumnsTestMixi
         assert result_col[2] == 30
         assert result_col[0] == 130
 
-    # -- NaN policy (median/min/max) -------------------------------------------
-    # The reference assertion pins the policy for every frame kind; no backend has an
-    # unmitigated divergence left. No ``supported_agg_types`` exists on this base, so
-    # support is probed directly via ``match_feature_group_criteria``.
-
+    # No ``supported_agg_types`` exists on this base, so a feature's support is probed
+    # directly via ``match_feature_group_criteria`` / ``supports_compute_framework``.
     def _skip_if_frame_feature_unsupported(self, feature_name: str, partition_by: list[str], order_by: str) -> None:
         options = Options(context={"partition_by": partition_by, "order_by": order_by})
         backend = self.implementation_class()
@@ -1071,24 +1099,6 @@ class FrameAggregateTestBase(SingleValueStdVarTestMixin, ReservedColumnsTestMixi
         framework = self.compute_framework_class()  # type: ignore[attr-defined]
         if not backend.supports_compute_framework(feature_name, options, framework):
             pytest.skip(f"{feature_name} not supported by this framework")
-
-    @pytest.mark.parametrize("frame_kind", sorted(NAN_POLICY_FRAME_KINDS), ids=sorted(NAN_POLICY_FRAME_KINDS))
-    @pytest.mark.parametrize("agg_type", sorted(NAN_POLICY_ROLLING_3), ids=sorted(NAN_POLICY_ROLLING_3))
-    def test_nan_policy_frame(self, agg_type: str, frame_kind: str) -> None:
-        """median/min/max of a NaN-mixed column, ordered by ts, for every frame kind."""
-        name_template, expected_by_agg_type = NAN_POLICY_FRAME_KINDS[frame_kind]
-        feature_name = name_template.format(agg_type=agg_type)
-        self._skip_if_frame_feature_unsupported(feature_name, ["grp"], "ts")
-        table = self.nan_policy_table()
-        fs = make_feature_set(feature_name, ["grp"], "ts")
-
-        ref = self.reference_implementation_class().calculate_feature(table, fs)
-        ref_col = _extract_column(ref, feature_name)
-        assert ref_col == pytest.approx(expected_by_agg_type[agg_type], nan_ok=True), f"reference: {ref_col!r}"
-
-        result = self.implementation_class().calculate_feature(self.create_test_data(table), fs)
-        result_col = self.extract_column(result, feature_name)
-        assert result_col == pytest.approx(expected_by_agg_type[agg_type], nan_ok=True), f"backend: {result_col!r}"
 
     # -- Row-order preservation ------------------------------------------------
 
