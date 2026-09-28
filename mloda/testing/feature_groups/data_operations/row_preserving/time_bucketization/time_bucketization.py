@@ -519,4 +519,6 @@ class TimeBucketizationTestBase(InputValidationTestMixin, OutputContractTestMixi
                 table=missing_timestamp_table,
             ),
             "empty_partition_by": None,
+            "missing_partition_by_column": None,
+            "missing_order_by_column": None,
         }

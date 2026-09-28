@@ -19,6 +19,7 @@ from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.base import (
     SCALAR_NUMBER_EXPECTED,
+    assert_key_columns_present,
     assert_source_columns_present,
     is_scalar_number,
     scalar_number_value,
@@ -279,6 +280,7 @@ class PercentileFeatureGroup(FeatureChainParserMixin, FeatureGroup):
                 )
             partition_by = list(partition_by)
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
+            assert_key_columns_present(data, partition_by, mask_spec=mask_spec)
 
             table = cls._compute_percentile(table, feature_name, source_col, partition_by, percentile, mask_spec)
 

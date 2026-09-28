@@ -188,6 +188,17 @@ class MaskTestMixin:
         result_col = self.extract_column(result, self.mask_feature_name())  # type: ignore[attr-defined]
         assert all(is_null(v) for v in result_col)
 
+    def test_mixin_mask_missing_column_rejected(self) -> None:
+        """Mixin: a mask on an unknown column raises a ValueError naming it."""
+        fs = make_feature_set(
+            self.mask_feature_name(),
+            self.mask_partition_by(),
+            self.mask_order_by(),
+            mask=("no_such_col", "equal", "X"),
+        )
+        with pytest.raises(ValueError, match="mask column 'no_such_col' is not present"):
+            self.implementation_class().calculate_feature(self.test_data, fs)  # type: ignore[attr-defined]
+
     def test_mixin_mask_no_mask_baseline(self) -> None:
         """Mixin: without mask, results match the standard unmasked value."""
         fs = make_feature_set(

@@ -103,6 +103,8 @@ class BinningTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOps
                 table=PyArrowDataOpsTestDataCreator.create().drop_columns(["value_int"]),
             ),
             "empty_partition_by": None,
+            "missing_partition_by_column": None,
+            "missing_order_by_column": None,
         }
 
     @classmethod

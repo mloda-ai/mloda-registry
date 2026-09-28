@@ -18,6 +18,7 @@ from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
     IN_FEATURES_EXPECTED,
     OP_TOKEN_EXPECTED,
+    assert_key_columns_present,
     assert_source_columns_present,
     column_ref_value,
     is_column_ref,
@@ -250,6 +251,7 @@ class OffsetFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             partition_by = list(partition_by)
             # Any: matching requires order_by, but a direct call still passes an absent one through.
             order_by: Any = option_value(feature.options, cls.ORDER_BY, column_ref_value)
+            assert_key_columns_present(data, partition_by, order_by)
 
             table = cls._compute_offset(table, feature_name, source_col, partition_by, order_by, offset_type)
 

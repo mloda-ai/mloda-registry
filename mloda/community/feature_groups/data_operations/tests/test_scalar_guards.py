@@ -18,6 +18,7 @@ import pytest
 from mloda.user import Options
 
 from mloda.community.feature_groups.data_operations.base import (
+    assert_key_columns_present,
     assert_source_columns_present,
     available_columns,
     column_ref_value,
@@ -336,3 +337,32 @@ class TestAssertSourceColumnsPresent:
     def test_label_overrides_the_message_prefix(self) -> None:
         with pytest.raises(ValueError, match=r"time_column 'ts' is not present in the dict input"):
             assert_source_columns_present({"a": [1]}, ["ts"], label="time_column")
+
+
+class TestAssertKeyColumnsPresent:
+    """``assert_key_columns_present`` checks partition, order and mask columns with per-role labels."""
+
+    def test_passes_when_nothing_to_check(self) -> None:
+        assert_key_columns_present({"a": [1]})
+        assert_key_columns_present({"a": [1]}, partition_by=[], order_by=None, mask_spec=[])
+
+    def test_passes_when_all_columns_present(self) -> None:
+        assert_key_columns_present(
+            {"a": [1], "b": [2], "c": [3]}, partition_by=["a"], order_by="b", mask_spec=[("c", "equal", 1)]
+        )
+
+    def test_missing_partition_by_column_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"partition_by 'x' is not present in the dict input"):
+            assert_key_columns_present({"a": [1]}, partition_by=["a", "x"])
+
+    def test_missing_order_by_column_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"order_by 'x' is not present in the dict input"):
+            assert_key_columns_present({"a": [1]}, order_by="x")
+
+    def test_missing_mask_column_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"mask column 'x' is not present in the dict input"):
+            assert_key_columns_present({"a": [1]}, mask_spec=[("a", "equal", 1), ("x", "equal", 1)])
+
+    def test_order_label_overrides_the_order_by_label(self) -> None:
+        with pytest.raises(ValueError, match=r"time_column 'ts' is not present in the dict input"):
+            assert_key_columns_present({"a": [1]}, order_by="ts", order_label="time_column")

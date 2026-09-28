@@ -20,6 +20,7 @@ from mloda.user import Feature, FeatureName, Options
 from mloda.community.feature_groups.data_operations.aggregation_base import AggregationFeatureGroupBase
 from mloda.community.feature_groups.data_operations.base import (
     OP_TOKEN_EXPECTED,
+    assert_key_columns_present,
     assert_source_columns_present,
     is_op_token,
 )
@@ -102,6 +103,7 @@ class ScalarAggregateFeatureGroup(AggregationFeatureGroupBase):
             assert_source_columns_present(data, [source_col])
             agg_type = cls._extract_aggregation_type(feature)
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
+            assert_key_columns_present(data, mask_spec=mask_spec)
 
             table = cls._compute_aggregation(table, feature_name, source_col, agg_type, mask_spec)
 

@@ -138,6 +138,8 @@ class DateTimeTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOp
                 table=PyArrowDataOpsTestDataCreator.create().drop_columns(["timestamp"]),
             ),
             "empty_partition_by": None,
+            "missing_partition_by_column": None,
+            "missing_order_by_column": None,
         }
 
     @classmethod

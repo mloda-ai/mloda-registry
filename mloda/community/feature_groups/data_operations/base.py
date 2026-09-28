@@ -263,5 +263,21 @@ def assert_source_columns_present(data: Any, columns: Iterable[str], label: str 
             raise ValueError(f"{label} {col!r} is not present in the {type(data).__name__} input; available: {names}.")
 
 
+def assert_key_columns_present(
+    data: Any,
+    partition_by: Iterable[str] | None = None,
+    order_by: str | None = None,
+    mask_spec: list[tuple[str, str, Any]] | None = None,
+    order_label: str = "order_by",
+) -> None:
+    """Raise ``ValueError`` for the first partition_by, order_by or mask column absent from ``data``; None skips."""
+    if partition_by:
+        assert_source_columns_present(data, partition_by, label="partition_by")
+    if order_by is not None:
+        assert_source_columns_present(data, [order_by], label=order_label)
+    if mask_spec:
+        assert_source_columns_present(data, [spec[0] for spec in mask_spec], label="mask column")
+
+
 # Deprecated alias: released leaves still import this name.
 RejectionReasonMixin = FeatureChainParserMixin

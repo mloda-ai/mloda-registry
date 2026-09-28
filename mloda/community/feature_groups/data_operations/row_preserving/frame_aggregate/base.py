@@ -25,6 +25,7 @@ from mloda.community.feature_groups.data_operations.base import (
     OP_TOKEN_EXPECTED,
     POSITIVE_INT_EXPECTED,
     always_required,
+    assert_key_columns_present,
     assert_source_columns_present,
     column_ref_value,
     is_column_ref,
@@ -512,6 +513,7 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
             assert_source_columns_present(data, [params["source_col"]])
 
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
+            assert_key_columns_present(data, params["partition_by"], params["order_by"], mask_spec)
 
             table = cls._compute_frame(
                 table,

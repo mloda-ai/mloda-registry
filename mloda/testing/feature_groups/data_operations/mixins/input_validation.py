@@ -1,10 +1,11 @@
 """Reusable input-validation test mixin for data-operations feature groups.
 
 Provides ``test_mixin_input_validation``: runs a declared ``InputValidationCase``
-(or skips / omits it) for each of three input-rejection kinds shared across every
-data-operations op: ``multi_column_in_features``, ``missing_source_column``, and
-``empty_partition_by``. Also provides ``test_mixin_empty_in_features``, derived from
-the ``multi_column_in_features`` case, which checks rejection of a zero-length ``in_features``.
+(or skips / omits it) for each input-rejection kind shared across every
+data-operations op: ``multi_column_in_features``, ``missing_source_column``,
+``empty_partition_by``, ``missing_partition_by_column``, and ``missing_order_by_column``.
+Also provides ``test_mixin_empty_in_features``, derived from the ``multi_column_in_features``
+case, which checks rejection of a zero-length ``in_features``.
 """
 
 from __future__ import annotations
@@ -19,12 +20,14 @@ import pytest
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
 
-# The three input-rejection kinds every op test base must address (declare, opt
+# The input-rejection kinds every op test base must address (declare, opt
 # out with a reason, or mark not-applicable with None).
 _INPUT_VALIDATION_KINDS: tuple[str, ...] = (
     "multi_column_in_features",
     "missing_source_column",
     "empty_partition_by",
+    "missing_partition_by_column",
+    "missing_order_by_column",  # also covers resample's time_column
 )
 
 
@@ -46,7 +49,7 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
     """Mixin providing a standardized input-validation rejection test.
 
     Feature-group test bases mix this in and override ``input_validation_cases()``
-    to declare the three kinds. A missing or unknown kind fails at collection time.
+    to declare the kinds. A missing or unknown kind fails at collection time.
 
     Requires the host class to provide (from DataOpsTestBase):
     - ``implementation_class()``
@@ -62,9 +65,9 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
     def input_validation_cases(cls) -> dict[str, InputValidationCase | str | None]:
         """Kind -> case (run it), a reason string (opt out, skip with that reason), or None (not applicable).
 
-        Keys must be exactly ``multi_column_in_features``, ``missing_source_column``, and
-        ``empty_partition_by``. Required. ``multi_column_in_features`` must be config-based or a
-        reason string, since it also drives ``test_mixin_empty_in_features``.
+        Keys must be exactly the kinds in ``_INPUT_VALIDATION_KINDS``. Required.
+        ``multi_column_in_features`` must be config-based or a reason string, since it also
+        drives ``test_mixin_empty_in_features``.
         """
         raise NotImplementedError
 

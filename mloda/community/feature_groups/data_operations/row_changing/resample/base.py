@@ -52,6 +52,7 @@ from mloda.user import DataType, Feature, FeatureName, Options
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
     always_required,
+    assert_key_columns_present,
     assert_source_columns_present,
     column_ref_value,
     is_column_ref,
@@ -237,7 +238,7 @@ class ResampleFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             partition_by = cls._extract_partition_by(feature)
             time_column = cls._extract_time_column(feature)
 
-            assert_source_columns_present(data, [time_column], label="time_column")
+            assert_key_columns_present(data, partition_by, time_column, order_label="time_column")
             assert_source_columns_present(data, [source_col])
 
             table = cls._compute_resample(table, feature_name, source_col, time_column, partition_by, n, unit, agg)

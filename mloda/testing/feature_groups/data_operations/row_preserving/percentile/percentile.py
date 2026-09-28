@@ -96,6 +96,13 @@ class PercentileTestBase(
                 {"percentile": 0.5, "in_features": "value_int", "partition_by": []},
                 "non-empty partition_by",
             ),
+            "missing_partition_by_column": InputValidationCase(
+                "value_int__p50_percentile",
+                {"partition_by": ["no_such_col"]},
+                "partition_by 'no_such_col' is not present",
+            ),
+            # percentile has no order column.
+            "missing_order_by_column": None,
         }
 
     # -- MaskTestMixin configuration -------------------------------------------

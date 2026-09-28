@@ -294,6 +294,13 @@ class AggregationTestBase(
             ),
             # partition_by=[] means one whole-table group; every backend must support it.
             "empty_partition_by": None,
+            "missing_partition_by_column": InputValidationCase(
+                "value_int__sum_agg",
+                {"partition_by": ["no_such_col"]},
+                "partition_by 'no_such_col' is not present",
+            ),
+            # aggregation has no order column.
+            "missing_order_by_column": None,
         }
 
     # -- SingleValueStdVarTestMixin configuration -------------------------------

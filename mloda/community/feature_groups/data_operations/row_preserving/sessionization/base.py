@@ -61,6 +61,7 @@ from mloda.user import Feature, FeatureName, Options
 
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
+    assert_key_columns_present,
     assert_source_columns_present,
     column_ref_value,
     is_column_ref,
@@ -214,6 +215,7 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             partition_by = cls._extract_partition_by(feature)
             order_by = cls._extract_order_by(feature, source_col)
 
+            assert_key_columns_present(data, partition_by)
             assert_source_columns_present(data, [order_by])
 
             table = cls._compute_session(table, feature_name, order_by, threshold_seconds, partition_by)

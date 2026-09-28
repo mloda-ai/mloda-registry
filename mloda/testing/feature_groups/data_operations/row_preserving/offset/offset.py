@@ -96,6 +96,16 @@ class OffsetTestBase(InputValidationTestMixin, OutputContractTestMixin, Reserved
                 {"partition_by": [], "order_by": "value_int"},
                 "non-empty partition_by",
             ),
+            "missing_partition_by_column": InputValidationCase(
+                "value_int__lag_1_offset",
+                {"partition_by": ["no_such_col"], "order_by": "value_int"},
+                "partition_by 'no_such_col' is not present",
+            ),
+            "missing_order_by_column": InputValidationCase(
+                "value_int__lag_1_offset",
+                {"partition_by": ["region"], "order_by": "no_such_col"},
+                "order_by 'no_such_col' is not present",
+            ),
         }
 
     # -- ReservedColumnsTestMixin configuration --------------------------------

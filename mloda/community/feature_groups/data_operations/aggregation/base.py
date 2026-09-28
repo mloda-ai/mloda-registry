@@ -12,6 +12,7 @@ from mloda.community.feature_groups.data_operations.aggregation_base import (
 )
 from mloda.community.feature_groups.data_operations.base import (
     OP_TOKEN_EXPECTED,
+    assert_key_columns_present,
     assert_source_columns_present,
     is_op_token,
 )
@@ -160,6 +161,7 @@ class AggregationFeatureGroup(AggregationFeatureGroupBase):
             agg_type = cls._extract_aggregation_type(feature)
             partition_by = feature.options.get(cls.PARTITION_BY)
             mask_spec = parse_mask_spec(feature.options.get(MASK_KEY))
+            assert_key_columns_present(data, partition_by, mask_spec=mask_spec)
 
             table = cls._compute_group(table, feature_name, source_col, partition_by, agg_type, mask_spec)
 

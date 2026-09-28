@@ -338,7 +338,12 @@ class TestMixinIsolation:
         class MissingKind(InputValidationTestMixin):
             @classmethod
             def input_validation_cases(cls) -> dict[str, Any]:
-                return {"multi_column_in_features": "n/a", "missing_source_column": "n/a"}
+                return {
+                    "multi_column_in_features": "n/a",
+                    "missing_source_column": "n/a",
+                    "empty_partition_by": "n/a",
+                    "missing_partition_by_column": "n/a",
+                }
 
         stub = _StubMetafunc(["input_validation_case"])
         with pytest.raises(TypeError, match="must declare exactly"):
@@ -351,6 +356,8 @@ class TestMixinIsolation:
                     "multi_column_in_features": "n/a",
                     "missing_source_column": "n/a",
                     "empty_partition_by": "n/a",
+                    "missing_partition_by_column": "n/a",
+                    "missing_order_by_column": "n/a",
                     "bogus_kind": "n/a",
                 }
 
@@ -368,6 +375,8 @@ class TestMixinIsolation:
                     "multi_column_in_features": InputValidationCase("f", {}, "boom"),
                     "missing_source_column": "known gap",
                     "empty_partition_by": None,
+                    "missing_partition_by_column": None,
+                    "missing_order_by_column": None,
                 }
 
         stub = _StubMetafunc(["input_validation_case"])
@@ -388,6 +397,8 @@ class TestMixinIsolation:
                     "multi_column_in_features": 1,
                     "missing_source_column": "known gap",
                     "empty_partition_by": None,
+                    "missing_partition_by_column": None,
+                    "missing_order_by_column": None,
                 }
 
         with pytest.raises(TypeError, match="InputValidationCase"):
@@ -400,6 +411,8 @@ class TestMixinIsolation:
                     "multi_column_in_features": "",
                     "missing_source_column": "known gap",
                     "empty_partition_by": None,
+                    "missing_partition_by_column": None,
+                    "missing_order_by_column": None,
                 }
 
         with pytest.raises(TypeError, match="InputValidationCase"):

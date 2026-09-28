@@ -119,6 +119,8 @@ class StringTestBase(InputValidationTestMixin, OutputContractTestMixin, DataOpsT
                 table=PyArrowDataOpsTestDataCreator.create().drop_columns(["name"]),
             ),
             "empty_partition_by": None,
+            "missing_partition_by_column": None,
+            "missing_order_by_column": None,
         }
 
     @classmethod

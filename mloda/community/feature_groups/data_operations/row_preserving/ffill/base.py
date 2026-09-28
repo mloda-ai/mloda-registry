@@ -47,6 +47,7 @@ from mloda.user import Feature, FeatureName, Options
 from mloda.community.feature_groups.data_operations.base import (
     COLUMN_REF_EXPECTED,
     always_required,
+    assert_key_columns_present,
     assert_source_columns_present,
     column_ref_value,
     is_column_ref,
@@ -125,6 +126,7 @@ class FfillFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             assert_source_columns_present(data, [source_col])
             partition_by = cls._extract_partition_by(feature)
             order_by = cls._extract_order_by(feature)
+            assert_key_columns_present(data, partition_by, order_by)
 
             table = cls._compute_ffill(table, feature_name, source_col, partition_by, order_by)
 

@@ -654,20 +654,6 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
         with pytest.raises(ValueError, match=match):
             self.implementation_class().calculate_feature(self.test_data, fs)
 
-    def test_missing_time_column_rejected(self) -> None:
-        """A missing ``time_column`` must raise a clear ValueError naming it."""
-        table = pa.table(
-            {
-                "id": pa.array(_RESAMPLE_IDS, type=pa.int64()),
-                "region": pa.array(_RESAMPLE_REGIONS, type=pa.string()),
-                "value": pa.array(_RESAMPLE_VALUES, type=pa.float64()),
-            }
-        )
-        data = self.create_test_data(table)
-        fs = self._resample_fs("value__resample_1_hour_mean", ["region"])
-        with pytest.raises(ValueError, match=r"time_column 'ts' is not present"):
-            self.implementation_class().calculate_feature(data, fs)
-
     # -- InputValidationTestMixin configuration ---------------------------------
 
     @classmethod
@@ -677,6 +663,13 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
                 "id": pa.array(_RESAMPLE_IDS, type=pa.int64()),
                 "region": pa.array(_RESAMPLE_REGIONS, type=pa.string()),
                 "ts": pa.array(_RESAMPLE_TIMESTAMPS, type=pa.timestamp("us", tz="UTC")),
+            }
+        )
+        missing_time_table = pa.table(
+            {
+                "id": pa.array(_RESAMPLE_IDS, type=pa.int64()),
+                "region": pa.array(_RESAMPLE_REGIONS, type=pa.string()),
+                "value": pa.array(_RESAMPLE_VALUES, type=pa.float64()),
             }
         )
         return {
@@ -692,4 +685,16 @@ class ResampleTestBase(InputValidationTestMixin, OutputContractTestMixin, NanPol
                 table=missing_value_table,
             ),
             "empty_partition_by": None,
+            "missing_partition_by_column": InputValidationCase(
+                "value__resample_1_hour_mean",
+                {"partition_by": ["no_such_col"], "time_column": "ts"},
+                "partition_by 'no_such_col' is not present",
+            ),
+            # The resample time_column is its order key; the table omits it.
+            "missing_order_by_column": InputValidationCase(
+                "value__resample_1_hour_mean",
+                {"partition_by": ["region"], "time_column": "ts"},
+                "time_column 'ts' is not present",
+                table=missing_time_table,
+            ),
         }

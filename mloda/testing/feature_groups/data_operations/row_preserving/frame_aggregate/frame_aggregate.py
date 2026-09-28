@@ -307,6 +307,16 @@ class FrameAggregateTestBase(
             ),
             # partition_by=[] means one whole-table group; every backend must support it.
             "empty_partition_by": None,
+            "missing_partition_by_column": InputValidationCase(
+                "value_int__sum_rolling_3",
+                {"partition_by": ["no_such_col"], "order_by": "amount"},
+                "partition_by 'no_such_col' is not present",
+            ),
+            "missing_order_by_column": InputValidationCase(
+                "value_int__sum_rolling_3",
+                {"partition_by": ["region"], "order_by": "no_such_col"},
+                "order_by 'no_such_col' is not present",
+            ),
         }
 
     # -- ReservedColumnsTestMixin configuration --------------------------------
