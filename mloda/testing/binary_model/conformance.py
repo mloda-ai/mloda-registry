@@ -1771,7 +1771,8 @@ class BinaryModelConformanceBase:
         assert schema.field(column).metadata, "test setup: expected the input field to carry field-level metadata"
         config = self.make_config(input_columns=[column])
         config_path = write_json(tmp_path / "config.json", config)
-        input_bytes = arrow_stream_bytes(schema, {column: ["alpha", "beta"]})
+        input_values = ["alpha", "beta"]
+        input_bytes = arrow_stream_bytes(schema, {column: input_values})
         result = run_binary(
             self.binary_cmd,
             ["run", "--config", str(config_path)],
@@ -1781,6 +1782,7 @@ class BinaryModelConformanceBase:
         )
         assert result.returncode == 0, f"input metadata unexpectedly caused a failure; stderr={result.stderr!r}"
         table = read_arrow_stream(result.stdout)
+        assert_output_contract(table, config["output_columns"], len(input_values), self.column_types)
         assert not table.schema.metadata, f"output schema unexpectedly carries metadata: {table.schema.metadata!r}"
         for output_field in table.schema:
             assert not output_field.metadata, (
@@ -1893,6 +1895,7 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         )
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         table = read_arrow_stream(result.stdout)
+        assert_output_contract(table, case["config"]["output_columns"], len(case["expected"]), self.column_types)
         actual = table.column(self.default_output_column_name).to_pylist()
         assert actual == case["expected"]
 
@@ -1979,6 +1982,7 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         )
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         table = read_arrow_stream(output_bytes)
+        assert_output_contract(table, case["config"]["output_columns"], len(case["expected"]), self.column_types)
         assert table.column(self.default_output_column_name).to_pylist() == case["expected"]
 
     def test_hash_field_order_independent_of_stream_schema_order(
@@ -2005,6 +2009,7 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         table = read_arrow_stream(result.stdout)
         expected = self.compute_expected_hash_column(rows, input_columns, key=None)
+        assert_output_contract(table, config["output_columns"], len(rows["a"]), self.column_types)
         assert table.column(self.default_output_column_name).to_pylist() == expected
 
     def test_hash_multi_batch_input_processes_all_batches(
@@ -2089,6 +2094,9 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         )
         assert result_absent.returncode == 0, f"stderr={result_absent.stderr!r}"
         table_absent = read_arrow_stream(result_absent.stdout)
+        assert_output_contract(
+            table_absent, case_absent["config"]["output_columns"], len(case_absent["expected"]), self.column_types
+        )
 
         result_empty = run_binary(
             self.binary_cmd,
@@ -2099,6 +2107,9 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         )
         assert result_empty.returncode == 0, f"stderr={result_empty.stderr!r}"
         table_empty = read_arrow_stream(result_empty.stdout)
+        assert_output_contract(
+            table_empty, case_empty["config"]["output_columns"], len(case_empty["expected"]), self.column_types
+        )
 
         assert (
             table_absent.column(self.default_output_column_name).to_pylist()

@@ -8,10 +8,13 @@ hooks are overridable."""
 
 from __future__ import annotations
 
+import functools
 import json
+import os
 import subprocess  # nosec
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 from unittest.mock import MagicMock
 
 import pyarrow as pa
@@ -402,24 +405,139 @@ def test_assert_output_contract_accepts_a_valid_table() -> None:
     assert_output_contract(table, {"result": "col_a_hash"}, 3, COLUMN_TYPES)
 
 
-def test_minimal_environment_allowlist_only_delegates_to_output_contract_check(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """The kit's own `test_minimal_environment_allowlist_only` check must verify the binary's
-    output against the full output contract (name set, types, row count), not row count alone: a
-    binary returning the correct row count under the wrong output column name must still fail this
-    check (contract: Data)."""
+def _fake_run_binary_result(schema: pa.Schema, rows: Mapping[str, Sequence[Any]]) -> subprocess.CompletedProcess[bytes]:
+    """A fake successful ``run_binary`` result carrying ``rows`` as a single Arrow IPC stream batch."""
+    stream_rows = {name: list(values) for name, values in rows.items()}
+    return subprocess.CompletedProcess(
+        args=[], returncode=0, stdout=arrow_stream_bytes(schema, stream_rows), stderr=b""
+    )
+
+
+def _correct_output_with_extra_column(
+    output_name: str, output_type: pa.DataType, expected_values: Sequence[Any]
+) -> subprocess.CompletedProcess[bytes]:
+    """A fake ``run_binary`` result with the correct output plus one unexpected extra column: the
+    only defect a missing ``assert_output_contract`` call can catch."""
+    schema = pa.schema([pa.field(output_name, output_type), pa.field("unexpected_extra_column", pa.int64())])
+    rows = {output_name: expected_values, "unexpected_extra_column": list(range(len(expected_values)))}
+    return _fake_run_binary_result(schema, rows)
+
+
+def _const_fake(result: subprocess.CompletedProcess[bytes]) -> Callable[..., subprocess.CompletedProcess[bytes]]:
+    """A fake ``run_binary`` that always returns ``result`` regardless of the call args."""
+    return lambda *a, **k: result
+
+
+Case = tuple[Callable[[], None], Callable[..., subprocess.CompletedProcess[bytes]]]
+
+
+def _case_minimal_environment(tmp_path: Path, env: dict[str, str]) -> Case:
+    """A correct row count under the wrong output column name must still fail the minimal-environment allowlist check."""
     conformance = BinaryModelConformanceBase()
-    rows = conformance.default_input_rows()
-    expected_rows = len(next(iter(rows.values())))
-    fake_stdout = arrow_stream_bytes(
+    input_rows = conformance.default_input_rows()
+    expected_rows = len(next(iter(input_rows.values())))
+    fake_result = _fake_run_binary_result(
         pa.schema([pa.field("unexpected_name", pa.int64())]),
         {"unexpected_name": list(range(expected_rows))},
     )
-    fake_result = subprocess.CompletedProcess(args=[], returncode=0, stdout=fake_stdout, stderr=b"")
-    monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", lambda *args, **kwargs: fake_result)
+    return (lambda: conformance.test_minimal_environment_allowlist_only(tmp_path)), _const_fake(fake_result)
+
+
+def _case_hash_with_key(tmp_path: Path, env: dict[str, str]) -> Case:
+    """Reads a correct-plus-extra-column output via the hash-with-key check."""
+    conformance = HashOperationConformanceMixin()
+    case = conformance.hash_multi_column_case(key="s3cr3t-key")
+    fake_result = _correct_output_with_extra_column(
+        conformance.default_output_column_name, pa.int64(), case["expected"]
+    )
+    check = lambda: conformance.test_hash_with_key_parameter_matches_reference_algorithm_and_changes_result(  # noqa: E731
+        env, tmp_path
+    )
+    return check, _const_fake(fake_result)
+
+
+def _case_hash_transport(tmp_path: Path, env: dict[str, str]) -> Case:
+    """Reads a correct-plus-extra-column output via the hash-transport-combinations check."""
+    conformance = HashOperationConformanceMixin()
+    case = conformance.hash_multi_column_case()
+    fake_result = _correct_output_with_extra_column(
+        conformance.default_output_column_name, pa.int64(), case["expected"]
+    )
+    check = lambda: conformance.test_hash_transport_combinations_match_reference_algorithm(  # noqa: E731
+        env, tmp_path, use_input_file=False, use_output_file=False
+    )
+    return check, _const_fake(fake_result)
+
+
+def _case_hash_field_order(tmp_path: Path, env: dict[str, str]) -> Case:
+    """Reads a correct-plus-extra-column output via the hash-field-order-independence check."""
+    conformance = HashOperationConformanceMixin()
+    rows = {"a": [1, 2, 3], "b": [10, 20, 30]}
+    expected = conformance.compute_expected_hash_column(rows, ["b", "a"], key=None)
+    fake_result = _correct_output_with_extra_column(conformance.default_output_column_name, pa.int64(), expected)
+    check = lambda: conformance.test_hash_field_order_independent_of_stream_schema_order(env, tmp_path)  # noqa: E731
+    return check, _const_fake(fake_result)
+
+
+def _case_hash_key_absent(tmp_path: Path, env: dict[str, str], *, first_invalid: bool) -> Case:
+    """Reads a correct-plus-extra-column output on one run of the key-absent-equals-key-empty-string check."""
+    conformance = HashOperationConformanceMixin()
+    case_absent = conformance.hash_multi_column_case(key=None)
+    case_empty = conformance.hash_multi_column_case(key="")
+    name = conformance.default_output_column_name
+    valid_result = _fake_run_binary_result(pa.schema([pa.field(name, pa.int64())]), {name: case_empty["expected"]})
+    invalid_result = _correct_output_with_extra_column(name, pa.int64(), case_absent["expected"])
+    calls = {"n": 0}
+
+    def fake_run_binary(*a: object, **k: object) -> subprocess.CompletedProcess[bytes]:
+        calls["n"] += 1
+        is_first_call = calls["n"] == 1
+        return invalid_result if (is_first_call == first_invalid) else valid_result
+
+    check = lambda: conformance.test_hash_key_absent_equals_key_empty_string(env, tmp_path)  # noqa: E731
+    return check, fake_run_binary
+
+
+def _case_input_arrow_metadata(tmp_path: Path, env: dict[str, str]) -> Case:
+    """Reads a correct-plus-extra-column output via the input-Arrow-metadata check."""
+    conformance = BinaryModelConformanceBase()
+    output_name = conformance.default_output_column_name
+    fake_result = _correct_output_with_extra_column(output_name, conformance.default_output_column_type(), [0, 0])
+    check = lambda: conformance.test_input_arrow_metadata_schema_and_field_level_accepted_and_stripped_from_output(  # noqa: E731
+        env, tmp_path
+    )
+    return check, _const_fake(fake_result)
+
+
+@pytest.mark.parametrize(
+    "build_case",
+    [
+        pytest.param(_case_minimal_environment, id="minimal_environment"),
+        pytest.param(_case_hash_with_key, id="hash_with_key"),
+        pytest.param(_case_hash_transport, id="hash_transport"),
+        pytest.param(_case_hash_field_order, id="hash_field_order"),
+        pytest.param(
+            functools.partial(_case_hash_key_absent, first_invalid=True), id="hash_key_absent_first_run_invalid"
+        ),
+        pytest.param(
+            functools.partial(_case_hash_key_absent, first_invalid=False), id="hash_key_absent_second_run_invalid"
+        ),
+        pytest.param(_case_input_arrow_metadata, id="input_arrow_metadata"),
+    ],
+)
+def test_output_contract_checks_delegate_to_output_contract_check_after_reading_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    build_case: Callable[[Path, dict[str, str]], Case],
+) -> None:
+    """Every kit check that reads the binary's output must verify it against the full output
+    contract via `assert_output_contract`, not just whatever ad-hoc asserts it happens to make (contract: Data)."""
+    env: dict[str, str] = {"PATH": os.defpath}
+    check, fake_run_binary = build_case(tmp_path, env)
+    monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", fake_run_binary)
+
     with pytest.raises(AssertionError) as exc_info:
-        conformance.test_minimal_environment_allowlist_only(tmp_path)
+        check()
     assert isinstance(exc_info.value.__cause__, OutputContractError)
 
 
