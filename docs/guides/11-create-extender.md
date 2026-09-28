@@ -107,6 +107,52 @@ from mloda.user import mloda
 results = mloda.run_all(features=["my_feature"], function_extender={MyExtender(), OtherExtender()})
 ```
 
+## Reading the hook context
+
+`HookContext.current()` inside `__call__` returns the context of the hook being dispatched, or `None` outside a hook call (a direct call, a unit test without an activated context). It is set only on the dispatching thread, so capture it before handing work to another thread.
+
+- Before `func` runs: `hook`, `feature_group_class` (`module.qualname`), `feature_group_version`, `plugin_version`, `feature_names`, `input_features`, `input_feature_edges`, `compute_framework_name`, `rows_in`, `run_id`, `carrier`, `worker_index`, and the verified `tenant_id`, `project_id` and `principal` (see [Verified run context](#verified-run-context)).
+- After `func` returns or raises: `rows_out`, `output_schema`, `duration_seconds` and `status` (`"success"` or `"error"`, for the wrapped call only).
+- Per hook: `INPUT_DATA_LOAD` adds the data-access fields (see [Hook context for data loads](#hook-context-for-data-loads)), `JOIN` adds `join_type` and `join_keys`, and `FEATURE_GROUP_MATCHED` adds the running `plan_feature_count`, `plan_node_count` and `plan_depth`. Fields a hook does not fill stay `None`.
+
+```python
+import logging
+from typing import Any
+
+from mloda.steward import Extender, ExtenderHook, HookContext
+
+logger = logging.getLogger(__name__)
+
+
+class FactsExtender(Extender):
+    def __init__(self) -> None:
+        self.raise_on_error = False
+
+    def wraps(self) -> set[ExtenderHook]:
+        return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+    def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        result = func(*args, **kwargs)
+        context = HookContext.current()
+        if context is not None:
+            logger.info("%s took %ss, status %s", context.feature_group_class, context.duration_seconds, context.status)
+        return result
+
+
+# Outside a run, activate a hand-built context (tests can use mloda.testing's make_hook_context).
+# Core fills duration_seconds and status only during a run, so both log as None here.
+context = HookContext(
+    hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+    feature_group_class="my_plugin.MyFeatureGroup",
+    feature_group_version="1",
+    compute_framework_name="PyArrowTable",
+)
+with context.activate():
+    FactsExtender()(lambda: "result")
+```
+
+See core's [HookContext facts](https://github.com/mloda-ai/mloda/blob/0.14.0/docs/docs/chapter1/extender.md#5-reading-call-facts-via-hookcontext) for the full field semantics.
+
 ## Hook context for data loads
 
 `INPUT_DATA_LOAD` runs nested inside the active `FEATURE_GROUP_CALCULATE_FEATURE` call, but an extender may wrap it alone: the calculation context is activated whenever either hook has an extender registered, so a data-load wrapper still fires when nothing wraps `FEATURE_GROUP_CALCULATE_FEATURE`.

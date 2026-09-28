@@ -261,6 +261,9 @@ Q1: What do you want to wrap?
     Feature calculation → FEATURE_GROUP_CALCULATE_FEATURE
     Input validation   → VALIDATE_INPUT_FEATURE
     Output validation  → VALIDATE_OUTPUT_FEATURE
+    Feature matched    → FEATURE_GROUP_MATCHED
+    Input data loads   → INPUT_DATA_LOAD
+    Data joins         → JOIN
 
 Q2: Need execution order control?
     YES → Set custom priority (lower runs first, default 100)
