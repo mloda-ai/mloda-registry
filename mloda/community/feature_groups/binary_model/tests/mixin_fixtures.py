@@ -15,6 +15,7 @@ from typing import Any
 
 import pyarrow as pa
 
+from mloda.community.feature_groups.binary_model.tests import faulty_binary
 from mloda.testing.binary_model import CONTRACT_VERSION
 from mloda.testing.binary_model.arrow import arrow_stream_bytes_from_arrays, read_arrow_stream
 from mloda.testing.binary_model.arrow_arrays import array_from_values
@@ -52,38 +53,10 @@ def _capabilities(variant: str) -> dict[str, Any]:
 
 
 def _parse_run_args(args: list[str]) -> tuple[Path, Path | None, Path | None]:
-    config_path: Path | None = None
-    input_path: Path | None = None
-    output_path: Path | None = None
-    i = 0
-    while i < len(args):
-        if args[i] == "--config" and i + 1 < len(args):
-            i += 1
-            config_path = Path(args[i])
-        elif args[i] == "--input" and i + 1 < len(args):
-            i += 1
-            input_path = Path(args[i])
-        elif args[i] == "--output" and i + 1 < len(args):
-            i += 1
-            output_path = Path(args[i])
-        i += 1
+    config_path, input_path, output_path = faulty_binary._parse_run_args(args)
     if config_path is None:
         raise SystemExit("run requires --config <path>")
     return config_path, input_path, output_path
-
-
-def _read_input_bytes(input_path: Path | None) -> bytes:
-    if input_path is not None:
-        return input_path.read_bytes()
-    return sys.stdin.buffer.read()
-
-
-def _write_output(data: bytes, output_path: Path | None) -> None:
-    if output_path is not None:
-        output_path.write_bytes(data)
-        return
-    sys.stdout.buffer.write(data)
-    sys.stdout.buffer.flush()
 
 
 def _run_echo_utf8(args: list[str]) -> int:
@@ -94,11 +67,11 @@ def _run_echo_utf8(args: list[str]) -> int:
     config = json.loads(config_path.read_text(encoding="utf-8"))
     input_column = config["input_columns"][0]
     written_name = next(iter(config["output_columns"].values()))
-    table = read_arrow_stream(_read_input_bytes(input_path))
+    table = read_arrow_stream(faulty_binary._read_input_bytes(input_path))
     values = table.column(input_column).cast(pa.string()).combine_chunks()
     schema = pa.schema([pa.field(written_name, pa.string())])
     data = arrow_stream_bytes_from_arrays(schema, [values])
-    _write_output(data, output_path)
+    faulty_binary._write_output(data, output_path)
     return 0
 
 
@@ -119,11 +92,11 @@ def _run_boolean_output_not_advertised(args: list[str]) -> int:
     config_path, input_path, output_path = _parse_run_args(args)
     config = json.loads(config_path.read_text(encoding="utf-8"))
     written_name = next(iter(config["output_columns"].values()))
-    table = read_arrow_stream(_read_input_bytes(input_path))
+    table = read_arrow_stream(faulty_binary._read_input_bytes(input_path))
     num_rows = table.num_rows
     schema = pa.schema([pa.field(written_name, pa.bool_())])
     data = arrow_stream_bytes_from_arrays(schema, [array_from_values([True] * num_rows, pa.bool_())])
-    _write_output(data, output_path)
+    faulty_binary._write_output(data, output_path)
     return 0
 
 
