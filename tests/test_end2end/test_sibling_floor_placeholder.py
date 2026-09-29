@@ -418,8 +418,13 @@ def test_generate_raises_when_version_missing_for_placeholder_dependency() -> No
 @pytest.mark.parametrize("entry_point_bundle", [True, False], ids=["bundle", "plain"])
 @pytest.mark.parametrize(
     "dependency",
-    [f"{_DEP}>={{version}}", f"{_DEP}[all]>={{version}}", f'{_DEP}>={{version}}; python_version>="3.11"'],
-    ids=["floor", "extras", "env-marker"],
+    [
+        f"{_DEP}>={{version}}",
+        f"{_DEP}[all]>={{version}}",
+        f'{_DEP}>={{version}}; python_version>="3.11"',
+        f"{_DEP.title().replace('-', '_')}>={{version}}",
+    ],
+    ids=["floor", "extras", "env-marker", "non-normalized"],
 )
 def test_top_level_package_gets_a_workspace_source_for_a_sibling_dependency(
     dependency: str, entry_point_bundle: bool
@@ -509,8 +514,47 @@ def test_top_level_package_with_default_dev_deps_lists_mloda_testing_and_its_sib
 
     expected = {"mloda-testing": _WORKSPACE, _DEP: _WORKSPACE, _LEAF: _WORKSPACE}
     assert sources == expected, f"expected exactly {expected!r}, got {sources!r}"
-    siblings = [name for name in sources if name != "mloda-testing"]
-    assert siblings == sorted(siblings), f"sibling sources must be in sorted order, got {siblings!r}"
+    assert list(sources) == sorted(sources), f"sources must be in sorted order, got {list(sources)!r}"
+
+
+def test_real_registry_keeps_only_its_default_mloda_testing_source() -> None:
+    """mloda-registry names no configured sibling, so it keeps just the default ``mloda-testing`` source."""
+    shared, packages_config = gen.load_configs()
+
+    sources = _generated_uv_sources("mloda-registry", packages_config["packages"], shared)
+
+    assert sources == {"mloda-testing": _WORKSPACE}, f"expected only the mloda-testing source, got {sources!r}"
+
+
+def test_synthetic_mloda_testing_package_gets_no_self_entry() -> None:
+    """A package literally named mloda-testing gets no default dev entry and no self-reference."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_packages_with_dependent(_TOP_LEVEL_PATH, ["{core_dependency}", f"{_DEP}>={{version}}"])
+    packages["mloda-testing"] = packages.pop(_DEPENDENT)
+
+    sources = _generated_uv_sources("mloda-testing", packages, shared)
+
+    assert sources == {_DEP: _WORKSPACE}, f"expected only the {_DEP!r} source, got {sources!r}"
+
+
+def test_mloda_testing_gets_source_entry_for_its_optional_community_dependency() -> None:
+    """mloda-testing's extra names mloda-community, a sibling only in an extra: it needs a source or uv will not lock."""
+    shared, packages_config = gen.load_configs()
+
+    sources = _generated_uv_sources("mloda-testing", packages_config["packages"], shared)
+
+    assert sources == {"mloda-community": _WORKSPACE}, f"expected only the mloda-community source, got {sources!r}"
+
+
+def test_computed_source_names_are_emitted_as_flat_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A dotted computed name (normalization rules it out in real config) must not parse as a nested table."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_packages_with_dependent(_TOP_LEVEL_PATH, ["{core_dependency}"])
+    monkeypatch.setattr(gen, "sibling_dependency_names", lambda deps, all_packages: ["mloda-registry", "mloda.foo"])
+
+    sources = _generated_uv_sources(_DEPENDENT, packages, shared)
+
+    assert sources == {"mloda.foo": _WORKSPACE, "mloda-registry": _WORKSPACE, "mloda-testing": _WORKSPACE}, sources
 
 
 def test_top_level_package_with_default_dev_deps_and_no_sibling_keeps_only_mloda_testing() -> None:
@@ -550,6 +594,12 @@ def test_real_bundles_workspace_sources_follow_their_sibling_dependencies() -> N
         assert community_sources.get(name) == _WORKSPACE, (
             f"expected mloda-community sources[{name!r}] == {_WORKSPACE!r}, got {community_sources!r}"
         )
+    for name in ("mloda-community", "mloda-community-openlineage"):
+        assert enterprise_sources.get(name) == _WORKSPACE, (
+            f"expected mloda-enterprise sources[{name!r}] == {_WORKSPACE!r}, got {enterprise_sources!r}"
+        )
+    for label, bundle_sources in (("mloda-enterprise", enterprise_sources), ("mloda-community", community_sources)):
+        assert "mloda-testing" not in bundle_sources, f"{label} skips default dev deps, got {bundle_sources!r}"
     assert all(value == _WORKSPACE for value in community_sources.values()), (
         f"every mloda-community workspace source must be {_WORKSPACE!r}, got {community_sources!r}"
     )
