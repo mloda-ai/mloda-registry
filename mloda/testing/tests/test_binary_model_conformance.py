@@ -385,6 +385,20 @@ def test_read_arrow_stream_malformed_input_fails_an_assertion(data: bytes) -> No
             id="type_not_advertised_by_binary",
         ),
         pytest.param(
+            pa.table({"col_a_hash": pa.array(["a", "b", "c"], type=pa.large_string())}),
+            {"result": "col_a_hash"},
+            3,
+            frozenset({"utf8"}),
+            id="large_string_is_not_utf8",
+        ),
+        pytest.param(
+            pa.table({"col_a_hash": pa.array(["a", "b", "c"], type=pa.string_view())}),
+            {"result": "col_a_hash"},
+            3,
+            frozenset({"utf8"}),
+            id="string_view_is_not_utf8",
+        ),
+        pytest.param(
             pa.table({"col_a_hash": pa.array([1, 2], type=pa.int64())}),
             {"result": "col_a_hash"},
             3,

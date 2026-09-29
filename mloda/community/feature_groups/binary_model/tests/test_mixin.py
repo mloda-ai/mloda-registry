@@ -390,6 +390,15 @@ class TestOutputVerification:
         with pytest.raises(OutputContractError):
             model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "result_out"})
 
+    @pytest.mark.parametrize("mode", ["large_string_output", "string_view_output"])
+    def test_non_utf8_string_layout_output_raises_output_contract_error(self, mode: str) -> None:
+        """The contract's ``utf8`` is ``pa.string()`` only: a binary writing ``large_string`` or
+        ``string_view`` is rejected even though ``utf8`` is advertised (contract: Data)."""
+        model = _faulty_model(mode)
+        table = pa.table({"col_a": ["alpha"]})
+        with pytest.raises(OutputContractError):
+            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "result_out"})
+
     def test_wrong_row_count_raises_output_contract_error(self) -> None:
         model = _faulty_model("wrong_row_count")
         table = pa.table({"col_a": ["alpha", "beta"]})

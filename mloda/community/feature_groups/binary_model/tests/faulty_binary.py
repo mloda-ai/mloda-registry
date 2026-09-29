@@ -229,6 +229,14 @@ def _run(mode: str, args: list[str]) -> int:
     elif mode == "wrong_type":
         column_type = pa.int32()
 
+    if mode in ("large_string_output", "string_view_output"):
+        # A non-utf8 string layout: the contract's utf8 is pa.string() only.
+        string_type = pa.large_string() if mode == "large_string_output" else pa.string_view()
+        string_schema = pa.schema([pa.field(field_name, string_type)])
+        string_data = arrow_stream_bytes_from_arrays(string_schema, [pa.array(["x"] * num_rows, type=string_type)])
+        _write_output(string_data, output_path)
+        return 0
+
     if mode == "duplicate_output_names":
         # A valid stream whose schema carries the written name twice (contract: Data); built via
         # arrow_stream_bytes_from_arrays, which accepts duplicate field names.
