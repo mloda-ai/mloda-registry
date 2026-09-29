@@ -25,8 +25,6 @@ class BinaryModelError(ValueError):
 class BinaryUnavailableError(BinaryModelError):
     """The binary could not be resolved or spawned at all; no contract exit code applies."""
 
-    CODE: ClassVar[int | None] = None
-
 
 class BinaryUsageError(BinaryModelError):
     """Contract exit code 1: bad flags or paths, malformed or unknown config keys."""

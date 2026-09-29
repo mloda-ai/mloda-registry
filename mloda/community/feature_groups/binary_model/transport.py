@@ -182,22 +182,15 @@ def _close_posix_pipes(proc: subprocess.Popen[bytes]) -> None:
                 pass
 
 
-def _soft_stop(proc: subprocess.Popen[bytes]) -> None:
+def _stop_process(proc: subprocess.Popen[bytes], *, hard: bool) -> None:
     if os.name == "nt":
-        proc.terminate()
+        if hard:
+            proc.kill()
+        else:
+            proc.terminate()
     else:
         try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except OSError:
-            pass
-
-
-def _hard_kill(proc: subprocess.Popen[bytes]) -> None:
-    if os.name == "nt":
-        proc.kill()
-    else:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
+            os.killpg(proc.pid, signal.SIGKILL if hard else signal.SIGTERM)
         except OSError:
             pass
 
@@ -208,14 +201,14 @@ def _terminate_timed_out_process(proc: subprocess.Popen[bytes]) -> None:
     child on Windows. The hard kill always runs, even if the soft stop's grace wait is interrupted,
     and the final reap is bounded, logging a warning rather than blocking forever."""
     try:
-        _soft_stop(proc)
+        _stop_process(proc, hard=False)
         try:
             proc.wait(timeout=_GRACE_WAIT_SECONDS)
         except subprocess.TimeoutExpired:
             pass
     finally:
         try:
-            _hard_kill(proc)
+            _stop_process(proc, hard=True)
             try:
                 proc.wait(timeout=_REAP_WAIT_SECONDS)
             except subprocess.TimeoutExpired:

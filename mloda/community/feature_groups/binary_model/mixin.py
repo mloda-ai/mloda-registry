@@ -149,17 +149,6 @@ def _wire_field(field: pa.Field) -> pa.Field:
     return pa.field(field.name, field_type, nullable=field.nullable)
 
 
-def _cast_batch_to_wire_schema(batch: pa.RecordBatch, wire_schema: pa.Schema) -> pa.RecordBatch:
-    """Cast ``batch`` to ``wire_schema``, falling back to rebuilding it column by column if the
-    installed pyarrow has no ``RecordBatch.cast``."""
-    cast_method = getattr(batch, "cast", None)
-    if cast_method is not None:
-        result: pa.RecordBatch = cast_method(wire_schema)
-        return result
-    arrays = [batch.column(index).cast(field.type) for index, field in enumerate(wire_schema)]
-    return pa.RecordBatch.from_arrays(arrays, schema=wire_schema)
-
-
 def _write_ipc_stream(table: pa.Table, max_batch_bytes: int) -> bytes:
     """Write ``table`` to Arrow IPC stream bytes, batched small enough that no single array exceeds
     ``max_batch_bytes`` (contract: Capabilities); a zero-row table writes a schema-only stream. The
@@ -172,7 +161,7 @@ def _write_ipc_stream(table: pa.Table, max_batch_bytes: int) -> bytes:
     with pa.ipc.new_stream(buffer, wire_schema) as writer:
         for batch in table.to_batches(max_chunksize=rows_per_batch):
             for piece in _split_oversized_batch(batch, max_batch_bytes):
-                writer.write_batch(_cast_batch_to_wire_schema(piece, wire_schema))
+                writer.write_batch(piece.cast(wire_schema))
     return buffer.getvalue()
 
 

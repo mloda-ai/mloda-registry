@@ -98,8 +98,7 @@ def _validate_sibling_spelling(
     """
     requirement = with_core.split(";", 1)[0]
     has_marker = ";" in with_core
-    match = DEP_NAME_RE.match(requirement)
-    sibling_name = normalize_package_name(match.group(1)) if match is not None else None
+    sibling_name = normalize_dependency_name(requirement)
     is_sibling = sibling_name is not None and sibling_name in canonical_siblings
     owns_nested = is_sibling and nested_siblings is not None and sibling_name in nested_siblings
 
@@ -223,10 +222,8 @@ def sibling_dependency_name(
     markers ignored, or None if it names no configured package. ``configured`` lets a caller looping
     over many requirements build the normalized name lookup once instead of per call."""
     lookup = configured if configured is not None else {normalize_package_name(name): name for name in all_packages}
-    match = DEP_NAME_RE.match(dep.split(";", 1)[0])
-    if match is None:
-        return None
-    return lookup.get(normalize_package_name(match.group(1)))
+    name = normalize_dependency_name(dep.split(";", 1)[0])
+    return lookup.get(name) if name is not None else None
 
 
 def sibling_dependency_names(deps: list[str], all_packages: dict[str, dict[str, Any]]) -> list[str]:

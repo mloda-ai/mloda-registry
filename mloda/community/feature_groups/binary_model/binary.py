@@ -13,7 +13,7 @@ import re
 import shutil
 import subprocess  # nosec
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -99,10 +99,6 @@ def _run_probe(argv: list[str], flag: str, env: Mapping[str, str], timeout: floa
             env=dict(env),
             start_new_session=os.name != "nt",
         )
-    except OSError as exc:
-        raise BinaryUnavailableError(f"binary {argv[0]!r} could not be run for {flag}: {exc}") from exc
-
-    try:
         stdout, _stderr = communicate_or_terminate(proc, None, timeout)
     except subprocess.TimeoutExpired as exc:
         raise BinaryUnavailableError(f"binary {argv[0]!r} timed out probing {flag}") from exc
@@ -211,13 +207,7 @@ def resolve_binary(
 
     capabilities_stdout = _run_probe(argv, "--capabilities", probe_env, timeout)
     capabilities = parse_capabilities(argv, plugin_id, capabilities_stdout)
-    capabilities = BinaryCapabilities(
-        contract=capabilities.contract,
-        plugin_id=capabilities.plugin_id,
-        version=version,
-        operations=capabilities.operations,
-        column_types=capabilities.column_types,
-    )
+    capabilities = replace(capabilities, version=version)
 
     logger.debug("resolved binary %s version %s", plugin_id, version)
     _capability_cache[cache_key] = capabilities
