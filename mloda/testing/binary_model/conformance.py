@@ -361,10 +361,9 @@ class BinaryModelConformanceBase:
         return next(iter(self.default_output_columns))
 
     def _kit_run(
-        self, args: list[str], env: dict[str, str], input_bytes: bytes = b"", **kwargs: Any
+        self, args: list[str], env: dict[str, str], input_bytes: bytes = b""
     ) -> subprocess.CompletedProcess[bytes]:
-        kwargs.setdefault("timeout", self.binary_timeout_seconds)
-        return run_binary(self.binary_cmd, args, env, input_bytes, **kwargs)
+        return run_binary(self.binary_cmd, args, env, input_bytes, timeout=self.binary_timeout_seconds)
 
     def _kit_run_with_config(
         self,
@@ -1680,10 +1679,8 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         rows = {"a": [1, 2, 3], "b": [10, 20, 30]}
         input_bytes = arrow_stream_bytes(schema, rows)
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
-        assert result.returncode == 0, f"stderr={result.stderr!r}"
-        table = read_arrow_stream(result.stdout)
+        table = self._kit_assert_success_table(result, config["output_columns"], len(rows["a"]))
         expected = self.compute_expected_hash_column(rows, input_columns, key=None)
-        assert_output_contract(table, config["output_columns"], len(rows["a"]), self.column_types)
         assert table.column(self.default_output_column_name).to_pylist() == expected
 
     def test_hash_multi_batch_input_processes_all_batches(
@@ -1702,13 +1699,11 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         batch_two: dict[str, list[Any]] = {"id": ["row-2", "row-3", "row-4"], "value": [3, 4, 5]}
         input_bytes = arrow_stream_bytes_multi_batch(schema, [batch_one, batch_two])
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
-        assert result.returncode == 0, f"stderr={result.stderr!r}"
-        table = read_arrow_stream(result.stdout)
         combined_rows = {
             "id": batch_one["id"] + batch_two["id"],
             "value": batch_one["value"] + batch_two["value"],
         }
-        assert_output_contract(table, config["output_columns"], len(combined_rows["id"]), self.column_types)
+        table = self._kit_assert_success_table(result, config["output_columns"], len(combined_rows["id"]))
         expected = self.compute_expected_hash_column(combined_rows, input_columns, key=None)
         assert table.column(self.default_output_column_name).to_pylist() == expected
 
@@ -1748,17 +1743,13 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         input_bytes = arrow_stream_bytes(case_absent["schema"], case_absent["rows"])
 
         result_absent = self._kit_run_with_config(config_path_absent, valid_license_env, input_bytes)
-        assert result_absent.returncode == 0, f"stderr={result_absent.stderr!r}"
-        table_absent = read_arrow_stream(result_absent.stdout)
-        assert_output_contract(
-            table_absent, case_absent["config"]["output_columns"], len(case_absent["expected"]), self.column_types
+        table_absent = self._kit_assert_success_table(
+            result_absent, case_absent["config"]["output_columns"], len(case_absent["expected"])
         )
 
         result_empty = self._kit_run_with_config(config_path_empty, valid_license_env, input_bytes)
-        assert result_empty.returncode == 0, f"stderr={result_empty.stderr!r}"
-        table_empty = read_arrow_stream(result_empty.stdout)
-        assert_output_contract(
-            table_empty, case_empty["config"]["output_columns"], len(case_empty["expected"]), self.column_types
+        table_empty = self._kit_assert_success_table(
+            result_empty, case_empty["config"]["output_columns"], len(case_empty["expected"])
         )
 
         assert (
