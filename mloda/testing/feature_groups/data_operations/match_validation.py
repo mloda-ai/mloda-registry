@@ -35,7 +35,7 @@ from typing import Any
 
 import pytest
 from mloda.provider import PropertySpec
-from mloda.user import Options
+from mloda.user import FeatureName, Options
 
 
 def _is_container(value: Any) -> bool:
@@ -550,3 +550,17 @@ class MatchValidationTestBase(ScalarArityTestBase):
         for operation in sorted(operations):
             assert self._match_by_name(operation) is False, f"Name path should reject: {operation!r}"
             assert self._match_by_config(operation) is False, f"Config path should reject: {operation!r}"
+
+    # -- Source comes from the name -------------------------------------------
+
+    def test_extra_in_features_option_ignored_for_name_source(self) -> None:
+        """The name carries the source, so an extra in_features option neither blocks the match nor changes it."""
+        name = self.build_feature_name(sorted(self.parity_operations())[0])
+        base = self.pattern_match_options()
+        extra = Options(
+            group=dict(base.group),
+            context={**base.context, "in_features": ["value_int", "value_float"]},
+        )
+        group = self.feature_group_class()
+        assert group.match_feature_group_criteria(name, extra, None) is True
+        assert group().input_features(extra, FeatureName(name)) == group().input_features(base, FeatureName(name))

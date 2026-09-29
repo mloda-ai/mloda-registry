@@ -5,7 +5,8 @@ Provides ``test_mixin_input_validation``: runs a declared ``InputValidationCase`
 data-operations op: ``multi_column_in_features``, ``missing_source_column``,
 ``empty_partition_by``, ``missing_partition_by_column``, and ``missing_order_by_column``.
 Also provides ``test_mixin_empty_in_features``, derived from the ``multi_column_in_features``
-case, which checks rejection of a zero-length ``in_features``.
+case, which checks rejection of a zero-length ``in_features``, and
+``test_mixin_input_features_rejects_multi_column``, which checks the same count at build time.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from unittest.mock import patch
 
 import pyarrow as pa
 import pytest
+from mloda.user import FeatureName, Options
 
 from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.case_parametrization import CaseParametrizationTestMixin
@@ -130,3 +132,15 @@ class InputValidationTestMixin(CaseParametrizationTestMixin):
         with patch.object(feature.options, "get_in_features", return_value=frozenset()):
             with pytest.raises(ValueError, match=r"requires at least \d+ in_feature"):
                 self.implementation_class().calculate_feature(data, fs)  # type: ignore[attr-defined]
+
+    def test_mixin_input_features_rejects_multi_column(self) -> None:
+        """input_features rejects the multi_column_in_features count at build time, not only at calculate time."""
+        case = self.input_validation_cases()["multi_column_in_features"]
+        if case is None:
+            pytest.skip("op has no config in_features (source comes from the feature name)")
+        if isinstance(case, str):
+            pytest.skip(case)
+
+        options = Options(context=case.context)
+        with pytest.raises(ValueError, match=case.match):
+            self.implementation_class()().input_features(options, FeatureName(case.feature_name))  # type: ignore[attr-defined]

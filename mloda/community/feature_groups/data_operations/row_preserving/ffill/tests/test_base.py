@@ -11,8 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-from mloda.user import Feature, FeatureName, Options
+from mloda.user import Feature, Options
 
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.base import FfillFeatureGroup
 from mloda.community.feature_groups.data_operations.row_preserving.ffill.pyarrow_ffill import PyArrowFfill
@@ -60,11 +59,3 @@ class TestOrderByArity(ScalarArityTestBase):
             PyArrowDataOpsTestDataCreator.create(), feature_set_for(FEATURE_NAME, options)
         )
         return extract_column(result, FEATURE_NAME)
-
-
-class TestInputFeaturesCount:
-    """input_features validates the source count, so a multi-source name is rejected."""
-
-    def test_multi_source_name_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match="at most 1"):
-            FfillFeatureGroup().input_features(Options(), FeatureName("a&b__ffill"))
