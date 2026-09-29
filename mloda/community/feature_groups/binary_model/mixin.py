@@ -39,16 +39,20 @@ def max_string_length(column: pa.ChunkedArray) -> int:
     return int(longest) if longest is not None else 0
 
 
-def _classify_column_type(arrow_type: pa.DataType) -> str | None:
+def _classify_column_type(arrow_type: pa.DataType, strict: bool = False) -> str | None:
     """Map an Arrow type to the contract's column-type vocabulary (contract: Capabilities), or
-    ``None`` if it falls outside it."""
+    ``None`` if it falls outside it. ``strict`` admits only ``pa.string()`` as ``utf8`` (the wire
+    type); otherwise ``large_string``/``string_view`` also count (they are cast on input)."""
+    is_utf8 = pa.types.is_string(arrow_type) or (
+        not strict and (pa.types.is_large_string(arrow_type) or pa.types.is_string_view(arrow_type))
+    )
     if pa.types.is_int64(arrow_type):
         name = "int64"
     elif pa.types.is_float64(arrow_type):
         name = "float64"
     elif pa.types.is_boolean(arrow_type):
         name = "boolean"
-    elif pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type) or pa.types.is_string_view(arrow_type):
+    elif is_utf8:
         name = "utf8"
     else:
         return None
@@ -193,7 +197,7 @@ def verify_output_contract(
             f"binary output column names {sorted(actual_names)} do not match expected {sorted(expected_names)}"
         )
     for field in result.schema:
-        vocabulary_name = _classify_column_type(field.type)
+        vocabulary_name = _classify_column_type(field.type, strict=True)
         if vocabulary_name is None or vocabulary_name not in column_types:
             raise OutputContractError(f"binary output column {field.name!r} has an unsupported type: {field.type!r}")
     if result.num_rows != expected_rows:
