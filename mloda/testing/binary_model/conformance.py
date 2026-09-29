@@ -25,6 +25,7 @@ import re
 import shutil
 import subprocess  # nosec
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -359,6 +360,30 @@ class BinaryModelConformanceBase:
         worked example; used by generic tests that need the real key rather than a hardcoded one."""
         return next(iter(self.default_output_columns))
 
+    def _kit_run(
+        self, args: list[str], env: dict[str, str], input_bytes: bytes = b"", **kwargs: Any
+    ) -> subprocess.CompletedProcess[bytes]:
+        kwargs.setdefault("timeout", self.binary_timeout_seconds)
+        return run_binary(self.binary_cmd, args, env, input_bytes, **kwargs)
+
+    def _kit_run_with_config(
+        self,
+        config_path: Path,
+        env: dict[str, str],
+        input_bytes: bytes = b"",
+        *,
+        extra_args: Sequence[str] = (),
+    ) -> subprocess.CompletedProcess[bytes]:
+        return self._kit_run(["run", "--config", str(config_path), *extra_args], env, input_bytes)
+
+    def _kit_assert_success_table(
+        self, result: subprocess.CompletedProcess[bytes], output_columns: dict[str, str], expected_rows: int
+    ) -> pa.Table:
+        assert result.returncode == 0, f"stderr={result.stderr!r}"
+        table = read_arrow_stream(result.stdout)
+        assert_output_contract(table, output_columns, expected_rows, self.column_types)
+        return table
+
     # -- Fixtures --
 
     def platform_env(self, env: dict[str, str]) -> dict[str, str]:
@@ -400,7 +425,7 @@ class BinaryModelConformanceBase:
         """`--version` prints exactly one `<plugin_id> <semver>` line to stdout and exits 0, with no
         license variables set at all (contract: Invocation). Delegates the line/shape rule to the
         mixin's own ``binary.parse_version``, so the kit checks exactly what the mixin accepts."""
-        result = run_binary(self.binary_cmd, ["--version"], hermetic_env, timeout=self.binary_timeout_seconds)
+        result = self._kit_run(["--version"], hermetic_env)
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         try:
             binary.parse_version(self.binary_cmd, self.plugin_id, result.stdout)
@@ -412,7 +437,7 @@ class BinaryModelConformanceBase:
         Capabilities). Delegates the shape rule to the mixin's own ``binary.parse_capabilities``,
         so the kit checks exactly what the mixin accepts, then asserts on the kit-specific fixture
         values."""
-        result = run_binary(self.binary_cmd, ["--capabilities"], hermetic_env, timeout=self.binary_timeout_seconds)
+        result = self._kit_run(["--capabilities"], hermetic_env)
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         try:
             capabilities = binary.parse_capabilities(self.binary_cmd, self.plugin_id, result.stdout)
@@ -428,14 +453,14 @@ class BinaryModelConformanceBase:
     def test_no_arguments_is_usage_error(self, hermetic_env: dict[str, str]) -> None:
         """No license required: a flag-parsing error happens before any license check (contract:
         Invocation)."""
-        result = run_binary(self.binary_cmd, [], hermetic_env, timeout=self.binary_timeout_seconds)
+        result = self._kit_run([], hermetic_env)
         assert_error_response(result, USAGE_ERROR)
         assert result.stdout == b"", f"expected no stdout data, got {result.stdout!r}"
 
     def test_help_flag_is_usage_error(self, hermetic_env: dict[str, str]) -> None:
         """`--help` is a usage error too: the binary is machine-invoked and has no interactive help
         (contract: Invocation)."""
-        result = run_binary(self.binary_cmd, ["--help"], hermetic_env, timeout=self.binary_timeout_seconds)
+        result = self._kit_run(["--help"], hermetic_env)
         assert_error_response(result, USAGE_ERROR)
         assert result.stdout == b"", f"expected no stdout data, got {result.stdout!r}"
 
@@ -450,7 +475,7 @@ class BinaryModelConformanceBase:
     def test_unrecognized_flag_combination_is_usage_error(self, hermetic_env: dict[str, str], args: list[str]) -> None:
         """Any argument combination beyond the three documented invocations is a usage error
         (contract: Invocation)."""
-        result = run_binary(self.binary_cmd, args, hermetic_env, timeout=self.binary_timeout_seconds)
+        result = self._kit_run(args, hermetic_env)
         assert_error_response(result, USAGE_ERROR)
         assert result.stdout == b"", f"expected no stdout data, got {result.stdout!r}"
 
@@ -480,13 +505,13 @@ class BinaryModelConformanceBase:
         else:
             output_path = tmp_path / "out.arrows"
             args = [*args, "--output", str(output_path), "--output", str(output_path)]
-        result = run_binary(self.binary_cmd, args, valid_license_env, input_bytes, timeout=self.binary_timeout_seconds)
+        result = self._kit_run(args, valid_license_env, input_bytes)
         assert_error_response(result, USAGE_ERROR)
         assert result.stdout == b"", f"expected no stdout data, got {result.stdout!r}"
 
     def test_run_without_config_is_usage_error(self, hermetic_env: dict[str, str]) -> None:
         """`run` requires `--config`; without it, usage error (contract: Invocation)."""
-        result = run_binary(self.binary_cmd, ["run"], hermetic_env, timeout=self.binary_timeout_seconds)
+        result = self._kit_run(["run"], hermetic_env)
         assert_error_response(result, USAGE_ERROR)
 
     def test_run_with_nonexistent_config_path_is_usage_error(
@@ -495,9 +520,7 @@ class BinaryModelConformanceBase:
         """A `--config` path that does not exist fails flag parsing (`--config` must exist and be
         readable), before any license check (contract: Invocation, Errors)."""
         missing_path = tmp_path / "does-not-exist.json"
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(missing_path)], hermetic_env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(missing_path, hermetic_env)
         assert_error_response(result, USAGE_ERROR)
 
     # -------------------------------------------------------------------------------------------
@@ -513,20 +536,13 @@ class BinaryModelConformanceBase:
     )
     def test_license_missing_when_no_source_set(self, valid_config_path: Path, env: dict[str, str]) -> None:
         """Neither license variable set to a non-empty value (contract: License)."""
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(valid_config_path)],
-            self.platform_env(env),
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(valid_config_path, self.platform_env(env))
         assert_error_response(result, LICENSE_MISSING)
 
     def test_license_missing_when_file_path_nonexistent(self, valid_config_path: Path, tmp_path: Path) -> None:
         """`MLODA_LICENSE_FILE` naming a file that does not exist: exit 2 (contract: License)."""
         env = self.platform_env({"MLODA_LICENSE_FILE": str(tmp_path / "no-such-license.txt")})
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(valid_config_path, env)
         assert_error_response(result, LICENSE_MISSING)
 
     def test_license_invalid_when_file_path_is_a_directory(self, valid_config_path: Path, tmp_path: Path) -> None:
@@ -535,9 +551,7 @@ class BinaryModelConformanceBase:
         license_dir = tmp_path / "some-name"
         license_dir.mkdir()
         env = self.platform_env({"MLODA_LICENSE_FILE": str(license_dir)})
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(valid_config_path, env)
         error = assert_error_response(result, LICENSE_INVALID)
         assert "MLODA_LICENSE_FILE" in error["message"], f"message does not name the source: {error!r}"
 
@@ -555,9 +569,7 @@ class BinaryModelConformanceBase:
     def test_license_missing_message_names_file_source(self, valid_config_path: Path, tmp_path: Path) -> None:
         """The code 2 `message` names the source that was set (contract: License)."""
         env = self.platform_env({"MLODA_LICENSE_FILE": str(tmp_path / "no-such-license.txt")})
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(valid_config_path, env)
         error = assert_error_response(result, LICENSE_MISSING)
         assert "MLODA_LICENSE_FILE" in error["message"], f"message does not name the source: {error!r}"
 
@@ -566,21 +578,14 @@ class BinaryModelConformanceBase:
     ) -> None:
         """A valid token via `MLODA_LICENSE_FILE` proceeds past the license check; whatever happens
         next is never code 2 or 3 (contract: License)."""
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(valid_config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(valid_config_path, valid_license_env)
         assert_not_rejected_with(result, {LICENSE_MISSING, LICENSE_INVALID})
 
     def test_license_accepted_via_license_key_inline(self, valid_config_path: Path) -> None:
         """A valid token via `MLODA_LICENSE_KEY` (inline) is accepted the same as a file (contract:
         License)."""
         env = self.platform_env({"MLODA_LICENSE_KEY": self.valid_license_text})
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(valid_config_path, env)
         assert_not_rejected_with(result, {LICENSE_MISSING, LICENSE_INVALID})
 
     def test_license_file_wins_over_license_key(self, valid_config_path: Path, valid_license_file: Path) -> None:
@@ -589,27 +594,21 @@ class BinaryModelConformanceBase:
         env = self.platform_env(
             {"MLODA_LICENSE_FILE": str(valid_license_file), "MLODA_LICENSE_KEY": "not-json-and-must-not-be-used"}
         )
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(valid_config_path, env)
         assert_not_rejected_with(result, {LICENSE_MISSING, LICENSE_INVALID})
 
     def test_license_expired_is_invalid(self, valid_config_path: Path, tmp_path: Path) -> None:
         """An expired token: exit 3, license invalid (contract: License)."""
         license_path = write_text(tmp_path / "license.txt", self.expired_license_text)
         env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(valid_config_path, env)
         assert_error_response(result, LICENSE_INVALID)
 
     def test_license_wrong_plugin_is_invalid(self, valid_config_path: Path) -> None:
         """A token whose `plugins` entitlement list omits this `plugin_id`: exit 3. The message also
         names the source (contract: License)."""
         env = self.platform_env({"MLODA_LICENSE_KEY": self.wrong_plugin_license_text})
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(valid_config_path, env)
         error = assert_error_response(result, LICENSE_INVALID)
         assert "MLODA_LICENSE_KEY" in error["message"], f"message does not name the source: {error!r}"
 
@@ -630,9 +629,7 @@ class BinaryModelConformanceBase:
         tampered_text = getattr(self, attr_name)
         license_path = write_text(tmp_path / "license.txt", tampered_text)
         env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(valid_config_path, env)
         assert_error_response(result, LICENSE_INVALID)
 
     def test_license_in_grace_is_accepted(self, valid_config_path: Path) -> None:
@@ -640,27 +637,21 @@ class BinaryModelConformanceBase:
         license check; whatever happens next is never code 2 or 3 (spec: Verification step 6;
         contract: License)."""
         env = self.platform_env({"MLODA_LICENSE_KEY": self.in_grace_license_text})
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(valid_config_path, env)
         assert_not_rejected_with(result, {LICENSE_MISSING, LICENSE_INVALID})
 
     def test_license_not_yet_valid_is_invalid(self, valid_config_path: Path) -> None:
         """A token whose ``nbf`` lies in the future: exit 3, not yet valid (spec: Verification
         step 6; contract: License)."""
         env = self.platform_env({"MLODA_LICENSE_KEY": self.not_yet_valid_license_text})
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(valid_config_path, env)
         assert_error_response(result, LICENSE_INVALID)
 
     def test_license_unknown_kid_is_invalid(self, valid_config_path: Path) -> None:
         """A well-signed token under a ``kid`` the verifier's key map does not contain: exit 3
         (spec: Verification step 3; contract: License)."""
         env = self.platform_env({"MLODA_LICENSE_KEY": self.unknown_kid_license_text})
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(valid_config_path, env)
         assert_error_response(result, LICENSE_INVALID)
 
     def test_license_checked_before_config_valid_license_broken_config(
@@ -670,9 +661,7 @@ class BinaryModelConformanceBase:
         on config parsing instead: exit 1, never 2 or 3 (contract: Errors, check order)."""
         config_path = write_text(tmp_path / "config.json", "{not valid json")
         env = self.platform_env({"MLODA_LICENSE_FILE": str(valid_license_file)})
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(config_path, env)
         assert_error_response(result, USAGE_ERROR)
 
     def test_license_checked_before_config_invalid_license_valid_config(
@@ -682,9 +671,7 @@ class BinaryModelConformanceBase:
         proving license is checked before config (contract: Errors, check order)."""
         license_path = write_text(tmp_path / "license.txt", self.expired_license_text)
         env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(valid_config_path, env)
         assert result.returncode in (LICENSE_MISSING, LICENSE_INVALID), (
             f"expected 2 or 3, got {result.returncode}; stderr={result.stderr!r}"
         )
@@ -702,9 +689,7 @@ class BinaryModelConformanceBase:
                 "MLODA_LICENSE_KEY": self.valid_license_text,
             }
         )
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(valid_config_path, env)
         assert_error_response(result, LICENSE_MISSING)
 
     def test_license_file_broken_key_valid_no_fallback_tampered_file(
@@ -714,9 +699,7 @@ class BinaryModelConformanceBase:
         `MLODA_LICENSE_KEY`: still code 3, no fallback (contract: License)."""
         license_path = write_text(tmp_path / "license.txt", self.tampered_unparseable_text)
         env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path), "MLODA_LICENSE_KEY": self.valid_license_text})
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(valid_config_path, env)
         assert_error_response(result, LICENSE_INVALID)
 
     # -------------------------------------------------------------------------------------------
@@ -726,25 +709,14 @@ class BinaryModelConformanceBase:
     def test_config_json_syntax_error(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
         """A config file that is not valid JSON: exit 1 (contract: Configuration, Errors)."""
         config_path = write_text(tmp_path / "config.json", "{not valid json")
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env)
         assert_error_response(result, USAGE_ERROR)
 
     def test_config_unknown_top_level_key(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
         """An unknown top-level config key: exit 1 (contract: Configuration)."""
         config = self.make_config()
         config["unexpected_top_level_key"] = "value"
-        config_path = write_json(tmp_path / "config.json", config)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, USAGE_ERROR)
 
     @pytest.mark.parametrize("missing_key", ["input_columns", "operation", "parameters", "output_columns"])
@@ -755,39 +727,21 @@ class BinaryModelConformanceBase:
         Configuration)."""
         config = self.make_config()
         del config[missing_key]
-        config_path = write_json(tmp_path / "config.json", config)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, USAGE_ERROR)
 
     def test_config_input_columns_empty(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
         """`input_columns` must name at least one column: an empty list is exit 1 (contract:
         Configuration)."""
         config = self.make_config(input_columns=[])
-        config_path = write_json(tmp_path / "config.json", config)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, USAGE_ERROR)
 
     def test_config_input_columns_duplicate(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
         """`input_columns` without duplicates: a repeated name is exit 1 (contract: Configuration)."""
         column = self.default_input_columns[0]
         config = self.make_config(input_columns=[column, column])
-        config_path = write_json(tmp_path / "config.json", config)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, USAGE_ERROR)
 
     def test_config_output_columns_written_names_not_unique(
@@ -798,13 +752,7 @@ class BinaryModelConformanceBase:
         Errors)."""
         output_key = self.default_output_column_key
         config = self.make_config(output_columns={output_key: "dup_name", "an_extra_output_key": "dup_name"})
-        config_path = write_json(tmp_path / "config.json", config)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, USAGE_ERROR)
 
     def test_config_output_columns_collides_with_input_columns(
@@ -815,26 +763,14 @@ class BinaryModelConformanceBase:
         column = self.default_input_columns[0]
         output_key = self.default_output_column_key
         config = self.make_config(input_columns=[column], output_columns={output_key: column})
-        config_path = write_json(tmp_path / "config.json", config)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, USAGE_ERROR)
 
     def test_config_operation_not_in_capabilities(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
         """An `operation` outside `capabilities.operations` (and not the reserved conformance-only
         operation) is unsupported: exit 4 (contract: Configuration, Errors)."""
         config = self.make_config(operation="not_a_real_operation")
-        config_path = write_json(tmp_path / "config.json", config)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, UNSUPPORTED)
 
     def test_reserved_internal_error_operation_not_rejected_as_unknown(
@@ -844,13 +780,7 @@ class BinaryModelConformanceBase:
         still be accepted at the operation-capability-check step, bypassing that check specifically
         for this literal string, so the kit can provoke code 6 on demand (contract: Conformance)."""
         config = self.make_config(operation=self.reserved_internal_error_operation)
-        config_path = write_json(tmp_path / "config.json", config)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_not_rejected_with(result, {UNSUPPORTED})
 
     def test_config_output_columns_missing_operation_output(
@@ -859,13 +789,7 @@ class BinaryModelConformanceBase:
         """`output_columns` must map every output the operation defines; an empty mapping is missing
         it: exit 1, checked after the operation check (contract: Configuration, Errors)."""
         config = self.make_config(output_columns={})
-        config_path = write_json(tmp_path / "config.json", config)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, USAGE_ERROR)
 
     def test_config_output_columns_extra_unmapped_output(
@@ -877,13 +801,7 @@ class BinaryModelConformanceBase:
         config = self.make_config(
             output_columns={output_key: self.default_output_column_name, "not_a_real_output": "col_b_out"}
         )
-        config_path = write_json(tmp_path / "config.json", config)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, USAGE_ERROR)
 
     def test_unknown_operation_with_bad_output_columns_reports_operation_error_first(
@@ -893,13 +811,7 @@ class BinaryModelConformanceBase:
         (code 1): an unknown operation combined with an incomplete output mapping is exit 4, not exit
         1 (contract: Errors, check order)."""
         config = self.make_config(operation="not_a_real_operation", output_columns={})
-        config_path = write_json(tmp_path / "config.json", config)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, UNSUPPORTED)
 
     def test_config_parameters_empty_object_accepted_structurally(
@@ -908,13 +820,7 @@ class BinaryModelConformanceBase:
         """`parameters: {}` is structurally accepted for an operation whose parameters are all
         optional: this alone does not cause exit 1 (contract: Configuration)."""
         config = self.make_config(parameters={})
-        config_path = write_json(tmp_path / "config.json", config)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert result.returncode != USAGE_ERROR, (
             f"empty parameters object unexpectedly caused a usage error; stderr={result.stderr!r}"
         )
@@ -1015,12 +921,8 @@ class BinaryModelConformanceBase:
         input_path = tmp_path / "input.arrows"
         input_path.write_bytes(input_bytes)
         garbage_stdin = b"this-is-not-an-arrow-stream-and-must-be-ignored" * 4
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path), "--input", str(input_path)],
-            valid_license_env,
-            garbage_stdin,
-            timeout=self.binary_timeout_seconds,
+        result = self._kit_run_with_config(
+            config_path, valid_license_env, garbage_stdin, extra_args=["--input", str(input_path)]
         )
         assert result.returncode == 0, (
             f"expected success reading from --input despite garbage stdin; stderr={result.stderr!r}"
@@ -1033,11 +935,8 @@ class BinaryModelConformanceBase:
         stdin (contract: Data)."""
         input_path = tmp_path / "empty-input.arrows"
         input_path.write_bytes(b"")
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(valid_config_path), "--input", str(input_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
+        result = self._kit_run_with_config(
+            valid_config_path, valid_license_env, extra_args=["--input", str(input_path)]
         )
         assert_error_response(result, DATA_ERROR)
 
@@ -1053,13 +952,7 @@ class BinaryModelConformanceBase:
         config_path = write_json(tmp_path / "config.json", config)
         schema = pa.schema([pa.field(column, pa.int64())])  # extra_input_column missing entirely
         input_bytes = arrow_stream_bytes(schema, {column: [1, 2]})
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
     def test_input_schema_extra_column_is_data_error(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
@@ -1069,13 +962,7 @@ class BinaryModelConformanceBase:
         config_path = write_json(tmp_path / "config.json", config)
         schema = pa.schema([pa.field(column, pa.int64()), pa.field(self.extra_input_column, pa.int64())])
         input_bytes = arrow_stream_bytes(schema, {column: [1], self.extra_input_column: [2]})
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
     def test_input_schema_duplicate_field_name_is_data_error(
@@ -1091,13 +978,7 @@ class BinaryModelConformanceBase:
             [pa.field(column, pa.int64()), pa.field(column, pa.int64()), pa.field(extra_column, pa.int64())]
         )
         input_bytes = arrow_stream_bytes_from_arrays(schema, [pa.array([1, 2]), pa.array([3, 4]), pa.array([5, 6])])
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
     @pytest.mark.parametrize(
@@ -1117,13 +998,7 @@ class BinaryModelConformanceBase:
         config_path = write_json(tmp_path / "config.json", config)
         schema = pa.schema([pa.field(column, bad_type)])
         input_bytes = arrow_stream_bytes(schema, {column: sample_values})
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, UNSUPPORTED)
 
     def test_input_column_large_string_type_is_rejected_as_unsupported(
@@ -1137,13 +1012,7 @@ class BinaryModelConformanceBase:
         config_path = write_json(tmp_path / "config.json", config)
         schema = pa.schema([pa.field(column, pa.large_string())])
         input_bytes = arrow_stream_bytes(schema, {column: ["alpha", "beta"]})
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, UNSUPPORTED)
 
     def test_input_column_string_view_type_is_rejected_as_unsupported(
@@ -1156,13 +1025,7 @@ class BinaryModelConformanceBase:
         config_path = write_json(tmp_path / "config.json", config)
         schema = pa.schema([pa.field(column, pa.string_view())])
         input_bytes = arrow_stream_bytes(schema, {column: ["alpha", "beta"]})
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, UNSUPPORTED)
 
     def test_input_schema_presence_error_precedes_type_error(
@@ -1176,13 +1039,7 @@ class BinaryModelConformanceBase:
         schema = pa.schema([pa.field(column, pa.int32())])  # extra_input_column missing; column also wrong type
         config_path = write_json(tmp_path / "config.json", config)
         input_bytes = arrow_stream_bytes(schema, {column: [1, 2]})
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
     def test_dictionary_encoded_column_is_unsupported_type(
@@ -1196,13 +1053,7 @@ class BinaryModelConformanceBase:
         dict_array = pa.array(["x", "y", "x"]).dictionary_encode()
         schema = pa.schema([pa.field(column, dict_array.type)])
         input_bytes = arrow_stream_bytes_from_arrays(schema, [dict_array])
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, UNSUPPORTED)
 
     # -------------------------------------------------------------------------------------------
@@ -1217,16 +1068,8 @@ class BinaryModelConformanceBase:
         config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
         input_bytes = arrow_stream_bytes(self.default_input_schema(), None)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
-        assert result.returncode == 0, f"stderr={result.stderr!r}"
-        table = read_arrow_stream(result.stdout)
-        assert_output_contract(table, config["output_columns"], 0, self.column_types)
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
+        table = self._kit_assert_success_table(result, config["output_columns"], 0)
         assert table.schema.field(self.default_output_column_name).type == self.default_output_column_type()
 
     def test_schema_only_input_bad_license_still_rejected(self, valid_config_path: Path, tmp_path: Path) -> None:
@@ -1235,13 +1078,7 @@ class BinaryModelConformanceBase:
         input_bytes = arrow_stream_bytes(self.default_input_schema(), None)
         license_path = write_text(tmp_path / "license.txt", self.expired_license_text)
         env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(valid_config_path)],
-            env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(valid_config_path, env, input_bytes)
         assert result.returncode in (LICENSE_MISSING, LICENSE_INVALID), (
             f"expected 2 or 3, got {result.returncode}; stderr={result.stderr!r}"
         )
@@ -1257,13 +1094,7 @@ class BinaryModelConformanceBase:
         config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
         input_bytes = arrow_stream_bytes(self.default_input_schema(), None)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         message_types = enumerate_ipc_message_types(result.stdout)
         assert "record batch" not in message_types, (
@@ -1283,13 +1114,7 @@ class BinaryModelConformanceBase:
         config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
         input_bytes = arrow_stream_bytes(self.default_input_schema(), self.default_input_rows())
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         assert_ends_with_ipc_eos_marker(result.stdout)
 
@@ -1299,13 +1124,7 @@ class BinaryModelConformanceBase:
 
     def test_zero_byte_input_is_data_error(self, valid_config_path: Path, valid_license_env: dict[str, str]) -> None:
         """Zero bytes is not an Arrow IPC stream at all: a data error (contract: Data)."""
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(valid_config_path)],
-            valid_license_env,
-            b"",
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(valid_config_path, valid_license_env, b"")
         assert_error_response(result, DATA_ERROR)
 
     def test_truncated_stream_missing_end_of_stream_marker_is_data_error(
@@ -1320,13 +1139,7 @@ class BinaryModelConformanceBase:
         full_bytes = arrow_stream_bytes(schema, {column: [1, 2, 3]})
         assert full_bytes.endswith(IPC_END_OF_STREAM_MARKER), "test setup: expected the writer to emit the EOS marker"
         truncated = full_bytes[: -len(IPC_END_OF_STREAM_MARKER)]
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            truncated,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, truncated)
         assert_error_response(result, DATA_ERROR)
 
     def test_truncated_stream_with_unsupported_column_type_reports_type_error_first(
@@ -1342,13 +1155,7 @@ class BinaryModelConformanceBase:
         full_bytes = arrow_stream_bytes(schema, {column: [1, 2, 3]})
         assert full_bytes.endswith(IPC_END_OF_STREAM_MARKER), "test setup: expected the writer to emit the EOS marker"
         truncated = full_bytes[: -len(IPC_END_OF_STREAM_MARKER)]
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            truncated,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, truncated)
         assert_error_response(result, UNSUPPORTED)
 
     def test_ipc_file_format_instead_of_stream_is_data_error(
@@ -1362,13 +1169,7 @@ class BinaryModelConformanceBase:
         schema = pa.schema([pa.field(column, pa.int64())])
         input_bytes = arrow_file_format_bytes(schema, {column: [1, 2, 3]})
         assert input_bytes[:6] == b"ARROW1", "test setup: expected the IPC file magic at the start"
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
     def test_compressed_record_batch_body_is_data_error(
@@ -1381,13 +1182,7 @@ class BinaryModelConformanceBase:
         schema = pa.schema([pa.field(column, pa.int64())])
         options = pa.ipc.IpcWriteOptions(compression="lz4")
         input_bytes = arrow_stream_bytes(schema, {column: [1, 2, 3]}, options=options)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
     def test_malformed_record_batch_after_valid_schema_is_data_error(
@@ -1402,13 +1197,7 @@ class BinaryModelConformanceBase:
         schema = pa.schema([pa.field(column, pa.int64())])
         valid_bytes = arrow_stream_bytes(schema, {column: [1, 2, 3]})
         corrupted = corrupt_record_batch_message_after_schema(valid_bytes)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            corrupted,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, corrupted)
         assert_error_response(result, DATA_ERROR)
 
     def test_output_path_is_existing_directory_is_usage_error(
@@ -1420,12 +1209,7 @@ class BinaryModelConformanceBase:
         config_path = write_json(tmp_path / "config.json", config)
         output_dir = tmp_path / "output_is_a_directory"
         output_dir.mkdir()
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path), "--output", str(output_dir)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, extra_args=["--output", str(output_dir)])
         assert_error_response(result, USAGE_ERROR)
 
     def test_input_path_not_readable_is_usage_error(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
@@ -1445,12 +1229,7 @@ class BinaryModelConformanceBase:
         original_mode = input_path.stat().st_mode
         input_path.chmod(0o000)
         try:
-            result = run_binary(
-                self.binary_cmd,
-                ["run", "--config", str(config_path), "--input", str(input_path)],
-                valid_license_env,
-                timeout=self.binary_timeout_seconds,
-            )
+            result = self._kit_run_with_config(config_path, valid_license_env, extra_args=["--input", str(input_path)])
         finally:
             input_path.chmod(original_mode)
         assert_error_response(result, USAGE_ERROR)
@@ -1470,13 +1249,7 @@ class BinaryModelConformanceBase:
         config_path = write_json(tmp_path / "config.json", config)
         schema = pa.schema([pa.field(column, pa.int64())])
         input_bytes = arrow_stream_bytes(schema, {column: [1, 2, 3]})
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, INTERNAL_ERROR)
 
     def test_internal_error_message_reports_only_exception_class_name(
@@ -1492,13 +1265,7 @@ class BinaryModelConformanceBase:
         config_path = write_json(tmp_path / "config.json", config)
         schema = pa.schema([pa.field(column, pa.int64())])
         input_bytes = arrow_stream_bytes(schema, {column: [1, 2, 3]})
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         error = assert_error_response(result, INTERNAL_ERROR)
         message = error["message"]
         assert message, "expected a non-empty code-6 message"
@@ -1522,13 +1289,7 @@ class BinaryModelConformanceBase:
         schema = pa.schema([pa.field(column, pa.int64())])
         stream_one = arrow_stream_bytes(schema, {column: [1, 2, 3]})
         stream_two = arrow_stream_bytes(schema, {column: [4, 5, 6]})
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            stream_one + stream_two,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, stream_one + stream_two)
         assert_error_response(result, DATA_ERROR)
 
     def test_trailing_garbage_bytes_after_eos_marker_is_data_error(
@@ -1545,13 +1306,7 @@ class BinaryModelConformanceBase:
         assert garbage[-len(IPC_END_OF_STREAM_MARKER) :] != IPC_END_OF_STREAM_MARKER, (
             "test setup: the garbage suffix must not coincidentally end with the EOS marker"
         )
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            valid_bytes + garbage,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, valid_bytes + garbage)
         assert_error_response(result, DATA_ERROR)
 
     # -------------------------------------------------------------------------------------------
@@ -1570,13 +1325,7 @@ class BinaryModelConformanceBase:
         config_path = write_json(tmp_path / "config.json", config)
         schema = pa.schema([pa.field(column, pa.string())])
         input_bytes = arrow_stream_bytes(schema, {column: [DATA_FREE_MARKER]})
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         assert DATA_FREE_MARKER.encode("utf-8") not in result.stderr, (
             f"marker cell value leaked into stderr on a successful run: {result.stderr!r}"
@@ -1608,13 +1357,7 @@ class BinaryModelConformanceBase:
         config_path = write_json(tmp_path / "config.json", config)
         schema = pa.schema([pa.field(column, pa.string())])
         input_bytes = arrow_stream_bytes(schema, {column: [DATA_FREE_MARKER]})
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert result.returncode != 0, f"expected this case to fail, got exit 0; stdout={result.stdout!r}"
         assert DATA_FREE_MARKER.encode("utf-8") not in result.stderr, (
             f"marker cell value leaked into stderr: {result.stderr!r}"
@@ -1628,13 +1371,7 @@ class BinaryModelConformanceBase:
         (contract: Data handling, Conformance)."""
         long_garbage_operation = "not_a_real_operation_" + "x" * 2000
         config = self.make_config(operation=long_garbage_operation)
-        config_path = write_json(tmp_path / "config.json", config)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, UNSUPPORTED)
 
     def test_no_network_dependency_under_unshare_net(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
@@ -1661,9 +1398,7 @@ class BinaryModelConformanceBase:
             input_bytes,
             timeout=self.binary_timeout_seconds,
         )
-        assert result.returncode == 0, f"stderr={result.stderr!r}"
-        table = read_arrow_stream(result.stdout)
-        assert_output_contract(table, config["output_columns"], len(next(iter(rows.values()))), self.column_types)
+        self._kit_assert_success_table(result, config["output_columns"], len(next(iter(rows.values()))))
 
     def test_no_files_created_outside_output_in_read_only_cwd(
         self, valid_license_env: dict[str, str], tmp_path: Path
@@ -1699,9 +1434,7 @@ class BinaryModelConformanceBase:
         finally:
             readonly_cwd.chmod(original_mode)
 
-        assert result.returncode == 0, f"stderr={result.stderr!r}"
-        table = read_arrow_stream(result.stdout)
-        assert_output_contract(table, config["output_columns"], len(next(iter(rows.values()))), self.column_types)
+        self._kit_assert_success_table(result, config["output_columns"], len(next(iter(rows.values()))))
         leftover = list(readonly_cwd.iterdir())
         assert leftover == [], f"expected no files created in the read-only cwd, found {leftover!r}"
 
@@ -1714,16 +1447,8 @@ class BinaryModelConformanceBase:
         rows = self.default_input_rows()
         input_bytes = arrow_stream_bytes(self.default_input_schema(), rows)
         env = self.platform_env({"MLODA_LICENSE_KEY": self.valid_license_text, "PATH": os.environ.get("PATH", "")})
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
-        assert result.returncode == 0, f"stderr={result.stderr!r}"
-        table = read_arrow_stream(result.stdout)
-        assert_output_contract(table, config["output_columns"], len(next(iter(rows.values()))), self.column_types)
+        result = self._kit_run_with_config(config_path, env, input_bytes)
+        self._kit_assert_success_table(result, config["output_columns"], len(next(iter(rows.values()))))
 
     # -------------------------------------------------------------------------------------------
     # 12. Corrected error classification (contract: Errors, License, Configuration, Data)
@@ -1734,12 +1459,7 @@ class BinaryModelConformanceBase:
         config decode/parse failures are usage errors (contract: Errors, Invocation), never code 6."""
         config_path = tmp_path / "config.json"
         config_path.write_bytes(b"\xff\xfe\x00invalid-utf8-config")
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env)
         assert_error_response(result, USAGE_ERROR)
 
     def test_license_file_invalid_utf8_bytes_is_license_invalid(self, valid_config_path: Path, tmp_path: Path) -> None:
@@ -1749,9 +1469,7 @@ class BinaryModelConformanceBase:
         license_path = tmp_path / "license.txt"
         license_path.write_bytes(b"\xff\xfe\x00invalid-utf8-license")
         env = self.platform_env({"MLODA_LICENSE_FILE": str(license_path)})
-        result = run_binary(
-            self.binary_cmd, ["run", "--config", str(valid_config_path)], env, timeout=self.binary_timeout_seconds
-        )
+        result = self._kit_run_with_config(valid_config_path, env)
         assert_error_response(result, LICENSE_INVALID)
 
     # -------------------------------------------------------------------------------------------
@@ -1773,13 +1491,7 @@ class BinaryModelConformanceBase:
         config_path = write_json(tmp_path / "config.json", config)
         input_values = ["alpha", "beta"]
         input_bytes = arrow_stream_bytes(schema, {column: input_values})
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert result.returncode == 0, f"input metadata unexpectedly caused a failure; stderr={result.stderr!r}"
         table = read_arrow_stream(result.stdout)
         assert_output_contract(table, config["output_columns"], len(input_values), self.column_types)
@@ -1865,16 +1577,8 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         case = self.hash_multi_column_case()
         config_path = write_json(tmp_path / "config.json", case["config"])
         input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
-        assert result.returncode == 0, f"stderr={result.stderr!r}"
-        table = read_arrow_stream(result.stdout)
-        assert_output_contract(table, case["config"]["output_columns"], len(case["expected"]), self.column_types)
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
+        table = self._kit_assert_success_table(result, case["config"]["output_columns"], len(case["expected"]))
         assert table.column(self.default_output_column_name).to_pylist() == case["expected"]
 
     def test_hash_with_key_parameter_matches_reference_algorithm_and_changes_result(
@@ -1886,16 +1590,8 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         case = self.hash_multi_column_case(key=key)
         config_path = write_json(tmp_path / "config.json", case["config"])
         input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
-        assert result.returncode == 0, f"stderr={result.stderr!r}"
-        table = read_arrow_stream(result.stdout)
-        assert_output_contract(table, case["config"]["output_columns"], len(case["expected"]), self.column_types)
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
+        table = self._kit_assert_success_table(result, case["config"]["output_columns"], len(case["expected"]))
         actual = table.column(self.default_output_column_name).to_pylist()
         assert actual == case["expected"]
 
@@ -1909,16 +1605,8 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         case = self.hash_multi_column_case()
         config_path = write_json(tmp_path / "config.json", case["config"])
         input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
-        assert result.returncode == 0, f"stderr={result.stderr!r}"
-        table = read_arrow_stream(result.stdout)
-        assert_output_contract(table, case["config"]["output_columns"], len(case["rows"]["id"]), self.column_types)
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
+        table = self._kit_assert_success_table(result, case["config"]["output_columns"], len(case["rows"]["id"]))
         actual = table.column(self.default_output_column_name).to_pylist()
         for row_index, (expected_value, row_id) in enumerate(zip(case["expected"], case["rows"]["id"])):
             assert actual[row_index] == expected_value, (
@@ -1933,16 +1621,8 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         case = self.hash_multi_column_case()
         config_path = write_json(tmp_path / "config.json", case["config"])
         input_bytes = arrow_stream_bytes(case["schema"], case["rows"])
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
-        assert result.returncode == 0, f"stderr={result.stderr!r}"
-        table = read_arrow_stream(result.stdout)
-        assert_output_contract(table, case["config"]["output_columns"], len(case["rows"]["id"]), self.column_types)
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
+        table = self._kit_assert_success_table(result, case["config"]["output_columns"], len(case["rows"]["id"]))
         assert pa.types.is_int64(table.schema.field(self.default_output_column_name).type), (
             f"expected int64 output type, got {table.schema.field(self.default_output_column_name).type!r}"
         )
@@ -1999,13 +1679,7 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         schema = pa.schema([pa.field("a", pa.int64()), pa.field("b", pa.int64())])
         rows = {"a": [1, 2, 3], "b": [10, 20, 30]}
         input_bytes = arrow_stream_bytes(schema, rows)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         table = read_arrow_stream(result.stdout)
         expected = self.compute_expected_hash_column(rows, input_columns, key=None)
@@ -2027,13 +1701,7 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         batch_one: dict[str, list[Any]] = {"id": ["row-0", "row-1"], "value": [1, 2]}
         batch_two: dict[str, list[Any]] = {"id": ["row-2", "row-3", "row-4"], "value": [3, 4, 5]}
         input_bytes = arrow_stream_bytes_multi_batch(schema, [batch_one, batch_two])
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert result.returncode == 0, f"stderr={result.stderr!r}"
         table = read_arrow_stream(result.stdout)
         combined_rows = {
@@ -2063,13 +1731,7 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         non-string value -- however falsy -- is an operation-specific parameter-validation usage
         error (contract: Configuration, Errors)."""
         config = self.make_config(parameters={"key": bad_key})
-        config_path = write_json(tmp_path / "config.json", config)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, USAGE_ERROR)
 
     def test_hash_key_absent_equals_key_empty_string(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
@@ -2085,26 +1747,14 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         config_path_empty = write_json(tmp_path / "config_empty.json", case_empty["config"])
         input_bytes = arrow_stream_bytes(case_absent["schema"], case_absent["rows"])
 
-        result_absent = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path_absent)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result_absent = self._kit_run_with_config(config_path_absent, valid_license_env, input_bytes)
         assert result_absent.returncode == 0, f"stderr={result_absent.stderr!r}"
         table_absent = read_arrow_stream(result_absent.stdout)
         assert_output_contract(
             table_absent, case_absent["config"]["output_columns"], len(case_absent["expected"]), self.column_types
         )
 
-        result_empty = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path_empty)],
-            valid_license_env,
-            input_bytes,
-            timeout=self.binary_timeout_seconds,
-        )
+        result_empty = self._kit_run_with_config(config_path_empty, valid_license_env, input_bytes)
         assert result_empty.returncode == 0, f"stderr={result_empty.stderr!r}"
         table_empty = read_arrow_stream(result_empty.stdout)
         assert_output_contract(
@@ -2121,11 +1771,5 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
         error (code 1): `parameters` is operation-defined, and an operation must validate its own
         parameter shape exhaustively, not just the keys it recognizes (contract: Configuration)."""
         config = self.make_config(parameters={"key": "x", "unexpected_extra_key": 1})
-        config_path = write_json(tmp_path / "config.json", config)
-        result = run_binary(
-            self.binary_cmd,
-            ["run", "--config", str(config_path)],
-            valid_license_env,
-            timeout=self.binary_timeout_seconds,
-        )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, USAGE_ERROR)
