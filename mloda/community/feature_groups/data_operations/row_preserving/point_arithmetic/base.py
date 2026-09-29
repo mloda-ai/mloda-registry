@@ -86,14 +86,14 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
         ),
     }
 
+    # Kept: reads the raw in_features option to keep operand order and reject unordered containers.
     @classmethod
     def _extract_source_features(cls, feature: Feature) -> list[str]:
         """Extract and validate the two source features for the arithmetic op.
 
         Returns a two-element list ``[col_a, col_b]`` preserving the order
         of the source columns as given in the feature name or options.
-        Raises ValueError if the count is not exactly two, using the same
-        wording as the mixin's ``_validate_in_feature_count``.
+        Raises ValueError if the count is not exactly two.
         """
         feature_name = feature.name
         prefix_patterns = cls._get_prefix_patterns()
@@ -120,15 +120,9 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
                     f"significant for subtract and divide."
                 )
 
-        count = len(source_names)
-        if count < cls.MIN_IN_FEATURES:
-            raise ValueError(
-                f"Feature '{feature_name}' requires at least {cls.MIN_IN_FEATURES} in_feature(s), but found {count}"
-            )
-        if cls.MAX_IN_FEATURES is not None and count > cls.MAX_IN_FEATURES:
-            raise ValueError(
-                f"Feature '{feature_name}' allows at most {cls.MAX_IN_FEATURES} in_feature(s), but found {count}"
-            )
+        reason = cls._in_feature_count_reason(feature_name, len(source_names))
+        if reason is not None:
+            raise ValueError(reason)
 
         return source_names
 

@@ -73,7 +73,7 @@ The base class owns:
 - The shared `assert_key_columns_present` guard for `partition_by`, `order_by` (or `time_column`) and mask columns, called once per feature before the compute hook.
 - Delegation to a per-framework `_compute` hook.
 
-Existing bases to crib from: `row_preserving/binning/base.py` (simple), `row_preserving/window_aggregation/base.py` (with `partition_by`/`order_by`/masks). They compose `FeatureChainParserMixin` to parse the suffix of the feature name; copy that detail verbatim from the closest existing base. Single-input ops use `_extract_single_source_feature` so the MIN/MAX in_features check lives in the core helper, not a per-op override. Likewise, inherit `input_features` and the match-time MIN/MAX check from the mixin instead of overriding them.
+Existing bases to crib from: `row_preserving/binning/base.py` (simple), `row_preserving/window_aggregation/base.py` (with `partition_by`/`order_by`/masks). They compose `FeatureChainParserMixin` to parse the suffix of the feature name; copy that detail verbatim from the closest existing base. Single-input ops use `_extract_single_source_feature` so the MIN/MAX in_features check lives in the core helper, not a per-op override. Likewise, inherit `input_features`, `_extract_source_features` (a single-input op needs no override of it), and the match-time MIN/MAX check from the mixin instead of overriding them.
 
 ---
 

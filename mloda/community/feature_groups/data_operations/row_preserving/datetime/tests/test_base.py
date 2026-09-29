@@ -88,6 +88,10 @@ class TestPatternParsing:
         source_features = DateTimeFeatureGroup._extract_source_features(feature)
         assert source_features == ["created_at"]
 
+    def test_multi_source_name_rejected(self) -> None:
+        with pytest.raises(ValueError, match="allows at most 1 in_feature"):
+            DateTimeFeatureGroup._extract_single_source_feature(Feature("a&b__year"))
+
 
 class TestConfigBasedFeatures:
     def test_config_based_match(self) -> None:

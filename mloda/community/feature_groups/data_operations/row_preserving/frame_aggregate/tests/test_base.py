@@ -73,6 +73,10 @@ class TestPatternParsing:
         for field, expected in expected_fields.items():
             assert result[field] == expected, f"{feature_name}: {field}"
 
+    def test_multi_source_name_rejected(self) -> None:
+        with pytest.raises(ValueError, match="allows at most 1 in_feature"):
+            FrameAggregateFeatureGroup._extract_single_source_feature(Feature("a&b__sum_rolling_3"))
+
 
 class TestParseFrameFeatureMemoization:
     """_parse_frame_feature must hand back fresh, independent dicts so callers cannot leak mutations.

@@ -157,6 +157,7 @@ class SessionizationFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         source_feature = self._extract_source_features(Feature(str(feature_name), options=options))[0]
         return {Feature(source_feature)}
 
+    # Kept: the source comes only from the name; a config-only feature must raise, not fall back to in_features.
     @classmethod
     def _extract_source_features(cls, feature: Feature) -> list[str]:
         """Extract the single source feature from the feature name."""

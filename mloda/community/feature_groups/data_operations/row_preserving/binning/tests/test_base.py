@@ -111,6 +111,10 @@ class TestPatternParsing:
         source_features = BinningFeatureGroup._extract_source_features(feature)
         assert source_features == ["my_value_int"]
 
+    def test_multi_source_name_rejected(self) -> None:
+        with pytest.raises(ValueError, match="allows at most 1 in_feature"):
+            BinningFeatureGroup._extract_single_source_feature(Feature("a&b__bin_3"))
+
 
 class TestConfigBasedFeatures:
     def test_config_based_match(self) -> None:

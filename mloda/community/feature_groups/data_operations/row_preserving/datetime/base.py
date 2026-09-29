@@ -141,19 +141,6 @@ class DateTimeFeatureGroup(FeatureChainParserMixin, FeatureGroup):
         return DataType.INT64
 
     @classmethod
-    def _extract_source_features(cls, feature: Feature) -> list[str]:
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-
-        if operation_config is not None and source_feature is not None and source_feature:
-            return [source_feature]
-
-        in_features_set = feature.options.get_in_features()
-        return [str(f.name) for f in in_features_set]
-
-    @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         table = data
 

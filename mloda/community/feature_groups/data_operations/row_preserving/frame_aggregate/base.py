@@ -295,16 +295,6 @@ class FrameAggregateFeatureGroup(SubtypeCapabilityHook, FeatureChainParserMixin,
     }
 
     @classmethod
-    def _extract_source_features(cls, feature: Feature) -> list[str]:
-        """Extract source features from the four frame patterns or config fallback."""
-        name = feature.name
-        parsed = cls._parse_frame_feature(name)
-        if parsed is not None:
-            return [parsed["source_col"]]
-        in_features_set = feature.options.get_in_features()
-        return [str(f.name) for f in in_features_set]
-
-    @classmethod
     def _parse_frame_feature(cls, feature_name: str) -> dict[str, Any] | None:
         """Parse a frame aggregate feature name into its components.
 
