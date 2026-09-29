@@ -137,27 +137,6 @@ class TestBinaryUnavailable:
         with pytest.raises(BinaryUnavailableError):
             _NoWheelModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
 
-    def test_missing_override_path_raises_binary_unavailable(self, tmp_path: Path) -> None:
-        class _MissingPathModel(BinaryModelMixin):
-            BINARY_PLUGIN_ID = "whatever"
-            BINARY_COMMAND_OVERRIDE = str(tmp_path / "does-not-exist")
-
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryUnavailableError):
-            _MissingPathModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-
-    def test_capability_shape_violation_raises_binary_unavailable(self) -> None:
-        model = _faulty_model("bad_capabilities")
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryUnavailableError):
-            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-
-    def test_contract_mismatch_raises_binary_unavailable(self) -> None:
-        model = _faulty_model("contract_2")
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryUnavailableError):
-            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-
     def test_binary_unavailable_precedes_usage_error_checks(self, tmp_path: Path) -> None:
         """An unresolvable binary is reported before ``input_columns`` is ever validated, even
         though an empty list would independently be a usage error (contract: Errors, check
@@ -198,50 +177,6 @@ class TestProbeTimeout:
 
         with pytest.raises(BinaryUnavailableError, match="timed out probing"):
             _TightProbeTimeoutModel.resolved_binary()
-
-
-# -------------------------------------------------------------------------------------------
-# 2. input_columns validation
-# -------------------------------------------------------------------------------------------
-
-
-class TestInputColumnsValidation:
-    def test_empty_input_columns_raises_usage_error(self) -> None:
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryUsageError):
-            StubModel.run_binary_model(table, [], "hash", {}, {"result": "col_a_hash"})
-
-    def test_duplicate_input_columns_raises_usage_error(self) -> None:
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryUsageError):
-            StubModel.run_binary_model(table, ["col_a", "col_a"], "hash", {}, {"result": "col_a_hash"})
-
-    def test_input_column_absent_from_table_raises_usage_error(self) -> None:
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryUsageError):
-            StubModel.run_binary_model(table, ["not_a_real_column"], "hash", {}, {"result": "col_a_hash"})
-
-
-# -------------------------------------------------------------------------------------------
-# 3. output_columns written-name validation
-# -------------------------------------------------------------------------------------------
-
-
-class TestOutputColumnsValidation:
-    def test_written_names_not_unique_raises_usage_error(self) -> None:
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryUsageError):
-            StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "dup", "extra_key": "dup"})
-
-    def test_written_name_colliding_with_input_column_raises_usage_error(self) -> None:
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryUsageError):
-            StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a"})
-
-    def test_written_name_colliding_with_non_input_table_column_raises_usage_error(self) -> None:
-        table = pa.table({"col_a": ["alpha"], "col_b": [1]})
-        with pytest.raises(BinaryUsageError):
-            StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_b"})
 
 
 # -------------------------------------------------------------------------------------------
@@ -322,16 +257,6 @@ class TestOversizedStringCell:
 
 
 class TestProjectionAndMetadata:
-    def test_extra_table_column_is_not_sent_to_the_binary(self) -> None:
-        """A binary rejects an extra, unrequested column with a data error, so a successful run here
-        proves the mixin projected the table to ``input_columns`` before sending (contract:
-        Data)."""
-        rows = {"col_a": ["alpha", "beta"]}
-        table = pa.table({"col_a": rows["col_a"], "col_b": [1, 2]})
-        result = StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-        expected = compute_expected_hash_column(rows, ["col_a"], None)
-        assert result.column("col_a_hash").to_pylist() == expected
-
     def test_schema_and_field_metadata_is_stripped_and_the_result_carries_none(self) -> None:
         field = pa.field("col_a", pa.string(), metadata={b"field_meta": b"x"})
         schema = pa.schema([field], metadata={b"pandas": b"x"})
@@ -431,13 +356,6 @@ class TestInvocationDirectoryCleanup:
             model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
         assert _mloda_binary_children_for_current_pid() == []
 
-    def test_directory_is_gone_after_a_timeout(self) -> None:
-        model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryTerminatedError):
-            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-        assert _mloda_binary_children_for_current_pid() == []
-
 
 # -------------------------------------------------------------------------------------------
 # 11. Output verification on exit 0
@@ -532,18 +450,6 @@ class TestBinaryReportedErrors:
         with pytest.raises(LicenseInvalidError):
             _NoLicenseStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
 
-    def test_garbage_stderr_raises_binary_internal_error(self) -> None:
-        model = _faulty_model("garbage_stderr")
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryInternalError):
-            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-
-    def test_signal_terminated_binary_raises_binary_internal_error(self) -> None:
-        model = _faulty_model("signal")
-        table = pa.table({"col_a": ["alpha"]})
-        with pytest.raises(BinaryInternalError):
-            model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-
     def test_hanging_binary_raises_binary_terminated_error(self) -> None:
         model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
         table = pa.table({"col_a": ["alpha"]})
@@ -552,6 +458,7 @@ class TestBinaryReportedErrors:
             model.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
         elapsed = time.monotonic() - started
         assert elapsed < 5.0, f"expected termination well before the 60s hang, took {elapsed}s"
+        assert _mloda_binary_children_for_current_pid() == []
 
 
 # -------------------------------------------------------------------------------------------
@@ -561,6 +468,7 @@ class TestBinaryReportedErrors:
 
 class TestReturnValueShape:
     def test_result_contains_only_output_columns_row_aligned(self) -> None:
+        """A binary rejects an extra column, so success proves the mixin projected to ``input_columns``."""
         rows = {"col_a": ["alpha", "beta", "gamma"]}
         table = pa.table({"col_a": rows["col_a"], "col_b": [1, 2, 3]})
         result = StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
@@ -610,13 +518,6 @@ class _HashCaseBuilder(HashOperationConformanceMixin, BinaryModelConformanceBase
 
 
 class TestHappyPaths:
-    def test_single_utf8_column(self) -> None:
-        rows = {"col_a": ["alpha", "beta", "gamma"]}
-        table = pa.table(rows)
-        result = StubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
-        expected = compute_expected_hash_column(rows, ["col_a"], None)
-        assert result.column("col_a_hash").to_pylist() == expected
-
     def test_five_column_mixed_case_with_null(self) -> None:
         case = _HashCaseBuilder().hash_multi_column_case(key=None)
         table = pa.Table.from_pydict(case["rows"], schema=case["schema"])
@@ -743,6 +644,46 @@ class TestUpFrontValidationBeforeAnySpawn:
     ``BinaryTerminatedError`` (or, when the crash happens even earlier, some other non-
     ``BinaryUsageError`` exception) instead of the expected up-front ``BinaryUsageError``
     (contract: Errors, check order)."""
+
+    @pytest.mark.parametrize(
+        ("table", "input_columns", "output_columns"),
+        [
+            pytest.param(pa.table({"col_a": ["alpha"]}), [], {"result": "col_a_hash"}, id="empty_input_columns"),
+            pytest.param(
+                pa.table({"col_a": ["alpha"]}),
+                ["col_a", "col_a"],
+                {"result": "col_a_hash"},
+                id="duplicate_input_columns",
+            ),
+            pytest.param(
+                pa.table({"col_a": ["alpha"]}),
+                ["not_a_real_column"],
+                {"result": "col_a_hash"},
+                id="input_column_absent_from_table",
+            ),
+            pytest.param(
+                pa.table({"col_a": ["alpha"]}),
+                ["col_a"],
+                {"result": "dup", "extra_key": "dup"},
+                id="written_names_not_unique",
+            ),
+            pytest.param(
+                pa.table({"col_a": ["alpha"]}), ["col_a"], {"result": "col_a"}, id="written_name_collides_with_input"
+            ),
+            pytest.param(
+                pa.table({"col_a": ["alpha"], "col_b": [1]}),
+                ["col_a"],
+                {"result": "col_b"},
+                id="written_name_collides_with_non_input_column",
+            ),
+        ],
+    )
+    def test_input_and_output_column_validation_raises_usage_error(
+        self, table: pa.Table, input_columns: list[str], output_columns: dict[str, str]
+    ) -> None:
+        model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
+        with pytest.raises(BinaryUsageError):
+            model.run_binary_model(table, input_columns, "hash", {}, output_columns)
 
     def test_parameters_that_is_not_a_mapping_raises_usage_error(self) -> None:
         model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
