@@ -16,7 +16,7 @@ import stat
 import subprocess  # nosec
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +48,27 @@ from mloda.testing.binary_model.license_vectors import expired_license_token, va
 STUB_CMD = [sys.executable, "-m", "mloda.testing.binary_model.simulated_binary"]
 FAULTY_CMD = [sys.executable, "-m", "mloda.community.feature_groups.binary_model.tests.faulty_binary"]
 PLUGIN_ID = "example_binary"
+
+
+def _run_binary(
+    argv: Sequence[str],
+    env: Mapping[str, str],
+    config: Mapping[str, Any],
+    input_bytes: bytes,
+    invocation_dir: Path,
+    *,
+    timeout: float | None = 10.0,
+    file_transport_threshold: int = 10_000_000,
+) -> bytes:
+    return run_binary(
+        argv,
+        env,
+        config,
+        input_bytes,
+        timeout=timeout,
+        file_transport_threshold=file_transport_threshold,
+        invocation_dir=invocation_dir,
+    )
 
 
 def _hash_config(**overrides: Any) -> dict[str, Any]:
@@ -372,15 +393,7 @@ class TestRunBinary:
         input_bytes = arrow_stream_bytes(schema, rows)
         env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": valid_license_token([PLUGIN_ID])}
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
-            output_bytes = run_binary(
-                STUB_CMD,
-                env,
-                _hash_config(),
-                input_bytes,
-                timeout=10.0,
-                file_transport_threshold=10_000_000,
-                invocation_dir=inv.path,
-            )
+            output_bytes = _run_binary(STUB_CMD, env, _hash_config(), input_bytes, inv.path)
             assert (inv.path / "config.json").is_file()
         table = read_arrow_stream(output_bytes)
         expected = compute_expected_hash_column(rows, ["col_a"], None)
@@ -393,15 +406,7 @@ class TestRunBinary:
         input_bytes = arrow_stream_bytes(schema, {"col_a": ["alpha"]})
         env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": valid_license_token([PLUGIN_ID])}
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
-            run_binary(
-                STUB_CMD,
-                env,
-                _hash_config(),
-                input_bytes,
-                timeout=10.0,
-                file_transport_threshold=10_000_000,
-                invocation_dir=inv.path,
-            )
+            _run_binary(STUB_CMD, env, _hash_config(), input_bytes, inv.path)
             assert stat.S_IMODE((inv.path / "config.json").stat().st_mode) == 0o600
 
     def test_file_transport_used_above_threshold(self, tmp_path: Path) -> None:
@@ -413,15 +418,7 @@ class TestRunBinary:
         input_bytes = arrow_stream_bytes(schema, rows)
         env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": valid_license_token([PLUGIN_ID])}
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
-            output_bytes = run_binary(
-                STUB_CMD,
-                env,
-                _hash_config(),
-                input_bytes,
-                timeout=10.0,
-                file_transport_threshold=0,
-                invocation_dir=inv.path,
-            )
+            output_bytes = _run_binary(STUB_CMD, env, _hash_config(), input_bytes, inv.path, file_transport_threshold=0)
             assert (inv.path / "input.arrows").is_file()
             assert (inv.path / "output.arrows").is_file()
             assert (inv.path / "output.arrows").read_bytes() == output_bytes
@@ -437,14 +434,8 @@ class TestRunBinary:
         input_bytes = arrow_stream_bytes(schema, rows)
         env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": valid_license_token([PLUGIN_ID])}
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
-            output_bytes = run_binary(
-                STUB_CMD,
-                env,
-                _hash_config(),
-                input_bytes,
-                timeout=10.0,
-                file_transport_threshold=len(input_bytes) + 1,
-                invocation_dir=inv.path,
+            output_bytes = _run_binary(
+                STUB_CMD, env, _hash_config(), input_bytes, inv.path, file_transport_threshold=len(input_bytes) + 1
             )
             assert not (inv.path / "input.arrows").exists()
             assert not (inv.path / "output.arrows").exists()
@@ -456,15 +447,7 @@ class TestRunBinary:
         input_bytes = arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["alpha"]})
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             with pytest.raises(LicenseMissingError) as excinfo:
-                run_binary(
-                    STUB_CMD,
-                    {"PATH": os.defpath},
-                    _hash_config(),
-                    input_bytes,
-                    timeout=10.0,
-                    file_transport_threshold=10_000_000,
-                    invocation_dir=inv.path,
-                )
+                _run_binary(STUB_CMD, {"PATH": os.defpath}, _hash_config(), input_bytes, inv.path)
         assert excinfo.value.code == 2
         assert "MLODA_LICENSE_FILE" in excinfo.value.message
 
@@ -473,15 +456,7 @@ class TestRunBinary:
         env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": expired_license_token([PLUGIN_ID])}
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             with pytest.raises(LicenseInvalidError) as excinfo:
-                run_binary(
-                    STUB_CMD,
-                    env,
-                    _hash_config(),
-                    input_bytes,
-                    timeout=10.0,
-                    file_transport_threshold=10_000_000,
-                    invocation_dir=inv.path,
-                )
+                _run_binary(STUB_CMD, env, _hash_config(), input_bytes, inv.path)
         assert excinfo.value.code == 3
 
     def test_unknown_operation_raises_unsupported(self, tmp_path: Path) -> None:
@@ -490,15 +465,7 @@ class TestRunBinary:
         config = _hash_config(operation="no-such-operation")
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             with pytest.raises(UnsupportedError) as excinfo:
-                run_binary(
-                    STUB_CMD,
-                    env,
-                    config,
-                    input_bytes,
-                    timeout=10.0,
-                    file_transport_threshold=10_000_000,
-                    invocation_dir=inv.path,
-                )
+                _run_binary(STUB_CMD, env, config, input_bytes, inv.path)
         assert excinfo.value.code == 4
 
     def test_hanging_binary_is_terminated_on_timeout_without_a_zombie(
@@ -509,14 +476,8 @@ class TestRunBinary:
         started = time.monotonic()
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             with pytest.raises(BinaryTerminatedError) as excinfo:
-                run_binary(
-                    [*FAULTY_CMD, "--mode", "hang"],
-                    {"PATH": os.defpath},
-                    _hash_config(),
-                    b"",
-                    timeout=0.5,
-                    file_transport_threshold=10_000_000,
-                    invocation_dir=inv.path,
+                _run_binary(
+                    [*FAULTY_CMD, "--mode", "hang"], {"PATH": os.defpath}, _hash_config(), b"", inv.path, timeout=0.5
                 )
         elapsed = time.monotonic() - started
         assert excinfo.value.code == 6
@@ -537,15 +498,7 @@ class TestRunBinary:
         try:
             with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
                 with pytest.raises(exc):
-                    run_binary(
-                        [*FAULTY_CMD, "--mode", "hang"],
-                        {"PATH": os.defpath},
-                        _hash_config(),
-                        b"",
-                        timeout=10.0,
-                        file_transport_threshold=10_000_000,
-                        invocation_dir=inv.path,
-                    )
+                    _run_binary([*FAULTY_CMD, "--mode", "hang"], {"PATH": os.defpath}, _hash_config(), b"", inv.path)
                 assert len(spawned) == 1
                 assert spawned[0].poll() is not None, f"child was left running after {exc.__name__}"
                 assert _own_zombie_children() == []
@@ -592,14 +545,12 @@ class TestRunBinary:
         try:
             with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
                 with pytest.raises(KeyboardInterrupt):
-                    run_binary(
+                    _run_binary(
                         [*FAULTY_CMD, "--mode", "exit_leaving_child"],
                         {"PATH": os.defpath},
                         _hash_config(parameters={"pid_file": str(pid_file)}),
                         b"",
-                        timeout=10.0,
-                        file_transport_threshold=10_000_000,
-                        invocation_dir=inv.path,
+                        inv.path,
                     )
             assert pid_file.exists(), "faulty_binary never wrote the descendant's pid"
             child_pid = int(pid_file.read_text(encoding="utf-8"))
@@ -615,43 +566,27 @@ class TestRunBinary:
         large_input = os.urandom(4 * 1024 * 1024)
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             with pytest.raises(LicenseMissingError) as excinfo:
-                run_binary(
+                _run_binary(
                     [*FAULTY_CMD, "--mode", "exit_before_reading"],
                     {"PATH": os.defpath},
                     _hash_config(),
                     large_input,
-                    timeout=10.0,
-                    file_transport_threshold=10_000_000,
-                    invocation_dir=inv.path,
+                    inv.path,
                 )
         assert excinfo.value.code == 2
 
     def test_garbage_stderr_raises_binary_internal_error(self, tmp_path: Path) -> None:
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             with pytest.raises(BinaryInternalError) as excinfo:
-                run_binary(
-                    [*FAULTY_CMD, "--mode", "garbage_stderr"],
-                    {"PATH": os.defpath},
-                    _hash_config(),
-                    b"",
-                    timeout=10.0,
-                    file_transport_threshold=10_000_000,
-                    invocation_dir=inv.path,
+                _run_binary(
+                    [*FAULTY_CMD, "--mode", "garbage_stderr"], {"PATH": os.defpath}, _hash_config(), b"", inv.path
                 )
         assert excinfo.value.code == 6
 
     def test_signal_terminated_binary_raises_binary_internal_error(self, tmp_path: Path) -> None:
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             with pytest.raises(BinaryInternalError) as excinfo:
-                run_binary(
-                    [*FAULTY_CMD, "--mode", "signal"],
-                    {"PATH": os.defpath},
-                    _hash_config(),
-                    b"",
-                    timeout=10.0,
-                    file_transport_threshold=10_000_000,
-                    invocation_dir=inv.path,
-                )
+                _run_binary([*FAULTY_CMD, "--mode", "signal"], {"PATH": os.defpath}, _hash_config(), b"", inv.path)
         assert excinfo.value.code == 6
 
     def test_process_receives_exactly_the_given_environment(self, tmp_path: Path) -> None:
@@ -661,15 +596,7 @@ class TestRunBinary:
         # handling.
         env = {"PATH": os.defpath, "LC_ALL": "C.UTF-8", "LANG": "C.UTF-8", "FOO": "bar"}
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
-            output_bytes = run_binary(
-                [*FAULTY_CMD, "--mode", "echo_env"],
-                env,
-                _hash_config(),
-                b"",
-                timeout=10.0,
-                file_transport_threshold=10_000_000,
-                invocation_dir=inv.path,
-            )
+            output_bytes = _run_binary([*FAULTY_CMD, "--mode", "echo_env"], env, _hash_config(), b"", inv.path)
         assert json.loads(output_bytes) == sorted(env)
 
     def test_non_executable_regular_file_raises_binary_unavailable(self, tmp_path: Path) -> None:
@@ -678,29 +605,13 @@ class TestRunBinary:
         not_executable.chmod(0o600)
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             with pytest.raises(BinaryUnavailableError):
-                run_binary(
-                    [str(not_executable)],
-                    {"PATH": os.defpath},
-                    _hash_config(),
-                    b"",
-                    timeout=10.0,
-                    file_transport_threshold=10_000_000,
-                    invocation_dir=inv.path,
-                )
+                _run_binary([str(not_executable)], {"PATH": os.defpath}, _hash_config(), b"", inv.path)
 
     def test_nonexistent_path_raises_binary_unavailable(self, tmp_path: Path) -> None:
         missing = tmp_path / "does-not-exist"
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             with pytest.raises(BinaryUnavailableError):
-                run_binary(
-                    [str(missing)],
-                    {"PATH": os.defpath},
-                    _hash_config(),
-                    b"",
-                    timeout=10.0,
-                    file_transport_threshold=10_000_000,
-                    invocation_dir=inv.path,
-                )
+                _run_binary([str(missing)], {"PATH": os.defpath}, _hash_config(), b"", inv.path)
 
     def test_exit_zero_without_writing_the_output_file_raises_output_contract_error(self, tmp_path: Path) -> None:
         """A binary that exits 0 but writes no ``--output`` file must be reported as an output
@@ -709,14 +620,13 @@ class TestRunBinary:
         input_bytes = arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["alpha"]})
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             with pytest.raises(OutputContractError) as excinfo:
-                run_binary(
+                _run_binary(
                     [*FAULTY_CMD, "--mode", "no_output_file"],
                     {"PATH": os.defpath},
                     _hash_config(),
                     input_bytes,
-                    timeout=10.0,
+                    inv.path,
                     file_transport_threshold=0,
-                    invocation_dir=inv.path,
                 )
         assert str(inv.path) not in excinfo.value.message
 
