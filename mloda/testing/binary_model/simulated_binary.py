@@ -35,7 +35,7 @@ from mloda.testing.binary_model import (
     UNSUPPORTED,
     USAGE_ERROR,
 )
-from mloda.testing.binary_model.hash_reference import compute_expected_hash
+from mloda.testing.binary_model.hash_reference import compute_expected_hash_column
 
 PLUGIN_ID = "example_binary"
 VERSION = "1.0.0"
@@ -482,8 +482,8 @@ def _validate_input_schema(schema: pa.Schema, input_columns: list[str]) -> None:
 
 def _compute_hash_output(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Schema, list[pa.Array]]:
     """Runs "hash" row by row, reading each row's values in ``input_columns`` order (not stream
-    field order), producing the "result" output column under its configured name, typed int64
-    (contract: Data, Configuration). Uses ``compute_expected_hash`` -- the same algorithm
+    field order), producing the operation's first output column under its configured name, typed int64
+    (contract: Data, Configuration). Uses ``compute_expected_hash_column`` -- the same algorithm
     ``HashOperationConformanceMixin`` computes expected values with, so the two can't drift. Builds
     a fresh output schema, so no input Arrow metadata is ever propagated to the output."""
     import pyarrow as pa
@@ -492,12 +492,9 @@ def _compute_hash_output(table: pa.Table, config: dict[str, Any]) -> tuple[pa.Sc
 
     input_columns = config["input_columns"]
     key: str | None = config["parameters"].get("key")
-    written_name = config["output_columns"]["result"]
+    written_name = config["output_columns"][_OPERATION_OUTPUTS[config["operation"]][0]]
     columns = {name: table.column(name).to_pylist() for name in input_columns}
-    values = [
-        compute_expected_hash(key, [columns[name][row_index] for name in input_columns])
-        for row_index in range(table.num_rows)
-    ]
+    values = compute_expected_hash_column(columns, input_columns, key)
     output_schema = pa.schema([pa.field(written_name, pa.int64())])
     return output_schema, [array_from_values(values, pa.int64())]
 
