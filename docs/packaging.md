@@ -242,7 +242,7 @@ Conventions:
 - `mloda.optional_dependencies` is a companion marker group, not a plugin group: it
   declares a package's optional import roots for `PluginLoader` to consult when the
   manifest import fails. Its target is the sibling `_optional_dependencies.py`, not
-  `manifest.py`, because the loader reads it only after that import has failed. The
+  `manifest.py`, because it must import without the optional dependency the manifest needs. The
   package `__init__.py` therefore imports nothing from the optional dependency (both
   extender packages re-export their extender lazily through a module `__getattr__`).
 
