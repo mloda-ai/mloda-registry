@@ -11,8 +11,10 @@ from __future__ import annotations
 import sys
 from typing import ClassVar
 
+import pyarrow as pa
+
 from mloda.testing.binary_model.conformance import BinaryModelConformanceBase
-from mloda.testing.tests._second_fake_binary import OPERATION, OUTPUT_KEY, PLUGIN_ID
+from mloda.testing.tests._second_fake_binary import COLUMN_TYPES, OPERATION, OUTPUT_KEY, PLUGIN_ID
 
 
 class TestSecondBinaryConformance(BinaryModelConformanceBase):
@@ -23,3 +25,7 @@ class TestSecondBinaryConformance(BinaryModelConformanceBase):
     operations: ClassVar[list[str]] = [OPERATION]
     default_input_columns: ClassVar[list[str]] = ["source_col"]
     default_output_columns: ClassVar[dict[str, str]] = {OUTPUT_KEY: "frobnicated_out"}
+    column_types: ClassVar[frozenset[str]] = COLUMN_TYPES
+
+    def default_output_column_type(self) -> pa.DataType:
+        return pa.string()

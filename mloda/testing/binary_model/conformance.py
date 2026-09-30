@@ -339,7 +339,8 @@ class BinaryModelConformanceBase:
 
     def default_input_schema(self) -> pa.Schema:
         """A schema matching ``default_input_columns``, generic enough that any operation over the
-        column-type vocabulary can run against it successfully."""
+        column-type vocabulary can run against it successfully. Must use only types in
+        ``self.column_types``: a binary without utf8 overrides this and ``default_input_rows()``."""
         return pa.schema([pa.field(self.default_input_columns[0], pa.string())])
 
     def default_input_rows(self) -> dict[str, list[Any]]:
@@ -887,6 +888,30 @@ class BinaryModelConformanceBase:
                 f"transport combination produced different values for column {name!r}"
             )
 
+    def test_zero_row_batches_do_not_change_the_result(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
+        """Zero-row batches interleaved in one stream must not change the output (contract: Data);
+        the mixin sends them for chunked frames."""
+        schema = self.default_input_schema()
+        rows = self.default_input_rows()
+        total = len(next(iter(rows.values())))
+        if total < 2:
+            pytest.skip("needs at least two default input rows to split around zero-row batches")
+        split = max(1, total // 2)
+        first = {name: values[:split] for name, values in rows.items()}
+        rest = {name: values[split:] for name, values in rows.items()}
+        empty: dict[str, list[Any]] = {name: [] for name in schema.names}
+        config = self.make_config()
+        config_path = write_json(tmp_path / "config.json", config)
+        chunked = arrow_stream_bytes_multi_batch(schema, [empty, first, empty, rest, empty])
+        chunked_result = self._kit_run_with_config(config_path, valid_license_env, chunked)
+        chunked_table = self._kit_assert_success_table(chunked_result, config["output_columns"], total)
+        baseline_result = self._kit_run_with_config(config_path, valid_license_env, arrow_stream_bytes(schema, rows))
+        baseline_table = self._kit_assert_success_table(baseline_result, config["output_columns"], total)
+        for name in config["output_columns"].values():
+            assert chunked_table.column(name).to_pylist() == baseline_table.column(name).to_pylist(), (
+                f"zero-row batches changed the values of output column {name!r}"
+            )
+
     def test_output_file_transport_leaves_stdout_empty(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
         """With `--output <path>` used, stdout stays empty (contract: Invocation)."""
         config = self.make_config()
@@ -1129,11 +1154,10 @@ class BinaryModelConformanceBase:
     ) -> None:
         """ "truncated" means end of file without the end-of-stream marker, not "no more batches": a
         stream cut off right before that marker is a data error (contract: Data)."""
-        column = self.default_input_columns[0]
-        config = self.make_config(input_columns=[column])
+        config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
-        schema = pa.schema([pa.field(column, pa.int64())])
-        full_bytes = arrow_stream_bytes(schema, {column: [1, 2, 3]})
+        schema = self.default_input_schema()
+        full_bytes = arrow_stream_bytes(schema, self.default_input_rows())
         assert full_bytes.endswith(IPC_END_OF_STREAM_MARKER), "test setup: expected the writer to emit the EOS marker"
         truncated = full_bytes[: -len(IPC_END_OF_STREAM_MARKER)]
         result = self._kit_run_with_config(config_path, valid_license_env, truncated)
@@ -1160,11 +1184,10 @@ class BinaryModelConformanceBase:
     ) -> None:
         """The IPC file/Feather format (`ARROW1` magic bytes) is not the streaming format the contract
         requires: a data error (contract: Data)."""
-        column = self.default_input_columns[0]
-        config = self.make_config(input_columns=[column])
+        config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
-        schema = pa.schema([pa.field(column, pa.int64())])
-        input_bytes = arrow_file_format_bytes(schema, {column: [1, 2, 3]})
+        schema = self.default_input_schema()
+        input_bytes = arrow_file_format_bytes(schema, self.default_input_rows())
         assert input_bytes[:6] == b"ARROW1", "test setup: expected the IPC file magic at the start"
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
@@ -1173,12 +1196,11 @@ class BinaryModelConformanceBase:
         self, valid_license_env: dict[str, str], tmp_path: Path
     ) -> None:
         """A compressed record batch body is a data error (contract: Data)."""
-        column = self.default_input_columns[0]
-        config = self.make_config(input_columns=[column])
+        config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
-        schema = pa.schema([pa.field(column, pa.int64())])
+        schema = self.default_input_schema()
         options = pa.ipc.IpcWriteOptions(compression="lz4")
-        input_bytes = arrow_stream_bytes(schema, {column: [1, 2, 3]}, options=options)
+        input_bytes = arrow_stream_bytes(schema, self.default_input_rows(), options=options)
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
@@ -1188,11 +1210,10 @@ class BinaryModelConformanceBase:
         """Corrupted record-batch data *after* a valid schema message is a data error (contract:
         Data): distinct from malformed bytes from the very start, since the schema parses but
         reading the batch fails on the corrupted message."""
-        column = self.default_input_columns[0]
-        config = self.make_config(input_columns=[column])
+        config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
-        schema = pa.schema([pa.field(column, pa.int64())])
-        valid_bytes = arrow_stream_bytes(schema, {column: [1, 2, 3]})
+        schema = self.default_input_schema()
+        valid_bytes = arrow_stream_bytes(schema, self.default_input_rows())
         corrupted = corrupt_record_batch_message_after_schema(valid_bytes)
         result = self._kit_run_with_config(config_path, valid_license_env, corrupted)
         assert_error_response(result, DATA_ERROR)
@@ -1217,12 +1238,11 @@ class BinaryModelConformanceBase:
             pytest.skip("no POSIX file permissions on this platform")
         if os.geteuid() == 0:
             pytest.skip("running as root ignores file read permissions")
-        column = self.default_input_columns[0]
-        config = self.make_config(input_columns=[column])
+        config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
-        schema = pa.schema([pa.field(column, pa.int64())])
+        schema = self.default_input_schema()
         input_path = tmp_path / "input.arrows"
-        input_path.write_bytes(arrow_stream_bytes(schema, {column: [1, 2, 3]}))
+        input_path.write_bytes(arrow_stream_bytes(schema, self.default_input_rows()))
         original_mode = input_path.stat().st_mode
         input_path.chmod(0o000)
         try:
@@ -1241,11 +1261,10 @@ class BinaryModelConformanceBase:
         """The reserved internal-error operation, given valid config/input, reaches the data stage
         and deliberately produces code 6, with stderr still a valid error object, not a bare
         traceback (contract: Conformance)."""
-        column = self.default_input_columns[0]
         config = self.make_config(operation=self.reserved_internal_error_operation)
         config_path = write_json(tmp_path / "config.json", config)
-        schema = pa.schema([pa.field(column, pa.int64())])
-        input_bytes = arrow_stream_bytes(schema, {column: [1, 2, 3]})
+        schema = self.default_input_schema()
+        input_bytes = arrow_stream_bytes(schema, self.default_input_rows())
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, INTERNAL_ERROR)
 
@@ -1257,11 +1276,10 @@ class BinaryModelConformanceBase:
         checks the message's final token is a bare identifier shape, not the exact wording. Uses
         `output_columns={}`: the reserved operation produces no normal output (contract:
         Conformance)."""
-        column = self.default_input_columns[0]
         config = self.make_config(operation=self.reserved_internal_error_operation, output_columns={})
         config_path = write_json(tmp_path / "config.json", config)
-        schema = pa.schema([pa.field(column, pa.int64())])
-        input_bytes = arrow_stream_bytes(schema, {column: [1, 2, 3]})
+        schema = self.default_input_schema()
+        input_bytes = arrow_stream_bytes(schema, self.default_input_rows())
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         error = assert_error_response(result, INTERNAL_ERROR)
         message = error["message"]
@@ -1280,12 +1298,11 @@ class BinaryModelConformanceBase:
     ) -> None:
         """Two complete, valid Arrow IPC streams concatenated back-to-back must be rejected as a data
         error, not silently accepted with only the first stream's rows returned (contract: Data)."""
-        column = self.default_input_columns[0]
-        config = self.make_config(input_columns=[column])
+        config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
-        schema = pa.schema([pa.field(column, pa.int64())])
-        stream_one = arrow_stream_bytes(schema, {column: [1, 2, 3]})
-        stream_two = arrow_stream_bytes(schema, {column: [4, 5, 6]})
+        schema = self.default_input_schema()
+        stream_one = arrow_stream_bytes(schema, self.default_input_rows())
+        stream_two = arrow_stream_bytes(schema, self.default_input_rows())
         result = self._kit_run_with_config(config_path, valid_license_env, stream_one + stream_two)
         assert_error_response(result, DATA_ERROR)
 
@@ -1294,11 +1311,10 @@ class BinaryModelConformanceBase:
     ) -> None:
         """Valid stream bytes followed by arbitrary trailing garbage (not another full stream) after
         the end-of-stream marker is equally a data error (contract: Data)."""
-        column = self.default_input_columns[0]
-        config = self.make_config(input_columns=[column])
+        config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
-        schema = pa.schema([pa.field(column, pa.int64())])
-        valid_bytes = arrow_stream_bytes(schema, {column: [1, 2, 3]})
+        schema = self.default_input_schema()
+        valid_bytes = arrow_stream_bytes(schema, self.default_input_rows())
         garbage = b"trailing-garbage-bytes-not-a-stream-0123456789"
         assert garbage[-len(IPC_END_OF_STREAM_MARKER) :] != IPC_END_OF_STREAM_MARKER, (
             "test setup: the garbage suffix must not coincidentally end with the EOS marker"
@@ -1317,6 +1333,8 @@ class BinaryModelConformanceBase:
         """A distinctive marker cell value, sent through a normal successful run: stderr never
         contains it. stdout on a successful run legitimately carries the caller's own data by design,
         so this scopes the assertion to stderr only (contract: Data handling)."""
+        if "utf8" not in self.column_types:
+            pytest.skip("the marker cell is a string and this binary has no utf8 column type")
         column = self.default_input_columns[0]
         config = self.make_config(input_columns=[column])
         config_path = write_json(tmp_path / "config.json", config)
@@ -1341,6 +1359,8 @@ class BinaryModelConformanceBase:
         """The marker cell value through two failing cases that still reach the data stage: a data
         error from a wrong schema, and the reserved internal-error operation. Neither leaks the
         marker into stderr (contract: Data handling, Conformance)."""
+        if "utf8" not in self.column_types:
+            pytest.skip("the marker cell is a string and this binary has no utf8 column type")
         column = self.default_input_columns[0]
         if case == "missing_column_data_error":
             input_columns = [column, "col_b_missing"]
@@ -1477,19 +1497,19 @@ class BinaryModelConformanceBase:
         """Arrow metadata (schema- and field-level) on the INPUT stream is accepted, and stripped
         entirely from the OUTPUT stream (contract: Data). Asserts the input actually carries
         non-empty metadata first, ruling out a trivial always-empty-output pass."""
-        column = self.default_input_columns[0]
-        field = pa.field(column, pa.string(), metadata={b"field_meta_key": b"field_meta_value"})
-        schema = pa.schema([field]).with_metadata({b"schema_meta_key": b"schema_meta_value"})
+        base_schema = self.default_input_schema()
+        fields = [field.with_metadata({b"field_meta_key": b"field_meta_value"}) for field in base_schema]
+        schema = pa.schema(fields).with_metadata({b"schema_meta_key": b"schema_meta_value"})
         assert schema.metadata, "test setup: expected the input schema to carry schema-level metadata"
-        assert schema.field(column).metadata, "test setup: expected the input field to carry field-level metadata"
-        config = self.make_config(input_columns=[column])
+        assert schema.field(0).metadata, "test setup: expected the input field to carry field-level metadata"
+        config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
-        input_values = ["alpha", "beta"]
-        input_bytes = arrow_stream_bytes(schema, {column: input_values})
+        rows = self.default_input_rows()
+        input_bytes = arrow_stream_bytes(schema, rows)
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert result.returncode == 0, f"input metadata unexpectedly caused a failure; stderr={result.stderr!r}"
         table = read_arrow_stream(result.stdout)
-        assert_output_contract(table, config["output_columns"], len(input_values), self.column_types)
+        assert_output_contract(table, config["output_columns"], len(next(iter(rows.values()))), self.column_types)
         assert not table.schema.metadata, f"output schema unexpectedly carries metadata: {table.schema.metadata!r}"
         for output_field in table.schema:
             assert not output_field.metadata, (

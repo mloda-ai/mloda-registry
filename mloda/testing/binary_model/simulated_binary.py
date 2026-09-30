@@ -476,7 +476,7 @@ def _validate_input_schema(schema: pa.Schema, input_columns: list[str]) -> None:
             f"input schema must contain exactly input_columns {sorted(input_columns)}, got {sorted(names)}",
         )
     for field in schema:
-        if _classify_column_type(field.type) is None:
+        if _classify_column_type(field.type) not in COLUMN_TYPES:
             raise _CliError(UNSUPPORTED, f"column {field.name!r} has an unsupported type: {field.type!r}")
 
 

@@ -278,7 +278,7 @@ class TestCalculateFeatureReadsOperationFromOptions:
         context = {"binary_operation": SECOND_BINARY_OPERATION, "binary_input_columns": ["col_a"]}
         feature = Feature("frobnicated", Options(context=context))
         result = FrobnicateExample.calculate_feature(table, _feature_set(feature))
-        expected = compute_expected_hash_column(rows, ["col_a"], None)
+        expected = [str(value) for value in compute_expected_hash_column(rows, ["col_a"], None)]
         assert result.column("frobnicated").to_pylist() == expected
 
 
