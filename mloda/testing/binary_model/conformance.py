@@ -35,6 +35,7 @@ import pytest
 from mloda.community.feature_groups.binary_model import binary
 from mloda.community.feature_groups.binary_model.contract import last_non_empty_stderr_line
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError, reported_error
+from mloda.community.feature_groups.binary_model.transport import minimal_environment
 from mloda.testing.binary_model import (
     COLUMN_TYPES,
     DATA_ERROR,
@@ -386,18 +387,12 @@ class BinaryModelConformanceBase:
     # -- Fixtures --
 
     def platform_env(self, env: dict[str, str]) -> dict[str, str]:
-        """Add SYSTEMROOT from the host environment on Windows (mirrors transport.py's minimal_environment())."""
-        if os.name == "nt":
-            systemroot = os.environ.get("SYSTEMROOT")
-            if systemroot is not None:
-                return {**env, "SYSTEMROOT": systemroot}
-        return env
+        """Production's minimal environment without license variables, overridden by ``env``."""
+        return {**minimal_environment(inherit_license=False), **env}
 
     @pytest.fixture
     def hermetic_env(self) -> dict[str, str]:
-        """A minimal, controlled environment: no ambient shell variables, no license variables,
-        except ``SYSTEMROOT`` on Windows, part of the minimal environment a Windows child process
-        needs to start."""
+        """Production's minimal environment with no license variables."""
         return self.platform_env({})
 
     @pytest.fixture
@@ -1389,11 +1384,10 @@ class BinaryModelConformanceBase:
         config_path = write_json(tmp_path / "config.json", config)
         rows = self.default_input_rows()
         input_bytes = arrow_stream_bytes(self.default_input_schema(), rows)
-        env = {**valid_license_env, "PATH": os.environ.get("PATH", os.defpath)}
         result = run_binary(
             ["unshare", "--net", "--", *self.binary_cmd],
             ["run", "--config", str(config_path)],
-            env,
+            valid_license_env,
             input_bytes,
             timeout=self.binary_timeout_seconds,
         )
@@ -1438,14 +1432,13 @@ class BinaryModelConformanceBase:
         assert leftover == [], f"expected no files created in the read-only cwd, found {leftover!r}"
 
     def test_minimal_environment_allowlist_only(self, tmp_path: Path) -> None:
-        """A normal run with an environment containing only the license variable and `PATH` -- no
-        `HOME`, no `LANG`, nothing else -- must still succeed, proving the binary reads no other
-        environment variable (contract: Data handling, Conformance)."""
+        """A normal run with only production's minimal environment plus the license key must still succeed,
+        proving the binary reads no other environment variable (contract: Data handling, Conformance)."""
         config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
         rows = self.default_input_rows()
         input_bytes = arrow_stream_bytes(self.default_input_schema(), rows)
-        env = self.platform_env({"MLODA_LICENSE_KEY": self.valid_license_text, "PATH": os.environ.get("PATH", "")})
+        env = self.platform_env({"MLODA_LICENSE_KEY": self.valid_license_text})
         result = self._kit_run_with_config(config_path, env, input_bytes)
         self._kit_assert_success_table(result, config["output_columns"], len(next(iter(rows.values()))))
 

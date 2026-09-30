@@ -21,6 +21,7 @@ import pyarrow as pa
 import pytest
 
 from mloda.community.feature_groups.binary_model.errors import OutputContractError
+from mloda.community.feature_groups.binary_model.transport import minimal_environment
 from mloda.testing.binary_model.conformance import (
     COLUMN_TYPES,
     DATA_ERROR,
@@ -617,7 +618,7 @@ def test_fake_binary_run_does_not_import_pandas(
     input_path.write_bytes(arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["x", "y"]}))
     output_path = tmp_path / "output.arrows"
     args = ["run", "--config", str(config_path), "--input", str(input_path), "--output", str(output_path)]
-    env = {_LICENSE_KEY: valid_license_token([plugin_id])}
+    env = minimal_environment(inherit_license=False, license_key=valid_license_token([plugin_id]))
     completed, summary = run_module_probe(module, args, ("pandas",), env)
     assert summary == {"code": 0, "loaded": []}, (summary, completed.stderr)
     assert read_arrow_stream(output_path.read_bytes()).num_rows == 2
