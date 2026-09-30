@@ -15,6 +15,7 @@ import signal
 import stat
 import subprocess  # nosec
 import tempfile
+import threading
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import TracebackType
@@ -29,9 +30,14 @@ from mloda.community.feature_groups.binary_model.errors import (
 )
 
 if os.name != "nt":
-    import fcntl as fcntl
+    import fcntl
 
 logger = logging.getLogger(__name__)
+
+# Paths of live directories owned by this process. The reaper must not even open their lock files:
+# flock may be emulated as per-process record locks (e.g. NFS), so closing any fd drops the lock.
+_OWNED_PATHS: set[Path] = set()
+_OWNED_LOCK = threading.Lock()
 
 TEMP_PARENT_NAME = "mloda-binary"
 LOCK_FILE_NAME = ".lock"
@@ -86,8 +92,8 @@ def default_parent() -> Path:
 
 
 class InvocationDirectory:
-    """A private, owner-only directory for one binary invocation, created under a fixed parent
-    and reaping dead siblings on entry (contract: Data handling). Liveness is an exclusive
+    """A private, owner-only directory for one binary invocation, created under a per-user parent
+    (or the given one) and reaping dead siblings on entry (contract: Data handling). Liveness is an exclusive
     ``flock`` on a lock file inside the directory, held until exit (POSIX only)."""
 
     def __init__(self, parent: Path | None = None) -> None:
@@ -96,7 +102,10 @@ class InvocationDirectory:
         self._lock_fd: int | None = None
 
     def __enter__(self) -> InvocationDirectory:
-        self.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            self.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        except OSError as exc:
+            raise BinaryUnavailableError(f"cannot create {self.parent}: {exc}") from exc
         if os.name != "nt":
             self._validate_parent()
 
@@ -115,12 +124,18 @@ class InvocationDirectory:
             staging.mkdir(mode=0o700)
             staging.chmod(0o700)
             self._lock_fd = _lock_file_fd(staging)
+            with _OWNED_LOCK:
+                _OWNED_PATHS.add(path)
             os.rename(staging, path)
-        except BaseException:
+        except BaseException as exc:
+            with _OWNED_LOCK:
+                _OWNED_PATHS.discard(path)
             if self._lock_fd is not None:
                 os.close(self._lock_fd)
                 self._lock_fd = None
             shutil.rmtree(staging, ignore_errors=True)
+            if isinstance(exc, OSError):
+                raise BinaryUnavailableError(f"cannot lock an invocation directory under {self.parent}: {exc}") from exc
             raise
         self.path = path
         return self
@@ -147,6 +162,8 @@ class InvocationDirectory:
         traceback: TracebackType | None,
     ) -> None:
         shutil.rmtree(self.path, ignore_errors=True)
+        with _OWNED_LOCK:
+            _OWNED_PATHS.discard(self.path)
         if self._lock_fd is not None:
             os.close(self._lock_fd)
             self._lock_fd = None
@@ -179,7 +196,7 @@ def _lock_file_fd(directory: Path) -> int:
         str(directory / LOCK_FILE_NAME), os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600
     )
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BaseException:
         os.close(fd)
         raise
@@ -187,9 +204,16 @@ def _lock_file_fd(directory: Path) -> int:
 
 
 def _reap_if_unlocked(entry: Path) -> None:
-    """Remove ``entry`` if its lock can be taken (owner dead); keep it when locked or unreadable."""
+    """Remove ``entry`` if its lock can be taken (owner dead) or it has no lock file (staging
+    guarantees a live directory is locked once visible); keep it when locked or unreadable."""
+    with _OWNED_LOCK:
+        if entry in _OWNED_PATHS:
+            return
     try:
         fd = os.open(str(entry / LOCK_FILE_NAME), os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
+    except FileNotFoundError:
+        shutil.rmtree(entry, ignore_errors=True)
+        return
     except OSError:
         return
     try:
