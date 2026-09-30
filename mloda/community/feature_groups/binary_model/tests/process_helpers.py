@@ -28,8 +28,10 @@ def pid_running(pid: int) -> bool:
         return False
     try:
         stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
-    except OSError:
+    except (FileNotFoundError, ProcessLookupError):
         return not Path("/proc/self/stat").exists()
+    except OSError:
+        return True
     return stat.rsplit(")", 1)[-1].split()[0] not in ("Z", "X")
 
 

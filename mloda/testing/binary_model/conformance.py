@@ -35,7 +35,7 @@ import pytest
 from mloda.community.feature_groups.binary_model import binary
 from mloda.community.feature_groups.binary_model.contract import last_non_empty_stderr_line
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError, reported_error
-from mloda.community.feature_groups.binary_model.mixin import _classify_column_type
+from mloda.community.feature_groups.binary_model.mixin import classify_column_type
 from mloda.community.feature_groups.binary_model.transport import minimal_environment
 from mloda.testing.binary_model import (
     COLUMN_TYPES,
@@ -110,8 +110,10 @@ DATA_FREE_MARKER = "SECRET_MARKER_YlZ9qX7"
 
 # The int64 counterpart of the marker, for binaries without a utf8 column type.
 _DATA_FREE_INT_MARKER = 7391046218553917
+_UTF8_MARKER_CELL = (pa.string(), DATA_FREE_MARKER, DATA_FREE_MARKER.encode("utf-8"))
 _NO_MARKER_SKIP_REASON = (
-    "no utf8 or int64 column type: float text is not canonical across languages and booleans carry no distinctive value"
+    "the default input schema's first field is not utf8 or int64: float text is not canonical across languages "
+    "and booleans carry no distinctive value"
 )
 
 # The contract's stderr soft cap (contract: Data handling). ``MESSAGE_MAX_BYTES`` (the `message`
@@ -399,6 +401,15 @@ class BinaryModelConformanceBase:
         result = self._kit_run_with_config(config_path, env, input_bytes)
         self._kit_assert_success_table(result, self.make_config()["output_columns"], len(next(iter(rows.values()))))
 
+    def _kit_marker_cell(self) -> tuple[pa.DataType, Any, bytes] | None:
+        """The marker cell (type, value, stderr needle) for the default input schema's first field, or None."""
+        first_type = self.default_input_schema()[0].type
+        if classify_column_type(first_type, strict=True) == "utf8":
+            return _UTF8_MARKER_CELL
+        if pa.types.is_int64(first_type):
+            return pa.int64(), _DATA_FREE_INT_MARKER, str(_DATA_FREE_INT_MARKER).encode()
+        return None
+
     # -- Fixtures --
 
     def platform_env(self, env: dict[str, str]) -> dict[str, str]:
@@ -447,22 +458,14 @@ class BinaryModelConformanceBase:
     def test_default_input_schema_uses_advertised_column_types(self) -> None:
         """Fails fast so a missing hook override is not reported as many code-4 failures (contract: Capabilities)."""
         for field in self.default_input_schema():
-            classified = _classify_column_type(field.type, strict=True)
+            classified = classify_column_type(field.type, strict=True)
             if classified is None or classified not in self.column_types:
                 raise AssertionError(
                     f"default_input_schema() field {field.name!r} has Arrow type {field.type}, which is not an "
                     f"advertised column type (column_types={sorted(self.column_types)}). Override "
                     "default_input_schema() and default_input_rows() with advertised types, and set column_types "
-                    "to what the binary advertises."
+                    "to what the binary advertises (utf8 must be pa.string(), its wire type)."
                 )
-
-    def _kit_marker_cell(self) -> tuple[pa.DataType, Any, bytes] | None:
-        """The marker cell (type, value, stderr needle) for an advertised column type, or None."""
-        if "utf8" in self.column_types:
-            return pa.string(), DATA_FREE_MARKER, DATA_FREE_MARKER.encode("utf-8")
-        if "int64" in self.column_types:
-            return pa.int64(), _DATA_FREE_INT_MARKER, str(_DATA_FREE_INT_MARKER).encode()
-        return None
 
     def test_capabilities_prints_single_json_object_no_license_required(self, hermetic_env: dict[str, str]) -> None:
         """Unknown extra keys in the capabilities object are tolerated (contract: Invocation,
@@ -1397,9 +1400,7 @@ class BinaryModelConformanceBase:
         """The marker cell value through two failing cases that still reach the data stage: a data
         error from a wrong schema, and the reserved internal-error operation. Neither leaks the
         marker into stderr (contract: Data handling, Conformance)."""
-        marker = self._kit_marker_cell()
-        if marker is None:
-            pytest.skip(_NO_MARKER_SKIP_REASON)
+        marker = self._kit_marker_cell() or _UTF8_MARKER_CELL
         marker_type, marker_value, needle = marker
         column = self.default_input_columns[0]
         if case == "missing_column_data_error":

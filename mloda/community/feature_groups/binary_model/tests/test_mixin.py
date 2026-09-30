@@ -195,6 +195,10 @@ class TestOperationCapability:
 
 
 class TestColumnTypeVocabulary:
+    def test_classify_column_type_is_public(self) -> None:
+        """The classifier is public and maps the utf8 wire type to its vocabulary name."""
+        assert mixin.classify_column_type(pa.string(), strict=True) == "utf8"
+
     @pytest.mark.parametrize(
         "bad_type, sample_values",
         [

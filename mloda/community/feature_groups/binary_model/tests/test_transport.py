@@ -275,6 +275,19 @@ class TestPidRunning:
         )
         assert pid_running(_dead_child_pid()) is False
 
+    @pytest.mark.skipif(not os.path.exists("/proc/self/stat"), reason="asserts the /proc stat read")
+    def test_live_pid_is_running_when_stat_read_is_denied(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A denied stat read (e.g. procfs hidepid) must not report a live process as dead."""
+        monkeypatch.setattr(
+            "mloda.community.feature_groups.binary_model.tests.process_helpers.pid_is_alive", lambda pid: True
+        )
+
+        def denied(self: Path, *args: object, **kwargs: object) -> str:
+            raise PermissionError("denied")
+
+        monkeypatch.setattr(Path, "read_text", denied)
+        assert pid_running(os.getpid()) is True
+
 
 class TestInvocationDirectory:
     def test_created_under_given_parent(self, tmp_path: Path) -> None:

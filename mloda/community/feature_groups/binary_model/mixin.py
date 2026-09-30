@@ -39,7 +39,7 @@ def max_string_length(column: pa.ChunkedArray) -> int:
     return int(longest) if longest is not None else 0
 
 
-def _classify_column_type(arrow_type: pa.DataType, strict: bool = False) -> str | None:
+def classify_column_type(arrow_type: pa.DataType, strict: bool = False) -> str | None:
     """Map an Arrow type to the contract's column-type vocabulary (contract: Capabilities), or
     ``None`` if it falls outside it. ``strict`` admits only ``pa.string()`` as ``utf8`` (the wire
     type); otherwise ``large_string``/``string_view`` also count (they are cast on input)."""
@@ -102,7 +102,7 @@ def _check_input_column_types(table: pa.Table, input_columns: Sequence[str], res
     Data)."""
     for name in input_columns:
         arrow_type = table.schema.field(name).type
-        vocabulary_name = _classify_column_type(arrow_type)
+        vocabulary_name = classify_column_type(arrow_type)
         if vocabulary_name is None:
             raise UnsupportedError(f"column {name!r} has an unsupported type: {arrow_type!r}")
         if vocabulary_name not in resolved.capabilities.column_types:
@@ -197,7 +197,7 @@ def verify_output_contract(
             f"binary output column names {sorted(actual_names)} do not match expected {sorted(expected_names)}"
         )
     for field in result.schema:
-        vocabulary_name = _classify_column_type(field.type, strict=True)
+        vocabulary_name = classify_column_type(field.type, strict=True)
         if vocabulary_name is None or vocabulary_name not in column_types:
             raise OutputContractError(f"binary output column {field.name!r} has an unsupported type: {field.type!r}")
     if result.num_rows != expected_rows:
@@ -218,7 +218,7 @@ def _finalize_output(result: pa.Table, original_table: pa.Table) -> pa.Table:
         field_type = field.type
         if (
             frame_uses_large_string
-            and _classify_column_type(field_type) == "utf8"
+            and classify_column_type(field_type) == "utf8"
             and not pa.types.is_large_string(field_type)
         ):
             column = column.cast(pa.large_string())
