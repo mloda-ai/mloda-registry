@@ -581,16 +581,26 @@ def test_output_contract_checks_delegate_to_output_contract_check_after_reading_
 
 
 @pytest.mark.parametrize("code", [1, 4, 5, 6], ids=lambda code: f"exit_{code}")
-def test_license_in_grace_check_fails_when_binary_exits_nonzero(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, code: int
+@pytest.mark.parametrize(
+    "check_name, extra_leading",
+    [
+        pytest.param("test_license_in_grace_is_accepted", "none", id="in_grace"),
+        pytest.param("test_license_accepted_via_license_file", "env", id="via_license_file"),
+        pytest.param("test_license_accepted_via_license_key_inline", "none", id="via_license_key_inline"),
+        pytest.param("test_license_file_wins_over_license_key", "path", id="file_wins_over_license_key"),
+    ],
+)
+def test_license_accepted_checks_fail_when_binary_exits_nonzero(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, check_name: str, extra_leading: str, code: int
 ) -> None:
-    """A binary answering an in-grace license with a well-formed error exit must fail the in-grace check."""
+    """A binary answering an accepted license with a well-formed error exit must fail every accepted-license check."""
     stderr = json.dumps({"code": code, "message": "rejected"}).encode("utf-8") + b"\n"
     fake_result = subprocess.CompletedProcess(args=[], returncode=code, stdout=b"", stderr=stderr)
     monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", _const_fake(fake_result))
+    leading_args = {"none": (), "env": ({"PATH": "/usr/bin"},), "path": (tmp_path,)}[extra_leading]
 
     with pytest.raises(AssertionError, match="stderr="):
-        BinaryModelConformanceBase().test_license_in_grace_is_accepted(tmp_path / "config.json")
+        getattr(BinaryModelConformanceBase(), check_name)(tmp_path / "config.json", *leading_args)
 
 
 def test_size_cap_constants_are_exported() -> None:
