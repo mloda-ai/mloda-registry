@@ -665,82 +665,54 @@ def test_fake_binary_run_does_not_import_pandas(
     assert read_arrow_stream(output_path.read_bytes()).num_rows == 2
 
 
-class _Int64OnlyConformance(BinaryModelConformanceBase):
-    """A binary advertising only int64, with int64 input hooks (not collected: no ``Test`` prefix)."""
-
-    column_types: ClassVar[frozenset[str]] = frozenset({"int64"})
-
-    def default_input_schema(self) -> pa.Schema:
-        return pa.schema([pa.field(self.default_input_columns[0], pa.int64())])
-
-    def default_input_rows(self) -> dict[str, list[Any]]:
-        return {self.default_input_columns[0]: [1, 2, 3]}
+_SAMPLE_ROWS: dict[pa.DataType, list[Any]] = {
+    pa.int64(): [1, 2, 3],
+    pa.bool_(): [True, False, True],
+    pa.large_string(): ["alpha", "beta", "gamma"],
+}
 
 
-class _AllTypesInt64SchemaConformance(_Int64OnlyConformance):
-    """Advertises every column type but keeps the single int64 default input column."""
+def _kit(column_types: frozenset[str], input_type: pa.DataType | None = None) -> BinaryModelConformanceBase:
+    """A conformance kit advertising `column_types`; with `input_type`, its input hooks use one column of that type."""
+    advertised = column_types
 
-    column_types: ClassVar[frozenset[str]] = COLUMN_TYPES
+    class _Kit(BinaryModelConformanceBase):
+        column_types: ClassVar[frozenset[str]] = advertised
 
+        if input_type is not None:
 
-class _Utf8AdvertisedLargeStringConformance(BinaryModelConformanceBase):
-    """Advertises utf8 but declares its default input column as ``pa.large_string()``."""
+            def default_input_schema(self) -> pa.Schema:
+                return pa.schema([pa.field(self.default_input_columns[0], input_type)])
 
-    column_types: ClassVar[frozenset[str]] = frozenset({"utf8"})
+            def default_input_rows(self) -> dict[str, list[Any]]:
+                return {self.default_input_columns[0]: _SAMPLE_ROWS[input_type]}
 
-    def default_input_schema(self) -> pa.Schema:
-        return pa.schema([pa.field(self.default_input_columns[0], pa.large_string())])
-
-
-class _Int64OnlyDefaultSchemaConformance(BinaryModelConformanceBase):
-    """Advertises only int64 but forgets to override the utf8 default input hooks."""
-
-    column_types: ClassVar[frozenset[str]] = frozenset({"int64"})
+    return _Kit()
 
 
-class _BooleanOnlyConformance(BinaryModelConformanceBase):
-    """A binary advertising no utf8 column type, with boolean input hooks."""
-
-    column_types: ClassVar[frozenset[str]] = frozenset({"boolean"})
-
-    def default_input_schema(self) -> pa.Schema:
-        return pa.schema([pa.field(self.default_input_columns[0], pa.bool_())])
-
-    def default_input_rows(self) -> dict[str, list[Any]]:
-        return {self.default_input_columns[0]: [True, False, True]}
+_INT64 = frozenset({"int64"})
 
 
 @pytest.mark.parametrize(
-    "conformance_cls, message",
+    "kit, message",
     [
+        pytest.param(BinaryModelConformanceBase(), None, id="base"),
+        pytest.param(_kit(_INT64, pa.int64()), None, id="int64_only_overridden"),
+        pytest.param(_kit(_INT64), r"default_input_schema.*col_a|col_a.*default_input_schema", id="undeclared_type"),
         pytest.param(
-            _Int64OnlyDefaultSchemaConformance,
-            r"default_input_schema.*col_a|col_a.*default_input_schema",
-            id="undeclared_type",
+            _kit(frozenset({"utf8"}), pa.large_string()), r"pa\.string\(\)", id="large_string_names_wire_type"
         ),
-        pytest.param(_Utf8AdvertisedLargeStringConformance, r"pa\.string\(\)", id="large_string_names_wire_type"),
     ],
 )
-def test_default_input_schema_uses_advertised_column_types_rejects_undeclared_type(
-    conformance_cls: type[BinaryModelConformanceBase], message: str
+def test_default_input_schema_uses_advertised_column_types(
+    kit: BinaryModelConformanceBase, message: str | None
 ) -> None:
     """A default schema with a type outside ``column_types`` fails, naming the hook, field and wire type."""
+    if message is None:
+        kit.test_default_input_schema_uses_advertised_column_types()
+        return
     with pytest.raises(AssertionError, match=message):
-        conformance_cls().test_default_input_schema_uses_advertised_column_types()
-
-
-@pytest.mark.parametrize(
-    "conformance_cls",
-    [
-        pytest.param(BinaryModelConformanceBase, id="base"),
-        pytest.param(_Int64OnlyConformance, id="int64_only_overridden"),
-    ],
-)
-def test_default_input_schema_uses_advertised_column_types_accepts_matching_schema(
-    conformance_cls: type[BinaryModelConformanceBase],
-) -> None:
-    """A default schema whose types are all advertised passes the check."""
-    conformance_cls().test_default_input_schema_uses_advertised_column_types()
+        kit.test_default_input_schema_uses_advertised_column_types()
 
 
 def _echoing_fake_run_binary(returncode: int, recorded: list[pa.Schema]) -> Callable[..., Any]:
@@ -756,80 +728,53 @@ def _echoing_fake_run_binary(returncode: int, recorded: list[pa.Schema]) -> Call
     return fake
 
 
+_SUCCESS_CHECK = "test_diagnostics_never_leak_marked_cell_value_on_success"
+_FAILURE_CHECK = "test_diagnostics_never_leak_marked_cell_value_on_failure"
+_MARKER_CHECKS = [
+    pytest.param(_SUCCESS_CHECK, (), id="success"),
+    pytest.param(_FAILURE_CHECK, ("missing_column_data_error",), id="failure_missing_column_data_error"),
+    pytest.param(
+        _FAILURE_CHECK, ("reserved_internal_error_operation",), id="failure_reserved_internal_error_operation"
+    ),
+]
+
+
+@pytest.mark.parametrize("check_name, extra_args", _MARKER_CHECKS)
 @pytest.mark.parametrize(
-    "check_name, returncode, extra_args",
+    "kit, marker_type",
     [
-        pytest.param("test_diagnostics_never_leak_marked_cell_value_on_success", 0, (), id="success"),
-        pytest.param(
-            "test_diagnostics_never_leak_marked_cell_value_on_failure",
-            5,
-            ("missing_column_data_error",),
-            id="failure_missing_column_data_error",
-        ),
-        pytest.param(
-            "test_diagnostics_never_leak_marked_cell_value_on_failure",
-            5,
-            ("reserved_internal_error_operation",),
-            id="failure_reserved_internal_error_operation",
-        ),
+        pytest.param(_kit(_INT64, pa.int64()), pa.int64(), id="int64_only"),
+        pytest.param(_kit(COLUMN_TYPES, pa.int64()), pa.int64(), id="all_types_int64_schema"),
+        pytest.param(_kit(frozenset({"boolean"}), pa.bool_()), pa.string(), id="boolean_only"),
     ],
 )
-@pytest.mark.parametrize(
-    "conformance_cls",
-    [
-        pytest.param(_Int64OnlyConformance, id="int64_only"),
-        pytest.param(_AllTypesInt64SchemaConformance, id="all_types_int64_schema"),
-    ],
-)
-def test_marker_checks_send_an_int64_marker_and_catch_a_leak_for_a_non_utf8_binary(
+def test_marker_checks_pick_a_marker_type_and_catch_a_leak(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    conformance_cls: type[BinaryModelConformanceBase],
+    kit: BinaryModelConformanceBase,
+    marker_type: pa.DataType,
     check_name: str,
-    returncode: int,
     extra_args: tuple[str, ...],
 ) -> None:
-    """The marker type follows the first default-schema field, and a leaked value is still caught."""
+    """The marker follows the first field (int64), else utf8; a leak is caught; no marker cell skips success."""
     recorded: list[pa.Schema] = []
+    returncode = 0 if check_name == _SUCCESS_CHECK else 5
     monkeypatch.setattr(
         "mloda.testing.binary_model.conformance.run_binary", _echoing_fake_run_binary(returncode, recorded)
     )
+    check = getattr(kit, check_name)
+    if check_name == _SUCCESS_CHECK and marker_type == pa.string():
+        with pytest.raises(pytest.skip.Exception):
+            check({"PATH": "/usr/bin"}, tmp_path, *extra_args)
+        return
     with pytest.raises(AssertionError, match="leaked into stderr"):
-        getattr(conformance_cls(), check_name)({"PATH": "/usr/bin"}, tmp_path, *extra_args)
-    assert [field.type for field in recorded[0]] == [pa.int64()]
+        check({"PATH": "/usr/bin"}, tmp_path, *extra_args)
+    assert [field.type for field in recorded[0]] == [marker_type]
 
 
 def test_marker_success_check_passes_for_an_int64_only_binary_against_the_simulated_binary(tmp_path: Path) -> None:
     """The int64 marker run succeeds end to end against the simulated binary, which advertises int64."""
-    conformance = _Int64OnlyConformance()
+    conformance = _kit(_INT64, pa.int64())
     license_file = write_text(tmp_path / "license.txt", valid_license_token(["example_binary"]))
     env = conformance.platform_env({_LICENSE_FILE: str(license_file)})
     conformance.test_diagnostics_never_leak_marked_cell_value_on_success(env, tmp_path)
-
-
-def test_marker_success_check_skips_for_a_binary_with_no_int64_or_utf8_first_field(tmp_path: Path) -> None:
-    """A default schema whose first field is neither utf8 nor int64 has no marker cell, so the success check skips."""
-    with pytest.raises(pytest.skip.Exception):
-        _BooleanOnlyConformance().test_diagnostics_never_leak_marked_cell_value_on_success(
-            {"PATH": "/usr/bin"}, tmp_path
-        )
-
-
-@pytest.mark.parametrize(
-    "extra_args",
-    [
-        pytest.param(("missing_column_data_error",), id="failure_missing_column_data_error"),
-        pytest.param(("reserved_internal_error_operation",), id="failure_reserved_internal_error_operation"),
-    ],
-)
-def test_marker_failure_check_falls_back_to_a_utf8_marker_for_a_non_marker_first_field(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, extra_args: tuple[str, ...]
-) -> None:
-    """The failure check falls back to a utf8 marker cell and still catches a leak."""
-    recorded: list[pa.Schema] = []
-    monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", _echoing_fake_run_binary(5, recorded))
-    with pytest.raises(AssertionError, match="leaked into stderr"):
-        _BooleanOnlyConformance().test_diagnostics_never_leak_marked_cell_value_on_failure(
-            {"PATH": "/usr/bin"}, tmp_path, *extra_args
-        )
-    assert [field.type for field in recorded[0]] == [pa.string()]
