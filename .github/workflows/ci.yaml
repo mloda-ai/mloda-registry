@@ -99,7 +99,7 @@ jobs:
   # Runs the kit's own suites on a real Windows host (real child process, real run environment).
   kit-windows:
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 10
     defaults:
       run:
         shell: bash
@@ -121,4 +121,3 @@ jobs:
         uv tool dir --bin >> "$GITHUB_PATH"
     - name: Run the kit suites
       run: tox -e binary-model-kit
-      timeout-minutes: 15
