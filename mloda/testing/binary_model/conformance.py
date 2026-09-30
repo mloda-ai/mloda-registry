@@ -630,12 +630,13 @@ class BinaryModelConformanceBase:
         assert_error_response(result, LICENSE_INVALID)
 
     def test_license_in_grace_is_accepted(self, valid_config_path: Path) -> None:
-        """A token past ``exp`` but still inside its ``grace_days`` window proceeds past the
-        license check; whatever happens next is never code 2 or 3 (spec: Verification step 6;
-        contract: License)."""
+        """An in-grace token (past ``exp``, inside ``grace_days``) is accepted and the run succeeds
+        with contract-conforming output (spec: Verification step 6; contract: License)."""
         env = self.platform_env({"MLODA_LICENSE_KEY": self.in_grace_license_text})
-        result = self._kit_run_with_config(valid_config_path, env)
-        assert_not_rejected_with(result, {LICENSE_MISSING, LICENSE_INVALID})
+        rows = self.default_input_rows()
+        input_bytes = arrow_stream_bytes(self.default_input_schema(), rows)
+        result = self._kit_run_with_config(valid_config_path, env, input_bytes)
+        self._kit_assert_success_table(result, self.make_config()["output_columns"], len(next(iter(rows.values()))))
 
     def test_license_not_yet_valid_is_invalid(self, valid_config_path: Path) -> None:
         """A token whose ``nbf`` lies in the future: exit 3, not yet valid (spec: Verification

@@ -530,10 +530,25 @@ def _case_input_arrow_metadata(tmp_path: Path, env: dict[str, str]) -> Case:
     return check, _const_fake(fake_result)
 
 
+def _case_in_grace(tmp_path: Path, env: dict[str, str]) -> Case:
+    """Reads a correct-plus-extra-column output via the in-grace-license check."""
+    conformance = BinaryModelConformanceBase()
+    input_rows = conformance.default_input_rows()
+    expected_rows = len(next(iter(input_rows.values())))
+    fake_result = _correct_output_with_extra_column(
+        conformance.default_output_column_name,
+        conformance.default_output_column_type(),
+        list(range(expected_rows)),
+    )
+    check = lambda: conformance.test_license_in_grace_is_accepted(tmp_path / "config.json")  # noqa: E731
+    return check, _const_fake(fake_result)
+
+
 @pytest.mark.parametrize(
     "build_case",
     [
         pytest.param(_case_minimal_environment, id="minimal_environment"),
+        pytest.param(_case_in_grace, id="in_grace"),
         pytest.param(_case_hash_with_key, id="hash_with_key"),
         pytest.param(_case_hash_transport, id="hash_transport"),
         pytest.param(_case_hash_field_order, id="hash_field_order"),
@@ -560,6 +575,19 @@ def test_output_contract_checks_delegate_to_output_contract_check_after_reading_
     with pytest.raises(AssertionError) as exc_info:
         check()
     assert isinstance(exc_info.value.__cause__, OutputContractError)
+
+
+@pytest.mark.parametrize("code", [1, 4, 5, 6], ids=lambda code: f"exit_{code}")
+def test_license_in_grace_check_fails_when_binary_exits_nonzero(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, code: int
+) -> None:
+    """A binary answering an in-grace license with a well-formed error exit must fail the in-grace check."""
+    stderr = json.dumps({"code": code, "message": "rejected"}).encode("utf-8") + b"\n"
+    fake_result = subprocess.CompletedProcess(args=[], returncode=code, stdout=b"", stderr=stderr)
+    monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", _const_fake(fake_result))
+
+    with pytest.raises(AssertionError):
+        BinaryModelConformanceBase().test_license_in_grace_is_accepted(tmp_path / "config.json")
 
 
 def test_size_cap_constants_are_exported() -> None:
