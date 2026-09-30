@@ -235,7 +235,7 @@ def _find_offending_parameter_key(config: Mapping[str, Any]) -> str | None:
         return None
     for key, value in parameters.items():
         try:
-            json.dumps(value)
+            json.dumps(value, allow_nan=False)
         except (TypeError, ValueError):
             return str(key)
     return None
@@ -323,7 +323,7 @@ def run_binary(
     on ``input_bytes`` size, and returning the output bytes (contract: Invocation, Data)."""
     config_path = invocation_dir / "config.json"
     try:
-        payload = json.dumps(dict(config))
+        payload = json.dumps(dict(config), allow_nan=False)
     except (TypeError, ValueError) as exc:
         offending_key = _find_offending_parameter_key(config)
         if offending_key is not None:

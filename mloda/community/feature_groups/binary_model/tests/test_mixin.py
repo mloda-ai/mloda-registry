@@ -699,10 +699,19 @@ class TestUpFrontValidationBeforeAnySpawn:
         with pytest.raises(BinaryUsageError):
             model.run_binary_model(table, ["col_a"], "hash", not_a_mapping, {"result": "col_a_hash"})
 
-    def test_non_json_serializable_parameter_value_names_the_key_never_the_value(self) -> None:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param(datetime.datetime(2024, 1, 1, 12, 30, 45), id="datetime"),
+            pytest.param(float("nan"), id="nan"),
+            pytest.param(float("inf"), id="inf"),
+            pytest.param(float("-inf"), id="neg_inf"),
+            pytest.param({"a": [float("nan")]}, id="nested_nan"),
+        ],
+    )
+    def test_non_json_serializable_parameter_value_names_the_key_never_the_value(self, value: Any) -> None:
         model = _faulty_model("hang", BINARY_TIMEOUT_SECONDS=0.5)
         table = pa.table({"col_a": ["alpha"]})
-        value = datetime.datetime(2024, 1, 1, 12, 30, 45)
         with pytest.raises(BinaryUsageError) as excinfo:
             model.run_binary_model(table, ["col_a"], "hash", {"key": value}, {"result": "col_a_hash"})
         assert "key" in excinfo.value.message
