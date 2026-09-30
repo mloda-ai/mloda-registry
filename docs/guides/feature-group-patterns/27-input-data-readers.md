@@ -191,3 +191,4 @@ See also [Data Access Patterns](https://mloda-ai.github.io/mloda/in_depth/data-a
 - **Pattern 17 (Data connection matching)**: `DataAccessCollection` and handles for connection-shaped sources
 - **Pattern 11 (Options)**: option keys and context vs group semantics
 - **Pattern 26 (Input-feature option forwarding)**: a forwarded reader key can collide with a root reader that doesn't decline names it cannot confirm
+- **Pattern 28 (Backend families)**: selecting a sibling reader by the data access it accepts (a credential slot) instead of a class-name key

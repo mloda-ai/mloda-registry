@@ -46,6 +46,8 @@ def match_feature_group_criteria(
 
 **Note:** This only controls MATCHING. It doesn't define discoverable names - users must know to request matching names.
 
+**Note:** For sibling backends that share one feature name and differ by a discriminator option, see [Backend Families](28-backend-families.md).
+
 **Note:** Overriding `match_feature_group_criteria()` does not bypass the required-presence checks below: `install_name_path_presence_guard` and `install_required_when_guard` wrap the class at definition time, so those still run. Strict-value validation (`strict_validation` / `allowed_values` / `element_validator`) is not guarded, though - it runs inside the matcher itself, so an override must delegate through `cls.match_parser_criteria()` to keep it.
 
 ---

@@ -111,16 +111,19 @@ Q25: Several readers under one root group, or a non-file (HTTP/API) source?
 Q26: Does it declare another feature group's feature (source, connector) in input_features(), and need to control which of its own options forward to that input?
     YES → See 26-input-feature-forwarding
 
-Q27: Is it a standard column transform (binning, window/scalar/frame aggregate, rank, offset, percentile, string op, time bucketization, ffill, EMA, resample, sessionization)?
+Q27: Several interchangeable backends for one feature (e.g. BM25 vs. FAISS)?
+    YES → See 28-backend-families
+
+Q28: Is it a standard column transform (binning, window/scalar/frame aggregate, rank, offset, percentile, string op, time bucketization, ffill, EMA, resample, sessionization)?
     YES → See Data Operation Patterns below
 
-Q28: Ready to test your implementation?
+Q29: Ready to test your implementation?
     YES → See 10-testing-guide
 
-Q29: Need to decide whether an option affects feature identity/resolution (group) vs is runtime-only metadata (context)?
+Q30: Need to decide whether an option affects feature identity/resolution (group) vs is runtime-only metadata (context)?
     YES → See 11-options
 
-Q30: Need to define what feature names your FeatureGroup provides (beyond the default class name)?
+Q31: Need to define what feature names your FeatureGroup provides (beyond the default class name)?
     YES → See 13-feature-naming
 ```
 
@@ -157,6 +160,7 @@ Location: `docs/guides/feature-group-patterns/`
 | 25 | `25-masking.md` | Conditional aggregation via FilterMask |
 | 26 | `26-input-feature-forwarding.md` | Consume another group's root feature; option forwarding |
 | 27 | `27-input-data-readers.md` | Sibling reader selection; non-file / HTTP readers |
+| 28 | `28-backend-families.md` | Pick one sibling backend: name, discriminator option, or reader |
 
 ---
 

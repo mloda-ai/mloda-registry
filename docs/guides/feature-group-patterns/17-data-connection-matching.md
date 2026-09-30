@@ -152,6 +152,9 @@ slot, so a later `data_access_handle="prod"` lookup would no longer find it.
 Resolver ambiguity errors redact credential values (keys stay visible, values render
 as `***`), so secrets stay out of logs and tracebacks.
 
+To pick one sibling reader by its credential slot key, see
+[Backend Families: reader delegation](28-backend-families.md#way-3-reader-delegation-sibling-readers).
+
 ## Full Documentation
 
 See [Data Access Patterns](https://mloda-ai.github.io/mloda/in_depth/data-access-patterns/) for detailed patterns.
