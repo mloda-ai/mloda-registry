@@ -92,6 +92,8 @@ def _split_token(token: str) -> tuple[bytes, bytes]:
     segments = token[len(_HEADER) :].split(".")
     if len(segments) not in (1, 2):
         raise LicenseVerificationError("license token has more segments than 'v4.public.<body>.<footer>'")
+    if len(segments) == 2 and not segments[1]:
+        raise LicenseVerificationError("license token has an empty footer segment")
     body = _b64url_decode(segments[0])
     footer = _b64url_decode(segments[1]) if len(segments) == 2 else b""
     if len(body) < _SIGNATURE_LENGTH:

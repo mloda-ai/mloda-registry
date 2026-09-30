@@ -586,7 +586,7 @@ def test_license_in_grace_check_fails_when_binary_exits_nonzero(
     fake_result = subprocess.CompletedProcess(args=[], returncode=code, stdout=b"", stderr=stderr)
     monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", _const_fake(fake_result))
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match="stderr="):
         BinaryModelConformanceBase().test_license_in_grace_is_accepted(tmp_path / "config.json")
 
 

@@ -59,6 +59,13 @@ TOKEN_4_S_3 = (
 # for the wrong-public-key rejection.
 RFC8032_TEST1_PUBLIC_KEY = bytes.fromhex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
 
+
+def _with_body(mutate: Callable[[str], str]) -> str:
+    """Return TOKEN_4_S_1 with its body segment replaced by mutate(body)."""
+    header, kind, body = TOKEN_4_S_1.split(".")
+    return f"{header}.{kind}.{mutate(body)}"
+
+
 # =============================================================================
 # Claim-level fixtures: the official vector keypair doubles as a throwaway signing key
 # =============================================================================
@@ -197,22 +204,24 @@ class TestVerifyV4Public:
             verify_v4_public("v4.public.!!!not-base64url!!!", public_key=OFFICIAL_PUBLIC_KEY)
 
     @pytest.mark.parametrize(
-        "mutate",
+        "make_token",
         [
-            pytest.param(lambda body: body.replace("-", "+", 1), id="plus_for_minus"),
-            pytest.param(lambda body: body.replace("_", "/", 1), id="slash_for_underscore"),
-            pytest.param(lambda body: body + "=" * (-len(body) % 4), id="trailing_padding"),
-            pytest.param(lambda body: body[:-1], id="length_mod_4_is_1"),
-            pytest.param(lambda body: body[:-1] + "B", id="non_zero_trailing_bits"),
+            pytest.param(lambda: _with_body(lambda b: b.replace("-", "+", 1)), id="plus_for_minus"),
+            pytest.param(lambda: _with_body(lambda b: b.replace("_", "/", 1)), id="slash_for_underscore"),
+            pytest.param(lambda: _with_body(lambda b: b + "=" * (-len(b) % 4)), id="trailing_padding"),
+            pytest.param(lambda: _with_body(lambda b: b[:-1]), id="length_mod_4_is_1"),
+            pytest.param(lambda: _with_body(lambda b: b[:-1] + "B"), id="non_zero_trailing_bits"),
+            pytest.param(lambda: TOKEN_4_S_1 + ".", id="trailing_dot"),
+            pytest.param(lambda: TOKEN_4_S_2 + "=", id="footer_padding"),
         ],
     )
-    def test_non_canonical_body_rejected(self, mutate: Callable[[str], str]) -> None:
-        """A body outside the one canonical base64url form (standard alphabet, padding, non-zero
-        trailing bits, impossible length) is a rejection (spec: Verification step 2)."""
-        header, kind, body = TOKEN_4_S_1.split(".")
-        assert mutate(body) != body
+    def test_non_canonical_segment_rejected(self, make_token: Callable[[], str]) -> None:
+        """A body or footer outside the one canonical base64url form, or an empty footer segment, is a
+        rejection (spec: Verification step 2)."""
+        token = make_token()
+        assert token not in (TOKEN_4_S_1, TOKEN_4_S_2)
         with pytest.raises(LicenseVerificationError):
-            verify_v4_public(f"{header}.{kind}.{mutate(body)}", public_key=OFFICIAL_PUBLIC_KEY)
+            verify_v4_public(token, public_key=OFFICIAL_PUBLIC_KEY)
 
     def test_implicit_mismatch_rejected(self) -> None:
         """A token signed with a non-empty implicit assertion must not verify with an empty one:

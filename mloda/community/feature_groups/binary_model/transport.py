@@ -328,7 +328,7 @@ def run_binary(
         offending_key = _find_offending_parameter_key(config)
         if offending_key is not None:
             raise BinaryUsageError(f"parameter {offending_key!r} is not JSON-serializable") from exc
-        raise BinaryUsageError(f"config contains a value that is not JSON-serializable: {exc}") from exc
+        raise BinaryUsageError("config contains a value that is not JSON-serializable") from exc
 
     fd = os.open(str(config_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:

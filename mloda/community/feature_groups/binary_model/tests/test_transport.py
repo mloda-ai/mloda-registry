@@ -30,6 +30,7 @@ from mloda.community.feature_groups.binary_model.errors import (
     BinaryInternalError,
     BinaryTerminatedError,
     BinaryUnavailableError,
+    BinaryUsageError,
     LicenseInvalidError,
     LicenseMissingError,
     OutputContractError,
@@ -643,6 +644,14 @@ class TestRunBinary:
             with pytest.raises(UnsupportedError) as excinfo:
                 _run_binary(STUB_CMD, env, config, input_bytes, inv.path)
         assert excinfo.value.code == 4
+
+    def test_non_finite_config_fallback_message_never_names_the_value(self, tmp_path: Path) -> None:
+        """A NaN outside parameters raises BinaryUsageError whose message does not echo the value."""
+        config = _hash_config(extra=float("nan"))
+        with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
+            with pytest.raises(BinaryUsageError) as excinfo:
+                _run_binary(STUB_CMD, {"PATH": os.defpath}, config, b"", inv.path)
+        assert "nan" not in str(excinfo.value).lower()
 
     def test_hanging_binary_is_terminated_on_timeout_without_a_zombie(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
