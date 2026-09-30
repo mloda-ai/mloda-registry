@@ -167,6 +167,24 @@ class TestResolveBinary:
                 "faulty_binary", [*FAULTY_CMD, "--mode", "version_two_lines"], env={"PATH": os.defpath}, timeout=10.0
             )
 
+    @pytest.mark.skipif(os.name != "posix", reason="replaces file descriptor 0")
+    def test_probes_see_empty_stdin_not_the_callers(self) -> None:
+        """Both probes get EOF on stdin even when the caller's stdin holds data."""
+        r, w = os.pipe()
+        os.write(w, b"caller data")
+        os.close(w)
+        saved = os.dup(0)
+        os.dup2(r, 0)
+        os.close(r)
+        try:
+            resolved = binary.resolve_binary(
+                "faulty_binary", [*FAULTY_CMD, "--mode", "probe_reads_stdin"], env={"PATH": os.defpath}, timeout=10.0
+            )
+        finally:
+            os.dup2(saved, 0)
+            os.close(saved)
+        assert resolved.capabilities.plugin_id == "faulty_binary"
+
 
 class TestCapabilityCache:
     def test_second_call_with_same_argv_spawns_no_process(self, monkeypatch: pytest.MonkeyPatch) -> None:

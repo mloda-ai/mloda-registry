@@ -36,7 +36,14 @@ def _license_env_present() -> bool:
     return bool(os.environ.get("MLODA_LICENSE_FILE") or os.environ.get("MLODA_LICENSE_KEY"))
 
 
+def _stdin_had_data() -> bool:
+    """Whether the probe inherited a stdin that holds bytes, used by ``probe_reads_stdin``."""
+    return bool(sys.stdin.buffer.read())
+
+
 def _version(mode: str) -> int:
+    if mode == "probe_reads_stdin" and _stdin_had_data():
+        return _emit_error(1, "probe stdin was not empty (simulated by faulty_binary probe_reads_stdin)")
     if mode == "reject_license_at_probe" and _license_env_present():
         return _emit_error(1, "probing must not receive a license (simulated by faulty_binary reject_license_at_probe)")
     if mode == "version_hang_with_child":
@@ -66,6 +73,8 @@ def _version(mode: str) -> int:
 
 
 def _capabilities(mode: str) -> int:
+    if mode == "probe_reads_stdin" and _stdin_had_data():
+        return _emit_error(1, "probe stdin was not empty (simulated by faulty_binary probe_reads_stdin)")
     if mode == "reject_license_at_probe" and _license_env_present():
         return _emit_error(1, "probing must not receive a license (simulated by faulty_binary reject_license_at_probe)")
     if mode == "contract_2":

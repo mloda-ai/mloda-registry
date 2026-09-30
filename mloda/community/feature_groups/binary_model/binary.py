@@ -94,6 +94,7 @@ def _run_probe(argv: list[str], flag: str, env: Mapping[str, str], timeout: floa
     try:
         proc = subprocess.Popen(  # nosec B603
             [*argv, flag],
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=dict(env),
