@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import struct
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -58,13 +59,18 @@ def _b64url_encode(data: bytes) -> str:
 
 
 def _b64url_decode(segment: str) -> bytes:
-    """Decode a base64url token segment, re-adding padding; a segment outside the base64url
-    alphabet is a rejection (spec: Verification step 2)."""
+    """Decode an unpadded, canonical base64url segment; anything else is a rejection (spec:
+    Verification step 2)."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]*", segment):
+        raise LicenseVerificationError("license token segment is not base64url")
     padded = segment + "=" * (-len(segment) % 4)
     try:
-        return base64.b64decode(padded.encode("ascii"), altchars=b"-_", validate=True)
+        decoded = base64.b64decode(padded.encode("ascii"), altchars=b"-_", validate=True)
     except ValueError as error:
         raise LicenseVerificationError(f"license token segment is not base64url: {error}") from error
+    if _b64url_encode(decoded) != segment:
+        raise LicenseVerificationError("license token segment is not canonical base64url")
+    return decoded
 
 
 def sign_v4_public(payload: bytes, footer: bytes, *, secret_seed: bytes, implicit: bytes = b"") -> str:
@@ -197,7 +203,11 @@ def _check_clock(now: datetime, *, nbf: datetime, exp: datetime, grace_days: int
         raise LicenseVerificationError(f"license not yet valid: nbf is {nbf.isoformat()}")
     if now <= exp:
         return False
-    if now <= exp + timedelta(days=grace_days):
+    try:
+        grace_end = exp + timedelta(days=grace_days)
+    except OverflowError as error:
+        raise LicenseVerificationError("claim 'grace_days' is out of range") from error
+    if now <= grace_end:
         return True
     raise LicenseVerificationError(f"license expired: exp was {exp.isoformat()} plus {grace_days} grace days")
 

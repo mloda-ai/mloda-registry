@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import struct
+from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -195,6 +196,24 @@ class TestVerifyV4Public:
         with pytest.raises(LicenseVerificationError):
             verify_v4_public("v4.public.!!!not-base64url!!!", public_key=OFFICIAL_PUBLIC_KEY)
 
+    @pytest.mark.parametrize(
+        "mutate",
+        [
+            pytest.param(lambda body: body.replace("-", "+", 1), id="plus_for_minus"),
+            pytest.param(lambda body: body.replace("_", "/", 1), id="slash_for_underscore"),
+            pytest.param(lambda body: body + "=" * (-len(body) % 4), id="trailing_padding"),
+            pytest.param(lambda body: body[:-1], id="length_mod_4_is_1"),
+            pytest.param(lambda body: body[:-1] + "B", id="non_zero_trailing_bits"),
+        ],
+    )
+    def test_non_canonical_body_rejected(self, mutate: Callable[[str], str]) -> None:
+        """A body outside the one canonical base64url form (standard alphabet, padding, non-zero
+        trailing bits, impossible length) is a rejection (spec: Verification step 2)."""
+        header, kind, body = TOKEN_4_S_1.split(".")
+        assert mutate(body) != body
+        with pytest.raises(LicenseVerificationError):
+            verify_v4_public(f"{header}.{kind}.{mutate(body)}", public_key=OFFICIAL_PUBLIC_KEY)
+
     def test_implicit_mismatch_rejected(self) -> None:
         """A token signed with a non-empty implicit assertion must not verify with an empty one:
         the implicit assertion is part of the PAE signing input (spec: Container)."""
@@ -280,6 +299,12 @@ class TestVerifyLicenseTokenRejections:
     def test_one_second_past_grace_rejected_as_expired(self) -> None:
         error = self._reject(_signed(_claims()), now=GRACE_END + timedelta(seconds=1))
         assert "expired" in error.reason.lower()
+
+    @pytest.mark.parametrize("grace_days", [10**9, 3_000_000], ids=["timedelta_overflow", "date_overflow"])
+    def test_huge_grace_days_rejected(self, grace_days: int) -> None:
+        """A ``grace_days`` too large for the datetime range is a rejection, not an escaping
+        ``OverflowError`` (spec: Verification step 6)."""
+        self._reject(_signed(_claims(grace_days=grace_days)), now=EXP + timedelta(seconds=1))
 
     def test_now_before_nbf_rejected(self) -> None:
         self._reject(_signed(_claims()), now=NBF - timedelta(seconds=1))
