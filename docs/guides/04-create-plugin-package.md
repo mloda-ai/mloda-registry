@@ -71,11 +71,61 @@ To pin what an import loads, see [Testing What an Import Loads](feature-group-pa
 
 See the [template README](https://github.com/mloda-ai/mloda-plugin-template#setup-your-plugin) for detailed setup instructions.
 
+## Publish Entry Points
+
+`PluginLoader.all()` discovers an installed package only through entry points. List the concrete classes in a `manifest.py` and point one entry per plugin group (`mloda.feature_groups`, `mloda.compute_frameworks`, `mloda.extenders`) at it:
+
+```python
+# acme/feature_groups/my_plugin/manifest.py
+from mloda.provider import FeatureGroup
+
+from acme.feature_groups.my_plugin.my_feature_group import MyFeatureGroup
+
+FEATURE_GROUPS: list[type[FeatureGroup]] = [MyFeatureGroup]
+```
+
+```toml
+[project.entry-points."mloda.feature_groups"]
+acme-my-plugin = "acme.feature_groups.my_plugin.manifest:FEATURE_GROUPS"
+```
+
+The entry name is a label only; classes still register under their `module:qualname` key.
+
+### Optional Backends
+
+A manifest that raises `ImportError` is skipped only when the missing module is an optional root; otherwise loading fails. Without a declaration the loader uses core's built-in roots (pandas, polars, duckdb, ...). For any other backend, add a companion `mloda.optional_dependencies` entry named like the entry it protects; it replaces the built-in roots for that entry:
+
+```toml
+[project.optional-dependencies]
+rdf = ["rdflib"]
+
+[project.entry-points."mloda.feature_groups"]
+acme-my-plugin = "acme.feature_groups.my_plugin.manifest:FEATURE_GROUPS"
+acme-my-plugin-rdf = "acme.feature_groups.my_plugin.rdf_manifest:FEATURE_GROUPS"
+
+[project.entry-points."mloda.optional_dependencies"]
+acme-my-plugin-rdf = "acme.feature_groups.my_plugin._optional_dependencies:RDF"
+```
+
+```python
+# acme/feature_groups/my_plugin/_optional_dependencies.py
+RDF: tuple[str, ...] = ("rdflib",)
+```
+
+Two rules:
+
+- **One entry point per optional extra.** An `ImportError` skips the whole entry point, so a mixed manifest loses all its groups when `rdflib` is missing. Give each extra its own manifest and entry, and keep the base manifest free of optional imports.
+- **The marker must import without the backend.** A marker that fails to import is ignored with a warning and the missing `rdflib` then fails loading, so the marker cannot live in the manifest (or a package `__init__.py`) that imports `rdflib`.
+
+See [Plugin Loader: Entry Points](https://mloda-ai.github.io/mloda/in_depth/plugin-loader/#entry-points) for validation, collision, and skip-logging behavior.
+
 ## Install Locally
 
 ```bash
 pip install -e .
 ```
+
+Check discovery: `PluginLoader().load_entry_points()` (from `mloda.user`) returns the registered keys.
 
 ## Next Steps
 
