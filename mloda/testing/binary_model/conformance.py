@@ -340,7 +340,8 @@ class BinaryModelConformanceBase:
     def default_input_schema(self) -> pa.Schema:
         """A schema matching ``default_input_columns``, generic enough that any operation over the
         column-type vocabulary can run against it successfully. Must use only types in
-        ``self.column_types``: a binary without utf8 overrides this and ``default_input_rows()``."""
+        ``self.column_types``: a binary without utf8 overrides this and ``default_input_rows()``.
+        Schema and rows must cover every ``default_input_columns`` entry."""
         return pa.schema([pa.field(self.default_input_columns[0], pa.string())])
 
     def default_input_rows(self) -> dict[str, list[Any]]:
@@ -894,15 +895,18 @@ class BinaryModelConformanceBase:
         schema = self.default_input_schema()
         rows = self.default_input_rows()
         total = len(next(iter(rows.values())))
-        if total < 2:
-            pytest.skip("needs at least two default input rows to split around zero-row batches")
-        split = max(1, total // 2)
+        if total == 0:
+            pytest.skip("needs at least one default input row to split around zero-row batches")
+        split = total // 2
         first = {name: values[:split] for name, values in rows.items()}
         rest = {name: values[split:] for name, values in rows.items()}
         empty: dict[str, list[Any]] = {name: [] for name in schema.names}
         config = self.make_config()
         config_path = write_json(tmp_path / "config.json", config)
         chunked = arrow_stream_bytes_multi_batch(schema, [empty, first, empty, rest, empty])
+        assert enumerate_ipc_message_types(chunked).count("record batch") == 5, (
+            "test setup: the stream must carry five record-batch messages"
+        )
         chunked_result = self._kit_run_with_config(config_path, valid_license_env, chunked)
         chunked_table = self._kit_assert_success_table(chunked_result, config["output_columns"], total)
         baseline_result = self._kit_run_with_config(config_path, valid_license_env, arrow_stream_bytes(schema, rows))
@@ -972,8 +976,8 @@ class BinaryModelConformanceBase:
         column = self.default_input_columns[0]
         config = self.make_config(input_columns=[column, self.extra_input_column])
         config_path = write_json(tmp_path / "config.json", config)
-        schema = pa.schema([pa.field(column, pa.int64())])  # extra_input_column missing entirely
-        input_bytes = arrow_stream_bytes(schema, {column: [1, 2]})
+        schema = pa.schema([pa.field(column, self.default_input_schema().field(0).type)])  # extra column missing
+        input_bytes = arrow_stream_bytes(schema, {column: self.default_input_rows()[column]})
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
@@ -982,8 +986,10 @@ class BinaryModelConformanceBase:
         column = self.default_input_columns[0]
         config = self.make_config(input_columns=[column])
         config_path = write_json(tmp_path / "config.json", config)
-        schema = pa.schema([pa.field(column, pa.int64()), pa.field(self.extra_input_column, pa.int64())])
-        input_bytes = arrow_stream_bytes(schema, {column: [1], self.extra_input_column: [2]})
+        column_type = self.default_input_schema().field(0).type
+        values = self.default_input_rows()[column]
+        schema = pa.schema([pa.field(column, column_type), pa.field(self.extra_input_column, column_type)])
+        input_bytes = arrow_stream_bytes(schema, {column: values, self.extra_input_column: values})
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
@@ -996,10 +1002,12 @@ class BinaryModelConformanceBase:
         extra_column = self.extra_input_column
         config = self.make_config(input_columns=[column, extra_column])
         config_path = write_json(tmp_path / "config.json", config)
+        column_type = self.default_input_schema().field(0).type
         schema = pa.schema(
-            [pa.field(column, pa.int64()), pa.field(column, pa.int64()), pa.field(extra_column, pa.int64())]
+            [pa.field(column, column_type), pa.field(column, column_type), pa.field(extra_column, column_type)]
         )
-        input_bytes = arrow_stream_bytes_from_arrays(schema, [pa.array([1, 2]), pa.array([3, 4]), pa.array([5, 6])])
+        values = pa.array(self.default_input_rows()[column], type=column_type)
+        input_bytes = arrow_stream_bytes_from_arrays(schema, [values, values, values])
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
@@ -1359,8 +1367,6 @@ class BinaryModelConformanceBase:
         """The marker cell value through two failing cases that still reach the data stage: a data
         error from a wrong schema, and the reserved internal-error operation. Neither leaks the
         marker into stderr (contract: Data handling, Conformance)."""
-        if "utf8" not in self.column_types:
-            pytest.skip("the marker cell is a string and this binary has no utf8 column type")
         column = self.default_input_columns[0]
         if case == "missing_column_data_error":
             input_columns = [column, "col_b_missing"]

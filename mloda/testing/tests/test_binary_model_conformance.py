@@ -523,7 +523,10 @@ def _case_input_arrow_metadata(tmp_path: Path, env: dict[str, str]) -> Case:
     """Reads a correct-plus-extra-column output via the input-Arrow-metadata check."""
     conformance = BinaryModelConformanceBase()
     output_name = conformance.default_output_column_name
-    fake_result = _correct_output_with_extra_column(output_name, conformance.default_output_column_type(), [0, 0])
+    row_count = len(next(iter(conformance.default_input_rows().values())))
+    fake_result = _correct_output_with_extra_column(
+        output_name, conformance.default_output_column_type(), [0] * row_count
+    )
     check = lambda: conformance.test_input_arrow_metadata_schema_and_field_level_accepted_and_stripped_from_output(  # noqa: E731
         env, tmp_path
     )

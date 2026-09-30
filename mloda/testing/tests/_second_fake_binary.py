@@ -49,6 +49,7 @@ def _install_second_binary_identity() -> None:
     simulated_binary.VERSION = VERSION
     simulated_binary.CAPABILITY_OPERATIONS = [OPERATION]
     simulated_binary._OPERATION_OUTPUTS = {OPERATION: (OUTPUT_KEY,)}
+    # setattr because mypy --strict rejects assigning a name the module imports without re-exporting.
     setattr(simulated_binary, "COLUMN_TYPES", COLUMN_TYPES)
     simulated_binary._compute_hash_output = _utf8_output(simulated_binary._compute_hash_output)
 
