@@ -1,18 +1,19 @@
 """Meta-tests for the Windows-environment handling in ``BinaryModelConformanceBase``: a monkeypatched
 ``os.name`` (this codebase's convention, since ``sys.platform`` comparisons are dead-code-eliminated by
-``mypy --strict``) lets them run on any host, including the Windows CI job; the POSIX-shape case skips
-off POSIX."""
+``mypy --strict``) lets them run on any host, including the Windows CI job."""
 
 from __future__ import annotations
 
+import json
 import os
+import sys
 from pathlib import Path
 
 import pyarrow as pa
 import pytest
 
 from mloda.community.feature_groups.binary_model.transport import minimal_environment
-from mloda.testing.binary_model.conformance import BinaryModelConformanceBase, write_text
+from mloda.testing.binary_model.conformance import BinaryModelConformanceBase, run_binary, write_text
 
 
 class _ConformanceHarness(BinaryModelConformanceBase):
@@ -74,7 +75,7 @@ def test_platform_env_layers_env_on_minimal_environment_on_nt(monkeypatch: pytes
     result = conformance.platform_env(source_env)
     assert result == {**minimal_environment(inherit_license=False), "FOO": "bar"}
     assert result["SYSTEMROOT"] == "C:\\Windows"
-    assert "PATH" in result
+    assert result["PATH"] == "/host/bin"
     assert source_env == {"FOO": "bar"}
 
 
@@ -86,20 +87,19 @@ def test_platform_env_omits_systemroot_when_unset_on_nt(monkeypatch: pytest.Monk
     monkeypatch.setenv("PATH", "/host/bin")
     conformance = _ConformanceHarness()
     result = conformance.platform_env({"FOO": "bar"})
-    assert "SYSTEMROOT" not in result
-    assert "PATH" in result
-    assert result["FOO"] == "bar"
+    assert result == {"PATH": "/host/bin", "FOO": "bar"}
 
 
-@pytest.mark.skipif(os.name != "posix", reason="asserts the POSIX-shaped minimal environment")
 def test_platform_env_delegates_to_minimal_environment_off_nt(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Off ``os.name == "nt"``, a host ``SYSTEMROOT`` never appears and the result is the production
-    minimal environment plus the given entries."""
+    """Off ``os.name == "nt"``, a host ``SYSTEMROOT`` never appears and the result is the POSIX
+    minimal environment plus the given entries, on any host."""
+    # warm pyarrow's lazy sysconfig-touching init under the real os.name before faking it below
+    pa.array([0], type=pa.int64())
+    monkeypatch.setattr(os, "name", "posix")
     monkeypatch.setenv("SYSTEMROOT", "C:\\Windows")
-    conformance = _ConformanceHarness()
-    result = conformance.platform_env({"FOO": "bar"})
-    assert "SYSTEMROOT" not in result
-    assert result == {**minimal_environment(inherit_license=False), "FOO": "bar"}
+    monkeypatch.setenv("PATH", "/host/bin")
+    result = _ConformanceHarness().platform_env({"FOO": "bar"})
+    assert result == {"PATH": "/host/bin", "LC_ALL": "C.UTF-8", "LANG": "C.UTF-8", "FOO": "bar"}
 
 
 def test_platform_env_explicit_entries_win(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -118,3 +118,14 @@ def test_platform_env_does_not_leak_ambient_license(monkeypatch: pytest.MonkeyPa
     result = _ConformanceHarness().platform_env({})
     assert "MLODA_LICENSE_KEY" not in result
     assert "MLODA_LICENSE_FILE" not in result
+
+
+def test_real_child_process_receives_kit_path() -> None:
+    """A real child process sees the PATH the kit sends, on the host it runs on."""
+    sent = _ConformanceHarness().platform_env({})
+    cmd = [sys.executable, "-c", "import json, os, sys; sys.stdout.write(json.dumps(dict(os.environ)))"]
+    result = run_binary(cmd, [], sent)
+    child_env = {k.upper(): v for k, v in json.loads(result.stdout).items()}
+    assert child_env["PATH"] == sent["PATH"]
+    if "SYSTEMROOT" in sent:
+        assert child_env["SYSTEMROOT"] == sent["SYSTEMROOT"]

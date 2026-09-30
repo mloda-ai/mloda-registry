@@ -387,7 +387,10 @@ class BinaryModelConformanceBase:
     # -- Fixtures --
 
     def platform_env(self, env: dict[str, str]) -> dict[str, str]:
-        """Production's minimal environment without license variables, overridden by ``env``."""
+        """Production's minimal environment without license variables, overridden by ``env``.
+
+        An override should build on ``super().platform_env(env)`` so kit runs keep ``PATH``.
+        """
         return {**minimal_environment(inherit_license=False), **env}
 
     @pytest.fixture
