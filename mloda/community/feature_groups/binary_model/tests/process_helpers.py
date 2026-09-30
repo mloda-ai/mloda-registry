@@ -8,7 +8,18 @@ import os
 import signal
 from pathlib import Path
 
-from mloda.community.feature_groups.binary_model.transport import pid_is_alive
+
+def pid_is_alive(pid: int) -> bool:
+    """Whether ``pid`` names a live process; conservatively alive on Windows, where ``os.kill`` terminates."""
+    if os.name == "nt":
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def pid_running(pid: int) -> bool:

@@ -9,7 +9,6 @@ import datetime
 import logging
 import os
 import sys
-import tempfile
 import time
 from pathlib import Path
 from typing import Any, ClassVar, cast
@@ -17,7 +16,7 @@ from typing import Any, ClassVar, cast
 import pyarrow as pa
 import pytest
 
-from mloda.community.feature_groups.binary_model import binary, mixin
+from mloda.community.feature_groups.binary_model import binary, mixin, transport
 from mloda.community.feature_groups.binary_model.errors import (
     BinaryInternalError,
     BinaryTerminatedError,
@@ -31,7 +30,6 @@ from mloda.community.feature_groups.binary_model.errors import (
 )
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
 from mloda.community.feature_groups.binary_model.tests.process_helpers import kill_descendant_if_running, pid_running
-from mloda.community.feature_groups.binary_model.transport import TEMP_PARENT_NAME
 from mloda.testing.binary_model.arrow import arrow_stream_bytes, arrow_stream_bytes_invalid_utf8
 from mloda.testing.binary_model.conformance import (
     BinaryModelConformanceBase,
@@ -114,9 +112,9 @@ def _faulty_model(mode: str, **class_attrs: Any) -> type[BinaryModelMixin]:
 
 
 def _mloda_binary_children_for_current_pid() -> list[Path]:
-    """Children of ``<temp>/mloda-binary`` named for the current process id: empty once every
+    """Children of ``the per-user default parent`` named for the current process id: empty once every
     invocation directory this process created has been cleaned up (other pids are ignored)."""
-    parent = Path(tempfile.gettempdir()) / TEMP_PARENT_NAME
+    parent = transport.default_parent()
     if not parent.is_dir():
         return []
     pid_prefix = f"{os.getpid()}-"
