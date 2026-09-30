@@ -23,14 +23,14 @@ def pid_is_alive(pid: int) -> bool:
 
 
 def pid_running(pid: int) -> bool:
-    """Alive and not a zombie (a killed process awaiting reaping counts as dead)."""
+    """Alive and not a zombie; a pid reaped mid-check counts as dead."""
     if not pid_is_alive(pid):
         return False
     try:
         stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
     except OSError:
-        return True
-    return stat.rsplit(")", 1)[-1].split()[0] != "Z"
+        return not Path("/proc/self/stat").exists()
+    return stat.rsplit(")", 1)[-1].split()[0] not in ("Z", "X")
 
 
 def kill_descendant_if_running(pid_file: Path, child_pid: int | None) -> None:

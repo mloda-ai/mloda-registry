@@ -266,6 +266,16 @@ class TestPidIsAlive:
         assert pid_is_alive(_dead_child_pid()) is False
 
 
+class TestPidRunning:
+    @pytest.mark.skipif(not os.path.exists("/proc/self/stat"), reason="asserts the /proc stat read")
+    def test_reaped_pid_is_not_running_when_zero_signal_probe_saw_zombie(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A pid reaped between the zero-signal probe and the /proc read must read as not running."""
+        monkeypatch.setattr(
+            "mloda.community.feature_groups.binary_model.tests.process_helpers.pid_is_alive", lambda pid: True
+        )
+        assert pid_running(_dead_child_pid()) is False
+
+
 class TestInvocationDirectory:
     def test_created_under_given_parent(self, tmp_path: Path) -> None:
         parent = tmp_path / TEMP_PARENT_NAME
