@@ -663,3 +663,129 @@ def test_fake_binary_run_does_not_import_pandas(
     completed, summary = run_module_probe(module, args, ("pandas",), env)
     assert summary == {"code": 0, "loaded": []}, (summary, completed.stderr)
     assert read_arrow_stream(output_path.read_bytes()).num_rows == 2
+
+
+class _Int64OnlyConformance(BinaryModelConformanceBase):
+    """A binary advertising only int64, with int64 input hooks (not collected: no ``Test`` prefix)."""
+
+    column_types: ClassVar[frozenset[str]] = frozenset({"int64"})
+
+    def default_input_schema(self) -> pa.Schema:
+        return pa.schema([pa.field(self.default_input_columns[0], pa.int64())])
+
+    def default_input_rows(self) -> dict[str, list[Any]]:
+        return {self.default_input_columns[0]: [1, 2, 3]}
+
+
+class _Int64OnlyDefaultSchemaConformance(BinaryModelConformanceBase):
+    """Advertises only int64 but forgets to override the utf8 default input hooks."""
+
+    column_types: ClassVar[frozenset[str]] = frozenset({"int64"})
+
+
+class _BooleanOnlyConformance(BinaryModelConformanceBase):
+    """A binary advertising no utf8 column type, with boolean input hooks."""
+
+    column_types: ClassVar[frozenset[str]] = frozenset({"boolean"})
+
+    def default_input_schema(self) -> pa.Schema:
+        return pa.schema([pa.field(self.default_input_columns[0], pa.bool_())])
+
+    def default_input_rows(self) -> dict[str, list[Any]]:
+        return {self.default_input_columns[0]: [True, False, True]}
+
+
+def test_default_input_schema_uses_advertised_column_types_rejects_undeclared_type() -> None:
+    """A default schema with a type outside ``column_types`` fails, naming the hook and the field."""
+    with pytest.raises(AssertionError, match=r"default_input_schema.*col_a|col_a.*default_input_schema"):
+        _Int64OnlyDefaultSchemaConformance().test_default_input_schema_uses_advertised_column_types()
+
+
+@pytest.mark.parametrize(
+    "conformance_cls",
+    [
+        pytest.param(BinaryModelConformanceBase, id="base"),
+        pytest.param(_Int64OnlyConformance, id="int64_only_overridden"),
+    ],
+)
+def test_default_input_schema_uses_advertised_column_types_accepts_matching_schema(
+    conformance_cls: type[BinaryModelConformanceBase],
+) -> None:
+    """A default schema whose types are all advertised passes the check."""
+    conformance_cls().test_default_input_schema_uses_advertised_column_types()
+
+
+def _echoing_fake_run_binary(returncode: int, recorded: list[pa.Schema]) -> Callable[..., Any]:
+    """A fake ``run_binary`` recording the input schema and echoing the first cell into a JSON error line."""
+
+    def fake(cmd: object, args: object, env: object, input_bytes: bytes = b"", **kwargs: object) -> Any:
+        table = read_arrow_stream(input_bytes)
+        recorded.append(table.schema)
+        value = table.column(0)[0].as_py()
+        stderr = json.dumps({"code": returncode, "message": f"bad cell {value}"}).encode("utf-8") + b"\n"
+        return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=b"", stderr=stderr)
+
+    return fake
+
+
+@pytest.mark.parametrize(
+    "check_name, returncode, extra_args",
+    [
+        pytest.param("test_diagnostics_never_leak_marked_cell_value_on_success", 0, (), id="success"),
+        pytest.param(
+            "test_diagnostics_never_leak_marked_cell_value_on_failure",
+            5,
+            ("missing_column_data_error",),
+            id="failure_missing_column_data_error",
+        ),
+        pytest.param(
+            "test_diagnostics_never_leak_marked_cell_value_on_failure",
+            5,
+            ("reserved_internal_error_operation",),
+            id="failure_reserved_internal_error_operation",
+        ),
+    ],
+)
+def test_marker_checks_send_an_int64_marker_and_catch_a_leak_for_a_non_utf8_binary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, check_name: str, returncode: int, extra_args: tuple[str, ...]
+) -> None:
+    """For an int64-only binary the marker checks send an int64 cell and still catch a leaked value."""
+    recorded: list[pa.Schema] = []
+    monkeypatch.setattr(
+        "mloda.testing.binary_model.conformance.run_binary", _echoing_fake_run_binary(returncode, recorded)
+    )
+    with pytest.raises(AssertionError):
+        getattr(_Int64OnlyConformance(), check_name)({"PATH": "/usr/bin"}, tmp_path, *extra_args)
+    assert [field.type for field in recorded[0]] == [pa.int64()]
+
+
+def test_marker_success_check_passes_for_an_int64_only_binary_against_the_simulated_binary(tmp_path: Path) -> None:
+    """The int64 marker run succeeds end to end against the simulated binary, which advertises int64."""
+    conformance = _Int64OnlyConformance()
+    license_file = write_text(tmp_path / "license.txt", valid_license_token(["example_binary"]))
+    env = conformance.platform_env({_LICENSE_FILE: str(license_file)})
+    conformance.test_diagnostics_never_leak_marked_cell_value_on_success(env, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "check_name, extra_args",
+    [
+        pytest.param("test_diagnostics_never_leak_marked_cell_value_on_success", (), id="success"),
+        pytest.param(
+            "test_diagnostics_never_leak_marked_cell_value_on_failure",
+            ("missing_column_data_error",),
+            id="failure_missing_column_data_error",
+        ),
+        pytest.param(
+            "test_diagnostics_never_leak_marked_cell_value_on_failure",
+            ("reserved_internal_error_operation",),
+            id="failure_reserved_internal_error_operation",
+        ),
+    ],
+)
+def test_marker_checks_skip_for_a_binary_with_no_int64_or_utf8_column_type(
+    tmp_path: Path, check_name: str, extra_args: tuple[str, ...]
+) -> None:
+    """A binary advertising neither utf8 nor int64 has no marker cell it can carry, so both checks skip."""
+    with pytest.raises(pytest.skip.Exception):
+        getattr(_BooleanOnlyConformance(), check_name)({"PATH": "/usr/bin"}, tmp_path, *extra_args)
