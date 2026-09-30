@@ -112,7 +112,7 @@ def _faulty_model(mode: str, **class_attrs: Any) -> type[BinaryModelMixin]:
 
 
 def _mloda_binary_children_for_current_pid() -> list[Path]:
-    """Children of ``the per-user default parent`` named for the current process id: empty once every
+    """Children of ``default_parent()`` named for the current process id: empty once every
     invocation directory this process created has been cleaned up (other pids are ignored)."""
     parent = transport.default_parent()
     if not parent.is_dir():

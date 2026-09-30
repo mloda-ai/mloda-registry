@@ -175,7 +175,6 @@ class InvocationDirectory:
 
 
 def _lock_file_fd(directory: Path) -> int:
-    """Create the lock file in ``directory`` and take an exclusive lock on it."""
     fd = os.open(
         str(directory / LOCK_FILE_NAME), os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600
     )
