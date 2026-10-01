@@ -1,0 +1,3 @@
+Self-made test books, written by make_twin.py. The bookings are invented for this package.
+The DATEV header and column line are taken from ledermann/datev (MIT, Copyright (c) Georg
+Ledermann), see ../datev_ledermann/NOTICE. index.xml is a copy of ../dossier_a/index.xml.
