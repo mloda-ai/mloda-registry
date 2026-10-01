@@ -32,14 +32,28 @@ from mloda.user import DataAccessCollection, Feature, Options
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from .datev import DatevExtfReader
-from .reader import ADMISSIBILITY_COLUMN, GdpduReader, admissibility_verdict, outside_scope_verdict
+from .reader import (
+    ADMISSIBILITY_COLUMN,
+    GdpduReader,
+    admissibility_verdict,
+    describe_verdicts,
+    outside_scope_verdict,
+)
 
 JOURNAL = "gdpdu_journal"
 ADMITTED = f"{JOURNAL}__admitted"
 
 
 class AdmissibilityRefused(Exception):
-    """A ledger line an admissibility rule cannot clear, or a rule that cannot be evaluated."""
+    """A ledger line an admissibility rule cannot clear, or a rule that cannot be evaluated.
+
+    `verdicts` counts the journal's rows by verdict when the refusal comes from judging them
+    (see apply_rules), and is None when it comes before any row was judged.
+    """
+
+    def __init__(self, message: str, verdicts: Optional[dict[str, int]] = None) -> None:
+        super().__init__(message)
+        self.verdicts = verdicts
 
 
 class LateEntryRefused(AdmissibilityRefused):
@@ -340,8 +354,25 @@ def apply_rules(rules: Sequence[AdmissibilityRule], table: pa.Table) -> pa.Table
                 (rule.REFUSAL, f"{rule.describe()} found line(s) that cannot be cleared: " + "; ".join(parts))
             )
     if refusals:
+        # Count every row, so the refusal says how much of the journal it stopped: a row any
+        # rule refused is refused; else a row a rule could not judge is unevaluated; else it
+        # is outside-scope or admitted, as its stamp would have said.
+        unevaluable = len(judged) < len(rules)
+        counts: dict[str, int] = {}
+        for i in range(table.num_rows):
+            row = [outcomes[i] for outcomes in judged]
+            if any(o not in (ADMIT, OUTSIDE) for o in row):
+                kind = "refused"
+            elif unevaluable:
+                kind = "unevaluated"
+            elif OUTSIDE in row:
+                kind = "outside-scope"
+            else:
+                kind = "admitted"
+            counts[kind] = counts.get(kind, 0) + 1
         kinds = {kind for kind, _ in refusals}
-        raise (kinds.pop() if len(kinds) == 1 else AdmissibilityRefused)(" | ".join(m for _, m in refusals))
+        message = " | ".join(m for _, m in refusals) + f" ({describe_verdicts(counts)})"
+        raise (kinds.pop() if len(kinds) == 1 else AdmissibilityRefused)(message, verdicts=counts)
 
     # A total is worth what the admissibility of its rows is worth, so the verdict travels
     # WITH the data as evidence. SourcesFeatureGroup totals only affirmative verdicts, so a

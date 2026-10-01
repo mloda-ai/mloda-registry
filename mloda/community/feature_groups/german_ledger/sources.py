@@ -13,7 +13,7 @@ from mloda.steward import HookContext
 from mloda.user import Feature, Options
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from .reader import ADMISSIBILITY_COLUMN, is_admitted
+from .reader import ADMISSIBILITY_COLUMN, describe_verdicts, is_admitted, verdict_kind
 
 # Bumped when a field changes meaning; new fields may be added within a version, so a consumer
 # reads the fields it knows by name.
@@ -21,7 +21,15 @@ RECEIPT_VERSION = 1
 
 
 class InadmissibleTotal(Exception):
-    """Rows were asked to produce a total without any policy attesting their admissibility."""
+    """Rows were asked to produce a total without any policy attesting their admissibility.
+
+    `verdicts` counts the rows by the stamp they carry (or `unstamped`), so the refusal says
+    how much of the journal stood in the way.
+    """
+
+    def __init__(self, message: str, verdicts: Optional[dict[str, int]] = None) -> None:
+        super().__init__(message)
+        self.verdicts = verdicts
 
 
 class UncitedValue(Exception):
@@ -76,15 +84,18 @@ class SourcesFeatureGroup(FeatureChainParserMixin, FeatureGroup):
             raise InadmissibleTotal(
                 f"refusing to total: no admissibility evidence in {ADMISSIBILITY_COLUMN!r}. "
                 "An admissibility policy (see AdmissibilityPolicyGroup) must stamp the rows "
-                "before a citable total is produced."
+                "before a citable total is produced.",
+                verdicts={"unstamped": data.num_rows},
             )
         stamps = data.column(ADMISSIBILITY_COLUMN).to_pylist()
         bad = [e for e in stamps if not is_admitted(e)]
         if bad:
+            counts = dict(Counter(verdict_kind(e) for e in stamps))
             raise InadmissibleTotal(
                 f"refusing to total: {len(bad)} row(s) carry no affirmative admissibility "
                 f"verdict (e.g. {bad[0]!r}). A blank, negative or malformed stamp is not an "
-                "admission."
+                f"admission ({describe_verdicts(counts)}).",
+                verdicts=counts,
             )
 
         out: dict[str, pa.Array] = {}
