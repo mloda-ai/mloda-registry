@@ -123,6 +123,26 @@ when an extender wraps the step. `run_with_receipts` adds a pass-through `Receip
 unless you already wrap `calculate_feature`. After a plain `run_all`, `evidence_receipts(result)`
 still works, but `run` is all `None` and there is no `resolution`.
 
+**A refused run is counted too.** A refusal raises, so there is no result to read receipts
+from. Instead, `AdmissibilityRefused`, `LateEntryRefused` and `InadmissibleTotal` carry
+`verdicts`, the rows counted by kind (`admitted`, `outside-scope`, `refused`,
+`unevaluated`, `malformed`, `unstamped`), and say it in the message. `refusal_receipt(error)`
+finds that refusal in the exception mloda raised:
+
+```python
+try:
+    run_with_receipts(["revenue__sources"], ...)
+except Exception as error:
+    refusal_receipt(error)  # {"refused": "InadmissibleTotal", "verdicts": {"admitted": 7, "outside-scope": 1}, ...}
+```
+
+**Mapping to OpenLineage (nothing is emitted).** The receipt is shaped so a lineage consumer
+can take it without rework:
+- `run.run_id` maps to the OpenLineage run;
+- each `plan` step (`PlanStep`) maps to a job;
+- the reader's `data_access_identity` (e.g. `datev:<folder>@<sha12>`) maps to the input dataset;
+- `policies`/`verdicts`, `basis` and `resolution` map to a custom run facet.
+
 The format is our own and versioned (`RECEIPT_VERSION = 1`). Read fields by name: new fields
 may be added within a version. It moves to `declared_attributes` with mloda 0.15
 (mloda-registry #887). It is not tamper-proof: anything inside the process can write one.

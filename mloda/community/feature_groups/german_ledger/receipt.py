@@ -12,7 +12,8 @@ from typing import Any, Optional
 from mloda.steward import Extender, ExtenderHook
 from mloda.user import mloda
 
-from .sources import RECEIPT_VERSION
+from .policy import AdmissibilityRefused
+from .sources import RECEIPT_VERSION, InadmissibleTotal
 
 PACKAGE = "mloda-community-german-ledger"
 _SUFFIX = "~receipt"
@@ -133,6 +134,26 @@ def evidence_receipts(result: Any, diagnosis: Any = None) -> list[dict[str, Any]
                     receipt["resolution"] = resolution
                 receipts.append(receipt)
     return receipts
+
+
+def refusal_receipt(error: BaseException) -> Optional[dict[str, Any]]:
+    """The receipt of a refused run: which refusal stopped it and how its rows were judged.
+
+    A refusal raises, so a run that is refused returns no result to read receipts from. This
+    finds the admissibility refusal in the exception chain mloda raised and returns its
+    verdict counts, or None when the error is no counted refusal.
+    """
+    seen: Optional[BaseException] = error
+    while seen is not None:
+        if isinstance(seen, (AdmissibilityRefused, InadmissibleTotal)) and seen.verdicts is not None:
+            return {
+                "receipt": RECEIPT_VERSION,
+                "refused": type(seen).__name__,
+                "message": str(seen),
+                "verdicts": dict(seen.verdicts),
+            }
+        seen = seen.__cause__ or seen.__context__
+    return None
 
 
 class ReceiptContext(Extender):

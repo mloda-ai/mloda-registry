@@ -53,6 +53,26 @@ OUTSIDE_SCOPE_PREFIX = "outside-scope:"
 _POLICY_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 
 
+# How many rows got which verdict, in this order. The same shape travels in a receipt's
+# `verdicts` and on a refusal, so a refused run is counted the way an answered one is.
+VERDICT_KINDS = ("admitted", "outside-scope", "refused", "unevaluated", "malformed", "unstamped")
+
+
+def verdict_kind(stamp: object) -> str:
+    """The kind of one written stamp: admitted, outside-scope, or malformed."""
+    if is_admitted(stamp):
+        return "admitted"
+    if isinstance(stamp, str) and stamp.startswith(OUTSIDE_SCOPE_PREFIX):
+        return "outside-scope"
+    return "malformed"
+
+
+def describe_verdicts(verdicts: dict[str, int]) -> str:
+    """'verdicts over 8 row(s): 7 admitted, 1 outside-scope' for a refusal's message."""
+    parts = [f"{verdicts[k]} {k}" for k in VERDICT_KINDS if verdicts.get(k)]
+    return f"verdicts over {sum(verdicts.values())} row(s): " + ", ".join(parts)
+
+
 def admissibility_verdict(policy: str, **parameters: object) -> str:
     """Build an affirmative verdict naming the policy that issued it.
 
