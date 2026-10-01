@@ -59,11 +59,16 @@ CHARTS: dict[str, dict[str, range]] = {"03": SKR03_2025, "04": SKR04_2025}
 CATALOGUE_NAMES: dict[str, str] = {"03": "SKR03_2025", "04": "SKR04_2025"}
 
 # Automatikkonten inside the revenue slice: DATEV splits the VAT out of what is booked there,
-# so the booked amount is GROSS. Stated, not complete: Erloese 7 % and 19 % USt only. A host
-# with other automatic revenue accounts must add them here, or their gross amounts pass.
+# so the booked amount is GROSS. Source: Odoo's l10n_de chart templates (LGPL-3), branch 18.0
+# at commit 925f8cbe6aeb, files account.account-de_skr0{3,4}.csv joined with
+# account.tax-de_skr0{3,4}.csv: every account in the revenue slice whose default tax has a
+# rate above 0 %. Tax-free and reverse-charge accounts (e.g. 8125, and 8130 despite its tax
+# key's "19" in the name) default to 0 % and stay net. Odoo's defaults stand in for DATEV's
+# own list, which is not reproduced here; a host whose books use further automatic revenue
+# accounts must add them, or their gross amounts pass.
 AUTOMATIC_REVENUE: dict[str, frozenset[int]] = {
-    "03": frozenset({8300, 8400}),
-    "04": frozenset({4300, 4400}),
+    "03": frozenset({8196, 8300, 8310, 8315, 8400, 8410}),
+    "04": frozenset({4186, 4200, 4300, 4310, 4315, 4400}),
 }
 
 # Each concept reports in its natural direction: revenue is a credit balance, receivables a
@@ -71,6 +76,7 @@ AUTOMATIC_REVENUE: dict[str, frozenset[int]] = {
 # concepts; a journal that states no convention (GDPdU) is taken as declared, which is how a
 # Sachkonten export writes its lines.
 _CREDIT_CONCEPTS = frozenset({"revenue"})
+AS_DECLARED = "as-declared"
 
 # BU key 40 is "Aufhebung der Automatik": no tax split, so the booked amount stands as net.
 _LIFTS_AUTOMATIC = "40"
@@ -88,6 +94,14 @@ class LedgerProfile:
 
     account_column: str
     amount_column: str
+    # How this exporter signs its amounts: "as-declared" (each line in its account's own
+    # direction, as a Sachkonten export writes it) or "soll-positiv" (+Soll/-Haben). None
+    # states nothing, and a journal that states nothing either is then taken as declared.
+    sign: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.sign not in (None, AS_DECLARED, SOLL_POSITIVE):
+            raise ValueError(f"sign {self.sign!r} is not one of {AS_DECLARED!r}, {SOLL_POSITIVE!r} or None")
 
 
 DATEV_LIKE = LedgerProfile(account_column="Konto", amount_column="Betrag")
@@ -139,6 +153,10 @@ class ChartConflict(Exception):
     """The books name one chart of accounts and the host another."""
 
 
+class AccountLengthUnsupported(Exception):
+    """A Sachkonto longer than the 4-digit accounts the catalogue states."""
+
+
 class GrossRevenueRefused(Exception):
     """A revenue leg whose booked amount includes VAT, with no declared net derivation."""
 
@@ -161,6 +179,35 @@ def _chart(host: str, table: pa.Table) -> dict[str, range]:
                 "them is wrong and neither is picked."
             )
     return CHARTS[host]
+
+
+# The catalogue states 4-digit SKR accounts. A DATEV header may set a Sachkontenlänge of 5 to 8,
+# and how such an account maps onto the 4-digit chart is not modelled here: no batch we hold
+# uses one. Read as it is, a long Sachkonto matches no range and the concept would report an
+# unattested null; guessed, it could report a wrong total under correct-looking citations.
+_CATALOGUE_DIGITS = 4
+
+
+def _refuse_long_sachkonten(table: pa.Table, profile: LedgerProfile) -> None:
+    """Refuse a DATEV journal whose Sachkonten are longer than the catalogue's accounts.
+
+    Only a DATEV journal says which accounts are Sachkonten (`Kontoart`); Personenkonten are
+    longer by design and belong to no SKR range. A GDPdU journal carries no such column.
+    """
+    if "Kontoart" not in table.column_names:
+        return
+    accounts = table.column(profile.account_column).to_pylist()
+    kinds = table.column("Kontoart").to_pylist()
+    origins = table.column(GdpduReader.ORIGIN_COLUMN).to_pylist()
+    long = [
+        f"{a} ({o})" for a, k, o in zip(accounts, kinds, origins) if k == "Sachkonto" and len(a) > _CATALOGUE_DIGITS
+    ]
+    if long:
+        raise AccountLengthUnsupported(
+            f"{len(long)} leg(s) book on a Sachkonto longer than {_CATALOGUE_DIGITS} digits "
+            f"(e.g. {long[0]}). The catalogue states {_CATALOGUE_DIGITS}-digit SKR accounts, and "
+            "how a longer Sachkontenlänge maps onto them is not modelled, so it is refused, not guessed."
+        )
 
 
 def _gross_reason(account: int, bu: str, automatic: frozenset[int]) -> Optional[str]:
@@ -197,7 +244,7 @@ def _basis(concept: str, chart: str, profile: LedgerProfile, signed: bool) -> st
                 "fingerprint": digest,
                 "accounts": [[accounts.start, accounts.stop - 1]],
             },
-            "sign": SOLL_POSITIVE if signed else "as-declared",
+            "sign": SOLL_POSITIVE if signed else AS_DECLARED,
         },
         sort_keys=True,
     )
@@ -273,6 +320,7 @@ class SkrAccountFeatureGroup(FeatureGroup):
         profile = select_profile(cls.PROFILES, declared)
 
         catalogue = _chart(cls.CHART, table)
+        _refuse_long_sachkonten(table, profile)
 
         konto = table.column(profile.account_column).to_pylist()
         betrag = table.column(profile.amount_column).to_pylist()
@@ -287,13 +335,23 @@ class SkrAccountFeatureGroup(FeatureGroup):
         # GDPdU line is booked as declared, so the check has nothing to read there. Rows no
         # policy admitted are left to the aggregation, which refuses them first.
         n = len(konto)
-        conventions = table.column(VORZEICHEN).to_pylist() if VORZEICHEN in declared else [None] * n
-        unknown = sorted({str(c) for c in conventions if c not in (None, SOLL_POSITIVE)})
+        stated = table.column(VORZEICHEN).to_pylist() if VORZEICHEN in declared else [None] * n
+        unknown = sorted({str(c) for c in stated if c not in (None, SOLL_POSITIVE)})
         if unknown:
             raise ValueError(
                 f"sign convention {', '.join(repr(u) for u in unknown)} is not known; only "
                 f"{SOLL_POSITIVE!r} or none (amounts as declared)"
             )
+        # The journal's own statement wins where it makes one; the profile speaks for the rest.
+        # Both speaking and disagreeing is refused, as with the chart: one of them is wrong.
+        if profile.sign is not None:
+            clash = sorted({str(c) for c in stated if c is not None and c != profile.sign})
+            if clash:
+                raise ValueError(
+                    f"the profile states sign {profile.sign!r}, which contradicts the journal's "
+                    f"{', '.join(clash)}; one of them is wrong and neither is picked"
+                )
+        conventions = [c if c is not None else (profile.sign or AS_DECLARED) for c in stated]
         bu_keys = table.column("BU-Schlüssel").to_pylist() if "BU-Schlüssel" in declared else None
         stamps = table.column(ADMISSIBILITY_COLUMN).to_pylist() if ADMISSIBILITY_COLUMN in declared else None
         judged = [True] * n if stamps is None else [is_admitted(s) for s in stamps]
