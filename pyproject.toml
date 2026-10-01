@@ -165,6 +165,7 @@ members = [
     "mloda/community/feature_groups/example",
     "mloda/community/feature_groups/example/example_a",
     "mloda/community/feature_groups/example/example_b",
+    "mloda/community/feature_groups/german_ledger",
     "mloda/enterprise",
     "mloda/enterprise/compute_frameworks/example",
     "mloda/enterprise/extenders/audit",

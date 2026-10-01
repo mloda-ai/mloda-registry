@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE DataSet SYSTEM "gdpdu-01-09-2004.dtd">
+<DataSet>
+  <Version>1.0</Version>
+  <DataSupplier>
+    <Name>Zweiter Exporteur AG</Name>
+    <Location>Hamburg</Location>
+  </DataSupplier>
+  <Media>
+    <Name>Journal 2025</Name>
+    <Table>
+      <URL>JOURNAL.csv</URL>
+      <Name>Journal</Name>
+      <UTF8/>
+      <DecimalSymbol>.</DecimalSymbol>
+      <DigitGroupingSymbol>,</DigitGroupingSymbol>
+      <VariableLength>
+        <ColumnDelimiter>|</ColumnDelimiter>
+        <RecordDelimiter>&#10;</RecordDelimiter>
+        <VariablePrimaryKey>
+          <Name>Satz</Name>
+          <AlphaNumeric/>
+        </VariablePrimaryKey>
+        <VariableColumn>
+          <Name>Sachkonto</Name>
+          <AlphaNumeric/>
+        </VariableColumn>
+        <VariableColumn>
+          <Name>Umsatz</Name>
+          <Numeric><ImpliedAccuracy>2</ImpliedAccuracy></Numeric>
+        </VariableColumn>
+        <VariableColumn>
+          <Name>Buchung</Name>
+          <Date><Format>YYYY-MM-DD</Format></Date>
+        </VariableColumn>
+        <VariableColumn>
+          <Name>Erfassung</Name>
+          <Date><Format>YYYY-MM-DD</Format></Date>
+        </VariableColumn>
+        <VariableColumn>
+          <Name>Text</Name>
+          <AlphaNumeric/>
+        </VariableColumn>
+      </VariableLength>
+    </Table>
+  </Media>
+</DataSet>

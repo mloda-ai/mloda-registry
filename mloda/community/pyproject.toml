@@ -17,7 +17,8 @@ requires-python = ">=3.10,<3.15"
 [project.optional-dependencies]
 otel = ["mloda-community-otel==0.5.0"]
 openlineage = ["mloda-community-openlineage==0.5.0"]
-all = ["mloda-community-otel==0.5.0", "mloda-community-openlineage==0.5.0"]
+german-ledger = ["pyarrow", "defusedxml>=0.7"]
+all = ["mloda-community-otel==0.5.0", "mloda-community-openlineage==0.5.0", "pyarrow", "defusedxml>=0.7"]
 
 [project.urls]
 Homepage = "https://mloda.ai"
@@ -34,7 +35,7 @@ mloda-community-extenders-example = "mloda.community.extenders.example.manifest:
 
 [tool.setuptools]
 package-dir = {"" = "../.."}
-packages = ["mloda.community", "mloda.community.compute_frameworks.example", "mloda.community.extenders.example", "mloda.community.feature_groups.example.example_b"]
+packages = ["mloda.community", "mloda.community.compute_frameworks.example", "mloda.community.extenders.example", "mloda.community.feature_groups.example.example_b", "mloda.community.feature_groups.german_ledger"]
 
 [tool.setuptools.package-data]
 "mloda.community" = ["py.typed"]

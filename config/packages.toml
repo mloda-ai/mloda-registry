@@ -259,6 +259,13 @@ published = true
 optional_dependencies = { pyarrow = ["pyarrow"], python_dict = [], duckdb = ["duckdb"], polars = ["polars>=1.21"], pandas = ["pandas"], all = ["pyarrow", "polars>=1.21", "pandas", "duckdb"] }
 entry_point_groups = ["mloda.feature_groups"]
 
+[packages.mloda-community-german-ledger]
+description = "Cited, admissible totals from GDPdU dossiers and DATEV EXTF batches, for mloda"
+dependencies = ["{core_dependency}", "pyarrow", "defusedxml>=0.7"]
+path = "mloda/community/feature_groups/german_ledger"
+has_readme = true
+optional_dependencies = { dev = ["types-defusedxml"] }
+
 # --- Bundles ---
 # Each bundle owns (dependencies or a non-dev extra) every published package nested under its path,
 # pinned '<name>=={version}': the bundle ships only the unpublished rest, so each shipped path keeps
@@ -293,7 +300,7 @@ dependencies = [
 path = "mloda/community"
 published = true
 entry_point_bundle = true
-optional_dependencies = { otel = ["mloda-community-otel=={version}"], openlineage = ["mloda-community-openlineage=={version}"], all = ["mloda-community-otel=={version}", "mloda-community-openlineage=={version}"] }
+optional_dependencies = { otel = ["mloda-community-otel=={version}"], openlineage = ["mloda-community-openlineage=={version}"], german-ledger = ["pyarrow", "defusedxml>=0.7"], all = ["mloda-community-otel=={version}", "mloda-community-openlineage=={version}", "pyarrow", "defusedxml>=0.7"] }
 py_typed = true
 
 [packages.mloda-enterprise]
