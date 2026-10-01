@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE DataSet SYSTEM "gdpdu-01-09-2004.dtd">
+<DataSet>
+  <Version>1.0</Version>
+  <DataSupplier>
+    <Name>Beispiel Daemmstoffe GmbH</Name>
+    <Location>Berlin</Location>
+  </DataSupplier>
+  <Media>
+    <Name>Buchfuehrung 2025</Name>
+    <Table>
+      <URL>GL.txt</URL>
+      <Name>Sachkonten</Name>
+      <Description>Hauptbuch Journal</Description>
+      <ANSI/>
+      <DecimalSymbol>,</DecimalSymbol>
+      <DigitGroupingSymbol>.</DigitGroupingSymbol>
+      <VariableLength>
+        <ColumnDelimiter>;</ColumnDelimiter>
+        <RecordDelimiter>&#13;&#10;</RecordDelimiter>
+        <TextEncapsulator>"</TextEncapsulator>
+        <VariablePrimaryKey>
+          <Name>Satznr</Name>
+          <AlphaNumeric/>
+        </VariablePrimaryKey>
+        <VariableColumn>
+          <Name>Konto</Name>
+          <AlphaNumeric/>
+        </VariableColumn>
+        <VariableColumn>
+          <Name>Betrag</Name>
+          <Numeric><Accuracy>2</Accuracy></Numeric>
+        </VariableColumn>
+        <VariableColumn>
+          <Name>Buchungsdatum</Name>
+          <Date><Format>DD.MM.YYYY</Format></Date>
+        </VariableColumn>
+        <VariableColumn>
+          <Name>Erfassungsdatum</Name>
+          <Date><Format>DD.MM.YYYY</Format></Date>
+        </VariableColumn>
+        <VariableColumn>
+          <Name>Belegtext</Name>
+          <AlphaNumeric/>
+        </VariableColumn>
+      </VariableLength>
+    </Table>
+  </Media>
+</DataSet>
