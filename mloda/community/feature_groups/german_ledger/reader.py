@@ -37,6 +37,37 @@ ADMISSIBILITY_COLUMN = "__admissibility"
 # that blank, negative and malformed verdicts are rejected rather than silently admitted.
 ADMITTED_PREFIX = "admitted:"
 
+# Both readers write `<file>@<sha12>:<record>`, DATEV adding `/<K|G>` for the leg. The
+# fingerprint binds the citation to the file's content, not only to a position in it.
+_CITATION = re.compile(r"(?P<file>[^@]+)@(?P<fingerprint>[0-9a-f]{12}):(?P<record>[0-9]+)(?:/(?P<leg>[KG]))?\Z")
+
+
+@dataclass(frozen=True)
+class Citation:
+    """One cited ledger line, read field by field instead of re-split from a string."""
+
+    file: str
+    fingerprint: str
+    record: int
+    leg: str | None = None
+
+
+def parse_citation(origin: str) -> Citation:
+    """A reader's origin string as a Citation; anything else is refused, not guessed at."""
+    m = _CITATION.match(origin)
+    if m is None:
+        raise ValueError(f"{origin!r} is not a citation: expected <file>@<sha12>:<record>[/K|/G]")
+    return Citation(m["file"], m["fingerprint"], int(m["record"]), m["leg"])
+
+
+def origin_format(origin: object) -> str | None:
+    """ "datev" for a citation that names a leg, "gdpdu" for one that does not, else None."""
+    m = _CITATION.match(origin) if isinstance(origin, str) else None
+    if m is None:
+        return None
+    return "datev" if m["leg"] else "gdpdu"
+
+
 # A policy has three things it can say about a row, not two. "I examined this row and it
 # passed" is an admission. "I refused it" stops the run. The third -- "this row was never
 # mine to judge" -- was being written as an admission carrying a scope note, and the only

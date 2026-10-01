@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import inspect
 import json
-import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from importlib import metadata
 from typing import Any, Optional
 
@@ -13,32 +12,11 @@ from mloda.steward import Extender, ExtenderHook
 from mloda.user import mloda
 
 from .policy import AdmissibilityRefused
+from .reader import parse_citation
 from .sources import RECEIPT_VERSION, InadmissibleTotal
 
 PACKAGE = "mloda-community-german-ledger"
 _SUFFIX = "~receipt"
-
-# Both readers write `<file>@<sha12>:<record>`, DATEV adding `/<K|G>` for the leg. The
-# fingerprint binds the citation to the file's content, not only to a position in it.
-_CITATION = re.compile(r"(?P<file>[^@]+)@(?P<fingerprint>[0-9a-f]{12}):(?P<record>[0-9]+)(?:/(?P<leg>[KG]))?\Z")
-
-
-@dataclass(frozen=True)
-class Citation:
-    """One cited ledger line, read field by field instead of re-split from a string."""
-
-    file: str
-    fingerprint: str
-    record: int
-    leg: Optional[str] = None
-
-
-def parse_citation(origin: str) -> Citation:
-    """A reader's origin string as a Citation; anything else is refused, not guessed at."""
-    m = _CITATION.match(origin)
-    if m is None:
-        raise ValueError(f"{origin!r} is not a citation: expected <file>@<sha12>:<record>[/K|/G]")
-    return Citation(m["file"], m["fingerprint"], int(m["record"]), m["leg"])
 
 
 def _package() -> dict[str, Any]:

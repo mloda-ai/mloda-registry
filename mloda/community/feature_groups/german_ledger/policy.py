@@ -37,6 +37,7 @@ from .reader import (
     GdpduReader,
     admissibility_verdict,
     describe_verdicts,
+    origin_format,
     outside_scope_verdict,
 )
 
@@ -153,6 +154,11 @@ class DatevJournalFeatureGroup(_ReaderJournal):
 
 ADMIT = "admit"
 OUTSIDE = "outside"
+# A rule scoped to one format (ForFormat) says this for the other format's rows. It neither
+# admits nor excludes: the row is left to the rules that do apply, and a row no rule applies
+# to is refused, because nothing vouched for it.
+NOT_APPLICABLE = "not-applicable"
+FORMATS = ("gdpdu", "datev")
 
 # The combined verdict's policy name when a host runs more than one rule.
 ALL_OF = "all-of"
@@ -175,6 +181,16 @@ class AdmissibilityRule(ABC):
     @abstractmethod
     def judge(self, table: pa.Table) -> list[str]:
         """ADMIT, OUTSIDE or a refusal label per row; raise REFUSAL if it cannot be evaluated."""
+
+    @property
+    def name(self) -> str:
+        """How the stamp and refusals name this rule; NAME unless a wrapper scopes it."""
+        return self.NAME
+
+    @property
+    def refusal(self) -> type[AdmissibilityRefused]:
+        """The exception this rule's per-row refusals raise."""
+        return self.REFUSAL
 
     def _require(self, table: pa.Table, *names: str) -> None:
         missing = [n for n in names if n not in table.column_names]
@@ -306,6 +322,54 @@ class PeriodBound(AdmissibilityRule):
         ]
 
 
+@dataclass(frozen=True)
+class ForFormat(AdmissibilityRule):
+    """`rule`, applied only to the rows of one format; NOT_APPLICABLE for the others.
+
+    For a host that reads both GDPdU and DATEV: each carries what the other lacks (an
+    Erfassungsdatum, a Festschreibung flag), so each is judged by the rules it can be judged
+    by. A row's format is read from its citation -- a DATEV citation names a leg, a GDPdU one
+    never does. A journal with none of this format's rows is not asked for the rule's columns.
+    """
+
+    NAME: ClassVar[str] = "for-format"
+
+    format: str
+    rule: AdmissibilityRule
+
+    def __post_init__(self) -> None:
+        if self.format not in FORMATS:
+            raise ValueError(f"format {self.format!r} is not one of {', '.join(repr(f) for f in FORMATS)}")
+
+    @property
+    def name(self) -> str:
+        return f"{self.format}.{self.rule.name}"
+
+    @property
+    def refusal(self) -> type[AdmissibilityRefused]:
+        return self.rule.refusal
+
+    def describe(self) -> str:
+        return f"{self.rule.describe()} for {self.format} rows"
+
+    def parameters(self) -> dict[str, object]:
+        return self.rule.parameters()
+
+    def judge(self, table: pa.Table) -> list[str]:
+        origins = (
+            table.column(GdpduReader.ORIGIN_COLUMN).to_pylist()
+            if GdpduReader.ORIGIN_COLUMN in table.column_names
+            else [None] * table.num_rows
+        )
+        formats = [origin_format(o) for o in origins]
+        out = [NOT_APPLICABLE if f is not None else "carrying no citation to tell its format" for f in formats]
+        mine = [i for i, f in enumerate(formats) if f == self.format]
+        if mine:
+            for i, outcome in zip(mine, self.rule.judge(table.take(mine))):
+                out[i] = outcome
+        return out
+
+
 def apply_rules(rules: Sequence[AdmissibilityRule], table: pa.Table) -> pa.Table:
     """Run every rule over the journal in one step, then stamp each row with one verdict.
 
@@ -316,7 +380,7 @@ def apply_rules(rules: Sequence[AdmissibilityRule], table: pa.Table) -> pa.Table
     """
     if not rules:
         raise AdmissibilityRefused("no admissibility rule is configured; nothing can be admitted")
-    names = [r.NAME for r in rules]
+    names = [r.name for r in rules]
     if len(set(names)) != len(names):
         # Their parameters would share keys in the stamp, and which configuration was meant
         # is the host's to say, not ours to guess.
@@ -346,12 +410,23 @@ def apply_rules(rules: Sequence[AdmissibilityRule], table: pa.Table) -> pa.Table
         # unbooked line has no booking date at all, so a prefix naming one would be false.
         buckets: dict[str, list[Any]] = {}
         for outcome, origin in zip(outcomes, origins):
-            if outcome not in (ADMIT, OUTSIDE):
+            if outcome not in (ADMIT, OUTSIDE, NOT_APPLICABLE):
                 buckets.setdefault(outcome, []).append(origin)
         if buckets:
             parts = [f"{len(rows)} {label} ({', '.join(str(o) for o in rows)})" for label, rows in buckets.items()]
             refusals.append(
-                (rule.REFUSAL, f"{rule.describe()} found line(s) that cannot be cleared: " + "; ".join(parts))
+                (rule.refusal, f"{rule.describe()} found line(s) that cannot be cleared: " + "; ".join(parts))
+            )
+    # A row every judging rule passed over was vouched for by none of them.
+    if len(judged) == len(rules):
+        unjudged = [o for i, o in enumerate(origins) if all(outcomes[i] == NOT_APPLICABLE for outcomes in judged)]
+        if unjudged:
+            refusals.append(
+                (
+                    AdmissibilityRefused,
+                    f"no rule applies to {len(unjudged)} line(s) ({', '.join(str(o) for o in unjudged)}); "
+                    "nothing vouched for them",
+                )
             )
     if refusals:
         # Count every row, so the refusal says how much of the journal it stopped: a row any
@@ -361,9 +436,9 @@ def apply_rules(rules: Sequence[AdmissibilityRule], table: pa.Table) -> pa.Table
         counts: dict[str, int] = {}
         for i in range(table.num_rows):
             row = [outcomes[i] for outcomes in judged]
-            if any(o not in (ADMIT, OUTSIDE) for o in row):
+            if any(o not in (ADMIT, OUTSIDE, NOT_APPLICABLE) for o in row):
                 kind = "refused"
-            elif unevaluable:
+            elif unevaluable or all(o == NOT_APPLICABLE for o in row):
                 kind = "unevaluated"
             elif OUTSIDE in row:
                 kind = "outside-scope"
@@ -378,14 +453,14 @@ def apply_rules(rules: Sequence[AdmissibilityRule], table: pa.Table) -> pa.Table
     # WITH the data as evidence. SourcesFeatureGroup totals only affirmative verdicts, so a
     # row any rule did not vouch for yields no number rather than a total it silently joins.
     def stamp(outcomes: tuple[str, ...]) -> str:
-        outside = [r.NAME for r, o in zip(rules, outcomes) if o == OUTSIDE]
+        outside = [r.name for r, o in zip(rules, outcomes) if o == OUTSIDE]
         if len(rules) == 1:
             issue = outside_scope_verdict if outside else admissibility_verdict
-            return issue(rules[0].NAME, **rules[0].parameters())
+            return issue(rules[0].name, **rules[0].parameters())
         params: dict[str, object] = {"rules": ",".join(names)}
         if outside:
             params["outside"] = ",".join(outside)
-        params.update({f"{r.NAME}.{k}": v for r in rules for k, v in r.parameters().items()})
+        params.update({f"{r.name}.{k}": v for r in rules for k, v in r.parameters().items()})
         return (outside_scope_verdict if outside else admissibility_verdict)(ALL_OF, **params)
 
     cache: dict[tuple[str, ...], str] = {}

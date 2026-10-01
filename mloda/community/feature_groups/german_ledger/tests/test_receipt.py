@@ -24,8 +24,8 @@ from mloda.user import DataAccessCollection, Feature, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
 from mloda.community.feature_groups.german_ledger import skr
-from mloda.community.feature_groups.german_ledger.reader import GdpduReader
-from mloda.community.feature_groups.german_ledger.receipt import evidence_receipts, parse_citation, run_with_receipts
+from mloda.community.feature_groups.german_ledger.reader import GdpduReader, parse_citation
+from mloda.community.feature_groups.german_ledger.receipt import evidence_receipts, run_with_receipts
 from mloda.community.feature_groups.german_ledger.skr import SkrAccountFeatureGroup
 from mloda.community.feature_groups.german_ledger.sources import RECEIPT_VERSION
 

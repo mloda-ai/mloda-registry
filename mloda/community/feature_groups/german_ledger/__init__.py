@@ -18,17 +18,16 @@ from mloda.community.feature_groups.german_ledger.policy import (
     AdmissibilityRule,
     DatevJournalFeatureGroup,
     Festschreibung,
+    ForFormat,
     JournalFeatureGroup,
     LateEntryCutoff,
     LateEntryRefused,
     PeriodBound,
 )
-from mloda.community.feature_groups.german_ledger.reader import GdpduReader
+from mloda.community.feature_groups.german_ledger.reader import Citation, GdpduReader, parse_citation
 from mloda.community.feature_groups.german_ledger.receipt import (
-    Citation,
     ReceiptContext,
     evidence_receipts,
-    parse_citation,
     refusal_receipt,
     run_with_receipts,
 )
@@ -67,6 +66,7 @@ __all__ = [
     "DatevJournalFeatureGroup",
     "DatevRefusal",
     "Festschreibung",
+    "ForFormat",
     "GdpduReader",
     "GrossRevenueRefused",
     "InadmissibleTotal",
