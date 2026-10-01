@@ -168,15 +168,22 @@ A folder holding both formats is refused, not resolved to one of them.
   DATEV header that states a different SKR is refused (`ChartConflict`). An empty header
   leaves the host's chart as the only word, so a host must state it: under the wrong chart,
   SKR03 Bank 1200 counts as SKR04 receivables.
-- **Gross DATEV revenue:** a revenue leg on an automatic account (SKR03 8300/8400, SKR04
-  4300/4400), or with any BU key other than 40, includes VAT. It is refused by name
+- **Gross DATEV revenue:** a revenue leg on an automatic account, or with any BU key other
+  than 40, includes VAT. The automatic accounts are those Odoo's `l10n_de` templates give a
+  taxable default (SKR03 8196, 8300, 8310, 8315, 8400, 8410; SKR04 4186, 4200, 4300, 4310,
+  4315, 4400). It is refused by name
   (`GrossRevenueRefused`) because no tax-key table exists yet. Only DATEV journals carry a BU
   key; GDPdU lines are booked as declared.
 - **Sign:** each concept reports in its natural direction: revenue credit-positive,
   receivables debit-positive. DATEV legs are signed +Soll / −Haben and say so (`Vorzeichen` =
   `soll-positiv`), so revenue legs are flipped. A GDPdU journal states no convention, and its
-  amounts are taken as declared, as a Sachkonten export writes them. A GDPdU exporter that
-  writes debit-positive amounts would need a stated convention; none is configurable yet.
+  amounts are taken as declared, as a Sachkonten export writes them. An exporter that writes
+  debit-positive amounts says so on its profile:
+  `LedgerProfile("Konto", "Betrag", sign="soll-positiv")`. A profile that contradicts the
+  journal's own `Vorzeichen` is refused.
+- **Sachkontenlänge:** the charts state 4-digit accounts. A DATEV Sachkonto with more digits
+  is refused by name (`AccountLengthUnsupported`) rather than mapped by a guess. No batch we
+  hold uses a longer Sachkontenlänge.
 - **Twin fixture:** `tests/fixtures/twin_2025` holds the same four bookings as a GDPdU
   dossier and a DATEV batch. Under one `PeriodBound` policy both give revenue 22 485,06 and
   receivables 7 500,00, each with its own citations (`proofs/proof_twin.py`).

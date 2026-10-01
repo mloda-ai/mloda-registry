@@ -13,6 +13,7 @@ These tests call `_map_accounts` on the reader's rows directly; the chain is pro
 proofs/proof_composite_datev.py.
 """
 
+import json
 import shutil
 import subprocess  # nosec
 import sys
@@ -30,8 +31,10 @@ from mloda.community.feature_groups.german_ledger.reader import ADMISSIBILITY_CO
 from mloda.community.feature_groups.german_ledger.skr import (
     SKR03_2025,
     SKR04_2025,
+    AccountLengthUnsupported,
     ChartConflict,
     GrossRevenueRefused,
+    LedgerProfile,
     SkrAccountFeatureGroup,
 )
 
@@ -54,8 +57,11 @@ def _features(*names: str) -> FeatureSet:
     return fs
 
 
-def _ledermann(tmp_path: Path, *, skr: bytes | None = None, bu_8400: bytes | None = None) -> pa.Table:
-    """The ledermann batch, optionally with header field 27 (SKR) or row 2's BU key changed."""
+def _ledermann(
+    tmp_path: Path, *, skr: bytes | None = None, bu_8400: bytes | None = None, length: bytes | None = None
+) -> pa.Table:
+    """The ledermann batch, optionally with header field 27 (SKR), field 14 (Sachkontenlänge)
+    or row 2's BU key changed."""
     folder = tmp_path / "batch"
     shutil.copytree(LEDERMANN, folder)
     batch = folder / "EXTF_Buchungsstapel.csv"
@@ -63,6 +69,10 @@ def _ledermann(tmp_path: Path, *, skr: bytes | None = None, bu_8400: bytes | Non
     if skr is not None:
         head = lines[0].split(b";")
         head[26] = skr
+        lines[0] = b";".join(head)
+    if length is not None:
+        head = lines[0].split(b";")
+        head[13] = length
         lines[0] = b";".join(head)
     if bu_8400 is not None:
         row = lines[3].split(b";")
@@ -127,6 +137,24 @@ def test_a_header_chart_that_agrees_with_the_host_is_read(chart: None, tmp_path:
     SkrAccountFeatureGroup.CHART = "03"
     mapped = SkrAccountFeatureGroup._map_accounts(table, _features("receivables"))
     assert _values(mapped, "receivables") == []
+
+
+# --- Sachkontenlänge -----------------------------------------------------------------------------
+
+
+def test_a_sachkonto_longer_than_the_catalogue_is_refused_not_guessed(chart: None, tmp_path: Path) -> None:
+    """Sachkontenlänge 5 makes 10000 a five-digit Sachkonto. The catalogue states 4-digit SKR
+    accounts, and how a longer Sachkonto maps onto them is not modelled, so the concept
+    refuses by name rather than return an unattested null or a guessed mapping."""
+    SkrAccountFeatureGroup.CHART = "03"
+    with pytest.raises(AccountLengthUnsupported, match="10000"):
+        SkrAccountFeatureGroup._map_accounts(_ledermann(tmp_path, length=b"5"), _features("receivables"))
+
+
+def test_a_long_personenkonto_is_not_a_sachkonto_and_passes(chart: None, tmp_path: Path) -> None:
+    """With Sachkontenlänge 4, 10000 is a Debitor: not in any SKR range, and no refusal."""
+    SkrAccountFeatureGroup.CHART = "03"
+    SkrAccountFeatureGroup._map_accounts(_ledermann(tmp_path), _features("receivables"))
 
 
 # --- gross automatic-account revenue -------------------------------------------------------------
@@ -254,3 +282,69 @@ def test_the_twin_fixture_is_what_its_generator_writes(tmp_path: Path) -> None:
     make_twin.write_datev(tmp_path / "datev")
     for rel in ("gdpdu/GL.txt", "gdpdu/index.xml", "datev/EXTF_Buchungsstapel.csv"):
         assert (tmp_path / rel).read_bytes() == (TWIN / rel).read_bytes(), rel
+
+
+# --- a stated sign convention for a GDPdU exporter ------------------------------------------------
+
+
+def _gdpdu_lines(*amounts: str) -> pa.Table:
+    return pa.table(
+        {
+            "Konto": ["4400"] * len(amounts),
+            "Betrag": pa.array([Decimal(a) for a in amounts], type=pa.decimal128(38, 2)),
+            "__origin": [f"GL.txt@4564dc0deef2:{i + 1}" for i in range(len(amounts))],
+        }
+    )
+
+
+@pytest.fixture
+def profiles() -> Iterator[None]:
+    original = SkrAccountFeatureGroup.PROFILES
+    yield
+    SkrAccountFeatureGroup.PROFILES = original
+
+
+def test_a_debit_positive_gdpdu_exporter_is_stated_on_its_profile(profiles: None) -> None:
+    """An exporter that writes revenue as a negative Haben amount says so once, on its profile."""
+    SkrAccountFeatureGroup.PROFILES = (LedgerProfile("Konto", "Betrag", sign=SOLL_POSITIVE),)
+    mapped = SkrAccountFeatureGroup._map_accounts(_gdpdu_lines("-100.00", "-20.00"), _features("revenue"))
+    assert [v for v, _ in _values(mapped, "revenue")] == [Decimal("100.00"), Decimal("20.00")]
+    assert json.loads(mapped.column("revenue~basis")[0].as_py())["sign"] == SOLL_POSITIVE
+
+
+def test_without_a_stated_convention_amounts_are_taken_as_declared() -> None:
+    mapped = SkrAccountFeatureGroup._map_accounts(_gdpdu_lines("100.00"), _features("revenue"))
+    assert [v for v, _ in _values(mapped, "revenue")] == [Decimal("100.00")]
+    assert json.loads(mapped.column("revenue~basis")[0].as_py())["sign"] == "as-declared"
+
+
+def test_a_profile_that_contradicts_the_journal_is_refused(profiles: None, tmp_path: Path) -> None:
+    """The DATEV legs state soll-positiv; a profile claiming as-declared for them is wrong."""
+    SkrAccountFeatureGroup.PROFILES = (LedgerProfile("Konto", "Betrag", sign="as-declared"),)
+    with pytest.raises(ValueError, match="contradicts"):
+        SkrAccountFeatureGroup._map_accounts(_ledermann(tmp_path), _features("receivables"))
+
+
+def test_an_unknown_profile_convention_is_refused_when_the_profile_is_made() -> None:
+    with pytest.raises(ValueError, match="'haben-positiv'"):
+        LedgerProfile("Konto", "Betrag", sign="haben-positiv")
+
+
+# --- which revenue accounts are automatic -----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("chart_key", "account", "gross"),
+    [
+        ("03", 8315, True),  # Erlöse aus im Inland steuerpflichtigen EU-Lieferungen 19 % USt
+        ("03", 8410, True),  # Erlöse 19 % USt
+        ("03", 8125, False),  # steuerfreie innergemeinschaftliche Lieferungen: 0 %, booked net
+        ("03", 8130, False),  # Dreiecksgeschäft, erster Abnehmer: 0 % despite its tax key's name
+        ("04", 4200, True),  # Erlöse, default 19 % USt
+        ("04", 4120, False),  # steuerfreie Umsätze § 4 Nr. 1a UStG
+    ],
+)
+def test_the_automatic_accounts_are_those_with_a_taxable_default(chart_key: str, account: int, gross: bool) -> None:
+    from mloda.community.feature_groups.german_ledger.skr import AUTOMATIC_REVENUE
+
+    assert (account in AUTOMATIC_REVENUE[chart_key]) is gross

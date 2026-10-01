@@ -35,6 +35,7 @@ from mloda.community.feature_groups.german_ledger.receipt import (
 from mloda.community.feature_groups.german_ledger.skr import (
     SKR03_2025,
     SKR04_2025,
+    AccountLengthUnsupported,
     AmbiguousProfile,
     ChartConflict,
     GrossRevenueRefused,
@@ -54,6 +55,7 @@ __all__ = [
     "RECEIPT_VERSION",
     "SKR03_2025",
     "SKR04_2025",
+    "AccountLengthUnsupported",
     "AdmissibilityPolicyGroup",
     "AdmissibilityRefused",
     "AdmissibilityRule",

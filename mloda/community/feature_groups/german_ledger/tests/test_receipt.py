@@ -66,7 +66,7 @@ def _basis(concept: str) -> dict[str, Any]:
 
 def test_a_concept_states_the_basis_it_was_computed_on() -> None:
     basis = _basis("revenue")
-    assert basis["profile"] == {"account_column": "Konto", "amount_column": "Betrag"}
+    assert basis["profile"] == {"account_column": "Konto", "amount_column": "Betrag", "sign": None}
     assert basis["chart"] == "SKR04"
     assert basis["catalogue"]["name"] == "SKR04_2025"
     assert basis["catalogue"]["accounts"] == [[4000, 4499]]
