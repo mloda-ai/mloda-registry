@@ -84,6 +84,24 @@ refused. Otherwise each row gets **one** stamp: `admitted:all-of;rules=…` only
 admitted it, and `outside-scope:all-of;…;outside=<rule>` as soon as one did not. Only
 admissions are totalled. A single rule stamps under its own name, as before.
 
+**One host, both formats.** The late-entry cutoff needs an `Erfassungsdatum` that DATEV does
+not carry, and `Festschreibung` needs a flag that GDPdU does not carry. `ForFormat` scopes a
+rule to one format's rows:
+
+```
+class MixedClosing2025(AdmissibilityPolicyGroup):
+    RULES = (
+        ForFormat("gdpdu", LateEntryCutoff(date(2026, 1, 15), date(2025, 12, 31))),
+        ForFormat("datev", Festschreibung()),
+        PeriodBound(date(2025, 1, 1), date(2025, 12, 31)),
+    )
+```
+
+A scoped rule does not apply to the other format's rows; it neither admits nor excludes them.
+A row that no rule applies to is refused, because nothing vouched for it. A row's format comes
+from its citation: a DATEV citation names a leg (`/K`, `/G`), a GDPdU citation never does. In
+the stamp, the scoped rule is named `gdpdu.late-entry-cutoff`, `datev.festschreibung`.
+
 ## Evidence receipt
 
 Each `<concept>__sources` total carries a third column, `~receipt`, beside `~value` and
