@@ -51,12 +51,15 @@ class _CountingPopen:
         monkeypatch.setattr(subprocess, "Popen", counting_popen)
 
 
-def _install_fake_module(monkeypatch: pytest.MonkeyPatch, plugin_id: str, binary_path: Callable[[], Path]) -> None:
+def _install_fake_module(
+    monkeypatch: pytest.MonkeyPatch, plugin_id: str, binary_path: Callable[[], Path] | None
+) -> None:
     """Injects a fake importable module into ``sys.modules`` exposing ``binary_path()``, so
     ``resolve_binary(plugin_id, None, ...)`` resolves it via ``importlib.import_module`` without
-    a real wheel installed (contract: Platform naming and wheel binary path)."""
+    a real wheel installed (contract: Platform naming and wheel binary path). ``None`` omits the attribute."""
     module = types.ModuleType(plugin_id)
-    module.binary_path = binary_path  # type: ignore[attr-defined]
+    if binary_path is not None:
+        module.binary_path = binary_path  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, plugin_id, module)
 
 
@@ -80,6 +83,52 @@ class TestResolveBinary:
         with pytest.raises(BinaryUnavailableError) as excinfo:
             binary.resolve_binary(PLUGIN_ID, None, env={"PATH": os.defpath}, timeout=10.0)
         assert PLUGIN_ID in str(excinfo.value)
+        assert "is not installed" in str(excinfo.value)
+
+    def test_override_none_module_without_binary_path_is_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_fake_module(monkeypatch, PLUGIN_ID, None)
+        with pytest.raises(BinaryUnavailableError, match="binary_path\\(\\)") as excinfo:
+            binary.resolve_binary(PLUGIN_ID, None, env={"PATH": os.defpath}, timeout=10.0)
+        assert PLUGIN_ID in str(excinfo.value)
+
+    @pytest.mark.parametrize("error", [ImportError("bad native lib"), RuntimeError("boom"), OSError("io failure")])
+    def test_override_none_binary_path_raising_other_error_is_unavailable(
+        self, monkeypatch: pytest.MonkeyPatch, error: Exception
+    ) -> None:
+        def _raise() -> Path:
+            raise error
+
+        _install_fake_module(monkeypatch, PLUGIN_ID, _raise)
+        with pytest.raises(BinaryUnavailableError) as excinfo:
+            binary.resolve_binary(PLUGIN_ID, None, env={"PATH": os.defpath}, timeout=10.0)
+        assert PLUGIN_ID in str(excinfo.value)
+        assert excinfo.value.__cause__ is error
+
+    @pytest.mark.parametrize(
+        "init_source",
+        [
+            "import _mloda_missing_transitive_dep\n",
+            "raise RuntimeError('init exploded')\n",
+            "raise ModuleNotFoundError('no name given')\n",
+        ],
+    )
+    def test_override_none_wheel_import_failure_is_unavailable_not_missing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, init_source: str
+    ) -> None:
+        plugin_id = "_mloda_broken_wheel_pkg"
+        package = tmp_path / plugin_id
+        package.mkdir()
+        (package / "__init__.py").write_text(init_source)
+        monkeypatch.syspath_prepend(str(tmp_path))
+        monkeypatch.delitem(sys.modules, plugin_id, raising=False)
+        try:
+            with pytest.raises(BinaryUnavailableError) as excinfo:
+                binary.resolve_binary(plugin_id, None, env={"PATH": os.defpath}, timeout=10.0)
+        finally:
+            sys.modules.pop(plugin_id, None)
+        assert plugin_id in str(excinfo.value)
+        assert "failed to import" in str(excinfo.value)
+        assert "is not installed" not in str(excinfo.value)
 
     def test_override_none_binary_path_raising_filenotfound_is_unavailable(
         self, monkeypatch: pytest.MonkeyPatch

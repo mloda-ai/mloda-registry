@@ -18,7 +18,7 @@ import subprocess  # nosec
 import sys
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -104,6 +104,12 @@ def _hold_lock(lock_file: Path) -> int:
     fd = os.open(str(lock_file), os.O_RDWR | os.O_CREAT, 0o600)
     fcntl.flock(fd, fcntl.LOCK_EX)
     return fd
+
+
+def _as_windows(monkeypatch: pytest.MonkeyPatch, alive: Callable[[int], bool]) -> None:
+    """Patch ``os.name`` to ``nt``; call after every ``Path`` is built, as ``Path`` may refuse to instantiate under ``nt``."""
+    monkeypatch.setattr(transport, "_windows_pid_alive", alive)
+    monkeypatch.setattr(os, "name", "nt")
 
 
 def _own_zombie_children() -> list[int]:
@@ -410,14 +416,26 @@ class TestInvocationDirectory:
             assert inv.path.parent == tmp_path / f"{TEMP_PARENT_NAME}-{os.getuid()}"
             assert inv.path.is_dir()
 
-    @pytest.mark.skipif(os.name != "posix", reason="Windows never reaps")
-    def test_dead_pid_file_sibling_is_reaped_on_enter(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "platform",
+        [
+            pytest.param(
+                "posix", marks=pytest.mark.skipif(os.name != "posix", reason="asserts the POSIX lock-file path")
+            ),
+            "nt",
+        ],
+    )
+    def test_dead_pid_file_sibling_is_reaped_on_enter(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
+    ) -> None:
         """A sibling matching the ``<pid>-`` naming that is a regular FILE (not a directory) with a
         dead pid must also be removed: ``shutil.rmtree`` alone cannot delete a plain file."""
         parent = tmp_path / TEMP_PARENT_NAME
         parent.mkdir(parents=True)
         dead_sibling_file = parent / f"{_dead_child_pid()}-deadfile"
         dead_sibling_file.write_text("stray file")
+        if platform == "nt":
+            _as_windows(monkeypatch, lambda queried: False)
         with InvocationDirectory(parent=parent):
             assert not dead_sibling_file.exists()
 
@@ -436,7 +454,7 @@ class TestInvocationDirectory:
         assert captured_path is not None
         assert not captured_path.exists()
 
-    @pytest.mark.skipif(os.name != "posix", reason="Windows never reaps")
+    @pytest.mark.skipif(os.name != "posix", reason="asserts the POSIX lock-file path")
     def test_unlocked_sibling_is_reaped_on_enter(self, tmp_path: Path) -> None:
         parent = tmp_path / TEMP_PARENT_NAME
         parent.mkdir(parents=True)
@@ -497,26 +515,34 @@ class TestInvocationDirectory:
         assert not inv.path.exists()
 
     @pytest.mark.skipif(os.name != "posix", reason="asserts flock-based liveness")
-    def test_no_pid_named_entry_is_visible_before_the_owner_locks(
+    def test_no_unlocked_entry_is_visible_and_staging_is_owned_before_locking(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A reaper must never see an unlocked <pid>- sibling."""
+        """A reaper must never see an unlocked <pid>- sibling or ``.lock``, nor reap the owner's own staging."""
         parent = tmp_path / TEMP_PARENT_NAME
         real_flock = fcntl.flock
         visible_at_lock: list[str] = []
+        lock_visible_at_lock: list[Path] = []
+        unowned_staging_at_lock: list[Path] = []
         calls: list[int] = []
 
         def spy_flock(fd: int, operation: int) -> None:
             if operation & fcntl.LOCK_EX and parent.exists():
                 calls.append(operation)
                 visible_at_lock.extend(p.name for p in parent.iterdir() if re.match(r"^\d+-", p.name))
+                lock_visible_at_lock.extend(parent.rglob(transport.LOCK_FILE_NAME))
+                unowned_staging_at_lock.extend(p for p in parent.glob(".tmp-*") if p not in transport._OWNED_PATHS)
             real_flock(fd, operation)
 
         monkeypatch.setattr(fcntl, "flock", spy_flock)
         with InvocationDirectory(parent=parent) as inv:
             assert re.match(r"^\d+-", inv.path.name)
+            assert (inv.path / transport.LOCK_FILE_NAME).exists()
         assert calls
         assert visible_at_lock == []
+        assert lock_visible_at_lock == []
+        assert unowned_staging_at_lock == []
+        assert not [p for p in transport._OWNED_PATHS if p.name.startswith(".tmp-")]
 
     @pytest.mark.skipif(os.name != "posix", reason="asserts flock-based liveness")
     def test_owner_lock_is_non_blocking(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -584,6 +610,166 @@ class TestInvocationDirectory:
                 assert inner.path.is_dir()
             assert outer.path.is_dir()
         assert not outer.path.exists()
+
+    @pytest.mark.skipif(os.name != "posix", reason="asserts the POSIX lock-file path")
+    @pytest.mark.parametrize(
+        ("kind", "kept"),
+        [
+            ("unlocked", False),
+            ("held", True),
+            ("absent", True),
+            ("absent_old", False),
+            ("lock_init_old", False),
+            ("lock_init_fresh", True),
+            ("plain_file", True),
+        ],
+    )
+    def test_staging_sibling_is_reaped_only_when_its_lock_is_free(self, tmp_path: Path, kind: str, kept: bool) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+        parent.mkdir(parents=True)
+        sibling = parent / ".tmp-0123abcd"
+        fd: int | None = None
+        if kind == "plain_file":
+            sibling.write_text("stray")
+        else:
+            sibling.mkdir()
+            if kind == "unlocked":
+                (sibling / transport.LOCK_FILE_NAME).write_text("")
+            elif kind == "held":
+                fd = _hold_lock(sibling / transport.LOCK_FILE_NAME)
+            elif kind.startswith("lock_init"):
+                (sibling / ".lock-init").write_text("")
+            if kind.endswith("_old"):
+                old = time.time() - 2 * getattr(transport, "_STAGING_GRACE_SECONDS", 600.0)
+                os.utime(sibling, (old, old))
+        try:
+            with InvocationDirectory(parent=parent):
+                assert sibling.exists() is kept
+        finally:
+            if fd is not None:
+                os.close(fd)
+
+    @pytest.mark.parametrize(
+        ("pid_kind", "owned", "alive", "kept"),
+        [
+            ("dead", False, False, False),
+            ("other", False, True, True),
+            ("own", False, True, False),
+            ("own", True, False, True),
+        ],
+    )
+    def test_windows_sibling_is_reaped_by_pid_liveness(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pid_kind: str, owned: bool, alive: bool, kept: bool
+    ) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+        parent.mkdir(parents=True)
+        pid = os.getpid() if pid_kind == "own" else _dead_child_pid()
+        sibling = parent / f"{pid}-winsibl"
+        sibling.mkdir()
+        monkeypatch.setattr(transport, "_OWNED_PATHS", {sibling} if owned else set())
+        queried_pids: list[int] = []
+
+        def stub_alive(queried: int) -> bool:
+            queried_pids.append(queried)
+            return alive
+
+        _as_windows(monkeypatch, stub_alive)
+        with InvocationDirectory(parent=parent) as inv:
+            assert inv.path.is_dir()
+            assert sibling.exists() is kept
+        assert queried_pids == ([] if pid_kind == "own" else [pid])
+
+    def test_windows_directory_is_owned_before_it_is_created(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+        real_mkdir = Path.mkdir
+        owned_at_mkdir: list[bool] = []
+
+        def spy_mkdir(self: Path, *args: Any, **kwargs: Any) -> None:
+            if re.match(r"^\d+-", self.name):
+                owned_at_mkdir.append(self in transport._OWNED_PATHS)
+            real_mkdir(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "mkdir", spy_mkdir)
+        _as_windows(monkeypatch, lambda queried: True)
+        with InvocationDirectory(parent=parent):
+            pass
+        assert owned_at_mkdir == [True]
+
+    def test_windows_mkdir_failure_is_unavailable_and_leaves_no_owned_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+        parent.mkdir(parents=True)
+        real_mkdir = Path.mkdir
+        owned_before = set(transport._OWNED_PATHS)
+
+        def failing_mkdir(self: Path, *args: Any, **kwargs: Any) -> None:
+            if re.match(r"^\d+-", self.name):
+                raise OSError(errno.ENOSPC, "no space")
+            real_mkdir(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "mkdir", failing_mkdir)
+        _as_windows(monkeypatch, lambda queried: True)
+        with pytest.raises(BinaryUnavailableError, match="cannot create an invocation directory"):
+            with InvocationDirectory(parent=parent):
+                pass
+        assert transport._OWNED_PATHS == owned_before
+        assert list(parent.iterdir()) == []
+
+    @pytest.mark.parametrize("failure", [OSError(errno.EPERM, "denied"), KeyboardInterrupt()])
+    def test_windows_chmod_failure_leaves_no_directory_or_owned_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: BaseException
+    ) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+        parent.mkdir(parents=True)
+        owned_before = set(transport._OWNED_PATHS)
+
+        def failing_chmod(self: Path, *args: Any, **kwargs: Any) -> None:
+            raise failure
+
+        monkeypatch.setattr(Path, "chmod", failing_chmod)
+        _as_windows(monkeypatch, lambda queried: True)
+        if isinstance(failure, OSError):
+            with pytest.raises(BinaryUnavailableError, match="cannot create an invocation directory"):
+                with InvocationDirectory(parent=parent):
+                    pass
+        else:
+            with pytest.raises(KeyboardInterrupt):
+                with InvocationDirectory(parent=parent):
+                    pass
+        assert transport._OWNED_PATHS == owned_before
+        assert list(parent.iterdir()) == []
+
+    def test_windows_non_oserror_from_mkdir_propagates_unchanged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        parent = tmp_path / TEMP_PARENT_NAME
+        parent.mkdir(parents=True)
+        real_mkdir = Path.mkdir
+        owned_before = set(transport._OWNED_PATHS)
+
+        def interrupted_mkdir(self: Path, *args: Any, **kwargs: Any) -> None:
+            if re.match(r"^\d+-", self.name):
+                raise KeyboardInterrupt
+            real_mkdir(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "mkdir", interrupted_mkdir)
+        _as_windows(monkeypatch, lambda queried: True)
+        with pytest.raises(KeyboardInterrupt):
+            with InvocationDirectory(parent=parent):
+                pass
+        assert transport._OWNED_PATHS == owned_before
+
+
+@pytest.mark.skipif(os.name != "nt", reason="exercises the real Windows process API")
+class TestWindowsPidAlive:
+    def test_current_pid_is_alive(self) -> None:
+        assert transport._windows_pid_alive(os.getpid()) is True
+
+    def test_exited_pid_is_not_alive(self) -> None:
+        assert transport._windows_pid_alive(_dead_child_pid()) is False
 
 
 class TestRunBinary:
@@ -807,13 +993,68 @@ class TestRunBinary:
             output_bytes = _run_binary([*FAULTY_CMD, "--mode", "echo_env"], env, _hash_config(), b"", inv.path)
         assert json.loads(output_bytes) == sorted(env)
 
-    def test_non_executable_regular_file_raises_binary_unavailable(self, tmp_path: Path) -> None:
-        not_executable = tmp_path / "not-a-binary"
-        not_executable.write_text("not a script")
-        not_executable.chmod(0o600)
+    @pytest.mark.parametrize(
+        "case",
+        [
+            "non_executable_file",
+            pytest.param(
+                "executable_without_shebang_or_elf_header",
+                marks=pytest.mark.skipif(
+                    os.name != "posix", reason="relies on the kernel rejecting an unrecognised executable format"
+                ),
+            ),
+            "popen_raises_emfile",
+        ],
+    )
+    def test_spawn_failure_raises_binary_unavailable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+    ) -> None:
+        cmd = STUB_CMD
+        if case == "non_executable_file":
+            not_executable = tmp_path / "not-a-binary"
+            not_executable.write_text("not a script")
+            not_executable.chmod(0o600)
+            cmd = [str(not_executable)]
+        elif case == "executable_without_shebang_or_elf_header":
+            not_a_program = tmp_path / "not-a-program"
+            not_a_program.write_bytes(b"\x00\x01\x02 neither a shebang nor an ELF header\n")
+            not_a_program.chmod(0o700)
+            cmd = [str(not_a_program)]
+        else:
+
+            def failing_popen(*args: Any, **kwargs: Any) -> Any:
+                raise OSError(errno.EMFILE, "too many open files")
+
+            monkeypatch.setattr(subprocess, "Popen", failing_popen)
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
-            with pytest.raises(BinaryUnavailableError):
-                _run_binary([str(not_executable)], {"PATH": os.defpath}, _hash_config(), b"", inv.path)
+            with pytest.raises(BinaryUnavailableError, match="cannot spawn binary"):
+                _run_binary(cmd, {"PATH": os.defpath}, _hash_config(), b"", inv.path)
+
+    @pytest.mark.parametrize("target", ["config", "input"])
+    def test_write_failure_in_the_invocation_directory_raises_binary_unavailable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
+    ) -> None:
+        real_open = os.open
+        real_write_bytes = Path.write_bytes
+
+        def failing_open(path: Any, *args: Any, **kwargs: Any) -> int:
+            if str(path).endswith("config.json"):
+                raise OSError(errno.ENOSPC, "no space left on device")
+            return real_open(path, *args, **kwargs)
+
+        def failing_write_bytes(self: Path, data: Any) -> int:
+            if self.name == "input.arrows":
+                raise OSError(errno.ENOSPC, "no space left on device")
+            return real_write_bytes(self, data)
+
+        input_bytes = arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["alpha"]})
+        with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
+            monkeypatch.setattr(os, "open", failing_open if target == "config" else real_open)
+            monkeypatch.setattr(Path, "write_bytes", failing_write_bytes)
+            with pytest.raises(BinaryUnavailableError, match="cannot write to the invocation directory"):
+                _run_binary(
+                    STUB_CMD, {"PATH": os.defpath}, _hash_config(), input_bytes, inv.path, file_transport_threshold=0
+                )
 
     def test_nonexistent_path_raises_binary_unavailable(self, tmp_path: Path) -> None:
         missing = tmp_path / "does-not-exist"

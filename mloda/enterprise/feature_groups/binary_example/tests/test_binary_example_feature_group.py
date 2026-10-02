@@ -1,5 +1,5 @@
 """Tests for ``BinaryExampleFeatureGroup``: the enterprise example FeatureGroup that mixes in
-``BinaryModelMixin`` to run the "hash" operation via an external binary (pattern 28, Binary-Backed
+``BinaryModelMixin`` to run the "hash" operation via an external binary (pattern 29, Binary-Backed
 Features; see ``docs/guides/feature-group-patterns/29-binary-backed-features.md``).
 """
 

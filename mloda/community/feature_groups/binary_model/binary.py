@@ -79,11 +79,22 @@ def _build_argv(plugin_id: str, override: Sequence[str] | str | os.PathLike[str]
         try:
             module = importlib.import_module(plugin_id)
         except ModuleNotFoundError as exc:
-            raise BinaryUnavailableError(f"binary package for plugin_id {plugin_id!r} is not installed: {exc}") from exc
+            if exc.name is not None and (plugin_id == exc.name or plugin_id.startswith(f"{exc.name}.")):
+                raise BinaryUnavailableError(
+                    f"binary package for plugin_id {plugin_id!r} is not installed: {exc}"
+                ) from exc
+            raise BinaryUnavailableError(f"binary package for plugin_id {plugin_id!r} failed to import: {exc}") from exc
+        except Exception as exc:
+            raise BinaryUnavailableError(f"binary package for plugin_id {plugin_id!r} failed to import: {exc}") from exc
+        binary_path = getattr(module, "binary_path", None)
+        if not callable(binary_path):
+            raise BinaryUnavailableError(f"binary package for plugin_id {plugin_id!r} has no binary_path()")
         try:
-            path = module.binary_path()
+            path = binary_path()
         except FileNotFoundError as exc:
             raise BinaryUnavailableError(f"binary data file missing from the {plugin_id!r} wheel: {exc}") from exc
+        except Exception as exc:
+            raise BinaryUnavailableError(f"binary_path() of the {plugin_id!r} wheel failed: {exc}") from exc
         return [str(path)]
     if isinstance(override, (str, os.PathLike)):
         return [str(override)]

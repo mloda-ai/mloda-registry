@@ -14,8 +14,10 @@ import shutil
 import signal
 import stat
 import subprocess  # nosec
+import sys
 import tempfile
 import threading
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import TracebackType
@@ -43,6 +45,34 @@ TEMP_PARENT_NAME = "mloda-binary"
 LOCK_FILE_NAME = ".lock"
 
 _SIBLING_PID_PATTERN = re.compile(r"^(\d+)-")
+_STAGING_PATTERN = re.compile(r"^\.tmp-[0-9a-f]+$")
+LOCK_INIT_FILE_NAME = ".lock-init"
+# A lock-less staging dir is held for microseconds by a live owner; older ones are abandoned.
+_STAGING_GRACE_SECONDS = 600.0
+
+
+def _windows_pid_alive(pid: int) -> bool:
+    """Whether ``pid`` is a live process on Windows; failures other than a missing pid read alive."""
+    if sys.platform != "win32":
+        return True
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return ctypes.get_last_error() != 87  # ERROR_INVALID_PARAMETER: no such process
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return True
+        return code.value == 259  # STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def minimal_environment(
@@ -94,7 +124,7 @@ def default_parent() -> Path:
 class InvocationDirectory:
     """A private, owner-only directory for one binary invocation, created under a per-user parent
     (or the given one) and reaping dead siblings on entry (contract: Data handling). Liveness is an exclusive
-    ``flock`` on a lock file inside the directory, held until exit (POSIX only)."""
+    ``flock`` on a lock file inside the directory, held until exit (POSIX), or the owner pid (Windows)."""
 
     def __init__(self, parent: Path | None = None) -> None:
         self.parent = parent if parent is not None else default_parent()
@@ -114,22 +144,40 @@ class InvocationDirectory:
         name = f"{os.getpid()}-{secrets.token_hex(4)}"
         path = self.parent / name
         if os.name == "nt":
-            path.mkdir(mode=0o700)
-            path.chmod(0o700)
+            with _OWNED_LOCK:
+                _OWNED_PATHS.add(path)
+            try:
+                path.mkdir(mode=0o700)
+                path.chmod(0o700)
+            except BaseException as exc:
+                with _OWNED_LOCK:
+                    _OWNED_PATHS.discard(path)
+                shutil.rmtree(path, ignore_errors=True)
+                if isinstance(exc, OSError):
+                    raise BinaryUnavailableError(
+                        f"cannot create an invocation directory under {self.parent}: {exc}"
+                    ) from exc
+                raise
             self.path = path
             return self
         # Staged under a non-pid name so a reaper never sees a pid-named dir before it is locked.
         staging = self.parent / f".tmp-{secrets.token_hex(8)}"
         try:
+            with _OWNED_LOCK:
+                _OWNED_PATHS.add(staging)
+                _OWNED_PATHS.add(path)
             staging.mkdir(mode=0o700)
             staging.chmod(0o700)
             self._lock_fd = _lock_file_fd(staging)
-            with _OWNED_LOCK:
-                _OWNED_PATHS.add(path)
-            os.rename(staging, path)
+            try:
+                os.rename(staging, path)
+            finally:
+                with _OWNED_LOCK:
+                    _OWNED_PATHS.discard(staging)
         except BaseException as exc:
             with _OWNED_LOCK:
                 _OWNED_PATHS.discard(path)
+                _OWNED_PATHS.discard(staging)
             if self._lock_fd is not None:
                 os.close(self._lock_fd)
                 self._lock_fd = None
@@ -169,18 +217,22 @@ class InvocationDirectory:
             self._lock_fd = None
 
     def _reap_dead_siblings(self) -> None:
-        if os.name == "nt":
-            return
         try:
             entries = list(self.parent.iterdir())
         except OSError:
             return
         for entry in entries:
-            if _SIBLING_PID_PATTERN.match(entry.name) is None:
+            match = _SIBLING_PID_PATTERN.match(entry.name)
+            is_staging = os.name != "nt" and _STAGING_PATTERN.match(entry.name) is not None
+            if match is None and not is_staging:
                 continue
             try:
                 is_dir = stat.S_ISDIR(os.lstat(entry).st_mode)
             except OSError:
+                continue
+            if match is None:
+                if is_dir:
+                    _reap_if_unlocked(entry, require_lock=True)
                 continue
             if not is_dir:
                 try:
@@ -188,30 +240,48 @@ class InvocationDirectory:
                 except OSError:
                     pass
                 continue
+            if os.name == "nt":
+                # Liveness is by pid here, so a TEMP shared across hosts is unsupported.
+                with _OWNED_LOCK:
+                    if entry in _OWNED_PATHS:
+                        continue
+                pid = int(match.group(1))
+                if pid == os.getpid() or not _windows_pid_alive(pid):
+                    shutil.rmtree(entry, ignore_errors=True)
+                continue
             _reap_if_unlocked(entry)
 
 
 def _lock_file_fd(directory: Path) -> int:
-    fd = os.open(
-        str(directory / LOCK_FILE_NAME), os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600
-    )
+    """Create, flock and rename ``.lock-init`` to ``.lock``, so ``.lock`` is never visible unlocked."""
+    init_path = directory / LOCK_INIT_FILE_NAME
+    fd = os.open(str(init_path), os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.rename(init_path, directory / LOCK_FILE_NAME)
     except BaseException:
         os.close(fd)
         raise
     return fd
 
 
-def _reap_if_unlocked(entry: Path) -> None:
+def _reap_if_unlocked(entry: Path, *, require_lock: bool = False) -> None:
     """Remove ``entry`` if its lock can be taken (owner dead) or it has no lock file (staging
-    guarantees a live directory is locked once visible); keep it when locked or unreadable."""
+    guarantees a live directory is locked once visible); keep it when locked or unreadable. With
+    ``require_lock`` a directory without a lock file is kept until it is older than the staging grace period."""
     with _OWNED_LOCK:
         if entry in _OWNED_PATHS:
             return
     try:
         fd = os.open(str(entry / LOCK_FILE_NAME), os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
     except FileNotFoundError:
+        if require_lock:
+            try:
+                stale = time.time() - os.lstat(entry).st_mtime > _STAGING_GRACE_SECONDS
+            except OSError:
+                return
+            if not stale:
+                return
         shutil.rmtree(entry, ignore_errors=True)
         return
     except OSError:
@@ -330,20 +400,22 @@ def run_binary(
             raise BinaryUsageError(f"parameter {offending_key!r} is not JSON-serializable") from exc
         raise BinaryUsageError("config contains a value that is not JSON-serializable") from exc
 
-    fd = os.open(str(config_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(payload)
-
     args = ["run", "--config", str(config_path)]
     output_path: Path | None = None
-    if len(input_bytes) > file_transport_threshold:
-        input_path = invocation_dir / "input.arrows"
-        input_path.write_bytes(input_bytes)
-        output_path = invocation_dir / "output.arrows"
-        args += ["--input", str(input_path), "--output", str(output_path)]
-        stdin_bytes = b""
-    else:
-        stdin_bytes = input_bytes
+    try:
+        fd = os.open(str(config_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+        if len(input_bytes) > file_transport_threshold:
+            input_path = invocation_dir / "input.arrows"
+            input_path.write_bytes(input_bytes)
+            output_path = invocation_dir / "output.arrows"
+            args += ["--input", str(input_path), "--output", str(output_path)]
+            stdin_bytes = b""
+        else:
+            stdin_bytes = input_bytes
+    except OSError as exc:
+        raise BinaryUnavailableError(f"cannot write to the invocation directory {invocation_dir}: {exc}") from exc
 
     try:
         proc = subprocess.Popen(  # nosec B603
@@ -355,7 +427,7 @@ def run_binary(
             cwd=str(invocation_dir),
             start_new_session=os.name != "nt",
         )
-    except (PermissionError, FileNotFoundError) as exc:
+    except OSError as exc:
         raise BinaryUnavailableError(f"cannot spawn binary {argv[0]!r}: {exc}") from exc
 
     try:
