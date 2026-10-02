@@ -14,7 +14,7 @@ Run a compiled binary (a model shipped as a wheel, usually license-gated) as the
 |-----------------|---------|
 | `BINARY_PLUGIN_ID` | Import package of the wheel that ships the binary (`from <id> import binary_path`); also the id the license entitles |
 | `BINARY_WHEEL_DISTRIBUTION` | The wheel's PyPI distribution name, distinct from `BINARY_PLUGIN_ID` (the import name); used in `packages.toml` |
-| `BINARY_COMMAND_OVERRIDE` | Explicit argv prefix or path used instead of the wheel; tests point it at the simulated binary. No environment variable can redirect the binary. Only argv[0] is stat-ed for the capability cache key, so a program named later in the override (e.g. `[sys.executable, "-m", "pkg"]`) is cached per process; call `clear_capability_cache()` after it changes |
+| `BINARY_COMMAND_OVERRIDE` | Explicit argv prefix or path used instead of the wheel; tests point it at the simulated binary. No environment variable can redirect the binary. Only argv[0] is stat-ed for the capability cache key, so a program named later in the override (e.g. `[sys.executable, "-m", "pkg"]`) is cached per process; call `clear_capability_cache()` (from `mloda.community.feature_groups.binary_model.binary`) after it changes |
 | `LICENSE_FILE_OVERRIDE`, `LICENSE_KEY_OVERRIDE` | Values for `MLODA_LICENSE_FILE` / `MLODA_LICENSE_KEY` in the binary's environment; unset, the caller's own values are forwarded, and an empty string suppresses that forwarding |
 | `BINARY_TIMEOUT_SECONDS` | Wall-clock limit per `run` invocation, probes excluded; on timeout the whole process group is terminated on POSIX, only the child on Windows, and `BinaryTerminatedError` raised |
 | `BINARY_PROBE_TIMEOUT_SECONDS` | Wall-clock limit per probe (each of `--version` and `--capabilities`, default 60s); on timeout the whole process group is terminated on POSIX, only the child on Windows, and `BinaryUnavailableError` raised |
@@ -35,6 +35,7 @@ from mloda.provider import ComputeFramework, FeatureGroup, FeatureSet, property_
 from mloda.user import Feature, FeatureName, Options
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.binary_model.errors import BinaryUsageError
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
 
 
@@ -91,10 +92,14 @@ class BinaryExampleFeatureGroup(BinaryModelMixin, FeatureGroup):
             columns: Sequence[str] = feature.options.get(cls.INPUT_COLUMNS)
             parameters: Mapping[str, Any] = feature.options.get(cls.PARAMETERS) or {}
             operation = feature.options.get(cls.OPERATION)
-            key = (operation, tuple(columns), json.dumps(parameters, sort_keys=True, default=repr))
+            key = (operation, tuple(columns), json.dumps(parameters, default=repr))
             if key not in runs:
                 result = cls.run_binary_model(data, columns, operation, parameters, {cls.OUTPUT_KEY: feature.name})
                 runs[key] = result.column(feature.name)
+            elif feature.name in data.column_names:
+                raise BinaryUsageError(
+                    f"output_columns written names collide with existing table columns: {[feature.name]}"
+                )
             data = data.append_column(feature.name, runs[key])
         return data
 ```

@@ -9,7 +9,7 @@ import importlib
 import importlib.util
 import sys
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 import pyarrow as pa
 import pytest
@@ -19,7 +19,11 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 
 from mloda.community.feature_groups.binary_model import mixin
 from mloda.community.feature_groups.binary_model.binary import clear_capability_cache
-from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError, LicenseMissingError
+from mloda.community.feature_groups.binary_model.errors import (
+    BinaryUnavailableError,
+    BinaryUsageError,
+    LicenseMissingError,
+)
 from mloda.community.feature_groups.binary_model.transport import run_binary as real_run_binary
 from mloda.enterprise.feature_groups.binary_example import manifest as binary_example_manifest
 from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
@@ -275,6 +279,16 @@ class TestCalculateFeature:
         assert result.column("hash_a").to_pylist() == compute_expected_hash_column(rows, ["col_a"], "k")
         assert result.column("hash_b").to_pylist() == compute_expected_hash_column(rows, ["col_a"], "k")
         assert result.column("hash_c").to_pylist() == compute_expected_hash_column(rows, ["col_a"], "other")
+
+    def test_reused_run_still_rejects_a_name_colliding_with_an_existing_column(self) -> None:
+        table = pa.table({"col_a": ["alpha", "beta"], "hash_b": [1, 2]})
+        feature_set = _feature_set()
+        # Ordered so hash_a runs fresh and hash_b is the reuser.
+        feature_set.features = cast(
+            "set[Feature]", [_hash_feature("hash_a", ["col_a"]), _hash_feature("hash_b", ["col_a"])]
+        )
+        with pytest.raises(BinaryUsageError):
+            StubExample.calculate_feature(table, feature_set)
 
 
 class TestCalculateFeatureReadsOperationFromOptions:

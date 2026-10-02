@@ -14,6 +14,7 @@ from mloda.provider import ComputeFramework, FeatureGroup, FeatureSet, property_
 from mloda.user import Feature, FeatureName, Options
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.binary_model.errors import BinaryUsageError
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
 
 
@@ -82,9 +83,13 @@ class BinaryExampleFeatureGroup(BinaryModelMixin, FeatureGroup):
             columns: Sequence[str] = feature.options.get(cls.INPUT_COLUMNS)
             parameters: Mapping[str, Any] = feature.options.get(cls.PARAMETERS) or {}
             operation = feature.options.get(cls.OPERATION)
-            key = (operation, tuple(columns), json.dumps(parameters, sort_keys=True, default=repr))
+            key = (operation, tuple(columns), json.dumps(parameters, default=repr))
             if key not in runs:
                 result = cls.run_binary_model(data, columns, operation, parameters, {cls.OUTPUT_KEY: feature.name})
                 runs[key] = result.column(feature.name)
+            elif feature.name in data.column_names:
+                raise BinaryUsageError(
+                    f"output_columns written names collide with existing table columns: {[feature.name]}"
+                )
             data = data.append_column(feature.name, runs[key])
         return data
