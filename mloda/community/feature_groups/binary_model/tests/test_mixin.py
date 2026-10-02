@@ -561,6 +561,7 @@ class TestHappyPaths:
     def test_file_transport_streams_input_without_in_memory_copies(self) -> None:
         table = pa.table({"col_a": [f"{i:08d}" + "x" * 92 for i in range(100_000)]})
         assert table.nbytes >= 10_000_000
+        # tracemalloc sees only Python allocations: this pins copies made in Python (e.g. a BytesIO), not in Arrow's pool.
         tracemalloc.start()
         try:
             result = _FileTransportStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})

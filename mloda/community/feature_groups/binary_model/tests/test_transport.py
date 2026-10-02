@@ -20,7 +20,7 @@ import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import pyarrow as pa
 import pytest
@@ -69,12 +69,13 @@ def _run_binary(
     *,
     timeout: float | None = 10.0,
     file_transport_threshold: int = 10_000_000,
+    write_input: Callable[[BinaryIO], object] | None = None,
 ) -> bytes:
     return run_binary(
         argv,
         env,
         config,
-        lambda sink: sink.write(input_bytes),
+        write_input if write_input is not None else lambda sink: sink.write(input_bytes),
         len(input_bytes),
         timeout=timeout,
         file_transport_threshold=file_transport_threshold,
@@ -1051,21 +1052,15 @@ class TestRunBinary:
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             monkeypatch.setattr(os, "open", failing_open)
             with pytest.raises(BinaryUnavailableError, match="cannot write to the invocation directory"):
-                if target == "write_input":
-                    run_binary(
-                        STUB_CMD,
-                        {"PATH": os.defpath},
-                        _hash_config(),
-                        failing_write_input,
-                        len(input_bytes),
-                        timeout=10.0,
-                        file_transport_threshold=0,
-                        invocation_dir=inv.path,
-                    )
-                else:
-                    _run_binary(
-                        STUB_CMD, {"PATH": os.defpath}, _hash_config(), input_bytes, inv.path, file_transport_threshold=0
-                    )
+                _run_binary(
+                    STUB_CMD,
+                    {"PATH": os.defpath},
+                    _hash_config(),
+                    input_bytes,
+                    inv.path,
+                    file_transport_threshold=0,
+                    write_input=failing_write_input if target == "write_input" else None,
+                )
 
     def test_nonexistent_path_raises_binary_unavailable(self, tmp_path: Path) -> None:
         missing = tmp_path / "does-not-exist"
