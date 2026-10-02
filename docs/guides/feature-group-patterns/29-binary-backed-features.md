@@ -14,7 +14,7 @@ Run a compiled binary (a model shipped as a wheel, usually license-gated) as the
 |-----------------|---------|
 | `BINARY_PLUGIN_ID` | Import package of the wheel that ships the binary (`from <id> import binary_path`); also the id the license entitles |
 | `BINARY_WHEEL_DISTRIBUTION` | The wheel's PyPI distribution name, distinct from `BINARY_PLUGIN_ID` (the import name); used in `packages.toml` |
-| `BINARY_COMMAND_OVERRIDE` | Explicit argv prefix or path used instead of the wheel; tests point it at the simulated binary. No environment variable can redirect the binary |
+| `BINARY_COMMAND_OVERRIDE` | Explicit argv prefix or path used instead of the wheel; tests point it at the simulated binary. No environment variable can redirect the binary. Only argv[0] is stat-checked for the capability cache, so call `clear_capability_cache()` after changing a program named later in the override |
 | `LICENSE_FILE_OVERRIDE`, `LICENSE_KEY_OVERRIDE` | Values for `MLODA_LICENSE_FILE` / `MLODA_LICENSE_KEY` in the binary's environment; unset, the caller's own values are forwarded, and an empty string suppresses that forwarding |
 | `BINARY_TIMEOUT_SECONDS` | Wall-clock limit per `run` invocation, probes excluded; on timeout the whole process group is terminated on POSIX, only the child on Windows, and `BinaryTerminatedError` raised |
 | `BINARY_PROBE_TIMEOUT_SECONDS` | Wall-clock limit per probe (each of `--version` and `--capabilities`, default 60s); on timeout the whole process group is terminated on POSIX, only the child on Windows, and `BinaryUnavailableError` raised |

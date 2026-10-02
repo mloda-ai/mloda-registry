@@ -252,6 +252,26 @@ class TestCapabilityCache:
         binary.resolve_binary(PLUGIN_ID, STUB_CMD, env={"PATH": os.defpath}, timeout=10.0)
         assert counter.count > warm_calls
 
+    def test_cache_key_stats_only_argv0_so_script_change_does_not_reprobe_until_cleared(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Documented rule: only argv[0] is stat-ed, so editing an interpreter-style override's script is not seen."""
+        script = tmp_path / "wrapper.py"
+        body = 'import runpy; runpy.run_module("mloda.testing.binary_model.simulated_binary", run_name="__main__")\n'
+        script.write_text(body)
+        argv = [sys.executable, str(script)]
+        counter = _CountingPopen(monkeypatch)
+        binary.resolve_binary(PLUGIN_ID, argv, env={"PATH": os.defpath}, timeout=10.0)
+        warm_calls = counter.count
+        assert warm_calls > 0
+        script.write_text(body + "# changed\n")
+        os.utime(script, (time.time() + 100, time.time() + 100))
+        binary.resolve_binary(PLUGIN_ID, argv, env={"PATH": os.defpath}, timeout=10.0)
+        assert counter.count == warm_calls
+        binary.clear_capability_cache()
+        binary.resolve_binary(PLUGIN_ID, argv, env={"PATH": os.defpath}, timeout=10.0)
+        assert counter.count > warm_calls
+
     def test_different_argv_suffix_is_a_different_cache_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         counter = _CountingPopen(monkeypatch)
         binary.resolve_binary(PLUGIN_ID, STUB_CMD, env={"PATH": os.defpath}, timeout=10.0)
