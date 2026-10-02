@@ -66,6 +66,13 @@ def _version(mode: str) -> int:
         # Arabic-Indic digits, which \d also matches under re's default (non-ASCII) mode.
         sys.stdout.buffer.write(f"{PLUGIN_ID} \u0661.\u0662.\u0663\n".encode("utf-8"))
         return 0
+    if mode == "version_crlf":
+        sys.stdout.buffer.write(f"{PLUGIN_ID} 0.0.1\r\n".encode("utf-8"))
+        return 0
+    if mode == "version_unicode_line_separator":
+        # str.splitlines() would strip the trailing U+2028 and accept this as one line.
+        sys.stdout.buffer.write(f"{PLUGIN_ID} 0.0.1\u2028".encode("utf-8"))
+        return 0
     print(f"{PLUGIN_ID} {VERSION}")
     if mode == "version_two_lines":
         print("unexpected second line")
