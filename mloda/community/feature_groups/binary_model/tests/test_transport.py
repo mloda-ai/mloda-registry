@@ -74,7 +74,8 @@ def _run_binary(
         argv,
         env,
         config,
-        input_bytes,
+        lambda sink: sink.write(input_bytes),
+        len(input_bytes),
         timeout=timeout,
         file_transport_threshold=file_transport_threshold,
         invocation_dir=invocation_dir,
@@ -1030,31 +1031,41 @@ class TestRunBinary:
             with pytest.raises(BinaryUnavailableError, match="cannot spawn binary"):
                 _run_binary(cmd, {"PATH": os.defpath}, _hash_config(), b"", inv.path)
 
-    @pytest.mark.parametrize("target", ["config", "input"])
+    @pytest.mark.parametrize("target", ["config", "input", "write_input"])
     def test_write_failure_in_the_invocation_directory_raises_binary_unavailable(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
     ) -> None:
         real_open = os.open
-        real_write_bytes = Path.write_bytes
+        failing_name = {"config": "config.json", "input": "input.arrows"}.get(target)
 
         def failing_open(path: Any, *args: Any, **kwargs: Any) -> int:
-            if str(path).endswith("config.json"):
+            if failing_name is not None and str(path).endswith(failing_name):
                 raise OSError(errno.ENOSPC, "no space left on device")
             return real_open(path, *args, **kwargs)
 
-        def failing_write_bytes(self: Path, data: Any) -> int:
-            if self.name == "input.arrows":
-                raise OSError(errno.ENOSPC, "no space left on device")
-            return real_write_bytes(self, data)
+        def failing_write_input(sink: Any) -> None:
+            sink.write(b"abc")
+            raise OSError(errno.ENOSPC, "no space left on device")
 
         input_bytes = arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["alpha"]})
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
-            monkeypatch.setattr(os, "open", failing_open if target == "config" else real_open)
-            monkeypatch.setattr(Path, "write_bytes", failing_write_bytes)
+            monkeypatch.setattr(os, "open", failing_open)
             with pytest.raises(BinaryUnavailableError, match="cannot write to the invocation directory"):
-                _run_binary(
-                    STUB_CMD, {"PATH": os.defpath}, _hash_config(), input_bytes, inv.path, file_transport_threshold=0
-                )
+                if target == "write_input":
+                    run_binary(
+                        STUB_CMD,
+                        {"PATH": os.defpath},
+                        _hash_config(),
+                        failing_write_input,
+                        len(input_bytes),
+                        timeout=10.0,
+                        file_transport_threshold=0,
+                        invocation_dir=inv.path,
+                    )
+                else:
+                    _run_binary(
+                        STUB_CMD, {"PATH": os.defpath}, _hash_config(), input_bytes, inv.path, file_transport_threshold=0
+                    )
 
     def test_nonexistent_path_raises_binary_unavailable(self, tmp_path: Path) -> None:
         missing = tmp_path / "does-not-exist"

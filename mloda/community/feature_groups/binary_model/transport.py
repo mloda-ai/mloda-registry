@@ -5,6 +5,7 @@ per-invocation directory, and running the binary itself over stdin/stdout or fil
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
@@ -18,10 +19,10 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from types import TracebackType
-from typing import Any
+from typing import Any, BinaryIO
 
 from mloda.community.feature_groups.binary_model.errors import (
     BinaryTerminatedError,
@@ -383,14 +384,17 @@ def run_binary(
     argv: Sequence[str],
     env: Mapping[str, str],
     config: Mapping[str, Any],
-    input_bytes: bytes,
+    write_input: Callable[[BinaryIO], object],
+    input_size: int,
     *,
     timeout: float | None,
     file_transport_threshold: int,
     invocation_dir: Path,
 ) -> bytes:
     """Run one ``run --config <path>`` invocation, choosing stdin/stdout or file transport based
-    on ``input_bytes`` size, and returning the output bytes (contract: Invocation, Data)."""
+    on ``input_size``, and returning the output bytes (contract: Invocation, Data). ``write_input`` writes
+    the input stream into the given binary file: straight to ``input.arrows`` for file transport (never
+    held in memory), else into a buffer sent on stdin."""
     config_path = invocation_dir / "config.json"
     try:
         payload = json.dumps(dict(config), allow_nan=False)
@@ -402,20 +406,29 @@ def run_binary(
 
     args = ["run", "--config", str(config_path)]
     output_path: Path | None = None
+    stdin_bytes: bytes
     try:
         fd = os.open(str(config_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(payload)
-        if len(input_bytes) > file_transport_threshold:
+        if input_size > file_transport_threshold:
             input_path = invocation_dir / "input.arrows"
-            input_path.write_bytes(input_bytes)
+            input_fd = os.open(
+                str(input_path),
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0),
+                0o600,
+            )
+            with os.fdopen(input_fd, "wb") as input_handle:
+                write_input(input_handle)
             output_path = invocation_dir / "output.arrows"
             args += ["--input", str(input_path), "--output", str(output_path)]
             stdin_bytes = b""
-        else:
-            stdin_bytes = input_bytes
     except OSError as exc:
         raise BinaryUnavailableError(f"cannot write to the invocation directory {invocation_dir}: {exc}") from exc
+    if output_path is None:
+        buffer = io.BytesIO()
+        write_input(buffer)
+        stdin_bytes = buffer.getvalue()
 
     try:
         proc = subprocess.Popen(  # nosec B603
