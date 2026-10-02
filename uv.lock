@@ -2129,7 +2129,6 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "bandit" },
-    { name = "cryptography" },
     { name = "duckdb" },
     { name = "mypy" },
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -2150,7 +2149,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bandit", marker = "extra == 'dev'" },
-    { name = "cryptography", marker = "extra == 'dev'" },
     { name = "duckdb", marker = "extra == 'dev'" },
     { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
     { name = "mypy", marker = "extra == 'dev'" },
