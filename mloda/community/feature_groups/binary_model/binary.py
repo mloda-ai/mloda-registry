@@ -126,7 +126,7 @@ def parse_version(argv: list[str], plugin_id: str, stdout: bytes) -> str:
         text = stdout.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise BinaryUnavailableError(f"binary {argv[0]!r} --version output is not valid UTF-8: {exc}") from exc
-    lines = text.splitlines()
+    lines = split_output_lines(text)
     if len(lines) != 1:
         raise BinaryUnavailableError(f"binary {argv[0]!r} --version must print exactly one line, got {len(lines)}")
     parts = lines[0].split(" ")

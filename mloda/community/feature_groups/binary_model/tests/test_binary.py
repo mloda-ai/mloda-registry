@@ -342,8 +342,15 @@ class TestVersionMustBeSemVer:
 
     @pytest.mark.parametrize(
         "mode",
-        ["version_not_semver", "version_empty", "version_no_second_token", "version_non_ascii_digits"],
-        ids=["not_semver", "empty", "no_second_token", "non_ascii_digits"],
+        [
+            "version_not_semver",
+            "version_empty",
+            "version_no_second_token",
+            "version_non_ascii_digits",
+            "version_crlf",
+            "version_unicode_line_separator",
+        ],
+        ids=["not_semver", "empty", "no_second_token", "non_ascii_digits", "crlf", "unicode_line_separator"],
     )
     def test_non_semver_version_is_unavailable(self, mode: str) -> None:
         with pytest.raises(BinaryUnavailableError) as excinfo:
@@ -351,6 +358,7 @@ class TestVersionMustBeSemVer:
                 "faulty_binary", [*FAULTY_CMD, "--mode", mode], env={"PATH": os.defpath}, timeout=10.0
             )
         assert "--version" in str(excinfo.value)
+        assert "<semver>" in str(excinfo.value)
 
     def test_prerelease_semver_version_is_accepted(self) -> None:
         resolved = binary.resolve_binary(
@@ -373,8 +381,8 @@ class TestVersionMustBeSemVer:
     ],
 )
 def test_split_output_lines_drops_one_trailing_empty_element(text: str, expected: list[str]) -> None:
-    """``contract.split_output_lines`` is the single source for the ``--capabilities`` line split
-    (contract: Capabilities)."""
+    """``contract.split_output_lines`` is the single source for the ``--version`` and
+    ``--capabilities`` line split (contract: Invocation, Capabilities)."""
     assert contract.split_output_lines(text) == expected
 
 
