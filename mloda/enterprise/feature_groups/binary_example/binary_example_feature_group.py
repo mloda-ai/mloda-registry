@@ -5,6 +5,7 @@ Features; see ``docs/guides/feature-group-patterns/29-binary-backed-features.md`
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
@@ -76,10 +77,14 @@ class BinaryExampleFeatureGroup(BinaryModelMixin, FeatureGroup):
 
     @classmethod
     def calculate_feature(cls, data: pa.Table, features: FeatureSet) -> pa.Table:
+        runs: dict[tuple[str, tuple[str, ...], str], pa.ChunkedArray] = {}  # identical options share one binary run
         for feature in features.features:
             columns: Sequence[str] = feature.options.get(cls.INPUT_COLUMNS)
             parameters: Mapping[str, Any] = feature.options.get(cls.PARAMETERS) or {}
             operation = feature.options.get(cls.OPERATION)
-            result = cls.run_binary_model(data, columns, operation, parameters, {cls.OUTPUT_KEY: feature.name})
-            data = data.append_column(feature.name, result.column(feature.name))
+            key = (operation, tuple(columns), json.dumps(parameters, sort_keys=True, default=repr))
+            if key not in runs:
+                result = cls.run_binary_model(data, columns, operation, parameters, {cls.OUTPUT_KEY: feature.name})
+                runs[key] = result.column(feature.name)
+            data = data.append_column(feature.name, runs[key])
         return data

@@ -17,8 +17,10 @@ from mloda.provider import ApiInputDataFeature, FeatureSet, PropertySpec, proper
 from mloda.user import Feature, FeatureName, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.binary_model import mixin
 from mloda.community.feature_groups.binary_model.binary import clear_capability_cache
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError, LicenseMissingError
+from mloda.community.feature_groups.binary_model.transport import run_binary as real_run_binary
 from mloda.enterprise.feature_groups.binary_example import manifest as binary_example_manifest
 from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
 from mloda.testing.base import FeatureGroupTestBase
@@ -251,6 +253,28 @@ class TestCalculateFeature:
 
         assert result.column("hash_a").to_pylist() == compute_expected_hash_column(rows, ["col_a"], None)
         assert result.column("hash_b").to_pylist() == compute_expected_hash_column(rows, ["col_b"], None)
+
+    def test_duplicate_options_spawn_one_run_per_distinct_options(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        runs: list[int] = []
+
+        def counting_run_binary(*args: Any, **kwargs: Any) -> bytes:
+            runs.append(1)
+            return real_run_binary(*args, **kwargs)
+
+        monkeypatch.setattr(mixin, "run_binary", counting_run_binary)
+        rows: dict[str, list[Any]] = {"col_a": ["alpha", "beta"]}
+        table = pa.table(rows)
+        features = [
+            _hash_feature("hash_a", ["col_a"], parameters={"key": "k"}),
+            _hash_feature("hash_b", ["col_a"], parameters={"key": "k"}),
+            _hash_feature("hash_c", ["col_a"], parameters={"key": "other"}),
+        ]
+        result = StubExample.calculate_feature(table, _feature_set(*features))
+
+        assert len(runs) == 2
+        assert result.column("hash_a").to_pylist() == compute_expected_hash_column(rows, ["col_a"], "k")
+        assert result.column("hash_b").to_pylist() == compute_expected_hash_column(rows, ["col_a"], "k")
+        assert result.column("hash_c").to_pylist() == compute_expected_hash_column(rows, ["col_a"], "other")
 
 
 class TestCalculateFeatureReadsOperationFromOptions:
