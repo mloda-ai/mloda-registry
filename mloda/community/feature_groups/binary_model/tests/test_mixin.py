@@ -6,10 +6,12 @@ Data handling, Errors).
 from __future__ import annotations
 
 import datetime
+import io
 import logging
 import os
 import sys
 import time
+import tracemalloc
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
@@ -556,6 +558,19 @@ class TestHappyPaths:
         expected = compute_expected_hash_column(rows, ["col_a"], None)
         assert result.column("col_a_hash").to_pylist() == expected
 
+    def test_file_transport_streams_input_without_in_memory_copies(self) -> None:
+        table = pa.table({"col_a": [f"{i:08d}" + "x" * 92 for i in range(100_000)]})
+        assert table.nbytes >= 10_000_000
+        # tracemalloc sees only Python allocations: this pins copies made in Python (e.g. a BytesIO), not in Arrow's pool.
+        tracemalloc.start()
+        try:
+            result = _FileTransportStubModel.run_binary_model(table, ["col_a"], "hash", {}, {"result": "col_a_hash"})
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        assert result.num_rows == table.num_rows
+        assert peak < table.nbytes // 4, f"traced peak {peak} bytes for a {table.nbytes} byte table"
+
 
 # -------------------------------------------------------------------------------------------
 # 15. License overrides
@@ -754,6 +769,12 @@ class TestUpFrontValidationBeforeAnySpawn:
 # -------------------------------------------------------------------------------------------
 
 
+def _stream_bytes(table: pa.Table, max_batch_bytes: int) -> bytes:
+    sink = io.BytesIO()
+    mixin._write_ipc_stream(table, max_batch_bytes, sink)
+    return sink.getvalue()
+
+
 class TestWriteIpcStreamBatching:
     def test_skewed_table_never_writes_a_multi_row_batch_over_the_limit(self) -> None:
         """1000 one-character strings plus two 1000-byte strings: the mean-bytes-per-row estimate
@@ -762,7 +783,7 @@ class TestWriteIpcStreamBatching:
         values = ["a"] * 1000 + ["b" * 1000, "c" * 1000]
         table = pa.table({"col_a": values})
         max_batch_bytes = 1000
-        data = mixin._write_ipc_stream(table, max_batch_bytes)
+        data = _stream_bytes(table, max_batch_bytes)
         reader = pa.ipc.open_stream(data)
         total_rows = 0
         for batch in reader:
@@ -775,14 +796,14 @@ class TestWriteIpcStreamBatching:
 
     def test_zero_row_table_writes_no_batch(self) -> None:
         table = pa.table({"col_a": pa.array([], type=pa.string())})
-        data = mixin._write_ipc_stream(table, 1000)
+        data = _stream_bytes(table, 1000)
         batches = list(pa.ipc.open_stream(data))
         assert batches == []
 
     def test_every_row_over_the_limit_gets_its_own_batch(self) -> None:
         values = ["x" * 2000] * 5
         table = pa.table({"col_a": values})
-        data = mixin._write_ipc_stream(table, 1000)
+        data = _stream_bytes(table, 1000)
         batches = list(pa.ipc.open_stream(data))
         assert len(batches) == 5
         assert all(batch.num_rows == 1 for batch in batches)
@@ -794,7 +815,7 @@ class TestWriteIpcStreamBatching:
         row is preserved."""
         rows = ["alpha", "beta", "gamma"]
         table = pa.table({"col_a": pa.array(rows, type=pa.large_string())})
-        data = mixin._write_ipc_stream(table, 1_000_000)
+        data = _stream_bytes(table, 1_000_000)
         reader = pa.ipc.open_stream(data)
         assert pa.types.is_string(reader.schema.field("col_a").type)
         total_rows = 0
@@ -806,7 +827,7 @@ class TestWriteIpcStreamBatching:
     def test_string_view_column_is_written_as_utf8_per_batch(self) -> None:
         rows = ["alpha", "beta", "gamma"]
         table = pa.table({"col_a": pa.array(rows, type=pa.string_view())})
-        data = mixin._write_ipc_stream(table, 1_000_000)
+        data = _stream_bytes(table, 1_000_000)
         reader = pa.ipc.open_stream(data)
         assert pa.types.is_string(reader.schema.field("col_a").type)
         total_rows = 0
@@ -814,6 +835,17 @@ class TestWriteIpcStreamBatching:
             assert pa.types.is_string(batch.schema.field("col_a").type)
             total_rows += batch.num_rows
         assert total_rows == table.num_rows
+
+    @pytest.mark.parametrize(
+        "table, max_batch_bytes",
+        [
+            (pa.table({"col_a": ["a"] * 1000 + ["b" * 1000, "c" * 1000]}), 1000),
+            (pa.table({"col_a": pa.array([], type=pa.string())}), 1000),
+        ],
+        ids=["multi_batch", "zero_row"],
+    )
+    def test_ipc_stream_size_equals_written_stream_length(self, table: pa.Table, max_batch_bytes: int) -> None:
+        assert mixin._ipc_stream_size(table, max_batch_bytes) == len(_stream_bytes(table, max_batch_bytes))
 
 
 # -------------------------------------------------------------------------------------------

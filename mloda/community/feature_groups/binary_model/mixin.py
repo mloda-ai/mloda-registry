@@ -8,10 +8,9 @@ verifying the binary's output against the contract before it reaches the caller.
 
 from __future__ import annotations
 
-import io
 import logging
 from collections.abc import Mapping, Sequence
-from typing import Any, ClassVar
+from typing import Any, BinaryIO, ClassVar
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -153,20 +152,25 @@ def _wire_field(field: pa.Field) -> pa.Field:
     return pa.field(field.name, field_type, nullable=field.nullable)
 
 
-def _write_ipc_stream(table: pa.Table, max_batch_bytes: int) -> bytes:
-    """Write ``table`` to Arrow IPC stream bytes, batched small enough that no single array exceeds
-    ``max_batch_bytes`` (contract: Capabilities); a zero-row table writes a schema-only stream. The
+def _write_ipc_stream(table: pa.Table, max_batch_bytes: int, sink: pa.NativeFile | BinaryIO) -> None:
+    """Write ``table`` as an Arrow IPC stream into ``sink``, batched small enough that no single array
+    exceeds ``max_batch_bytes`` (contract: Capabilities); a zero-row table writes a schema-only stream. The
     ``large_string``/``string_view`` -> ``utf8`` cast happens here, per batch, after splitting on
     ``table``'s own, still-large-typed batches, since casting the whole table up front could
     overflow ``utf8``'s 32-bit offsets even though no individual cell is oversized."""
     wire_schema = pa.schema([_wire_field(field) for field in table.schema])
     rows_per_batch = _rows_per_batch(table, max_batch_bytes)
-    buffer = io.BytesIO()
-    with pa.ipc.new_stream(buffer, wire_schema) as writer:
+    with pa.ipc.new_stream(sink, wire_schema) as writer:
         for batch in table.to_batches(max_chunksize=rows_per_batch):
             for piece in _split_oversized_batch(batch, max_batch_bytes):
                 writer.write_batch(piece.cast(wire_schema))
-    return buffer.getvalue()
+
+
+def _ipc_stream_size(table: pa.Table, max_batch_bytes: int) -> int:
+    """Exact byte size of the stream ``_write_ipc_stream`` would write, counted without storing it."""
+    sink = pa.MockOutputStream()
+    _write_ipc_stream(table, max_batch_bytes, sink)
+    return int(sink.size())
 
 
 def read_output_stream(data: bytes) -> pa.Table:
@@ -281,7 +285,7 @@ class BinaryModelMixin:
         _check_input_column_types(table, input_columns, resolved)
 
         outgoing = _build_outgoing_table(table, input_columns)
-        stream_bytes = _write_ipc_stream(outgoing, cls.MAX_BATCH_BYTES)
+        input_size = _ipc_stream_size(outgoing, cls.MAX_BATCH_BYTES)
         config = {
             "input_columns": list(input_columns),
             "operation": operation,
@@ -295,7 +299,8 @@ class BinaryModelMixin:
                     resolved.argv,
                     cls.binary_environment(),
                     config,
-                    stream_bytes,
+                    lambda sink: _write_ipc_stream(outgoing, cls.MAX_BATCH_BYTES, sink),
+                    input_size,
                     timeout=cls.BINARY_TIMEOUT_SECONDS,
                     file_transport_threshold=cls.FILE_TRANSPORT_THRESHOLD_BYTES,
                     invocation_dir=invocation.path,
