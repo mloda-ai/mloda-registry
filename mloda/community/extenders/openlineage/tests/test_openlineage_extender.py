@@ -20,6 +20,7 @@ import weakref
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import patch
 
 import pyarrow as pa
 import pytest
@@ -1964,6 +1965,28 @@ class TestOpenLineageExtenderSubclassSeams:
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert any(type(extender).__name__ in message and "RuntimeError" in message for message in warnings)
         assert "output facet boom" not in caplog.text
+
+    def test_post_call_instrumentation_failure_logs_only_the_type_and_keeps_the_result(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        client, _ = ol_capture
+        extender = OpenLineageExtender(client=client)
+        original_emit_event = extender._emit_event
+
+        def emit_event(state: RunState, *args: Any) -> None:
+            if state == RunState.COMPLETE:
+                raise RuntimeError("complete boom")
+            original_emit_event(state, *args)
+
+        with patch.object(extender, "_emit_event", side_effect=emit_event):
+            with make_hook_context().activate():
+                with caplog.at_level(logging.WARNING):
+                    result = extender(lambda: 42)
+
+        assert result == 42
+        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("post-call instrumentation failed" in m and "RuntimeError" in m for m in warnings), warnings
+        assert "complete boom" not in caplog.text
 
     def test_log_messages_name_the_subclass_not_the_base(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture

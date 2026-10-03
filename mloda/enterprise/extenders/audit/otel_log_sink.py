@@ -61,7 +61,9 @@ def _attributes(record: Mapping[str, Any], key: bytes | None) -> dict[str, Any]:
     if not _is_blank(principal):
         if key is not None:
             tenant = record.get("tenant_id")
-            data = json.dumps([None if _is_blank(tenant) else tenant, principal]).encode("utf-8")
+            data = json.dumps(
+                [None if _is_blank(tenant) else tenant, principal], separators=(",", ":"), ensure_ascii=True
+            ).encode("utf-8")
             attributes[_PRINCIPAL_ATTRIBUTE] = hmac.new(key, data, hashlib.sha256).hexdigest()
     feature_names = record.get("feature_names")
     if feature_names:

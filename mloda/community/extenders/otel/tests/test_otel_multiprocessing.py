@@ -117,6 +117,21 @@ class TestExtractCarrier:
 
         assert isinstance(extracted, Context)
 
+    def test_a_baggage_header_is_ignored_and_the_parent_span_context_is_kept(self) -> None:
+        provider, _exporter = _new_provider_and_exporter()
+        tracer = provider.get_tracer("test-extract-baggage")
+        with tracer.start_as_current_span("parent-span") as parent_span:
+            parent_span_context = parent_span.get_span_context()
+            carrier = inject_carrier()
+        carrier["baggage"] = "user.email=jane@example.com"
+
+        extracted = extract_carrier(carrier)
+
+        assert otel_baggage.get_all(extracted) == {}
+        extracted_span_context = otel_trace_api.get_current_span(extracted).get_span_context()
+        assert extracted_span_context.trace_id == parent_span_context.trace_id
+        assert extracted_span_context.span_id == parent_span_context.span_id
+
 
 class TestForceFlushReExport:
     """This module re-exports shared/teardown.py's force_flush, never a local copy."""
@@ -173,20 +188,3 @@ class TestTraceIdFromRunId:
         """An invalid UUID string propagates uuid.UUID's natural ValueError, unswallowed."""
         with pytest.raises(ValueError):
             trace_id_from_run_id("not-a-uuid")
-
-
-class TestExtractCarrierIgnoresBaggage:
-    def test_a_baggage_header_is_ignored_and_the_parent_span_context_is_kept(self) -> None:
-        provider, _exporter = _new_provider_and_exporter()
-        tracer = provider.get_tracer("test-extract-baggage")
-        with tracer.start_as_current_span("parent-span") as parent_span:
-            parent_span_context = parent_span.get_span_context()
-            carrier = inject_carrier()
-        carrier["baggage"] = "user.email=jane@example.com"
-
-        extracted = extract_carrier(carrier)
-
-        assert otel_baggage.get_all(extracted) == {}
-        extracted_span_context = otel_trace_api.get_current_span(extracted).get_span_context()
-        assert extracted_span_context.trace_id == parent_span_context.trace_id
-        assert extracted_span_context.span_id == parent_span_context.span_id

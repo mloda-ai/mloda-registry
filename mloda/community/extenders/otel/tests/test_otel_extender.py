@@ -684,6 +684,36 @@ class TestOtelExtenderFailureHandling:
         warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
         assert any("ValueError" in message and "mloda.calculate" in message for message in warnings), warnings
 
+    def test_warnings_name_the_subclass_not_the_base(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Both the wrapped-failure and the post-call WARNING name type(self).__name__."""
+        provider, _ = otel_capture
+
+        class MyTracer(OtelExtender):
+            pass
+
+        def broken_mask(_value: Any) -> Any:
+            raise RuntimeError("mask boom")
+
+        def failing() -> None:
+            raise ValueError()
+
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
+        with caplog.at_level(logging.WARNING):
+            with context.activate():
+                with pytest.raises(ValueError):
+                    MyTracer(tracer_provider=provider)(failing)
+                with contextlib.suppress(Exception):
+                    MyTracer(tracer_provider=provider, capture_content=True, mask=broken_mask)(
+                        instrument(context, lambda: [1])
+                    )
+
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("MyTracer" in m and "ValueError" in m and "mloda.calculate" in m for m in warnings), warnings
+        assert any("MyTracer" in m and "post-call instrumentation failed" in m for m in warnings), warnings
+        assert not any(m.startswith("OtelExtender ") for m in warnings), warnings
+
 
 class TestOtelExtenderContentCapture:
     """Metadata-only by default; capture_content=True or MLODA_OTEL_TRACE_CONTENT opts in, mask redacts."""
@@ -944,7 +974,7 @@ class TestOtelExtenderPostCallInstrumentationFailure:
     trace backend's point of view, from a real pipeline failure."""
 
     def test_mask_failure_after_func_success_does_not_mark_span_error(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
     ) -> None:
         provider, exporter = otel_capture
         context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE)
@@ -963,8 +993,13 @@ class TestOtelExtenderPostCallInstrumentationFailure:
         # func already succeeded by the time broken_mask runs, so whatever escapes here is the
         # extender's own bug, not func's; let it propagate and inspect the span it leaves behind.
         with context.activate():
-            with contextlib.suppress(Exception):
-                otel(instrument(context, func))
+            with caplog.at_level(logging.WARNING):
+                with contextlib.suppress(Exception):
+                    otel(instrument(context, func))
+
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("post-call instrumentation failed" in m and "RuntimeError" in m for m in warnings), warnings
+        assert "mask boom" not in caplog.text
 
         spans = exporter.get_finished_spans()
         assert len(spans) == 1, spans

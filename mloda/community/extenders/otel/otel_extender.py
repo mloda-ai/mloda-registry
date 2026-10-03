@@ -210,7 +210,7 @@ class OtelExtender(Extender):
             except BaseException as exc:
                 span.set_status(Status(StatusCode.ERROR))
                 span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
-                logger.warning("OtelExtender %s failed: %s", span_name, type(exc).__name__)
+                logger.warning("%s %s failed: %s", type(self).__name__, span_name, type(exc).__name__)
                 raise
 
             try:
@@ -224,7 +224,7 @@ class OtelExtender(Extender):
                     ):
                         span.set_attribute("mloda.content.preview", self._content_preview(result))
             except Exception as exc:
-                logger.warning("OtelExtender post-call instrumentation failed: %s", type(exc).__name__)
+                logger.warning("%s post-call instrumentation failed: %s", type(self).__name__, type(exc).__name__)
 
             return result
 

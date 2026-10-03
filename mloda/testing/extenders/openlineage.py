@@ -421,7 +421,7 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         client, _ = make_recording_client()
         extender = self.make_openlineage_extender(client)
 
-        secret = "403 for https://user:password@bucket.example/key?X-Amz-Signature=SIGMARKER row=Jane Doe"
+        secret = "403 for https://user:password@bucket.example/key?X-Amz-Signature=SIGMARKER row=Jane Doe"  # nosec B105
 
         def func() -> None:
             raise RuntimeError(secret)

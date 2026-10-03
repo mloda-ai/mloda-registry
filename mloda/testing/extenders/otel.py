@@ -346,7 +346,7 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         provider, _ = make_span_capture()
         extender = self.make_otel_extender(provider)
 
-        secret = "403 for https://user:password@bucket.example/key?X-Amz-Signature=SIGMARKER row=Jane Doe"
+        secret = "403 for https://user:password@bucket.example/key?X-Amz-Signature=SIGMARKER row=Jane Doe"  # nosec B105
 
         def func() -> None:
             raise RuntimeError(secret)

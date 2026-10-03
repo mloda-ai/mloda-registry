@@ -107,17 +107,20 @@ _OTHER_KEY = b"o" * 32
 # Distinctive ASCII so a leak of the key, as text or as a bytes repr, is findable.
 _LEAK_KEY = b"key-marker-7f3a-0123456789abcdef-xyz"
 
-# Computed once with the documented recipe: HMAC-SHA256(key, json.dumps([tenant, principal])).
+# Computed once with the documented recipe: HMAC-SHA256(key, compact ASCII-escaped json.dumps([tenant, principal])).
 _KNOWN_ANSWER_KEY = b"k" * 32
 _KNOWN_ANSWER_TENANT = "tenant-1"
 _KNOWN_ANSWER_PRINCIPAL = "svc-1"
-_KNOWN_ANSWER_DIGEST = "a0737eeb58e4a12e97887d3f6369049e900848aa7f2cdf32a5fb4dfe482a8342"
+_KNOWN_ANSWER_DIGEST = "9b0510b03da68e648e2ecb7291ada40285ebda5466acc2724eee90050483ae1a"
+_KNOWN_ANSWER_NON_ASCII_PRINCIPAL = "prïncipal-é"
+_KNOWN_ANSWER_NON_ASCII_DIGEST = "6c6c06c65e70223a6418b12f6fe0d3587b336502f25ad09fae29c5534d4195ef"
 
 
 def _keyed_user_hash(key: bytes, tenant: str | None, principal: str) -> str:
     """Reference for the documented recipe; a blank tenant counts as None."""
     tenant_part = tenant if tenant is not None and tenant.strip() else None
-    return hmac.new(key, json.dumps([tenant_part, principal]).encode("utf-8"), hashlib.sha256).hexdigest()
+    payload = json.dumps([tenant_part, principal], separators=(",", ":"), ensure_ascii=True)
+    return hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 _KEYED_PRINCIPAL_HASH_CASES = [
@@ -493,6 +496,15 @@ class TestOtelLogAuditSinkMapping:
         log = _write_one(log_exporter, record, key=_KNOWN_ANSWER_KEY)
 
         assert _attributes(log)["user.hash"] == _KNOWN_ANSWER_DIGEST
+
+    def test_the_keyed_hash_matches_a_hard_coded_known_answer_for_a_non_ascii_principal_and_missing_tenant(
+        self, log_exporter: InMemoryLogRecordExporter
+    ) -> None:
+        record = {"decision": "deny", "principal": _KNOWN_ANSWER_NON_ASCII_PRINCIPAL}
+
+        log = _write_one(log_exporter, record, key=_KNOWN_ANSWER_KEY)
+
+        assert _attributes(log)["user.hash"] == _KNOWN_ANSWER_NON_ASCII_DIGEST
 
     def test_the_same_principal_under_two_tenants_hashes_differently(
         self, log_exporter: InMemoryLogRecordExporter
