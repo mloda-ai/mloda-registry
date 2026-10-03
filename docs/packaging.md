@@ -272,10 +272,10 @@ python scripts/generate_pyproject.py    # Regenerate
 2. For a plugin package, create `<path>/manifest.py` listing the concrete classes.
 3. If it should ship standalone on PyPI, set `published = true` and add the name to
    `_EXPECTED_PUBLISHED` in `tests/test_end2end/test_published_set_single_source.py`;
-   otherwise add it to `_BUNDLE_ONLY` there. The gate checks both lists against config.
-   The `verify-published` env derives every configured package's import surface from
-   `config/packages.toml` (`scripts/verify_published_imports.py`), so it needs no edit.
-   The flag takes effect at the next release. The weekly verification checks out the release
+   otherwise add it to `_BUNDLE_ONLY` there. The gate checks both lists against config, in
+   config order. The `verify-published` env derives every configured package's import surface
+   from `config/packages.toml` (`scripts/verify_published_imports.py`), so it needs no edit.
+   A new package reaches PyPI at the next release. The weekly verification checks out the release
    tag, so only a local run of that env from main fails for it until then.
    If the package is nested under an `entry_point_bundle`'s own path (`mloda-community` or
    `mloda-enterprise`), the bundle must also own it: add `"<name>=={version}"` to the bundle's
