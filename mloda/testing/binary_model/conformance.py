@@ -1847,7 +1847,7 @@ class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
         parameters: dict[str, Any] | None = None,
         output_columns: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        if parameters is None:
+        if parameters is None and (operation is None or operation == self.operations[0]):
             parameters = {hmac_sha256_reference.KEY_PARAMETER: self.hmac_key}
         return super().make_config(
             input_columns=input_columns, operation=operation, parameters=parameters, output_columns=output_columns
@@ -1855,6 +1855,12 @@ class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
 
     def default_output_column_type(self) -> pa.DataType:
         return pa.string()
+
+    def _assert_key_not_echoed(self, result: subprocess.CompletedProcess[bytes], key: str) -> None:
+        """The key never appears in stderr, nor in stdout when the run failed."""
+        assert key.encode() not in result.stderr, "stderr echoes the key"
+        if result.returncode != 0:
+            assert key.encode() not in result.stdout, "stdout echoes the key"
 
     def _hmac_run(
         self, env: dict[str, str], tmp_path: Path, rows: list[str | None], key: str | None = None
@@ -1865,6 +1871,7 @@ class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
         column = self.default_input_columns[0]
         input_bytes = arrow_stream_bytes(pa.schema([pa.field(column, pa.string())]), {column: rows})
         result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), env, input_bytes)
+        self._assert_key_not_echoed(result, key or self.hmac_key)
         return self._kit_assert_success_table(result, config["output_columns"], len(rows))
 
     # -------------------------------------------------------------------------------------------
@@ -1902,6 +1909,8 @@ class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
         second = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert first.returncode == 0, f"stderr={first.stderr!r}"
         assert first.stdout == second.stdout
+        self._assert_key_not_echoed(first, self.hmac_key)
+        self._assert_key_not_echoed(second, self.hmac_key)
 
     def test_hmac_multi_batch_input_processes_all_batches(
         self, valid_license_env: dict[str, str], tmp_path: Path
@@ -1914,6 +1923,7 @@ class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
         batch_two: list[str | None] = ["bob", "über", "alice"]
         input_bytes = arrow_stream_bytes_multi_batch(schema, [{column: batch_one}, {column: batch_two}])
         result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env, input_bytes)
+        self._assert_key_not_echoed(result, self.hmac_key)
         table = self._kit_assert_success_table(result, config["output_columns"], len(batch_one) + len(batch_two))
         expected = hmac_sha256_reference.compute_expected_hmac_sha256_column(batch_one + batch_two, self.hmac_key)
         assert table.column(self.default_output_column_name).to_pylist() == expected
@@ -1960,12 +1970,14 @@ class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
         input_bytes = arrow_stream_bytes(pa.schema([pa.field(column, pa.int64())]), {column: [1, 2]})
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, UNSUPPORTED)
+        self._assert_key_not_echoed(result, self.hmac_key)
 
     def test_hmac_two_input_columns_is_usage_error(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
         """ "hmac_sha256" takes exactly one input column (contract: Configuration)."""
         config = self.make_config(input_columns=[self.default_input_columns[0], self.extra_input_column])
         result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, USAGE_ERROR)
+        self._assert_key_not_echoed(result, self.hmac_key)
 
     @pytest.mark.parametrize(
         "bad_key",
@@ -1975,6 +1987,8 @@ class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
             pytest.param("zz" * 32, id="non_hex_chars"),
             pytest.param("11 " * 21 + "1", id="embedded_spaces"),
             pytest.param(1234, id="non_string"),
+            pytest.param(None, id="null"),
+            pytest.param("", id="empty"),
         ],
     )
     def test_hmac_bad_key_is_usage_error_and_never_echoed(
@@ -1985,8 +1999,8 @@ class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
         config = self.make_config(parameters={hmac_sha256_reference.KEY_PARAMETER: bad_key})
         result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, USAGE_ERROR)
-        if isinstance(bad_key, str):
-            assert str(bad_key).encode() not in result.stderr, "stderr echoes the key"
+        if isinstance(bad_key, str) and bad_key:
+            self._assert_key_not_echoed(result, bad_key)
 
     def test_hmac_unknown_extra_parameter_is_usage_error(
         self, valid_license_env: dict[str, str], tmp_path: Path
@@ -1995,6 +2009,13 @@ class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
         config = self.make_config(
             parameters={hmac_sha256_reference.KEY_PARAMETER: self.hmac_key, "unexpected_extra_key": 1}
         )
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
+        assert_error_response(result, USAGE_ERROR)
+        self._assert_key_not_echoed(result, self.hmac_key)
+
+    def test_hmac_missing_key_is_usage_error(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
+        """`parameters: {}` lacks the required key, a usage error (contract: Configuration)."""
+        config = self.make_config(parameters={})
         result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, USAGE_ERROR)
 
@@ -2008,15 +2029,14 @@ class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
         """Deliberately inverts the base expectation: `parameters: {}` lacks the required key, so it
         is a usage error (contract: Configuration)."""
         # Mirrors the base test of the same name, which assumes all parameters are optional.
-        config = self.make_config(parameters={})
-        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
-        assert_error_response(result, USAGE_ERROR)
+        self.test_hmac_missing_key_is_usage_error(valid_license_env, tmp_path)
 
     def test_input_schema_missing_column_is_data_error(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
         """A stream missing the one configured column is a data error (contract: Data)."""
         # Mirrors the base test of the same name, which configures two input columns.
         config_path = write_json(tmp_path / "config.json", self.make_config())
-        input_bytes = arrow_stream_bytes(pa.schema([]), {})
+        schema = pa.schema([pa.field(self.extra_input_column, pa.string())])
+        input_bytes = arrow_stream_bytes(schema, {self.extra_input_column: ["alice", "bob"]})
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
@@ -2044,3 +2064,34 @@ class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
         input_bytes = arrow_stream_bytes(schema, {self.extra_input_column: [1, 2]})
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
+
+    @pytest.mark.parametrize(
+        "case",
+        [
+            pytest.param("missing_column_data_error", id="missing_column_data_error"),
+            pytest.param("reserved_internal_error_operation", id="reserved_internal_error_operation"),
+        ],
+    )
+    def test_diagnostics_never_leak_marked_cell_value_on_failure(
+        self, valid_license_env: dict[str, str], tmp_path: Path, case: str
+    ) -> None:
+        """The marker cell through two failing data-stage cases never leaks into stderr
+        (contract: Data handling, Conformance)."""
+        # Mirrors the base test of the same name, whose two-column config stops at the config stage here.
+        marker_type, marker_value, needle = self._kit_marker_cell() or _UTF8_MARKER_CELL
+        column = self.default_input_columns[0]
+        if case == "missing_column_data_error":
+            config = self.make_config(input_columns=[column])
+            schema = pa.schema([pa.field(self.extra_input_column, marker_type)])
+            input_bytes = arrow_stream_bytes(schema, {self.extra_input_column: [marker_value]})
+        else:
+            config = self.make_config(
+                input_columns=[column], operation=self.reserved_internal_error_operation, output_columns={}
+            )
+            input_bytes = arrow_stream_bytes(pa.schema([pa.field(column, marker_type)]), {column: [marker_value]})
+        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env, input_bytes)
+        if case == "missing_column_data_error":
+            assert_error_response(result, DATA_ERROR)
+        else:
+            assert result.returncode != 0, f"expected this case to fail, got exit 0; stdout={result.stdout!r}"
+        assert needle not in result.stderr, f"marker cell value leaked into stderr: {result.stderr!r}"
