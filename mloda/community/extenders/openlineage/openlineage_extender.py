@@ -272,9 +272,7 @@ class OpenLineageExtender(Extender):
             try:
                 return self._calculate_output_facets(context, func, args, name, inputs)
             except Exception as exc:
-                logger.warning(
-                    "%s output facets failed for %s: %s: %s", type(self).__name__, name, type(exc).__name__, exc
-                )
+                logger.warning("%s output facets failed for %s: %s", type(self).__name__, name, type(exc).__name__)
                 return {}
 
         def build_outputs(inputs: list[InputDataset]) -> list[OutputDataset]:
@@ -330,14 +328,13 @@ class OpenLineageExtender(Extender):
                 self._emit_event(event_state, run, job, inputs, [])
             except Exception as emit_exc:
                 logger.warning(
-                    "%s failed to emit %s event: %s: %s",
+                    "%s failed to emit %s event: %s",
                     type(self).__name__,
                     event_state.name,
                     type(emit_exc).__name__,
-                    emit_exc,
                 )
             outcome = "failure" if event_state == RunState.FAIL else "abort"
-            logger.warning("%s observed %s %s: %s: %s", type(self).__name__, job.name, outcome, type(exc).__name__, exc)
+            logger.warning("%s observed %s %s: %s", type(self).__name__, job.name, outcome, type(exc).__name__)
             raise
 
         # Guarded: a bug in this post-success block must never corrupt func's already-computed result.
@@ -346,7 +343,7 @@ class OpenLineageExtender(Extender):
             outputs = build_outputs(inputs) if build_outputs else []
             self._emit_event(RunState.COMPLETE, run, job, inputs, outputs)
         except Exception as exc:
-            logger.warning("%s post-call instrumentation failed: %s: %s", type(self).__name__, type(exc).__name__, exc)
+            logger.warning("%s post-call instrumentation failed: %s", type(self).__name__, type(exc).__name__)
 
         return result
 

@@ -940,6 +940,7 @@ class TestAuditExtenderRecord:
 
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert any("AuditExtender" in message for message in warnings)
+        assert "sink boom" not in caplog.text
 
 
 class TestAuditExtenderFailClosed:

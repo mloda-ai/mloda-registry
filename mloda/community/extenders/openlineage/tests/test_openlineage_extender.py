@@ -1962,7 +1962,8 @@ class TestOpenLineageExtenderSubclassSeams:
         for output in complete_event.outputs or []:
             assert set(output.facets or {}) == {"schema"}
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any(type(extender).__name__ in message and "output facet boom" in message for message in warnings)
+        assert any(type(extender).__name__ in message and "RuntimeError" in message for message in warnings)
+        assert "output facet boom" not in caplog.text
 
     def test_log_messages_name_the_subclass_not_the_base(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
@@ -1984,7 +1985,8 @@ class TestOpenLineageExtenderSubclassSeams:
 
         messages = [r.message for r in caplog.records if r.name == openlineage_extender_module.logger.name]
         assert any(name in m and "inert" in m.lower() for m in messages), messages
-        assert any(name in m and "calculate boom" in m for m in messages), messages
+        assert any(name in m and "RuntimeError" in m for m in messages), messages
+        assert "calculate boom" not in caplog.text
         assert any(name in m and "calculate" in m.lower() and ("enclosing" in m or "open" in m) for m in messages), (
             messages
         )

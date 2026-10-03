@@ -389,7 +389,9 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
         assert abort_event.eventType == RunState.ABORT
         assert abort_event.outputs == []
 
-    def test_openlineage_fail_emit_error_never_masks_wrapped_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_openlineage_fail_emit_error_never_masks_wrapped_exception(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
         client, transport = make_recording_client()
         extender = self.make_openlineage_extender(client)
         original_emit = client.emit
@@ -409,24 +411,31 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
             raise ValueError("inner boom")
 
         with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
-            with pytest.raises(ValueError, match="inner boom"):
-                extender(func)
+            with caplog.at_level(logging.WARNING):
+                with pytest.raises(ValueError, match="inner boom"):
+                    extender(func)
+
+        assert "transport boom" not in caplog.text
 
     def test_openlineage_wrapped_failure_logs_warning_naming_extender(self, caplog: pytest.LogCaptureFixture) -> None:
         client, _ = make_recording_client()
         extender = self.make_openlineage_extender(client)
 
+        secret = "403 for https://user:password@bucket.example/key?X-Amz-Signature=SIGMARKER row=Jane Doe"
+
         def func() -> None:
-            raise RuntimeError("inner boom")
+            raise RuntimeError(secret)
 
         with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
             with caplog.at_level(logging.WARNING):
-                with pytest.raises(RuntimeError, match="inner boom"):
+                with pytest.raises(RuntimeError, match="SIGMARKER row=Jane Doe"):
                     extender(func)
 
         extender_name = self.extender_class().__name__
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any(extender_name in message and "inner boom" in message for message in warnings)
+        assert any(extender_name in message and "RuntimeError" in message for message in warnings)
+        for part in ("user:password", "SIGMARKER", "Jane Doe", "bucket.example"):
+            assert part not in caplog.text
 
     def test_openlineage_exception_message_never_leaks_into_events(self) -> None:
         client, transport = make_recording_client()

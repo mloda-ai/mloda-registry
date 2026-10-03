@@ -346,17 +346,21 @@ class OtelExtenderTestMixin(ExtenderContractTestMixin):
         provider, _ = make_span_capture()
         extender = self.make_otel_extender(provider)
 
+        secret = "403 for https://user:password@bucket.example/key?X-Amz-Signature=SIGMARKER row=Jane Doe"
+
         def func() -> None:
-            raise RuntimeError("inner boom")
+            raise RuntimeError(secret)
 
         with make_hook_context(hook=self.context_hook()).activate():
             with caplog.at_level(logging.WARNING):
-                with pytest.raises(RuntimeError, match="inner boom"):
+                with pytest.raises(RuntimeError, match="SIGMARKER row=Jane Doe"):
                     extender(func)
 
         extender_name = self.extender_class().__name__
         warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any(extender_name in message and "inner boom" in message for message in warnings)
+        assert any(extender_name in message and "RuntimeError" in message for message in warnings)
+        for part in ("user:password", "SIGMARKER", "Jane Doe", "bucket.example"):
+            assert part not in caplog.text
 
     def test_otel_exception_message_never_leaks_into_span(self) -> None:
         provider, exporter = make_span_capture()

@@ -7,6 +7,7 @@ import uuid
 from unittest.mock import patch
 
 import pytest
+from opentelemetry import baggage as otel_baggage
 from opentelemetry import context as otel_context
 from opentelemetry import trace as otel_trace_api
 from opentelemetry.context import Context
@@ -61,6 +62,20 @@ class TestInjectCarrier:
         expected_span_id = format(span_context.span_id, "016x")
         assert expected_trace_id in traceparent
         assert expected_span_id in traceparent
+
+    def test_carrier_has_traceparent_and_no_baggage_when_baggage_is_set(self) -> None:
+        provider, _exporter = _new_provider_and_exporter()
+        tracer = provider.get_tracer("test-inject-baggage")
+        token = otel_context.attach(otel_baggage.set_baggage("user.email", "jane@example.com"))
+        try:
+            with tracer.start_as_current_span("active-span"):
+                carrier = inject_carrier()
+        finally:
+            otel_context.detach(token)
+
+        assert "traceparent" in carrier
+        assert "baggage" not in carrier
+        assert "jane@example.com" not in str(carrier)
 
 
 class TestExtractCarrier:
@@ -158,3 +173,20 @@ class TestTraceIdFromRunId:
         """An invalid UUID string propagates uuid.UUID's natural ValueError, unswallowed."""
         with pytest.raises(ValueError):
             trace_id_from_run_id("not-a-uuid")
+
+
+class TestExtractCarrierIgnoresBaggage:
+    def test_a_baggage_header_is_ignored_and_the_parent_span_context_is_kept(self) -> None:
+        provider, _exporter = _new_provider_and_exporter()
+        tracer = provider.get_tracer("test-extract-baggage")
+        with tracer.start_as_current_span("parent-span") as parent_span:
+            parent_span_context = parent_span.get_span_context()
+            carrier = inject_carrier()
+        carrier["baggage"] = "user.email=jane@example.com"
+
+        extracted = extract_carrier(carrier)
+
+        assert otel_baggage.get_all(extracted) == {}
+        extracted_span_context = otel_trace_api.get_current_span(extracted).get_span_context()
+        assert extracted_span_context.trace_id == parent_span_context.trace_id
+        assert extracted_span_context.span_id == parent_span_context.span_id

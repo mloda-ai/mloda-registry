@@ -106,11 +106,13 @@ class OtelExtender(Extender):
     def __init__(
         self,
         raise_on_error: bool = False,
-        capture_content: bool = False,
+        capture_content: bool | None = None,
         mask: Callable[[Any], Any] | None = None,
         tracer_provider: TracerProvider | None = None,
         use_sdk_defaults: bool = False,
     ) -> None:
+        if capture_content is True and mask is None:
+            raise ValueError("OtelExtender capture_content=True requires a mask")
         self.raise_on_error = raise_on_error
         self.capture_content = capture_content
         self.mask = mask
@@ -118,6 +120,7 @@ class OtelExtender(Extender):
         self.use_sdk_defaults = use_sdk_defaults
         self._inert_warning = WarnOncePerInstance()  # shared by the inert and no-SDK warnings
         self._pickle_drop_warning = WarnOncePerInstance()
+        self._no_mask_warning = WarnOncePerInstance()
 
     def _configured_tracer_provider(self) -> TracerProvider | None:
         """Injected provider wins, else the global SDK provider when use_sdk_defaults, else None."""
@@ -150,7 +153,7 @@ class OtelExtender(Extender):
         try:
             result = force_flush(provider, timeout_millis=to_timeout_millis(self.close_timeout))
         except Exception as exc:
-            logger.warning("%s failed to flush tracer_provider: %s: %s", type(self).__name__, type(exc).__name__, exc)
+            logger.warning("%s failed to flush tracer_provider: %s", type(self).__name__, type(exc).__name__)
             return
         if result is False:
             logger.warning("%s did not flush all spans within close_timeout", type(self).__name__)
@@ -207,7 +210,7 @@ class OtelExtender(Extender):
             except BaseException as exc:
                 span.set_status(Status(StatusCode.ERROR))
                 span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
-                logger.warning("OtelExtender %s failed: %s: %s", span_name, type(exc).__name__, exc)
+                logger.warning("OtelExtender %s failed: %s", span_name, type(exc).__name__)
                 raise
 
             try:
@@ -221,7 +224,7 @@ class OtelExtender(Extender):
                     ):
                         span.set_attribute("mloda.content.preview", self._content_preview(result))
             except Exception as exc:
-                logger.warning("OtelExtender post-call instrumentation failed: %s: %s", type(exc).__name__, exc)
+                logger.warning("OtelExtender post-call instrumentation failed: %s", type(exc).__name__)
 
             return result
 
@@ -260,12 +263,22 @@ class OtelExtender(Extender):
             count += 1
 
     def _content_capture_enabled(self) -> bool:
-        if self.capture_content:
-            return True
-        return os.environ.get("MLODA_OTEL_TRACE_CONTENT", "").strip().lower() in _TRUTHY_ENV_VALUES
+        if self.capture_content is not None:
+            enabled = self.capture_content
+        else:
+            enabled = os.environ.get("MLODA_OTEL_TRACE_CONTENT", "").strip().lower() in _TRUTHY_ENV_VALUES
+        if enabled and self.mask is None:
+            self._no_mask_warning.warn_once(
+                lambda: logger.warning(
+                    "%s content capture needs a mask; no content preview is recorded", type(self).__name__
+                )
+            )
+            return False
+        return enabled
 
     def _content_preview(self, result: Any) -> str:
-        value = self.mask(result) if self.mask is not None else result
+        assert self.mask is not None
+        value = self.mask(result)
         return _BOUNDED_REPR.repr(value)[:_CONTENT_PREVIEW_MAX_LEN]
 
 

@@ -65,7 +65,7 @@ class MyExtender(Extender):
 
 ## Never Change Data
 
-An extender never changes data on any hook: it returns exactly what the wrapped function returned ([core decision](https://github.com/mloda-ai/mloda/issues/1529)). From mloda 0.14.0 on, core discards an extender's return value once it has called the wrapped function, so a returned replacement is ignored; an extender that never calls it still returns its own value. Core does not prevent mutating the loaded data or other shared arguments in place, so the rule stays on the extender. `OtelExtender`'s `mask` receives the calculate result itself (for the `capture_content` preview): return a masked copy, never mask in place.
+An extender never changes data on any hook: it returns exactly what the wrapped function returned ([core decision](https://github.com/mloda-ai/mloda/issues/1529)). From mloda 0.14.0 on, core discards an extender's return value once it has called the wrapped function, so a returned replacement is ignored; an extender that never calls it still returns its own value. Core does not prevent mutating the loaded data or other shared arguments in place, so the rule stays on the extender. `OtelExtender`'s `mask` receives the calculate result itself (for the `capture_content` preview): return a masked copy, never mask in place. `capture_content` defaults to `None`: the `MLODA_OTEL_TRACE_CONTENT` env var decides, and an explicit `False` wins over it. A mask is required: `capture_content=True` without one raises `ValueError` at construction, and when the env var enables capture on an extender without a mask, no preview is recorded and one WARNING is logged per instance. Under `MULTIPROCESSING` the mask must pickle (a module-level function, not a lambda).
 
 ## Chaining and Error Handling
 
@@ -206,14 +206,14 @@ Every record carries `policy_version`: the argument of that name (a non-blank st
 
 `TeeAuditSink(*sinks)` writes each record to every sink in order; the first failure propagates and later sinks are skipped, so put the durable `NdjsonAuditSink` first. It raises `ValueError` for no sinks or a sink without a callable `write`.
 
-`OtelLogAuditSink()` (or `OtelLogAuditSink(user_hash_key=b"...")`, see `user.hash` below) emits one OpenTelemetry log record per audit record, so allow and deny decisions reach a Collector. It needs the extra `mloda-enterprise[otel]` (`opentelemetry-api>=1.37,<2`); the package loads without it and only constructing the sink raises `ImportError` naming the extra. Allow is INFO, deny is WARN, the body is the decision and the timestamp is `event_time`. Attributes: `mloda.audit.decision`, `mloda.audit.deny_reason`, `mloda.audit.policy_version`, `mloda.audit.hook`, `mloda.run.id`, `mloda.tenant.id`, `mloda.project.id`, `user.hash`, `mloda.feature_group.name`, `mloda.feature.names`, `error.type`; blank or absent values are omitted.
+`OtelLogAuditSink()` (or `OtelLogAuditSink(user_hash_key=b"...")`, which adds `user.hash`, see below) emits one OpenTelemetry log record per audit record, so allow and deny decisions reach a Collector. It needs the extra `mloda-enterprise[otel]` (`opentelemetry-api>=1.37,<2`); the package loads without it and only constructing the sink raises `ImportError` naming the extra. Allow is INFO, deny is WARN, the body is the decision and the timestamp is `event_time`. Attributes: `mloda.audit.decision`, `mloda.audit.deny_reason`, `mloda.audit.policy_version`, `mloda.audit.hook`, `mloda.run.id`, `mloda.tenant.id`, `mloda.project.id`, `user.hash`, `mloda.feature_group.name`, `mloda.feature.names`, `error.type`; blank or absent values are omitted.
 
-`user.hash` is the sha256 hex of the principal by default: pseudonymous, not anonymous, so hash the principal to join it to the NDJSON record: `hashlib.sha256(record["principal"].encode("utf-8")).hexdigest()`. An unkeyed hash of a low-entropy principal (email, username) can be confirmed offline by dictionary and is identical across deployments, so `OtelLogAuditSink(user_hash_key=b"...")` (bytes, at least 32) exports HMAC-SHA256 hex instead; still pseudonymous, and one key per deployment still links a principal across its tenants (use a key per tenant to avoid that). Use a key of its own, never the manifest signing key. Join with `hmac.new(key, record["principal"].encode("utf-8"), hashlib.sha256).hexdigest()` against the NDJSON `principal`, which stays the identifying copy. Switching variants or rotating the key changes every `user.hash`, so older records no longer join. `mloda.run.id` joins to `OtelExtender` spans. Data-access identities, feature values and exception messages are never included. Emitting is best effort: a failure is logged at WARNING and never fails the run. The sink looks up the global logger provider on every write and logs one WARNING per process while only the API default provider is installed. Under `MULTIPROCESSING` a spawned worker has no SDK logger provider unless `child_bootstrap` installs one (see [Pickle Compatibility](#pickle-compatibility)), and a synchronous exporter blocks the calculation thread. The OTel copy is not sealed or tamper-evident, so keep the NDJSON log and its manifest as the retained record and compose them:
+`user.hash` is omitted unless `OtelLogAuditSink(user_hash_key=b"...")` (bytes, at least 32) is given, because an unkeyed hash of a low-entropy principal (email, username) can be confirmed offline by dictionary. With a key it is HMAC-SHA256 hex over `json.dumps([tenant_id or None, principal])`: pseudonymous, not anonymous, and the same principal under two tenants hashes differently. Use one key per deployment and a key of its own, never the manifest signing key. Join with `hmac.new(key, json.dumps([record.get("tenant_id") or None, record["principal"]]).encode("utf-8"), hashlib.sha256).hexdigest()` against the NDJSON record, which stays the identifying copy. Rotating the key changes every `user.hash`, so older records no longer join. `mloda.run.id` joins to `OtelExtender` spans. Data-access identities, feature values and exception messages are never included. Emitting is best effort: a failure is logged at WARNING and never fails the run. The sink looks up the global logger provider on every write and logs one WARNING per process while only the API default provider is installed. Under `MULTIPROCESSING` a spawned worker has no SDK logger provider unless `child_bootstrap` installs one (see [Pickle Compatibility](#pickle-compatibility)), and a synchronous exporter blocks the calculation thread. The OTel copy is not sealed or tamper-evident, so keep the NDJSON log and its manifest as the retained record and compose them:
 
 ```python
 from mloda.enterprise.extenders.audit import AuditExtender, NdjsonAuditSink, OtelLogAuditSink, TeeAuditSink
 
-sink = TeeAuditSink(NdjsonAuditSink("audit.ndjson"), OtelLogAuditSink())
+sink = TeeAuditSink(NdjsonAuditSink("audit.ndjson"), OtelLogAuditSink(user_hash_key=load_secret_key()))
 extender = AuditExtender(sink, fail_closed=True)
 ```
 
@@ -234,7 +234,7 @@ A root step has an edge only when it declares the source column (a feature name 
 
 Validation is reported only for a feature group that overrides `validate_input_features` or `validate_output_features`. Each overridden validator is its own run per step, a sibling of the calculate run and both under the root run (job `<feature group>.<method>`, START then COMPLETE, FAIL or ABORT), so it adds one extra run and two events per step. The terminal event carries one input dataset per validated feature. Validate-input is skipped when the step has no data yet (root steps); when data exists it runs and the validated datasets fall back to the feature names if no inputs are declared. Core's own `EmptyResultError` and `DataTypeValidator` failures happen outside the hook, so they produce no assertion.
 
-A failing validator is re-raised and marks every validated dataset `success=false`, because the failing one is unknown. Its message can reach the WARNING log, as a calculate failure message already does, but never an event.
+A failing validator is re-raised and marks every validated dataset `success=false`, because the failing one is unknown. Its message reaches neither the WARNING log (only the exception type does) nor an event.
 
 Validation runs carry the parent facet only, not the `mloda` facet. Tie one to a calculate run through the job name and the run id.
 
@@ -254,7 +254,7 @@ The `mloda` facet's schema URL points at its module in this repository; it is no
 - `OtelExtenderTestMixin` (`mloda.testing.extenders.otel`, install `mloda-testing[otel]`), for extenders that emit OTel spans
 - `OpenLineageExtenderTestMixin` (`mloda.testing.extenders.openlineage`, install `mloda-testing[openlineage]`), for extenders that emit OpenLineage RunEvents
 
-The OTel and OpenLineage mixins both enforce the same observability mandate: a wrapped failure is logged at WARNING with the extender name and message, but the message itself never reaches a span or an event.
+The OTel and OpenLineage mixins both enforce the same observability mandate: a wrapped failure is logged at WARNING with the extender name and exception type, never the message, and the message never reaches a span or an event.
 
 ### ExtenderContractTestMixin
 
@@ -340,8 +340,8 @@ The mixin pins:
 
 - one span per call
 - per-hook span names, when `expected_span_names()` is declared
-- a wrapped failure marks the span `ERROR` without leaking the exception message
-- the carrier parents the span; without a carrier, the trace id derives from `run_id`
+- a wrapped failure marks the span `ERROR` and logs a WARNING with the extender name and exception type, without leaking the exception message
+- the carrier (W3C traceparent only, baggage is never propagated) parents the span; without a carrier, the trace id derives from `run_id`
 - `run_all` spans share one trace id, and the check requires at least two spans, one of them the declared calculate span name
 - an interrupt (`BaseException`) still marks the span `ERROR` without leaking the exception message
 - when the host wraps `INPUT_DATA_LOAD` (else skipped): the query string and user information of a nested load's raw data access (`args[0]`) never reach any span attribute; a load nested inside a calculate call is a child of that calculate span
@@ -380,7 +380,7 @@ The mixin pins:
 - the COMPLETE event carries one output per feature name
 - an `Exception` from the wrapped call ends in a FAIL event, any other `BaseException` (an interrupt) in an ABORT event
 - an emit failure never masks the wrapped exception or corrupts the result
-- no event ever leaks the exception message
+- no event ever leaks the exception message, and the WARNING for a wrapped failure names the exception type, never the message
 - the parent facet ties the run to the ambient `run_id`
 - a nested `INPUT_DATA_LOAD` call becomes an input, on both COMPLETE and FAIL, when the extender wraps that hook; the input is attributed before the load runs, so a failing load still appears on the FAIL event, and inputs mean attempted reads
 - a nested `INPUT_DATA_LOAD` becomes an input named by the context's `data_access_identity`, and the URI query string and user information of its raw data access (`args[0]`) reach no event, when the extender wraps that hook

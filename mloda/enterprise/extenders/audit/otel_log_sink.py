@@ -5,6 +5,7 @@ from __future__ import annotations
 import calendar
 import hashlib
 import hmac
+import json
 import logging
 import threading
 from collections.abc import Mapping
@@ -58,10 +59,10 @@ def _attributes(record: Mapping[str, Any], key: bytes | None) -> dict[str, Any]:
             attributes[name] = value
     principal: Any = record.get("principal")
     if not _is_blank(principal):
-        data = principal.encode("utf-8")
-        attributes[_PRINCIPAL_ATTRIBUTE] = (
-            hashlib.sha256(data).hexdigest() if key is None else hmac.new(key, data, hashlib.sha256).hexdigest()
-        )
+        if key is not None:
+            tenant = record.get("tenant_id")
+            data = json.dumps([None if _is_blank(tenant) else tenant, principal]).encode("utf-8")
+            attributes[_PRINCIPAL_ATTRIBUTE] = hmac.new(key, data, hashlib.sha256).hexdigest()
     feature_names = record.get("feature_names")
     if feature_names:
         attributes[_FEATURE_NAMES_ATTRIBUTE] = list(feature_names)
@@ -81,7 +82,8 @@ def _warn_once_without_sdk(provider: object) -> None:
 
 
 class OtelLogAuditSink:
-    """Emits one OTel log record per audit record, best effort; the principal is exported only hashed."""
+    """Emits one OTel log record per audit record, best effort. The principal is exported only as user.hash,
+    an HMAC-SHA256 keyed by user_hash_key over [tenant_id, principal]; without a key user.hash is omitted."""
 
     close_timeout: float = CLOSE_TIMEOUT
 
@@ -117,9 +119,7 @@ class OtelLogAuditSink:
                 )
             )
         except Exception as exc:
-            logger.warning(
-                "%s failed to emit an audit log record: %s: %s", type(self).__name__, type(exc).__name__, exc
-            )
+            logger.warning("%s failed to emit an audit log record: %s", type(self).__name__, type(exc).__name__)
 
     def flush(self) -> None:
         """Called by AuditExtender.close() on graceful MULTIPROCESSING worker exit; flushes the resolved
@@ -132,6 +132,4 @@ class OtelLogAuditSink:
             if result is False:
                 logger.warning("%s did not flush all log records within close_timeout", type(self).__name__)
         except Exception as exc:
-            logger.warning(
-                "%s failed to flush the logger provider: %s: %s", type(self).__name__, type(exc).__name__, exc
-            )
+            logger.warning("%s failed to flush the logger provider: %s", type(self).__name__, type(exc).__name__)

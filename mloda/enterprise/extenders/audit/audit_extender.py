@@ -375,10 +375,9 @@ class AuditExtender(Extender):
                 self.sink.write(record)
             except Exception as sink_exc:
                 logger.warning(
-                    "%s failed to write an audit record: %s: %s",
+                    "%s failed to write an audit record: %s",
                     type(self).__name__,
                     type(sink_exc).__name__,
-                    sink_exc,
                 )
             raise
 
