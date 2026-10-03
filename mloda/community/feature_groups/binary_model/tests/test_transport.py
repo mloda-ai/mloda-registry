@@ -804,7 +804,7 @@ class TestRunBinary:
         schema = pa.schema([pa.field("col_a", pa.string())])
         rows = {"col_a": ["alpha", "beta"]}
         input_bytes = arrow_stream_bytes(schema, rows)
-        env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": valid_license_token([PLUGIN_ID])}
+        env = minimal_environment(license_key=valid_license_token([PLUGIN_ID]), inherit_license=False)
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             output_bytes = _run_binary(STUB_CMD, env, _hash_config(), input_bytes, inv.path, file_transport_threshold=0)
             assert (inv.path / "input.arrows").is_file()
@@ -820,7 +820,7 @@ class TestRunBinary:
         schema = pa.schema([pa.field("col_a", pa.string())])
         rows = {"col_a": ["alpha", "beta"]}
         input_bytes = arrow_stream_bytes(schema, rows)
-        env = {"PATH": os.defpath, "MLODA_LICENSE_KEY": valid_license_token([PLUGIN_ID])}
+        env = minimal_environment(license_key=valid_license_token([PLUGIN_ID]), inherit_license=False)
         with InvocationDirectory(parent=tmp_path / TEMP_PARENT_NAME) as inv:
             output_bytes = _run_binary(
                 STUB_CMD, env, _hash_config(), input_bytes, inv.path, file_transport_threshold=len(input_bytes) + 1

@@ -201,7 +201,9 @@ def resolve_binary(
 ) -> ResolvedBinary:
     """Resolve ``plugin_id`` to an executable argv, probe its ``--version`` and
     ``--capabilities`` unless already cached, and return a ``ResolvedBinary`` (contract:
-    Invocation, Capabilities, Platform naming)."""
+    Invocation, Capabilities, Platform naming). Only argv[0] is stat-ed for the cache key, so a program named later
+    in an override (e.g. ``[sys.executable, "-m", "pkg"]``) is cached per process; call
+    ``clear_capability_cache()`` after it changes."""
     argv = _build_argv(plugin_id, override)
     resolved_path = _resolve_executable_path(argv[0], env.get("PATH", os.defpath))
     argv = [str(resolved_path), *argv[1:]]
