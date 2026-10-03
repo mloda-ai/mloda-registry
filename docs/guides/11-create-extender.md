@@ -220,6 +220,44 @@ sink = TeeAuditSink(NdjsonAuditSink("audit.ndjson"), OtelLogAuditSink(user_hash_
 extender = AuditExtender(sink, fail_closed=True)
 ```
 
+### Sealing and anchoring
+
+- `head_anchor` (a `HeadAnchor`, e.g. `NdjsonHeadAnchor`) receives each new manifest log head, and `anchored_heads` makes verification require every anchored head to be a line of the log. This detects truncation, rollback, deletion and substitution of the manifest log.
+- The anchor and the logs need append-only or WORM storage that the log writer cannot rewrite. Key custody stays a platform duty.
+- `log_id` is opt-in. Without it (or an anchor) a deleted log restarts silently.
+- Rotation needs the outgoing key's co-signature, so a lost current key means starting a new log.
+- `seal_failure_policy` is `"log"` (default), `"raise"` or a callable `(run_id, exc)`; failures are counted in `seal_failures`. Core contains exceptions from `on_run_complete`, so `"raise"` does not fail the finished run.
+- `seal_ndjson_runs(..., older_than=timedelta(...))` is a manual sweep for crashed runs, which stay unsealed until an operator sweeps. It seals only runs whose newest `event_time` is older than the threshold and marks them `sealed_late`; runs without a parseable `event_time` are skipped with a warning.
+- Version 1 manifest lines from older releases still verify as a prefix of the log.
+
+```python
+import os
+
+from mloda.enterprise.extenders.audit import AuditExtender, HmacSha256Signer, NdjsonAuditSink, NdjsonHeadAnchor
+
+
+class OtelHeadAnchor:
+    """Emits each head as an OTel log record. Write-only: it emits but cannot be read back."""
+
+    def write(self, head: str) -> None:
+        from opentelemetry._logs import LogRecord, get_logger_provider
+
+        get_logger_provider().get_logger("mloda_enterprise_audit_anchor").emit(LogRecord(body=head))
+
+    def latest(self) -> str | None:
+        return None
+
+
+extender = AuditExtender(
+    NdjsonAuditSink("audit.ndjson"),
+    audit_path="audit.ndjson",
+    manifest_path="manifests.ndjson",
+    signer=HmacSha256Signer(os.environ["MLODA_AUDIT_MANIFEST_KEY"].encode(), "key-1"),
+    log_id="prod-audit",
+    head_anchor=NdjsonHeadAnchor("/mnt/worm/anchor.ndjson"),  # separate, append-only storage
+)
+```
+
 ## Lineage facets
 
 `LineageFacetsExtender` (`mloda-enterprise-lineage`) is used instead of `OpenLineageExtender`, not next to it. It needs the extra `mloda-enterprise[openlineage]`; without it the extender is not registered. Beyond the community events it adds:
@@ -423,7 +461,7 @@ The warning-only fallback warning is logged by core's extender logger, not your 
 |------|-------------|
 | [otel_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/otel/otel_extender.py) | OpenTelemetry spans for calculate, validate and load hooks, metadata-only by default; a load span nests under its enclosing calculate span when one is active, else falls back to the carrier or `run_id`; inert until a `tracer_provider` is injected or `use_sdk_defaults=True` with an SDK tracer provider configured (`mloda-community-otel`) |
 | [openlineage_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/openlineage/openlineage_extender.py) | OpenLineage RunEvents with schema, data-source and parent-run facets; inert until a `client` is injected or `use_sdk_defaults=True` (`mloda-community-openlineage`) |
-| [audit_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/enterprise/extenders/audit/audit_extender.py) | Tenant-scoped audit record per calculation with an identity presence gate (`fail_closed=True` refuses an unidentified run before any feature is calculated) that also lists the identity and format of each distinct data load the call attempted (core's `data_access_identity`, recorded as given); a sink failure after a successful calculation fails the run by default; every record carries a `policy_version`; `TeeAuditSink` writes a record to several sinks and `OtelLogAuditSink` (extra `mloda-enterprise[otel]`) emits it as an OpenTelemetry log record; constructed with `audit_path`, `manifest_path` and `signer`, `AuditExtender` seals each run itself from `on_run_complete`; a calculation under a `run_id` already sealed in its `manifest_path` log, by any sealer (re-running a prepared session, even with a fresh extender, including a retry after a failed run, which is sealed too), is refused with `SealedRunRefusedError` before anything is written, so prepare a new session instead, or, with `raise_on_error=False` and `fail_closed=False`, the call runs unaudited and leaves no record; do not run one prepared auto-sealing session concurrently, since a run sealed while another `run()` is still calculating leaves that run's later records outside the seal; an `AuditExtender` without sealing config is never refused; a plan-time `fail_closed` refusal is a different, recoverable case (never auto-sealed at all, since `on_run_complete` never fires for it), sealable later with `seal_ndjson_runs` targeted at that specific `run_id` (found via `verify_ndjson_log_coverage(...).unsealed_lines`), not a blanket sweep; `expected_head` anchoring is manual-only, not part of auto-sealing; which otherwise seals a finished run manually into a signed, hash-chained manifest that `verify_ndjson_log` checks, `rotate_manifest_key` records a key change, `quarantine_damaged_lines` is the repair path for a torn log and `quarantine_from_rotation_entry` for a wrongly appended rotation entry; `Ed25519Signer` (extra `mloda-enterprise[ed25519]`) makes seals non-repudiable and verifiable with the public key alone, and the unchanged `ManifestSigner` protocol lets a KMS-backed signer plug in later (none ships yet) (`mloda-enterprise-audit`, license required) |
+| [audit_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/enterprise/extenders/audit/audit_extender.py) | Tenant-scoped audit record per calculation with an identity presence gate (`fail_closed=True` refuses an unidentified run before any feature is calculated) that also lists the identity and format of each distinct data load the call attempted (core's `data_access_identity`, recorded as given); a sink failure after a successful calculation fails the run by default; every record carries a `policy_version`; `TeeAuditSink` writes a record to several sinks and `OtelLogAuditSink` (extra `mloda-enterprise[otel]`) emits it as an OpenTelemetry log record; constructed with `audit_path`, `manifest_path` and `signer`, `AuditExtender` seals each run itself from `on_run_complete`; a calculation under a `run_id` already sealed in its `manifest_path` log, by any sealer (re-running a prepared session, even with a fresh extender, including a retry after a failed run, which is sealed too), is refused with `SealedRunRefusedError` before anything is written, so prepare a new session instead, or, with `raise_on_error=False` and `fail_closed=False`, the call runs unaudited and leaves no record; do not run one prepared auto-sealing session concurrently, since a run sealed while another `run()` is still calculating leaves that run's later records outside the seal; an `AuditExtender` without sealing config is never refused; a plan-time `fail_closed` refusal is a different, recoverable case (never auto-sealed at all, since `on_run_complete` never fires for it), sealable later with `seal_ndjson_runs` targeted at that specific `run_id` (found via `verify_ndjson_log_coverage(...).unsealed_lines`), not a blanket sweep; auto-sealing can emit each new head to a `head_anchor` (`NdjsonHeadAnchor`) and applies `seal_failure_policy` to a failed seal; which otherwise seals a finished run manually into a signed, hash-chained manifest that `verify_ndjson_log` checks, `rotate_manifest_key` records a key change, `quarantine_damaged_lines` is the repair path for a torn log and `quarantine_from_rotation_entry` for a wrongly appended rotation entry; `Ed25519Signer` (extra `mloda-enterprise[ed25519]`) makes seals non-repudiable and verifiable with the public key alone, and the unchanged `ManifestSigner` protocol lets a KMS-backed signer plug in later (none ships yet) (`mloda-enterprise-audit`, license required) |
 | [lineage_extender.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/enterprise/extenders/lineage/lineage_extender.py) | Used instead of `OpenLineageExtender`: adds column lineage, declared masking, validator-outcome assertions and a `mloda` run facet with a structure hash (`mloda-enterprise-lineage`, extra `mloda-enterprise[openlineage]`, license required) |
 | [contract.py](https://github.com/mloda-ai/mloda-registry/blob/main/mloda/testing/extenders/contract.py) | Extender contract test mixin (mloda-testing) |
 | [test_composite_extender.py](https://github.com/mloda-ai/mloda/blob/main/tests/test_plugins/extender/test_composite_extender.py) | Chaining tests |

@@ -7,6 +7,8 @@ verify_ndjson_log returns the head, which `expected_head` can pin exactly.
 
 Version 1 lines (older payload, no `sealed_late`) still verify, but only before the first version 2 line.
 A `log_id` opts into a signed genesis first line naming the log; verifiers passing it reject a log without it.
+A run that crashed stays unsealed until an operator sweeps with `seal_ndjson_runs(older_than=...)`, which seals only
+stale runs and marks them `sealed_late`; the sweep is manual.
 
 Limits:
 - HMAC is symmetric: integrity only. Ed25519Signer adds non-repudiation: only the private key holder can seal. A
@@ -45,6 +47,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import stat
@@ -53,11 +56,18 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Protocol
 
-from mloda.enterprise.extenders.audit._records import _append_records, _canonical_json, _is_blank, _utc_now
+from mloda.enterprise.extenders.audit._records import (
+    _append_records,
+    _canonical_json,
+    _is_blank,
+    _parse_event_time,
+    _utc_now,
+)
 
 if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
@@ -76,6 +86,8 @@ _ROTATION_KEYS = _ROTATION_KEYS_V1 | {"previous_key_signature"}
 _GENESIS_KIND = "genesis"
 _GENESIS_KEYS = {"manifest_version", "kind", "log_id", "created_at", "previous_manifest_hash", "signature"}
 _MAX_PROBLEMS = 20
+
+logger = logging.getLogger(__name__)
 
 
 class ManifestSigner(Protocol):
@@ -203,6 +215,17 @@ class _RunDigest:
     def __init__(self) -> None:
         self.hashes: list[str] = []
         self.compliant = True
+        self.newest: datetime | None = None
+        self.undated = False
+
+    def note_time(self, record: Mapping[str, Any]) -> None:
+        """Track the newest event_time; one record without a parseable one makes the run undated."""
+        try:
+            moment = _parse_event_time(record.get("event_time"))
+        except ValueError:
+            self.undated = True
+            return
+        self.newest = moment if self.newest is None or moment > self.newest else self.newest
 
     def add(self, canonical: bytes, record: Mapping[str, Any]) -> None:
         self.hashes.append(_sha256(canonical))
@@ -565,7 +588,11 @@ def _check_run_against_seal(
 
 
 def _digest_runs(
-    audit_path: str | Path, keep: Callable[[str], bool], uncovered: _Uncovered | None = None
+    audit_path: str | Path,
+    keep: Callable[[str], bool],
+    uncovered: _Uncovered | None = None,
+    *,
+    track_times: bool = False,
 ) -> dict[str, _RunDigest]:
     if uncovered is None:
         uncovered = _Uncovered()
@@ -581,7 +608,10 @@ def _digest_runs(
             uncovered.by_run[run_id] += 1
             continue
         # The raw line, not a re-serialisation: the seal covers the written bytes.
-        digests.setdefault(run_id, _RunDigest()).add(line, record)
+        digest = digests.setdefault(run_id, _RunDigest())
+        digest.add(line, record)
+        if track_times:
+            digest.note_time(record)
     return digests
 
 
@@ -722,7 +752,8 @@ class HeadAnchor(Protocol):
 
 
 class NdjsonHeadAnchor:
-    """A HeadAnchor appending {"head", "anchored_at"} lines to a file; keep it on storage the log writer cannot rewrite."""
+    """A HeadAnchor appending {"head", "anchored_at"} lines to a file; keep it on storage the log writer cannot
+    rewrite."""
 
     def __init__(self, path: str | Path) -> None:
         self._path = path
@@ -797,9 +828,9 @@ def rotate_manifest_key(
     """Append a signed rotation entry making `signer` the log's current key; return it. Verifies the log first
     (`previous_signers` must hold its retired keys) and writes nothing on failure. The outgoing current key co-signs
     the entry, so it must be in `previous_signers` with its private key (ValueError for a public-key one). Raises
-    ValueError for a log with no manifests, KeyAlreadyCurrentError when `signer` is already current (a retry needs `expected_head=None` or the
-    post-rotation head) and ManifestVerificationError when `signer` is retired. Pass the anchored head as
-    `expected_head`: the entry chains onto it, so it commits to every earlier line. A wrongly appended entry is
+    ValueError for a log with no manifests, KeyAlreadyCurrentError when `signer` is already current (a retry needs
+    `expected_head=None` or the post-rotation head) and ManifestVerificationError when `signer` is retired. Pass the
+    anchored head as `expected_head`: the entry chains onto it, so it commits to every earlier line. A wrongly appended entry is
     dropped with quarantine_from_rotation_entry. Every `anchored_heads` entry must be a line of the log; `head_anchor`
     gets the entry's hash after the append."""
     signers = _signer_map(signer, previous_signers)
@@ -852,6 +883,7 @@ def seal_ndjson_runs(
     log_id: str | None = None,
     anchored_heads: Iterable[str] = (),
     head_anchor: HeadAnchor | None = None,
+    older_than: timedelta | None = None,
 ) -> list[dict[str, Any]]:
     """Seal every unsealed run (or only `run_id`). Seal only after a run's writers stop, or sealing a still-live run
     fails its verification for good; prefer AuditExtender's automatic sealing from Extender.on_run_complete when
@@ -866,11 +898,19 @@ def seal_ndjson_runs(
     `previous_signers` covers a retired signing key during rotation (see module docstring).
     `log_id` writes a genesis line before the first seal batch of an empty log; a non-empty log must already have it.
     Every `anchored_heads` entry must be a line of the log; `head_anchor` gets the new head after the append, under the
-    lock (its failure leaves the seals written)."""
+    lock (its failure leaves the seals written).
+    `older_than` (a non-negative timedelta, not with `run_id`) is the manual stale sweep for crashed runs: it seals only
+    runs whose newest record `event_time` is older than now minus it. A run with a record lacking a parseable
+    `event_time` is skipped, and one warning gives the count."""
     signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
     if run_id is not None and (not isinstance(run_id, str) or _is_blank(run_id)):
         raise ValueError("seal_ndjson_runs run_id must be a non-blank string")
+    if older_than is not None:
+        if not isinstance(older_than, timedelta) or older_than < timedelta(0):
+            raise ValueError("seal_ndjson_runs older_than must be a non-negative timedelta")
+        if run_id is not None:
+            raise ValueError("seal_ndjson_runs older_than cannot be combined with run_id")
     _check_log_id("seal_ndjson_runs", log_id)
     with _flock(manifest_path, exclusive=True):
         state = _verify_log(
@@ -890,8 +930,12 @@ def seal_ndjson_runs(
         with suppress(FileNotFoundError):
             _fsync(audit_path)
         digests = _digest_runs(
-            audit_path, lambda candidate: candidate == run_id if run_id is not None else candidate not in sealed
+            audit_path,
+            lambda candidate: candidate == run_id if run_id is not None else candidate not in sealed,
+            track_times=older_than is not None,
         )
+        if older_than is not None:
+            digests = _stale_runs(digests, older_than)
         if run_id is not None and run_id not in digests:
             raise RunNotPendingError(f"no audit records for run_id {run_id!r} in {audit_path}")
 
@@ -910,6 +954,19 @@ def seal_ndjson_runs(
         if head_anchor is not None and appended:
             head_anchor.write(manifest_hash(appended[-1]))
         return manifests
+
+
+def _stale_runs(digests: dict[str, _RunDigest], older_than: timedelta) -> dict[str, _RunDigest]:
+    """The digests whose newest event_time is older than now minus `older_than`; warn once with the undated count."""
+    cutoff = datetime.now(timezone.utc) - older_than
+    skipped = sum(digest.undated or digest.newest is None for digest in digests.values())
+    if skipped:
+        logger.warning("seal_ndjson_runs skipped %d run(s) with a record lacking a parseable event_time", skipped)
+    return {
+        run: digest
+        for run, digest in digests.items()
+        if not digest.undated and digest.newest is not None and digest.newest < cutoff
+    }
 
 
 @dataclass(frozen=True)

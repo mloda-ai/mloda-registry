@@ -18,7 +18,7 @@ import stat
 import sys
 from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, wait
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -41,6 +41,7 @@ from mloda.enterprise.extenders.audit import (
     ManifestSigner,
     ManifestVerificationError,
     NdjsonAuditSink,
+    NdjsonHeadAnchor,
     QuarantinedLine,
     RunAlreadySealedError,
     RunNotPendingError,
@@ -55,6 +56,7 @@ from mloda.enterprise.extenders.audit import (
     verify_manifest,
     verify_ndjson_log,
     verify_ndjson_log_coverage,
+    verify_quarantine_log,
 )
 from mloda.enterprise.extenders.audit.audit_extender import _append_records
 from mloda.enterprise.extenders.audit.tests.test_audit_extender import (
@@ -652,14 +654,10 @@ def _trace_chain(*signers: ManifestSigner) -> list[dict[str, Any]]:
 
 
 def _verify_quarantine(path: Path, signer: ManifestSigner, *previous_signers: ManifestSigner) -> str | None:
-    from mloda.enterprise.extenders.audit.run_manifest import verify_quarantine_log
-
     return verify_quarantine_log(path, signer=signer, previous_signers=previous_signers)
 
 
 def _ndjson_anchor(path: Path) -> Any:
-    from mloda.enterprise.extenders.audit.run_manifest import NdjsonHeadAnchor
-
     return NdjsonHeadAnchor(path)
 
 
@@ -920,7 +918,14 @@ class TestRunManifestPublicApi:
             "IdentityRequiredError",
             "KeyAlreadyCurrentError",
             "rotate_manifest_key",
+            "HeadAnchor",
+            "NdjsonHeadAnchor",
+            "verify_quarantine_log",
         } <= set(audit_package.__all__)
+
+    @pytest.mark.parametrize("name", ["HeadAnchor", "NdjsonHeadAnchor", "verify_quarantine_log"])
+    def test_anchor_and_quarantine_names_are_the_run_manifest_objects(self, name: str) -> None:
+        assert getattr(audit_package, name) is getattr(run_manifest_module, name)
 
     def test_run_not_pending_error_is_a_value_error_but_not_a_verification_error(self) -> None:
         assert issubclass(RunNotPendingError, ValueError)
@@ -6028,6 +6033,165 @@ class TestSealedLate:
 
         with pytest.raises(ManifestVerificationError, match="sealed_late"):
             verify_manifest(_resigned(manifest, sealed_late=value), records, signer=_signer())
+
+
+_FUTURE_TIME = "2999-01-01T00:00:00.000000Z"
+
+
+def _at(record: dict[str, Any], event_time: Any) -> dict[str, Any]:
+    return {**record, "event_time": event_time}
+
+
+@_both_algorithms
+class TestSealNdjsonRunsOlderThan:
+    """The manual stale-run sweep: seal only runs whose newest record is older than `older_than`."""
+
+    _LOGGER = "mloda.enterprise.extenders.audit.run_manifest"
+
+    def _stale_and_fresh(self, tmp_path: Path) -> tuple[Path, Path]:
+        audit_path = tmp_path / "audit.ndjson"
+        _write_records(
+            audit_path,
+            [_record("run-old", 1), _at(_record("run-fresh", 2), _FUTURE_TIME), _record("run-old", 3)],
+        )
+        return audit_path, tmp_path / "manifests.ndjson"
+
+    def test_seals_only_runs_older_than_the_threshold(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = self._stale_and_fresh(tmp_path)
+
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), older_than=timedelta(days=1))
+
+        assert [(manifest["run_id"], manifest["record_count"]) for manifest in manifests] == [("run-old", 2)]
+        assert [line["run_id"] for line in _read_lines(manifest_path)] == ["run-old"]
+
+    def test_a_later_sweep_seals_the_runs_left_unsealed(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = self._stale_and_fresh(tmp_path)
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), older_than=timedelta(days=1))
+
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), older_than=timedelta(0))
+        assert [manifest["run_id"] for manifest in manifests] == []
+
+        later = seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+        assert [manifest["run_id"] for manifest in later] == ["run-fresh"]
+
+    def test_the_newest_record_decides_not_the_first(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        _write_records(audit_path, [_record("run-a", 1), _at(_record("run-a", 2), _FUTURE_TIME)])
+
+        manifests = seal_ndjson_runs(
+            audit_path, tmp_path / "manifests.ndjson", signer=_signer(), older_than=timedelta(days=1)
+        )
+
+        assert manifests == []
+
+    def test_a_threshold_longer_than_the_age_of_every_run_seals_nothing(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        _write_records(audit_path, [_record("run-a", 1)])
+
+        manifests = seal_ndjson_runs(
+            audit_path, tmp_path / "manifests.ndjson", signer=_signer(), older_than=timedelta(days=365 * 100)
+        )
+
+        assert manifests == []
+
+    def test_sweep_manifests_are_sealed_late_by_default(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = self._stale_and_fresh(tmp_path)
+
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), older_than=timedelta(days=1))
+
+        assert [manifest["sealed_late"] for manifest in manifests] == [True]
+
+    def test_is_an_ordinary_seal_with_anchored_heads_and_log_id(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = self._stale_and_fresh(tmp_path)
+        first = seal_ndjson_runs(
+            audit_path, manifest_path, signer=_signer(), log_id="log-a", older_than=timedelta(days=1)
+        )
+        assert [manifest["run_id"] for manifest in first] == ["run-old"]
+        anchored = _log_heads(manifest_path)
+
+        later = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), log_id="log-a", anchored_heads=anchored)
+
+        assert [manifest["run_id"] for manifest in later] == ["run-fresh"]
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer(), log_id="log-a", anchored_heads=anchored)
+
+    def test_the_z_suffixed_event_time_of_audit_records_is_parsed(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        _write_records(audit_path, [_at(_record("run-a", 1), "2026-01-01T00:00:01Z")])
+
+        manifests = seal_ndjson_runs(
+            audit_path, tmp_path / "manifests.ndjson", signer=_signer(), older_than=timedelta(days=1)
+        )
+
+        assert [manifest["run_id"] for manifest in manifests] == ["run-a"]
+
+    @pytest.mark.parametrize("event_time", ["not a time", 5, None, ""], ids=["garbage", "int", "none", "empty"])
+    def test_a_run_with_an_unparseable_event_time_is_skipped_with_one_warning_giving_the_count(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, event_time: Any
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        _write_records(
+            audit_path,
+            [
+                _record("run-ok", 1),
+                _record("run-bad-1", 2),
+                _at(_record("run-bad-1", 3), event_time),
+                _at(_record("run-bad-2", 4), event_time),
+            ],
+        )
+
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER):
+            manifests = seal_ndjson_runs(
+                audit_path, tmp_path / "manifests.ndjson", signer=_signer(), older_than=timedelta(days=1)
+            )
+
+        assert [manifest["run_id"] for manifest in manifests] == ["run-ok"]
+        warnings = [r for r in caplog.records if r.name == self._LOGGER and r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "2" in warnings[0].getMessage()
+
+    def test_a_run_without_an_event_time_key_is_skipped(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        bare = {key: value for key, value in _record("run-bad", 1).items() if key != "event_time"}
+        _write_records(audit_path, [bare, _record("run-ok", 2)])
+
+        manifests = seal_ndjson_runs(
+            audit_path, tmp_path / "manifests.ndjson", signer=_signer(), older_than=timedelta(days=1)
+        )
+
+        assert [manifest["run_id"] for manifest in manifests] == ["run-ok"]
+
+    def test_no_warning_when_every_run_has_an_event_time(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        audit_path, manifest_path = self._stale_and_fresh(tmp_path)
+
+        with caplog.at_level(logging.WARNING, logger=self._LOGGER):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), older_than=timedelta(days=1))
+
+        assert [r for r in caplog.records if r.name == self._LOGGER] == []
+
+    def test_requires_no_run_id(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record("run-a", 1)])
+
+        with pytest.raises(ValueError, match="older_than"):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-a", older_than=timedelta(days=1))
+
+        assert not manifest_path.exists()
+
+    @pytest.mark.parametrize(
+        "value", [timedelta(seconds=-1), 3600, 1.5, "1d", True], ids=["negative", "int", "float", "str", "bool"]
+    )
+    def test_rejects_a_non_timedelta_or_negative_value(self, tmp_path: Path, value: Any) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _write_records(audit_path, [_record("run-a", 1)])
+
+        with pytest.raises(ValueError, match="older_than"):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), older_than=value)
+
+        assert not manifest_path.exists()
 
 
 @_both_algorithms

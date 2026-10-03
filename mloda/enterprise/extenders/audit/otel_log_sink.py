@@ -9,11 +9,10 @@ import json
 import logging
 import threading
 from collections.abc import Mapping
-from datetime import datetime, timezone
 from typing import Any
 
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, force_flush, to_timeout_millis
-from mloda.enterprise.extenders.audit._records import _is_blank
+from mloda.enterprise.extenders.audit._records import _is_blank, _parse_event_time
 from mloda.enterprise.extenders.audit.run_manifest import _MIN_KEY_BYTES
 
 logger = logging.getLogger(__name__)
@@ -46,8 +45,8 @@ _no_sdk_lock = threading.Lock()
 
 
 def _epoch_ns(event_time: str) -> int:
-    # Integer arithmetic: a float timestamp loses microsecond precision. removesuffix as 3.10 rejects a trailing Z.
-    parsed = datetime.fromisoformat(event_time.removesuffix("Z")).replace(tzinfo=timezone.utc)
+    # Integer arithmetic: a float timestamp loses microsecond precision.
+    parsed = _parse_event_time(event_time)
     return calendar.timegm(parsed.utctimetuple()) * 10**9 + parsed.microsecond * 1000
 
 

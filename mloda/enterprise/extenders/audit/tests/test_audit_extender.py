@@ -33,15 +33,18 @@ from mloda.enterprise.extenders.audit import (
     IdentityRequiredError,
     ManifestVerificationError,
     NdjsonAuditSink,
+    NdjsonHeadAnchor,
+    RunNotPendingError,
     SealedRunRefusedError,
     TeeAuditSink,
+    manifest_hash,
     seal_ndjson_runs,
     seal_run,
     verify_ndjson_log_coverage,
 )
 from mloda.enterprise.extenders.audit import audit_extender as audit_extender_module
 from mloda.enterprise.extenders.audit._records import _append_records, _canonical_json
-from mloda.enterprise.extenders.audit.run_manifest import NdjsonHeadAnchor, RunNotPendingError, _flock, manifest_hash
+from mloda.enterprise.extenders.audit.run_manifest import _flock
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (

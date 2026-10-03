@@ -11,11 +11,13 @@ from mloda.enterprise.extenders.audit.audit_extender import (
 from mloda.enterprise.extenders.audit.otel_log_sink import OtelLogAuditSink
 from mloda.enterprise.extenders.audit.run_manifest import (
     Ed25519Signer,
+    HeadAnchor,
     HmacSha256Signer,
     KeyAlreadyCurrentError,
     LogCoverage,
     ManifestSigner,
     ManifestVerificationError,
+    NdjsonHeadAnchor,
     QuarantinedLine,
     RunAlreadySealedError,
     RunNotPendingError,
@@ -28,12 +30,14 @@ from mloda.enterprise.extenders.audit.run_manifest import (
     verify_manifest,
     verify_ndjson_log,
     verify_ndjson_log_coverage,
+    verify_quarantine_log,
 )
 
 __all__ = [
     "AuditExtender",
     "AuditSink",
     "Ed25519Signer",
+    "HeadAnchor",
     "HmacSha256Signer",
     "IdentityRequiredError",
     "KeyAlreadyCurrentError",
@@ -41,6 +45,7 @@ __all__ = [
     "ManifestSigner",
     "ManifestVerificationError",
     "NdjsonAuditSink",
+    "NdjsonHeadAnchor",
     "OtelLogAuditSink",
     "QuarantinedLine",
     "RunAlreadySealedError",
@@ -56,4 +61,5 @@ __all__ = [
     "verify_manifest",
     "verify_ndjson_log",
     "verify_ndjson_log_coverage",
+    "verify_quarantine_log",
 ]
