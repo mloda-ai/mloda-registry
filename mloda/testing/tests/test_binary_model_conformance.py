@@ -634,26 +634,40 @@ def test_simulated_binary_light_flags_do_not_import_pyarrow(flag: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("module", "plugin_id", "operation", "output_key"),
+    ("module", "plugin_id", "operation", "output_key", "parameters"),
     [
-        pytest.param(_SIMULATED_BINARY_MODULE, "example_binary", "hash", "result", id="simulated_binary"),
+        pytest.param(_SIMULATED_BINARY_MODULE, "example_binary", "hash", "result", {}, id="simulated_binary"),
         pytest.param(
             "mloda.testing.tests._second_fake_binary",
             SECOND_PLUGIN_ID,
             SECOND_OPERATION,
             SECOND_OUTPUT_KEY,
+            {},
             id="second_fake_binary",
+        ),
+        pytest.param(
+            "mloda.testing.tests._hmac_sha256_fake_binary",
+            "hmac_fake_binary",
+            "hmac_sha256",
+            "result",
+            {"key": "11" * 32},
+            id="hmac_sha256_fake_binary",
         ),
     ],
 )
 def test_fake_binary_run_does_not_import_pandas(
-    tmp_path: Path, module: str, plugin_id: str, operation: str, output_key: str
+    tmp_path: Path, module: str, plugin_id: str, operation: str, output_key: str, parameters: dict[str, Any]
 ) -> None:
     """A successful `run` must never import pandas: pyarrow's Python-to-Arrow constructors load it
     lazily, costing every fake-binary invocation a pandas import it never uses."""
     config_path = write_json(
         tmp_path / "config.json",
-        {"input_columns": ["col_a"], "operation": operation, "parameters": {}, "output_columns": {output_key: "out"}},
+        {
+            "input_columns": ["col_a"],
+            "operation": operation,
+            "parameters": parameters,
+            "output_columns": {output_key: "out"},
+        },
     )
     input_path = tmp_path / "input.arrows"
     input_path.write_bytes(arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["x", "y"]}))

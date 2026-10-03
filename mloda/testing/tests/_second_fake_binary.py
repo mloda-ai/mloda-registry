@@ -44,13 +44,21 @@ def _utf8_output(original: Any) -> Any:
     return compute
 
 
-def _install_second_binary_identity() -> None:
-    simulated_binary.PLUGIN_ID = PLUGIN_ID
-    simulated_binary.VERSION = VERSION
-    simulated_binary.CAPABILITY_OPERATIONS = [OPERATION]
-    simulated_binary._OPERATION_OUTPUTS = {OPERATION: (OUTPUT_KEY,)}
+def install_fake_identity(
+    plugin_id: str, operation: str, output_key: str, column_types: frozenset[str], version: str | None = None
+) -> None:
+    """Point ``simulated_binary``'s identity globals (and optionally ``VERSION``) at a fake binary."""
+    simulated_binary.PLUGIN_ID = plugin_id
+    if version is not None:
+        simulated_binary.VERSION = version
+    simulated_binary.CAPABILITY_OPERATIONS = [operation]
+    simulated_binary._OPERATION_OUTPUTS = {operation: (output_key,)}
     # setattr because mypy --strict rejects assigning a name the module imports without re-exporting.
-    setattr(simulated_binary, "COLUMN_TYPES", COLUMN_TYPES)
+    setattr(simulated_binary, "COLUMN_TYPES", column_types)
+
+
+def _install_second_binary_identity() -> None:
+    install_fake_identity(PLUGIN_ID, OPERATION, OUTPUT_KEY, COLUMN_TYPES, VERSION)
     simulated_binary._compute_hash_output = _utf8_output(simulated_binary._compute_hash_output)
 
 

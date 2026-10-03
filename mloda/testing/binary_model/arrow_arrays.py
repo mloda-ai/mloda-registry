@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import struct
 from collections.abc import Sequence
+from typing import Any
 
 import pyarrow as pa
 
@@ -17,9 +18,27 @@ import pyarrow as pa
 _INT_FORMATS: dict[str, str] = {"int32": "i", "int64": "q"}
 
 
-def array_from_values(values: Sequence[int], arrow_type: pa.DataType) -> pa.Array:
-    """Build a null-free ``int32``, ``int64`` or ``bool`` array holding ``values``, equal to
-    ``pa.array(values, type=arrow_type)`` but without pyarrow's pandas-importing sequence conversion."""
+def _utf8_array(values: Sequence[str | None]) -> pa.Array:
+    offsets = [0]
+    chunks: list[bytes] = []
+    validity = bytearray((len(values) + 7) // 8)
+    for index, value in enumerate(values):
+        if value is not None:
+            validity[index >> 3] |= 1 << (index & 7)
+            chunks.append(value.encode("utf-8"))
+        offsets.append(offsets[-1] + (len(chunks[-1]) if value is not None else 0))
+    validity_buffer = pa.py_buffer(bytes(validity)) if None in values else None
+    offsets_buffer = pa.py_buffer(struct.pack(f"<{len(offsets)}i", *offsets))
+    return pa.Array.from_buffers(
+        pa.string(), len(values), [validity_buffer, offsets_buffer, pa.py_buffer(b"".join(chunks))]
+    )
+
+
+def array_from_values(values: Sequence[Any], arrow_type: pa.DataType) -> pa.Array:
+    """Build a null-free ``int32``, ``int64`` or ``bool`` array, or a nullable ``utf8`` one, holding ``values``,
+    equal to ``pa.array(values, type=arrow_type)`` but without pyarrow's pandas-importing sequence conversion."""
+    if pa.types.is_string(arrow_type):
+        return _utf8_array(values)
     if pa.types.is_boolean(arrow_type):
         bits = bytearray((len(values) + 7) // 8)
         for index, value in enumerate(values):
