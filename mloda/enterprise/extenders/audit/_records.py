@@ -19,7 +19,10 @@ def _parse_event_time(event_time: object) -> datetime:
     """A record's event_time as an aware UTC datetime; ValueError if unparseable. removesuffix: 3.10 rejects a Z."""
     if not isinstance(event_time, str):
         raise ValueError(f"event_time {event_time!r} is not a string")
-    return datetime.fromisoformat(event_time.removesuffix("Z")).replace(tzinfo=timezone.utc)
+    parsed = datetime.fromisoformat(event_time.removesuffix("Z"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _canonical_json(record: Mapping[str, Any]) -> bytes:

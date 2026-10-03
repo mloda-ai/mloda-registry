@@ -6,7 +6,8 @@ every anchored head is an ancestor of the log (catches truncation, rollback, del
 verify_ndjson_log returns the head, which `expected_head` can pin exactly.
 
 Version 1 lines (older payload, no `sealed_late`) still verify, but only before the first version 2 line.
-A `log_id` opts into a signed genesis first line naming the log; verifiers passing it reject a log without it.
+A `log_id` opts into a signed genesis first line naming the log; a verifier passing it fails a non-empty log without the
+matching genesis; an empty or missing log passes (only anchors catch deletion).
 A run that crashed stays unsealed until an operator sweeps with `seal_ndjson_runs(older_than=...)`, which seals only
 stale runs and marks them `sealed_late`; the sweep is manual.
 
@@ -252,7 +253,8 @@ def _unsigned(manifest: Mapping[str, Any]) -> dict[str, Any]:
 def _signing_payload(entry: Mapping[str, Any]) -> bytes:
     """The v2 signed bytes: the entry with each signature block reduced to its algorithm and key_id."""
     reduced = dict(entry)
-    for field in ("signature", "previous_key_signature"):
+    fields = ("signature", "previous_key_signature") if entry.get("kind") == _ROTATION_KIND else ("signature",)
+    for field in fields:
         block = reduced.get(field)
         if isinstance(block, Mapping):
             reduced[field] = {"algorithm": block.get("algorithm"), "key_id": block.get("key_id")}
@@ -759,15 +761,18 @@ class NdjsonHeadAnchor:
         self._path = path
 
     def write(self, head: str) -> None:
-        _append_records(self._path, [{"head": head, "anchored_at": _utc_now()}])
+        _append_and_fsync(self._path, [{"head": head, "anchored_at": _utc_now()}])
 
     def latest(self) -> str | None:
-        """The last head; None for a missing or empty file; ManifestVerificationError for a torn or bad last line."""
+        """The last terminated line's head; None for a missing file or one without a terminated line. An unterminated
+        last line (crash residue) is ignored; a terminated bad line raises ManifestVerificationError."""
         try:
             with open(self._path, "rb") as file:
                 lines = list(file)
         except FileNotFoundError:
             return None
+        if lines and not lines[-1].endswith(b"\n"):
+            lines.pop()
         if not lines:
             return None
         head = _parse_ndjson_line(self._path, len(lines), lines[-1])[1].get("head")
@@ -830,9 +835,9 @@ def rotate_manifest_key(
     the entry, so it must be in `previous_signers` with its private key (ValueError for a public-key one). Raises
     ValueError for a log with no manifests, KeyAlreadyCurrentError when `signer` is already current (a retry needs
     `expected_head=None` or the post-rotation head) and ManifestVerificationError when `signer` is retired. Pass the
-    anchored head as `expected_head`: the entry chains onto it, so it commits to every earlier line. A wrongly appended entry is
-    dropped with quarantine_from_rotation_entry. Every `anchored_heads` entry must be a line of the log; `head_anchor`
-    gets the entry's hash after the append."""
+    anchored head as `expected_head`: the entry chains onto it, so it commits to every earlier line. A wrongly
+    appended entry is dropped with quarantine_from_rotation_entry. Every `anchored_heads` entry must be a line of the
+    log; `head_anchor` gets the entry's hash after the append."""
     signers = _signer_map(signer, previous_signers)
     anchors = list(anchored_heads)
     _check_log_id("rotate_manifest_key", log_id)
@@ -858,13 +863,12 @@ def rotate_manifest_key(
         _rotation_transition(signer.key_id, state.active, state.retired)
         outgoing = signers[state.active]
         try:
-            outgoing.sign(b"")
+            entry = _rotation_entry(signer, outgoing, state.head)
         except ValueError as exc:
             raise ValueError(
                 f"cannot rotate away from key {outgoing.key_id!r}: it holds only a public key and cannot co-sign; "
                 "start a new log"
             ) from exc
-        entry = _rotation_entry(signer, outgoing, state.head)
         _append_with_rollback(manifest_path, [entry], existed=True)
         if head_anchor is not None:
             head_anchor.write(manifest_hash(entry))
@@ -1186,7 +1190,8 @@ def verify_quarantine_log(
     quarantine_path: str | Path, *, signer: ManifestSigner, previous_signers: Iterable[ManifestSigner] = ()
 ) -> str | None:
     """Raise ManifestVerificationError unless every trace line verifies and the chain is intact. Returns the hash of
-    the last line (None for a missing or empty trace). Legacy v1 lines verify only as a prefix."""
+    the last line (None for a missing or empty trace). Legacy v1 lines verify only as a prefix. Pin the returned head
+    outside the trace: truncating the newest trace entries is otherwise undetectable."""
     signers = _signer_map(signer, previous_signers)
     with _flock(quarantine_path, exclusive=False):
         return _verify_trace(quarantine_path, signer, signers)
@@ -1303,6 +1308,7 @@ def quarantine_damaged_lines(
     - A removed line is traced to the signed `quarantine_path` log first, fsynced before either file is touched.
       That write is not atomic with the repair itself: an interrupted run can leave a line traced but still
       present, and re-running it then appends a second trace entry for it.
+    - The existing trace is verified before appending, so `previous_signers` must hold every key that signed it.
     - A repair creates `manifest_path` when it is missing, since the exclusive lock needs a writable file;
       `dry_run` creates nothing.
     - Stop every audit-file writer first: the sink appends without a lock.
@@ -1366,6 +1372,7 @@ def quarantine_from_rotation_entry(
     - Each dropped line is traced to the signed `quarantine_path` log (its own file) before the manifest log is cut,
       and survives only there: keep that log on separate or append-only storage. A retired key with write access
       can drop honest seals too. The interrupted-run caveat of quarantine_damaged_lines applies.
+    - The existing trace is verified before appending, so `previous_signers` must hold every key that signed it.
     - Runs sealed by a dropped line are unsealed again: review them against the trace before re-sealing with
       `seal_ndjson_runs(expected_head=<anchor>)`, and replace any external anchor recorded past `expected_head`.
     - `dry_run=True` only reports; nothing is written.

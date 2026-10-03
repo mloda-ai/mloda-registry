@@ -18,7 +18,7 @@ import stat
 import sys
 from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, wait
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -58,6 +58,7 @@ from mloda.enterprise.extenders.audit import (
     verify_ndjson_log_coverage,
     verify_quarantine_log,
 )
+from mloda.enterprise.extenders.audit._records import _parse_event_time
 from mloda.enterprise.extenders.audit.audit_extender import _append_records
 from mloda.enterprise.extenders.audit.tests.test_audit_extender import (
     _POLICY_VERSION,
@@ -1507,6 +1508,10 @@ class TestVerifyManifest:
     def test_correctly_signed_manifest_with_a_non_int_number_fails(self, field: str, value: Any) -> None:
         records = [_record()]
         manifest = seal_run(records, run_id="run-1", signer=_signer())
+        # Where the value equals the genuine one (1 == True == 1.0, 2 == 2.0) only its type is wrong. The
+        # manifest_version True case (True != 2) only guards that a bool is not accepted as a version.
+        if (field, value) != ("manifest_version", True):
+            assert manifest[field] == value
 
         with pytest.raises(ManifestVerificationError, match=field):
             verify_manifest(_resigned(manifest, **{field: value}), records, signer=_signer())
@@ -2379,6 +2384,15 @@ class TestRotateManifestKey:
             rotate_manifest_key(manifest_path, signer=_signer(_OTHER_KEY, "key-2"), expected_head=None)
 
         assert manifest_path.read_bytes() == before
+
+    def test_the_outgoing_signer_signs_exactly_once_per_rotation(self, tmp_path: Path) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        signed: list[bytes] = []
+
+        _rotate(manifest_path, _signer(_OTHER_KEY, "key-2"), _HookedSigner(_signer(), on_sign=signed.append))
+
+        assert len(signed) == 1
+        assert _read_lines(manifest_path)[-1]["previous_key_signature"]["key_id"] == "key-1"
 
     def test_the_existing_log_is_verified_only_once(self, tmp_path: Path) -> None:
         _, manifest_path = _sealed_log(tmp_path)
@@ -3639,13 +3653,47 @@ class TestHeadAnchor:
         (tmp_path / "empty.ndjson").write_bytes(b"")
         assert _ndjson_anchor(tmp_path / "empty.ndjson").latest() is None
 
-    def test_latest_fails_closed_for_a_torn_last_line(self, tmp_path: Path) -> None:
+    def test_latest_ignores_a_torn_last_line_and_returns_the_last_terminated_head(self, tmp_path: Path) -> None:
         path = tmp_path / "anchor.ndjson"
         _rewrite_lines(path, [{"head": "a" * 64, "anchored_at": "2026-01-01T00:00:00.000000Z"}])
         _torn(path, b'{"head": "bb')
 
+        assert _ndjson_anchor(path).latest() == "a" * 64
+
+    def test_latest_is_none_when_the_only_line_is_torn(self, tmp_path: Path) -> None:
+        path = tmp_path / "anchor.ndjson"
+        path.write_bytes(b'{"head": "bb')
+
+        assert _ndjson_anchor(path).latest() is None
+
+    @pytest.mark.parametrize("line", [b'{"head": 5}', b'{"anchored_at": "x"}'], ids=["non-string", "missing"])
+    def test_latest_fails_closed_for_a_terminated_line_without_a_string_head(self, tmp_path: Path, line: bytes) -> None:
+        path = tmp_path / "anchor.ndjson"
+        _rewrite_lines(path, [{"head": "a" * 64, "anchored_at": "2026-01-01T00:00:00.000000Z"}])
+        _append_line(path, line)
+
         with pytest.raises(ManifestVerificationError, match=re.escape(str(path))):
             _ndjson_anchor(path).latest()
+
+    def test_write_fsyncs_the_anchor_file_and_its_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = tmp_path / "anchor.ndjson"
+        real_fsync = os.fsync
+        fsynced: list[str] = []
+
+        def spy_fsync(fd: int) -> None:
+            if os.path.samestat(os.fstat(fd), path.stat()):
+                fsynced.append("file")
+            if os.path.samestat(os.fstat(fd), tmp_path.stat()):
+                fsynced.append("dir")
+            real_fsync(fd)
+
+        monkeypatch.setattr(os, "fsync", spy_fsync)
+
+        _ndjson_anchor(path).write("a" * 64)
+
+        assert fsynced == ["file", "dir"]
 
     @pytest.mark.parametrize(
         "last",
@@ -5907,6 +5955,20 @@ class TestSignedPayloadV2:
                 audit_path, manifest_path, signer=_signer(_OTHER_KEY, "key-3"), previous_signers=[old_signer]
             )
 
+    def test_a_previous_key_signature_member_on_a_non_rotation_entry_stays_in_the_signed_bytes(self) -> None:
+        records = [_record()]
+        manifest = seal_run(records, run_id="run-1", signer=_signer())
+        extra = {"algorithm": "x", "key_id": "k", "value": "original"}
+        entry = {**manifest, "previous_key_signature": extra}
+        reduced = {**entry, "signature": {"algorithm": entry["signature"]["algorithm"], "key_id": "key-1"}}
+        entry["signature"] = {**entry["signature"], "value": _signer().sign(_canonical(reduced))}
+        verify_manifest(entry, records, signer=_signer())  # control: correctly signed with the member as is
+
+        tampered = {**entry, "previous_key_signature": {**extra, "value": "changed"}}
+
+        with pytest.raises(ManifestVerificationError, match="signature"):
+            verify_manifest(tampered, records, signer=_signer())
+
     def test_manifest_version_3_reports_unsupported_even_with_a_bad_signature(self) -> None:
         records = [_record()]
         manifest = seal_run(records, run_id="run-1", signer=_signer())
@@ -6139,6 +6201,31 @@ class TestSealNdjsonRunsOlderThan:
         warnings = [r for r in caplog.records if r.name == self._LOGGER and r.levelno == logging.WARNING]
         assert len(warnings) == 1
         assert "2" in warnings[0].getMessage()
+
+    @pytest.mark.parametrize(
+        ("event_time", "expected"),
+        [
+            ("2026-10-03T12:00:00-05:00", datetime(2026, 10, 3, 17, 0, tzinfo=timezone.utc)),
+            ("2026-10-03T12:00:00+02:00", datetime(2026, 10, 3, 10, 0, tzinfo=timezone.utc)),
+            ("2026-10-03T12:00:00", datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)),
+            ("2026-10-03T12:00:00Z", datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)),
+        ],
+        ids=["negative-offset", "positive-offset", "naive", "z-suffix"],
+    )
+    def test_event_time_offsets_are_converted_to_utc(self, event_time: str, expected: datetime) -> None:
+        assert _parse_event_time(event_time) == expected
+
+    def test_a_negative_offset_event_time_is_compared_as_the_utc_instant(self, tmp_path: Path) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        # The wall clock is 30h old, but at -12:00 the instant is 18h old: newer than the one day threshold.
+        wall = (datetime.now(timezone.utc) - timedelta(hours=30)).replace(tzinfo=None)
+        _write_records(audit_path, [_at(_record("run-a", 1), wall.isoformat() + "-12:00")])
+
+        manifests = seal_ndjson_runs(
+            audit_path, tmp_path / "manifests.ndjson", signer=_signer(), older_than=timedelta(days=1)
+        )
+
+        assert manifests == []
 
     def test_a_run_without_an_event_time_key_is_skipped(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"

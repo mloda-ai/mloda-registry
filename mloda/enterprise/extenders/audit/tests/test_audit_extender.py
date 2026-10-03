@@ -1407,6 +1407,39 @@ class TestAuditExtenderSealing:
 
         pickle.dumps(extender)  # nosec  # must not raise
 
+    def test_an_unpicklable_head_anchor_and_callable_policy_never_enter_the_pickle_stream(self, tmp_path: Path) -> None:
+        class _LockedAnchor:
+            def __init__(self) -> None:
+                self.lock = threading.Lock()
+
+            def write(self, head: str) -> None:
+                raise AssertionError("a pickled copy never seals")
+
+            def latest(self) -> str | None:
+                raise AssertionError("a pickled copy never seals")
+
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        _append_records(audit_path, [_minimal_audit_record("run-1")])
+        anchor = _LockedAnchor()
+        extender = AuditExtender(
+            sink=InMemoryAuditSink(),
+            audit_path=audit_path,
+            manifest_path=manifest_path,
+            signer=_hmac_signer(),
+            head_anchor=anchor,
+            seal_failure_policy=lambda run_id, exc: None,
+        )
+        with pytest.raises((TypeError, pickle.PicklingError)):
+            pickle.dumps(anchor)  # nosec  # contrast: the anchor alone is unpicklable
+
+        copy = pickle.loads(pickle.dumps(extender))  # nosec  # must not raise
+
+        assert copy._head_anchor is None
+        assert copy._seal_failure_policy == "log"
+        copy.on_run_complete("run-1")  # the copy never seals and never touches the anchor
+        assert not manifest_path.exists()
+        assert copy.seal_failures == 0
+
     def test_a_long_lived_instance_holds_no_run_ids_once_their_runs_completed(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealing_config(tmp_path)
         extender = AuditExtender(
@@ -1868,6 +1901,20 @@ class TestAuditExtenderSealing:
 
         assert extender.seal_failures == 1
         assert any(r.levelno == logging.ERROR and "beyond its seal" in r.getMessage() for r in caplog.records)
+
+    def test_any_error_checking_an_already_sealed_run_counts_as_a_seal_failure_under_the_policy(
+        self, tmp_path: Path
+    ) -> None:
+        calls: list[tuple[str, BaseException]] = []
+        extender, _ = _extender_with_run_1_sealed(
+            tmp_path, seal_failure_policy=lambda run_id, exc: calls.append((run_id, exc))
+        )
+
+        with patch.object(audit_extender_module, "_check_run_against_seal", side_effect=RuntimeError("check boom")):
+            extender.on_run_complete("run-1")
+
+        assert extender.seal_failures == 1
+        assert [(run_id, type(exc)) for run_id, exc in calls] == [("run-1", RuntimeError)]
 
     def test_mismatch_after_seal_under_raise_raises_manifest_verification_error(self, tmp_path: Path) -> None:
         extender, audit_path = _extender_with_run_1_sealed(tmp_path, seal_failure_policy="raise")

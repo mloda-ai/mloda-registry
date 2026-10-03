@@ -163,10 +163,10 @@ class AuditExtender(Extender):
     seal it later with seal_ndjson_runs targeted at that specific run_id (found via
     verify_ndjson_log_coverage(...).unsealed_lines), not a blanket sweep, since a blanket sweep could seal a
     different run that is still live. Auto-sealing uses the optional log_id and head_anchor (each new head is
-    emitted to it, and its latest head must still be in the log). A seal failure (any sealing or anchor error, or a mismatch with an existing seal)
-    increments the public seal_failures counter and follows seal_failure_policy: "log" (default), "raise", or a
-    callable(run_id, exc). Core contains an exception raised from on_run_complete, so "raise" does not fail the
-    finished run."""
+    emitted to it, and its latest head must still be in the log). A seal failure (any sealing or anchor error, or a
+    mismatch with an existing seal) increments the public seal_failures counter and follows seal_failure_policy:
+    "log" (default), "raise", or a callable(run_id, exc). Core contains an exception raised from on_run_complete,
+    so "raise" does not fail the finished run."""
 
     def __init__(
         self,
@@ -339,7 +339,7 @@ class AuditExtender(Extender):
                     signer=self._signer,
                     previous_signers=self._previous_signers,
                 )
-            except (ManifestVerificationError, OSError) as exc:
+            except Exception as exc:
                 self._seal_failed(
                     run_id,
                     exc,
@@ -389,13 +389,15 @@ class AuditExtender(Extender):
             )
 
     def __getstate__(self) -> dict[str, Any]:
-        """Drops the signer material so a pickled copy (e.g. into a MULTIPROCESSING worker's dispatch
-        payload) carries none: on_run_complete only ever runs in the parent, never in a worker copy, and
-        Ed25519Signer holds non-picklable cryptography key objects besides. Also resets the per-run
+        """Drops the signer material, head anchor and failure policy so a pickled copy (e.g. into a
+        MULTIPROCESSING worker's dispatch payload) carries none: on_run_complete only ever runs in the parent,
+        never in a worker copy, and Ed25519Signer holds non-picklable cryptography key objects besides. Also resets the per-run
         cache, so the copy carries no run_ids and re-checks the manifest log."""
         state = dict(self.__dict__)
         state["_signer"] = None
         state["_previous_signers"] = ()
+        state["_head_anchor"] = None
+        state["_seal_failure_policy"] = "log"
         state["_run_sealed"] = {}
         return state
 
