@@ -4,6 +4,8 @@ Sealing is a post-run step: seal a run only once it is finished. A seal is final
 later fail verification by design. verify_ndjson_log returns the head: anchor it outside the log and pass it back
 as expected_head, because removing the newest manifests or the whole log is otherwise undetectable.
 
+Version 1 lines (older payload, no `sealed_late`) still verify, but only before the first version 2 line.
+
 Limits:
 - HMAC is symmetric: integrity only. Ed25519Signer adds non-repudiation: only the private key holder can seal. A
   public-key signer (`Ed25519Signer.from_public_key`) verifies but cannot seal, rotate or repair
@@ -56,7 +58,8 @@ from mloda.enterprise.extenders.audit._records import _append_records, _canonica
 if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
-_MANIFEST_VERSION = 1
+_MANIFEST_VERSION = 2
+_V1 = 1
 _QUARANTINE_VERSION = 1
 _HASH_ALGORITHM = "sha256"
 _MIN_KEY_BYTES = 32
@@ -216,12 +219,28 @@ def _unsigned(manifest: Mapping[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in manifest.items() if key != "signature"}
 
 
+def _signing_payload(entry: Mapping[str, Any]) -> bytes:
+    """The v2 signed bytes: the entry with each signature block reduced to its algorithm and key_id."""
+    reduced = dict(entry)
+    for field in ("signature", "previous_key_signature"):
+        block = reduced.get(field)
+        if isinstance(block, Mapping):
+            reduced[field] = {"algorithm": block.get("algorithm"), "key_id": block.get("key_id")}
+    return _canonical_json(reduced)
+
+
 def _signature_block(payload: Mapping[str, Any], signer: ManifestSigner) -> dict[str, str]:
-    return {"algorithm": signer.algorithm, "key_id": signer.key_id, "value": signer.sign(_canonical_json(payload))}
+    block = {"algorithm": signer.algorithm, "key_id": signer.key_id}
+    return {**block, "value": signer.sign(_signing_payload({**payload, "signature": block}))}
 
 
 def _seal(
-    run_id: str, digest: _RunDigest, *, signer: ManifestSigner, previous_manifest_hash: str | None
+    run_id: str,
+    digest: _RunDigest,
+    *,
+    signer: ManifestSigner,
+    previous_manifest_hash: str | None,
+    sealed_late: bool = True,
 ) -> dict[str, Any]:
     manifest: dict[str, Any] = {
         "manifest_version": _MANIFEST_VERSION,
@@ -232,6 +251,7 @@ def _seal(
         # Sorted: writers append in any order.
         "record_hashes": sorted(digest.hashes),
         "compliant": digest.compliant,
+        "sealed_late": sealed_late,
         "previous_manifest_hash": previous_manifest_hash,
     }
     manifest["signature"] = _signature_block(manifest, signer)
@@ -244,6 +264,7 @@ def seal_run(
     run_id: str,
     signer: ManifestSigner,
     previous_manifest_hash: str | None = None,
+    sealed_late: bool = True,
 ) -> dict[str, Any]:
     records = list(records)
     if not isinstance(run_id, str) or not run_id.strip():
@@ -252,7 +273,13 @@ def seal_run(
         raise ValueError(f"seal_run got no records for run_id {run_id!r}")
     if any(record.get("run_id") != run_id for record in records):
         raise ValueError(f"seal_run got a record that does not belong to run_id {run_id!r}")
-    return _seal(run_id, _digest_of(records), signer=signer, previous_manifest_hash=previous_manifest_hash)
+    return _seal(
+        run_id,
+        _digest_of(records),
+        signer=signer,
+        previous_manifest_hash=previous_manifest_hash,
+        sealed_late=sealed_late,
+    )
 
 
 def manifest_hash(manifest: Mapping[str, Any]) -> str:
@@ -270,8 +297,20 @@ def _signer_map(signer: ManifestSigner, previous_signers: Iterable[ManifestSigne
     return signers
 
 
-def _verify_signed(manifest: Mapping[str, Any], signer: ManifestSigner, signers: Mapping[str, ManifestSigner]) -> None:
-    """The signature and manifest_version checks shared by manifests and rotation entries."""
+def _verify_signed(
+    manifest: Mapping[str, Any],
+    signer: ManifestSigner,
+    signers: Mapping[str, ManifestSigner],
+    *,
+    allow_v1: bool = True,
+) -> None:
+    """The manifest_version and signature checks shared by manifests and rotation entries."""
+    version = manifest.get("manifest_version")
+    # type() is int: True and 1.0 equal 1.
+    if type(version) is not int or version not in (_V1, _MANIFEST_VERSION):
+        raise ManifestVerificationError(f"unsupported manifest_version {version!r}")
+    if version == _V1 and not allow_v1:
+        raise ManifestVerificationError("manifest_version 1 is not allowed after a manifest_version 2 line")
     signature = manifest.get("signature")
     # The block is unsigned, so an unknown member could carry anything.
     if not isinstance(signature, Mapping) or set(signature) != _SIGNATURE_KEYS:
@@ -291,18 +330,19 @@ def _verify_signed(manifest: Mapping[str, Any], signer: ManifestSigner, signers:
             f"signature algorithm {signature['algorithm']!r} is not the signer's {resolved.algorithm!r}"
         )
     value = signature["value"]
-    if not isinstance(value, str) or not resolved.verify(_canonical_json(_unsigned(manifest)), value):
+    payload = _canonical_json(_unsigned(manifest)) if version == _V1 else _signing_payload(manifest)
+    if not isinstance(value, str) or not resolved.verify(payload, value):
         raise ManifestVerificationError("signature does not match the manifest")
-    # type() is int: True and 1.0 equal 1.
-    version = manifest.get("manifest_version")
-    if type(version) is not int or version != _MANIFEST_VERSION:
-        raise ManifestVerificationError(f"unsupported manifest_version {version!r}")
 
 
 def _verify_manifest_fields(
-    manifest: Mapping[str, Any], signer: ManifestSigner, signers: Mapping[str, ManifestSigner]
+    manifest: Mapping[str, Any],
+    signer: ManifestSigner,
+    signers: Mapping[str, ManifestSigner],
+    *,
+    allow_v1: bool = True,
 ) -> None:
-    _verify_signed(manifest, signer, signers)
+    _verify_signed(manifest, signer, signers, allow_v1=allow_v1)
     if manifest.get("hash_algorithm") != _HASH_ALGORITHM:
         raise ManifestVerificationError(f"unsupported hash_algorithm {manifest.get('hash_algorithm')!r}")
     hashes = manifest.get("record_hashes")
@@ -311,16 +351,22 @@ def _verify_manifest_fields(
         raise ManifestVerificationError(f"record_count {count!r} is not the number of hashes")
     if not isinstance(manifest.get("run_id"), str):
         raise ManifestVerificationError(f"run_id {manifest.get('run_id')!r} is not a string")
+    if manifest["manifest_version"] != _V1 and type(manifest.get("sealed_late")) is not bool:
+        raise ManifestVerificationError(f"sealed_late {manifest.get('sealed_late')!r} is not a bool")
 
 
 def _verify_rotation_fields(
-    entry: Mapping[str, Any], signer: ManifestSigner, signers: Mapping[str, ManifestSigner]
+    entry: Mapping[str, Any],
+    signer: ManifestSigner,
+    signers: Mapping[str, ManifestSigner],
+    *,
+    allow_v1: bool = True,
 ) -> None:
     if entry.get("kind") != _ROTATION_KIND or set(entry) != _ROTATION_KEYS:
         raise ManifestVerificationError(
             f"a manifest log line with a kind must be a {_ROTATION_KIND!r} entry with exactly {sorted(_ROTATION_KEYS)}"
         )
-    _verify_signed(entry, signer, signers)
+    _verify_signed(entry, signer, signers, allow_v1=allow_v1)
 
 
 def _rotation_transition(key_id: str, active: str | None, retired: frozenset[str]) -> tuple[str, frozenset[str]]:
@@ -369,7 +415,11 @@ def verify_manifest(
     a retired signing key during rotation (see module docstring)."""
     signers = _signer_map(signer, previous_signers)
     _verify_manifest_fields(manifest, signer, signers)
-    _verify_digest(manifest, _digest_of(records))
+    try:
+        digest = _digest_of(records)
+    except ValueError as exc:
+        raise ManifestVerificationError(f"a record cannot be digested: {exc}") from exc
+    _verify_digest(manifest, digest)
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -380,9 +430,15 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return obj
 
 
+def _reject_constant(token: str) -> Any:
+    raise ValueError(f"JSON constant {token} is not allowed")
+
+
 def _decode_line(where: str, line: bytes) -> Any:
     try:
-        return json.loads(line.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
+        return json.loads(
+            line.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys, parse_constant=_reject_constant
+        )
     except (ValueError, RecursionError) as exc:
         raise ManifestVerificationError(f"{where} is not valid JSON: {exc}") from exc
 
@@ -539,14 +595,15 @@ def _verify_log(
     problems: list[str] = []
     active: str | None = None
     retired: frozenset[str] = frozenset()
+    seen_v2 = False
     for manifest in log:
         is_rotation = "kind" in manifest
         if is_rotation:
-            _verify_rotation_fields(manifest, signer, signers)
+            _verify_rotation_fields(manifest, signer, signers, allow_v1=not seen_v2)
             active, retired = _rotation_transition(manifest["signature"]["key_id"], active, retired)
             where = "a key rotation entry"
         else:
-            _verify_manifest_fields(manifest, signer, signers)
+            _verify_manifest_fields(manifest, signer, signers, allow_v1=not seen_v2)
             run_id: str = manifest["run_id"]
             key_id = manifest["signature"]["key_id"]
             if active is None:
@@ -568,6 +625,7 @@ def _verify_log(
                     problems.append(str(exc))
             sealed.add(run_id)
         head = manifest_hash(manifest)
+        seen_v2 = seen_v2 or manifest["manifest_version"] == _MANIFEST_VERSION
     if require_current and active is not None and active != signer.key_id:
         raise ManifestVerificationError(f"manifest log is under key {active!r}, not the signer's {signer.key_id!r}")
     if expected_head is not None and head != expected_head:
@@ -637,6 +695,7 @@ def seal_ndjson_runs(
     previous_signers: Iterable[ManifestSigner] = (),
     run_id: str | None = None,
     expected_head: str | None = None,
+    sealed_late: bool = True,
 ) -> list[dict[str, Any]]:
     """Seal every unsealed run (or only `run_id`). Seal only after a run's writers stop, or sealing a still-live run
     fails its verification for good; prefer AuditExtender's automatic sealing from Extender.on_run_complete when
@@ -676,7 +735,9 @@ def seal_ndjson_runs(
 
         manifests = []
         for pending_run_id, digest in digests.items():
-            manifest = _seal(pending_run_id, digest, signer=signer, previous_manifest_hash=head)
+            manifest = _seal(
+                pending_run_id, digest, signer=signer, previous_manifest_hash=head, sealed_late=sealed_late
+            )
             manifests.append(manifest)
             head = manifest_hash(manifest)
         _append_with_rollback(manifest_path, manifests, existed=True)
@@ -849,7 +910,11 @@ def _trace_entry(item: QuarantinedLine, raw: bytes, path: str | Path, signer: Ma
         "path": str(path),
         "raw_base64": base64.b64encode(raw).decode("ascii"),
     }
-    entry["signature"] = _signature_block(entry, signer)
+    entry["signature"] = {
+        "algorithm": signer.algorithm,
+        "key_id": signer.key_id,
+        "value": signer.sign(_canonical_json(entry)),
+    }
     return entry
 
 

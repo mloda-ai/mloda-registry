@@ -17,7 +17,7 @@ def _is_blank(value: str | None) -> bool:
 
 def _canonical_json(record: Mapping[str, Any]) -> bytes:
     """The bytes NdjsonAuditSink writes for a record, without the newline."""
-    return json.dumps(record, sort_keys=True).encode("utf-8")
+    return json.dumps(record, sort_keys=True, allow_nan=False).encode("utf-8")
 
 
 def _utc_now() -> str:

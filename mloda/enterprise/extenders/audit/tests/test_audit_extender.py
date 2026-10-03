@@ -2100,6 +2100,16 @@ class TestNdjsonAuditSink:
         lines = path.read_text(encoding="utf-8").splitlines()
         assert [json.loads(line) for line in lines] == [{"a": 1}, {"a": 2}]
 
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")], ids=["nan", "inf", "-inf"])
+    def test_non_finite_number_raises_value_error_and_writes_nothing(self, tmp_path: Path, value: float) -> None:
+        path = tmp_path / "audit.ndjson"
+        sink = NdjsonAuditSink(path)
+
+        with pytest.raises(ValueError):
+            sink.write({"a": value})
+
+        assert not path.exists() or path.read_bytes() == b""
+
     def test_pickled_copy_appends_to_the_same_file(self, tmp_path: Path) -> None:
         path = tmp_path / "audit.ndjson"
         sink = NdjsonAuditSink(path)
