@@ -78,9 +78,11 @@ _EXPECTED_PUBLISHED = [
     "mloda-testing",
 ]
 
-# Example/demo packages that reach users only inside the community and enterprise bundle wheels.
+# Every unpublished package, which reaches users only inside the community and enterprise bundle wheels.
 _BUNDLE_ONLY = [
     "mloda-enterprise-example",
+    "mloda-community-binary-model",
+    "mloda-enterprise-binary-example",
     "mloda-community-example-b",
     "mloda-community-compute-frameworks-example",
     "mloda-community-extenders-example",
@@ -431,15 +433,12 @@ def test_published_flag_marks_exactly_the_released_distributions() -> None:
     )
 
 
-def test_bundle_only_packages_are_not_published() -> None:
-    """Example and demo packages ship inside the bundle wheels, never as standalone distributions."""
-    packages = _packages()
-    missing = [name for name in _BUNDLE_ONLY if name not in packages]
-    assert missing == [], f"config/packages.toml no longer declares bundle-only packages {missing}"
-    flagged = [name for name in _BUNDLE_ONLY if packages[name].get("published")]
-    assert flagged == [], (
-        f"config/packages.toml flags bundle-only packages {flagged} as 'published = true'; their code "
-        "reaches users through the mloda-community / mloda-enterprise wheels."
+def test_bundle_only_lists_exactly_the_unpublished_packages() -> None:
+    """_BUNDLE_ONLY is the unpublished packages of config/packages.toml, in config order."""
+    unpublished = [name for name, cfg in _packages().items() if not cfg.get("published")]
+    assert _BUNDLE_ONLY == unpublished, (
+        "_BUNDLE_ONLY must list exactly the packages without 'published = true', in config order: missing "
+        f"{sorted(set(unpublished) - set(_BUNDLE_ONLY))}, unexpected {sorted(set(_BUNDLE_ONLY) - set(unpublished))}"
     )
 
 

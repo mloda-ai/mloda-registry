@@ -270,11 +270,11 @@ python scripts/generate_pyproject.py    # Regenerate
    `# --- Bundles ---` marker and after every published package it depends on:
    `scripts/published_packages.py` rejects a config that is not dependency-first.
 2. For a plugin package, create `<path>/manifest.py` listing the concrete classes.
-3. If it should ship standalone on PyPI, set `published = true`. Two edits follow it,
-   the way `py_typed` also needs its committed marker: the gate test
-   `tests/test_end2end/test_published_set_single_source.py` pins the expected set in
-   `_EXPECTED_PUBLISHED` (bundle-only packages go into `_BUNDLE_ONLY`), and every
-   published distribution needs a smoke import line in the `verify-published` tox env.
+3. If it should ship standalone on PyPI, set `published = true` and add the name to
+   `_EXPECTED_PUBLISHED` in `tests/test_end2end/test_published_set_single_source.py`;
+   otherwise add it to `_BUNDLE_ONLY` there. The gate checks both lists against config.
+   The `verify-published` env derives every configured package's import surface from
+   `config/packages.toml` (`scripts/verify_published_imports.py`), so it needs no edit.
    The flag takes effect at the next release. The weekly verification checks out the release
    tag, so only a local run of that env from main fails for it until then.
    If the package is nested under an `entry_point_bundle`'s own path (`mloda-community` or
