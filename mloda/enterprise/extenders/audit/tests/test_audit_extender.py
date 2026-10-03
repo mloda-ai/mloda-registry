@@ -335,6 +335,19 @@ class _DiskFullSink:
         raise OSError("disk full")
 
 
+class _LockedAnchor:
+    """A head anchor holding a threading.Lock, so it is unpicklable (TypeError) on every Python version."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+
+    def write(self, head: str) -> None:
+        raise AssertionError("a pickled copy never seals")
+
+    def latest(self) -> str | None:
+        raise AssertionError("a pickled copy never seals")
+
+
 class _CountingCall:
     """A wrapped call that counts how often it ran."""
 
@@ -1408,16 +1421,6 @@ class TestAuditExtenderSealing:
         pickle.dumps(extender)  # nosec  # must not raise
 
     def test_an_unpicklable_head_anchor_and_callable_policy_never_enter_the_pickle_stream(self, tmp_path: Path) -> None:
-        class _LockedAnchor:
-            def __init__(self) -> None:
-                self.lock = threading.Lock()
-
-            def write(self, head: str) -> None:
-                raise AssertionError("a pickled copy never seals")
-
-            def latest(self) -> str | None:
-                raise AssertionError("a pickled copy never seals")
-
         audit_path, manifest_path = _sealing_config(tmp_path)
         _append_records(audit_path, [_minimal_audit_record("run-1")])
         anchor = _LockedAnchor()
