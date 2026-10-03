@@ -5,6 +5,7 @@ later fail verification by design. verify_ndjson_log returns the head: anchor it
 as expected_head, because removing the newest manifests or the whole log is otherwise undetectable.
 
 Version 1 lines (older payload, no `sealed_late`) still verify, but only before the first version 2 line.
+A `log_id` opts into a signed genesis first line naming the log; verifiers passing it reject a log without it.
 
 Limits:
 - HMAC is symmetric: integrity only. Ed25519Signer adds non-repudiation: only the private key holder can seal. A
@@ -20,7 +21,9 @@ Limits:
 - Key rotation is an entry in the log (rotate_manifest_key): key order comes from the entries, not `previous_signers`.
   Rotate every log when changing keys; seals under the retired key before its entry stay valid. Anchor
   `expected_head` on every rotation. Keep retired keys while their seals must verify (rotating verifies the log with
-  them too). Any keyring key can append a complete rotation entry, which wedges the log for the real current key
+  them too). A v2 rotation entry carries a co-signature by the outgoing current key, so only the current
+  key can rotate: rotating needs its private key, and a lost current key cannot be rotated away from (start a new
+  log). A v1 rotation entry (no co-signature) in a v1 prefix can still wedge the log for the real current key
   (availability only, not integrity). Recover by rotating forward to a fresh key when that entry's key is in the
   keyring; use quarantine_from_rotation_entry for an entry signed outside it or to keep the honest current key, then
   re-seal with seal_ndjson_runs(expected_head=<anchor>) and replace any external anchor recorded past it. The same
@@ -67,7 +70,10 @@ _ED25519_KEY_BYTES = 32
 _ED25519_SIGNATURE = re.compile(r"[0-9a-f]{128}")
 _SIGNATURE_KEYS = {"algorithm", "key_id", "value"}
 _ROTATION_KIND = "key_rotation"
-_ROTATION_KEYS = {"manifest_version", "kind", "rotated_at", "previous_manifest_hash", "signature"}
+_ROTATION_KEYS_V1 = {"manifest_version", "kind", "rotated_at", "previous_manifest_hash", "signature"}
+_ROTATION_KEYS = _ROTATION_KEYS_V1 | {"previous_key_signature"}
+_GENESIS_KIND = "genesis"
+_GENESIS_KEYS = {"manifest_version", "kind", "log_id", "created_at", "previous_manifest_hash", "signature"}
 _MAX_PROBLEMS = 20
 
 
@@ -361,12 +367,49 @@ def _verify_rotation_fields(
     signers: Mapping[str, ManifestSigner],
     *,
     allow_v1: bool = True,
+    current: str | None = None,
 ) -> None:
-    if entry.get("kind") != _ROTATION_KIND or set(entry) != _ROTATION_KEYS:
+    keys = _ROTATION_KEYS_V1 if entry.get("manifest_version") == _V1 else _ROTATION_KEYS
+    if entry.get("kind") != _ROTATION_KIND or set(entry) != keys:
         raise ManifestVerificationError(
-            f"a manifest log line with a kind must be a {_ROTATION_KIND!r} entry with exactly {sorted(_ROTATION_KEYS)}"
+            f"a manifest log line with a kind must be a {_ROTATION_KIND!r} entry with exactly {sorted(keys)}"
         )
+    outgoing = signers[current] if current is not None and entry["manifest_version"] == _MANIFEST_VERSION else None
+    if outgoing is not None:
+        # Header before the new key's signature, which covers it: a relabel reports as one.
+        _check_co_signature_header(entry, outgoing)
     _verify_signed(entry, signer, signers, allow_v1=allow_v1)
+    if outgoing is not None:
+        value = entry["previous_key_signature"]["value"]
+        if not isinstance(value, str) or not outgoing.verify(_signing_payload(entry), value):
+            raise ManifestVerificationError("previous_key_signature does not match the manifest")
+
+
+def _check_co_signature_header(entry: Mapping[str, Any], current: ManifestSigner) -> None:
+    """The outgoing current key must co-sign a v2 rotation entry: check the block shape, key_id and algorithm."""
+    block = entry["previous_key_signature"]
+    if not isinstance(block, Mapping) or set(block) != _SIGNATURE_KEYS:
+        raise ManifestVerificationError(f"previous_key_signature must have exactly {sorted(_SIGNATURE_KEYS)}")
+    if block["key_id"] != current.key_id:
+        raise ManifestVerificationError(
+            f"previous_key_signature key_id {block['key_id']!r} is not the current key {current.key_id!r}"
+        )
+    if block["algorithm"] != current.algorithm:
+        raise ManifestVerificationError(
+            f"previous_key_signature algorithm {block['algorithm']!r} is not the key's {current.algorithm!r}"
+        )
+
+
+def _verify_genesis_fields(
+    entry: Mapping[str, Any], signer: ManifestSigner, signers: Mapping[str, ManifestSigner]
+) -> None:
+    if set(entry) != _GENESIS_KEYS:
+        raise ManifestVerificationError(f"a genesis entry must have exactly {sorted(_GENESIS_KEYS)}")
+    _verify_signed(entry, signer, signers)
+    if entry["manifest_version"] != _MANIFEST_VERSION:
+        raise ManifestVerificationError("a genesis entry must be manifest_version 2")
+    if not isinstance(entry["log_id"], str) or _is_blank(entry["log_id"]):
+        raise ManifestVerificationError(f"genesis log_id {entry['log_id']!r} is not a non-blank string")
 
 
 def _rotation_transition(key_id: str, active: str | None, retired: frozenset[str]) -> tuple[str, frozenset[str]]:
@@ -587,19 +630,30 @@ def _verify_log(
     expected_head: str | None,
     digests: Mapping[str, _RunDigest] | None = None,
     require_current: bool = False,
+    log_id: str | None = None,
 ) -> _LogState:
     """Record and head mismatches are collected into one error (head first); a structural failure raises at once.
-    The first line's key is current until a rotation entry replaces it."""
+    The first line's key is current until a rotation entry replaces it. `log_id` demands a matching genesis first."""
     sealed: set[str] = set()
     head: str | None = None
     problems: list[str] = []
     active: str | None = None
     retired: frozenset[str] = frozenset()
     seen_v2 = False
-    for manifest in log:
-        is_rotation = "kind" in manifest
-        if is_rotation:
-            _verify_rotation_fields(manifest, signer, signers, allow_v1=not seen_v2)
+    for number, manifest in enumerate(log):
+        is_seal = "kind" not in manifest
+        if manifest.get("kind") == _GENESIS_KIND:
+            if number:
+                raise ManifestVerificationError(f"a genesis entry is only allowed as line 1, not line {number + 1}")
+            _verify_genesis_fields(manifest, signer, signers)
+            if log_id is not None and manifest["log_id"] != log_id:
+                raise ManifestVerificationError(f"manifest log is for log_id {manifest['log_id']!r}, not {log_id!r}")
+            active = manifest["signature"]["key_id"]
+            where = "the genesis entry"
+        elif log_id is not None and number == 0:
+            raise ManifestVerificationError(f"manifest log line 1 is not a genesis entry for log_id {log_id!r}")
+        elif not is_seal:
+            _verify_rotation_fields(manifest, signer, signers, allow_v1=not seen_v2, current=active)
             active, retired = _rotation_transition(manifest["signature"]["key_id"], active, retired)
             where = "a key rotation entry"
         else:
@@ -615,7 +669,7 @@ def _verify_log(
             where = f"run_id {run_id!r}"
         if manifest.get("previous_manifest_hash") != head:
             raise ManifestVerificationError(f"manifest chain is broken at {where}")
-        if not is_rotation:
+        if is_seal:
             if run_id in sealed:
                 raise ManifestVerificationError(f"run_id {run_id!r} is sealed by more than one manifest")
             if digests is not None:
@@ -645,15 +699,36 @@ def _append_and_fsync(path: str | Path, records: Sequence[Mapping[str, Any]]) ->
     _fsync(Path(path).parent)
 
 
-def _rotation_entry(signer: ManifestSigner, previous_manifest_hash: str | None) -> dict[str, Any]:
+def _rotation_entry(
+    signer: ManifestSigner, outgoing: ManifestSigner, previous_manifest_hash: str | None
+) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "manifest_version": _MANIFEST_VERSION,
         "kind": _ROTATION_KIND,
         "rotated_at": _utc_now(),
         "previous_manifest_hash": previous_manifest_hash,
+        "previous_key_signature": {"algorithm": outgoing.algorithm, "key_id": outgoing.key_id},
+    }
+    entry["signature"] = _signature_block(entry, signer)
+    entry["previous_key_signature"]["value"] = outgoing.sign(_signing_payload(entry))
+    return entry
+
+
+def _genesis_entry(signer: ManifestSigner, log_id: str) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "manifest_version": _MANIFEST_VERSION,
+        "kind": _GENESIS_KIND,
+        "log_id": log_id,
+        "created_at": _utc_now(),
+        "previous_manifest_hash": None,
     }
     entry["signature"] = _signature_block(entry, signer)
     return entry
+
+
+def _check_log_id(owner: str, log_id: object) -> None:
+    if log_id is not None and (not isinstance(log_id, str) or _is_blank(log_id)):
+        raise ValueError(f"{owner} log_id must be a non-blank string")
 
 
 def rotate_manifest_key(
@@ -662,27 +737,40 @@ def rotate_manifest_key(
     signer: ManifestSigner,
     expected_head: str | None,
     previous_signers: Iterable[ManifestSigner] = (),
+    log_id: str | None = None,
 ) -> dict[str, Any]:
     """Append a signed rotation entry making `signer` the log's current key; return it. Verifies the log first
-    (`previous_signers` must hold its retired keys) and writes nothing on failure. Raises ValueError for a log with no
-    manifests, KeyAlreadyCurrentError when `signer` is already current (a retry needs `expected_head=None` or the
+    (`previous_signers` must hold its retired keys) and writes nothing on failure. The outgoing current key co-signs
+    the entry, so it must be in `previous_signers` with its private key (ValueError for a public-key one). Raises
+    ValueError for a log with no manifests, KeyAlreadyCurrentError when `signer` is already current (a retry needs `expected_head=None` or the
     post-rotation head) and ManifestVerificationError when `signer` is retired. Pass the anchored head as
     `expected_head`: the entry chains onto it, so it commits to every earlier line. A wrongly appended entry is
     dropped with quarantine_from_rotation_entry."""
     signers = _signer_map(signer, previous_signers)
+    _check_log_id("rotate_manifest_key", log_id)
     nothing_to_rotate = f"{manifest_path} has no manifests to rotate; the first seal defines the key"
     # Checked before the lock: an exclusive _flock would create the file.
     if not os.path.exists(manifest_path):
         raise ValueError(nothing_to_rotate)
     with _flock(manifest_path, exclusive=True):
-        state = _verify_log(_iter_manifests(manifest_path), signer=signer, signers=signers, expected_head=expected_head)
+        state = _verify_log(
+            _iter_manifests(manifest_path), signer=signer, signers=signers, expected_head=expected_head, log_id=log_id
+        )
         if state.active is None:
             raise ValueError(nothing_to_rotate)
         if state.active == signer.key_id:
             raise KeyAlreadyCurrentError(f"manifest log is already under key {signer.key_id!r}")
         # Called for its raise only: it raises when `signer` is a retired key.
         _rotation_transition(signer.key_id, state.active, state.retired)
-        entry = _rotation_entry(signer, state.head)
+        outgoing = signers[state.active]
+        try:
+            outgoing.sign(b"")
+        except ValueError as exc:
+            raise ValueError(
+                f"cannot rotate away from key {outgoing.key_id!r}: it holds only a public key and cannot co-sign; "
+                "start a new log"
+            ) from exc
+        entry = _rotation_entry(signer, outgoing, state.head)
         _append_with_rollback(manifest_path, [entry], existed=True)
         return entry
 
@@ -696,6 +784,7 @@ def seal_ndjson_runs(
     run_id: str | None = None,
     expected_head: str | None = None,
     sealed_late: bool = True,
+    log_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Seal every unsealed run (or only `run_id`). Seal only after a run's writers stop, or sealing a still-live run
     fails its verification for good; prefer AuditExtender's automatic sealing from Extender.on_run_complete when
@@ -707,11 +796,13 @@ def seal_ndjson_runs(
     Raises RunAlreadySealedError for an already-sealed `run_id` (catch that, not ValueError, for an idempotent retry)
     and RunNotPendingError when it has no records. `signer` must be the log's current key: call rotate_manifest_key
     after a key change.
-    `previous_signers` covers a retired signing key during rotation (see module docstring)."""
+    `previous_signers` covers a retired signing key during rotation (see module docstring).
+    `log_id` writes a genesis line before the first seal batch of an empty log; a non-empty log must already have it."""
     signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
     if run_id is not None and (not isinstance(run_id, str) or _is_blank(run_id)):
         raise ValueError("seal_ndjson_runs run_id must be a non-blank string")
+    _check_log_id("seal_ndjson_runs", log_id)
     with _flock(manifest_path, exclusive=True):
         state = _verify_log(
             _iter_manifests(manifest_path),
@@ -719,6 +810,7 @@ def seal_ndjson_runs(
             signers=signers,
             expected_head=expected_head,
             require_current=True,
+            log_id=log_id,
         )
         sealed, head = state.sealed, state.head
         if run_id is not None and run_id in sealed:
@@ -733,6 +825,9 @@ def seal_ndjson_runs(
         if run_id is not None and run_id not in digests:
             raise RunNotPendingError(f"no audit records for run_id {run_id!r} in {audit_path}")
 
+        genesis = [_genesis_entry(signer, log_id)] if log_id is not None and head is None and digests else []
+        if genesis:
+            head = manifest_hash(genesis[0])
         manifests = []
         for pending_run_id, digest in digests.items():
             manifest = _seal(
@@ -740,7 +835,7 @@ def seal_ndjson_runs(
             )
             manifests.append(manifest)
             head = manifest_hash(manifest)
-        _append_with_rollback(manifest_path, manifests, existed=True)
+        _append_with_rollback(manifest_path, [*genesis, *manifests], existed=True)
         return manifests
 
 
@@ -774,12 +869,14 @@ def verify_ndjson_log_coverage(
     signer: ManifestSigner,
     previous_signers: Iterable[ManifestSigner] = (),
     expected_head: str | None = None,
+    log_id: str | None = None,
 ) -> LogCoverage:
     """Verify like verify_ndjson_log; return a LogCoverage (head, sealed_runs, sealed_lines, unattributed_lines,
     unsealed_lines). `signer` must be the log's current key: call rotate_manifest_key after a key change.
     `previous_signers` covers a retired signing key during rotation (see module docstring)."""
     signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
+    _check_log_id("verify_ndjson_log_coverage", log_id)
     # Log first: a run sealed after this read looks unsealed, not tampered.
     with _flock(manifest_path, exclusive=False):
         manifests = _read_manifests(manifest_path)
@@ -790,7 +887,13 @@ def verify_ndjson_log_coverage(
     except FileNotFoundError:
         digests = {}
     state = _verify_log(
-        manifests, signer=signer, signers=signers, expected_head=expected_head, digests=digests, require_current=True
+        manifests,
+        signer=signer,
+        signers=signers,
+        expected_head=expected_head,
+        digests=digests,
+        require_current=True,
+        log_id=log_id,
     )
     return LogCoverage(
         head=state.head,
@@ -808,13 +911,19 @@ def verify_ndjson_log(
     signer: ManifestSigner,
     previous_signers: Iterable[ManifestSigner] = (),
     expected_head: str | None = None,
+    log_id: str | None = None,
 ) -> str | None:
     """Raise ManifestVerificationError unless every manifest matches the audit bytes of its run. Returns the head:
     anchor it outside the log and pass it back as `expected_head`, or a truncated log goes undetected.
     `signer` must be the log's current key: call rotate_manifest_key after a key change.
     `previous_signers` covers a retired signing key during rotation (see module docstring)."""
     return verify_ndjson_log_coverage(
-        audit_path, manifest_path, signer=signer, previous_signers=previous_signers, expected_head=expected_head
+        audit_path,
+        manifest_path,
+        signer=signer,
+        previous_signers=previous_signers,
+        expected_head=expected_head,
+        log_id=log_id,
     ).head
 
 
