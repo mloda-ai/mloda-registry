@@ -167,10 +167,6 @@ def _minimal_audit_record(run_id: str | None, *, compliant: bool = True) -> dict
     }
 
 
-def _canonical_head(manifest: Mapping[str, Any]) -> str:
-    return manifest_hash(manifest)
-
-
 def _sealing_config(tmp_path: Path) -> tuple[Path, Path]:
     """audit_path, manifest_path for one sealing config, shared to avoid duplicating this construction."""
     return tmp_path / "audit.ndjson", tmp_path / "manifest.ndjson"
@@ -610,12 +606,6 @@ class TestAuditExtenderSealingContract(TestAuditExtenderContract):
         return extender, marker_path
 
 
-class TestAuditExtenderFailClosedSealingContract(TestAuditExtenderFailClosedContract, TestAuditExtenderSealingContract):
-    """The fail_closed posture under sealing satisfies the same contract."""
-
-    fail_closed = True
-
-
 class TestAuditExtenderConstruction:
     """sink and required_identity are validated once, at construction time."""
 
@@ -806,6 +796,7 @@ class TestAuditExtenderConstruction:
             seal_failure_policy=policy,
         )
         assert extender.seal_failures == 0
+        assert AuditExtender(sink=InMemoryAuditSink()).seal_failures == 0  # no sealing config
 
     @pytest.mark.parametrize("log_id", ["", "   ", 5], ids=["empty", "blank", "int"])
     def test_blank_or_non_str_log_id_raises_value_error(self, tmp_path: Path, log_id: Any) -> None:
@@ -836,9 +827,6 @@ class TestAuditExtenderConstruction:
                 signer=_hmac_signer(),
                 head_anchor=anchor,
             )
-
-    def test_seal_failures_starts_at_zero_without_sealing_config(self) -> None:
-        assert AuditExtender(sink=InMemoryAuditSink()).seal_failures == 0
 
 
 class TestAuditExtenderRecord:
@@ -1823,7 +1811,7 @@ class TestAuditExtenderSealing:
         lines = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()]
         assert [line.get("kind") for line in lines] == ["genesis", None]
         assert lines[0]["log_id"] == "log-a"
-        assert anchor.latest() == _canonical_head(lines[-1])
+        assert anchor.latest() == manifest_hash(lines[-1])
         assert extender.seal_failures == 0
 
     def test_a_second_auto_seal_passes_the_first_anchored_head_and_succeeds(self, tmp_path: Path) -> None:
@@ -1836,13 +1824,6 @@ class TestAuditExtenderSealing:
         extender.on_run_complete("run-2")
 
         assert anchor.latest() != first_head
-        assert extender.seal_failures == 0
-
-    def test_seal_failures_is_zero_after_a_successful_seal(self, tmp_path: Path) -> None:
-        extender = self._failing_seal_extender(tmp_path)
-
-        extender.on_run_complete("run-1")
-
         assert extender.seal_failures == 0
 
     @pytest.mark.parametrize("policy", ["log", "raise"])

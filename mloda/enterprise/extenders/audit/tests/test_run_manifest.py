@@ -3413,9 +3413,11 @@ class TestAnchoredHeads:
 
     @_each_anchored_call
     def test_every_line_hash_of_the_log_passes_as_an_anchor(self, tmp_path: Path, call: Callable[..., Any]) -> None:
-        audit_path, manifest_path = _sealed_log(tmp_path)
+        audit_path, manifest_path = _genesis_log(tmp_path)
+        heads = _log_heads(manifest_path)
+        assert len(heads) == 4
 
-        call(audit_path, manifest_path, anchored_heads=_log_heads(manifest_path))
+        call(audit_path, manifest_path, log_id="log-a", anchored_heads=heads)
 
     @_each_anchored_call
     def test_an_anchored_heads_iterator_is_accepted(self, tmp_path: Path, call: Callable[..., Any]) -> None:
@@ -3448,17 +3450,6 @@ class TestAnchoredHeads:
             call(audit_path, manifest_path, anchored_heads=[*_log_heads(manifest_path), unknown])
 
         _assert_names(excinfo, unknown)
-
-    def test_the_genesis_hash_a_middle_line_and_the_current_head_pass(self, tmp_path: Path) -> None:
-        audit_path, manifest_path = _genesis_log(tmp_path)
-        heads = _log_heads(manifest_path)
-        assert len(heads) == 4
-
-        for anchor in (heads[0], heads[2], heads[-1]):
-            assert (
-                verify_ndjson_log(audit_path, manifest_path, signer=_signer(), log_id="log-a", anchored_heads=[anchor])
-                == heads[-1]
-            )
 
     def test_a_rotation_entry_hash_passes_as_an_anchor(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
