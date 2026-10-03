@@ -1,17 +1,7 @@
-"""Standalone entry point for a minimal conforming binary (``hmac_fake_binary`` / ``hmac_sha256``),
-used by ``test_hmac_sha256_conformance.py`` to exercise ``HmacSha256OperationConformanceMixin``.
+"""Minimal conforming ``hmac_sha256`` binary (``hmac_fake_binary``) for ``HmacSha256OperationConformanceMixin``.
 
-Reuses ``simulated_binary.py``'s CLI/license/Arrow-IPC mechanics unchanged by monkeypatching only
-the module globals that carry "hash"'s own identity (``PLUGIN_ID``, ``CAPABILITY_OPERATIONS``,
-``_OPERATION_OUTPUTS``), the column vocabulary (utf8 only), the parameter validation (a required
-64-hex ``key``), the input-column arity (exactly one) and the computation (HMAC-SHA256, utf8 output):
-every ``simulated_binary.py`` function looks these up as a module global at call time, so patching
-them from outside is sufficient.
-
-Not a test module: run only via ``python -m mloda.testing.tests._hmac_sha256_fake_binary``, one fresh
-subprocess per invocation, so the monkeypatching never leaks into other tests' own
-``simulated_binary.py`` subprocess runs.
-"""
+Reuses ``simulated_binary`` by patching its module globals (identity, utf8-only types, key validation,
+one input column, HMAC computation). Run only as a fresh subprocess so the patching never leaks."""
 
 from __future__ import annotations
 

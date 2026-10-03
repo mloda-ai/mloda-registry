@@ -1832,12 +1832,8 @@ class HashOperationConformanceMixin(BinaryModelConformanceBase):
 
 
 class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
-    """Every check specific to the "hmac_sha256" operation: HMAC-SHA256 with a 32-byte key (the
-    ``key`` parameter, 64 hex characters) over the utf8 bytes of each cell of exactly one utf8
-    input column, lowercase-hex utf8 output, nulls stay null.
-
-    Expected values come from ``mloda.testing.binary_model.hmac_sha256_reference``. Subclass order
-    is the same as ``HashOperationConformanceMixin``: this mixin first, then the base class."""
+    """Every check specific to "hmac_sha256": a required 64-hex ``key``, one utf8 input column, lowercase-hex
+    utf8 output, nulls stay null. Subclass order matches ``HashOperationConformanceMixin``: mixin first."""
 
     operations: ClassVar[list[str]] = ["hmac_sha256"]
     default_output_columns: ClassVar[dict[str, str]] = {"result": "col_a_token"}
@@ -1851,7 +1847,6 @@ class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
         parameters: dict[str, Any] | None = None,
         output_columns: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """The base config, with ``parameters`` defaulting to a valid ``key`` (it is required)."""
         if parameters is None:
             parameters = {hmac_sha256_reference.KEY_PARAMETER: self.hmac_key}
         return super().make_config(
@@ -2004,8 +1999,7 @@ class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
         assert_error_response(result, USAGE_ERROR)
 
     # -------------------------------------------------------------------------------------------
-    # M3. Base checks that assume a two-column config or optional parameters, restated for one
-    #     input column and a required key (the generic base stays unchanged)
+    # M3. Base checks restated for one input column and a required key
     # -------------------------------------------------------------------------------------------
 
     def test_config_parameters_empty_object_accepted_structurally(
