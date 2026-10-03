@@ -24,7 +24,7 @@ else:
 import pytest
 from mloda.user import PluginLoader
 
-from mloda.testing.import_isolation import block_root, evict_package, evict_root
+from mloda.testing.import_isolation import block_root, evict_entry_points, evict_package, evict_root
 from tests.script_loader import load_script
 
 # Logger name PluginLoader.load_entry_points() itself logs WARNINGs under when it skips an entry point
@@ -313,6 +313,8 @@ def test_extra_only_bundle_dependencies_skip_via_plugin_loader_with_a_warning(
     with pytest.MonkeyPatch.context() as mp:
         block_root(mp, root)
         evict_package(mp, dotted)
+        for group in groups:
+            evict_entry_points(mp, group)
 
         # PluginLoader._skipped is process-wide and dedupes identical (entry point, dependency)
         # warnings, so a fresh reset keeps this test's warning assertion independent of whichever
@@ -483,6 +485,8 @@ def test_plugin_loader_skips_entry_point_with_warning_when_transitive_dependency
     evict_root(monkeypatch, root)
     monkeypatch.setitem(sys.modules, transitive_dependency, None)
     evict_package(monkeypatch, dotted)
+    for group in groups:
+        evict_entry_points(monkeypatch, group)
 
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger=_PLUGIN_LOADER_LOGGER):

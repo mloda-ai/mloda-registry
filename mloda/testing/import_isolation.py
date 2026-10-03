@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import importlib.util
 import pkgutil
 import sys
@@ -50,6 +51,16 @@ def evict_root(monkeypatch: pytest.MonkeyPatch, root: str) -> None:
         if name == root or name.startswith(f"{root}."):
             monkeypatch.setitem(sys.modules, name, sys.modules[name])
             monkeypatch.delitem(sys.modules, name)
+
+
+def evict_entry_points(monkeypatch: pytest.MonkeyPatch, group: str) -> None:
+    """Pre-register teardown removal of every not-yet-loaded manifest module in entry-point ``group``."""
+    for entry_point in importlib.metadata.entry_points(group=group):
+        name = entry_point.module
+        if name in sys.modules:
+            continue
+        monkeypatch.setitem(sys.modules, name, None)
+        monkeypatch.delitem(sys.modules, name, raising=False)
 
 
 def evict_package(monkeypatch: pytest.MonkeyPatch, dotted: str) -> None:
