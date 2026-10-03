@@ -222,13 +222,13 @@ extender = AuditExtender(sink, fail_closed=True)
 
 ### Sealing and anchoring
 
-- `head_anchor` (a `HeadAnchor`, e.g. `NdjsonHeadAnchor`) receives each new manifest log head, and `anchored_heads` makes verification require every anchored head to be a line of the log. This detects truncation, rollback, deletion and substitution of the manifest log.
+- `head_anchor` (a `HeadAnchor`, e.g. `NdjsonHeadAnchor`) receives each new manifest log head, and `anchored_heads` makes verification require every anchored head to be a line of the log. This detects truncation, rollback, deletion and substitution.
 - The anchor and the logs need append-only or WORM storage that the log writer cannot rewrite. Key custody stays a platform duty.
 - `log_id` is opt-in. Without it (or an anchor) a deleted log restarts silently.
 - Rotation needs the outgoing key's co-signature, so a lost current key means starting a new log.
 - `seal_failure_policy` is `"log"` (default), `"raise"` or a callable `(run_id, exc)`; failures are counted in `seal_failures`. Core contains exceptions from `on_run_complete`, so `"raise"` does not fail the finished run.
-- `seal_ndjson_runs(..., older_than=timedelta(...))` is a manual sweep for crashed runs, which stay unsealed until an operator sweeps. It seals only runs whose newest `event_time` is older than the threshold and marks them `sealed_late`; runs without a parseable `event_time` are skipped with a warning.
-- Version 1 manifest lines from older releases still verify as a prefix of the log.
+- `seal_ndjson_runs(..., older_than=timedelta(...))` is a manual sweep for crashed runs, which stay unsealed until an operator sweeps. It seals only runs older than the threshold, marks them `sealed_late`, and skips runs without a parseable `event_time`.
+- Manifest logs written by earlier releases (version 1 lines) still verify; new lines appended to them are version 2.
 
 ```python
 import os

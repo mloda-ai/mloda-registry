@@ -162,12 +162,11 @@ class AuditExtender(Extender):
     before setup, so on_run_complete never fires for it and it is never auto-sealed at all (not sealed-with-strays);
     seal it later with seal_ndjson_runs targeted at that specific run_id (found via
     verify_ndjson_log_coverage(...).unsealed_lines), not a blanket sweep, since a blanket sweep could seal a
-    different run that is still live. Auto-sealing passes sealed_late=False, the optional log_id (genesis) and
-    head_anchor (each new head is emitted to it, and its latest head must still be in the log, so truncation,
-    rollback and deletion are caught). A seal failure (any error from sealing or the anchor, or a mismatch with an
-    existing seal) increments the public seal_failures counter and follows seal_failure_policy: "log" (default,
-    ERROR naming run_id and exception type), "raise", or a callable(run_id, exc). Core logs and contains an
-    exception raised from on_run_complete, so "raise" does not fail the finished run."""
+    different run that is still live. Auto-sealing uses the optional log_id and head_anchor (each new head is
+    emitted to it, and its latest head must still be in the log). A seal failure (any sealing or anchor error, or a mismatch with an existing seal)
+    increments the public seal_failures counter and follows seal_failure_policy: "log" (default), "raise", or a
+    callable(run_id, exc). Core contains an exception raised from on_run_complete, so "raise" does not fail the
+    finished run."""
 
     def __init__(
         self,
