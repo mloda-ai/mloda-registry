@@ -6,9 +6,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from mloda.steward import Extender, ExtenderHook, HookContext, WarnOncePerInstance
 
@@ -17,10 +17,12 @@ from mloda.enterprise.extenders.audit._records import _append_records as _append
 from mloda.enterprise.extenders.audit._records import _canonical_json as _canonical_json
 from mloda.enterprise.extenders.audit._records import _is_blank, _utc_now
 from mloda.enterprise.extenders.audit.run_manifest import (
+    HeadAnchor,
     ManifestSigner,
     ManifestVerificationError,
     RunAlreadySealedError,
     RunNotPendingError,
+    _check_log_id,
     _check_run_against_seal,
     _reject_aliased_paths,
     _signer_map,
@@ -160,8 +162,12 @@ class AuditExtender(Extender):
     before setup, so on_run_complete never fires for it and it is never auto-sealed at all (not sealed-with-strays);
     seal it later with seal_ndjson_runs targeted at that specific run_id (found via
     verify_ndjson_log_coverage(...).unsealed_lines), not a blanket sweep, since a blanket sweep could seal a
-    different run that is still live. expected_head anchoring against a deleted or truncated manifest log is not
-    part of auto-sealing; call seal_ndjson_runs/verify_ndjson_log manually with expected_head for that."""
+    different run that is still live. Auto-sealing passes sealed_late=False, the optional log_id (genesis) and
+    head_anchor (each new head is emitted to it, and its latest head must still be in the log, so truncation,
+    rollback and deletion are caught). A seal failure (any error from sealing or the anchor, or a mismatch with an
+    existing seal) increments the public seal_failures counter and follows seal_failure_policy: "log" (default,
+    ERROR naming run_id and exception type), "raise", or a callable(run_id, exc). Core logs and contains an
+    exception raised from on_run_complete, so "raise" does not fail the finished run."""
 
     def __init__(
         self,
@@ -174,6 +180,9 @@ class AuditExtender(Extender):
         manifest_path: str | Path | None = None,
         signer: ManifestSigner | None = None,
         previous_signers: Iterable[ManifestSigner] = (),
+        log_id: str | None = None,
+        head_anchor: HeadAnchor | None = None,
+        seal_failure_policy: Literal["log", "raise"] | Callable[[str, BaseException], None] = "log",
     ) -> None:
         unknown = [name for name in required_identity if name not in _ALLOWED_IDENTITY_NAMES]
         if unknown:
@@ -191,6 +200,22 @@ class AuditExtender(Extender):
         if policy_version is not None and (not isinstance(policy_version, str) or _is_blank(policy_version)):
             raise ValueError(f"AuditExtender policy_version must be a non-blank str, got {policy_version!r}")
         previous_signers = tuple(previous_signers)
+        if seal_failure_policy not in ("log", "raise") and (
+            isinstance(seal_failure_policy, (str, type)) or not callable(seal_failure_policy)
+        ):
+            raise ValueError(
+                f"AuditExtender seal_failure_policy must be 'log', 'raise' or a callable(run_id, exc); "
+                f"got {seal_failure_policy!r}"
+            )
+        if head_anchor is not None and (
+            isinstance(head_anchor, type)
+            or not callable(getattr(head_anchor, "write", None))
+            or not callable(getattr(head_anchor, "latest", None))
+        ):
+            raise ValueError(
+                f"AuditExtender head_anchor must implement the HeadAnchor protocol: callable write(head) and "
+                f"callable latest(); got {head_anchor!r}"
+            )
         paths_given = audit_path is not None or manifest_path is not None
         if signer is None:
             if paths_given:
@@ -199,6 +224,11 @@ class AuditExtender(Extender):
                 )
             if previous_signers:
                 raise ValueError("AuditExtender previous_signers needs a signer, else there is nothing to seal with")
+            if log_id is not None or head_anchor is not None or seal_failure_policy != "log":
+                raise ValueError(
+                    "AuditExtender log_id, head_anchor and seal_failure_policy need the sealing config "
+                    "(audit_path, manifest_path and signer), else there is nothing to seal"
+                )
         elif audit_path is None or manifest_path is None:
             raise ValueError(
                 "AuditExtender signer needs both audit_path and manifest_path to auto-seal; give all three or none"
@@ -211,6 +241,7 @@ class AuditExtender(Extender):
             # Reuse seal_ndjson_runs's own checks so a misconfiguration fails at construction, not at run end.
             _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
             _signer_map(signer, previous_signers)
+            _check_log_id("AuditExtender", log_id)
         self.sink = sink
         self.required_identity = required_identity
         self.raise_on_error = raise_on_error
@@ -222,6 +253,10 @@ class AuditExtender(Extender):
         self._manifest_path = manifest_path
         self._signer = signer
         self._previous_signers = previous_signers
+        self._log_id = log_id
+        self._head_anchor = head_anchor
+        self._seal_failure_policy = seal_failure_policy
+        self.seal_failures = 0
         self._pickle_drop_warning = WarnOncePerInstance()
         self._run_sealed: dict[str, bool] = {}
         if fail_closed:
@@ -249,11 +284,12 @@ class AuditExtender(Extender):
         buffered record reaches the audit file before it is sealed. A pickled or copied instance has no
         signer (see __getstate__): it warns once per copy instead of raising or sealing anything.
         RunAlreadySealedError is logged at INFO when audit_path's records of the run still match its seal (e.g. a
-        refused re-run), else at ERROR with the reason (a record outside the seal, or a failed check);
+        refused re-run), else it is a seal failure with the reason (a record outside the seal, or a failed check);
         RunNotPendingError is logged at WARNING (recoverable: the run just wrote nothing
         yet). Neither is raised. The run's cached answer is dropped, so a later call under it re-reads the
-        manifest log (and is refused there). Every other exception, e.g. ManifestVerificationError, is not
-        caught here either; core logs it at ERROR and never fails the run because of it, regardless of
+        manifest log (and is refused there). A mismatch with an existing seal and every other exception (including
+        anchor failures) is a seal failure: counted in seal_failures, then handled by seal_failure_policy. With
+        "raise" it propagates; core logs it at ERROR and never fails the run because of it, regardless of
         raise_on_error/fail_closed."""
         if run_id is None:
             return
@@ -279,12 +315,21 @@ class AuditExtender(Extender):
             )
             return
         try:
+            anchors: list[str] = []
+            if self._head_anchor is not None:
+                latest = self._head_anchor.latest()
+                if latest is not None:
+                    anchors.append(latest)
             seal_ndjson_runs(
                 self._audit_path,
                 self._manifest_path,
                 signer=self._signer,
                 previous_signers=self._previous_signers,
                 run_id=run_id,
+                sealed_late=False,
+                log_id=self._log_id,
+                head_anchor=self._head_anchor,
+                anchored_heads=anchors,
             )
         except RunAlreadySealedError:
             try:
@@ -296,13 +341,11 @@ class AuditExtender(Extender):
                     previous_signers=self._previous_signers,
                 )
             except (ManifestVerificationError, OSError) as exc:
-                logger.error(
+                self._seal_failed(
+                    run_id,
+                    exc,
                     "AuditExtender: run_id %r is already sealed in manifest_path %s and was not sealed again; "
                     "its records in audit_path %s could not be confirmed to match that seal: %s",
-                    run_id,
-                    self._manifest_path,
-                    self._audit_path,
-                    exc,
                 )
             else:
                 logger.info(
@@ -314,6 +357,36 @@ class AuditExtender(Extender):
         except RunNotPendingError:
             logger.warning(
                 "AuditExtender: run_id %r has no audit records to seal in audit_path %s", run_id, self._audit_path
+            )
+        except Exception as exc:
+            self._seal_failed(run_id, exc)
+
+    def _seal_failed(self, run_id: str, exc: BaseException, mismatch_message: str | None = None) -> None:
+        self.seal_failures += 1
+        policy = self._seal_failure_policy
+        if policy == "raise":
+            raise exc
+        if callable(policy):
+            policy(run_id, exc)
+            return
+        if mismatch_message is not None:
+            logger.error(mismatch_message, run_id, self._manifest_path, self._audit_path, exc)
+        elif isinstance(exc, ManifestVerificationError):
+            logger.error(
+                "AuditExtender: sealing run_id %r failed in manifest_path %s for audit_path %s (%s): %s",
+                run_id,
+                self._manifest_path,
+                self._audit_path,
+                type(exc).__name__,
+                exc,
+            )
+        else:
+            logger.error(
+                "AuditExtender: sealing run_id %r failed in manifest_path %s for audit_path %s (%s)",
+                run_id,
+                self._manifest_path,
+                self._audit_path,
+                type(exc).__name__,
             )
 
     def __getstate__(self) -> dict[str, Any]:

@@ -41,7 +41,7 @@ from mloda.enterprise.extenders.audit import (
 )
 from mloda.enterprise.extenders.audit import audit_extender as audit_extender_module
 from mloda.enterprise.extenders.audit._records import _append_records, _canonical_json
-from mloda.enterprise.extenders.audit.run_manifest import _flock
+from mloda.enterprise.extenders.audit.run_manifest import NdjsonHeadAnchor, RunNotPendingError, _flock, manifest_hash
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
@@ -162,6 +162,10 @@ def _minimal_audit_record(run_id: str | None, *, compliant: bool = True) -> dict
         "feature_names": ["value_int"],
         "status": "success",
     }
+
+
+def _canonical_head(manifest: Mapping[str, Any]) -> str:
+    return manifest_hash(manifest)
 
 
 def _sealing_config(tmp_path: Path) -> tuple[Path, Path]:
@@ -563,6 +567,52 @@ class TestAuditExtenderFailClosedContract(TestAuditExtenderContract):
         return {"tenant_id": _TENANT}
 
 
+class TestAuditExtenderSealingContract(TestAuditExtenderContract):
+    """The shared Extender contract also holds with auto-sealing, a genesis log_id and a head anchor configured."""
+
+    @pytest.fixture(autouse=True)
+    def _sealing_dir(self, tmp_path: Path) -> None:
+        self.sealing_dir = tmp_path
+
+    def _sealing_kwargs(self, audit_path: Path) -> dict[str, Any]:
+        return {
+            "audit_path": audit_path,
+            "manifest_path": self.sealing_dir / "sealed_manifest.ndjson",
+            "signer": _hmac_signer(),
+            "log_id": "contract-log",
+            "head_anchor": NdjsonHeadAnchor(self.sealing_dir / "sealed_anchor.ndjson"),
+        }
+
+    def make_extender(self, *, raise_on_error: bool | None = None) -> AuditExtender:
+        sink = InMemoryAuditSink()
+        kwargs = self._sealing_kwargs(self.sealing_dir / "sealed_audit.ndjson")
+        if raise_on_error is None:
+            return AuditExtender(sink=sink, fail_closed=self.fail_closed, **kwargs)
+        return AuditExtender(sink=sink, raise_on_error=raise_on_error, fail_closed=self.fail_closed, **kwargs)
+
+    def make_real_worker_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
+        marker_path = tmp_path / "audit.ndjson"
+        extender = AuditExtender(
+            sink=NdjsonAuditSink(marker_path), fail_closed=self.fail_closed, **self._sealing_kwargs(marker_path)
+        )
+        return extender, marker_path
+
+    def make_real_worker_buffered_extender_and_marker(self, tmp_path: Path) -> tuple[Extender, Path]:
+        marker_path = tmp_path / "audit_buffered.ndjson"
+        extender = AuditExtender(
+            sink=BufferingNdjsonAuditSink(marker_path),
+            fail_closed=self.fail_closed,
+            **self._sealing_kwargs(marker_path),
+        )
+        return extender, marker_path
+
+
+class TestAuditExtenderFailClosedSealingContract(TestAuditExtenderFailClosedContract, TestAuditExtenderSealingContract):
+    """The fail_closed posture under sealing satisfies the same contract."""
+
+    fail_closed = True
+
+
 class TestAuditExtenderConstruction:
     """sink and required_identity are validated once, at construction time."""
 
@@ -712,6 +762,80 @@ class TestAuditExtenderConstruction:
         assert extender.fail_closed is True
         assert extender.never_fall_back is True
         assert extender.priority == 0
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"log_id": "log-a"},
+            {"seal_failure_policy": "raise"},
+            {"seal_failure_policy": lambda run_id, exc: None},
+        ],
+        ids=["log_id", "seal_failure_policy_raise", "seal_failure_policy_callable"],
+    )
+    def test_seal_options_without_the_sealing_config_raise_value_error(self, kwargs: dict[str, Any]) -> None:
+        with pytest.raises(ValueError):
+            AuditExtender(sink=InMemoryAuditSink(), **kwargs)
+
+    def test_head_anchor_without_the_sealing_config_raises_value_error(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            AuditExtender(sink=InMemoryAuditSink(), head_anchor=NdjsonHeadAnchor(tmp_path / "anchor.ndjson"))
+
+    @pytest.mark.parametrize("policy", ["warn", "", None, 3, object()], ids=["warn", "empty", "none", "int", "object"])
+    def test_invalid_seal_failure_policy_raises_value_error(self, tmp_path: Path, policy: Any) -> None:
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        with pytest.raises(ValueError):
+            AuditExtender(
+                sink=InMemoryAuditSink(),
+                audit_path=audit_path,
+                manifest_path=manifest_path,
+                signer=_hmac_signer(),
+                seal_failure_policy=policy,
+            )
+
+    @pytest.mark.parametrize("policy", ["log", "raise", lambda run_id, exc: None], ids=["log", "raise", "callable"])
+    def test_valid_seal_failure_policy_is_accepted(self, tmp_path: Path, policy: Any) -> None:
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        extender = AuditExtender(
+            sink=InMemoryAuditSink(),
+            audit_path=audit_path,
+            manifest_path=manifest_path,
+            signer=_hmac_signer(),
+            seal_failure_policy=policy,
+        )
+        assert extender.seal_failures == 0
+
+    @pytest.mark.parametrize("log_id", ["", "   ", 5], ids=["empty", "blank", "int"])
+    def test_blank_or_non_str_log_id_raises_value_error(self, tmp_path: Path, log_id: Any) -> None:
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        with pytest.raises(ValueError):
+            AuditExtender(
+                sink=InMemoryAuditSink(),
+                audit_path=audit_path,
+                manifest_path=manifest_path,
+                signer=_hmac_signer(),
+                log_id=log_id,
+            )
+
+    @pytest.mark.parametrize(
+        "anchor",
+        [object(), SimpleNamespace(write=lambda head: None), SimpleNamespace(latest=lambda: None), "anchor"],
+        ids=["bare_object", "no_latest", "no_write", "str"],
+    )
+    def test_head_anchor_without_callable_write_and_latest_raises_value_error(
+        self, tmp_path: Path, anchor: Any
+    ) -> None:
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        with pytest.raises(ValueError):
+            AuditExtender(
+                sink=InMemoryAuditSink(),
+                audit_path=audit_path,
+                manifest_path=manifest_path,
+                signer=_hmac_signer(),
+                head_anchor=anchor,
+            )
+
+    def test_seal_failures_starts_at_zero_without_sealing_config(self) -> None:
+        assert AuditExtender(sink=InMemoryAuditSink()).seal_failures == 0
 
 
 class TestAuditExtenderRecord:
@@ -1192,7 +1316,11 @@ class TestAuditExtenderSealing:
         seal_ndjson_runs(audit_path, manifest_path, signer=other_signer, run_id="run-1")
         _append_records(audit_path, [_minimal_audit_record("run-2")])
         extender = AuditExtender(
-            sink=NdjsonAuditSink(audit_path), audit_path=audit_path, manifest_path=manifest_path, signer=_hmac_signer()
+            sink=NdjsonAuditSink(audit_path),
+            audit_path=audit_path,
+            manifest_path=manifest_path,
+            signer=_hmac_signer(),
+            seal_failure_policy="raise",
         )
 
         with pytest.raises(ManifestVerificationError):
@@ -1621,6 +1749,298 @@ class TestAuditExtenderSealing:
         assert audit_path.read_bytes() == before
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert any("run-1" in r.getMessage() for r in warnings)
+
+    # --- head anchoring, genesis, seal_failures and seal_failure_policy ---
+
+    @staticmethod
+    def _anchored_extender(tmp_path: Path, **kwargs: Any) -> tuple[AuditExtender, Path, Path, NdjsonHeadAnchor]:
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        anchor = NdjsonHeadAnchor(tmp_path / "anchor.ndjson")
+        extender = AuditExtender(
+            sink=NdjsonAuditSink(audit_path),
+            audit_path=audit_path,
+            manifest_path=manifest_path,
+            signer=_hmac_signer(),
+            head_anchor=anchor,
+            **kwargs,
+        )
+        return extender, audit_path, manifest_path, anchor
+
+    @staticmethod
+    def _failing_seal_extender(tmp_path: Path, **kwargs: Any) -> AuditExtender:
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        _append_records(audit_path, [_minimal_audit_record("run-1")])
+        return AuditExtender(
+            sink=NdjsonAuditSink(audit_path),
+            audit_path=audit_path,
+            manifest_path=manifest_path,
+            signer=_hmac_signer(),
+            **kwargs,
+        )
+
+    def test_auto_seal_passes_sealed_late_false_and_the_manifest_says_so(self, tmp_path: Path) -> None:
+        extender = self._failing_seal_extender(tmp_path)
+        _, manifest_path = _sealing_config(tmp_path)
+
+        extender.on_run_complete("run-1")
+
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8").splitlines()[0])
+        assert manifest["sealed_late"] is False
+
+    def test_auto_seal_forwards_log_id_head_anchor_and_the_latest_anchored_head(self, tmp_path: Path) -> None:
+        anchor = Mock(spec=["write", "latest"])
+        anchor.latest.return_value = "a" * 64
+        extender = self._failing_seal_extender(tmp_path, log_id="log-a", head_anchor=anchor)
+
+        with patch.object(audit_extender_module, "seal_ndjson_runs", return_value=[]) as seal:
+            extender.on_run_complete("run-1")
+
+        kwargs = seal.call_args.kwargs
+        assert kwargs["sealed_late"] is False
+        assert kwargs["log_id"] == "log-a"
+        assert kwargs["head_anchor"] is anchor
+        assert list(kwargs["anchored_heads"]) == ["a" * 64]
+
+    def test_auto_seal_passes_no_anchored_heads_when_latest_returns_none(self, tmp_path: Path) -> None:
+        anchor = Mock(spec=["write", "latest"])
+        anchor.latest.return_value = None
+        extender = self._failing_seal_extender(tmp_path, head_anchor=anchor)
+
+        with patch.object(audit_extender_module, "seal_ndjson_runs", return_value=[]) as seal:
+            extender.on_run_complete("run-1")
+
+        assert list(seal.call_args.kwargs.get("anchored_heads", ())) == []
+
+    def test_auto_seal_writes_a_genesis_with_the_log_id_and_anchors_the_new_head(self, tmp_path: Path) -> None:
+        extender, audit_path, manifest_path, anchor = self._anchored_extender(tmp_path, log_id="log-a")
+        _append_records(audit_path, [_minimal_audit_record("run-1")])
+
+        extender.on_run_complete("run-1")
+
+        lines = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()]
+        assert [line.get("kind") for line in lines] == ["genesis", None]
+        assert lines[0]["log_id"] == "log-a"
+        assert anchor.latest() == _canonical_head(lines[-1])
+        assert extender.seal_failures == 0
+
+    def test_a_second_auto_seal_passes_the_first_anchored_head_and_succeeds(self, tmp_path: Path) -> None:
+        extender, audit_path, manifest_path, anchor = self._anchored_extender(tmp_path)
+        _append_records(audit_path, [_minimal_audit_record("run-1")])
+        extender.on_run_complete("run-1")
+        first_head = anchor.latest()
+        _append_records(audit_path, [_minimal_audit_record("run-2")])
+
+        extender.on_run_complete("run-2")
+
+        assert anchor.latest() != first_head
+        assert extender.seal_failures == 0
+
+    def test_seal_failures_is_zero_after_a_successful_seal(self, tmp_path: Path) -> None:
+        extender = self._failing_seal_extender(tmp_path)
+
+        extender.on_run_complete("run-1")
+
+        assert extender.seal_failures == 0
+
+    @pytest.mark.parametrize("policy", ["log", "raise"])
+    def test_not_a_failure_run_not_pending(self, tmp_path: Path, policy: Any) -> None:
+        extender = self._failing_seal_extender(tmp_path, seal_failure_policy=policy)
+        with patch.object(audit_extender_module, "seal_ndjson_runs", side_effect=RunNotPendingError("none")):
+            extender.on_run_complete("run-1")  # must not raise even under "raise"
+
+        assert extender.seal_failures == 0
+
+    @pytest.mark.parametrize("policy", ["log", "raise"])
+    def test_not_a_failure_missing_audit_file(self, tmp_path: Path, policy: Any) -> None:
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        extender = AuditExtender(
+            sink=NdjsonAuditSink(audit_path),
+            audit_path=audit_path,
+            manifest_path=manifest_path,
+            signer=_hmac_signer(),
+            seal_failure_policy=policy,
+        )
+
+        extender.on_run_complete("run-1")
+
+        assert extender.seal_failures == 0
+
+    @pytest.mark.parametrize("policy", ["log", "raise"])
+    def test_not_a_failure_already_sealed_run_whose_records_match(self, tmp_path: Path, policy: Any) -> None:
+        extender, _ = _extender_with_run_1_sealed(tmp_path, seal_failure_policy=policy)
+
+        extender.on_run_complete("run-1")  # must not raise
+
+        assert extender.seal_failures == 0
+
+    def test_mismatch_after_seal_counts_as_a_failure_and_logs_at_error_by_default(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        extender, audit_path = _extender_with_run_1_sealed(tmp_path)
+        _append_records(audit_path, [_minimal_audit_record("run-1")])
+
+        with caplog.at_level(logging.ERROR):
+            extender.on_run_complete("run-1")
+
+        assert extender.seal_failures == 1
+        assert any(r.levelno == logging.ERROR and "beyond its seal" in r.getMessage() for r in caplog.records)
+
+    def test_mismatch_after_seal_under_raise_raises_manifest_verification_error(self, tmp_path: Path) -> None:
+        extender, audit_path = _extender_with_run_1_sealed(tmp_path, seal_failure_policy="raise")
+        _append_records(audit_path, [_minimal_audit_record("run-1")])
+
+        with pytest.raises(ManifestVerificationError):
+            extender.on_run_complete("run-1")
+
+        assert extender.seal_failures == 1
+
+    def test_mismatch_after_seal_calls_a_callable_policy_once(self, tmp_path: Path) -> None:
+        calls: list[tuple[str, BaseException]] = []
+        extender, audit_path = _extender_with_run_1_sealed(
+            tmp_path, seal_failure_policy=lambda run_id, exc: calls.append((run_id, exc))
+        )
+        _append_records(audit_path, [_minimal_audit_record("run-1")])
+
+        extender.on_run_complete("run-1")
+
+        assert len(calls) == 1
+        assert calls[0][0] == "run-1"
+        assert isinstance(calls[0][1], ManifestVerificationError)
+        assert extender.seal_failures == 1
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ManifestVerificationError("rolled back"),
+            RuntimeError("anchor boom"),
+            OSError("disk"),
+        ],
+        ids=["manifest_verification", "runtime", "os"],
+    )
+    def test_any_exception_from_seal_ndjson_runs_counts_once_per_failed_seal(
+        self, tmp_path: Path, error: Exception
+    ) -> None:
+        extender = self._failing_seal_extender(tmp_path)
+
+        with patch.object(audit_extender_module, "seal_ndjson_runs", side_effect=error):
+            extender.on_run_complete("run-1")
+            assert extender.seal_failures == 1
+            extender.on_run_complete("run-1")
+
+        assert extender.seal_failures == 2
+
+    def test_log_policy_logs_at_error_naming_the_exception_type_and_not_the_message(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        extender = self._failing_seal_extender(tmp_path)
+
+        with patch.object(audit_extender_module, "seal_ndjson_runs", side_effect=RuntimeError("secret-record-data")):
+            with caplog.at_level(logging.ERROR):
+                extender.on_run_complete("run-1")  # must not raise
+
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR and r.name == audit_extender_module.__name__]
+        assert any("RuntimeError" in r.getMessage() and "run-1" in r.getMessage() for r in errors)
+        assert not any("secret-record-data" in r.getMessage() for r in errors)
+
+    def test_callable_policy_is_called_once_with_run_id_and_the_exception_and_nothing_is_raised(
+        self, tmp_path: Path
+    ) -> None:
+        callback = Mock()
+        extender = self._failing_seal_extender(tmp_path, seal_failure_policy=callback)
+        boom = RuntimeError("boom")
+
+        with patch.object(audit_extender_module, "seal_ndjson_runs", side_effect=boom):
+            extender.on_run_complete("run-1")
+
+        callback.assert_called_once_with("run-1", boom)
+        assert extender.seal_failures == 1
+
+    def test_raise_policy_reraises_the_exception_and_still_counts(self, tmp_path: Path) -> None:
+        extender = self._failing_seal_extender(tmp_path, seal_failure_policy="raise")
+
+        with patch.object(audit_extender_module, "seal_ndjson_runs", side_effect=RuntimeError("boom")):
+            with pytest.raises(RuntimeError, match="boom"):
+                extender.on_run_complete("run-1")
+
+        assert extender.seal_failures == 1
+
+    def test_anchor_write_failure_counts_as_a_seal_failure(self, tmp_path: Path) -> None:
+        anchor = Mock(spec=["write", "latest"])
+        anchor.latest.return_value = None
+        anchor.write.side_effect = OSError("anchor down")
+        extender = self._failing_seal_extender(tmp_path, head_anchor=anchor, seal_failure_policy="raise")
+
+        with pytest.raises(OSError, match="anchor down"):
+            extender.on_run_complete("run-1")
+
+        assert extender.seal_failures == 1
+
+    def test_anchor_latest_failure_counts_as_a_seal_failure_and_seals_nothing(self, tmp_path: Path) -> None:
+        anchor = Mock(spec=["write", "latest"])
+        anchor.latest.side_effect = ManifestVerificationError("torn anchor")
+        calls: list[tuple[str, BaseException]] = []
+        extender = self._failing_seal_extender(
+            tmp_path, head_anchor=anchor, seal_failure_policy=lambda run_id, exc: calls.append((run_id, exc))
+        )
+        _, manifest_path = _sealing_config(tmp_path)
+
+        extender.on_run_complete("run-1")
+
+        assert extender.seal_failures == 1
+        assert [type(exc) for _, exc in calls] == [ManifestVerificationError]
+        assert not manifest_path.exists() or manifest_path.read_text(encoding="utf-8") == ""
+
+    @pytest.mark.parametrize("how", ["truncate", "delete_both"])
+    def test_a_rolled_back_or_deleted_manifest_log_is_caught_via_the_anchor_through_run_all(
+        self, tmp_path: Path, how: str
+    ) -> None:
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        anchor_path = tmp_path / "anchor.ndjson"
+
+        def fresh(**kwargs: Any) -> AuditExtender:
+            return AuditExtender(
+                sink=NdjsonAuditSink(audit_path),
+                audit_path=audit_path,
+                manifest_path=manifest_path,
+                signer=_hmac_signer(),
+                log_id="log-a",
+                head_anchor=NdjsonHeadAnchor(anchor_path),
+                **kwargs,
+            )
+
+        with verified_context(tenant_id="tenant-1"):
+            first = fresh()
+            assert run_value_int(first) == expected_value_int()
+        assert first.seal_failures == 0
+        assert NdjsonHeadAnchor(anchor_path).latest() is not None
+
+        if how == "truncate":
+            manifest_path.write_bytes(b"")
+        else:
+            manifest_path.unlink()
+            audit_path.unlink()
+
+        failures: list[tuple[str, BaseException]] = []
+        with verified_context(tenant_id="tenant-1"):
+            second = fresh(seal_failure_policy=lambda run_id, exc: failures.append((run_id, exc)))
+            values = run_value_int(second)
+
+        assert values == expected_value_int()  # core contains on_run_complete exceptions
+        assert second.seal_failures == 1
+        assert len(failures) == 1
+        assert isinstance(failures[0][1], ManifestVerificationError)
+
+    def test_a_pickled_copy_with_an_ndjson_head_anchor_unpickles_and_never_seals(self, tmp_path: Path) -> None:
+        extender, audit_path, manifest_path, _ = self._anchored_extender(
+            tmp_path, log_id="log-a", seal_failure_policy="raise"
+        )
+        _append_records(audit_path, [_minimal_audit_record("run-1")])
+
+        copy = pickle.loads(pickle.dumps(extender))  # nosec
+
+        copy.on_run_complete("run-1")  # no signer: skipped, never a failure
+        assert not manifest_path.exists()
+        assert copy.seal_failures == 0
 
 
 class TestTeeAuditSinkFlush:
