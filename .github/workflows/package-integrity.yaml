@@ -29,3 +29,14 @@ jobs:
       run: tox -e verify-builds
     - name: Verify packages build at the declared setuptools floor
       run: tox -e verify-build-floor
+  pypi-names:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Check every configured package name is registered and owned on PyPI
+      run: python scripts/check_pypi_names.py
