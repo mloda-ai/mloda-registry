@@ -45,17 +45,17 @@ _SOURCE_MODULES: tuple[ModuleType, ...] = (_signers, _verify, _seal_index, _segm
 
 
 def _patch_bindings(monkeypatch: pytest.MonkeyPatch, name: str, value: Any) -> None:
-    """Patch `name` on each source module sharing the original binding; shadow a builtin on all of them."""
+    """Patch `name` on every source module binding it (they must all bind one object); shadow a builtin on all of them."""
     bound = [module for module in _SOURCE_MODULES if name in vars(module)]
     if not bound:
         assert hasattr(builtins, name), f"no audit source module binds {name!r}"
         for module in _SOURCE_MODULES:
             monkeypatch.setattr(module, name, value, raising=False)
         return
-    original = vars(bound[0])[name]
+    divergent = [module.__name__ for module in bound if vars(module)[name] is not vars(bound[0])[name]]
+    assert not divergent, f"{name!r} is bound to different objects in {bound[0].__name__} and {divergent}"
     for module in bound:
-        if vars(module)[name] is original:
-            monkeypatch.setattr(module, name, value)
+        monkeypatch.setattr(module, name, value)
 
 
 def _unpatch_bindings(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
@@ -434,7 +434,7 @@ def _insert_line(path: Path, index: int, line: bytes) -> None:
     path.write_bytes(b"".join(lines))
 
 
-# Small line cap for the tests that monkeypatch run_manifest.MAX_LINE_BYTES; every regular line stays under it.
+# Small line cap for the tests that patch the cap on every module binding MAX_LINE_BYTES; every regular line stays under it.
 _CAP = 2048
 
 

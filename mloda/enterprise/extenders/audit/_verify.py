@@ -29,6 +29,7 @@ from mloda.enterprise.extenders.audit._signers import (
     _signer_map,
 )
 
+# Hard-coded to keep the pre-split, operator-facing logger name.
 logger = logging.getLogger("mloda.enterprise.extenders.audit.run_manifest")
 
 

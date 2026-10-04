@@ -7,6 +7,7 @@ import copy
 import dataclasses
 import errno
 import importlib
+import inspect
 import json
 import logging
 import os
@@ -218,6 +219,19 @@ _FACADE_HOMES = [
 ]
 
 
+def _defined_names(tree: ast.Module) -> set[str]:
+    """Names a module defines at top level (def, class, assignment)."""
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
+    return names
+
+
 class TestRunManifestPublicApi:
     def test_run_manifest_names_are_in_the_package_all(self) -> None:
         assert {
@@ -282,40 +296,44 @@ class TestRunManifestPublicApi:
         assert records_module._is_blank("") is True
         assert records_module._is_blank("value") is False
 
+    def test_facade_homes_cover_exactly_the_public_audit_names_of_run_manifest(self) -> None:
+        prefix = "mloda.enterprise.extenders.audit"
+        public = {
+            n
+            for n, obj in vars(run_manifest_module).items()
+            if not n.startswith("_")
+            and (inspect.isclass(obj) or inspect.isfunction(obj))
+            and getattr(obj, "__module__", "").startswith(prefix)
+        }
+        assert {n for n, _ in _FACADE_HOMES} == public | {"MAX_LINE_BYTES"}
+
     @pytest.mark.parametrize("name, home", _FACADE_HOMES)
     def test_facade_names_are_the_objects_their_defining_module_defines(self, name: str, home: str) -> None:
         defining = importlib.import_module(f"mloda.enterprise.extenders.audit.{home}")
+        package = Path(audit_package.__file__ or "").parent
+        assert name in _defined_names(ast.parse((package / f"{home}.py").read_text()))
         assert getattr(run_manifest_module, name) is getattr(defining, name)
         if hasattr(audit_package, name):
             assert getattr(audit_package, name) is getattr(run_manifest_module, name)
 
+    @pytest.mark.parametrize("name, home", [(n, h) for n, h in _FACADE_HOMES if n != "MAX_LINE_BYTES"])
+    def test_facade_names_report_the_facade_as_their_module(self, name: str, home: str) -> None:
+        assert getattr(run_manifest_module, name).__module__ == "mloda.enterprise.extenders.audit.run_manifest"
+
     def test_audit_source_modules_import_only_downward_and_only_from_the_defining_module(self) -> None:
         package = Path(audit_package.__file__ or "").parent
+        root = "mloda.enterprise.extenders.audit"
         trees = {m: ast.parse((package / f"{m}.py").read_text()) for m in _LAYERS}
-        defined = {
-            m: {
-                n
-                for node in tree.body
-                for n in (
-                    [node.name]
-                    if isinstance(node, (ast.FunctionDef, ast.ClassDef))
-                    else [t.id for t in getattr(node, "targets", []) if isinstance(t, ast.Name)]
-                    + (
-                        [node.target.id]
-                        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
-                        else []
-                    )
-                )
-            }
-            for m, tree in trees.items()
-        }
+        defined = {m: _defined_names(tree) for m, tree in trees.items()}
         problems = []
         for module, tree in trees.items():
             for node in ast.walk(tree):
-                if not isinstance(node, ast.ImportFrom) or not (
-                    node.level or "mloda.enterprise" in (node.module or "")
-                ):
+                if isinstance(node, ast.Import) and module != "__init__":
+                    problems += [f"{module} uses `import {a.name}`" for a in node.names if a.name.startswith(root)]
+                if not isinstance(node, ast.ImportFrom) or not (node.level or root in (node.module or "")):
                     continue
+                if node.module == root and module != "__init__":
+                    problems.append(f"{module} imports from the package root")
                 last = (node.module or "").rsplit(".", 1)[-1]
                 for alias in node.names:
                     source = last if last in _LAYERS else alias.name
@@ -323,8 +341,12 @@ class TestRunManifestPublicApi:
                         continue
                     if _LAYERS.index(source) > _LAYERS.index(module):
                         problems.append(f"{module} imports upward from {source}")
-                    private = alias.name.startswith("_") and alias.name != source
-                    if private and alias.name not in defined[source] and alias.asname != alias.name:
+                    if (
+                        module != "__init__"
+                        and alias.name != source
+                        and last in _LAYERS
+                        and alias.name not in defined[source]
+                    ):
                         problems.append(f"{module} imports {alias.name} from {source}, which does not define it")
         assert problems == []
 
