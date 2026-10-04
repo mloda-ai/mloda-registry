@@ -1050,14 +1050,20 @@ class BinaryModelConformanceBase:
     def test_input_schema_duplicate_field_name_is_data_error(
         self, valid_license_env: dict[str, str], tmp_path: Path
     ) -> None:
-        """The one configured column carried twice (two Arrow fields sharing a name) is a "duplicate",
-        a data error (contract: Data)."""
+        """Two distinct Arrow fields sharing the same name is a "duplicate", a data error, even though
+        the set of distinct names still equals `input_columns` (contract: Data)."""
         column = self.default_input_columns[0]
-        config_path = write_json(tmp_path / "config.json", self.make_config(input_columns=[column]))
         column_type = self.default_input_schema().field(0).type
-        schema = pa.schema([pa.field(column, column_type), pa.field(column, column_type)])
+        names = [column, column]
+        if self._kit_two_input_columns_allowed():
+            input_columns = [column, self.extra_input_column]
+            names.append(self.extra_input_column)
+        else:
+            input_columns = [column]
+        config_path = write_json(tmp_path / "config.json", self.make_config(input_columns=input_columns))
+        schema = pa.schema([pa.field(name, column_type) for name in names])
         values = pa.array(self.default_input_rows()[column], type=column_type)
-        input_bytes = arrow_stream_bytes_from_arrays(schema, [values, values])
+        input_bytes = arrow_stream_bytes_from_arrays(schema, [values] * len(names))
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
@@ -1115,16 +1121,15 @@ class BinaryModelConformanceBase:
         plus a wrongly typed field is a data error, not code 4: presence is checked first
         (contract: Data)."""
         column = self.default_input_columns[0]
-        config_path = write_json(tmp_path / "config.json", self.make_config(input_columns=[column]))
-        fields = [pa.field(column, pa.int32()), pa.field(self.extra_input_column, pa.int32())]
-        rows: dict[str, list[Any]] = {column: [1, 2], self.extra_input_column: [1, 2]}
         if self._kit_two_input_columns_allowed():
-            # extra_input_column missing; column also wrong type
-            config_path = write_json(
-                tmp_path / "config.json", self.make_config(input_columns=[column, self.extra_input_column])
-            )
-            fields, rows = fields[:1], {column: [1, 2]}
-        input_bytes = arrow_stream_bytes(pa.schema(fields), rows)
+            config = self.make_config(input_columns=[column, self.extra_input_column])
+            names = [column]  # extra_input_column missing; column also wrong type
+        else:
+            config = self.make_config(input_columns=[column])
+            names = [column, self.extra_input_column]  # extra field missing from config; column wrong type
+        config_path = write_json(tmp_path / "config.json", config)
+        schema = pa.schema([pa.field(name, pa.int32()) for name in names])
+        input_bytes = arrow_stream_bytes(schema, {name: [1, 2] for name in names})
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
@@ -1429,11 +1434,12 @@ class BinaryModelConformanceBase:
         marker_type, marker_value, needle = marker
         column = self.default_input_columns[0]
         missing_column = case == "missing_column_data_error"
+        two_columns = self._kit_two_input_columns_allowed()
         if missing_column:
-            input_columns = [column, "col_b_missing"] if self._kit_two_input_columns_allowed() else [column]
+            input_columns = [column, "col_b_missing"] if two_columns else [column]
             operation = self.operations[0]
             output_columns = self.default_output_columns
-            data_column = column if self._kit_two_input_columns_allowed() else self.extra_input_column
+            data_column = column if two_columns else self.extra_input_column
         else:
             input_columns = [column]
             operation = self.reserved_internal_error_operation

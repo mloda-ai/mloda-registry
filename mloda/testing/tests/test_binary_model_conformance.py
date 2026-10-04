@@ -838,18 +838,13 @@ def test_one_column_binary_checks_configure_one_column_and_required_parameters(
     assert configs[0]["parameters"] == {"key": "k"}
 
 
-@pytest.mark.parametrize(
-    "check_name",
-    [
-        "test_input_schema_missing_column_is_data_error",
-        "test_input_schema_presence_error_precedes_type_error",
-    ],
-)
+@pytest.mark.parametrize("check_name, extra_args", _ONE_COLUMN_CHECKS[:4])
 def test_default_binary_data_checks_still_configure_two_columns(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, check_name: str
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, check_name: str, extra_args: tuple[str, ...]
 ) -> None:
-    """Without a column limit the missing-column and presence-before-type checks keep two input columns."""
+    """Without a column limit every data check configures two input columns."""
     configs: list[dict[str, Any]] = []
     monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", _recording_fake_run_binary(configs))
-    getattr(_kit(COLUMN_TYPES), check_name)({"PATH": "/usr/bin"}, tmp_path)
+    getattr(_kit(COLUMN_TYPES), check_name)({"PATH": "/usr/bin"}, tmp_path, *extra_args)
+    assert len(configs) == 1
     assert len(configs[0]["input_columns"]) == 2
