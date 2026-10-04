@@ -1207,8 +1207,9 @@ def verify_quarantine_log(
     anchored_heads: Iterable[str] = (),
 ) -> str | None:
     """Raise ManifestVerificationError unless every trace line verifies and the chain is intact. Returns the hash of
-    the last line (None for a missing or empty trace). Legacy v1 lines verify only as a prefix. Every `anchored_heads`
-    entry must be a line of the trace (catches truncation)."""
+    the last line (None for a missing or empty trace). Legacy v1 lines verify only as a prefix; they are unchained, so
+    an anchor on one does not cover the lines before it. Every `anchored_heads` entry must be a line of the trace
+    (catches truncation)."""
     signers = _signer_map(signer, previous_signers)
     with _flock(quarantine_path, exclusive=False):
         return _verify_trace(quarantine_path, signer, signers, anchored_heads)
@@ -1269,15 +1270,16 @@ def _trace_damage(
     signers: Mapping[str, ManifestSigner],
     dry_run: bool,
     anchored_heads: Iterable[str] = (),
-) -> str | None:
-    """Trace `damage` to the signed, chained `quarantine_path` log; a dry run only checks that log is terminated.
-    Returns the new trace head (None on a dry run)."""
+    head_anchor: HeadAnchor | None = None,
+) -> None:
+    """Trace `damage` to the signed, chained `quarantine_path` log, then anchor its head; a dry run only checks that
+    log is terminated."""
     # Captured before the lock: an exclusive _flock opens O_CREAT, so afterwards the file always exists.
     existed = os.path.exists(quarantine_path)
     with _flock(quarantine_path, exclusive=not dry_run):
         _require_terminated(quarantine_path)
         if dry_run:
-            return None
+            return
         # Signed under the lock (each entry needs the previous hash): a failure must not leave a file it created.
         try:
             previous = _verify_trace(quarantine_path, signer, signers, anchored_heads)
@@ -1291,7 +1293,8 @@ def _trace_damage(
                     _unlink_durably(quarantine_path)
             raise
         _append_with_rollback(quarantine_path, entries, existed=existed)
-        return previous
+        if head_anchor is not None and previous is not None:
+            head_anchor.write(previous)
 
 
 def _rewrite_without(path: str | Path, drop: set[int]) -> None:
@@ -1339,8 +1342,9 @@ def quarantine_damaged_lines(
       have been rewound; re-verify the repaired log against the freshest anchor you track yourself.
     - A torn rotation entry is a torn manifest tail; call rotate_manifest_key again after the repair. A complete but
       wrongly appended one is quarantine_from_rotation_entry's job.
-    - `anchored_heads` must all be lines of the existing trace; `head_anchor` (the trace's own, never the manifest
-      log's) gets the new trace head once the repair is on disk, and its failure leaves the repair written.
+    - `anchored_heads` must all be lines of the existing trace (checked only when a repair appends, not on a dry run
+      or with nothing to repair); `head_anchor` (the trace's own, never the manifest log's) gets the new trace head
+      under the trace lock before either log is touched, so its failure leaves the logs unrepaired.
     - Anything else raises and changes nothing.
 
     `previous_signers` covers a retired signing key during rotation (see module docstring)."""
@@ -1356,21 +1360,20 @@ def quarantine_damaged_lines(
         damage = manifest_damage + audit_damage
         if not damage:
             return []
-        trace_head = _trace_damage(
+        _trace_damage(
             damage,
             quarantine_path=quarantine_path,
             signer=signer,
             signers=signers,
             dry_run=dry_run,
             anchored_heads=anchored_heads,
+            head_anchor=head_anchor,
         )
         if not dry_run:
             if audit_damage:
                 _rewrite_without(audit_path, {item.line for item, _, _ in audit_damage})
             if manifest_damage:
                 _truncate_durably(manifest_path, manifest_damage[0][0].offset)
-            if head_anchor is not None and trace_head is not None:
-                head_anchor.write(trace_head)
         return [item for item, _, _ in damage]
 
 
@@ -1411,8 +1414,9 @@ def quarantine_from_rotation_entry(
     - Runs sealed by a dropped line are unsealed again: review them against the trace before re-sealing with
       `seal_ndjson_runs(expected_head=<anchor>)`, and replace any external anchor recorded past `expected_head`.
     - `dry_run=True` only reports; nothing is written.
-    - `anchored_heads` must all be lines of the existing trace; `head_anchor` (the trace's own, never the manifest
-      log's) gets the new trace head once the repair is on disk, and its failure leaves the repair written.
+    - `anchored_heads` must all be lines of the existing trace (checked only when a repair appends, not on a dry run
+      or with nothing to repair); `head_anchor` (the trace's own, never the manifest log's) gets the new trace head
+      under the trace lock before either log is touched, so its failure leaves the logs unrepaired.
     - Anything else raises and changes nothing.
 
     `previous_signers` covers a retired signing key during rotation (see module docstring)."""
@@ -1440,16 +1444,15 @@ def quarantine_from_rotation_entry(
             damage.append(_damage_entry("manifest", manifest_path, number, offset, raw, reason))
             number += 1
             offset += len(raw)
-        trace_head = _trace_damage(
+        _trace_damage(
             damage,
             quarantine_path=quarantine_path,
             signer=signer,
             signers=signers,
             dry_run=dry_run,
             anchored_heads=anchored_heads,
+            head_anchor=head_anchor,
         )
         if not dry_run:
             _truncate_durably(manifest_path, damage[0][0].offset)
-            if head_anchor is not None and trace_head is not None:
-                head_anchor.write(trace_head)
         return [item for item, _, _ in damage]

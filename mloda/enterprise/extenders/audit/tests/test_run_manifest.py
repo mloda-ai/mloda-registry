@@ -868,17 +868,17 @@ class _PrefixSigner:
 
 
 class _RecordingAnchor:
-    """A HeadAnchor that records each written head and what the manifest log held at that moment."""
+    """A HeadAnchor that records each written head and what the log held at that moment."""
 
-    def __init__(self, manifest_path: Path | None = None, *, fail: bool = False) -> None:
+    def __init__(self, log_path: Path | None = None, *, fail: bool = False) -> None:
         self.heads: list[str] = []
         self.last_lines_seen: list[str] = []
-        self._manifest_path = manifest_path
+        self._log_path = log_path
         self._fail = fail
 
     def write(self, head: str) -> None:
-        if self._manifest_path is not None:
-            self.last_lines_seen.append(manifest_hash(_read_lines(self._manifest_path)[-1]))
+        if self._log_path is not None:
+            self.last_lines_seen.append(manifest_hash(_read_lines(self._log_path)[-1]))
         self.heads.append(head)
         if self._fail:
             raise RuntimeError("anchor down")
@@ -3828,7 +3828,7 @@ class TestHeadAnchor:
         _assert_names(excinfo, str(latest))
 
     @_both_recoveries
-    def test_a_repair_writes_the_hash_of_the_last_trace_line_after_the_repair_is_on_disk(
+    def test_a_repair_writes_the_hash_of_the_last_trace_line_before_touching_the_logs(
         self, tmp_path: Path, recovery: _Recovery
     ) -> None:
         manifest_path, repair, _ = recovery(tmp_path)
@@ -3847,7 +3847,7 @@ class TestHeadAnchor:
         repair(tmp_path, head_anchor=anchor)
 
         assert anchor.heads == [_sha256(_canonical(_read_lines(_trace(tmp_path))[-1]))] == anchor.last_lines_seen
-        assert repaired_when_written == [True]
+        assert repaired_when_written == [False]
         assert manifest_path.read_bytes() != before[manifest_path.name]
 
     @_both_recoveries
@@ -3877,7 +3877,7 @@ class TestHeadAnchor:
 
         assert anchor.heads == []
 
-    def test_a_repair_that_raises_after_the_trace_append_writes_no_anchor(self, tmp_path: Path) -> None:
+    def test_a_repair_that_raises_after_the_trace_append_has_anchored_the_trace(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
         _insert_line(audit_path, 3, b"[]\n")
         _insert_line(audit_path, 5, b"\n")
@@ -3888,21 +3888,24 @@ class TestHeadAnchor:
                 _quarantine(tmp_path, audit_path, manifest_path, head_anchor=anchor)
 
         assert _trace(tmp_path).exists()
-        assert anchor.heads == []
+        assert anchor.heads == [_sha256(_canonical(_read_lines(_trace(tmp_path))[-1]))]
 
     @_both_recoveries
-    def test_a_failing_anchor_write_leaves_the_trace_and_the_repair_in_place_and_propagates(
+    def test_a_failing_anchor_write_keeps_the_trace_leaves_the_logs_untouched_and_propagates(
         self, tmp_path: Path, recovery: _Recovery
     ) -> None:
         manifest_path, repair, dropped = recovery(tmp_path)
-        manifest_before = manifest_path.read_bytes()
+        before = _snapshot(tmp_path)
 
         with pytest.raises(RuntimeError, match="anchor down"):
             repair(tmp_path, head_anchor=_RecordingAnchor(fail=True))
 
         assert _verify_quarantine(_trace(tmp_path), _signer()) is not None
         assert len(_read_lines(_trace(tmp_path))) == dropped
-        assert manifest_path.read_bytes() != manifest_before
+        assert manifest_path.read_bytes() == before[manifest_path.name]
+        assert {n: d for n, d in _snapshot(tmp_path).items() if n != _trace(tmp_path).name} == {
+            n: d for n, d in before.items() if n != _trace(tmp_path).name
+        }
 
     @_both_recoveries
     def test_an_ndjson_anchor_catches_a_later_trace_rollback(self, tmp_path: Path, recovery: _Recovery) -> None:
@@ -5695,7 +5698,9 @@ class TestQuarantineTraceChain:
         legacy = _trace_entry_ref(_signer(), None, v1=True)
         _rewrite_lines(_trace(tmp_path), [legacy])
 
-        assert _verify_quarantine(_trace(tmp_path), _signer(), anchored_heads=[_sha256(_canonical(legacy))])
+        assert _verify_quarantine(_trace(tmp_path), _signer(), anchored_heads=[_sha256(_canonical(legacy))]) == _sha256(
+            _canonical(legacy)
+        )
 
     def test_one_unknown_anchor_among_valid_ones_fails_and_is_named(self, tmp_path: Path) -> None:
         entries = _trace_chain(_signer(), _signer())
