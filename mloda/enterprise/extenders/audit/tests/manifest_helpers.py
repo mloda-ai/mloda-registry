@@ -45,10 +45,7 @@ _SOURCE_MODULES: tuple[ModuleType, ...] = (_signers, _verify, _seal_index, _segm
 
 
 def _patch_bindings(monkeypatch: pytest.MonkeyPatch, name: str, value: Any) -> None:
-    """Patch `name` on every source module whose global is the same object as the original.
-
-    A builtin such as `open` is bound by no module: it is shadowed on every source module (raising=False).
-    Fails when nothing would be patched, so a spy can never pass vacuously."""
+    """Patch `name` on each source module sharing the original binding; shadow a builtin on all of them."""
     bound = [module for module in _SOURCE_MODULES if name in vars(module)]
     if not bound:
         assert hasattr(builtins, name), f"no audit source module binds {name!r}"
