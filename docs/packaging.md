@@ -269,7 +269,11 @@ python scripts/generate_pyproject.py    # Regenerate
    `# --- Bundles ---` marker and after every published package it depends on:
    `scripts/published_packages.py` rejects a config that is not dependency-first.
 2. For a plugin package, create `<path>/manifest.py` listing the concrete classes.
-3. If it should ship standalone on PyPI, set `published = true` and add the name to
+3. Reserve the name on PyPI before the PR merges, published or not: a configured name is shown
+   as ours, so an unregistered one can be taken by anyone. A maintainer uploads a code-free `0.0.1`
+   placeholder from the release account, with a README pointing at the real package; for a
+   bundle-only package its only dependency is the bundle that ships it.
+   If it should ship standalone on PyPI, set `published = true` and add the name to
    `_EXPECTED_PUBLISHED` in `tests/test_end2end/test_published_set_single_source.py`;
    otherwise add it to `_BUNDLE_ONLY` there. The gate checks both lists against config, in
    config order. The `verify-published` env derives every configured package's import surface
