@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -24,9 +25,12 @@ def _script() -> Any:
     return load_script("check_pypi_names", _SCRIPT)
 
 
-def _payload(*users: str) -> dict[str, Any]:
+_EXPECTED_OWNER: str = _script().EXPECTED_OWNER
+
+
+def _payload(*users: str, role: str = "Owner") -> dict[str, Any]:
     """A PyPI JSON payload whose ownership roles list the given users."""
-    return {"ownership": {"roles": [{"role": "Owner", "user": user} for user in users]}}
+    return {"ownership": {"roles": [{"role": role, "user": user} for user in users]}}
 
 
 def _no_sleep(_seconds: float) -> None:
@@ -55,18 +59,28 @@ def test_404_is_missing_and_not_retried() -> None:
     assert calls == ["mloda-foo"]
 
 
-_OWNER = "<expected owner>"
 _Response = tuple[int, dict[str, Any] | None] | Exception
 _NONE: tuple[list[str], list[str], list[str]] = ([], [], [])
 
 _FETCH_CASES: list[Any] = [
-    pytest.param([(200, _payload("someone", _OWNER))], _NONE, id="owned"),
+    pytest.param([(200, _payload("someone", _EXPECTED_OWNER))], _NONE, id="owned"),
     pytest.param([(200, _payload("stranger"))], ([], ["mloda-foo"], []), id="other-owner-is-foreign"),
     pytest.param([(200, {"info": {}})], ([], ["mloda-foo"], []), id="missing-ownership-key-is-foreign"),
-    pytest.param([(503, None), (200, _payload(_OWNER))], _NONE, id="503-then-owned-passes-after-retry"),
+    pytest.param([(503, None), (200, _payload(_EXPECTED_OWNER))], _NONE, id="503-then-owned-passes-after-retry"),
     pytest.param([(503, None), (503, None)], ([], [], ["mloda-foo"]), id="persistent-503-is-unverifiable"),
     pytest.param(
         [TimeoutError("timed out"), TimeoutError("timed out")], ([], [], ["mloda-foo"]), id="persistent-timeout"
+    ),
+    pytest.param(
+        [(200, _payload(_EXPECTED_OWNER, role="Maintainer"))], ([], ["mloda-foo"], []), id="maintainer-is-foreign"
+    ),
+    pytest.param(
+        [ValueError("bad json"), ValueError("bad json")], ([], [], ["mloda-foo"]), id="persistent-malformed-json"
+    ),
+    pytest.param(
+        [http.client.IncompleteRead(b""), http.client.IncompleteRead(b"")],
+        ([], [], ["mloda-foo"]),
+        id="persistent-incomplete-read",
     ),
 ]
 
@@ -76,7 +90,6 @@ def test_check_names_classifies_fetch_outcomes(
     responses: list[_Response], expected: tuple[list[str], list[str], list[str]]
 ) -> None:
     """Replayed fetch responses land the name in the expected (missing, foreign, unverifiable) lists."""
-    owner = _script().EXPECTED_OWNER
     replay = iter(responses)
 
     def fetch(_name: str) -> tuple[int, dict[str, Any] | None]:
@@ -84,12 +97,6 @@ def test_check_names_classifies_fetch_outcomes(
         if isinstance(response, Exception):
             raise response
         status, payload = response
-        if payload is not None and "ownership" in payload:
-            roles = [
-                {**role, "user": owner if role["user"] == _OWNER else role["user"]}
-                for role in payload["ownership"]["roles"]
-            ]
-            payload = {"ownership": {"roles": roles}}
         return status, payload
 
     assert _problems(_check(fetch, ["mloda-foo"])) == expected
@@ -110,7 +117,7 @@ def test_fetch_receives_the_canonical_name() -> None:
 
 @pytest.mark.parametrize(
     ("result", "exit_code"),
-    [((404, None), 1), ((200, _payload(_OWNER)), 0)],
+    [((404, None), 1), ((200, _payload(_EXPECTED_OWNER)), 0)],
     ids=["missing-name-fails", "all-owned-passes"],
 )
 def test_main_exit_code(
@@ -118,8 +125,6 @@ def test_main_exit_code(
 ) -> None:
     """main() exits 1 when a name is missing and 0 when every name is owned."""
     script = _script()
-    if result[1] is not None:
-        result = (result[0], _payload(script.EXPECTED_OWNER))
     monkeypatch.setattr(script, "configured_names", lambda: ["mloda-foo", "mloda-bar"])
     monkeypatch.setattr(script, "fetch_project", lambda _name: result)
     assert script.main() == exit_code
