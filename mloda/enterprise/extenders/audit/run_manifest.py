@@ -56,8 +56,8 @@ import stat
 import tempfile
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager, suppress
-from dataclasses import asdict, dataclass
+from contextlib import closing, contextmanager, suppress
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from itertools import islice
 from pathlib import Path
@@ -699,6 +699,9 @@ class _LogState:
     active: str | None
     retired: frozenset[str]
     hashes: set[str]
+    seen_v2: bool = False
+    log_id: str | None = None
+    lines: int = 0
 
 
 def _unverified_anchor(anchors: Iterable[str], hashes: set[str]) -> str | None:
@@ -716,18 +719,18 @@ def _verify_log(
     require_current: bool = False,
     log_id: str | None = None,
     anchored_heads: Iterable[str] = (),
+    seed: _LogState | None = None,
 ) -> _LogState:
     """Record and head mismatches are collected into one error (head first); a structural failure raises at once.
     The first line's key is current until a rotation entry replaces it. `log_id` demands a matching genesis first.
-    Every anchored head must be the hash of a verified line."""
-    sealed: set[str] = set()
-    hashes: set[str] = set()
-    head: str | None = None
+    Every anchored head must be the hash of a verified line. A `seed` resumes after its lines: `log` holds the rest."""
+    seed = seed or _LogState(set(), None, None, frozenset(), set())
+    sealed: set[str] = set(seed.sealed)
+    hashes: set[str] = set(seed.hashes)
+    head, active, retired, seen_v2, genesis_id = seed.head, seed.active, seed.retired, seed.seen_v2, seed.log_id
     problems: list[str] = []
-    active: str | None = None
-    retired: frozenset[str] = frozenset()
-    seen_v2 = False
-    for number, manifest in enumerate(log):
+    lines = seed.lines
+    for number, manifest in enumerate(log, start=seed.lines):
         is_seal = "kind" not in manifest
         if manifest.get("kind") == _GENESIS_KIND:
             if number:
@@ -736,6 +739,7 @@ def _verify_log(
             if log_id is not None and manifest["log_id"] != log_id:
                 raise ManifestVerificationError(f"manifest log is for log_id {manifest['log_id']!r}, not {log_id!r}")
             active = manifest["signature"]["key_id"]
+            genesis_id = manifest["log_id"]
             where = "the genesis entry"
         elif log_id is not None and number == 0:
             raise ManifestVerificationError(f"manifest log line 1 is not a genesis entry for log_id {log_id!r}")
@@ -768,6 +772,7 @@ def _verify_log(
         head = manifest_hash(manifest)
         hashes.add(head)
         seen_v2 = seen_v2 or manifest["manifest_version"] == _MANIFEST_VERSION
+        lines = number + 1
     if require_current and active is not None and active != signer.key_id:
         raise ManifestVerificationError(f"manifest log is under key {active!r}, not the signer's {signer.key_id!r}")
     if expected_head is not None and head != expected_head:
@@ -780,7 +785,7 @@ def _verify_log(
         if len(problems) > _MAX_PROBLEMS:
             message += f"; and {len(problems) - _MAX_PROBLEMS} more"
         raise ManifestVerificationError(message)
-    return _LogState(sealed, head, active, retired, hashes)
+    return _LogState(sealed, head, active, retired, hashes, seen_v2, genesis_id, lines)
 
 
 class HeadAnchor(Protocol):
@@ -951,6 +956,252 @@ def rotate_manifest_key(
         return entry
 
 
+_CHECKPOINT_KIND = "seal_checkpoint"
+_CHECKPOINT_INTS = ("st_dev", "st_ino", "end", "lines", "head_start")
+_CHECKPOINT_KEYS = {*_CHECKPOINT_INTS, "kind", "head", "active", "retired", "log_id", "seen_v2", "signature"}
+_sqlite_missing_logged = False
+
+
+def _sqlite() -> ModuleType | None:
+    """The sqlite3 module, or None (logged once) where it is missing: the index is then off."""
+    global _sqlite_missing_logged
+    try:
+        import sqlite3
+    except ImportError:
+        if not _sqlite_missing_logged:
+            _sqlite_missing_logged = True
+            logger.warning("seal_index_path is ignored: sqlite3 is not available")
+        return None
+    return sqlite3
+
+
+class _Scan:
+    """Walks manifest lines from `end`, tracking line numbers, the last line's start and each seal's start offset."""
+
+    def __init__(self, end: int = 0, count: int = 0, last: int | None = None) -> None:
+        self.end, self.count, self.last = end, count, last
+        self.seals: dict[str, int] = {}
+
+    def manifests(self, path: str | Path) -> Iterator[dict[str, Any]]:
+        try:
+            with open(path, "rb") as file:
+                file.seek(self.end)
+                for raw in _read_lines(file):
+                    self.count += 1
+                    manifest = _parse_ndjson_line(path, self.count, raw)[1]
+                    self.last = self.end
+                    if "kind" not in manifest and isinstance(manifest.get("run_id"), str):
+                        self.seals[manifest["run_id"]] = self.end
+                    self.end += len(raw)
+                    yield manifest
+        except FileNotFoundError:
+            return
+
+
+def _checkpoint_current(entry: Any, signer: ManifestSigner, manifest_path: str | Path) -> bool:
+    """True iff `entry` is a checkpoint signed by the current key that still describes the manifest file."""
+    if not isinstance(entry, dict) or set(entry) != _CHECKPOINT_KEYS or entry["kind"] != _CHECKPOINT_KIND:
+        return False
+    signature = entry["signature"]
+    if not isinstance(signature, Mapping) or set(signature) != _SIGNATURE_KEYS:
+        return False
+    value = signature["value"]
+    # Authenticate before trusting any field.
+    if not isinstance(value, str) or not signer.verify(_signing_payload(entry), value):
+        return False
+    if {signature["key_id"], entry["active"]} != {signer.key_id} or signature["algorithm"] != signer.algorithm:
+        return False
+    shape = (
+        all(type(entry[key]) is int for key in _CHECKPOINT_INTS)
+        and isinstance(entry["head"], str)
+        and isinstance(entry["retired"], list)
+        and all(isinstance(key, str) for key in entry["retired"])
+        and (entry["log_id"] is None or isinstance(entry["log_id"], str))
+        and type(entry["seen_v2"]) is bool
+    )
+    start, end = entry["head_start"], entry["end"]
+    if not shape or not 0 <= start < end <= start + MAX_LINE_BYTES + 1:
+        return False
+    stat_result = os.stat(manifest_path)
+    if (stat_result.st_dev, stat_result.st_ino) != (entry["st_dev"], entry["st_ino"]) or stat_result.st_size < end:
+        return False
+    with open(manifest_path, "rb") as file:
+        file.seek(start)
+        raw = file.read(end - start)
+    try:
+        return raw.endswith(b"\n") and manifest_hash(_decode_line("seal index head line", raw[:-1])) == entry["head"]
+    except ManifestVerificationError:
+        return False
+
+
+def _load_checkpoint(
+    index_path: str | Path, manifest_path: str | Path, run_id: str, signer: ManifestSigner
+) -> tuple[dict[str, Any], int | None] | None:
+    """The valid checkpoint and the run's hinted seal offset, or None for anything missing, unreadable or stale."""
+    db = _sqlite()
+    if db is None or not os.path.exists(index_path):
+        return None
+    try:
+        with closing(db.connect(Path(index_path).resolve().as_uri() + "?mode=ro", uri=True, timeout=0)) as conn:
+            conn.execute("PRAGMA trusted_schema=OFF")
+            row = conn.execute("SELECT body FROM checkpoint WHERE id = 1").fetchone()
+            hint = conn.execute("SELECT line_start FROM hint WHERE run_id = ?", (run_id,)).fetchone()
+        entry = _decode_line("seal index checkpoint", row[0].encode("utf-8"))
+        if not _checkpoint_current(entry, signer, manifest_path):
+            return None
+    except (OSError, ValueError, TypeError, db.Error):
+        return None
+    return entry, None if hint is None else hint[0]
+
+
+def _hint_names_run(manifest_path: str | Path, offset: object, run_id: str) -> bool:
+    """True iff the manifest line at `offset` is a seal of `run_id`."""
+    if type(offset) is not int:
+        return False
+    with open(manifest_path, "rb") as file:
+        file.seek(offset)
+        raw = next(_read_lines(file), b"")
+    try:
+        line = _decode_line("seal index hint", raw.rstrip(b"\n")) if raw.endswith(b"\n") else None
+    except ManifestVerificationError:
+        return False
+    return isinstance(line, dict) and "kind" not in line and line.get("run_id") == run_id
+
+
+def _store_checkpoint(
+    index_path: str | Path, entry: dict[str, Any], hints: Mapping[str, int], *, rebuild: bool
+) -> None:
+    """Commit `entry` and `hints` (all hints replaced if `rebuild`); a corrupt index file is deleted and recreated."""
+    db = _sqlite()
+    if db is None:
+        return
+    body = _canonical_json(entry).decode("utf-8")
+    for attempt in (0, 1):
+        try:
+            with closing(db.connect(os.fspath(index_path), timeout=5)) as conn:
+                conn.execute("PRAGMA trusted_schema=OFF")
+                conn.execute("PRAGMA journal_mode=DELETE")
+                conn.execute("CREATE TABLE IF NOT EXISTS checkpoint (id INTEGER PRIMARY KEY, body TEXT NOT NULL)")
+                conn.execute("CREATE TABLE IF NOT EXISTS hint (run_id TEXT PRIMARY KEY, line_start INTEGER NOT NULL)")
+                with conn:
+                    if rebuild:
+                        conn.execute("DELETE FROM hint")
+                    conn.executemany("INSERT OR REPLACE INTO hint VALUES (?, ?)", list(hints.items()))
+                    conn.execute("INSERT OR REPLACE INTO checkpoint VALUES (1, ?)", (body,))
+            return
+        except db.OperationalError:
+            raise
+        except db.DatabaseError:
+            if attempt:
+                raise
+            os.unlink(index_path)
+
+
+def _checkpoint_entry(
+    manifest_path: str | Path, state: _LogState, head_start: int, signer: ManifestSigner
+) -> dict[str, Any]:
+    stat_result = os.stat(manifest_path)
+    entry: dict[str, Any] = {
+        "kind": _CHECKPOINT_KIND,
+        "st_dev": stat_result.st_dev,
+        "st_ino": stat_result.st_ino,
+        "end": stat_result.st_size,
+        "lines": state.lines,
+        "head_start": head_start,
+        "head": state.head,
+        "active": state.active,
+        "retired": sorted(state.retired),
+        "log_id": state.log_id,
+        "seen_v2": state.seen_v2,
+    }
+    entry["signature"] = _signature_block(entry, signer)
+    return entry
+
+
+def _verify_from_checkpoint(
+    index_path: str | Path,
+    manifest_path: str | Path,
+    run_id: str,
+    *,
+    signer: ManifestSigner,
+    signers: Mapping[str, ManifestSigner],
+    expected_head: str | None,
+    log_id: str | None,
+    anchors: Sequence[str],
+) -> tuple[_LogState, _Scan] | None:
+    """Verify only the manifest lines after a valid checkpoint; None means verify the whole log."""
+    loaded = _load_checkpoint(index_path, manifest_path, run_id, signer)
+    if loaded is None:
+        return None
+    checkpoint, hint = loaded
+    scan = _Scan(checkpoint["end"], checkpoint["lines"], checkpoint["head_start"])
+    head = checkpoint["head"]
+    seed = _LogState(
+        set(),
+        head,
+        checkpoint["active"],
+        frozenset(checkpoint["retired"]),
+        {head},
+        checkpoint["seen_v2"],
+        checkpoint["log_id"],
+        checkpoint["lines"],
+    )
+    state = _verify_log(
+        scan.manifests(manifest_path),
+        signer=signer,
+        signers=signers,
+        expected_head=expected_head,
+        require_current=True,
+        log_id=log_id,
+        seed=seed,
+    )
+    if log_id is not None and state.log_id != log_id:
+        return None
+    if _unverified_anchor(anchors, state.hashes) is not None:
+        logger.info("seal index skipped: an anchored head is older than the checkpoint")
+        return None
+    if hint is not None:
+        if not _hint_names_run(manifest_path, hint, run_id):
+            return None
+        state.sealed.add(run_id)
+    return state, scan
+
+
+def _update_index(
+    index_path: str | Path,
+    manifest_path: str | Path,
+    state: _LogState,
+    scan: _Scan,
+    appended: Sequence[Mapping[str, Any]],
+    signer: ManifestSigner,
+    *,
+    rebuild: bool,
+) -> None:
+    """Commit a fresh checkpoint and the new seals' hints after an append; a failure is logged, never raised."""
+    try:
+        offset = os.path.getsize(manifest_path) - sum(len(_canonical_json(entry)) + 1 for entry in appended)
+        hints, head_start = dict(scan.seals) if rebuild else {}, scan.last
+        for entry in appended:
+            head_start = offset
+            if "kind" not in entry:
+                hints[entry["run_id"]] = offset
+            offset += len(_canonical_json(entry)) + 1
+        genesis = next((entry["log_id"] for entry in appended if entry.get("kind") == _GENESIS_KIND), state.log_id)
+        head = manifest_hash(appended[-1]) if appended else state.head
+        after = replace(
+            state,
+            head=head,
+            active=state.active or signer.key_id,
+            seen_v2=state.seen_v2 or bool(appended),
+            log_id=genesis,
+            lines=state.lines + len(appended),
+        )
+        entry = _checkpoint_entry(manifest_path, after, head_start or 0, signer)
+        _store_checkpoint(index_path, entry, hints, rebuild=rebuild)
+    except Exception as exc:
+        logger.warning("seal index %s was not updated: %s", index_path, exc)
+
+
 def seal_ndjson_runs(
     audit_path: str | Path,
     manifest_path: str | Path,
@@ -964,6 +1215,7 @@ def seal_ndjson_runs(
     anchored_heads: Iterable[str] = (),
     head_anchor: HeadAnchor | None = None,
     older_than: timedelta | None = None,
+    seal_index_path: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     """Seal every unsealed run (or only `run_id`). Seal only after a run's writers stop, or sealing a still-live run
     fails its verification for good; prefer AuditExtender's automatic sealing from Extender.on_run_complete when
@@ -981,9 +1233,23 @@ def seal_ndjson_runs(
     lock (its failure leaves the seals written).
     `older_than` (a non-negative timedelta, not with `run_id`) is the manual stale sweep for crashed runs: it seals only
     runs whose newest record `event_time` is older than now minus it. A run with a record lacking a parseable
-    `event_time` is skipped, and one warning gives the count."""
+    `event_time` is skipped, and one warning gives the count.
+    `seal_index_path` (opt-in sqlite file) keeps a signed checkpoint of the verified log, so a `run_id` seal verifies
+    only the manifest lines after it; any stale or unusable index means full verification, and an index error after
+    the append is logged, never raised."""
     signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
+    if seal_index_path is not None:
+        anchor_path = head_anchor._path if isinstance(head_anchor, NdjsonHeadAnchor) else None
+        _reject_aliased_paths(
+            audit_path=audit_path,
+            manifest_path=manifest_path,
+            seal_index_path=seal_index_path,
+            **({"head_anchor": anchor_path} if anchor_path is not None else {}),
+        )
+        if _sqlite() is None:
+            seal_index_path = None
+    anchors = list(anchored_heads)
     if run_id is not None and (not isinstance(run_id, str) or _is_blank(run_id)):
         raise ValueError("seal_ndjson_runs run_id must be a non-blank string")
     if older_than is not None:
@@ -994,15 +1260,29 @@ def seal_ndjson_runs(
     _check_log_id("seal_ndjson_runs", log_id)
     existed = os.path.exists(manifest_path)
     with _flock(manifest_path, exclusive=True):
-        state = _verify_log(
-            _iter_manifests(manifest_path),
-            signer=signer,
-            signers=signers,
-            expected_head=expected_head,
-            require_current=True,
-            log_id=log_id,
-            anchored_heads=anchored_heads,
-        )
+        fast = None
+        if seal_index_path is not None and run_id is not None:
+            fast = _verify_from_checkpoint(
+                seal_index_path,
+                manifest_path,
+                run_id,
+                signer=signer,
+                signers=signers,
+                expected_head=expected_head,
+                log_id=log_id,
+                anchors=anchors,
+            )
+        state, scan = fast or (None, _Scan())
+        if state is None:
+            state = _verify_log(
+                scan.manifests(manifest_path),
+                signer=signer,
+                signers=signers,
+                expected_head=expected_head,
+                require_current=True,
+                log_id=log_id,
+                anchored_heads=anchors,
+            )
         sealed, head = state.sealed, state.head
         if run_id is not None and run_id in sealed:
             raise RunAlreadySealedError(f"run_id {run_id!r} is already sealed in {manifest_path}")
@@ -1039,6 +1319,8 @@ def seal_ndjson_runs(
                     _unlink_durably(manifest_path)
             raise
         _append_with_rollback(manifest_path, appended, existed=True)
+        if seal_index_path is not None and (appended or fast is None) and state.head is not None:
+            _update_index(seal_index_path, manifest_path, state, scan, appended, signer, rebuild=fast is None)
         if head_anchor is not None and appended:
             head_anchor.write(manifest_hash(appended[-1]))
         return manifests

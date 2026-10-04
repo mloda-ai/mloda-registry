@@ -2223,6 +2223,327 @@ class TestSealNdjsonRuns:
         assert manifest_path.read_bytes() == before
 
 
+_INDEX = "seal.index"
+_AUDIT_LOGGER = "mloda.enterprise.extenders.audit.run_manifest"
+
+
+def _indexed_log(directory: Path, prior: int = 4, *, indexed: bool = True) -> tuple[Path, Path, Path]:
+    """`prior` runs, each sealed on its own (through seal_index_path if `indexed`); returns audit, manifest and index paths."""
+    directory.mkdir()
+    audit_path, manifest_path, index_path = (
+        directory / "audit.ndjson",
+        directory / "manifests.ndjson",
+        directory / _INDEX,
+    )
+    extra: dict[str, Any] = {"seal_index_path": index_path} if indexed else {}
+    for number in range(prior):
+        _write_records(audit_path, [_record(f"run-{number}", number)])
+        seal_ndjson_runs(
+            audit_path,
+            manifest_path,
+            signer=_signer(),
+            run_id=f"run-{number}",
+            **extra,
+        )
+    return audit_path, manifest_path, index_path
+
+
+def _copy_dir(source: Path, target: Path) -> None:
+    target.mkdir()
+    for path in source.iterdir():
+        (target / path.name).write_bytes(path.read_bytes())
+
+
+def _count_seal(
+    audit_path: Path, manifest_path: Path, run_id: str, *, signer: ManifestSigner | None = None, **kwargs: Any
+) -> int:
+    """Signature verifications one seal of `run_id` performs."""
+    calls: list[bytes] = []
+    hooked = _HookedSigner(signer or _signer(), on_verify=calls.append)
+    seal_ndjson_runs(audit_path, manifest_path, signer=hooked, run_id=run_id, **kwargs)
+    return len(calls)
+
+
+def _full_count(directory: Path, run_id: str, **kwargs: Any) -> int:
+    """Verifications a seal of `run_id` needs without the index, measured on a copy of `directory`."""
+    reference = directory.parent / f"ref-{directory.name}"
+    _copy_dir(directory, reference)
+    return _count_seal(reference / "audit.ndjson", reference / "manifests.ndjson", run_id, **kwargs)
+
+
+def _last_line_start(path: Path) -> int:
+    return path.read_bytes().rstrip(b"\n").rfind(b"\n") + 1
+
+
+def _replace_manifest_by_copy(audit_path: Path, manifest_path: Path, index_path: Path) -> None:
+    copy = manifest_path.with_name("copy.tmp")
+    copy.write_bytes(manifest_path.read_bytes())
+    os.replace(copy, manifest_path)
+
+
+def _truncate_below_checkpoint(audit_path: Path, manifest_path: Path, index_path: Path) -> None:
+    os.truncate(manifest_path, _last_line_start(manifest_path))
+
+
+def _swap_last_line_in_place(audit_path: Path, manifest_path: Path, index_path: Path) -> None:
+    """Same inode, same size, same prefix, but a different last line than the checkpoint head."""
+    size = manifest_path.stat().st_size
+    os.truncate(manifest_path, _last_line_start(manifest_path))
+    _write_records(audit_path, [_record("xun-3", 3)])
+    seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="xun-3")
+    assert manifest_path.stat().st_size == size
+
+
+_INDEX_FALLBACKS: dict[str, Callable[[Path, Path, Path], object]] = {
+    "missing-index": lambda a, m, i: i.unlink(),
+    "garbage-index": lambda a, m, i: i.write_bytes(b"not a database" * 100),
+    "manifest-replaced-by-a-copy": _replace_manifest_by_copy,
+    "manifest-truncated-below-the-checkpoint": _truncate_below_checkpoint,
+    "head-differs-from-the-line-at-the-offset": _swap_last_line_in_place,
+}
+
+
+@_both_algorithms
+class TestSealIndex:
+    """seal_index_path: opt-in signed checkpoint, so a seal verifies only the manifest lines after it."""
+
+    def test_a_seal_verifies_only_lines_after_the_checkpoint_whatever_the_history(self, tmp_path: Path) -> None:
+        counts = []
+        for prior in (2, 8):
+            audit_path, manifest_path, index_path = _indexed_log(tmp_path / f"p{prior}", prior)
+            _write_records(audit_path, [_record("run-next", 99)])
+            counts.append(_count_seal(audit_path, manifest_path, "run-next", seal_index_path=index_path))
+
+        assert counts[0] == counts[1]
+
+    def test_without_seal_index_path_the_verifications_grow_with_the_history(self, tmp_path: Path) -> None:
+        counts = []
+        for prior in (2, 8):
+            audit_path, manifest_path, _ = _indexed_log(tmp_path / f"p{prior}", prior, indexed=False)
+            _write_records(audit_path, [_record("run-next", 99)])
+            counts.append(_count_seal(audit_path, manifest_path, "run-next"))
+
+        assert counts[0] < counts[1]
+
+    def test_the_seal_line_equals_the_full_scan_one_except_sealed_at_and_signature(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        _write_records(audit_path, [_record("run-next", 99)])
+        _copy_dir(tmp_path / "live", tmp_path / "ref")
+
+        fast = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), seal_index_path=index_path)
+        full = seal_ndjson_runs(
+            tmp_path / "ref" / "audit.ndjson", tmp_path / "ref" / "manifests.ndjson", signer=_signer()
+        )
+
+        def stable(manifest: Mapping[str, Any]) -> dict[str, Any]:
+            return {k: v for k, v in manifest.items() if k not in ("sealed_at", "signature")}
+
+        assert [stable(m) for m in fast] == [stable(m) for m in full]
+        assert stable(_read_lines(manifest_path)[-1]) == stable(fast[0])
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    @pytest.mark.parametrize("tamper", list(_INDEX_FALLBACKS.values()), ids=list(_INDEX_FALLBACKS))
+    def test_an_unusable_index_falls_back_to_full_verification_and_is_rebuilt(
+        self, tmp_path: Path, tamper: Callable[[Path, Path, Path], object]
+    ) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        tamper(audit_path, manifest_path, index_path)
+        _write_records(audit_path, [_record("run-next", 99), _record("run-after", 100)])
+        full = _full_count(tmp_path / "live", "run-next")
+
+        count = _count_seal(audit_path, manifest_path, "run-next", seal_index_path=index_path)
+
+        assert count >= full
+        assert _read_lines(manifest_path)[-1]["run_id"] == "run-next"
+        assert _count_seal(audit_path, manifest_path, "run-after", seal_index_path=index_path) < count
+
+    def test_a_checkpoint_signed_by_a_retired_key_falls_back_to_full_verification(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        key_1, key_2 = _signer(), _signer(_OTHER_KEY, "key-2")
+        _rotate(manifest_path, key_2, key_1)
+        _write_records(audit_path, [_record("run-next", 99), _record("run-after", 100)])
+        extra: dict[str, Any] = {"signer": key_2, "previous_signers": [key_1]}
+        full = _full_count(tmp_path / "live", "run-next", **extra)
+
+        count = _count_seal(audit_path, manifest_path, "run-next", seal_index_path=index_path, **extra)
+
+        assert count >= full
+        assert _read_lines(manifest_path)[-1]["signature"]["key_id"] == "key-2"
+        assert _count_seal(audit_path, manifest_path, "run-after", seal_index_path=index_path, **extra) < count
+
+    @pytest.mark.parametrize("anchor", ["all-heads", "latest-head"])
+    def test_a_rollback_with_an_older_index_copy_is_caught_by_an_anchor(self, tmp_path: Path, anchor: str) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        old_manifest, old_index = manifest_path.read_bytes(), index_path.read_bytes()
+        recording = _RecordingAnchor()
+        for name in ("run-x", "run-y"):
+            _write_records(audit_path, [_record(name, 50)])
+            seal_ndjson_runs(
+                audit_path,
+                manifest_path,
+                signer=_signer(),
+                run_id=name,
+                seal_index_path=index_path,
+                head_anchor=recording,
+            )
+        manifest_path.write_bytes(old_manifest)
+        index_path.write_bytes(old_index)
+        _write_records(audit_path, [_record("run-z", 60)])
+        heads = recording.heads if anchor == "all-heads" else recording.heads[-1:]
+
+        _assert_raises_and_unchanged(
+            tmp_path / "live",
+            lambda: seal_ndjson_runs(
+                audit_path,
+                manifest_path,
+                signer=_signer(),
+                run_id="run-z",
+                seal_index_path=index_path,
+                anchored_heads=heads,
+            ),
+        )
+
+    def test_a_line_tampered_before_the_checkpoint_is_missed_by_the_seal_but_caught_offline(
+        self, tmp_path: Path
+    ) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        manifest_path.write_bytes(manifest_path.read_bytes().replace(b"run-0", b"run-7", 1))
+        _write_records(audit_path, [_record("run-next", 99)])
+        _copy_dir(tmp_path / "live", tmp_path / "ref")
+        with pytest.raises(ManifestVerificationError):
+            seal_ndjson_runs(
+                tmp_path / "ref" / "audit.ndjson",
+                tmp_path / "ref" / "manifests.ndjson",
+                signer=_signer(),
+                run_id="run-next",
+            )
+
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-next", seal_index_path=index_path)
+
+        with pytest.raises(ManifestVerificationError):
+            verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    def test_an_anchor_older_than_the_checkpoint_falls_back_to_full_verification(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        heads = _log_heads(manifest_path)
+        _write_records(audit_path, [_record("run-next", 99)])
+        full = _full_count(tmp_path / "live", "run-next")
+
+        count = _count_seal(
+            audit_path, manifest_path, "run-next", seal_index_path=index_path, anchored_heads=[heads[1]]
+        )
+
+        assert count >= full
+        assert _read_lines(manifest_path)[-1]["run_id"] == "run-next"
+
+    def test_an_anchor_at_the_checkpoint_head_keeps_the_fast_path(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        heads = _log_heads(manifest_path)
+        _write_records(audit_path, [_record("run-next", 99)])
+        full = _full_count(tmp_path / "live", "run-next")
+
+        count = _count_seal(
+            audit_path, manifest_path, "run-next", seal_index_path=index_path, anchored_heads=[heads[-1]]
+        )
+
+        assert count < full
+
+    def test_a_crash_between_the_append_and_the_index_commit_is_healed(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        stale_index = index_path.read_bytes()
+        _write_records(audit_path, [_record("run-crash", 98)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-crash", seal_index_path=index_path)
+        index_path.write_bytes(stale_index)
+        _write_records(audit_path, [_record("run-next", 99)])
+        full = _full_count(tmp_path / "live", "run-next")
+
+        count = _count_seal(audit_path, manifest_path, "run-next", seal_index_path=index_path)
+
+        assert count < full
+        assert [m["run_id"] for m in _read_lines(manifest_path)][-2:] == ["run-crash", "run-next"]
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    def test_an_index_write_error_after_the_append_is_logged_and_does_not_fail_the_seal(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        audit_path, manifest_path, _ = _indexed_log(tmp_path / "live")
+        broken = tmp_path / "live" / "index-is-a-directory"
+        broken.mkdir()
+        _write_records(audit_path, [_record("run-next", 99)])
+
+        with caplog.at_level(logging.WARNING, logger=_AUDIT_LOGGER):
+            manifests = seal_ndjson_runs(
+                audit_path, manifest_path, signer=_signer(), run_id="run-next", seal_index_path=broken
+            )
+
+        assert [m["run_id"] for m in manifests] == ["run-next"]
+        assert _read_lines(manifest_path)[-1]["run_id"] == "run-next"
+        assert len([r for r in caplog.records if r.name == _AUDIT_LOGGER and r.levelno == logging.WARNING]) == 1
+
+    @pytest.mark.parametrize("index_exists", [True, False], ids=["index-present", "index-absent"])
+    @pytest.mark.parametrize("failure", ["not-pending", "bad-tail-line", "already-sealed"])
+    def test_a_failing_seal_neither_creates_nor_modifies_the_index(
+        self, tmp_path: Path, failure: str, index_exists: bool
+    ) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        if not index_exists:
+            index_path.unlink()
+        run_id = {"not-pending": "run-nowhere", "bad-tail-line": "run-0", "already-sealed": "run-0"}[failure]
+        if failure == "bad-tail-line":
+            _append_line(manifest_path, "not json")
+        expected = {
+            "not-pending": RunNotPendingError,
+            "bad-tail-line": ManifestVerificationError,
+            "already-sealed": RunAlreadySealedError,
+        }[failure]
+        before = _snapshot(tmp_path / "live")
+
+        with pytest.raises(expected):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id=run_id, seal_index_path=index_path)
+
+        assert _snapshot(tmp_path / "live") == before
+
+    @pytest.mark.parametrize("spelling", ["same-path", "symlink"])
+    @pytest.mark.parametrize("target", ["audit", "manifest", "anchor"])
+    def test_an_index_path_aliasing_another_path_is_refused(self, tmp_path: Path, target: str, spelling: str) -> None:
+        audit_path, manifest_path = tmp_path / "audit.ndjson", tmp_path / "manifests.ndjson"
+        anchor_path = tmp_path / "anchor.ndjson"
+        _write_records(audit_path, [_record("run-a", 1)])
+        files = {"audit": audit_path, "manifest": manifest_path, "anchor": anchor_path}
+        files[target].touch()
+        index_path = _aliased(tmp_path, files[target], spelling)
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ValueError) as excinfo:
+            seal_ndjson_runs(
+                audit_path,
+                manifest_path,
+                signer=_signer(),
+                seal_index_path=index_path,
+                head_anchor=_ndjson_anchor(anchor_path),
+            )
+
+        assert not isinstance(excinfo.value, ManifestVerificationError)
+        assert _snapshot(tmp_path) == before
+
+    def test_a_run_sealed_before_the_checkpoint_is_refused_on_the_fast_path(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        calls: list[bytes] = []
+        hooked = _HookedSigner(_signer(), on_verify=calls.append)
+
+        with pytest.raises(RunAlreadySealedError):
+            seal_ndjson_runs(audit_path, manifest_path, signer=hooked, run_id="run-0", seal_index_path=index_path)
+
+        assert len(calls) < 4
+
+    def test_no_wal_or_shm_files_are_left_next_to_the_index(self, tmp_path: Path) -> None:
+        _indexed_log(tmp_path / "live")
+
+        names = {path.name for path in (tmp_path / "live").iterdir()}
+
+        assert names == {"audit.ndjson", "manifests.ndjson", _INDEX}
+
+
 class TestCheckRunAgainstSeal:
     """_check_run_against_seal is what AuditExtender.on_run_complete calls when seal_ndjson_runs raises
     RunAlreadySealedError, to tell an untouched re-run from a stray record written after the seal. It must
