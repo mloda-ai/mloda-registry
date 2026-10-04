@@ -147,11 +147,12 @@ does not remove a dependency's dependencies; their entry points still register.
 
 ```text
 mloda-community (bundled)
-  └── includes: mloda.community.*
-        ├── feature_groups/*        (except example, example-a and data_operations, including its
-        │                            plugin leaves: each owned by its own published distribution)
-        └── extenders/*             (except shared, otel and openlineage: each owned by its own
-                                      published distribution)
+  └── ships: mloda.community
+        └── feature_groups/binary_model   (the only nested package left in the wheel)
+
+every other feature group and every extender is owned by its own published
+distribution (example, example-a, data_operations and its plugin leaves, extenders shared,
+otel and openlineage, ...) and excluded from the wheel
 ```
 
 A bundled plugin whose runtime dependency is heavy sits behind a bundle extra instead of a

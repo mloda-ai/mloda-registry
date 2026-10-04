@@ -49,7 +49,8 @@ def _generate(pkg_name: str) -> str:
     return str(gen.generate_pyproject(pkg_name, packages[pkg_name], shared, packages))
 
 
-# (package, entry-point group, exact entry line it must emit), one package per group.
+# (package, entry-point group, exact entry line it must emit). The compute-framework group has no real
+# package; it is covered synthetically in test_sibling_floor_placeholder.py.
 _PLUGIN_ENTRY_POINTS = [
     pytest.param(
         "mloda-community-ffill",
@@ -242,6 +243,18 @@ def test_verify_builds_accepts_optional_dependencies_marker_target() -> None:
             "mloda.optional_dependencies",
             "mloda-community-openlineage",
             "mloda.community.extenders.openlineage._optional_dependencies:OPTIONAL_DEPENDENCIES",
+        )
+        is None
+    )
+
+
+def test_verify_builds_accepts_compute_frameworks_manifest_target() -> None:
+    """The mloda.compute_frameworks group's own ``.manifest:COMPUTE_FRAMEWORKS`` pairing must pass verification."""
+    assert (
+        vb.namespaced_entry_point_error(
+            "mloda.compute_frameworks",
+            "mloda-community-foo",
+            "mloda.community.foo.manifest:COMPUTE_FRAMEWORKS",
         )
         is None
     )

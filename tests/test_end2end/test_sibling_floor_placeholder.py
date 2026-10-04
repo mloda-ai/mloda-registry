@@ -734,15 +734,21 @@ def test_bundle_extra_ownership_excludes_the_wheel_and_entry_points() -> None:
     assert leaf_entry in leaf_content, leaf_content
 
 
-@pytest.mark.parametrize("group", ["mloda.feature_groups", "mloda.compute_frameworks", "mloda.extenders"])
-def test_bundle_aggregates_an_unowned_nested_package_entry_point_for_every_plugin_group(group: str) -> None:
+@pytest.mark.parametrize(
+    ("group", "attr"),
+    [
+        ("mloda.feature_groups", "FEATURE_GROUPS"),
+        ("mloda.compute_frameworks", "COMPUTE_FRAMEWORKS"),
+        ("mloda.extenders", "EXTENDERS"),
+    ],
+)
+def test_bundle_aggregates_an_unowned_nested_package_entry_point_for_every_plugin_group(group: str, attr: str) -> None:
     """Aggregation is group-agnostic: an unowned nested package declaring any plugin entry-point group is
     aggregated into the bundle's entry points, and its own generated pyproject declares it too."""
     shared, _packages_config = gen.load_configs()
     packages = _synthetic_bundle(["{core_dependency}", f"{_DEP}=={{version}}"])
     packages[_LEAF]["entry_point_groups"] = [group]
-    suffix = gen.ENTRY_POINT_MODULE_SUFFIX.get(group, gen.DEFAULT_MODULE_SUFFIX)
-    leaf_entry = f'{_LEAF} = "{_LEAF_DOTTED}.{suffix}:{gen.ENTRY_POINT_ATTRS[group]}"'
+    leaf_entry = f'{_LEAF} = "{_LEAF_DOTTED}.manifest:{attr}"'
     header = f'[project.entry-points."{group}"]'
 
     bundle_content = gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
