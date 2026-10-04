@@ -881,6 +881,19 @@ def _lock_refused(path: Path) -> bool:
         os.close(fd)
 
 
+def _locked_during_digest(monkeypatch: pytest.MonkeyPatch, manifest_path: Path) -> list[bool]:
+    """Spy on `_digest_runs`: the returned list gets, per call, whether `manifest_path` was locked at that moment."""
+    locked: list[bool] = []
+    real_digest_runs = run_manifest_module._digest_runs
+
+    def digest_runs(*args: Any, **kwargs: Any) -> Any:
+        locked.append(_lock_refused(manifest_path))
+        return real_digest_runs(*args, **kwargs)
+
+    monkeypatch.setattr(run_manifest_module, "_digest_runs", digest_runs)
+    return locked
+
+
 def _flock_unsupported(fd: int, operation: int) -> None:
     raise OSError(errno.ENOLCK, "no locks")
 
@@ -3127,14 +3140,7 @@ class TestCheckRunAgainstSeal:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
-        locked_during_read: list[bool] = []
-        real_digest_runs = run_manifest_module._digest_runs
-
-        def digest_runs(*args: Any, **kwargs: Any) -> Any:
-            locked_during_read.append(_lock_refused(manifest_path))
-            return real_digest_runs(*args, **kwargs)
-
-        monkeypatch.setattr(run_manifest_module, "_digest_runs", digest_runs)
+        locked_during_read = _locked_during_digest(monkeypatch, manifest_path)
 
         run_manifest_module._check_run_against_seal(audit_path, manifest_path, "run-a", signer=_signer())
 
@@ -3755,14 +3761,7 @@ class TestVerifyNdjsonSegments:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         audit_path, manifest_path = _three_segments(tmp_path)
-        locked_during_read: list[bool] = []
-        real_digest_runs = run_manifest_module._digest_runs
-
-        def digest_runs(*args: Any, **kwargs: Any) -> Any:
-            locked_during_read.append(_lock_refused(manifest_path))
-            return real_digest_runs(*args, **kwargs)
-
-        monkeypatch.setattr(run_manifest_module, "_digest_runs", digest_runs)
+        locked_during_read = _locked_during_digest(monkeypatch, manifest_path)
 
         _verify_segments(audit_path, manifest_path)
 
@@ -4500,14 +4499,7 @@ class TestVerifyNdjsonLogCoverage:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
-        locked_during_read: list[bool] = []
-        real_digest_runs = run_manifest_module._digest_runs
-
-        def digest_runs(*args: Any, **kwargs: Any) -> Any:
-            locked_during_read.append(_lock_refused(manifest_path))
-            return real_digest_runs(*args, **kwargs)
-
-        monkeypatch.setattr(run_manifest_module, "_digest_runs", digest_runs)
+        locked_during_read = _locked_during_digest(monkeypatch, manifest_path)
 
         verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
 
@@ -5955,7 +5947,7 @@ class TestGenesis:
             "wrong-key-material",
             "missing-key",
             "extra-key",
-            "non-null-previous-hash",
+            "non-hex-previous-hash",
             "non-str-previous-hash",
             "short-previous-hash",
             "uppercase-previous-hash",

@@ -77,8 +77,8 @@ class NdjsonAuditSink:
     a line, and the file is created owner-only. Opens per write, so it pickles and holds no buffer a
     terminated worker could lose; ordering across writers is not guaranteed. A short write raises
     instead of finishing the line, leaving a torn line that blocks sealing and verification until
-    quarantine_damaged_lines repairs it. Each write holds a shared flock (best effort), so a segment rotation
-    holding the exclusive lock cannot strand a record in a file it is replacing."""
+    quarantine_damaged_lines repairs it. Each write holds a shared flock (best effort) so a segment rotation
+    cannot strand a record."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
@@ -162,8 +162,8 @@ class AuditExtender(Extender):
     Keys may be added within record_version 1; an absent key means not recorded. With audit_path,
     manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
     that just finished. An auto-sealing instance, or a pickled copy of one, refuses a calculation with
-    SealedRunRefusedError before writing anything when its run_id is already named in manifest_path or a retained archived segment of it (an
-    unverified read, once per run per instance or copy, at its first calculation; a seal landing
+    SealedRunRefusedError before writing anything when its run_id is already named in manifest_path or a
+    retained archive of it (an unverified read, once per run per instance or copy, at its first calculation; a seal landing
     after that first calculation is not seen, so do not run one prepared auto-sealing session concurrently: a run
     sealed while another run() of it is still calculating leaves that run's later records outside the seal), so
     re-running a prepared session (including a retry after a failed run, since a failed run is sealed too), even

@@ -43,11 +43,10 @@ Limits:
   run's first record to EOF; runs left pending (crashed, or refused at plan time) stay so until swept. Negative
   lookups trust the index's unsigned hint rows: whoever can write the index can make a sealed run look unsealed and
   cause a duplicate seal, so keep it under the logs' write protection and verify offline on a schedule.
-- Segments: `rotate_ndjson_segment` archives `<path>.<NNNNNN>` pairs and carries pending runs into the new one;
-  `verify_ndjson_segments` verifies the retained history. Retention deletes the oldest pairs and only anchors detect
-  that. Refusal and sealing treat runs sealed in retained archives as sealed via unverified reads (the seal index
-  caches them). The handover is safe only for writers that take the shared flock (NdjsonAuditSink), and not without
-  fcntl.
+- Segments: `rotate_ndjson_segment` archives `<path>.<NNNNNN>` pairs and carries pending runs over;
+  `verify_ndjson_segments` verifies the retained history. Only anchors detect deleted archives. Runs sealed in
+  retained archives count as sealed via unverified reads. Safe only for writers taking the shared flock
+  (NdjsonAuditSink), and not without fcntl.
 - A line longer than MAX_LINE_BYTES (64 MiB) fails verification and is refused on write, which bounds a seal to
   roughly a million records per run. Logs written by earlier releases with a seal line over the cap no longer verify.
 - Sealing and verifying need the log's current key to be `signer` (an archived log verifies with its current key).
@@ -677,7 +676,7 @@ def _archived_sealed_ids(manifest_path: str | Path) -> set[str]:
 
 
 def _sealed_in_archives(manifest_path: str | Path, run_id: str, index_path: str | Path | None = None) -> bool:
-    """Whether an archived manifest segment seals run_id: from the index's `archived` table when usable, else a scan."""
+    """Whether an archive seals run_id: from the index's `archived` table when usable, else a scan."""
     if index_path is not None:
         db = _sqlite()
         with suppress(Exception):
@@ -687,7 +686,7 @@ def _sealed_in_archives(manifest_path: str | Path, run_id: str, index_path: str 
 
 
 def _refuse_interrupted_rotation(*paths: str | Path) -> None:
-    """Raise ValueError when a live file is still linked to an archive: a rotation was interrupted."""
+    """Raise ValueError when a live file is still linked to an archive (an interrupted rotation)."""
     for path in paths:
         with suppress(FileNotFoundError):
             if os.stat(path).st_nlink > 1:
@@ -792,9 +791,8 @@ def _reject_aliased_paths(**named_paths: str | Path) -> None:
 
 
 def _open_locked(path: str | Path, flags: int, *, exclusive: bool) -> int | None:
-    """Open `path` and flock it, reopening while the path names a different file than the locked descriptor (a
-    replaced file). A shared lock is best-effort (the descriptor is returned unlocked on OSError), an exclusive one
-    raises. None without fcntl, with nothing opened."""
+    """Open and flock `path`, reopening if it was replaced meanwhile. A shared lock is best effort, an exclusive one
+    raises. None without fcntl."""
     try:
         import fcntl
     except ImportError:
@@ -884,7 +882,7 @@ def _verify_log(
             if log_id is not None and manifest["log_id"] != log_id:
                 raise ManifestVerificationError(f"manifest log is for log_id {manifest['log_id']!r}, not {log_id!r}")
             if seed.head is None and manifest["previous_manifest_hash"] is not None:
-                # A successor segment: its predecessor's final head is the chain start and a known head.
+                # A successor segment starts the chain at its predecessor's head.
                 head = manifest["previous_manifest_hash"]
                 hashes.add(head)
             genesis_key = manifest["signature"]["key_id"]
@@ -1331,8 +1329,8 @@ def _store_checkpoint(
     rebuild: bool,
     archived: Iterable[str] = (),
 ) -> None:
-    """Commit `entry` and `hints` (hints and `archived` run_ids replaced if `rebuild`); a corrupt SQLite file is deleted and recreated,
-    any other file is left alone and raises."""
+    """Commit `entry`, `hints` and `archived` (all replaced if `rebuild`); a corrupt SQLite file is deleted and
+    recreated, any other file is left alone and raises."""
     db = _sqlite()
     if db is None:
         return
@@ -2233,7 +2231,7 @@ def _outgoing_state(
     log_id: str,
     anchors: Sequence[str],
 ) -> _LogState:
-    """Verify a segment like verify_ndjson_log_coverage (against its audit bytes when `audit_src` is given)."""
+    """Verify a segment like verify_ndjson_log_coverage (against `audit_src` when given)."""
     manifests = _read_manifests(manifest_src)
     digests = None
     if audit_src is not None:
@@ -2258,14 +2256,14 @@ def _outgoing_state(
 
 
 def _stage_temp(live: str | Path) -> tuple[IO[bytes], str]:
-    """A 0o600 temp file beside `live`, opened for writing."""
+    """A temp file beside `live`, opened for writing."""
     live = Path(live)
     fd, temp = tempfile.mkstemp(dir=live.parent, prefix=f".{live.name}.")
     return os.fdopen(fd, "wb"), temp
 
 
 def _stage_genesis(manifest_path: str | Path, genesis: Mapping[str, Any]) -> str:
-    """Write `genesis` as the only line of a durable temp file with the live manifest's mode; return its path."""
+    """Write `genesis` to a durable temp file with the live manifest's mode; return its path."""
     out, temp = _stage_temp(manifest_path)
     try:
         with out:
@@ -2320,12 +2318,10 @@ def rotate_ndjson_segment(
     anchored_heads: Iterable[str] = (),
     head_anchor: HeadAnchor | None = None,
 ) -> dict[str, Any]:
-    """Archive the audit and manifest files as `<path>.<NNNNNN>` and start a new segment; return its genesis, which
-    chains onto the outgoing head (`head_anchor` gets its hash). Verifies the outgoing segment first like
-    verify_ndjson_log (`expected_head`, `anchored_heads`) and changes nothing on failure; ValueError for a log without
-    a genesis or manifests. Audit lines of runs sealed in no retained segment (pending, crashed) are carried into the
-    new audit file byte for byte. Handover is safe against NdjsonAuditSink writers only. A crash between the swaps
-    blocks sealing until rotate_ndjson_segment runs again."""
+    """Archive both files as `<path>.<NNNNNN>` and start a new segment; return its genesis (`head_anchor` gets its
+    hash). Verifies the outgoing segment first like verify_ndjson_log and changes nothing on failure. Audit lines of
+    unsealed runs are carried over. Safe against NdjsonAuditSink writers only; a crash mid-rotation blocks sealing
+    until it runs again."""
     signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
     if log_id is None:
@@ -2374,7 +2370,7 @@ def rotate_ndjson_segment(
                 end = _carry_pending(audit_path, out, 0, skip, ())
                 fd = _open_locked(audit_path, os.O_RDWR | os.O_CREAT, exclusive=True)
                 try:
-                    # Writers wait on the audit lock from here: only the tail they appended meanwhile is left to copy.
+                    # Writers now wait on the lock: copy only the tail appended meanwhile.
                     _carry_pending(audit_path, out, end, skip, state.sealed)
                     out.flush()
                     os.fsync(out.fileno())

@@ -243,11 +243,10 @@ extender = AuditExtender(sink, fail_closed=True)
 - `seal_index_path` requires the sealing config and must not alias the audit, manifest or anchor paths.
 - A line longer than 64 MiB fails verification and is refused on write; logs written by earlier releases with a seal line over 64 MiB no longer verify.
 - Re-running a sealed run and manual sweeps stay full scans (retained archives are scanned too).
-- Segments: you trigger `rotate_ndjson_segment(audit_path, manifest_path, signer=..., log_id=..., head_anchor=...)` on a schedule or size check; there is no built-in policy. Segments keep the same `log_id`, and a log without a genesis cannot rotate.
-- Pending and crashed runs are carried into the new segment; sweep crashed runs first to stop carrying them.
-- Archives are `<path>.<NNNNNN>` pairs. Retention deletes the oldest pairs (only anchors detect that); moving archives away ends refusal coverage for their runs, which count as sealed through unverified reads (the seal index caches them).
-- `verify_ndjson_segments(...)` verifies the retained history (chain, key continuity, duplicates across segments, stranded records). `verify_ndjson_log` on one pair verifies a single segment, with only the anchors written since its genesis.
-- An interrupted rotation blocks sealing until `rotate_ndjson_segment` runs again. The handover covers `NdjsonAuditSink` writers (shared flock, so not without fcntl).
+- Rotate with `rotate_ndjson_segment(audit_path, manifest_path, signer=..., log_id=..., head_anchor=...)` on your own schedule; the `log_id` stays and the log needs a genesis. Pending and crashed runs are carried over, so sweep crashed runs first.
+- Archives are `<path>.<NNNNNN>` pairs. Deleting the oldest pairs is detected only by anchors; runs sealed in moved archives stop being refused.
+- `verify_ndjson_segments(...)` verifies the retained history; `verify_ndjson_log` on one pair verifies a single segment.
+- An interrupted rotation blocks sealing until `rotate_ndjson_segment` runs again. Safe only for `NdjsonAuditSink` writers (shared flock, needs fcntl).
 - Manifest logs written by earlier releases (version 1 lines) still verify; new lines appended to them are version 2.
 
 ```python
