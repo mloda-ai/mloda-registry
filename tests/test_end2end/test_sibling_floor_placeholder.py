@@ -126,8 +126,9 @@ def test_version_placeholder_expands_to_shared_version() -> None:
         "mloda_community_data_operations>=0.4.4",
         "MLODA-Community-Data-Operations>=0.4.4",
         f'{_DEP}>=0.4.4; python_version>="3.11"',
+        f"{_DEP}~=0.4.4",
     ],
-    ids=["gte-pin", "exact-pin", "bare", "underscores", "mixed-case", "env-marker"],
+    ids=["gte-pin", "exact-pin", "bare", "underscores", "mixed-case", "env-marker", "hand-pinned-tilde"],
 )
 def test_hand_pinned_sibling_dependency_is_rejected(dependency: str) -> None:
     """A sibling dependency written without the {version} placeholder must raise ValueError naming
@@ -150,9 +151,8 @@ def test_hand_pinned_sibling_dependency_is_rejected(dependency: str) -> None:
         f"{_DEP}>=0.4.4,<{{version}}",
         f"{_DEP}=={{version}}",
         f'{_DEP}>=0.4.4; python_version>="{{version}}"',
-        f"{_DEP}~=0.4.4",
     ],
-    ids=["extra-upper-bound", "extra-lower-bound", "exact-operator", "placeholder-in-marker-only", "hand-pinned-tilde"],
+    ids=["extra-upper-bound", "extra-lower-bound", "exact-operator", "placeholder-in-marker-only"],
 )
 def test_malformed_version_placeholder_specifier_is_rejected(dependency: str, request: pytest.FixtureRequest) -> None:
     """{version} alone isn't enough: the specifier (marker stripped) must be exactly '<name>[extras]>={version}' or '~={version}'."""

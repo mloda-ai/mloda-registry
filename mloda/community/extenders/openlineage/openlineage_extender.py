@@ -76,7 +76,8 @@ atexit.register(_close_live_extenders_at_exit)
 
 
 def _is_transport_failure(exc: BaseException) -> bool:
-    """True for an OSError in exc or its __cause__ chain, unless it carries a 4xx response other than 408/429."""
+    """True for an OSError in exc or its cause/context chain (context only when not suppressed), unless it carries
+    a 4xx response other than 408/429. Only OSError-based failures (requests transports such as http) trip it."""
     seen: set[int] = set()
     current: BaseException | None = exc
     while current is not None and id(current) not in seen:
@@ -85,7 +86,12 @@ def _is_transport_failure(exc: BaseException) -> bool:
             status = getattr(getattr(current, "response", None), "status_code", None)
             if not (isinstance(status, int) and 400 <= status < 500 and status not in (408, 429)):
                 return True
-        current = current.__cause__
+        if current.__cause__ is not None:
+            current = current.__cause__
+        elif not current.__suppress_context__:
+            current = current.__context__
+        else:
+            current = None
     return False
 
 
@@ -119,7 +125,8 @@ class OpenLineageExtender(Extender):
     otherwise events past the budget are lost. The parent-death path is best effort. Dataset names for
     loads are core's data_access_identity, recorded as given. After a transport failure (connection, timeout, HTTP
     5xx/408/429) in a run, that run's new steps skip emission for a minute; steps already started still emit their
-    terminal event, and raise_on_error=True disables the skip. Other emit errors never trip it. Stable subclass
+    terminal event, and raise_on_error=True disables the skip. Only OSError-based failures (requests transports such
+    as http) trip it; other transports (kafka, composite, cloud SDKs) never do. Stable subclass
     seams: producer, job_namespace, dataset_namespace, _dispatch, _call_input_data_load, _call_calculate_feature,
     _calculate_run_facets, _calculate_output_facets, _run_with_events; pinned by
     assert_openlineage_extender_seams in mloda.testing."""
@@ -246,9 +253,10 @@ class OpenLineageExtender(Extender):
                     }
                     self._tripped_runs[breaker_run] = now
                 logger.warning(
-                    "%s stops emitting for run %s after an emit failure: %s",
+                    "%s skips new steps of run %s for %gs after a transport failure: %s",
                     type(self).__name__,
                     run_id,
+                    self._BREAKER_RETRY_AFTER,
                     type(exc).__name__,
                 )
             raise

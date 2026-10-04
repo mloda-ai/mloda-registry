@@ -187,6 +187,28 @@ def _runtime_error_from_connection_error() -> BaseException:
         return wrapped
 
 
+def _runtime_error_in_handler_of_connection_error() -> BaseException:
+    """A RuntimeError raised while handling a ConnectionError, chained only implicitly (no `from`)."""
+    try:
+        try:
+            raise ConnectionError(_EMIT_ERROR_MESSAGE)
+        except ConnectionError:
+            raise RuntimeError(_EMIT_ERROR_MESSAGE)
+    except RuntimeError as wrapped:
+        return wrapped
+
+
+def _runtime_error_from_none_after_connection_error() -> BaseException:
+    """A RuntimeError raised `from None` while handling a ConnectionError (context suppressed)."""
+    try:
+        try:
+            raise ConnectionError(_EMIT_ERROR_MESSAGE)
+        except ConnectionError:
+            raise RuntimeError(_EMIT_ERROR_MESSAGE) from None
+    except RuntimeError as wrapped:
+        return wrapped
+
+
 def _spy_on_finalize(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     """Record every OpenLineageExtender that gets a weakref.finalize, delegating to the real one."""
     created: list[Any] = []
@@ -305,6 +327,30 @@ class _UsesPrivateModuleGlobalExtender(OpenLineageExtender):
 class _UsesPrivateModuleNameExtender(OpenLineageExtender):
     def peek_stack(self) -> Any:
         return _open_invocations
+
+
+class _DefinesDeepcopyExtender(OpenLineageExtender):
+    def __deepcopy__(self, memo: dict[int, Any]) -> Any:
+        return self
+
+
+class _OverridesSetattrExtender(OpenLineageExtender):
+    def __setattr__(self, name: str, value: Any) -> None:
+        super().__setattr__(name, value)
+
+
+class _CallsPrivateViaBaseClassExtender(OpenLineageExtender):
+    def peek_client(self) -> Any:
+        return OpenLineageExtender._get_client(self)
+
+
+class _ReadsPrivateClassAttributeExtender(OpenLineageExtender):
+    def peek_timeout(self) -> Any:
+        return type(self)._ATEXIT_CLOSE_TIMEOUT
+
+
+class _OverridesPrivateConstantExtender(OpenLineageExtender):
+    _BREAKER_RETRY_AFTER = 0.0
 
 
 class _StaticmethodOverrideExtender(OpenLineageExtender):
@@ -2098,7 +2144,7 @@ def _breaker_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord
         for r in caplog.records
         if r.name == openlineage_extender_module.__name__
         and r.levelno == logging.WARNING
-        and "stops emitting" in r.getMessage()
+        and "skips new steps" in r.getMessage()
     ]
 
 
@@ -2246,6 +2292,8 @@ class TestOpenLineageExtenderEmitBreaker:
             pytest.param(lambda: _http_error(429), 1, 1, id="http_429"),
             pytest.param(lambda: OSError(_EMIT_ERROR_MESSAGE), 1, 1, id="os_error"),
             pytest.param(_runtime_error_from_connection_error, 1, 1, id="runtime_error_from_connection_error"),
+            pytest.param(_runtime_error_in_handler_of_connection_error, 1, 1, id="runtime_error_implicit_context"),
+            pytest.param(_runtime_error_from_none_after_connection_error, 3, 0, id="runtime_error_from_none"),
         ],
     )
     def test_only_transport_errors_trip_the_breaker(
@@ -2748,6 +2796,11 @@ class TestOpenLineageExtenderSubclassSeams:
             _ReadsPrivateClientExtender,
             _UsesPrivateModuleGlobalExtender,
             _UsesPrivateModuleNameExtender,
+            _DefinesDeepcopyExtender,
+            _OverridesSetattrExtender,
+            _CallsPrivateViaBaseClassExtender,
+            _ReadsPrivateClassAttributeExtender,
+            _OverridesPrivateConstantExtender,
         ],
         ids=[
             "non_seam_override",
@@ -2762,6 +2815,11 @@ class TestOpenLineageExtenderSubclassSeams:
             "private_attribute",
             "private_module_attribute",
             "private_module_name",
+            "deepcopy_override",
+            "setattr_override",
+            "private_via_base_class",
+            "private_via_type",
+            "private_constant_override",
         ],
     )
     def test_seam_checker_rejects_a_subclass_that_breaks_a_seam(

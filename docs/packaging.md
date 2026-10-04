@@ -94,7 +94,8 @@ left carrying an unexpanded placeholder after expansion. `{version}` is only acc
 the spellings `"<sibling>[extras]>={version}"` and `"<sibling>[extras]~={version}"`, for a name that
 normalizes to a configured sibling package; any other use of `{version}` fails generation. `~=` is for a
 dependent built on a sibling's private seams (enterprise lineage on community OpenLineage); it accepts only
-patch releases of the minor it was built with.
+patch releases of the minor it was built with. The `~=` pin binds only through the extra, so install
+enterprise lineage as `mloda-enterprise[openlineage]`.
 
 Naming a nested sibling in an `entry_point_bundle`'s own `dependencies` or a non-dev extra owns that
 sibling: the bundle excludes its code from its own wheel, since the sibling's own distribution ships

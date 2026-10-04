@@ -870,6 +870,11 @@ _DUNDER_OVERRIDE_DENY_LIST = (
     "__reduce_ex__",
     "__copy__",
     "__deepcopy__",
+    "__getattr__",
+    "__getattribute__",
+    "__setattr__",
+    "__delattr__",
+    "__del__",
 )
 
 
@@ -878,19 +883,28 @@ def _is_private(name: str) -> bool:
 
 
 def _assert_no_private_access(klass: type, base: type, private_names: set[str]) -> None:
-    """Fail if klass's body touches a private base member or module internal that is not a seam (class body only)."""
+    """Fail if klass's body touches a private base member or module internal that is not a seam, or reassigns a
+    private base name in the class body (class body only; getattr with a string is not seen)."""
     try:
         tree = ast.parse(textwrap.dedent(inspect.getsource(klass)))
     except (OSError, TypeError) as exc:
         raise AssertionError(f"cannot read the source of {klass.__name__} to check its private access: {exc}") from exc
     base_module = sys.modules[base.__module__]
     klass_globals = sys.modules[klass.__module__].__dict__
+    for class_def in tree.body:
+        if not isinstance(class_def, ast.ClassDef):
+            continue
+        for statement in class_def.body:
+            targets = statement.targets if isinstance(statement, ast.Assign) else []
+            if isinstance(statement, ast.AnnAssign):
+                targets = [statement.target]
+            for assigned in targets:
+                if isinstance(assigned, ast.Name) and assigned.id in private_names:
+                    raise AssertionError(f"{klass.__name__} assigns {assigned.id}, a private member of {base.__name__}")
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and _is_private(node.attr):
             target = node.value
-            is_self = isinstance(target, ast.Name) and target.id == "self"
-            is_super = isinstance(target, ast.Call) and isinstance(target.func, ast.Name) and target.func.id == "super"
-            if (is_self or is_super) and node.attr in private_names:
+            if node.attr in private_names:
                 raise AssertionError(f"{klass.__name__} uses {node.attr}, a private member of {base.__name__}")
             if isinstance(target, ast.Name) and klass_globals.get(target.id) is base_module:
                 raise AssertionError(f"{klass.__name__} uses {target.id}.{node.attr}, a private name of its module")
@@ -923,7 +937,7 @@ def assert_openlineage_extender_seams(cls: type, base: type) -> None:
             break
         _assert_no_private_access(klass, base, private_names)
         for name in _DUNDER_OVERRIDE_DENY_LIST:
-            if name in vars(klass) and hasattr(base, name):
+            if name in vars(klass):
                 raise AssertionError(f"{klass.__name__} overrides {name}, which a subclass must not override")
         for name, value in vars(klass).items():
             is_private = _is_private(name)
