@@ -16,7 +16,7 @@ import pickle  # nosec
 import re
 import stat
 import sys
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
@@ -66,6 +66,7 @@ from mloda.enterprise.extenders.audit.tests.test_audit_extender import (
     _POLICY_VERSION,
     BufferingNdjsonAuditSink,
     InMemoryAuditSink,
+    _ReadSpy,
 )
 from mloda.testing.extenders.runners import expected_value_int, prepare_value_int, run_value_int
 from mloda.testing.import_isolation import block_root, evict_package
@@ -583,49 +584,6 @@ def _oversized_line(extra: Mapping[str, Any] | None = None, cap: int = _CAP) -> 
     line = json.dumps({**(extra or {}), "pad": "x" * cap}, sort_keys=True).encode("utf-8")
     assert len(line) > cap
     return line
-
-
-class _ReadSpy:
-    """A binary file that records the size of every piece a read hands back."""
-
-    def __init__(self, file: Any, seen: list[int]) -> None:
-        self._file = file
-        self._seen = seen
-
-    def __enter__(self) -> _ReadSpy:
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self._file.close()
-
-    def __iter__(self) -> Iterator[bytes]:
-        for raw in self._file:
-            self._seen.append(len(raw))
-            yield raw
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._file, name)
-
-    def _note(self, data: bytes) -> bytes:
-        self._seen.append(len(data))
-        return data
-
-    def read(self, *args: Any) -> bytes:
-        return self._note(self._file.read(*args))
-
-    def read1(self, *args: Any) -> bytes:
-        return self._note(self._file.read1(*args))
-
-    def readline(self, *args: Any) -> bytes:
-        return self._note(self._file.readline(*args))
-
-    def readlines(self, *args: Any) -> list[bytes]:
-        return [self._note(raw) for raw in self._file.readlines(*args)]
-
-    def readinto(self, buffer: Any) -> int:
-        count = int(self._file.readinto(buffer))
-        self._seen.append(count)
-        return count
 
 
 def _torn_manifest_log(directory: Path) -> tuple[Path, Path, str]:
@@ -4419,15 +4377,25 @@ class TestHeadAnchor:
 
         assert _ndjson_anchor(path).latest() is None
 
+    @pytest.mark.parametrize("earlier", [1, 5000], ids=["one-line", "many-lines"])
     def test_latest_ignores_an_oversized_last_line_like_a_torn_one(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, earlier: int
     ) -> None:
         path = tmp_path / "anchor.ndjson"
-        _rewrite_lines(path, [{"head": "a" * 64, "anchored_at": "2026-01-01T00:00:00.000000Z"}])
+        if earlier == 1:
+            _rewrite_lines(path, [{"head": "a" * 64, "anchored_at": "2026-01-01T00:00:00.000000Z"}])
+            previous = "a" * 64
+        else:
+            self._many_heads(path, earlier)
+            previous = f"{earlier - 1:064x}"
         _cap(monkeypatch)
         _append_line(path, _oversized_line({"head": "b" * 64}))
 
-        assert _ndjson_anchor(path).latest() == "a" * 64
+        head, seen = self._latest_with_read_spy(path, monkeypatch)
+
+        assert head == previous
+        if earlier > 1:
+            assert sum(seen) <= 64 * 1024
 
     def test_latest_is_none_when_the_only_line_is_oversized(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -4510,19 +4478,6 @@ class TestHeadAnchor:
         _torn(path, b'{"head": "' + b"t" * 50_000)
 
         assert _ndjson_anchor(path).latest() == long_head
-
-    def test_latest_ignores_an_oversized_last_line_after_many_lines_with_bounded_reads(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        path = tmp_path / "anchor.ndjson"
-        self._many_heads(path, 5000)
-        _cap(monkeypatch)
-        _append_line(path, _oversized_line({"head": "b" * 64}))
-
-        head, seen = self._latest_with_read_spy(path, monkeypatch)
-
-        assert head == f"{4999:064x}"
-        assert sum(seen) <= 64 * 1024
 
     @pytest.mark.parametrize("line", [b'{"head": 5}', b'{"anchored_at": "x"}'], ids=["non-string", "missing"])
     def test_latest_fails_closed_for_a_terminated_line_without_a_string_head(self, tmp_path: Path, line: bytes) -> None:

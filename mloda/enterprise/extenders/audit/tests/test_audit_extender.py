@@ -12,7 +12,7 @@ import pickle  # nosec
 import re
 import stat
 import threading
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import AbstractContextManager
 from datetime import datetime
 from pathlib import Path
@@ -349,20 +349,20 @@ class _LockedAnchor:
         raise AssertionError("a pickled copy never seals")
 
 
-class _SizeSpy:
+class _ReadSpy:
     """A binary file that records the size of every piece a read hands back."""
 
     def __init__(self, file: Any, seen: list[int]) -> None:
         self._file = file
         self._seen = seen
 
-    def __enter__(self) -> _SizeSpy:
+    def __enter__(self) -> _ReadSpy:
         return self
 
     def __exit__(self, *exc: object) -> None:
         self._file.close()
 
-    def __iter__(self) -> Any:
+    def __iter__(self) -> Iterator[bytes]:
         for raw in self._file:
             self._seen.append(len(raw))
             yield raw
@@ -382,6 +382,9 @@ class _SizeSpy:
 
     def readline(self, *args: Any) -> bytes:
         return self._note(self._file.readline(*args))
+
+    def readlines(self, *args: Any) -> list[bytes]:
+        return [self._note(raw) for raw in self._file.readlines(*args)]
 
     def readinto(self, buffer: Any) -> int:
         count = int(self._file.readinto(buffer))
@@ -2264,7 +2267,7 @@ class TestAuditExtenderSealing:
             handle = real_open(file, mode, *args, **kw)
             if mode != "rb" or str(file) != str(manifest_path):
                 return handle
-            return _SizeSpy(handle, read)
+            return _ReadSpy(handle, read)
 
         monkeypatch.setattr(run_manifest_module, "_decode_line", counting_decode)
         monkeypatch.setattr(run_manifest_module, "open", spy_open, raising=False)
