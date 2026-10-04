@@ -1172,8 +1172,7 @@ def _verify_trace(
     signers: Mapping[str, ManifestSigner],
     anchored_heads: Iterable[str] = (),
 ) -> str | None:
-    """Verify the trace lines (v1 only as a prefix), their chain and `anchored_heads` without locking; return the last
-    line's hash."""
+    """Verify the trace lines (v1 only as a prefix), chain and `anchored_heads` without locking; return the head."""
     head: str | None = None
     hashes: set[str] = set()
     seen_v2 = False
