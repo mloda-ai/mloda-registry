@@ -168,7 +168,9 @@ class AuditExtender(Extender):
     emitted to it, and its latest head must still be in the log). A seal failure (any sealing or anchor error, or a
     mismatch with an existing seal) increments the public seal_failures counter and follows seal_failure_policy:
     "log" (default), "raise", or a callable(run_id, exc). Core contains an exception raised from on_run_complete,
-    so "raise" does not fail the finished run."""
+    so "raise" does not fail the finished run. The optional seal_index_path opts into a seal index, a rebuildable
+    cache on writable storage that keeps each auto-seal from re-reading the whole logs; it needs the sealing config
+    and must not alias audit_path, manifest_path or the anchor path."""
 
     def __init__(
         self,

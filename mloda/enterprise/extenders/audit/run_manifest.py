@@ -36,6 +36,12 @@ Limits:
   Still a hand repair (truncate the log back to an anchored head): a terminated undecodable or duplicate-key line
   mid-log, a rotation entry lacking only its newline, a seal signed by a non-current keyring key, and a rotation
   entry as the first line (no anchored head to go back to).
+- Without a seal index every auto-seal verifies the whole manifest log and parses the whole audit file. With
+  `seal_index_path` a seal resumes from a signed checkpoint and no longer re-verifies lines before it, so run
+  verify_ndjson_log(anchored_heads=...) on a schedule; an anchor lagging behind the checkpoint falls back to full
+  verification. Re-running a sealed run and manual sweeps stay full scans.
+- A line longer than MAX_LINE_BYTES (64 MiB) fails verification and is refused on write, which bounds a seal to
+  roughly a million records per run.
 - Sealing and verifying need the log's current key to be `signer` (an archived log verifies with its current key).
   The check is load-bearing: it stops an unused keyring key from taking the log over.
 - verify_manifest on a single manifest cannot order keys.
