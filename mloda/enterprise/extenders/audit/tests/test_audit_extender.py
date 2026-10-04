@@ -4,6 +4,7 @@ core's own instrumentation."""
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import logging
@@ -11,6 +12,7 @@ import os
 import pickle  # nosec
 import re
 import stat
+import sys
 import threading
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import AbstractContextManager
@@ -2827,6 +2829,52 @@ class TestNdjsonAuditSink:
             sink.write({"a": "x" * 100})
 
         assert path.read_bytes() == before
+
+    def test_a_write_whose_file_was_swapped_after_opening_lands_in_the_new_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fcntl = pytest.importorskip("fcntl")
+        path = tmp_path / "audit.ndjson"
+        archive = tmp_path / "audit.ndjson.000001"
+        path.write_bytes(b'{"old": 1}\n')
+        new = tmp_path / "new.ndjson"
+        new.write_bytes(b'{"carried": 1}\n')
+        swapped: list[int] = []
+        real_flock = fcntl.flock
+
+        def flock(fd: int, operation: int) -> None:
+            if not swapped:
+                os.link(path, archive)
+                os.replace(new, path)
+                swapped.append(operation)
+            real_flock(fd, operation)
+
+        monkeypatch.setattr(fcntl, "flock", flock)
+
+        NdjsonAuditSink(path).write({"a": 1})
+
+        assert swapped == [fcntl.LOCK_SH]
+        assert path.read_bytes() == b'{"carried": 1}\n{"a": 1}\n'
+        assert archive.read_bytes() == b'{"old": 1}\n'
+
+    @pytest.mark.parametrize("failure", ["no-fcntl", "flock-error"])
+    def test_the_record_is_written_without_a_lock_when_locking_is_unavailable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+    ) -> None:
+        fcntl = pytest.importorskip("fcntl")
+        path = tmp_path / "audit.ndjson"
+        if failure == "no-fcntl":
+            monkeypatch.setitem(sys.modules, "fcntl", None)
+        else:
+
+            def unsupported(fd: int, operation: int) -> None:
+                raise OSError(errno.ENOLCK, "no locks")
+
+            monkeypatch.setattr(fcntl, "flock", unsupported)
+
+        NdjsonAuditSink(path).write({"a": 1})
+
+        assert path.read_bytes() == b'{"a": 1}\n'
 
     def test_short_write_raises_os_error_naming_the_path(self, tmp_path: Path) -> None:
         path = tmp_path / "audit.ndjson"

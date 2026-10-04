@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -25,6 +26,7 @@ from mloda.enterprise.extenders.audit.run_manifest import (
     _check_line_cap,
     _check_log_id,
     _check_run_against_seal,
+    _open_locked,
     _reject_aliased_paths,
     _signer_map,
     seal_ndjson_runs,
@@ -75,14 +77,24 @@ class NdjsonAuditSink:
     a line, and the file is created owner-only. Opens per write, so it pickles and holds no buffer a
     terminated worker could lose; ordering across writers is not guaranteed. A short write raises
     instead of finishing the line, leaving a torn line that blocks sealing and verification until
-    quarantine_damaged_lines repairs it."""
+    quarantine_damaged_lines repairs it. Each write holds a shared flock (best effort), so a segment rotation
+    holding the exclusive lock cannot strand a record in a file it is replacing."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
 
     def write(self, record: Mapping[str, Any]) -> None:
         _check_line_cap([record])
-        _append_records(self.path, [record])
+        data = _canonical_json(record) + b"\n"
+        fd = _open_locked(self.path, os.O_RDWR | os.O_APPEND | os.O_CREAT, exclusive=False)
+        if fd is None:
+            fd = os.open(self.path, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o600)
+        try:
+            written = os.write(fd, data)
+            if written <= 0 or written < len(data):
+                raise OSError(f"os.write wrote {written} of {len(data)} bytes to {self.path}")
+        finally:
+            os.close(fd)
 
 
 class TeeAuditSink:

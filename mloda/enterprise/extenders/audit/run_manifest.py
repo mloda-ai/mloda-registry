@@ -92,6 +92,7 @@ _HASH_ALGORITHM = "sha256"
 _MIN_KEY_BYTES = 32
 _ED25519_KEY_BYTES = 32
 _ED25519_SIGNATURE = re.compile(r"[0-9a-f]{128}")
+_SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 _SIGNATURE_KEYS = {"algorithm", "key_id", "value"}
 _ROTATION_KIND = "key_rotation"
 _ROTATION_KEYS_V1 = {"manifest_version", "kind", "rotated_at", "previous_manifest_hash", "signature"}
@@ -455,6 +456,9 @@ def _verify_genesis_fields(
         raise ManifestVerificationError("a genesis entry must be manifest_version 2")
     if not isinstance(entry["log_id"], str) or _is_blank(entry["log_id"]):
         raise ManifestVerificationError(f"genesis log_id {entry['log_id']!r} is not a non-blank string")
+    previous = entry["previous_manifest_hash"]
+    if previous is not None and not (isinstance(previous, str) and _SHA256_HEX.fullmatch(previous)):
+        raise ManifestVerificationError("a genesis previous_manifest_hash must be null or a sha256 hex digest")
 
 
 def _rotation_transition(key_id: str, active: str | None, retired: frozenset[str]) -> tuple[str, frozenset[str]]:
@@ -644,11 +648,11 @@ def _check_run_against_seal(
     audit_path's records of run_id no longer match it."""
     with _flock(manifest_path, exclusive=False):
         manifests = _read_manifests(manifest_path)
-    manifest = next((m for m in manifests if m.get("run_id") == run_id), None)
-    if manifest is None:
-        raise ManifestVerificationError(f"run_id {run_id!r} has no manifest in {manifest_path}")
-    _verify_manifest_fields(manifest, signer, _signer_map(signer, previous_signers))
-    _verify_digest(manifest, _digest_runs(audit_path, run_id.__eq__).get(run_id, _RunDigest()))
+        manifest = next((m for m in manifests if m.get("run_id") == run_id), None)
+        if manifest is None:
+            raise ManifestVerificationError(f"run_id {run_id!r} has no manifest in {manifest_path}")
+        _verify_manifest_fields(manifest, signer, _signer_map(signer, previous_signers))
+        _verify_digest(manifest, _digest_runs(audit_path, run_id.__eq__).get(run_id, _RunDigest()))
 
 
 class _AuditScan:
@@ -723,27 +727,46 @@ def _reject_aliased_paths(**named_paths: str | Path) -> None:
         seen[real] = name
 
 
+def _open_locked(path: str | Path, flags: int, *, exclusive: bool) -> int | None:
+    """Open `path` and flock it, reopening while the path names a different file than the locked descriptor (a
+    replaced file). A shared lock is best-effort (the descriptor is returned unlocked on OSError), an exclusive one
+    raises. None without fcntl, with nothing opened."""
+    try:
+        import fcntl
+    except ImportError:
+        return None
+    while True:
+        fd = os.open(path, flags, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        except OSError:
+            if exclusive:
+                os.close(fd)
+                raise
+            return fd
+        try:
+            held, named = os.fstat(fd), os.stat(path)
+            if (held.st_dev, held.st_ino) == (named.st_dev, named.st_ino):
+                return fd
+        except FileNotFoundError:
+            pass
+        except BaseException:
+            os.close(fd)
+            raise
+        os.close(fd)
+
+
 @contextmanager
 def _flock(path: str | Path, *, exclusive: bool) -> Iterator[None]:
     """flock `path`; a shared lock is best-effort, an exclusive one raises on OSError. No lock without fcntl."""
     fd: int | None = None
     try:
         try:
-            import fcntl
-
             # NFS needs a writable descriptor for an exclusive lock.
-            fd = os.open(path, (os.O_RDWR | os.O_CREAT) if exclusive else os.O_RDONLY, 0o600)
-        except ImportError:
-            pass
+            fd = _open_locked(path, (os.O_RDWR | os.O_CREAT) if exclusive else os.O_RDONLY, exclusive=exclusive)
         except FileNotFoundError:
             if exclusive:
                 raise
-        else:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
-            except OSError:
-                if exclusive:
-                    raise
         yield
     finally:
         if fd is not None:
@@ -796,6 +819,10 @@ def _verify_log(
             _verify_genesis_fields(manifest, signer, signers)
             if log_id is not None and manifest["log_id"] != log_id:
                 raise ManifestVerificationError(f"manifest log is for log_id {manifest['log_id']!r}, not {log_id!r}")
+            if seed.head is None and manifest["previous_manifest_hash"] is not None:
+                # A successor segment: its predecessor's final head is the chain start and a known head.
+                head = manifest["previous_manifest_hash"]
+                hashes.add(head)
             active = manifest["signature"]["key_id"]
             genesis_id = manifest["log_id"]
             where = "the genesis entry"
@@ -946,13 +973,13 @@ def _rotation_entry(
     return entry
 
 
-def _genesis_entry(signer: ManifestSigner, log_id: str) -> dict[str, Any]:
+def _genesis_entry(signer: ManifestSigner, log_id: str, previous: str | None = None) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "manifest_version": _MANIFEST_VERSION,
         "kind": _GENESIS_KIND,
         "log_id": log_id,
         "created_at": _utc_now(),
-        "previous_manifest_hash": None,
+        "previous_manifest_hash": previous,
     }
     entry["signature"] = _signature_block(entry, signer)
     return entry
@@ -1561,15 +1588,15 @@ def verify_ndjson_log_coverage(
     signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
     _check_log_id("verify_ndjson_log_coverage", log_id)
-    # Log first: a run sealed after this read looks unsealed, not tampered.
+    uncovered = _Uncovered()
+    # Log first: a run sealed after this read looks unsealed, not tampered. The shared lock spans both reads.
     with _flock(manifest_path, exclusive=False):
         manifests = _read_manifests(manifest_path)
-    sealed = {manifest["run_id"] for manifest in manifests if isinstance(manifest.get("run_id"), str)}
-    uncovered = _Uncovered()
-    try:
-        digests = _digest_runs(audit_path, sealed.__contains__, uncovered)
-    except FileNotFoundError:
-        digests = {}
+        sealed = {manifest["run_id"] for manifest in manifests if isinstance(manifest.get("run_id"), str)}
+        try:
+            digests = _digest_runs(audit_path, sealed.__contains__, uncovered)
+        except FileNotFoundError:
+            digests = {}
     state = _verify_log(
         manifests,
         signer=signer,

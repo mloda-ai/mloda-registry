@@ -365,6 +365,20 @@ def _genesis_log(directory: Path, log_id: str = "log-a") -> tuple[Path, Path]:
     return audit_path, manifest_path
 
 
+_PREDECESSOR = _sha256(b"previous-segment-final-head")
+
+
+def _successor_log(directory: Path, predecessor: Any = _PREDECESSOR) -> tuple[Path, Path]:
+    """A successor segment: a genesis naming `predecessor`, then runs a and b sealed onto it."""
+    audit_path = directory / "audit.ndjson"
+    manifest_path = directory / "manifests.ndjson"
+    _write_records(audit_path, [_record("run-a", 1), _record("run-b", 2)])
+    _write_records(manifest_path, [_genesis_entry(_signer(), previous_manifest_hash=predecessor)])
+    manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), log_id="log-a")
+    assert [manifest["run_id"] for manifest in manifests] == ["run-a", "run-b"]
+    return audit_path, manifest_path
+
+
 def _under_key(current: str, signer: str) -> str:
     """A `match` pattern for the log-under-another-key error."""
     return "^" + re.escape(f"manifest log is under key '{current}', not the signer's '{signer}'") + "$"
@@ -867,6 +881,31 @@ def _lock_refused(path: Path) -> bool:
 
 def _flock_unsupported(fd: int, operation: int) -> None:
     raise OSError(errno.ENOLCK, "no locks")
+
+
+def _swap_on_first_flock(monkeypatch: pytest.MonkeyPatch, path: Path, tmp_path: Path) -> tuple[Path, list[int], int]:
+    """Make the first flock on `path`'s current inode first replace `path` with a copy (a new inode), as a rotation
+    would after the caller opened the old file but before it locked it. Returns the hard-linked archive of the old
+    file, the inode of every flock on the old or new file in order, and the new file's inode."""
+    fcntl = pytest.importorskip("fcntl")
+    archive = tmp_path / "archive.ndjson"
+    os.link(path, archive)
+    new = tmp_path / "new.ndjson"
+    new.write_bytes(path.read_bytes())
+    old_ino, new_ino = path.stat().st_ino, new.stat().st_ino
+    locked: list[int] = []
+    real_flock = fcntl.flock
+
+    def flock(fd: int, operation: int) -> None:
+        ino = os.fstat(fd).st_ino
+        if ino == old_ino and not locked:
+            os.replace(new, path)
+        if ino in (old_ino, new_ino):
+            locked.append(ino)
+        real_flock(fd, operation)
+
+    monkeypatch.setattr(fcntl, "flock", flock)
+    return archive, locked, new_ino
 
 
 class _PrefixSigner:
@@ -2126,6 +2165,21 @@ class TestSealNdjsonRuns:
         assert excinfo.value.errno == errno.ENOLCK
         assert manifest_path.read_bytes() == before
 
+    def test_a_sealer_locking_a_replaced_manifest_relocks_and_seals_in_the_new_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        archive, locked, new_ino = _swap_on_first_flock(monkeypatch, manifest_path, tmp_path)
+        archived = archive.read_bytes()
+        _write_records(audit_path, [_record("run-d", 7)])
+
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+        assert [manifest["run_id"] for manifest in manifests] == ["run-d"]
+        assert locked[-1] == new_ino
+        assert [line["run_id"] for line in _read_lines(manifest_path)][-1] == "run-d"
+        assert archive.read_bytes() == archived
+
     def test_missing_audit_file_still_fails_sealing(self, tmp_path: Path) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
         audit_path.unlink()
@@ -2977,6 +3031,23 @@ class TestCheckRunAgainstSeal:
         # must not raise
         run_manifest_module._check_run_against_seal(audit_path, manifest_path, "run-1", signer=_signer())
 
+    def test_the_manifest_is_shared_locked_while_the_audit_file_is_read(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        locked_during_read: list[bool] = []
+        real_digest_runs = run_manifest_module._digest_runs
+
+        def digest_runs(*args: Any, **kwargs: Any) -> Any:
+            locked_during_read.append(_lock_refused(manifest_path))
+            return real_digest_runs(*args, **kwargs)
+
+        monkeypatch.setattr(run_manifest_module, "_digest_runs", digest_runs)
+
+        run_manifest_module._check_run_against_seal(audit_path, manifest_path, "run-a", signer=_signer())
+
+        assert locked_during_read == [True]
+
     def test_a_manifest_edited_to_hide_a_stray_record_fails_the_signature_check(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"
         manifest_path = tmp_path / "manifests.ndjson"
@@ -3712,6 +3783,35 @@ class TestVerifyNdjsonLog:
 
 @_both_algorithms
 class TestVerifyNdjsonLogCoverage:
+    def test_a_verifier_locking_a_replaced_manifest_relocks_the_new_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        archive, locked, new_ino = _swap_on_first_flock(monkeypatch, manifest_path, tmp_path)
+        archived = archive.read_bytes()
+
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+        assert locked[-1] == new_ino
+        assert archive.read_bytes() == archived
+
+    def test_the_manifest_is_shared_locked_while_the_audit_file_is_read(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        locked_during_read: list[bool] = []
+        real_digest_runs = run_manifest_module._digest_runs
+
+        def digest_runs(*args: Any, **kwargs: Any) -> Any:
+            locked_during_read.append(_lock_refused(manifest_path))
+            return real_digest_runs(*args, **kwargs)
+
+        monkeypatch.setattr(run_manifest_module, "_digest_runs", digest_runs)
+
+        verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+        assert locked_during_read == [True]
+
     def test_fully_sealed_log_covers_every_line(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"
         manifest_path = tmp_path / "manifests.ndjson"
@@ -4276,6 +4376,14 @@ class TestAnchoredHeads:
         assert len(heads) == 4
 
         call(audit_path, manifest_path, log_id="log-a", anchored_heads=heads)
+
+    @_each_anchored_call
+    def test_the_predecessor_head_of_a_successor_genesis_passes_as_an_anchor(
+        self, tmp_path: Path, call: Callable[..., Any]
+    ) -> None:
+        audit_path, manifest_path = _successor_log(tmp_path)
+
+        call(audit_path, manifest_path, log_id="log-a", anchored_heads=[_PREDECESSOR, *_log_heads(manifest_path)])
 
     @_each_anchored_call
     def test_an_anchored_heads_iterator_is_accepted(self, tmp_path: Path, call: Callable[..., Any]) -> None:
@@ -5134,7 +5242,10 @@ class TestGenesis:
             lambda: _genesis_entry(_signer(b"x" * 32, "key-1")),
             lambda: _genesis_entry(_signer(), created_at=_MISSING),
             lambda: _genesis_entry(_signer(), run_id="run-x"),
-            lambda: _genesis_entry(_signer(), previous_manifest_hash="0" * 64),
+            lambda: _genesis_entry(_signer(), previous_manifest_hash="z" * 64),
+            lambda: _genesis_entry(_signer(), previous_manifest_hash=5),
+            lambda: _genesis_entry(_signer(), previous_manifest_hash="a" * 63),
+            lambda: _genesis_entry(_signer(), previous_manifest_hash="A" * 64),
             lambda: _genesis_entry(_signer(), manifest_version=3),
             lambda: _genesis_entry(_signer(), log_id=""),
             lambda: _genesis_entry(_signer(), log_id=5),
@@ -5144,6 +5255,9 @@ class TestGenesis:
             "missing-key",
             "extra-key",
             "non-null-previous-hash",
+            "non-str-previous-hash",
+            "short-previous-hash",
+            "uppercase-previous-hash",
             "wrong-version",
             "blank-log-id",
             "non-str-log-id",
@@ -5159,6 +5273,39 @@ class TestGenesis:
 
         with pytest.raises(ManifestVerificationError):
             verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    @pytest.mark.parametrize("log_id", [None, "log-a"], ids=["no-log-id", "log-id"])
+    def test_a_genesis_naming_a_predecessor_head_verifies_standalone(self, tmp_path: Path, log_id: str | None) -> None:
+        audit_path, manifest_path = _successor_log(tmp_path)
+        genesis, *seals = _read_lines(manifest_path)
+        assert genesis["previous_manifest_hash"] == _PREDECESSOR
+
+        head = verify_ndjson_log(audit_path, manifest_path, signer=_signer(), log_id=log_id)
+
+        assert head == manifest_hash(seals[-1])
+        assert seals[0]["previous_manifest_hash"] == manifest_hash(genesis)
+
+    def test_sealing_continues_a_successor_segment(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _successor_log(tmp_path)
+        _write_records(audit_path, [_record("run-c", 3)])
+
+        manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), log_id="log-a")
+
+        assert [manifest["run_id"] for manifest in manifests] == ["run-c"]
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer(), log_id="log-a") == manifest_hash(
+            manifests[-1]
+        )
+
+    def test_a_successor_segment_rotates_its_key(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _successor_log(tmp_path)
+
+        entry = _rotate(manifest_path, _signer(_OTHER_KEY, "key-2"), _signer())
+
+        assert entry["kind"] == "key_rotation"
+        head = verify_ndjson_log(
+            audit_path, manifest_path, signer=_signer(_OTHER_KEY, "key-2"), previous_signers=[_signer()]
+        )
+        assert head == manifest_hash(entry)
 
     def test_deleting_both_files_and_sealing_with_a_log_id_but_no_anchor_silently_starts_a_new_log(
         self, tmp_path: Path
@@ -5432,6 +5579,18 @@ class TestQuarantineDamagedLines:
         manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), expected_head=head)
         assert [(manifest["run_id"], manifest["previous_manifest_hash"]) for manifest in manifests] == [("run-d", head)]
         assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == manifest_hash(manifests[-1])
+
+    def test_torn_manifest_tail_of_a_successor_segment_is_truncated(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _successor_log(tmp_path)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        before = manifest_path.read_bytes()
+        _torn(manifest_path, b'{"manifest_version": 2, "run_')
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert [item.file for item in removed] == ["manifest"]
+        assert manifest_path.read_bytes() == before
+        assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == head
 
     def test_trace_has_one_entry_per_removed_line_in_removal_order(self, tmp_path: Path) -> None:
         audit_path, manifest_path, _ = _damaged_log(tmp_path)
