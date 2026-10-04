@@ -43,12 +43,6 @@ def _problems(report: Any) -> tuple[list[str], list[str], list[str]]:
     return list(report.missing), list(report.foreign), list(report.unverifiable)
 
 
-def test_owned_project_is_ok() -> None:
-    """A 200 listing the expected owner lands in no problem list."""
-    owner = _script().EXPECTED_OWNER
-    assert _problems(_check(lambda _name: (200, _payload("someone", owner)), ["mloda-foo"])) == ([], [], [])
-
-
 def test_404_is_missing_and_not_retried() -> None:
     """A 404 is reported missing after exactly one fetch."""
     calls: list[str] = []
@@ -61,35 +55,44 @@ def test_404_is_missing_and_not_retried() -> None:
     assert calls == ["mloda-foo"]
 
 
-def test_other_owner_is_foreign() -> None:
-    """A 200 without the expected owner is foreign."""
-    assert _problems(_check(lambda _name: (200, _payload("stranger")), ["mloda-foo"])) == ([], ["mloda-foo"], [])
+_OWNER = "<expected owner>"
+_Response = tuple[int, dict[str, Any] | None] | Exception
+_NONE: tuple[list[str], list[str], list[str]] = ([], [], [])
+
+_FETCH_CASES: list[Any] = [
+    pytest.param([(200, _payload("someone", _OWNER))], _NONE, id="owned"),
+    pytest.param([(200, _payload("stranger"))], ([], ["mloda-foo"], []), id="other-owner-is-foreign"),
+    pytest.param([(200, {"info": {}})], ([], ["mloda-foo"], []), id="missing-ownership-key-is-foreign"),
+    pytest.param([(503, None), (200, _payload(_OWNER))], _NONE, id="503-then-owned-passes-after-retry"),
+    pytest.param([(503, None), (503, None)], ([], [], ["mloda-foo"]), id="persistent-503-is-unverifiable"),
+    pytest.param(
+        [TimeoutError("timed out"), TimeoutError("timed out")], ([], [], ["mloda-foo"]), id="persistent-timeout"
+    ),
+]
 
 
-def test_missing_ownership_key_is_foreign() -> None:
-    """A 200 payload with no ownership data cannot prove ownership, so it is foreign."""
-    assert _problems(_check(lambda _name: (200, {"info": {}}), ["mloda-foo"])) == ([], ["mloda-foo"], [])
-
-
-def test_503_then_200_passes_after_retry() -> None:
-    """A transient 503 followed by an owned 200 is ok."""
+@pytest.mark.parametrize(("responses", "expected"), _FETCH_CASES)
+def test_check_names_classifies_fetch_outcomes(
+    responses: list[_Response], expected: tuple[list[str], list[str], list[str]]
+) -> None:
+    """Replayed fetch responses land the name in the expected (missing, foreign, unverifiable) lists."""
     owner = _script().EXPECTED_OWNER
-    responses = iter([(503, None), (200, _payload(owner))])
-    assert _problems(_check(lambda _name: next(responses), ["mloda-foo"])) == ([], [], [])
+    replay = iter(responses)
 
+    def fetch(_name: str) -> tuple[int, dict[str, Any] | None]:
+        response = next(replay)
+        if isinstance(response, Exception):
+            raise response
+        status, payload = response
+        if payload is not None and "ownership" in payload:
+            roles = [
+                {**role, "user": owner if role["user"] == _OWNER else role["user"]}
+                for role in payload["ownership"]["roles"]
+            ]
+            payload = {"ownership": {"roles": roles}}
+        return status, payload
 
-def _always_503(_name: str) -> tuple[int, dict[str, Any] | None]:
-    return 503, None
-
-
-def _always_timeout(_name: str) -> tuple[int, dict[str, Any] | None]:
-    raise TimeoutError("timed out")
-
-
-@pytest.mark.parametrize("fetch", [_always_503, _always_timeout], ids=["status-503", "timeout"])
-def test_persistent_failure_is_unverifiable(fetch: _Fetch) -> None:
-    """A name that keeps failing after the retries is unverifiable."""
-    assert _problems(_check(fetch, ["mloda-foo"])) == ([], [], ["mloda-foo"])
+    assert _problems(_check(fetch, ["mloda-foo"])) == expected
 
 
 def test_fetch_receives_the_canonical_name() -> None:
@@ -105,21 +108,21 @@ def test_fetch_receives_the_canonical_name() -> None:
     assert seen == ["mloda-foo-bar"]
 
 
-def test_main_returns_1_when_a_name_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """main() fails when any configured name is not on PyPI."""
+@pytest.mark.parametrize(
+    ("result", "exit_code"),
+    [((404, None), 1), ((200, _payload(_OWNER)), 0)],
+    ids=["missing-name-fails", "all-owned-passes"],
+)
+def test_main_exit_code(
+    monkeypatch: pytest.MonkeyPatch, result: tuple[int, dict[str, Any] | None], exit_code: int
+) -> None:
+    """main() exits 1 when a name is missing and 0 when every name is owned."""
     script = _script()
-    monkeypatch.setattr(script, "configured_names", lambda: ["mloda-foo"])
-    monkeypatch.setattr(script, "fetch_project", lambda _name: (404, None))
-    assert script.main() == 1
-
-
-def test_main_returns_0_when_all_names_are_owned(monkeypatch: pytest.MonkeyPatch) -> None:
-    """main() passes when every configured name is owned by us."""
-    script = _script()
-    owner = script.EXPECTED_OWNER
+    if result[1] is not None:
+        result = (result[0], _payload(script.EXPECTED_OWNER))
     monkeypatch.setattr(script, "configured_names", lambda: ["mloda-foo", "mloda-bar"])
-    monkeypatch.setattr(script, "fetch_project", lambda _name: (200, _payload(owner)))
-    assert script.main() == 0
+    monkeypatch.setattr(script, "fetch_project", lambda _name: result)
+    assert script.main() == exit_code
 
 
 def test_package_integrity_workflow_runs_the_script() -> None:
