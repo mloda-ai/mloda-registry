@@ -270,10 +270,11 @@ python scripts/generate_pyproject.py    # Regenerate
    `# --- Bundles ---` marker and after every published package it depends on:
    `scripts/published_packages.py` rejects a config that is not dependency-first.
 2. For a plugin package, create `<path>/manifest.py` listing the concrete classes.
-3. Every configured name must be registered on PyPI and owned by the mloda account before the
-   PR merges, or the `package-integrity` workflow's name check fails. A maintainer reserves a new
-   name with a code-free `0.0.1` placeholder uploaded from the account the release publishes with;
-   for a bundle-only package its only dependency is the bundle that ships it.
+3. Every configured package (published or not) must be registered on PyPI and owned by the PyPI
+   account `EXPECTED_OWNER` names in `scripts/check_pypi_names.py` before the PR merges, or the
+   `package-integrity` workflow's name check fails. A maintainer reserves the name with a code-free
+   `0.0.1` placeholder uploaded from the account the release publishes with; for a bundle-only
+   package, the placeholder's only dependency is the bundle that ships it.
    If it should ship standalone on PyPI, set `published = true` and add the name to
    `_EXPECTED_PUBLISHED` in `tests/test_end2end/test_published_set_single_source.py`;
    otherwise add it to `_BUNDLE_ONLY` there. The gate checks both lists against config, in

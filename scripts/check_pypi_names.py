@@ -29,7 +29,7 @@ published_packages = _load_sibling("published_packages")
 
 
 class NameReport:
-    """Names grouped by problem; a plain class because tests load this script without registering the module."""
+    """Names by problem; a plain class because tests load this script without registering the module."""
 
     def __init__(self) -> None:
         self.missing: list[str] = []
