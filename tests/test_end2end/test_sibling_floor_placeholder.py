@@ -194,25 +194,14 @@ def test_version_placeholder_outside_a_sibling_floor_is_rejected(dependency: str
     assert dependency in message, f"error message must name the offending dependency {dependency!r}, got: {message}"
 
 
-def test_version_placeholder_with_extras_is_accepted() -> None:
-    """A sibling requirement may carry extras before the floor operator: '<name>[extras]>={version}'."""
-    shared, _packages_config = gen.load_configs()
-    dependency = f"{_DEP}[all]>={{version}}"
-    packages = _synthetic_packages(dependency)
-
-    deps = _generated_dependencies(_LEAF, packages, shared)
-
-    expected = f"{_DEP}[all]>={shared['project']['version']}"
-    assert deps == [expected], f"expected exactly [{expected!r}], got {deps!r}"
-
-
+@pytest.mark.parametrize("operator", [">=", "~="], ids=["floor", "compatible-release"])
 @pytest.mark.parametrize("suffix", ["", "[all]"], ids=["plain", "with-extras"])
 @pytest.mark.parametrize("via_extra", [False, True], ids=["dependencies", "extra"])
-def test_compatible_release_operator_is_accepted_and_expanded(suffix: str, via_extra: bool) -> None:
-    """A sibling may be written '<name>[extras]~={version}' (patch releases of the built minor), in 'dependencies' or an extra."""
+def test_version_placeholder_spelling_is_accepted_and_expanded(operator: str, suffix: str, via_extra: bool) -> None:
+    """A sibling may be written '<name>[extras]>={version}' or '<name>[extras]~={version}', in 'dependencies' or an extra."""
     shared, _packages_config = gen.load_configs()
-    dependency = f"{_DEP}{suffix}~={{version}}"
-    expected = f"{_DEP}{suffix}~={shared['project']['version']}"
+    dependency = f"{_DEP}{suffix}{operator}{{version}}"
+    expected = f"{_DEP}{suffix}{operator}{shared['project']['version']}"
 
     if via_extra:
         packages = _synthetic_packages(f"{_DEP}>={{version}}")

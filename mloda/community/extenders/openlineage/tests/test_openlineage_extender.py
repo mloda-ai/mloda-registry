@@ -2236,38 +2236,24 @@ class TestOpenLineageExtenderEmitBreaker:
         assert extender._tripped_runs == {}
 
     @pytest.mark.parametrize(
-        "error_factory",
-        [lambda: RuntimeError(_EMIT_ERROR_MESSAGE), lambda: TypeError(_EMIT_ERROR_MESSAGE), lambda: _http_error(400)],
-        ids=["runtime_error", "type_error", "http_400"],
-    )
-    def test_non_transport_errors_never_trip_the_breaker(
-        self, error_factory: Callable[[], BaseException], caplog: pytest.LogCaptureFixture
-    ) -> None:
-        transport = _FailingEmitTransport(error_factory)
-        extender = OpenLineageExtender(client=OpenLineageClient(transport=transport))
-        composite = CompositeExtender([extender])
-        sentinel = object()
-
-        with caplog.at_level(logging.WARNING):
-            results = [self._composite_call(composite, _RUN_X, sentinel) for _ in range(3)]
-
-        assert all(result is sentinel for result in results)
-        assert transport.emit_attempts == 3
-        assert _breaker_records(caplog) == []
-
-    @pytest.mark.parametrize(
-        "error_factory",
+        ("error_factory", "expected_attempts", "expected_warnings"),
         [
-            lambda: _http_error(503),
-            lambda: _http_error(408),
-            lambda: _http_error(429),
-            lambda: OSError(_EMIT_ERROR_MESSAGE),
-            _runtime_error_from_connection_error,
+            pytest.param(lambda: RuntimeError(_EMIT_ERROR_MESSAGE), 3, 0, id="runtime_error"),
+            pytest.param(lambda: TypeError(_EMIT_ERROR_MESSAGE), 3, 0, id="type_error"),
+            pytest.param(lambda: _http_error(400), 3, 0, id="http_400"),
+            pytest.param(lambda: _http_error(503), 1, 1, id="http_503"),
+            pytest.param(lambda: _http_error(408), 1, 1, id="http_408"),
+            pytest.param(lambda: _http_error(429), 1, 1, id="http_429"),
+            pytest.param(lambda: OSError(_EMIT_ERROR_MESSAGE), 1, 1, id="os_error"),
+            pytest.param(_runtime_error_from_connection_error, 1, 1, id="runtime_error_from_connection_error"),
         ],
-        ids=["http_503", "http_408", "http_429", "os_error", "runtime_error_from_connection_error"],
     )
-    def test_transport_errors_trip_the_breaker(
-        self, error_factory: Callable[[], BaseException], caplog: pytest.LogCaptureFixture
+    def test_only_transport_errors_trip_the_breaker(
+        self,
+        error_factory: Callable[[], BaseException],
+        expected_attempts: int,
+        expected_warnings: int,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         transport = _FailingEmitTransport(error_factory)
         extender = OpenLineageExtender(client=OpenLineageClient(transport=transport))
@@ -2278,8 +2264,8 @@ class TestOpenLineageExtenderEmitBreaker:
             results = [self._composite_call(composite, _RUN_X, sentinel) for _ in range(3)]
 
         assert all(result is sentinel for result in results)
-        assert transport.emit_attempts == 1
-        assert len(_breaker_records(caplog)) == 1
+        assert transport.emit_attempts == expected_attempts
+        assert len(_breaker_records(caplog)) == expected_warnings
 
     def test_a_skipped_start_still_runs_func_returns_its_result_and_emits_no_terminal_event(self) -> None:
         transport = _FailingEmitTransport(_connection_error)
