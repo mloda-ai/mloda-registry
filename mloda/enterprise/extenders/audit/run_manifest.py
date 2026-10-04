@@ -59,6 +59,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
+from itertools import islice
 from pathlib import Path
 from types import ModuleType
 from typing import IO, TYPE_CHECKING, Any, Protocol
@@ -554,8 +555,8 @@ def _read_lines(file: IO[bytes]) -> Iterator[bytes]:
         yield line
 
 
-def _parse_ndjson_line(path: str | Path, number: int, raw: bytes) -> tuple[bytes, dict[str, Any]]:
-    where = f"{path} line {number}"
+def _parse_ndjson_line(path: str | Path, number: int | str, raw: bytes) -> tuple[bytes, dict[str, Any]]:
+    where = f"{path} line {number}" if isinstance(number, int) else f"{path} {number}"
     if isinstance(raw, _OversizedLine):
         raise ManifestVerificationError(f"{where} is longer than {MAX_LINE_BYTES} bytes")
     if not raw.endswith(b"\n"):
@@ -790,6 +791,34 @@ class HeadAnchor(Protocol):
     def latest(self) -> str | None: ...
 
 
+_TAIL_CHUNK = 8 * 1024
+
+
+def _read_lines_reversed(file: IO[bytes]) -> Iterator[bytes | None]:
+    """Yield the lines of `file` last to first, reading bounded chunks and keeping at most MAX_LINE_BYTES bytes of
+    a line. The unterminated tail (if any) comes first without a newline; a line over the cap is yielded as None."""
+
+    def emit(seg: bytes, size: int, terminated: bool) -> bytes | None:
+        return None if size > MAX_LINE_BYTES else seg + (b"\n" if terminated else b"")
+
+    pos = file.seek(0, os.SEEK_END)
+    seg, size, tail = b"", 0, True
+    while pos > 0:
+        step = min(_TAIL_CHUNK, pos)
+        pos -= step
+        file.seek(pos)
+        parts = file.read(step).split(b"\n")
+        for i in range(len(parts) - 1, -1, -1):
+            size += len(parts[i])
+            seg = parts[i] + seg if size <= MAX_LINE_BYTES else b""
+            if i:
+                if size or not tail:
+                    yield emit(seg, size, not tail)
+                seg, size, tail = b"", 0, False
+    if size or not tail:
+        yield emit(seg, size, not tail)
+
+
 class NdjsonHeadAnchor:
     """A HeadAnchor appending {"head", "anchored_at"} lines to a file; keep it on storage the log writer cannot
     rewrite."""
@@ -805,16 +834,17 @@ class NdjsonHeadAnchor:
         or oversized last line (crash residue) is ignored; a terminated bad line raises ManifestVerificationError."""
         try:
             with open(self._path, "rb") as file:
-                lines = list(_read_lines(file))
+                lines = list(islice(_read_lines_reversed(file), 2))
         except FileNotFoundError:
             return None
-        if lines and (isinstance(lines[-1], _OversizedLine) or not lines[-1].endswith(b"\n")):
-            lines.pop()
+        if lines and (lines[0] is None or not lines[0].endswith(b"\n")):
+            lines.pop(0)
         if not lines:
             return None
-        head = _parse_ndjson_line(self._path, len(lines), lines[-1])[1].get("head")
+        raw = _OversizedLine() if lines[0] is None else lines[0]
+        head = _parse_ndjson_line(self._path, "last terminated line", raw)[1].get("head")
         if not isinstance(head, str):
-            raise ManifestVerificationError(f"{self._path} line {len(lines)} has no string head")
+            raise ManifestVerificationError(f"{self._path} last terminated line has no string head")
         return head
 
 

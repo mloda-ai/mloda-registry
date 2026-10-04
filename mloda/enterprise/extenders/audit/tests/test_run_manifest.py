@@ -3789,6 +3789,92 @@ class TestHeadAnchor:
 
         assert _ndjson_anchor(path).latest() is None
 
+    @staticmethod
+    def _latest_with_read_spy(path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[str | None, list[int]]:
+        seen: list[int] = []
+        real_open = open
+
+        def spy_open(file: Any, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+            handle = real_open(file, mode, *args, **kwargs)
+            return _ReadSpy(handle, seen) if mode == "rb" else handle
+
+        monkeypatch.setattr(run_manifest_module, "open", spy_open, raising=False)
+        return _ndjson_anchor(path).latest(), seen
+
+    @staticmethod
+    def _many_heads(path: Path, count: int) -> None:
+        _rewrite_lines(
+            path,
+            [{"head": f"{number:064x}", "anchored_at": "2026-01-01T00:00:00.000000Z"} for number in range(count)],
+        )
+
+    def test_latest_reads_a_bounded_tail_not_the_whole_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = tmp_path / "anchor.ndjson"
+        self._many_heads(path, 5000)
+        assert path.stat().st_size > 400_000
+
+        head, seen = self._latest_with_read_spy(path, monkeypatch)
+
+        assert head == f"{4999:064x}"
+        assert seen
+        assert sum(seen) <= 64 * 1024
+
+    def test_latest_read_volume_does_not_grow_with_the_number_of_earlier_lines(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        small, large = tmp_path / "small.ndjson", tmp_path / "large.ndjson"
+        self._many_heads(small, 50)
+        self._many_heads(large, 5000)
+
+        _, seen_small = self._latest_with_read_spy(small, monkeypatch)
+        _, seen_large = self._latest_with_read_spy(large, monkeypatch)
+
+        assert sum(seen_large) <= max(sum(seen_small), 1) + 32 * 1024
+
+    def test_latest_ignores_a_torn_tail_after_many_lines_without_reading_them_all(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = tmp_path / "anchor.ndjson"
+        self._many_heads(path, 5000)
+        _torn(path, b'{"head": "bb')
+
+        head, seen = self._latest_with_read_spy(path, monkeypatch)
+
+        assert head == f"{4999:064x}"
+        assert sum(seen) <= 64 * 1024
+
+    def test_latest_returns_a_last_line_longer_than_any_read_chunk(self, tmp_path: Path) -> None:
+        path = tmp_path / "anchor.ndjson"
+        self._many_heads(path, 20)
+        long_head = "h" * 100_000
+        _append_line(path, json.dumps({"head": long_head, "anchored_at": "2026-01-01T00:00:00.000000Z"}).encode())
+
+        assert _ndjson_anchor(path).latest() == long_head
+
+    def test_latest_returns_the_previous_long_head_when_a_long_tail_is_torn(self, tmp_path: Path) -> None:
+        path = tmp_path / "anchor.ndjson"
+        self._many_heads(path, 20)
+        long_head = "h" * 100_000
+        _append_line(path, json.dumps({"head": long_head, "anchored_at": "2026-01-01T00:00:00.000000Z"}).encode())
+        _torn(path, b'{"head": "' + b"t" * 50_000)
+
+        assert _ndjson_anchor(path).latest() == long_head
+
+    def test_latest_ignores_an_oversized_last_line_after_many_lines_with_bounded_reads(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = tmp_path / "anchor.ndjson"
+        self._many_heads(path, 5000)
+        _cap(monkeypatch)
+        _append_line(path, _oversized_line({"head": "b" * 64}))
+
+        head, seen = self._latest_with_read_spy(path, monkeypatch)
+
+        assert head == f"{4999:064x}"
+        assert sum(seen) <= 64 * 1024
+
     @pytest.mark.parametrize("line", [b'{"head": 5}', b'{"anchored_at": "x"}'], ids=["non-string", "missing"])
     def test_latest_fails_closed_for_a_terminated_line_without_a_string_head(self, tmp_path: Path, line: bytes) -> None:
         path = tmp_path / "anchor.ndjson"
