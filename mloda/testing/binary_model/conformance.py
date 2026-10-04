@@ -296,7 +296,7 @@ class BinaryModelConformanceBase:
     # single-column shape.
     extra_input_column: ClassVar[str] = "extra_input_column"
 
-    # None means no limit; an operation taking one column sets 1 so the schema checks configure one.
+    # None means no limit; an operation taking one column sets 1.
     max_input_columns: ClassVar[int | None] = None
 
     # License fixture texts (contract: License), computed lazily from ``self.plugin_id``/
@@ -1111,8 +1111,8 @@ class BinaryModelConformanceBase:
     def test_input_schema_presence_error_precedes_type_error(
         self, valid_license_env: dict[str, str], tmp_path: Path
     ) -> None:
-        """A presence violation (a missing column) combined with a type violation (the present
-        column sent with the wrong type) is a data error, not code 4: presence is checked first
+        """A presence violation (a missing column, or an extra field when one column is configured)
+        plus a wrongly typed field is a data error, not code 4: presence is checked first
         (contract: Data)."""
         column = self.default_input_columns[0]
         config_path = write_json(tmp_path / "config.json", self.make_config(input_columns=[column]))
