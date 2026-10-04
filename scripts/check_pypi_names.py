@@ -7,6 +7,7 @@ Usage:
 
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import runpy
@@ -50,8 +51,9 @@ def configured_names() -> list[str]:
 def fetch_project(name: str) -> tuple[int, dict[str, Any] | None]:
     """Fetch the PyPI JSON for a project; HTTP errors become (code, None)."""
     url = PYPI_JSON_URL.format(name=name)
+    request = urllib.request.Request(url, headers={"User-Agent": "mloda-registry-name-check"})
     try:
-        with urllib.request.urlopen(url, timeout=10) as response:  # nosec B310
+        with urllib.request.urlopen(request, timeout=5) as response:  # nosec B310
             payload: dict[str, Any] = json.load(response)
             return 200, payload
     except urllib.error.HTTPError as exc:
@@ -60,7 +62,7 @@ def fetch_project(name: str) -> tuple[int, dict[str, Any] | None]:
 
 def _is_owned(payload: dict[str, Any] | None) -> bool:
     roles = ((payload or {}).get("ownership") or {}).get("roles") or []
-    return any(role.get("user") == EXPECTED_OWNER for role in roles)
+    return any(role.get("role") == "Owner" and role.get("user") == EXPECTED_OWNER for role in roles)
 
 
 def check_names(
@@ -77,7 +79,7 @@ def check_names(
                 sleep(2)
             try:
                 status, payload = fetch(canonical_name(name))
-            except OSError:
+            except (OSError, ValueError, http.client.HTTPException):
                 continue
             if status == 404:
                 report.missing.append(name)
