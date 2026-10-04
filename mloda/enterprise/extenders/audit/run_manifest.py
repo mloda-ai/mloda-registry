@@ -629,7 +629,66 @@ def _is_run_sealed_unverified(manifest_path: str | Path, run_id: str, index_path
         found = _indexed_lookup(manifest_path, run_id, index_path)
         if found is not None:
             return found
-    return _scan_for_run(manifest_path, run_id)
+    return _scan_for_run(manifest_path, run_id) or _sealed_in_archives(manifest_path, run_id)
+
+
+def _segment_path(live: str | Path, number: int) -> Path:
+    live = Path(live)
+    return live.with_name(f"{live.name}.{number:06d}")
+
+
+def _archived_segments(live: str | Path) -> list[tuple[int, Path]]:
+    """The archived `<live>.<NNNNNN>` files next to `live`, oldest first."""
+    live = Path(live)
+    found: list[tuple[int, Path]] = []
+    with suppress(FileNotFoundError):
+        for name in os.listdir(live.parent):
+            suffix = name[len(live.name) + 1 :]
+            if name.startswith(live.name + ".") and len(suffix) == 6 and suffix.isascii() and suffix.isdigit():
+                found.append((int(suffix), live.parent / name))
+    return sorted(found)
+
+
+def _archived_sealed_ids(manifest_path: str | Path) -> set[str]:
+    """The run_ids sealed in the archived manifest segments (unverified decode, like `_scan_for_run`)."""
+    ids: set[str] = set()
+    for _, path in _archived_segments(manifest_path):
+        try:
+            with open(path, "rb") as file:
+                for raw in _read_lines(file):
+                    if isinstance(raw, _OversizedLine):
+                        continue
+                    with suppress(ManifestVerificationError):
+                        manifest = _decode_line(str(path), raw.rstrip(b"\n"))
+                        if (
+                            isinstance(manifest, dict)
+                            and "kind" not in manifest
+                            and isinstance(manifest.get("run_id"), str)
+                        ):
+                            ids.add(manifest["run_id"])
+        except FileNotFoundError:
+            continue
+    return ids
+
+
+def _sealed_in_archives(manifest_path: str | Path, run_id: str, index_path: str | Path | None = None) -> bool:
+    """Whether an archived manifest segment seals run_id: from the index's `archived` table when usable, else a scan."""
+    if index_path is not None:
+        db = _sqlite()
+        with suppress(Exception):
+            if db is not None:
+                return _indexed_archive(db, index_path, run_id)
+    return any(_scan_for_run(path, run_id) for _, path in reversed(_archived_segments(manifest_path)))
+
+
+def _refuse_interrupted_rotation(*paths: str | Path) -> None:
+    """Raise ValueError when a live file is still linked to an archive: a rotation was interrupted."""
+    for path in paths:
+        with suppress(FileNotFoundError):
+            if os.stat(path).st_nlink > 1:
+                raise ValueError(
+                    f"{path} is linked to an archived segment: finish the interrupted rotation with rotate_ndjson_segment"
+                )
 
 
 def _read_manifests(path: str | Path) -> list[dict[str, Any]]:
@@ -1017,6 +1076,7 @@ def rotate_manifest_key(
         _verify_log([], signer=signer, signers=signers, expected_head=None, anchored_heads=anchors)
         raise ValueError(nothing_to_rotate)
     with _flock(manifest_path, exclusive=True):
+        _refuse_interrupted_rotation(manifest_path)
         state = _verify_log(
             _iter_manifests(manifest_path),
             signer=signer,
@@ -1160,10 +1220,22 @@ def _load_checkpoint(
     return entry, hint
 
 
-def _read_index(db: ModuleType, index_path: str | Path, run_id: str) -> tuple[Any, int | None]:
-    """The stored checkpoint entry and the run's hinted offset, read-only and without waiting on a writer."""
+@contextmanager
+def _readonly_index(db: ModuleType, index_path: str | Path) -> Iterator[Any]:
     with closing(db.connect(Path(index_path).resolve().as_uri() + "?mode=ro", uri=True, timeout=0)) as conn:
         conn.execute("PRAGMA trusted_schema=OFF")
+        yield conn
+
+
+def _indexed_archive(db: ModuleType, index_path: str | Path, run_id: str) -> bool:
+    """Whether the index's `archived` table holds run_id; a missing table raises (the index is unusable)."""
+    with _readonly_index(db, index_path) as conn:
+        return conn.execute("SELECT 1 FROM archived WHERE run_id = ?", (run_id,)).fetchone() is not None
+
+
+def _read_index(db: ModuleType, index_path: str | Path, run_id: str) -> tuple[Any, int | None]:
+    """The stored checkpoint entry and the run's hinted offset, read-only and without waiting on a writer."""
+    with _readonly_index(db, index_path) as conn:
         row = conn.execute(
             "SELECT body FROM checkpoint WHERE id = 1 AND length(CAST(body AS BLOB)) <= ?", (MAX_LINE_BYTES,)
         ).fetchone()
@@ -1185,7 +1257,7 @@ def _indexed_lookup(manifest_path: str | Path, run_id: str, index_path: str | Pa
             return None
         if hint is not None:
             return True if _hint_names_run(manifest_path, hint, run_id) else None
-        return _scan_for_run(manifest_path, run_id, entry["end"])
+        return _scan_for_run(manifest_path, run_id, entry["end"]) or _indexed_archive(db, index_path, run_id)
     except Exception:  # an untrusted index must never fail the calculation: any error means a full scan
         return None
 
@@ -1242,9 +1314,14 @@ def _is_sqlite_or_empty(path: str | Path) -> bool:
 
 
 def _store_checkpoint(
-    index_path: str | Path, entry: dict[str, Any], hints: Mapping[str, int], *, rebuild: bool
+    index_path: str | Path,
+    entry: dict[str, Any],
+    hints: Mapping[str, int],
+    *,
+    rebuild: bool,
+    archived: Iterable[str] = (),
 ) -> None:
-    """Commit `entry` and `hints` (all hints replaced if `rebuild`); a corrupt SQLite file is deleted and recreated,
+    """Commit `entry` and `hints` (hints and `archived` run_ids replaced if `rebuild`); a corrupt SQLite file is deleted and recreated,
     any other file is left alone and raises."""
     db = _sqlite()
     if db is None:
@@ -1259,9 +1336,12 @@ def _store_checkpoint(
                 conn.execute("PRAGMA journal_mode=DELETE")
                 conn.execute("CREATE TABLE IF NOT EXISTS checkpoint (id INTEGER PRIMARY KEY, body TEXT NOT NULL)")
                 conn.execute("CREATE TABLE IF NOT EXISTS hint (run_id TEXT PRIMARY KEY, line_start INTEGER NOT NULL)")
+                conn.execute("CREATE TABLE IF NOT EXISTS archived (run_id TEXT PRIMARY KEY)")
                 with conn:
                     if rebuild:
                         conn.execute("DELETE FROM hint")
+                        conn.execute("DELETE FROM archived")
+                        conn.executemany("INSERT OR REPLACE INTO archived VALUES (?)", [(run,) for run in archived])
                     conn.executemany("INSERT OR REPLACE INTO hint VALUES (?, ?)", list(hints.items()))
                     conn.execute("INSERT OR REPLACE INTO checkpoint VALUES (1, ?)", (body,))
             return
@@ -1367,6 +1447,7 @@ def _update_index(
     signer: ManifestSigner,
     *,
     rebuild: bool,
+    archived: Iterable[str] = (),
 ) -> None:
     """Commit a fresh checkpoint and the new seals' hints after an append; a failure is logged, never raised."""
     try:
@@ -1389,7 +1470,7 @@ def _update_index(
         )
         done = state.sealed | {entry["run_id"] for entry in appended if "kind" not in entry}
         entry = _checkpoint_entry(manifest_path, after, head_start or 0, signer, audit, done)
-        _store_checkpoint(index_path, entry, hints, rebuild=rebuild)
+        _store_checkpoint(index_path, entry, hints, rebuild=rebuild, archived=archived)
     except Exception as exc:
         logger.warning("seal index %s was not updated: %s", index_path, exc)
 
@@ -1452,6 +1533,7 @@ def seal_ndjson_runs(
     _check_log_id("seal_ndjson_runs", log_id)
     existed = os.path.exists(manifest_path)
     with _flock(manifest_path, exclusive=True):
+        _refuse_interrupted_rotation(manifest_path, audit_path)
         fast = checkpoint = None
         if seal_index_path is not None and run_id is not None:
             fast = _verify_from_checkpoint(
@@ -1486,6 +1568,17 @@ def seal_ndjson_runs(
         sealed, head = state.sealed, state.head
         if run_id is not None and run_id in sealed:
             raise RunAlreadySealedError(f"run_id {run_id!r} is already sealed in {manifest_path}")
+        # Runs sealed in an archived segment count as sealed: a sweep skips them, a targeted seal refuses them.
+        archived: set[str] | None = None
+        if run_id is None or not fast:
+            archived = _archived_sealed_ids(manifest_path)
+        if run_id is not None and (
+            run_id in archived if archived is not None else _sealed_in_archives(manifest_path, run_id, seal_index_path)
+        ):
+            raise RunAlreadySealedError(
+                f"run_id {run_id!r} is already sealed in an archived segment of {manifest_path}"
+            )
+        skip = sealed | archived if archived else sealed
         # A manifest must not name records that never reached disk; a missing file is left for _digest_runs
         # to raise, as before.
         with suppress(FileNotFoundError):
@@ -1499,7 +1592,7 @@ def seal_ndjson_runs(
             audit = _AuditScan.fresh(audit_path) if seal_index_path is not None else None
         digests = _digest_runs(
             audit_path,
-            lambda candidate: candidate == run_id if run_id is not None else candidate not in sealed,
+            lambda candidate: candidate == run_id if run_id is not None else candidate not in skip,
             track_times=older_than is not None,
             start=first[0],
             number=first[1],
@@ -1530,7 +1623,17 @@ def seal_ndjson_runs(
             raise
         _append_with_rollback(manifest_path, appended, existed=True)
         if seal_index_path is not None and audit is not None and (appended or (not fast and state.head is not None)):
-            _update_index(seal_index_path, manifest_path, state, scan, audit, appended, signer, rebuild=not fast)
+            _update_index(
+                seal_index_path,
+                manifest_path,
+                state,
+                scan,
+                audit,
+                appended,
+                signer,
+                rebuild=not fast,
+                archived=archived or (),
+            )
         if head_anchor is not None and appended:
             head_anchor.write(manifest_hash(appended[-1]))
         return manifests
@@ -2043,3 +2146,186 @@ def quarantine_from_rotation_entry(
         if not dry_run:
             _truncate_durably(manifest_path, damage[0][0].offset)
         return [item for item, _, _ in damage]
+
+
+def _outgoing_state(
+    manifest_src: str | Path,
+    audit_src: str | Path | None,
+    *,
+    signer: ManifestSigner,
+    signers: Mapping[str, ManifestSigner],
+    expected_head: str | None,
+    log_id: str,
+    anchors: Sequence[str],
+) -> _LogState:
+    """Verify a segment like verify_ndjson_log_coverage (against its audit bytes when `audit_src` is given)."""
+    manifests = _read_manifests(manifest_src)
+    digests = None
+    if audit_src is not None:
+        sealed = {manifest["run_id"] for manifest in manifests if isinstance(manifest.get("run_id"), str)}
+        try:
+            digests = _digest_runs(audit_src, sealed.__contains__)
+        except FileNotFoundError:
+            digests = {}
+    state = _verify_log(
+        manifests,
+        signer=signer,
+        signers=signers,
+        expected_head=expected_head,
+        digests=digests,
+        require_current=True,
+        log_id=log_id,
+        anchored_heads=anchors,
+    )
+    if state.head is None:
+        raise ValueError(f"{manifest_src} has no manifests to rotate")
+    return state
+
+
+def _stage_temp(live: str | Path) -> tuple[IO[bytes], str]:
+    """A 0o600 temp file beside `live`, opened for writing."""
+    live = Path(live)
+    fd, temp = tempfile.mkstemp(dir=live.parent, prefix=f".{live.name}.")
+    return os.fdopen(fd, "wb"), temp
+
+
+def _stage_genesis(manifest_path: str | Path, genesis: Mapping[str, Any]) -> str:
+    """Write `genesis` as the only line of a durable temp file with the live manifest's mode; return its path."""
+    out, temp = _stage_temp(manifest_path)
+    try:
+        with out:
+            out.write(_canonical_json(genesis) + b"\n")
+            out.flush()
+            os.fsync(out.fileno())
+        os.chmod(temp, stat.S_IMODE(os.stat(manifest_path).st_mode))
+    except BaseException:
+        with suppress(OSError):
+            os.unlink(temp)
+        raise
+    return temp
+
+
+def _carry_pending(
+    audit_path: str | Path, out: IO[bytes], start: int, skip: Container[str], refuse: Container[str]
+) -> int:
+    """Copy the audit lines from `start` whose run_id is usable and not in `skip`; raise on one in `refuse`.
+    Returns the end offset."""
+    end = start
+    for line, record in _read_ndjson(audit_path, start):
+        run_id = _record_run_id(record)
+        if run_id is not None and not _is_blank(run_id):
+            if run_id in refuse:
+                raise ManifestVerificationError(f"run_id {run_id!r} gained records after it was sealed")
+            if run_id not in skip:
+                out.write(line + b"\n")
+        end += len(line) + 1
+    return end
+
+
+def _same_file(first: str | Path, second: str | Path) -> bool:
+    try:
+        return os.path.samefile(first, second)
+    except FileNotFoundError:
+        return False
+
+
+def _swap_in(temp: str, live: str | Path) -> None:
+    os.replace(temp, live)
+    _fsync(Path(live).parent)
+
+
+def rotate_ndjson_segment(
+    audit_path: str | Path,
+    manifest_path: str | Path,
+    *,
+    signer: ManifestSigner,
+    log_id: str,
+    previous_signers: Iterable[ManifestSigner] = (),
+    expected_head: str | None = None,
+    anchored_heads: Iterable[str] = (),
+    head_anchor: HeadAnchor | None = None,
+) -> dict[str, Any]:
+    """Archive the audit and manifest files as `<path>.<NNNNNN>` and start a new segment; return its genesis, which
+    chains onto the outgoing head (`head_anchor` gets its hash). Verifies the outgoing segment first like
+    verify_ndjson_log (`expected_head`, `anchored_heads`) and changes nothing on failure; ValueError for a log without
+    a genesis or manifests. Audit lines of runs sealed in no retained segment (pending, crashed) are carried into the
+    new audit file byte for byte. Handover is safe against NdjsonAuditSink writers only. A crash between the swaps
+    blocks sealing until rotate_ndjson_segment runs again."""
+    signers = _signer_map(signer, previous_signers)
+    _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
+    if log_id is None:
+        raise ValueError("rotate_ndjson_segment requires a log_id")
+    _check_log_id("rotate_ndjson_segment", log_id)
+    anchors = list(anchored_heads)
+    if not os.path.exists(manifest_path) or os.path.getsize(manifest_path) == 0:
+        raise ValueError(f"{manifest_path} has no manifests to rotate")
+    check: dict[str, Any] = {
+        "signer": signer,
+        "signers": signers,
+        "expected_head": expected_head,
+        "log_id": log_id,
+        "anchors": anchors,
+    }
+    with _flock(manifest_path, exclusive=True):
+        archived = _archived_segments(manifest_path)
+        if archived and os.stat(manifest_path).st_nlink > 1 and _same_file(manifest_path, archived[-1][1]):
+            number, newest = archived[-1]
+            audit_archive = _segment_path(audit_path, number)
+            if _same_file(audit_path, audit_archive) or not audit_archive.exists():
+                # Died before the audit swap: drop the stale links and rotate again under the same number.
+                with suppress(FileNotFoundError):
+                    _unlink_durably(audit_archive)
+                _unlink_durably(newest)
+                archived.pop()
+            else:
+                state = _outgoing_state(newest, None, **check)
+                genesis = _genesis_entry(signer, log_id, state.head)
+                _swap_in(_stage_genesis(manifest_path, genesis), manifest_path)
+                if head_anchor is not None:
+                    head_anchor.write(manifest_hash(genesis))
+                return genesis
+        state = _outgoing_state(manifest_path, audit_path, **check)
+        number = archived[-1][0] + 1 if archived else 1
+        manifest_archive, audit_archive = _segment_path(manifest_path, number), _segment_path(audit_path, number)
+        if os.path.lexists(manifest_archive) or os.path.lexists(audit_archive):
+            raise ValueError(f"archive {manifest_archive} or {audit_archive} already exists")
+        skip = state.sealed | _archived_sealed_ids(manifest_path)
+        genesis = _genesis_entry(signer, log_id, state.head)
+        temps: list[str] = []
+        try:
+            out, audit_temp = _stage_temp(audit_path)
+            temps.append(audit_temp)
+            with out:
+                end = _carry_pending(audit_path, out, 0, skip, ())
+                fd = _open_locked(audit_path, os.O_RDWR | os.O_CREAT, exclusive=True)
+                try:
+                    # Writers wait on the audit lock from here: only the tail they appended meanwhile is left to copy.
+                    _carry_pending(audit_path, out, end, skip, state.sealed)
+                    out.flush()
+                    os.fsync(out.fileno())
+                    os.chmod(audit_temp, stat.S_IMODE(os.stat(audit_path).st_mode))
+                    manifest_temp = _stage_genesis(manifest_path, genesis)
+                    temps.append(manifest_temp)
+                    os.link(manifest_path, manifest_archive)
+                    try:
+                        os.link(audit_path, audit_archive)
+                    except BaseException:
+                        with suppress(OSError):
+                            os.unlink(manifest_archive)
+                        raise
+                    # The audit first: after a crash writers append to the new file, never to an archive.
+                    _swap_in(audit_temp, audit_path)
+                    temps.remove(audit_temp)
+                    _swap_in(manifest_temp, manifest_path)
+                    temps.remove(manifest_temp)
+                finally:
+                    if fd is not None:
+                        os.close(fd)
+        except BaseException:
+            for temp in temps:
+                with suppress(OSError):
+                    os.unlink(temp)
+            raise
+        if head_anchor is not None:
+            head_anchor.write(manifest_hash(genesis))
+        return genesis
