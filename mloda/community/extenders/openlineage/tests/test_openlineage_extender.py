@@ -256,6 +256,34 @@ class _AddsPrivateMethodExtender(OpenLineageExtender):
         return None
 
 
+class _StaticmethodOverrideExtender(OpenLineageExtender):
+    @staticmethod
+    def _log_inert_once() -> None:
+        return None
+
+
+class _PropertyOverrideExtender(OpenLineageExtender):
+    @property
+    def _log_inert_once(self) -> Any:
+        return None
+
+
+class _DropsSeamDefaultExtender(OpenLineageExtender):
+    def _run_with_events(  # type: ignore[override]
+        self,
+        func: Any,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        *,
+        job: Any,
+        run_facets: dict[str, Any],
+        declared_inputs: list[Any],
+        build_inputs: Any,
+        build_outputs: Any,
+    ) -> Any:
+        return None
+
+
 @pytest.fixture
 def ol_capture() -> Iterator[tuple[OpenLineageClient, RecordingTransport]]:
     """A fresh, isolated (client, transport) pair per test."""
@@ -2458,8 +2486,19 @@ class TestOpenLineageExtenderSubclassSeams:
             _ReshapedSeamExtender,
             _ExtraSeamParameterExtender,
             _DropsDatasetNamespaceExtender,
+            _StaticmethodOverrideExtender,
+            _PropertyOverrideExtender,
+            _DropsSeamDefaultExtender,
         ],
-        ids=["non_seam_override", "renamed_parameter", "extra_parameter", "dropped_attribute"],
+        ids=[
+            "non_seam_override",
+            "renamed_parameter",
+            "extra_parameter",
+            "dropped_attribute",
+            "staticmethod_override",
+            "property_override",
+            "dropped_default",
+        ],
     )
     def test_seam_checker_rejects_a_subclass_that_breaks_a_seam(
         self, extender_class: type[OpenLineageExtender]
