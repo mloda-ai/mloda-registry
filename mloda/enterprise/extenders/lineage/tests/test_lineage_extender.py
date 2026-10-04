@@ -24,6 +24,7 @@ from openlineage.client.event_v2 import InputDataset, OutputDataset, RunEvent, R
 from openlineage.client.facet_v2 import column_lineage_dataset, data_quality_assertions_dataset, parent_run
 from openlineage.client.serde import Serde
 
+from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
 from mloda.enterprise.extenders.lineage import lineage_extender as lineage_extender_module
 from mloda.enterprise.extenders.lineage.lineage_extender import LineageFacetsExtender, MlodaRunFacet
 from mloda.testing.extenders.hook_context import make_hook_context
@@ -31,6 +32,7 @@ from mloda.testing.extenders.openlineage import (
     FileTransport,
     OpenLineageExtenderTestMixin,
     RecordingTransport,
+    assert_openlineage_extender_seams,
     make_recording_client,
 )
 
@@ -1914,6 +1916,9 @@ class TestLineageFacetsProducer:
         facets = [facet for event in transport.events for facet in _own_facet_producers(event)]
         assert {key for key, _ in facets} >= {"parent", "mloda", "schema", "columnLineage", "dataQualityAssertions"}
         assert {facet_producer for _, facet_producer in facets} == {producer}
+
+    def test_extender_builds_only_on_the_community_subclass_seams(self) -> None:
+        assert_openlineage_extender_seams(LineageFacetsExtender, OpenLineageExtender)
 
 
 class TestLineageFacetsBareCalls:

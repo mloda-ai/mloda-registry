@@ -36,11 +36,13 @@ from mloda.community.extenders.openlineage.openlineage_extender import OpenLinea
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.openlineage import (
+    OPENLINEAGE_EXTENDER_SEAMS,
     BufferingFileTransport,
     FileTransport,
     LockHoldingTransport,
     OpenLineageExtenderTestMixin,
     RecordingTransport,
+    assert_openlineage_extender_seams,
     make_recording_client,
 )
 from mloda.testing.extenders.runners import _value_int_plus_one_feature_group, run_value_int
@@ -224,6 +226,34 @@ class _FailingOutputFacetExtender(OpenLineageExtender):
         self, context: HookContext, func: Any, args: tuple[Any, ...], name: str, inputs: list[InputDataset]
     ) -> dict[str, Any]:
         raise RuntimeError("output facet boom")
+
+
+class _OverridesNonSeamExtender(OpenLineageExtender):
+    def _get_client(self) -> Any:
+        return super()._get_client()
+
+
+class _ReshapedSeamExtender(OpenLineageExtender):
+    def _calculate_run_facets(self, ctx: HookContext, func: Any, args: tuple[Any, ...]) -> dict[str, Any]:
+        return super()._calculate_run_facets(ctx, func, args)
+
+
+class _ExtraSeamParameterExtender(OpenLineageExtender):
+    def _calculate_run_facets(  # type: ignore[override]
+        self, context: HookContext, func: Any, args: tuple[Any, ...], extra: int
+    ) -> dict[str, Any]:
+        return super()._calculate_run_facets(context, func, args)
+
+
+class _DropsDatasetNamespaceExtender(OpenLineageExtender):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        del self.dataset_namespace
+
+
+class _AddsPrivateMethodExtender(OpenLineageExtender):
+    def _call_validator(self) -> None:
+        return None
 
 
 @pytest.fixture
@@ -2365,3 +2395,35 @@ class TestOpenLineageExtenderSubclassSeams:
         )
         assert any(name in m and "picklable" in m for m in messages), messages
         assert not [m for m in messages if "OpenLineageExtender" in m], messages
+
+    def test_seam_table_names_exactly_the_documented_method_seams(self) -> None:
+        assert set(OPENLINEAGE_EXTENDER_SEAMS) >= {
+            "_dispatch",
+            "_call_input_data_load",
+            "_call_calculate_feature",
+            "_calculate_run_facets",
+            "_calculate_output_facets",
+            "_run_with_events",
+        }
+        assert len(OPENLINEAGE_EXTENDER_SEAMS) == 6
+
+    def test_seam_checker_accepts_the_base_and_a_subclass_adding_new_private_methods(self) -> None:
+        assert_openlineage_extender_seams(OpenLineageExtender, OpenLineageExtender)
+        assert_openlineage_extender_seams(_AddsPrivateMethodExtender, OpenLineageExtender)
+        assert_openlineage_extender_seams(_RunFacetExtender, OpenLineageExtender)
+
+    @pytest.mark.parametrize(
+        "extender_class",
+        [
+            _OverridesNonSeamExtender,
+            _ReshapedSeamExtender,
+            _ExtraSeamParameterExtender,
+            _DropsDatasetNamespaceExtender,
+        ],
+        ids=["non_seam_override", "renamed_parameter", "extra_parameter", "dropped_attribute"],
+    )
+    def test_seam_checker_rejects_a_subclass_that_breaks_a_seam(
+        self, extender_class: type[OpenLineageExtender]
+    ) -> None:
+        with pytest.raises(AssertionError):
+            assert_openlineage_extender_seams(extender_class, OpenLineageExtender)

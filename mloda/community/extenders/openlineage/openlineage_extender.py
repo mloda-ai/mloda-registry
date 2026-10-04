@@ -86,7 +86,10 @@ class OpenLineageExtender(Extender):
     together with graceful_shutdown_timeout for a buffered transport (e.g. async_http, kafka) to fully drain,
     otherwise events past the budget are lost. The parent-death path is best effort. Dataset names for
     loads are core's data_access_identity, recorded as given. A self-built client is closed by close(), when the
-    extender is collected, or at exit; after one emit failure in a run, the rest of that run's events are skipped."""
+    extender is collected, or at exit; after one emit failure in a run, the rest of that run's events are skipped.
+    Stable subclass seams: producer, job_namespace, dataset_namespace, _dispatch, _call_input_data_load,
+    _call_calculate_feature, _calculate_run_facets, _calculate_output_facets, _run_with_events; pinned by
+    assert_openlineage_extender_seams in mloda.testing."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
     close_timeout: float = CLOSE_TIMEOUT

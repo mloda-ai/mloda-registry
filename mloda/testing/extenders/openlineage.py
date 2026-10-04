@@ -775,3 +775,84 @@ class OpenLineageExtenderTestMixin(ExtenderContractTestMixin):
                 if value != producer
             ]
             assert not offending, offending
+
+
+_POSITIONAL = inspect.Parameter.POSITIONAL_OR_KEYWORD
+_VAR_POSITIONAL = inspect.Parameter.VAR_POSITIONAL
+_VAR_KEYWORD = inspect.Parameter.VAR_KEYWORD
+_KEYWORD_ONLY = inspect.Parameter.KEYWORD_ONLY
+
+# Changing an entry breaks released mloda-enterprise[openlineage] wheels, so keep the old seam working for a release.
+OPENLINEAGE_EXTENDER_SEAMS: dict[str, tuple[tuple[str, inspect._ParameterKind], ...]] = {
+    "_dispatch": (
+        ("self", _POSITIONAL),
+        ("context", _POSITIONAL),
+        ("func", _POSITIONAL),
+        ("args", _POSITIONAL),
+        ("kwargs", _POSITIONAL),
+    ),
+    "_call_input_data_load": (
+        ("self", _POSITIONAL),
+        ("context", _POSITIONAL),
+        ("func", _POSITIONAL),
+        ("args", _VAR_POSITIONAL),
+        ("kwargs", _VAR_KEYWORD),
+    ),
+    "_call_calculate_feature": (
+        ("self", _POSITIONAL),
+        ("context", _POSITIONAL),
+        ("func", _POSITIONAL),
+        ("args", _VAR_POSITIONAL),
+        ("kwargs", _VAR_KEYWORD),
+    ),
+    "_calculate_run_facets": (
+        ("self", _POSITIONAL),
+        ("context", _POSITIONAL),
+        ("func", _POSITIONAL),
+        ("args", _POSITIONAL),
+    ),
+    "_calculate_output_facets": (
+        ("self", _POSITIONAL),
+        ("context", _POSITIONAL),
+        ("func", _POSITIONAL),
+        ("args", _POSITIONAL),
+        ("name", _POSITIONAL),
+        ("inputs", _POSITIONAL),
+    ),
+    "_run_with_events": (
+        ("self", _POSITIONAL),
+        ("func", _POSITIONAL),
+        ("args", _POSITIONAL),
+        ("kwargs", _POSITIONAL),
+        ("job", _KEYWORD_ONLY),
+        ("run_facets", _KEYWORD_ONLY),
+        ("declared_inputs", _KEYWORD_ONLY),
+        ("build_inputs", _KEYWORD_ONLY),
+        ("build_outputs", _KEYWORD_ONLY),
+    ),
+}
+
+OPENLINEAGE_EXTENDER_ATTRIBUTE_SEAMS: tuple[str, ...] = ("producer", "job_namespace", "dataset_namespace")
+
+
+def assert_openlineage_extender_seams(cls: type, base: type) -> None:
+    """Assert cls keeps every OpenLineageExtender seam intact and overrides no other private base method."""
+    for name, expected in OPENLINEAGE_EXTENDER_SEAMS.items():
+        method = getattr(cls, name, None)
+        assert callable(method), f"{cls.__name__} is missing the method seam {name}"
+        actual = tuple((p.name, p.kind) for p in inspect.signature(method).parameters.values())
+        assert actual == expected, f"{cls.__name__}.{name} changed its parameters: expected {expected}, got {actual}"
+
+    instance = cls()
+    for attribute in OPENLINEAGE_EXTENDER_ATTRIBUTE_SEAMS:
+        assert hasattr(instance, attribute), f"{cls.__name__}() is missing the attribute seam {attribute}"
+
+    for klass in cls.__mro__:
+        if klass is base:
+            break
+        for name, value in vars(klass).items():
+            is_private = name.startswith("_") and not name.startswith("__") and not name.endswith("__")
+            if is_private and callable(value) and hasattr(base, name) and name not in OPENLINEAGE_EXTENDER_SEAMS:
+                raise AssertionError(
+                    f"{klass.__name__} overrides {name}, which is not a declared seam of {base.__name__}"
+                )
