@@ -22,6 +22,7 @@ from mloda.enterprise.extenders.audit.run_manifest import (
     ManifestVerificationError,
     RunAlreadySealedError,
     RunNotPendingError,
+    _check_line_cap,
     _check_log_id,
     _check_run_against_seal,
     _reject_aliased_paths,
@@ -80,6 +81,7 @@ class NdjsonAuditSink:
         self.path = Path(path)
 
     def write(self, record: Mapping[str, Any]) -> None:
+        _check_line_cap([record])
         _append_records(self.path, [record])
 
 

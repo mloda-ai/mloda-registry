@@ -61,7 +61,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import IO, TYPE_CHECKING, Any, Protocol
 
 from mloda.enterprise.extenders.audit._records import (
     _append_records,
@@ -75,6 +75,7 @@ if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 _MANIFEST_VERSION = 2
+MAX_LINE_BYTES = 64 * 1024 * 1024
 _V1 = 1
 _QUARANTINE_VERSION = 2
 _HASH_ALGORITHM = "sha256"
@@ -520,8 +521,43 @@ def _decode_line(where: str, line: bytes) -> Any:
         raise ManifestVerificationError(f"{where} is not valid JSON: {exc}") from exc
 
 
+class _OversizedLine(bytes):
+    """The first MAX_LINE_BYTES + 1 bytes of a line longer than the cap, with the line's full size and sha256."""
+
+    size: int
+    sha256: str
+    terminated: bool
+
+
+def _line_size(raw: bytes) -> int:
+    return raw.size if isinstance(raw, _OversizedLine) else len(raw)
+
+
+def _is_terminated(raw: bytes) -> bool:
+    return raw.terminated if isinstance(raw, _OversizedLine) else raw.endswith(b"\n")
+
+
+def _read_lines(file: IO[bytes]) -> Iterator[bytes]:
+    """Yield the raw lines of `file`, never holding more than MAX_LINE_BYTES + 1 bytes of one line."""
+    chunk = MAX_LINE_BYTES + 1
+    while raw := file.readline(chunk):
+        if len(raw) < chunk or raw.endswith(b"\n"):
+            yield raw
+            continue
+        digest, size, last = hashlib.sha256(raw), len(raw), raw
+        while last and not last.endswith(b"\n"):
+            last = file.readline(chunk)
+            digest.update(last)
+            size += len(last)
+        line = _OversizedLine(raw)
+        line.size, line.sha256, line.terminated = size, digest.hexdigest(), last.endswith(b"\n")
+        yield line
+
+
 def _parse_ndjson_line(path: str | Path, number: int, raw: bytes) -> tuple[bytes, dict[str, Any]]:
     where = f"{path} line {number}"
+    if isinstance(raw, _OversizedLine):
+        raise ManifestVerificationError(f"{where} is longer than {MAX_LINE_BYTES} bytes")
     if not raw.endswith(b"\n"):
         raise ManifestVerificationError(f"{where} does not end with a newline")
     line = raw[:-1]
@@ -533,7 +569,7 @@ def _parse_ndjson_line(path: str | Path, number: int, raw: bytes) -> tuple[bytes
 
 def _read_ndjson(path: str | Path) -> Iterator[tuple[bytes, dict[str, Any]]]:
     with open(path, "rb") as file:
-        for number, raw in enumerate(file, start=1):
+        for number, raw in enumerate(_read_lines(file), start=1):
             yield _parse_ndjson_line(path, number, raw)
 
 
@@ -553,8 +589,8 @@ def _is_run_sealed_unverified(manifest_path: str | Path, run_id: str) -> bool:
     needle = json.dumps(run_id).encode("utf-8")
     try:
         with open(manifest_path, "rb") as file:
-            for raw in file:
-                if needle not in raw:
+            for raw in _read_lines(file):
+                if isinstance(raw, _OversizedLine) or needle not in raw:
                     continue
                 try:
                     manifest = _decode_line(str(manifest_path), raw.rstrip(b"\n"))
@@ -766,13 +802,13 @@ class NdjsonHeadAnchor:
 
     def latest(self) -> str | None:
         """The last terminated line's head; None for a missing file or one without a terminated line. An unterminated
-        last line (crash residue) is ignored; a terminated bad line raises ManifestVerificationError."""
+        or oversized last line (crash residue) is ignored; a terminated bad line raises ManifestVerificationError."""
         try:
             with open(self._path, "rb") as file:
-                lines = list(file)
+                lines = list(_read_lines(file))
         except FileNotFoundError:
             return None
-        if lines and not lines[-1].endswith(b"\n"):
+        if lines and (isinstance(lines[-1], _OversizedLine) or not lines[-1].endswith(b"\n")):
             lines.pop()
         if not lines:
             return None
@@ -782,8 +818,17 @@ class NdjsonHeadAnchor:
         return head
 
 
+def _check_line_cap(records: Sequence[Mapping[str, Any]]) -> None:
+    """Raise ValueError before anything is written if a record's line is longer than MAX_LINE_BYTES."""
+    for record in records:
+        size = len(_canonical_json(record))
+        if size > MAX_LINE_BYTES:
+            raise ValueError(f"a line of {size} bytes exceeds the {MAX_LINE_BYTES} byte line cap")
+
+
 def _append_and_fsync(path: str | Path, records: Sequence[Mapping[str, Any]]) -> None:
     """Append, then fsync the file and its parent directory."""
+    _check_line_cap(records)
     _append_records(path, records)
     _fsync(path)
     _fsync(Path(path).parent)
@@ -917,6 +962,7 @@ def seal_ndjson_runs(
         if run_id is not None:
             raise ValueError("seal_ndjson_runs older_than cannot be combined with run_id")
     _check_log_id("seal_ndjson_runs", log_id)
+    existed = os.path.exists(manifest_path)
     with _flock(manifest_path, exclusive=True):
         state = _verify_log(
             _iter_manifests(manifest_path),
@@ -955,6 +1001,13 @@ def seal_ndjson_runs(
             manifests.append(manifest)
             head = manifest_hash(manifest)
         appended = [*genesis, *manifests]
+        try:
+            _check_line_cap(appended)
+        except ValueError:
+            if not existed and os.path.getsize(manifest_path) == 0:
+                with suppress(OSError):
+                    _unlink_durably(manifest_path)
+            raise
         _append_with_rollback(manifest_path, appended, existed=True)
         if head_anchor is not None and appended:
             head_anchor.write(manifest_hash(appended[-1]))
@@ -1083,7 +1136,8 @@ _Damage = list[_DamageEntry]
 
 
 def _damage_entry(file: str, path: str | Path, number: int, offset: int, raw: bytes, reason: str) -> _DamageEntry:
-    return QuarantinedLine(file, number, offset, len(raw), _sha256(raw), reason), raw, Path(path)
+    digest = raw.sha256 if isinstance(raw, _OversizedLine) else _sha256(raw)
+    return QuarantinedLine(file, number, offset, _line_size(raw), digest, reason), raw, Path(path)
 
 
 def _refuse_json_tail(path: str | Path, number: int, tail: bytes) -> None:
@@ -1101,18 +1155,18 @@ def _damaged_lines(file: str, path: str | Path, raws: Iterable[bytes], *, number
         try:
             _parse_ndjson_line(path, number, raw)
         except ManifestVerificationError as exc:
-            if not raw.endswith(b"\n"):
+            if not _is_terminated(raw):
                 _refuse_json_tail(path, number, raw)
             damage.append(_damage_entry(file, path, number, offset, raw, str(exc)))
         number += 1
-        offset += len(raw)
+        offset += _line_size(raw)
     return damage
 
 
 def _damaged_audit_lines(path: str | Path) -> _Damage:
     try:
         with open(path, "rb") as file:
-            return _damaged_lines("audit", path, file)
+            return _damaged_lines("audit", path, _read_lines(file))
     except FileNotFoundError:
         return []
 
@@ -1121,10 +1175,10 @@ def _split_unterminated_tail(path: str | Path) -> tuple[list[bytes], bytes]:
     """The terminated raw lines of `path` (none if it is missing), and its unterminated last line (empty if none)."""
     try:
         with open(path, "rb") as file:
-            lines = list(file)
+            lines = list(_read_lines(file))
     except FileNotFoundError:
         lines = []
-    tail = lines.pop() if lines and not lines[-1].endswith(b"\n") else b""
+    tail = lines.pop() if lines and not _is_terminated(lines[-1]) else b""
     return lines, tail
 
 
@@ -1148,7 +1202,7 @@ def _damaged_manifest_tail(
         )
     if not tail:
         return []
-    return _damaged_lines("manifest", path, [tail], number=len(lines) + 1, offset=sum(map(len, lines)))
+    return _damaged_lines("manifest", path, [tail], number=len(lines) + 1, offset=sum(map(_line_size, lines)))
 
 
 def _trace_entry(
@@ -1159,10 +1213,14 @@ def _trace_entry(
         "quarantined_at": _utc_now(),
         **asdict(item),
         "path": str(path),
-        "raw_base64": base64.b64encode(raw).decode("ascii"),
+        "raw_base64": None if isinstance(raw, _OversizedLine) else base64.b64encode(raw).decode("ascii"),
         "previous_entry_hash": previous_entry_hash,
     }
     entry["signature"] = _signature_block(entry, signer)
+    if entry["raw_base64"] is not None and len(_canonical_json(entry)) > MAX_LINE_BYTES:
+        # Only the sha256 and length stay when the encoded bytes would push the trace line over the cap.
+        entry["raw_base64"] = None
+        entry["signature"] = _signature_block(entry, signer)
     return entry
 
 
@@ -1303,7 +1361,7 @@ def _rewrite_without(path: str | Path, drop: set[int]) -> None:
     fd, temp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
     try:
         with os.fdopen(fd, "wb") as out, open(target, "rb") as source:
-            out.writelines(raw for number, raw in enumerate(source, start=1) if number not in drop)
+            out.writelines(raw for number, raw in enumerate(_read_lines(source), start=1) if number not in drop)
             out.flush()
             os.fsync(out.fileno())
         os.chmod(temp, stat.S_IMODE(os.stat(target).st_mode))
@@ -1434,7 +1492,7 @@ def quarantine_from_rotation_entry(
         dropped = [*lines[len(prefix) :], *([tail] if tail else [])]
         if not dropped:
             return []
-        number, offset = len(prefix) + 1, sum(map(len, lines[: len(prefix)]))
+        number, offset = len(prefix) + 1, sum(map(_line_size, lines[: len(prefix)]))
         # Parsing refuses an unterminated first line; later lines, even a valid-JSON tail, are dropped unread.
         if "kind" not in _parse_ndjson_line(manifest_path, number, dropped[0])[1]:
             raise ManifestVerificationError(f"{manifest_path} line {number} is not a key rotation entry")
@@ -1443,7 +1501,7 @@ def quarantine_from_rotation_entry(
         for raw in dropped:
             damage.append(_damage_entry("manifest", manifest_path, number, offset, raw, reason))
             number += 1
-            offset += len(raw)
+            offset += _line_size(raw)
         _trace_damage(
             damage,
             quarantine_path=quarantine_path,

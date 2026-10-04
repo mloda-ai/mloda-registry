@@ -16,8 +16,9 @@ import pickle  # nosec
 import re
 import stat
 import sys
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor, wait
+from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
@@ -566,6 +567,65 @@ def _insert_line(path: Path, index: int, line: bytes) -> None:
     lines = path.read_bytes().splitlines(keepends=True)
     lines.insert(index, line)
     path.write_bytes(b"".join(lines))
+
+
+# Small line cap for the tests that monkeypatch run_manifest.MAX_LINE_BYTES; every regular line stays under it.
+_CAP = 2048
+
+
+def _cap(monkeypatch: pytest.MonkeyPatch, cap: int = _CAP) -> int:
+    monkeypatch.setattr(run_manifest_module, "MAX_LINE_BYTES", cap, raising=False)
+    return cap
+
+
+def _oversized_line(extra: Mapping[str, Any] | None = None, cap: int = _CAP) -> bytes:
+    """A valid JSON object line (no newline) longer than `cap`, so only the cap makes it bad."""
+    line = json.dumps({**(extra or {}), "pad": "x" * cap}, sort_keys=True).encode("utf-8")
+    assert len(line) > cap
+    return line
+
+
+class _ReadSpy:
+    """A binary file that records the size of every piece a read hands back."""
+
+    def __init__(self, file: Any, seen: list[int]) -> None:
+        self._file = file
+        self._seen = seen
+
+    def __enter__(self) -> _ReadSpy:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._file.close()
+
+    def __iter__(self) -> Iterator[bytes]:
+        for raw in self._file:
+            self._seen.append(len(raw))
+            yield raw
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._file, name)
+
+    def _note(self, data: bytes) -> bytes:
+        self._seen.append(len(data))
+        return data
+
+    def read(self, *args: Any) -> bytes:
+        return self._note(self._file.read(*args))
+
+    def read1(self, *args: Any) -> bytes:
+        return self._note(self._file.read1(*args))
+
+    def readline(self, *args: Any) -> bytes:
+        return self._note(self._file.readline(*args))
+
+    def readlines(self, *args: Any) -> list[bytes]:
+        return [self._note(raw) for raw in self._file.readlines(*args)]
+
+    def readinto(self, buffer: Any) -> int:
+        count = int(self._file.readinto(buffer))
+        self._seen.append(count)
+        return count
 
 
 def _torn_manifest_log(directory: Path) -> tuple[Path, Path, str]:
@@ -1612,6 +1672,32 @@ class TestSealNdjsonRuns:
             ("run-a", 2),
             ("run-b", 1),
         ]
+
+    def test_seal_refuses_a_line_over_the_cap_and_changes_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _cap(monkeypatch)
+        _write_records(audit_path, [_record("run-d", second) for second in range(40)])
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ValueError):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+        assert _snapshot(tmp_path) == before
+
+    def test_a_refused_first_seal_does_not_create_the_manifest_log(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        manifest_path = tmp_path / "manifests.ndjson"
+        _cap(monkeypatch)
+        _write_records(audit_path, [_record("run-a", second) for second in range(40)])
+
+        with pytest.raises(ValueError):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+        assert not manifest_path.exists()
 
     def test_runs_are_sealed_in_order_of_first_appearance_in_the_audit_file(self, tmp_path: Path) -> None:
         audit_path = tmp_path / "audit.ndjson"
@@ -3684,6 +3770,25 @@ class TestHeadAnchor:
 
         assert _ndjson_anchor(path).latest() is None
 
+    def test_latest_ignores_an_oversized_last_line_like_a_torn_one(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = tmp_path / "anchor.ndjson"
+        _rewrite_lines(path, [{"head": "a" * 64, "anchored_at": "2026-01-01T00:00:00.000000Z"}])
+        _cap(monkeypatch)
+        _append_line(path, _oversized_line({"head": "b" * 64}))
+
+        assert _ndjson_anchor(path).latest() == "a" * 64
+
+    def test_latest_is_none_when_the_only_line_is_oversized(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = tmp_path / "anchor.ndjson"
+        _cap(monkeypatch)
+        _append_line(path, _oversized_line({"head": "b" * 64}))
+
+        assert _ndjson_anchor(path).latest() is None
+
     @pytest.mark.parametrize("line", [b'{"head": 5}', b'{"anchored_at": "x"}'], ids=["non-string", "missing"])
     def test_latest_fails_closed_for_a_terminated_line_without_a_string_head(self, tmp_path: Path, line: bytes) -> None:
         path = tmp_path / "anchor.ndjson"
@@ -4305,6 +4410,62 @@ class TestMalformedNdjsonLines:
         with pytest.raises(ManifestVerificationError, match=location):
             seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
 
+    @pytest.mark.parametrize(("file_name", "line_number"), [("audit.ndjson", 7), ("manifests.ndjson", 4)])
+    def test_oversized_line_fails_naming_the_file_and_line(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, file_name: str, line_number: int
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _cap(monkeypatch)
+        path = tmp_path / file_name
+        _append_line(path, _oversized_line())
+        location = re.escape(f"{path} line {line_number}")
+
+        with pytest.raises(ManifestVerificationError, match=location):
+            verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+        with pytest.raises(ManifestVerificationError, match=location):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
+
+    def test_max_line_bytes_defaults_to_64_mib(self) -> None:
+        assert getattr(run_manifest_module, "MAX_LINE_BYTES", None) == 64 * 1024 * 1024
+
+    def test_the_sealed_lookup_skips_an_oversized_line(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _, manifest_path = _sealed_log(tmp_path)
+        _cap(monkeypatch)
+        _append_line(manifest_path, _oversized_line({"run_id": "run-z"}))
+
+        assert run_manifest_module._is_run_sealed_unverified(manifest_path, "run-z") is False
+        assert run_manifest_module._is_run_sealed_unverified(manifest_path, "run-a") is True
+
+    @pytest.mark.parametrize("reader", ["read-ndjson", "sealed-lookup", "anchor-latest", "quarantine"])
+    def test_no_reader_reads_an_oversized_line_whole(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reader: str
+    ) -> None:
+        cap = _cap(monkeypatch, 2_000_000)
+        (tmp_path / "sealed").mkdir()
+        _, manifest_path = _sealed_log(tmp_path / "sealed")
+        path = tmp_path / "log.ndjson"
+        path.write_bytes(b'{"head": "' + b"a" * 64 + b'"}\n' + _oversized_line({"run_id": "run-z"}, 3 * cap) + b"\n")
+        seen: list[int] = []
+        real_open = open
+
+        def spy_open(file: Any, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+            handle = real_open(file, mode, *args, **kwargs)
+            return _ReadSpy(handle, seen) if mode == "rb" else handle
+
+        monkeypatch.setattr(run_manifest_module, "open", spy_open, raising=False)
+        calls: dict[str, Callable[[], object]] = {
+            "read-ndjson": lambda: list(run_manifest_module._read_ndjson(path)),
+            "sealed-lookup": lambda: run_manifest_module._is_run_sealed_unverified(path, "run-z"),
+            "anchor-latest": lambda: NdjsonHeadAnchor(path).latest(),
+            "quarantine": lambda: _quarantine(tmp_path, path, manifest_path, dry_run=True),
+        }
+
+        with suppress(ManifestVerificationError):
+            calls[reader]()
+
+        assert seen
+        assert max(seen) <= cap + 1
+
 
 class TestPathAliasingGuards:
     """audit_path and manifest_path must not resolve to the same file: that is a caller mistake, not tampering."""
@@ -4513,6 +4674,33 @@ class TestQuarantineDamagedLines:
             quarantined_at = entry["quarantined_at"]
             assert quarantined_at.endswith("Z")
             datetime.fromisoformat(quarantined_at.removesuffix("Z"))
+
+    @pytest.mark.parametrize("position", ["terminated", "unterminated"])
+    def test_an_oversized_audit_line_is_dropped_and_its_trace_entry_stays_within_the_cap(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, position: str
+    ) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _cap(monkeypatch)
+        if position == "terminated":
+            big = _oversized_line() + b"\n"
+            _insert_line(audit_path, 3, big)
+            number = 4
+        else:
+            big = b"x" * (_CAP + 1)
+            _torn(audit_path, big)
+            number = 7
+        before = audit_path.read_bytes()
+
+        removed = _quarantine(tmp_path, audit_path, manifest_path)
+
+        assert _summary(removed) == _spans("audit", before, [number])
+        assert audit_path.read_bytes() == before.replace(big, b"")
+        trace_lines = _trace(tmp_path).read_bytes().splitlines()
+        assert [len(line) <= _CAP for line in trace_lines] == [True]
+        entry = json.loads(trace_lines[0])
+        assert entry.get("raw_base64") is None
+        assert (entry["sha256"], entry["length"]) == (_sha256(big), len(big))
+        assert _verify_quarantine(_trace(tmp_path), _signer()) is not None
 
     def test_new_trace_file_has_owner_only_permissions(self, tmp_path: Path) -> None:
         audit_path, manifest_path, _ = _damaged_log(tmp_path)

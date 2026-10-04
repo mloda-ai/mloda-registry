@@ -43,6 +43,7 @@ from mloda.enterprise.extenders.audit import (
     verify_ndjson_log_coverage,
 )
 from mloda.enterprise.extenders.audit import audit_extender as audit_extender_module
+from mloda.enterprise.extenders.audit import run_manifest as run_manifest_module
 from mloda.enterprise.extenders.audit._records import _append_records, _canonical_json
 from mloda.enterprise.extenders.audit.run_manifest import _flock
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
@@ -2594,6 +2595,20 @@ class TestNdjsonAuditSink:
         lines = path.read_text(encoding="utf-8").splitlines()
         assert len(lines) == 1
         assert json.loads(lines[0]) == record
+
+    def test_record_over_the_line_cap_is_refused_before_writing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = tmp_path / "audit.ndjson"
+        sink = NdjsonAuditSink(path)
+        sink.write({"a": 1})
+        before = path.read_bytes()
+        monkeypatch.setattr(run_manifest_module, "MAX_LINE_BYTES", 100, raising=False)
+
+        with pytest.raises(ValueError):
+            sink.write({"a": "x" * 100})
+
+        assert path.read_bytes() == before
 
     def test_short_write_raises_os_error_naming_the_path(self, tmp_path: Path) -> None:
         path = tmp_path / "audit.ndjson"
