@@ -162,7 +162,7 @@ class AuditExtender(Extender):
     Keys may be added within record_version 1; an absent key means not recorded. With audit_path,
     manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
     that just finished. An auto-sealing instance, or a pickled copy of one, refuses a calculation with
-    SealedRunRefusedError before writing anything when its run_id is already named in manifest_path (an
+    SealedRunRefusedError before writing anything when its run_id is already named in manifest_path or a retained archived segment of it (an
     unverified read, once per run per instance or copy, at its first calculation; a seal landing
     after that first calculation is not seen, so do not run one prepared auto-sealing session concurrently: a run
     sealed while another run() of it is still calculating leaves that run's later records outside the seal), so

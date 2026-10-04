@@ -43,6 +43,11 @@ Limits:
   run's first record to EOF; runs left pending (crashed, or refused at plan time) stay so until swept. Negative
   lookups trust the index's unsigned hint rows: whoever can write the index can make a sealed run look unsealed and
   cause a duplicate seal, so keep it under the logs' write protection and verify offline on a schedule.
+- Segments: `rotate_ndjson_segment` archives `<path>.<NNNNNN>` pairs and carries pending runs into the new one;
+  `verify_ndjson_segments` verifies the retained history. Retention deletes the oldest pairs and only anchors detect
+  that. Refusal and sealing treat runs sealed in retained archives as sealed via unverified reads (the seal index
+  caches them). The handover is safe only for writers that take the shared flock (NdjsonAuditSink), and not without
+  fcntl.
 - A line longer than MAX_LINE_BYTES (64 MiB) fails verification and is refused on write, which bounds a seal to
   roughly a million records per run. Logs written by earlier releases with a seal line over the cap no longer verify.
 - Sealing and verifying need the log's current key to be `signer` (an archived log verifies with its current key).
@@ -882,7 +887,12 @@ def _verify_log(
                 # A successor segment: its predecessor's final head is the chain start and a known head.
                 head = manifest["previous_manifest_hash"]
                 hashes.add(head)
-            active = manifest["signature"]["key_id"]
+            genesis_key = manifest["signature"]["key_id"]
+            if active is not None and genesis_key != active:
+                raise ManifestVerificationError(
+                    f"the genesis entry is signed by key {genesis_key!r}, not the log's current key {active!r}"
+                )
+            active = genesis_key
             genesis_id = manifest["log_id"]
             where = "the genesis entry"
         elif log_id is not None and number == 0:
@@ -1742,6 +1752,71 @@ def verify_ndjson_log(
         log_id=log_id,
         anchored_heads=anchored_heads,
     ).head
+
+
+def verify_ndjson_segments(
+    audit_path: str | Path,
+    manifest_path: str | Path,
+    *,
+    signer: ManifestSigner,
+    previous_signers: Iterable[ManifestSigner] = (),
+    log_id: str | None = None,
+    expected_head: str | None = None,
+    anchored_heads: Iterable[str] = (),
+) -> LogCoverage:
+    """Verify the retained archived segment pairs in order plus the live pair as one chain: each segment against its
+    own audit file, genesis chaining, key continuity, no run sealed twice, no carried record stranded. `expected_head`
+    pins the live head; an anchored head may be a line of any retained segment. The oldest retained segment may start
+    with a non-null predecessor (only anchors detect retention). `unsealed_lines` is the live segment's."""
+    signers = _signer_map(signer, previous_signers)
+    _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
+    _check_log_id("verify_ndjson_segments", log_id)
+    sealed_runs = sealed_lines = 0
+    uncovered = _Uncovered()
+    with _flock(manifest_path, exclusive=False):
+        pairs = [
+            (_segment_path(manifest_path, n), _segment_path(audit_path, n))
+            for n, _ in _archived_segments(manifest_path)
+        ]
+        pairs.append((Path(manifest_path), Path(audit_path)))
+        state = _LogState(set(), None, None, frozenset(), set())
+        digests: dict[str, _RunDigest] = {}
+        for index, (manifests_file, audit_file) in enumerate(pairs):
+            last = index == len(pairs) - 1
+            manifests = _read_manifests(manifests_file)
+            try:
+                found = _digest_runs(audit_file, lambda _: True, uncovered)
+            except FileNotFoundError:
+                found = {}
+            here = {m["run_id"] for m in manifests if isinstance(m.get("run_id"), str)}
+            seed = replace(state, seen_v2=True, log_id=None, lines=0) if index else None
+            earlier = state.sealed
+            state = _verify_log(
+                manifests,
+                signer=signer,
+                signers=signers,
+                expected_head=expected_head if last else None,
+                digests={run: found[run] for run in here if run in found},
+                require_current=last,
+                log_id=log_id,
+                anchored_heads=anchored_heads if last else (),
+                seed=seed,
+            )
+            for run in found.keys() & earlier:
+                raise ManifestVerificationError(f"run_id {run!r} has records in {audit_file} after it was sealed")
+            for run, old in digests.items():
+                if run not in earlier and Counter(old.hashes) - Counter(found[run].hashes if run in found else ()):
+                    raise ManifestVerificationError(f"run_id {run!r} has records stranded in {audit_file}")
+            sealed_runs += len(here)
+            sealed_lines += sum(len(found[run].hashes) for run in here if run in found)
+            digests = found
+    return LogCoverage(
+        head=state.head,
+        sealed_runs=sealed_runs,
+        sealed_lines=sealed_lines,
+        unattributed_lines=uncovered.unattributed,
+        unsealed_lines={run: len(digest.hashes) for run, digest in digests.items() if run not in state.sealed},
+    )
 
 
 @dataclass(frozen=True)

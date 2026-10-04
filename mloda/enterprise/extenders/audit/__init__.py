@@ -31,6 +31,7 @@ from mloda.enterprise.extenders.audit.run_manifest import (
     verify_manifest,
     verify_ndjson_log,
     verify_ndjson_log_coverage,
+    verify_ndjson_segments,
     verify_quarantine_log,
 )
 
@@ -63,5 +64,6 @@ __all__ = [
     "verify_manifest",
     "verify_ndjson_log",
     "verify_ndjson_log_coverage",
+    "verify_ndjson_segments",
     "verify_quarantine_log",
 ]

@@ -1059,6 +1059,7 @@ class TestRunManifestPublicApi:
             "KeyAlreadyCurrentError",
             "rotate_manifest_key",
             "rotate_ndjson_segment",
+            "verify_ndjson_segments",
             "HeadAnchor",
             "NdjsonHeadAnchor",
             "verify_quarantine_log",
@@ -3522,6 +3523,250 @@ class TestSegmentRotation:
         assert started.is_set() and not writer.is_alive()
         assert _archive(audit_path).read_bytes() == before
         assert [line["run_id"] for line in _read_lines(audit_path)] == ["run-p", "run-p", "run-sink"]
+
+    def test_a_record_of_a_run_sealed_in_the_outgoing_segment_during_the_copy_pass_refuses_the_rotation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fcntl = pytest.importorskip("fcntl")
+        audit_path, manifest_path = _pending_log(tmp_path)
+        stray = _canonical(_record("run-a", 9))
+        before = _snapshot(tmp_path)
+        audit_inode = audit_path.stat().st_ino
+        appended: list[bool] = []
+        real_flock = fcntl.flock
+
+        def flock(fd: int, operation: int) -> None:
+            if operation & fcntl.LOCK_EX and os.fstat(fd).st_ino == audit_inode and not appended:
+                # The copy pass is over and the audit lock is about to be taken: a writer lands a stray line now.
+                appended.append(True)
+                _append_line(audit_path, stray)
+            real_flock(fd, operation)
+
+        monkeypatch.setattr(fcntl, "flock", flock)
+
+        with pytest.raises(ValueError):
+            _rotate_segment(audit_path, manifest_path)
+
+        assert appended
+        assert _snapshot(tmp_path) == {**before, "audit.ndjson": before["audit.ndjson"] + stray + b"\n"}
+        assert _archives(tmp_path) == []
+
+
+def _verify_segments(audit_path: Path, manifest_path: Path, **kwargs: Any) -> LogCoverage:
+    """verify_ndjson_segments, looked up late so only the cross-segment tests fail while it is missing."""
+    verify = getattr(audit_package, "verify_ndjson_segments")
+    coverage: LogCoverage = verify(audit_path, manifest_path, **{"signer": _signer(), **kwargs})
+    return coverage
+
+
+def _three_segments(directory: Path) -> tuple[Path, Path]:
+    """Two rotations. Segment 1 seals a, b, c; segment 2 seals run-q; the live segment seals run-p, which was pending
+    in segments 1 and 2 and was carried across both rotations, and leaves run-r pending."""
+    audit_path, manifest_path = _pending_log(directory)
+    _rotate_segment(audit_path, manifest_path)
+    _write_records(audit_path, [_record("run-q", 10), _record(None, 11)])
+    seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-q")
+    _rotate_segment(audit_path, manifest_path)
+    _write_records(audit_path, [_record("run-p", 12), _record("run-r", 13)])
+    seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-p")
+    return audit_path, manifest_path
+
+
+def _head_of(manifest_path: Path, index: int = -1) -> str:
+    return manifest_hash(_read_lines(manifest_path)[index])
+
+
+def _middle_segment_deleted(directory: Path) -> dict[str, Any]:
+    audit_path, manifest_path = _three_segments(directory)
+    _archive(audit_path, 2).unlink()
+    _archive(manifest_path, 2).unlink()
+    return {}
+
+
+def _genesis_under_another_key(directory: Path) -> dict[str, Any]:
+    audit_path, manifest_path = _pending_log(directory)
+    _rotate_segment(audit_path, manifest_path)
+    key_2 = _signer(_OTHER_KEY, "key-2")
+    manifest_path.unlink()
+    _write_records(manifest_path, [_genesis_entry(key_2, previous_manifest_hash=_head_of(_archive(manifest_path)))])
+    return {"signer": key_2, "previous_signers": [_signer()]}
+
+
+def _run_sealed_twice(directory: Path) -> dict[str, Any]:
+    audit_path, manifest_path = _pending_log(directory)
+    _rotate_segment(audit_path, manifest_path)
+    record = _record("run-a", 9)
+    _write_records(audit_path, [record])
+    seal = seal_run([record], run_id="run-a", signer=_signer(), previous_manifest_hash=_head_of(manifest_path))
+    _append_line(manifest_path, _canonical(seal))
+    return {}
+
+
+def _record_stranded_in_the_archive(directory: Path) -> dict[str, Any]:
+    audit_path, manifest_path = _pending_log(directory)
+    _rotate_segment(audit_path, manifest_path)
+    _append_line(_archive(audit_path), _canonical(_record("run-p", 30)))
+    return {}
+
+
+def _carried_line_dropped(directory: Path) -> dict[str, Any]:
+    audit_path, manifest_path = _pending_log(directory)
+    _rotate_segment(audit_path, manifest_path)
+    audit_path.write_bytes(audit_path.read_bytes().splitlines(keepends=True)[0])
+    return {}
+
+
+def _sealed_run_reappears(directory: Path) -> dict[str, Any]:
+    _rotated_with_stray(directory)
+    return {}
+
+
+def _unknown_anchor(directory: Path) -> dict[str, Any]:
+    _three_segments(directory)
+    return {"anchored_heads": [_sha256(b"unknown")]}
+
+
+def _wrong_expected_head(directory: Path) -> dict[str, Any]:
+    _three_segments(directory)
+    return {"expected_head": _sha256(b"not the head")}
+
+
+def _old_segment_head_as_expected_head(directory: Path) -> dict[str, Any]:
+    _, manifest_path = _three_segments(directory)
+    return {"expected_head": _head_of(_archive(manifest_path))}
+
+
+def _wrong_log_id(directory: Path) -> dict[str, Any]:
+    _three_segments(directory)
+    return {"log_id": "log-other"}
+
+
+def _signer_not_current(directory: Path) -> dict[str, Any]:
+    _three_segments(directory)
+    return {"signer": _signer(_OTHER_KEY, "key-2")}
+
+
+_SEGMENT_FAILURES = {
+    "middle-segment-deleted": (_middle_segment_deleted, "manifest chain is broken"),
+    "genesis-under-another-key": (_genesis_under_another_key, "genesis entry is signed by key"),
+    "run-sealed-in-two-segments": (_run_sealed_twice, "sealed by more than one manifest"),
+    "carried-run-stranded-in-the-archive": (_record_stranded_in_the_archive, "stranded"),
+    "carried-line-dropped-from-the-next-segment": (_carried_line_dropped, "stranded"),
+    "sealed-run-reappears-in-a-later-segment": (_sealed_run_reappears, "run_id 'run-a' has records"),
+    "unknown-anchored-head": (_unknown_anchor, "anchored head .* is not a line"),
+    "wrong-expected-head": (_wrong_expected_head, "is not the expected head"),
+    "old-segment-head-is-not-the-expected-head": (_old_segment_head_as_expected_head, "is not the expected head"),
+    "wrong-log-id": (_wrong_log_id, "manifest log is for log_id"),
+    "signer-not-current": (_signer_not_current, "not the signer's"),
+}
+
+
+@_both_algorithms
+class TestVerifyNdjsonSegments:
+    """verify_ndjson_segments: the retained archived pairs in order plus the live pair, as one chain."""
+
+    def test_three_segments_with_a_run_carried_across_both_rotations_pass_and_aggregate(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _three_segments(tmp_path)
+
+        coverage = _verify_segments(audit_path, manifest_path, log_id="log-a")
+
+        assert coverage == LogCoverage(
+            head=_head_of(manifest_path),
+            sealed_runs=5,
+            sealed_lines=7,
+            unattributed_lines=3,
+            unsealed_lines={"run-r": 1},
+        )
+
+    def test_without_a_rotation_it_matches_verify_ndjson_log_coverage(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _genesis_log(tmp_path)
+        _write_records(audit_path, [_record("run-p", 4), _record(None, 5)])
+
+        coverage = _verify_segments(audit_path, manifest_path)
+
+        assert coverage == verify_ndjson_log_coverage(audit_path, manifest_path, signer=_signer())
+
+    def test_dropping_the_oldest_pair_by_retention_still_passes(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _three_segments(tmp_path)
+        _archive(audit_path).unlink()
+        _archive(manifest_path).unlink()
+
+        coverage = _verify_segments(audit_path, manifest_path)
+
+        assert coverage.head == _head_of(manifest_path)
+        assert coverage.sealed_runs == 2
+
+    def test_a_key_rotation_inside_a_segment_followed_by_a_segment_rotation_passes(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _genesis_log(tmp_path)
+        key_1, key_2 = _signer(), _signer(_OTHER_KEY, "key-2")
+        _rotate(manifest_path, key_2, key_1)
+        _write_records(audit_path, [_record("run-d", 4)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=key_2, previous_signers=[key_1])
+        _rotate_segment(audit_path, manifest_path, signer=key_2, previous_signers=[key_1])
+        _write_records(audit_path, [_record("run-e", 5)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=key_2, previous_signers=[key_1])
+
+        coverage = _verify_segments(audit_path, manifest_path, signer=key_2, previous_signers=[key_1])
+
+        assert coverage.head == _head_of(manifest_path)
+        assert coverage.sealed_runs == 5
+
+    @pytest.mark.parametrize("build, message", list(_SEGMENT_FAILURES.values()), ids=list(_SEGMENT_FAILURES))
+    def test_a_broken_history_fails_and_changes_nothing(
+        self, tmp_path: Path, build: Callable[[Path], dict[str, Any]], message: str
+    ) -> None:
+        kwargs = build(tmp_path)
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ManifestVerificationError, match=message):
+            _verify_segments(tmp_path / "audit.ndjson", tmp_path / "manifests.ndjson", **kwargs)
+
+        assert _snapshot(tmp_path) == before
+
+    @pytest.mark.parametrize(
+        "anchor",
+        [
+            lambda a, m: _head_of(_archive(m, 1)),
+            lambda a, m: _head_of(_archive(m, 1), 0),
+            lambda a, m: _head_of(_archive(m, 2)),
+            lambda a, m: _head_of(m, 0),
+        ],
+        ids=["first-segment-head", "first-genesis", "middle-segment-head", "live-genesis"],
+    )
+    def test_an_anchored_head_may_be_a_line_of_any_retained_segment(
+        self, tmp_path: Path, anchor: Callable[[Path, Path], str]
+    ) -> None:
+        audit_path, manifest_path = _three_segments(tmp_path)
+
+        coverage = _verify_segments(
+            audit_path, manifest_path, anchored_heads=[anchor(audit_path, manifest_path)], log_id="log-a"
+        )
+
+        assert coverage.head == _head_of(manifest_path)
+
+    def test_the_expected_head_is_the_live_segments_head(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _three_segments(tmp_path)
+
+        coverage = _verify_segments(audit_path, manifest_path, expected_head=_head_of(manifest_path))
+
+        assert coverage.head == _head_of(manifest_path)
+
+    def test_the_live_manifest_is_shared_locked_while_the_archives_and_audit_files_are_read(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        audit_path, manifest_path = _three_segments(tmp_path)
+        locked_during_read: list[bool] = []
+        real_digest_runs = run_manifest_module._digest_runs
+
+        def digest_runs(*args: Any, **kwargs: Any) -> Any:
+            locked_during_read.append(_lock_refused(manifest_path))
+            return real_digest_runs(*args, **kwargs)
+
+        monkeypatch.setattr(run_manifest_module, "_digest_runs", digest_runs)
+
+        _verify_segments(audit_path, manifest_path)
+
+        assert locked_during_read and all(locked_during_read)
 
 
 @_both_algorithms
