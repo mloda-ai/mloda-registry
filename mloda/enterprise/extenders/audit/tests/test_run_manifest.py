@@ -55,11 +55,13 @@ from mloda.enterprise.extenders.audit import (
     quarantine_damaged_lines,
     quarantine_from_rotation_entry,
     rotate_manifest_key,
+    rotate_ndjson_segment,
     seal_ndjson_runs,
     seal_run,
     verify_manifest,
     verify_ndjson_log,
     verify_ndjson_log_coverage,
+    verify_ndjson_segments,
     verify_quarantine_log,
 )
 from mloda.enterprise.extenders.audit._records import _parse_event_time
@@ -924,9 +926,10 @@ def _swap_on_first_flock(monkeypatch: pytest.MonkeyPatch, path: Path, tmp_path: 
 
 
 def _rotate_segment(audit_path: Path, manifest_path: Path, **kwargs: Any) -> dict[str, Any]:
-    """rotate_ndjson_segment, looked up late so only the rotation tests fail while it is missing."""
-    rotate = getattr(audit_package, "rotate_ndjson_segment")
-    entry: dict[str, Any] = rotate(audit_path, manifest_path, **{"signer": _signer(), "log_id": "log-a", **kwargs})
+    """rotate_ndjson_segment with the default signer and log_id."""
+    entry: dict[str, Any] = rotate_ndjson_segment(
+        audit_path, manifest_path, **{"signer": _signer(), "log_id": "log-a", **kwargs}
+    )
     return entry
 
 
@@ -3166,6 +3169,31 @@ class TestCheckRunAgainstSeal:
             run_manifest_module._check_run_against_seal(audit_path, manifest_path, "run-1", signer=_signer())
 
 
+class TestCheckRunAgainstArchivedSeal:
+    """A run sealed in an archived segment is checked against the archived manifest and audit file."""
+
+    def test_a_run_sealed_in_an_archived_segment_passes_when_the_archived_pair_matches(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _pending_log(tmp_path)
+        _rotate_segment(audit_path, manifest_path)
+
+        run_manifest_module._check_run_against_seal(audit_path, manifest_path, "run-a", signer=_signer())
+
+    def test_a_run_sealed_in_an_archived_segment_fails_when_its_archived_records_were_tampered(
+        self, tmp_path: Path
+    ) -> None:
+        audit_path, manifest_path = _pending_log(tmp_path)
+        _rotate_segment(audit_path, manifest_path)
+        archived_audit = _archive(audit_path)
+        lines = _read_lines(archived_audit)
+        lines[0]["tenant_id"] = "tampered"
+        _rewrite_lines(archived_audit, lines)
+
+        with pytest.raises(ManifestVerificationError) as excinfo:
+            run_manifest_module._check_run_against_seal(audit_path, manifest_path, "run-a", signer=_signer())
+
+        assert "has no manifest" not in str(excinfo.value)
+
+
 def _no_log_id(directory: Path) -> tuple[Path, Path, dict[str, Any]]:
     audit_path, manifest_path = _pending_log(directory)
     return audit_path, manifest_path, {"log_id": None}
@@ -3192,12 +3220,30 @@ def _legacy_log(directory: Path) -> tuple[Path, Path, dict[str, Any]]:
     return audit_path, manifest_path, {}
 
 
+def _symlinked_audit(directory: Path) -> tuple[Path, Path, dict[str, Any]]:
+    audit_path, manifest_path = _pending_log(directory)
+    real = directory / "real-audit.ndjson"
+    audit_path.rename(real)
+    audit_path.symlink_to(real)
+    return audit_path, manifest_path, {}
+
+
+def _symlinked_manifest(directory: Path) -> tuple[Path, Path, dict[str, Any]]:
+    audit_path, manifest_path = _pending_log(directory)
+    real = directory / "real-manifests.ndjson"
+    manifest_path.rename(real)
+    manifest_path.symlink_to(real)
+    return audit_path, manifest_path, {}
+
+
 _UNROTATABLE = {
     "log-id-none": _no_log_id,
     "log-id-blank": _blank_log_id,
     "manifest-missing": _missing_manifest_log,
     "manifest-empty": _empty_manifest_log,
     "legacy-log-without-genesis": _legacy_log,
+    "audit-path-is-a-symlink": _symlinked_audit,
+    "manifest-path-is-a-symlink": _symlinked_manifest,
 }
 
 
@@ -3413,6 +3459,116 @@ class TestSegmentRotation:
         assert sealed is True
         assert (str(_archive(manifest_path)) in opened) is (not indexed)
 
+    @pytest.mark.parametrize("live", ["audit", "manifest"])
+    @pytest.mark.parametrize("operation", ["seal", "rotate-key"])
+    def test_an_unrelated_hard_link_to_a_live_file_does_not_block_writers(
+        self, tmp_path: Path, live: str, operation: str
+    ) -> None:
+        audit_path, manifest_path = _pending_log(tmp_path)
+        os.link(audit_path if live == "audit" else manifest_path, tmp_path / "backup-link")
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+
+        if operation == "seal":
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-p")
+        else:
+            rotate_manifest_key(
+                manifest_path, signer=_signer(_OTHER_KEY, "key-2"), previous_signers=[_signer()], expected_head=head
+            )
+
+        assert _read_lines(manifest_path)[-1] != _read_lines(manifest_path)[0]
+
+    @pytest.mark.parametrize("repair", ["damaged-lines", "rotation-entry", "verify-segments"])
+    def test_an_interrupted_rotation_refuses_recovery_and_segment_verification(
+        self, tmp_path: Path, repair: str
+    ) -> None:
+        audit_path, manifest_path, _ = _crashed_rotation(tmp_path, 1)
+        head = manifest_hash(_read_lines(manifest_path)[-1])
+        calls: dict[str, Callable[[], object]] = {
+            "damaged-lines": lambda: _quarantine(tmp_path, audit_path, manifest_path),
+            "rotation-entry": lambda: _quarantine_from_entry(tmp_path, manifest_path, expected_head=head),
+            "verify-segments": lambda: _verify_segments(audit_path, manifest_path),
+        }
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ValueError, match="rotate_ndjson_segment"):
+            calls[repair]()
+
+        assert _snapshot(tmp_path) == before
+
+    def test_a_sealer_cannot_append_to_the_new_manifest_before_the_genesis_reached_the_anchor(
+        self, tmp_path: Path
+    ) -> None:
+        audit_path, manifest_path = _pending_log(tmp_path)
+        locked: list[bool] = []
+
+        class LockProbingAnchor(_RecordingAnchor):
+            def write(self, head: str) -> None:
+                locked.append(_lock_refused(manifest_path))
+                super().write(head)
+
+        _rotate_segment(audit_path, manifest_path, head_anchor=LockProbingAnchor())
+
+        assert locked == [True]
+
+    def test_a_missing_audit_file_with_sealed_runs_is_a_verification_failure_and_changes_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        audit_path, manifest_path = _pending_log(tmp_path)
+        audit_path.unlink()
+
+        _assert_raises_and_unchanged(tmp_path, lambda: _rotate_segment(audit_path, manifest_path))
+
+    def test_a_record_of_a_sealed_run_appended_after_verification_refuses_the_rotation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        audit_path, manifest_path = _pending_log(tmp_path)
+        stray = _canonical(_record("run-a", 9))
+        before = _snapshot(tmp_path)
+        real_carry = run_manifest_module._carry_pending
+        appended: list[bool] = []
+
+        def carry(*args: Any, **kwargs: Any) -> Any:
+            if not appended:
+                appended.append(True)
+                _append_line(audit_path, stray)
+            return real_carry(*args, **kwargs)
+
+        monkeypatch.setattr(run_manifest_module, "_carry_pending", carry)
+
+        with pytest.raises((ManifestVerificationError, ValueError)):
+            _rotate_segment(audit_path, manifest_path)
+
+        assert appended
+        assert _snapshot(tmp_path) == {**before, "audit.ndjson": before["audit.ndjson"] + stray + b"\n"}
+        assert _archives(tmp_path) == []
+
+    def test_a_partial_last_line_completed_before_the_audit_lock_is_carried_when_its_run_is_pending(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fcntl = pytest.importorskip("fcntl")
+        audit_path, manifest_path = _pending_log(tmp_path)
+        _append_line(audit_path, _canonical(_record("run-p", 8)))
+        data = audit_path.read_bytes()
+        audit_path.write_bytes(data[:-1])
+        audit_inode = audit_path.stat().st_ino
+        completed: list[bool] = []
+        real_flock = fcntl.flock
+
+        def flock(fd: int, operation: int) -> None:
+            if operation & fcntl.LOCK_EX and os.fstat(fd).st_ino == audit_inode and not completed:
+                completed.append(True)
+                with open(audit_path, "ab") as file:
+                    file.write(b"\n")
+            real_flock(fd, operation)
+
+        monkeypatch.setattr(fcntl, "flock", flock)
+
+        _rotate_segment(audit_path, manifest_path)
+
+        assert completed
+        assert [line["run_id"] for line in _read_lines(audit_path)] == ["run-p", "run-p", "run-p"]
+        assert audit_path.read_bytes().endswith(b"\n")
+
     @pytest.mark.parametrize("blocked", ["seal", "rotate-key"])
     def test_a_crash_before_the_first_swap_leaves_both_live_files_linked_and_blocks_writers(
         self, tmp_path: Path, blocked: str
@@ -3559,9 +3715,8 @@ class TestSegmentRotation:
 
 
 def _verify_segments(audit_path: Path, manifest_path: Path, **kwargs: Any) -> LogCoverage:
-    """verify_ndjson_segments, looked up late so only the cross-segment tests fail while it is missing."""
-    verify = getattr(audit_package, "verify_ndjson_segments")
-    coverage: LogCoverage = verify(audit_path, manifest_path, **{"signer": _signer(), **kwargs})
+    """verify_ndjson_segments with the default signer."""
+    coverage: LogCoverage = verify_ndjson_segments(audit_path, manifest_path, **{"signer": _signer(), **kwargs})
     return coverage
 
 
@@ -3652,6 +3807,15 @@ def _signer_not_current(directory: Path) -> dict[str, Any]:
     return {"signer": _signer(_OTHER_KEY, "key-2")}
 
 
+def _successor_genesis_names_another_log_id(directory: Path) -> dict[str, Any]:
+    audit_path, manifest_path = _pending_log(directory)
+    _rotate_segment(audit_path, manifest_path)
+    manifest_path.unlink()
+    genesis = _genesis_entry(_signer(), "log-b", previous_manifest_hash=_head_of(_archive(manifest_path)))
+    _write_records(manifest_path, [genesis])
+    return {"log_id": None}
+
+
 _SEGMENT_FAILURES = {
     "middle-segment-deleted": (_middle_segment_deleted, "manifest chain is broken"),
     "genesis-under-another-key": (_genesis_under_another_key, "genesis entry is signed by key"),
@@ -3664,6 +3828,7 @@ _SEGMENT_FAILURES = {
     "old-segment-head-is-not-the-expected-head": (_old_segment_head_as_expected_head, "is not the expected head"),
     "wrong-log-id": (_wrong_log_id, "manifest log is for log_id"),
     "signer-not-current": (_signer_not_current, "not the signer's"),
+    "successor-genesis-names-another-log-id": (_successor_genesis_names_another_log_id, "log_id"),
 }
 
 

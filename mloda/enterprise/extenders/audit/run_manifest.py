@@ -69,7 +69,7 @@ import stat
 import tempfile
 from collections import Counter
 from collections.abc import Callable, Container, Iterable, Iterator, Mapping, Sequence
-from contextlib import closing, contextmanager, suppress
+from contextlib import ExitStack, closing, contextmanager, suppress
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from itertools import islice
@@ -81,6 +81,7 @@ from mloda.enterprise.extenders.audit._records import (
     _append_records,
     _canonical_json,
     _is_blank,
+    _open_locked,
     _parse_event_time,
     _utc_now,
 )
@@ -685,14 +686,20 @@ def _sealed_in_archives(manifest_path: str | Path, run_id: str, index_path: str 
     return any(_scan_for_run(path, run_id) for _, path in reversed(_archived_segments(manifest_path)))
 
 
-def _refuse_interrupted_rotation(*paths: str | Path) -> None:
-    """Raise ValueError when a live file is still linked to an archive (an interrupted rotation)."""
-    for path in paths:
-        with suppress(FileNotFoundError):
-            if os.stat(path).st_nlink > 1:
-                raise ValueError(
-                    f"{path} is linked to an archived segment: finish the interrupted rotation with rotate_ndjson_segment"
-                )
+def _refuse_interrupted_rotation(manifest_path: str | Path, audit_path: str | Path | None = None) -> None:
+    """Raise ValueError when a live file is still the same file as its newest archive (an interrupted rotation)."""
+    archived = _archived_segments(manifest_path)
+    if not archived:
+        return
+    number, newest = archived[-1]
+    pairs = [(manifest_path, newest)]
+    if audit_path is not None:
+        pairs.append((audit_path, _segment_path(audit_path, number)))
+    for live, archive in pairs:
+        if _same_file(live, archive):
+            raise ValueError(
+                f"{live} is linked to an archived segment: finish the interrupted rotation with rotate_ndjson_segment"
+            )
 
 
 def _read_manifests(path: str | Path) -> list[dict[str, Any]]:
@@ -710,12 +717,18 @@ def _check_run_against_seal(
     """Raise ManifestVerificationError when run_id's manifest fails its signature/field checks, or when
     audit_path's records of run_id no longer match it."""
     with _flock(manifest_path, exclusive=False):
-        manifests = _read_manifests(manifest_path)
-        manifest = next((m for m in manifests if m.get("run_id") == run_id), None)
+        manifest = next((m for m in _iter_manifests(manifest_path) if m.get("run_id") == run_id), None)
+        sealed_audit: str | Path = audit_path
+        if manifest is None:
+            for number, archive in reversed(_archived_segments(manifest_path)):
+                manifest = next((m for m in _iter_manifests(archive) if m.get("run_id") == run_id), None)
+                if manifest is not None:
+                    sealed_audit = _segment_path(audit_path, number)
+                    break
         if manifest is None:
             raise ManifestVerificationError(f"run_id {run_id!r} has no manifest in {manifest_path}")
         _verify_manifest_fields(manifest, signer, _signer_map(signer, previous_signers))
-        _verify_digest(manifest, _digest_runs(audit_path, run_id.__eq__).get(run_id, _RunDigest()))
+        _verify_digest(manifest, _digest_runs(sealed_audit, run_id.__eq__).get(run_id, _RunDigest()))
 
 
 class _AuditScan:
@@ -788,34 +801,6 @@ def _reject_aliased_paths(**named_paths: str | Path) -> None:
         if real in seen:
             raise ValueError(f"{seen[real]} and {name} must not be the same file, but both resolve to {real}")
         seen[real] = name
-
-
-def _open_locked(path: str | Path, flags: int, *, exclusive: bool) -> int | None:
-    """Open and flock `path`, reopening if it was replaced meanwhile. A shared lock is best effort, an exclusive one
-    raises. None without fcntl."""
-    try:
-        import fcntl
-    except ImportError:
-        return None
-    while True:
-        fd = os.open(path, flags, 0o600)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
-        except OSError:
-            if exclusive:
-                os.close(fd)
-                raise
-            return fd
-        try:
-            held, named = os.fstat(fd), os.stat(path)
-            if (held.st_dev, held.st_ino) == (named.st_dev, named.st_ino):
-                return fd
-        except FileNotFoundError:
-            pass
-        except BaseException:
-            os.close(fd)
-            raise
-        os.close(fd)
 
 
 @contextmanager
@@ -1578,7 +1563,7 @@ def seal_ndjson_runs(
             raise RunAlreadySealedError(f"run_id {run_id!r} is already sealed in {manifest_path}")
         # Runs sealed in an archived segment count as sealed: a sweep skips them, a targeted seal refuses them.
         archived: set[str] | None = None
-        if run_id is None or not fast:
+        if run_id is None or (seal_index_path is not None and not fast):
             archived = _archived_sealed_ids(manifest_path)
         if run_id is not None and (
             run_id in archived if archived is not None else _sealed_in_archives(manifest_path, run_id, seal_index_path)
@@ -1771,7 +1756,9 @@ def verify_ndjson_segments(
     _check_log_id("verify_ndjson_segments", log_id)
     sealed_runs = sealed_lines = 0
     uncovered = _Uncovered()
+    first_log_id: str | None = None
     with _flock(manifest_path, exclusive=False):
+        _refuse_interrupted_rotation(manifest_path, audit_path)
         pairs = [
             (_segment_path(manifest_path, n), _segment_path(audit_path, n))
             for n, _ in _archived_segments(manifest_path)
@@ -1800,6 +1787,12 @@ def verify_ndjson_segments(
                 anchored_heads=anchored_heads if last else (),
                 seed=seed,
             )
+            if not index:
+                first_log_id = state.log_id
+            elif state.log_id != first_log_id:
+                raise ManifestVerificationError(
+                    f"{manifests_file} genesis log_id {state.log_id!r} is not the first segment's {first_log_id!r}"
+                )
             for run in found.keys() & earlier:
                 raise ManifestVerificationError(f"run_id {run!r} has records in {audit_file} after it was sealed")
             for run, old in digests.items():
@@ -2116,6 +2109,7 @@ def quarantine_damaged_lines(
     if not (os.path.exists(audit_path) or os.path.exists(manifest_path)):
         return []
     with _flock(manifest_path, exclusive=not dry_run):
+        _refuse_interrupted_rotation(manifest_path, audit_path)
         manifest_damage = _damaged_manifest_tail(
             manifest_path, signer=signer, signers=signers, expected_head=expected_head
         )
@@ -2191,6 +2185,7 @@ def quarantine_from_rotation_entry(
     if not os.path.exists(manifest_path):
         raise ManifestVerificationError(f"{manifest_path} does not exist, so there is no head to anchor on")
     with _flock(manifest_path, exclusive=not dry_run):
+        _refuse_interrupted_rotation(manifest_path)
         lines, tail = _split_unterminated_tail(manifest_path)
         prefix = _manifests_through(manifest_path, lines, expected_head)
         _verify_log(prefix, signer=signer, signers=signers, expected_head=None, require_current=True)
@@ -2223,7 +2218,8 @@ def quarantine_from_rotation_entry(
 
 def _outgoing_state(
     manifest_src: str | Path,
-    audit_src: str | Path | None,
+    manifests: list[dict[str, Any]],
+    digests: Mapping[str, _RunDigest] | None,
     *,
     signer: ManifestSigner,
     signers: Mapping[str, ManifestSigner],
@@ -2231,15 +2227,7 @@ def _outgoing_state(
     log_id: str,
     anchors: Sequence[str],
 ) -> _LogState:
-    """Verify a segment like verify_ndjson_log_coverage (against `audit_src` when given)."""
-    manifests = _read_manifests(manifest_src)
-    digests = None
-    if audit_src is not None:
-        sealed = {manifest["run_id"] for manifest in manifests if isinstance(manifest.get("run_id"), str)}
-        try:
-            digests = _digest_runs(audit_src, sealed.__contains__)
-        except FileNotFoundError:
-            digests = {}
+    """Verify a segment's `manifests` like verify_ndjson_log_coverage (against `digests` when given)."""
     state = _verify_log(
         manifests,
         signer=signer,
@@ -2279,20 +2267,58 @@ def _stage_genesis(manifest_path: str | Path, genesis: Mapping[str, Any]) -> str
 
 
 def _carry_pending(
-    audit_path: str | Path, out: IO[bytes], start: int, skip: Container[str], refuse: Container[str]
+    audit_path: str | Path,
+    out: IO[bytes],
+    start: int,
+    skip: Container[str],
+    refuse: Container[str],
+    *,
+    sealed: Container[str] = (),
+    digests: dict[str, _RunDigest] | None = None,
+    final: bool = False,
 ) -> int:
-    """Copy the audit lines from `start` whose run_id is usable and not in `skip`; raise on one in `refuse`.
-    Returns the end offset."""
+    """Copy the audit lines from `start` whose run_id is usable and not in `skip`; raise on one in `refuse`; digest
+    the lines of runs in `sealed` into `digests`. An unterminated last line ends the pass before it, or raises when
+    `final`. Returns the end offset of the last terminated line."""
     end = start
-    for line, record in _read_ndjson(audit_path, start):
-        run_id = _record_run_id(record)
-        if run_id is not None and not _is_blank(run_id):
-            if run_id in refuse:
-                raise ManifestVerificationError(f"run_id {run_id!r} gained records after it was sealed")
-            if run_id not in skip:
-                out.write(line + b"\n")
-        end += len(line) + 1
+    with open(audit_path, "rb") as file:
+        file.seek(start)
+        for number, raw in enumerate(_read_lines(file), start=1):
+            if not final and not _is_terminated(raw):
+                break
+            line, record = _parse_ndjson_line(audit_path, number, raw)
+            run_id = _record_run_id(record)
+            if run_id is not None and not _is_blank(run_id):
+                if run_id in refuse:
+                    raise ManifestVerificationError(f"run_id {run_id!r} gained records after it was sealed")
+                if digests is not None and run_id in sealed:
+                    digests.setdefault(run_id, _RunDigest()).add(line, record)
+                if run_id not in skip:
+                    out.write(line + b"\n")
+            end += len(line) + 1
     return end
+
+
+@contextmanager
+def _lock_staged(temp: str) -> Iterator[None]:
+    """Hold an exclusive flock on the staged file until the block ends: the lock follows the inode through
+    os.replace, so a sealer opening the new live file waits for it. No lock without fcntl."""
+    try:
+        import fcntl
+    except ImportError:
+        yield
+        return
+    fd = os.open(temp, os.O_RDWR)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def _fsync_parents(*paths: str | Path) -> None:
+    for parent in {Path(path).parent for path in paths}:
+        _fsync(parent)
 
 
 def _same_file(first: str | Path, second: str | Path) -> bool:
@@ -2321,12 +2347,16 @@ def rotate_ndjson_segment(
     """Archive both files as `<path>.<NNNNNN>` and start a new segment; return its genesis (`head_anchor` gets its
     hash). Verifies the outgoing segment first like verify_ndjson_log and changes nothing on failure. Audit lines of
     unsealed runs are carried over. Safe against NdjsonAuditSink writers only; a crash mid-rotation blocks sealing
-    until it runs again."""
+    until it runs again. Symlinked live paths are refused. Run it as the account that writes the logs: the new live
+    files are created by the rotating process."""
     signers = _signer_map(signer, previous_signers)
     _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
     if log_id is None:
         raise ValueError("rotate_ndjson_segment requires a log_id")
     _check_log_id("rotate_ndjson_segment", log_id)
+    for name, path in (("audit_path", audit_path), ("manifest_path", manifest_path)):
+        if os.path.islink(path):
+            raise ValueError(f"rotate_ndjson_segment {name} {path} is a symlink; rotate the real file")
     anchors = list(anchored_heads)
     if not os.path.exists(manifest_path) or os.path.getsize(manifest_path) == 0:
         raise ValueError(f"{manifest_path} has no manifests to rotate")
@@ -2349,54 +2379,71 @@ def rotate_ndjson_segment(
                 _unlink_durably(newest)
                 archived.pop()
             else:
-                state = _outgoing_state(newest, None, **check)
+                state = _outgoing_state(newest, _read_manifests(newest), None, **check)
                 genesis = _genesis_entry(signer, log_id, state.head)
-                _swap_in(_stage_genesis(manifest_path, genesis), manifest_path)
-                if head_anchor is not None:
-                    head_anchor.write(manifest_hash(genesis))
+                temp = _stage_genesis(manifest_path, genesis)
+                try:
+                    with _lock_staged(temp):
+                        _swap_in(temp, manifest_path)
+                        if head_anchor is not None:
+                            head_anchor.write(manifest_hash(genesis))
+                except BaseException:
+                    with suppress(OSError):
+                        os.unlink(temp)
+                    raise
                 return genesis
-        state = _outgoing_state(manifest_path, audit_path, **check)
+        manifests = _read_manifests(manifest_path)
+        sealed_here = {m["run_id"] for m in manifests if isinstance(m.get("run_id"), str)}
         number = archived[-1][0] + 1 if archived else 1
         manifest_archive, audit_archive = _segment_path(manifest_path, number), _segment_path(audit_path, number)
         if os.path.lexists(manifest_archive) or os.path.lexists(audit_archive):
             raise ValueError(f"archive {manifest_archive} or {audit_archive} already exists")
-        skip = state.sealed | _archived_sealed_ids(manifest_path)
-        genesis = _genesis_entry(signer, log_id, state.head)
+        skip = sealed_here | _archived_sealed_ids(manifest_path)
         temps: list[str] = []
-        try:
-            out, audit_temp = _stage_temp(audit_path)
-            temps.append(audit_temp)
-            with out:
-                end = _carry_pending(audit_path, out, 0, skip, ())
-                fd = _open_locked(audit_path, os.O_RDWR | os.O_CREAT, exclusive=True)
-                try:
-                    # Writers now wait on the lock: copy only the tail appended meanwhile.
-                    _carry_pending(audit_path, out, end, skip, state.sealed)
-                    out.flush()
-                    os.fsync(out.fileno())
-                    os.chmod(audit_temp, stat.S_IMODE(os.stat(audit_path).st_mode))
-                    manifest_temp = _stage_genesis(manifest_path, genesis)
-                    temps.append(manifest_temp)
-                    os.link(manifest_path, manifest_archive)
+        with ExitStack() as held:
+            try:
+                out, audit_temp = _stage_temp(audit_path)
+                temps.append(audit_temp)
+                with out:
+                    # One unlocked pass digests the runs sealed here and copies the pending lines.
+                    digests: dict[str, _RunDigest] = {}
+                    end = 0
+                    with suppress(FileNotFoundError):
+                        end = _carry_pending(audit_path, out, 0, skip, (), sealed=sealed_here, digests=digests)
+                    state = _outgoing_state(manifest_path, manifests, digests, **check)
+                    genesis = _genesis_entry(signer, log_id, state.head)
+                    fd = _open_locked(audit_path, os.O_RDWR | os.O_CREAT, exclusive=True)
                     try:
-                        os.link(audit_path, audit_archive)
-                    except BaseException:
-                        with suppress(OSError):
-                            os.unlink(manifest_archive)
-                        raise
-                    # The audit first: after a crash writers append to the new file, never to an archive.
-                    _swap_in(audit_temp, audit_path)
-                    temps.remove(audit_temp)
-                    _swap_in(manifest_temp, manifest_path)
-                    temps.remove(manifest_temp)
-                finally:
-                    if fd is not None:
-                        os.close(fd)
-        except BaseException:
-            for temp in temps:
-                with suppress(OSError):
-                    os.unlink(temp)
-            raise
-        if head_anchor is not None:
-            head_anchor.write(manifest_hash(genesis))
-        return genesis
+                        # Writers now wait on the lock: copy only the tail appended meanwhile.
+                        _carry_pending(audit_path, out, end, skip, skip, final=True)
+                        out.flush()
+                        os.fsync(out.fileno())
+                        os.chmod(audit_temp, stat.S_IMODE(os.stat(audit_path).st_mode))
+                        manifest_temp = _stage_genesis(manifest_path, genesis)
+                        temps.append(manifest_temp)
+                        # Held until the genesis is anchored: a sealer opening the new manifest waits for it.
+                        held.enter_context(_lock_staged(manifest_temp))
+                        os.link(manifest_path, manifest_archive)
+                        try:
+                            os.link(audit_path, audit_archive)
+                        except BaseException:
+                            with suppress(OSError):
+                                os.unlink(manifest_archive)
+                            raise
+                        _fsync_parents(manifest_archive, audit_archive)
+                        # The audit first: after a crash writers append to the new file, never to an archive.
+                        _swap_in(audit_temp, audit_path)
+                        temps.remove(audit_temp)
+                        _swap_in(manifest_temp, manifest_path)
+                        temps.remove(manifest_temp)
+                    finally:
+                        if fd is not None:
+                            os.close(fd)
+            except BaseException:
+                for temp in temps:
+                    with suppress(OSError):
+                        os.unlink(temp)
+                raise
+            if head_anchor is not None:
+                head_anchor.write(manifest_hash(genesis))
+            return genesis

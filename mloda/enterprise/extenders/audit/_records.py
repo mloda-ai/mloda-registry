@@ -35,13 +35,46 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _append_records(path: str | Path, records: Sequence[Mapping[str, Any]]) -> None:
+def _open_locked(path: str | Path, flags: int, *, exclusive: bool) -> int | None:
+    """Open and flock `path`, reopening if it was replaced meanwhile. A shared lock is best effort, an exclusive one
+    raises. None without fcntl."""
+    try:
+        import fcntl
+    except ImportError:
+        return None
+    while True:
+        fd = os.open(path, flags, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        except OSError:
+            if exclusive:
+                os.close(fd)
+                raise
+            return fd
+        try:
+            held, named = os.fstat(fd), os.stat(path)
+            if (held.st_dev, held.st_ino) == (named.st_dev, named.st_ino):
+                return fd
+        except FileNotFoundError:
+            pass
+        except BaseException:
+            os.close(fd)
+            raise
+        os.close(fd)
+
+
+def _append_records(path: str | Path, records: Sequence[Mapping[str, Any]], *, shared_lock: bool = False) -> None:
     """Append one canonical line per record through one O_APPEND descriptor. One write per call, so a very large
-    batch can exceed what a single write accepts and then fail every retry; seal one run_id at a time to bound it."""
+    batch can exceed what a single write accepts and then fail every retry; seal one run_id at a time to bound it.
+    `shared_lock` takes a best-effort shared flock first (what a segment rotation waits on)."""
     data = b"".join(_canonical_json(record) + b"\n" for record in records)
     if not data:
         return
-    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    fd = None
+    if shared_lock:
+        fd = _open_locked(path, os.O_RDWR | os.O_APPEND | os.O_CREAT, exclusive=False)
+    if fd is None:
+        fd = os.open(path, (os.O_RDWR if shared_lock else os.O_WRONLY) | os.O_APPEND | os.O_CREAT, 0o600)
     try:
         written = os.write(fd, data)
         if written <= 0 or written < len(data):

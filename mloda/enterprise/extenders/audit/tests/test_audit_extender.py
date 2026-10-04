@@ -40,6 +40,7 @@ from mloda.enterprise.extenders.audit import (
     SealedRunRefusedError,
     TeeAuditSink,
     manifest_hash,
+    rotate_ndjson_segment,
     seal_ndjson_runs,
     seal_run,
     verify_ndjson_log,
@@ -238,8 +239,7 @@ def _rotated_after_run_1(tmp_path: Path, **kwargs: Any) -> tuple[AuditExtender, 
         **kwargs,
     )
     extender.on_run_complete("run-1")
-    rotate = getattr(run_manifest_module, "rotate_ndjson_segment")
-    rotate(audit_path, manifest_path, signer=_hmac_signer(), log_id="log-a")
+    rotate_ndjson_segment(audit_path, manifest_path, signer=_hmac_signer(), log_id="log-a")
     return extender, audit_path, manifest_path
 
 
@@ -1586,6 +1586,18 @@ class TestAuditExtenderSealing:
 
         assert call.calls == 0
         assert audit_path.read_bytes() == before
+
+    def test_on_run_complete_for_a_run_sealed_in_an_archived_segment_is_not_a_seal_failure(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        _, audit_path, manifest_path = _rotated_after_run_1(tmp_path)
+        second = _second_extender_over_same_sealing_config(audit_path, manifest_path, _hmac_signer(), log_id="log-a")
+
+        with caplog.at_level(logging.INFO):
+            second.on_run_complete("run-1")
+
+        assert second.seal_failures == 0
+        assert any(r.levelno == logging.INFO and "already sealed" in r.getMessage() for r in caplog.records)
 
     def test_an_auto_seal_after_a_rotation_succeeds_while_the_anchor_still_holds_the_old_head(
         self, tmp_path: Path

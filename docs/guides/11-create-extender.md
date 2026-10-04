@@ -243,10 +243,10 @@ extender = AuditExtender(sink, fail_closed=True)
 - `seal_index_path` requires the sealing config and must not alias the audit, manifest or anchor paths.
 - A line longer than 64 MiB fails verification and is refused on write; logs written by earlier releases with a seal line over 64 MiB no longer verify.
 - Re-running a sealed run and manual sweeps stay full scans (retained archives are scanned too).
-- Rotate with `rotate_ndjson_segment(audit_path, manifest_path, signer=..., log_id=..., head_anchor=...)` on your own schedule; the `log_id` stays and the log needs a genesis. Pending and crashed runs are carried over, so sweep crashed runs first.
-- Archives are `<path>.<NNNNNN>` pairs. Deleting the oldest pairs is detected only by anchors; runs sealed in moved archives stop being refused.
-- `verify_ndjson_segments(...)` verifies the retained history; `verify_ndjson_log` on one pair verifies a single segment.
-- An interrupted rotation blocks sealing until `rotate_ndjson_segment` runs again. Safe only for `NdjsonAuditSink` writers (shared flock, needs fcntl).
+- Rotate with `rotate_ndjson_segment(audit_path, manifest_path, signer=..., log_id=..., head_anchor=...)` on your own schedule; the `log_id` stays and the log needs a genesis. Pending and crashed runs are carried over, so sweep crashed runs first. Run it as the account that writes the logs (the new live files are created by the rotating process). Rotation and sealing check only the anchors written since the live segment's genesis (plus the predecessor head); pass the full anchor history to `verify_ndjson_segments`.
+- Archives are `<path>.<NNNNNN>` pairs. Deleting the oldest pairs is detected only by anchors; runs sealed in deleted or moved archives stay refused only until the next rotation rebuilds a seal index.
+- `verify_ndjson_segments(...)` verifies the retained history; `verify_ndjson_log` on one pair verifies a single segment. Online verification holds the manifest shared lock, so auto-seals wait for it.
+- An interrupted rotation blocks sealing until `rotate_ndjson_segment` runs again. Safe only for `NdjsonAuditSink` writers (shared flock, needs fcntl). A hard crash can leave `.<name>.*` temp files beside the logs; delete them once no rotation runs.
 - Manifest logs written by earlier releases (version 1 lines) still verify; new lines appended to them are version 2.
 
 ```python
