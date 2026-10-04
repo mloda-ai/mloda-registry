@@ -41,7 +41,7 @@ Upgrading with pip from a `mloda-community` release that still shipped the plugi
 pip install --force-reinstall "mloda-community[otel]"
 ```
 
-Anyone who installed one of the old standalone 0.2.7 example packages (`mloda-community-example-b`, `mloda-community-compute-frameworks-example`, `mloda-community-extenders-example`, `mloda-enterprise-example`, `mloda-enterprise-compute-frameworks-example`, `mloda-enterprise-extenders-example`) should uninstall it, since the bundles no longer ship those modules.
+If you installed one of the old standalone 0.2.7 example packages (`mloda-community-example-b`, `mloda-community-compute-frameworks-example`, `mloda-community-extenders-example`, `mloda-enterprise-example`, `mloda-enterprise-compute-frameworks-example`, `mloda-enterprise-extenders-example`), uninstall it; the bundles no longer ship those modules.
 
 Keep `mloda-community`, `mloda-enterprise` and any plugin installed on its own at the same version, and upgrade them together. The bundle pins the packages it owns exactly, so upgrading one alone leaves a version conflict that pip reports without stopping the install.
 
