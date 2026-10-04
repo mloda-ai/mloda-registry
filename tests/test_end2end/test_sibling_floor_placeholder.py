@@ -734,6 +734,27 @@ def test_bundle_extra_ownership_excludes_the_wheel_and_entry_points() -> None:
     assert leaf_entry in leaf_content, leaf_content
 
 
+@pytest.mark.parametrize("group", ["mloda.feature_groups", "mloda.compute_frameworks", "mloda.extenders"])
+def test_bundle_aggregates_an_unowned_nested_package_entry_point_for_every_plugin_group(group: str) -> None:
+    """Aggregation is group-agnostic: an unowned nested package declaring any plugin entry-point group is
+    aggregated into the bundle's entry points, and its own generated pyproject declares it too."""
+    shared, _packages_config = gen.load_configs()
+    packages = _synthetic_bundle(["{core_dependency}", f"{_DEP}=={{version}}"])
+    packages[_LEAF]["entry_point_groups"] = [group]
+    suffix = gen.ENTRY_POINT_MODULE_SUFFIX.get(group, gen.DEFAULT_MODULE_SUFFIX)
+    leaf_entry = f'{_LEAF} = "{_LEAF_DOTTED}.{suffix}:{gen.ENTRY_POINT_ATTRS[group]}"'
+    header = f'[project.entry-points."{group}"]'
+
+    bundle_content = gen.generate_pyproject(_DEPENDENT, packages[_DEPENDENT], shared, packages)
+    leaf_content = gen.generate_pyproject(_LEAF, packages[_LEAF], shared, packages)
+
+    assert header in bundle_content and leaf_entry in bundle_content, (
+        f"an unowned nested leaf must be aggregated under {group}\n{bundle_content}"
+    )
+    assert header in leaf_content, leaf_content
+    assert leaf_entry in leaf_content, leaf_content
+
+
 def test_bundle_extra_ownership_of_an_unpublished_nested_package_is_rejected() -> None:
     """Extra ownership needs the same guard as dependency ownership: the owned package must be published."""
     shared, _packages_config = gen.load_configs()
@@ -961,7 +982,7 @@ def test_published_package_dev_extra_naming_an_unpublished_sibling_is_accepted()
 
 # A real, unpublished configured package (see config/packages.toml), used to prove the unpublished-sibling
 # guard also covers extras merged in from [defaults].optional_dependencies.
-_UNPUBLISHED_REAL_PACKAGE = "mloda-community-example-b"
+_UNPUBLISHED_REAL_PACKAGE = "mloda-community-binary-model"
 
 # A real, published, non-bundle top-level package that declares no optional_dependencies of its own, so a
 # default extra is the only source of any extra it carries.

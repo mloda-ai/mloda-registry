@@ -41,6 +41,8 @@ Upgrading with pip from a `mloda-community` release that still shipped the plugi
 pip install --force-reinstall "mloda-community[otel]"
 ```
 
+Anyone who installed one of the old standalone 0.2.7 example packages (`mloda-community-example-b`, `mloda-community-compute-frameworks-example`, `mloda-community-extenders-example`, `mloda-enterprise-example`, `mloda-enterprise-compute-frameworks-example`, `mloda-enterprise-extenders-example`) should uninstall it, since the bundles no longer ship those modules.
+
 Keep `mloda-community`, `mloda-enterprise` and any plugin installed on its own at the same version, and upgrade them together. The bundle pins the packages it owns exactly, so upgrading one alone leaves a version conflict that pip reports without stopping the install.
 
 The OTel and OpenLineage extenders now ship only through `mloda-community[otel]` / `[openlineage]` / `[all]`, or their own distributions: a bare `mloda-community` install contains neither, even if `opentelemetry-api` or `openlineage-python` is already installed.
@@ -88,12 +90,6 @@ Options such as `partition_by` and `order_by`, plus the shared contracts, are in
 `cryptography`, behind `[ed25519]`, behaves differently: the audit extender still loads without it, and only constructing `Ed25519Signer` raises `ImportError`. `opentelemetry-api`, behind `mloda-enterprise[otel]`, behaves the same way: only constructing `OtelLogAuditSink` raises `ImportError`.
 
 `mloda-community-openlineage`, behind `mloda-enterprise[openlineage]`, is what the lineage facets extender (`mloda-enterprise-lineage`) builds on; without the extra its entry point registers nothing.
-
-The remaining example packages are not released to PyPI and ship inside the bundles. To use one without its bundle, install it from git, replacing the subdirectory with the package `path` from `config/packages.toml`; next to the bundle it would own the same files twice:
-
-```bash
-pip install "git+https://github.com/mloda-ai/mloda-registry.git#subdirectory=mloda/community/feature_groups/example/example_b"
-```
 
 ## Guides
 

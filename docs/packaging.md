@@ -150,7 +150,6 @@ mloda-community (bundled)
   └── includes: mloda.community.*
         ├── feature_groups/*        (except example, example-a and data_operations, including its
         │                            plugin leaves: each owned by its own published distribution)
-        ├── compute_frameworks/*
         └── extenders/*             (except shared, otel and openlineage: each owned by its own
                                       published distribution)
 ```
@@ -210,7 +209,6 @@ py_typed = true
 | `pip install mloda-community-example-a` | Variant A + base |
 
 The base's `all` extra uses `{published_children}`, so it can only name published variants.
-`mloda-community-example-b`, being unpublished, ships in the bundle wheel only.
 
 ## Entry points
 

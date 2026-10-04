@@ -25,19 +25,14 @@ Repository = "https://github.com/mloda-ai/mloda-registry"
 
 [project.entry-points."mloda.feature_groups"]
 mloda-enterprise-binary-example = "mloda.enterprise.feature_groups.binary_example.manifest:FEATURE_GROUPS"
-mloda-enterprise-example = "mloda.enterprise.feature_groups.example.manifest:FEATURE_GROUPS"
-
-[project.entry-points."mloda.compute_frameworks"]
-mloda-enterprise-compute-frameworks-example = "mloda.enterprise.compute_frameworks.example.manifest:COMPUTE_FRAMEWORKS"
 
 [project.entry-points."mloda.extenders"]
 mloda-enterprise-audit = "mloda.enterprise.extenders.audit.manifest:EXTENDERS"
-mloda-enterprise-extenders-example = "mloda.enterprise.extenders.example.manifest:EXTENDERS"
 mloda-enterprise-lineage = "mloda.enterprise.extenders.lineage.manifest:EXTENDERS"
 
 [tool.setuptools]
 package-dir = {"" = "../.."}
-packages = ["mloda.enterprise", "mloda.enterprise.compute_frameworks.example", "mloda.enterprise.extenders.audit", "mloda.enterprise.extenders.example", "mloda.enterprise.extenders.lineage", "mloda.enterprise.feature_groups.binary_example", "mloda.enterprise.feature_groups.example"]
+packages = ["mloda.enterprise", "mloda.enterprise.extenders.audit", "mloda.enterprise.extenders.lineage", "mloda.enterprise.feature_groups.binary_example"]
 
 [tool.setuptools.package-data]
 "mloda.enterprise" = ["py.typed"]

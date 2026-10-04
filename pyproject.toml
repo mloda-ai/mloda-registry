@@ -139,8 +139,6 @@ exclude-newer-package = { mloda = false, uv = false, mloda-example-binary = fals
 [tool.uv.workspace]
 members = [
     "mloda/community",
-    "mloda/community/compute_frameworks/example",
-    "mloda/community/extenders/example",
     "mloda/community/extenders/openlineage",
     "mloda/community/extenders/otel",
     "mloda/community/extenders/shared",
@@ -165,14 +163,10 @@ members = [
     "mloda/community/feature_groups/data_operations/string",
     "mloda/community/feature_groups/example",
     "mloda/community/feature_groups/example/example_a",
-    "mloda/community/feature_groups/example/example_b",
     "mloda/enterprise",
-    "mloda/enterprise/compute_frameworks/example",
     "mloda/enterprise/extenders/audit",
-    "mloda/enterprise/extenders/example",
     "mloda/enterprise/extenders/lineage",
     "mloda/enterprise/feature_groups/binary_example",
-    "mloda/enterprise/feature_groups/example",
     "mloda/registry",
     "mloda/testing",
 ]

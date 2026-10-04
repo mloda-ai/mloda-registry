@@ -88,7 +88,6 @@ pytest -n 2
 The community plugin packages live under `mloda/community/`:
 
 - **Feature groups**: `mloda/community/feature_groups/`
-- **Compute frameworks**: `mloda/community/compute_frameworks/`
 - **Extenders**: `mloda/community/extenders/`
 
 Bug fixes, performance improvements, and new functionality for existing plugins are always welcome.

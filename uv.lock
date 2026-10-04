@@ -27,14 +27,11 @@ members = [
     "mloda-community-aggregation",
     "mloda-community-binary-model",
     "mloda-community-binning",
-    "mloda-community-compute-frameworks-example",
     "mloda-community-data-operations",
     "mloda-community-datetime",
     "mloda-community-ema",
     "mloda-community-example",
     "mloda-community-example-a",
-    "mloda-community-example-b",
-    "mloda-community-extenders-example",
     "mloda-community-extenders-shared",
     "mloda-community-ffill",
     "mloda-community-frame-aggregate",
@@ -54,9 +51,6 @@ members = [
     "mloda-enterprise",
     "mloda-enterprise-audit",
     "mloda-enterprise-binary-example",
-    "mloda-enterprise-compute-frameworks-example",
-    "mloda-enterprise-example",
-    "mloda-enterprise-extenders-example",
     "mloda-enterprise-lineage",
     "mloda-registry",
     "mloda-registry-workspace",
@@ -939,28 +933,6 @@ requires-dist = [
 provides-extras = ["dev", "pyarrow", "sqlite", "python-dict", "duckdb", "polars", "pandas", "all"]
 
 [[package]]
-name = "mloda-community-compute-frameworks-example"
-version = "0.7.0"
-source = { editable = "mloda/community/compute_frameworks/example" }
-dependencies = [
-    { name = "mloda" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "mloda-testing" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "mloda-community-data-operations"
 version = "0.7.0"
 source = { editable = "mloda/community/feature_groups/data_operations" }
@@ -1149,50 +1121,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "mloda-community-example", specifier = ">=0.7.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "mloda-community-example-b"
-version = "0.7.0"
-source = { editable = "mloda/community/feature_groups/example/example_b" }
-dependencies = [
-    { name = "mloda-community-example" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "mloda-testing" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "mloda-community-example", specifier = ">=0.7.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "mloda-community-extenders-example"
-version = "0.7.0"
-source = { editable = "mloda/community/extenders/example" }
-dependencies = [
-    { name = "mloda" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "mloda-testing" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1991,72 +1919,6 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
 provides-extras = ["dev", "pyarrow", "wheel"]
-
-[[package]]
-name = "mloda-enterprise-compute-frameworks-example"
-version = "0.7.0"
-source = { editable = "mloda/enterprise/compute_frameworks/example" }
-dependencies = [
-    { name = "mloda" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "mloda-testing" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "mloda-enterprise-example"
-version = "0.7.0"
-source = { editable = "mloda/enterprise/feature_groups/example" }
-dependencies = [
-    { name = "mloda" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "mloda-testing" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "mloda-enterprise-extenders-example"
-version = "0.7.0"
-source = { editable = "mloda/enterprise/extenders/example" }
-dependencies = [
-    { name = "mloda" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "mloda-testing" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
-    { name = "mloda-testing", marker = "extra == 'dev'" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-enterprise-lineage"

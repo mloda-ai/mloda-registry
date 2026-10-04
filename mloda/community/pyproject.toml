@@ -23,18 +23,9 @@ all = ["mloda-community-otel==0.7.0", "mloda-community-openlineage==0.7.0"]
 Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
-[project.entry-points."mloda.feature_groups"]
-mloda-community-example-b = "mloda.community.feature_groups.example.example_b.manifest:FEATURE_GROUPS"
-
-[project.entry-points."mloda.compute_frameworks"]
-mloda-community-compute-frameworks-example = "mloda.community.compute_frameworks.example.manifest:COMPUTE_FRAMEWORKS"
-
-[project.entry-points."mloda.extenders"]
-mloda-community-extenders-example = "mloda.community.extenders.example.manifest:EXTENDERS"
-
 [tool.setuptools]
 package-dir = {"" = "../.."}
-packages = ["mloda.community", "mloda.community.compute_frameworks.example", "mloda.community.extenders.example", "mloda.community.feature_groups.binary_model", "mloda.community.feature_groups.example.example_b"]
+packages = ["mloda.community", "mloda.community.feature_groups.binary_model"]
 
 [tool.setuptools.package-data]
 "mloda.community" = ["py.typed"]

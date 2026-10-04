@@ -288,8 +288,8 @@ def test_overlap_check_ignores_an_unpublished_wheel(tmp_path: Path) -> None:
     verify = _verify_published_wheels_have_a_single_owner()
     shared_path = "mloda/community/extenders/shared/foo.py"
     bundle = _write_wheel_with_files(tmp_path, "mloda-community", [shared_path])
-    unpublished = _write_wheel_with_files(tmp_path, "mloda-community-example-b", [shared_path])
-    wheels = {"mloda-community": bundle, "mloda-community-example-b": unpublished}
+    unpublished = _write_wheel_with_files(tmp_path, "mloda-community-binary-model", [shared_path])
+    wheels = {"mloda-community": bundle, "mloda-community-binary-model": unpublished}
 
     errors = verify(wheels, ["mloda-community"])
 
@@ -316,9 +316,9 @@ def test_two_wheels_for_one_distribution_are_rejected_as_ambiguous(
     assert exit_code == 1, f"main() must fail when one distribution has two wheels, returned {exit_code!r}"
 
 
-def test_community_example_wheel_without_example_b_in_the_all_extra_reports_no_error(tmp_path: Path) -> None:
-    """example-b drops out of the 'all' extra (config/packages.toml), so a wheel that reflects that must
-    not be flagged: verify_dependency_relationships must stop requiring example-b in the extra."""
+def test_community_example_wheel_with_example_a_in_the_all_extra_reports_no_error(tmp_path: Path) -> None:
+    """A community example wheel whose 'all' extra lists example-a is the happy path for
+    verify_dependency_relationships."""
     wheel = _write_wheel_with_metadata(
         tmp_path,
         "mloda-community-example",

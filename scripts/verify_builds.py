@@ -253,7 +253,6 @@ def verify_dependency_relationships(wheels: dict[str, Path]) -> list[str]:
     Checks:
     - mloda-community-example has 'all' extra with example-a
     - mloda-community-example-a depends on mloda-community-example
-    - mloda-community-example-b depends on mloda-community-example
 
     Note: mloda-community and mloda-enterprise are bundled packages that include all
     sub-package code directly, except a nested published sub-package they own (named in
@@ -274,12 +273,6 @@ def verify_dependency_relationships(wheels: dict[str, Path]) -> list[str]:
         metadata = get_wheel_metadata(wheels["mloda-community-example-a"])
         if "mloda-community-example" not in metadata:
             errors.append("mloda-community-example-a: missing dependency on mloda-community-example")
-
-    # Check example-b depends on base
-    if "mloda-community-example-b" in wheels:
-        metadata = get_wheel_metadata(wheels["mloda-community-example-b"])
-        if "mloda-community-example" not in metadata:
-            errors.append("mloda-community-example-b: missing dependency on mloda-community-example")
 
     return errors
 

@@ -105,10 +105,9 @@ the newly installed packages' files when it removes the old bundle, without `pip
 noticing (`uv pip install -U` is not affected); see the [README](../README.md#upgrading) for the
 fix.
 
-Not every package ships standalone. Most demo and example packages reach users inside the
-`mloda-community` / `mloda-enterprise` bundle wheels instead; `mloda-community-example`
-and `mloda-community-example-a` are the exceptions, published to keep end-to-end PyPI
-dependency resolution covered. When adding a package to the set, see
+Not every package ships standalone. The only example packages are `mloda-community-example`
+and `mloda-community-example-a`, published to keep end-to-end PyPI dependency resolution
+covered. When adding a package to the set, see
 [Add a new package](packaging.md#add-a-new-package).
 
 ## Commit messages

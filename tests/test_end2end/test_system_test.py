@@ -45,26 +45,22 @@ def test_mloda_steward_imports() -> None:
 def test_community_namespace_imports() -> None:
     """Verify community namespace imports work."""
     import mloda.community
-    import mloda.community.compute_frameworks
     import mloda.community.extenders
     import mloda.community.feature_groups
 
     assert mloda.community is not None
     assert mloda.community.feature_groups is not None
-    assert mloda.community.compute_frameworks is not None
     assert mloda.community.extenders is not None
 
 
 def test_enterprise_namespace_imports() -> None:
     """Verify enterprise namespace imports work."""
     import mloda.enterprise
-    import mloda.enterprise.compute_frameworks
     import mloda.enterprise.extenders
     import mloda.enterprise.feature_groups
 
     assert mloda.enterprise is not None
     assert mloda.enterprise.feature_groups is not None
-    assert mloda.enterprise.compute_frameworks is not None
     assert mloda.enterprise.extenders is not None
 
 

@@ -28,12 +28,6 @@ optional_dependencies = { all = ["{published_children}"] }
 entry_point_groups = ["mloda.feature_groups"]
 py_typed = true
 
-[packages.mloda-enterprise-example]
-description = "Example enterprise FeatureGroup plugin for mloda"
-dependencies = ["{core_dependency}"]
-path = "mloda/enterprise/feature_groups/example"
-entry_point_groups = ["mloda.feature_groups"]
-
 # --- Binary model ---
 # The mixin ships in the community bundle, the example in the enterprise bundle; neither is published
 # standalone yet. mloda-testing[binary-model] (the simulated binary and the conformance kit) is a dev
@@ -65,24 +59,6 @@ path = "mloda/community/feature_groups/example/example_a"
 published = true
 entry_point_groups = ["mloda.feature_groups"]
 
-[packages.mloda-community-example-b]
-description = "Example B FeatureGroup extending community example base"
-dependencies = ["mloda-community-example>={version}"]
-path = "mloda/community/feature_groups/example/example_b"
-entry_point_groups = ["mloda.feature_groups"]
-
-[packages.mloda-community-compute-frameworks-example]
-description = "Example community ComputeFramework plugin for mloda"
-dependencies = ["{core_dependency}"]
-path = "mloda/community/compute_frameworks/example"
-entry_point_groups = ["mloda.compute_frameworks"]
-
-[packages.mloda-community-extenders-example]
-description = "Example community Extender plugin for mloda"
-dependencies = ["{core_dependency}"]
-path = "mloda/community/extenders/example"
-entry_point_groups = ["mloda.extenders"]
-
 [packages.mloda-community-otel]
 description = "OpenTelemetry spans, metadata-only by default, for mloda pipelines"
 dependencies = ["{core_dependency}", "opentelemetry-api>=1.30,<2", "mloda-community-extenders-shared>={version}"]
@@ -100,18 +76,6 @@ published = true
 optional_dependencies = { dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "pyarrow"] }
 entry_point_groups = ["mloda.extenders", "mloda.optional_dependencies"]
 py_typed = true
-
-[packages.mloda-enterprise-compute-frameworks-example]
-description = "Example enterprise ComputeFramework plugin for mloda"
-dependencies = ["{core_dependency}"]
-path = "mloda/enterprise/compute_frameworks/example"
-entry_point_groups = ["mloda.compute_frameworks"]
-
-[packages.mloda-enterprise-extenders-example]
-description = "Example enterprise Extender plugin for mloda"
-dependencies = ["{core_dependency}"]
-path = "mloda/enterprise/extenders/example"
-entry_point_groups = ["mloda.extenders"]
 
 [packages.mloda-enterprise-audit]
 description = "Tenant-scoped audit records with an identity presence gate for mloda pipelines"

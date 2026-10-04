@@ -80,14 +80,8 @@ _EXPECTED_PUBLISHED = [
 
 # Every unpublished package, which reaches users only inside the community and enterprise bundle wheels.
 _BUNDLE_ONLY = [
-    "mloda-enterprise-example",
     "mloda-community-binary-model",
     "mloda-enterprise-binary-example",
-    "mloda-community-example-b",
-    "mloda-community-compute-frameworks-example",
-    "mloda-community-extenders-example",
-    "mloda-enterprise-compute-frameworks-example",
-    "mloda-enterprise-extenders-example",
     "mloda-enterprise-audit",
     "mloda-enterprise-lineage",
 ]
@@ -95,8 +89,6 @@ _BUNDLE_ONLY = [
 _DATA_OPERATIONS = "mloda-community-data-operations"
 
 _COMMUNITY_EXAMPLE = "mloda-community-example"
-
-_EXAMPLE_B = "mloda-community-example-b"
 
 # The child whose flag the wheel-boundary tests drop.
 _UNPUBLISH_PROBE = "mloda-community-ema"
@@ -1117,22 +1109,6 @@ def test_no_published_package_requires_an_unpublished_sibling() -> None:
     )
 
 
-def test_restoring_example_b_to_the_community_example_extra_is_rejected() -> None:
-    """The guard is not exempt for a sibling nested under an entry_point_bundle: putting the unpublished
-    example-b back into the published example base's 'all' extra must still raise, naming example-b, even
-    though mloda-community also ships example-b's code."""
-    shared = _load_toml(_SHARED_CONFIG)
-    packages = deepcopy(_packages())
-    packages[_COMMUNITY_EXAMPLE]["optional_dependencies"]["all"].append(f"{_EXAMPLE_B}>={{version}}")
-
-    with pytest.raises(ValueError) as exc_info:
-        gen.generate_pyproject(_COMMUNITY_EXAMPLE, packages[_COMMUNITY_EXAMPLE], shared, packages)
-
-    assert _EXAMPLE_B in str(exc_info.value), (
-        f"error message must name the unpublished sibling {_EXAMPLE_B!r}, got: {exc_info.value}"
-    )
-
-
 def test_generator_expands_published_children() -> None:
     """The placeholder expands to the published packages under the package path, in config order."""
     expected = _published_children()
@@ -1171,14 +1147,7 @@ def test_unpublishing_a_child_keeps_it_out_of_the_base_wheel() -> None:
 
 def test_shrinking_an_extra_keeps_a_configured_child_out_of_the_base_wheel() -> None:
     """A configured child's wheel boundary comes from the layout, not from any extra: emptying the example
-    base's 'all' extra must not pull example-a, or example-b, into the base wheel."""
-    packages = _packages()
-    unchanged_leaked = _entries_under(_wheel_packages(_COMMUNITY_EXAMPLE, packages), _dotted_path(_EXAMPLE_B))
-    assert unchanged_leaked == [], (
-        f"the {_COMMUNITY_EXAMPLE} wheel ships {unchanged_leaked}; a configured package nested under "
-        "another package's path belongs to its own wheel whatever the extras say."
-    )
-
+    base's 'all' extra must not pull example-a into the base wheel."""
     packages = deepcopy(_packages())
     example_a = "mloda-community-example-a"
     packages[_COMMUNITY_EXAMPLE]["optional_dependencies"]["all"] = []
@@ -1187,9 +1156,6 @@ def test_shrinking_an_extra_keeps_a_configured_child_out_of_the_base_wheel() -> 
 
     assert _entries_under(listed, _dotted_path(example_a)) == [], (
         f"the {_COMMUNITY_EXAMPLE} wheel must not ship {example_a} after the 'all' extra is emptied"
-    )
-    assert _entries_under(listed, _dotted_path(_EXAMPLE_B)) == [], (
-        f"the {_COMMUNITY_EXAMPLE} wheel must not ship {_EXAMPLE_B} even after emptying the 'all' extra"
     )
 
 
@@ -1226,12 +1192,6 @@ def test_bundle_wheel_still_ships_every_nested_package(bundle: str) -> None:
         "'entry_point_bundle = true' must keep including every nested module it does not own."
     )
 
-    if bundle == "mloda-community":
-        assert _dotted_path(_EXAMPLE_B) in listed, (
-            f"the {bundle} wheel must still ship {_EXAMPLE_B}, an unowned package nested under owned "
-            f"{_COMMUNITY_EXAMPLE}"
-        )
-
 
 _SHARED_EXTENDERS = "mloda-community-extenders-shared"
 _COMMUNITY_BUNDLE = "mloda-community"
@@ -1260,8 +1220,8 @@ def test_bundle_dependencies_on_nested_packages_are_published_and_absent_from_th
 
     unpublished = [name for name in nested_owned if packages[name].get("published") is not True]
     # The bundle excludes exactly the owned package's own wheel packages, not everything nested
-    # under it, so an unowned package nested under an owned one (still shipped by the bundle, e.g.
-    # mloda-community-example-b under owned mloda-community-example) must not be flagged here.
+    # under it, so an unowned package nested under an owned one (still shipped by the bundle) must not
+    # be flagged here.
     leaked = {name: sorted(listed & set(_wheel_packages(name, packages))) for name in nested_owned}
     leaked = {name: entries for name, entries in leaked.items() if entries}
 

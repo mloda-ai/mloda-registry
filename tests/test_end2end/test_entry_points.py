@@ -58,15 +58,9 @@ _PLUGIN_ENTRY_POINTS = [
         id="feature_group",
     ),
     pytest.param(
-        "mloda-community-compute-frameworks-example",
-        "mloda.compute_frameworks",
-        'mloda-community-compute-frameworks-example = "mloda.community.compute_frameworks.example.manifest:COMPUTE_FRAMEWORKS"',
-        id="compute_framework",
-    ),
-    pytest.param(
-        "mloda-community-extenders-example",
+        "mloda-community-otel",
         "mloda.extenders",
-        'mloda-community-extenders-example = "mloda.community.extenders.example.manifest:EXTENDERS"',
+        'mloda-community-otel = "mloda.community.extenders.otel.manifest:EXTENDERS"',
         id="extender",
     ),
 ]
@@ -82,27 +76,13 @@ def test_plugin_package_declares_entry_point(pkg_name: str, group: str, entry: s
 
 def test_bundle_aggregates_child_entry_points() -> None:
     """Bundle packages aggregate the entry points of nested plugin packages they do NOT own; an owned
-    package's own pyproject declares its entry points instead."""
+    package's own pyproject declares its entry points instead. Aggregation is group-agnostic (the synthetic
+    test in test_sibling_floor_placeholder.py covers every plugin group)."""
     community = _generate("mloda-community")
 
-    assert '[project.entry-points."mloda.feature_groups"]' in community, community
-    assert 'mloda-community-example-b = "mloda.community.feature_groups.example.example_b.manifest:FEATURE_GROUPS"' in (
-        community
-    ), community
-
-    assert '[project.entry-points."mloda.compute_frameworks"]' in community, community
-    assert (
-        'mloda-community-compute-frameworks-example = "mloda.community.compute_frameworks.example.manifest:COMPUTE_FRAMEWORKS"'
-        in community
-    ), community
-
-    assert '[project.entry-points."mloda.extenders"]' in community, community
-    assert 'mloda-community-extenders-example = "mloda.community.extenders.example.manifest:EXTENDERS"' in community, (
-        community
-    )
-
     # mloda-community owns ffill, example, example-a, otel and openlineage (named in its own dependencies
-    # or a non-dev extra), so it no longer aggregates any of their entry points, in any group.
+    # or a non-dev extra), so it aggregates no entry point at all, in any group.
+    assert "[project.entry-points." not in community, community
     for owned_entry in (
         'mloda-community-ffill = "mloda.community.feature_groups.data_operations.row_preserving.ffill.manifest:FEATURE_GROUPS"',
         'mloda-community-example = "mloda.community.feature_groups.example.manifest:FEATURE_GROUPS"',
@@ -118,23 +98,15 @@ def test_bundle_aggregates_child_entry_points() -> None:
 
     assert '[project.entry-points."mloda.feature_groups"]' in enterprise, enterprise
     assert (
-        'mloda-enterprise-example = "mloda.enterprise.feature_groups.example.manifest:FEATURE_GROUPS"' in enterprise
-    ), enterprise
-
-    assert '[project.entry-points."mloda.compute_frameworks"]' in enterprise, enterprise
-    assert (
-        'mloda-enterprise-compute-frameworks-example = "mloda.enterprise.compute_frameworks.example.manifest:COMPUTE_FRAMEWORKS"'
+        'mloda-enterprise-binary-example = "mloda.enterprise.feature_groups.binary_example.manifest:FEATURE_GROUPS"'
         in enterprise
     ), enterprise
-
     assert '[project.entry-points."mloda.extenders"]' in enterprise, enterprise
-    assert (
-        'mloda-enterprise-extenders-example = "mloda.enterprise.extenders.example.manifest:EXTENDERS"' in enterprise
-    ), enterprise
     assert 'mloda-enterprise-audit = "mloda.enterprise.extenders.audit.manifest:EXTENDERS"' in enterprise, enterprise
     assert 'mloda-enterprise-lineage = "mloda.enterprise.extenders.lineage.manifest:EXTENDERS"' in enterprise, (
         enterprise
     )
+    assert '[project.entry-points."mloda.compute_frameworks"]' not in enterprise, enterprise
 
 
 @pytest.mark.parametrize(
@@ -280,8 +252,8 @@ def test_verify_builds_accepts_extenders_manifest_target() -> None:
     assert (
         vb.namespaced_entry_point_error(
             "mloda.extenders",
-            "mloda-community-extenders-example",
-            "mloda.community.extenders.example.manifest:EXTENDERS",
+            "mloda-community-otel",
+            "mloda.community.extenders.otel.manifest:EXTENDERS",
         )
         is None
     )
