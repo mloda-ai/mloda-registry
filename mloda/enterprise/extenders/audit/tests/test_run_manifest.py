@@ -2754,6 +2754,123 @@ class TestSealIndex:
 
         assert costs[0] == costs[1]
 
+    # Sealed-run lookup through the index (workers have no signer: no signature checks).
+
+    @staticmethod
+    def _lookups(manifest_path: Path, index_path: Path | None, run_ids: Iterable[str]) -> dict[str, bool]:
+        return {
+            run_id: run_manifest_module._is_run_sealed_unverified(manifest_path, run_id, index_path)
+            for run_id in run_ids
+        }
+
+    @staticmethod
+    def _seal_after_checkpoint(audit_path: Path, manifest_path: Path, run_id: str = "run-tail") -> None:
+        """A seal written without the index, so it lies past the checkpoint end offset."""
+        _write_records(audit_path, [_record(run_id, 50)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id=run_id)
+
+    def test_the_lookup_finds_runs_sealed_before_and_after_the_checkpoint_and_not_unsealed_ones(
+        self, tmp_path: Path
+    ) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        self._seal_after_checkpoint(audit_path, manifest_path)
+        _write_records(audit_path, [_record("run-open", 60)])
+
+        found = self._lookups(manifest_path, index_path, ["run-0", "run-3", "run-tail", "run-open", "run-nowhere"])
+
+        assert found == {"run-0": True, "run-3": True, "run-tail": True, "run-open": False, "run-nowhere": False}
+
+    def test_the_lookup_reads_the_same_manifest_bytes_whatever_the_history(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        costs = []
+        for prior in (2, 8):
+            audit_path, manifest_path, index_path = _indexed_log(tmp_path / f"p{prior}", prior)
+            self._seal_after_checkpoint(audit_path, manifest_path)
+            read: list[int] = []
+            real_open = open
+
+            def spy_open(
+                file: Any, mode: str = "r", *args: Any, _p: Path = manifest_path, _r: list[int] = read, **kw: Any
+            ) -> Any:
+                handle = real_open(file, mode, *args, **kw)
+                return _ReadSpy(handle, _r) if mode == "rb" and str(file) == str(_p) else handle
+
+            monkeypatch.setattr(run_manifest_module, "open", spy_open, raising=False)
+            found = self._lookups(manifest_path, index_path, ["run-0", "run-tail", "run-nowhere"])
+            monkeypatch.delattr(run_manifest_module, "open", raising=False)
+            assert found == {"run-0": True, "run-tail": True, "run-nowhere": False}
+            costs.append(sum(read))
+
+        assert costs[0] == costs[1]
+
+    @pytest.mark.parametrize("case", list(_INDEX_FALLBACKS))
+    def test_a_missing_garbage_or_stale_index_falls_back_to_the_full_scan_answer(
+        self, tmp_path: Path, case: str
+    ) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        _INDEX_FALLBACKS[case](audit_path, manifest_path, index_path)
+        run_ids = ["run-0", "run-2", "run-3", "xun-3", "run-nowhere"]
+        expected = self._lookups(manifest_path, None, run_ids)
+
+        found = self._lookups(manifest_path, index_path, run_ids)
+
+        assert found == expected
+        assert expected["run-0"] is True
+
+    def test_a_hint_that_points_at_a_line_not_naming_the_run_falls_back_to_the_full_scan(self, tmp_path: Path) -> None:
+        import sqlite3
+
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        connection = sqlite3.connect(index_path)
+        try:
+            connection.execute("UPDATE hint SET line_start = 0 WHERE run_id = ?", ("run-3",))
+            connection.execute("INSERT OR REPLACE INTO hint (run_id, line_start) VALUES (?, 0)", ("run-ghost",))
+            connection.commit()
+        finally:
+            connection.close()
+
+        found = self._lookups(manifest_path, index_path, ["run-0", "run-3", "run-ghost"])
+
+        assert found == {"run-0": True, "run-3": True, "run-ghost": False}
+
+    @pytest.mark.parametrize("case", ["missing", "garbage", "current"])
+    def test_the_lookup_never_creates_or_modifies_the_index(self, tmp_path: Path, case: str) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        if case == "missing":
+            index_path.unlink()
+        elif case == "garbage":
+            index_path.write_bytes(b"not a database" * 100)
+        before = _snapshot(tmp_path / "live")
+
+        self._lookups(manifest_path, index_path, ["run-0", "run-nowhere"])
+
+        assert _snapshot(tmp_path / "live") == before
+
+    def test_the_lookup_never_waits_on_a_writer_holding_the_index(self, tmp_path: Path) -> None:
+        import sqlite3
+        import threading
+
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        expected = self._lookups(manifest_path, None, ["run-0", "run-nowhere"])
+        found: list[dict[str, bool]] = []
+        writer = sqlite3.connect(index_path, isolation_level=None)
+        try:
+            writer.execute("BEGIN EXCLUSIVE")
+            thread = threading.Thread(
+                target=lambda: found.append(self._lookups(manifest_path, index_path, ["run-0", "run-nowhere"]))
+            )
+            thread.start()
+            thread.join(timeout=1.5)
+            finished_while_held = not thread.is_alive()
+            writer.execute("ROLLBACK")
+        finally:
+            writer.close()
+        thread.join()
+
+        assert finished_while_held
+        assert found == [expected]
+
 
 class TestCheckRunAgainstSeal:
     """_check_run_against_seal is what AuditExtender.on_run_complete calls when seal_ndjson_runs raises

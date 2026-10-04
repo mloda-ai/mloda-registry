@@ -349,6 +349,46 @@ class _LockedAnchor:
         raise AssertionError("a pickled copy never seals")
 
 
+class _SizeSpy:
+    """A binary file that records the size of every piece a read hands back."""
+
+    def __init__(self, file: Any, seen: list[int]) -> None:
+        self._file = file
+        self._seen = seen
+
+    def __enter__(self) -> _SizeSpy:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._file.close()
+
+    def __iter__(self) -> Any:
+        for raw in self._file:
+            self._seen.append(len(raw))
+            yield raw
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._file, name)
+
+    def _note(self, data: bytes) -> bytes:
+        self._seen.append(len(data))
+        return data
+
+    def read(self, *args: Any) -> bytes:
+        return self._note(self._file.read(*args))
+
+    def read1(self, *args: Any) -> bytes:
+        return self._note(self._file.read1(*args))
+
+    def readline(self, *args: Any) -> bytes:
+        return self._note(self._file.readline(*args))
+
+    def readinto(self, buffer: Any) -> int:
+        count = int(self._file.readinto(buffer))
+        self._seen.append(count)
+        return count
+
+
 class _CountingCall:
     """A wrapped call that counts how often it ran."""
 
@@ -618,6 +658,13 @@ class TestAuditExtenderSealingContract(TestAuditExtenderContract):
             **self._sealing_kwargs(marker_path),
         )
         return extender, marker_path
+
+
+class TestAuditExtenderSealingIndexedContract(TestAuditExtenderSealingContract):
+    """The same contract suite with seal_index_path set."""
+
+    def _sealing_kwargs(self, audit_path: Path) -> dict[str, Any]:
+        return {**super()._sealing_kwargs(audit_path), "seal_index_path": self.sealing_dir / "sealed_index.sqlite"}
 
 
 class TestAuditExtenderConstruction:
@@ -2076,6 +2123,177 @@ class TestAuditExtenderSealing:
         copy.on_run_complete("run-1")  # no signer: skipped, never a failure
         assert not manifest_path.exists()
         assert copy.seal_failures == 0
+
+    # seal_index_path: forwarded to the sealed-run lookup and to seal_ndjson_runs.
+
+    @staticmethod
+    def _indexed_pair(tmp_path: Path, **kwargs: Any) -> tuple[AuditExtender, Path, Path, Path]:
+        """run-1 sealed by an extender with an index; returns it with audit, manifest and index paths."""
+        index_path = tmp_path / "seal.index"
+        extender, audit_path = _extender_with_run_1_sealed(tmp_path, seal_index_path=index_path, **kwargs)
+        return extender, audit_path, _sealing_config(tmp_path)[1], index_path
+
+    def test_auto_seal_builds_the_index_when_seal_index_path_is_given(self, tmp_path: Path) -> None:
+        _, _, _, index_path = self._indexed_pair(tmp_path)
+
+        assert index_path.exists()
+
+    def test_a_second_extender_with_the_index_refuses_a_sealed_run_id(self, tmp_path: Path) -> None:
+        first, audit_path, manifest_path, index_path = self._indexed_pair(tmp_path)
+        second = _second_extender_over_same_sealing_config(
+            audit_path, manifest_path, _find_signer_attr(first), seal_index_path=index_path
+        )
+        call = _CountingCall()
+
+        with make_hook_context(run_id="run-1", tenant_id=_TENANT).activate():
+            with pytest.raises(SealedRunRefusedError):
+                second(call)
+        with make_hook_context(run_id="run-2", tenant_id=_TENANT).activate():
+            second(call)
+
+        assert call.calls == 1
+
+    def test_found_sealed_passes_the_index_path_to_the_lookup(self, tmp_path: Path) -> None:
+        first, audit_path, manifest_path, index_path = self._indexed_pair(tmp_path)
+        second = _second_extender_over_same_sealing_config(
+            audit_path, manifest_path, _find_signer_attr(first), seal_index_path=index_path
+        )
+        real = audit_extender_module._is_run_sealed_unverified
+
+        with patch.object(audit_extender_module, "_is_run_sealed_unverified", wraps=real) as spy:
+            with make_hook_context(run_id="run-1", tenant_id=_TENANT).activate():
+                with pytest.raises(SealedRunRefusedError):
+                    second(_CountingCall())
+
+        passed = [str(value) for value in (*spy.call_args.args, *spy.call_args.kwargs.values())]
+        assert str(index_path) in passed
+
+    def test_seal_index_path_survives_a_pickle_round_trip_and_the_copy_still_refuses(self, tmp_path: Path) -> None:
+        first, audit_path, manifest_path, index_path = self._indexed_pair(tmp_path)
+        second = _second_extender_over_same_sealing_config(
+            audit_path, manifest_path, _find_signer_attr(first), seal_index_path=index_path
+        )
+
+        copy = pickle.loads(pickle.dumps(second))  # nosec
+
+        with make_hook_context(run_id="run-1", tenant_id=_TENANT).activate():
+            with pytest.raises(SealedRunRefusedError):
+                copy(_CountingCall())
+        assert any(str(value) == str(index_path) for value in vars(copy).values() if isinstance(value, (str, Path)))
+
+    @pytest.mark.parametrize("alias", ["audit", "manifest", "anchor"])
+    def test_seal_index_path_aliasing_another_log_file_raises_value_error(self, tmp_path: Path, alias: str) -> None:
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        anchor_path = tmp_path / "anchor.ndjson"
+        target = {"audit": audit_path, "manifest": manifest_path, "anchor": anchor_path}[alias]
+
+        with pytest.raises(ValueError):
+            AuditExtender(
+                sink=NdjsonAuditSink(audit_path),
+                audit_path=audit_path,
+                manifest_path=manifest_path,
+                signer=_hmac_signer(),
+                head_anchor=NdjsonHeadAnchor(anchor_path),
+                seal_index_path=target,
+            )
+
+    def test_seal_index_path_without_the_sealing_config_raises_value_error(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            AuditExtender(sink=InMemoryAuditSink(), seal_index_path=tmp_path / "seal.index")
+
+    @pytest.mark.parametrize("policy", ["log", "raise"])
+    def test_an_index_write_error_is_not_a_seal_failure_and_never_triggers_the_policy(
+        self, tmp_path: Path, policy: Any
+    ) -> None:
+        broken = tmp_path / "index-is-a-directory"
+        broken.mkdir()
+        failures: list[str] = []
+        chosen = policy if policy == "raise" else (lambda run_id, exc: failures.append(run_id))
+
+        extender, _ = _extender_with_run_1_sealed(tmp_path, seal_index_path=broken, seal_failure_policy=chosen)
+
+        assert extender.seal_failures == 0
+        assert failures == []
+        assert json.loads(_sealing_config(tmp_path)[1].read_text(encoding="utf-8").splitlines()[0])["run_id"] == "run-1"
+
+    # Scaling: the whole auto-seal path costs the run, not the history, with the index.
+
+    @staticmethod
+    def _scaling_cost(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, prior: int, *, indexed: bool
+    ) -> tuple[int, int, int]:
+        """(signature verifications, audit lines parsed, manifest bytes read) of one run's first calculation lookup
+        plus on_run_complete, after `prior` sealed runs."""
+        tmp_path.mkdir()
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        extra: dict[str, Any] = {"seal_index_path": tmp_path / "seal.index"} if indexed else {}
+        verifications: list[bytes] = []
+
+        class CountingSigner(HmacSha256Signer):
+            def verify(self, payload: bytes, signature: str) -> bool:
+                verifications.append(payload)
+                return super().verify(payload, signature)
+
+        def build() -> AuditExtender:
+            return AuditExtender(
+                NdjsonAuditSink(audit_path),
+                audit_path=audit_path,
+                manifest_path=manifest_path,
+                signer=CountingSigner(_SEALING_KEY, "seal-key-1"),
+                head_anchor=NdjsonHeadAnchor(tmp_path / "anchor.ndjson"),
+                **extra,
+            )
+
+        for number in range(prior):
+            _append_records(audit_path, [_minimal_audit_record(f"run-{number}")])
+            build().on_run_complete(f"run-{number}")
+        verifications.clear()
+
+        parses: list[str] = []
+        real_decode = run_manifest_module._decode_line
+
+        def counting_decode(where: str, line: bytes) -> Any:
+            if where.startswith(str(audit_path)):
+                parses.append(where)
+            return real_decode(where, line)
+
+        read: list[int] = []
+        real_open = open
+
+        def spy_open(file: Any, mode: str = "r", *args: Any, **kw: Any) -> Any:
+            handle = real_open(file, mode, *args, **kw)
+            if mode != "rb" or str(file) != str(manifest_path):
+                return handle
+            return _SizeSpy(handle, read)
+
+        monkeypatch.setattr(run_manifest_module, "_decode_line", counting_decode)
+        monkeypatch.setattr(run_manifest_module, "open", spy_open, raising=False)
+        monkeypatch.setattr(audit_extender_module, "open", spy_open, raising=False)
+        try:
+            extender = build()
+            with make_hook_context(run_id="run-next", tenant_id=_TENANT).activate():
+                extender(_CountingCall())
+            extender.on_run_complete("run-next")
+        finally:
+            monkeypatch.delattr(run_manifest_module, "open", raising=False)
+            monkeypatch.delattr(audit_extender_module, "open", raising=False)
+        return len(verifications), len(parses), sum(read)
+
+    def test_the_whole_auto_seal_costs_the_same_whatever_the_history_with_the_index(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        costs = [self._scaling_cost(tmp_path / f"p{prior}", monkeypatch, prior, indexed=True) for prior in (2, 8)]
+
+        assert costs[0] == costs[1]
+        assert costs[0][0] > 0 or costs[0][1] > 0 or costs[0][2] > 0
+
+    def test_without_seal_index_path_the_whole_auto_seal_cost_grows_with_the_history(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        small = self._scaling_cost(tmp_path / "p2", monkeypatch, 2, indexed=False)
+        large = self._scaling_cost(tmp_path / "p8", monkeypatch, 8, indexed=False)
+
+        assert all(big > little for big, little in zip(large, small))
 
 
 class TestTeeAuditSinkFlush:

@@ -583,14 +583,12 @@ def _iter_manifests(path: str | Path) -> Iterator[dict[str, Any]]:
         return
 
 
-def _is_run_sealed_unverified(manifest_path: str | Path, run_id: str) -> bool:
-    """Unverified read without the lock: a seal holds the exclusive lock while it digests the whole audit
-    log, so a calculation must not wait on it. True iff a line naming run_id decodes to a JSON object with
-    that run_id; a line that does not decode (torn, or mid-append) is skipped, not treated as sealed; a
-    decodable one, even unterminated, counts."""
+def _scan_for_run(manifest_path: str | Path, run_id: str, start: int = 0) -> bool:
+    """Byte-scan the manifest lines from `start` for a decodable JSON object with `run_id`."""
     needle = json.dumps(run_id).encode("utf-8")
     try:
         with open(manifest_path, "rb") as file:
+            file.seek(start)
             for raw in _read_lines(file):
                 if isinstance(raw, _OversizedLine) or needle not in raw:
                     continue
@@ -603,6 +601,19 @@ def _is_run_sealed_unverified(manifest_path: str | Path, run_id: str) -> bool:
     except FileNotFoundError:
         return False
     return False
+
+
+def _is_run_sealed_unverified(manifest_path: str | Path, run_id: str, index_path: str | Path | None = None) -> bool:
+    """Unverified read without the lock: a seal holds the exclusive lock while it digests the whole audit
+    log, so a calculation must not wait on it. True iff a line naming run_id decodes to a JSON object with
+    that run_id; a line that does not decode (torn, or mid-append) is skipped, not treated as sealed; a
+    decodable one, even unterminated, counts. With `index_path` (read-only, no signature check) a hint hit is
+    confirmed at its offset and only the bytes after the checkpoint are scanned; anything unusable scans it all."""
+    if index_path is not None:
+        found = _indexed_lookup(manifest_path, run_id, index_path)
+        if found is not None:
+            return found
+    return _scan_for_run(manifest_path, run_id)
 
 
 def _read_manifests(path: str | Path) -> list[dict[str, Any]]:
@@ -1054,6 +1065,13 @@ def _checkpoint_current(entry: Any, signer: ManifestSigner, manifest_path: str |
         return False
     if {signature["key_id"], entry["active"]} != {signer.key_id} or signature["algorithm"] != signer.algorithm:
         return False
+    return _checkpoint_fresh(entry, manifest_path)
+
+
+def _checkpoint_fresh(entry: Any, manifest_path: str | Path) -> bool:
+    """True iff `entry` has the checkpoint shape and still describes the manifest file (signature not checked)."""
+    if not isinstance(entry, dict) or set(entry) != _CHECKPOINT_KEYS or entry["kind"] != _CHECKPOINT_KIND:
+        return False
     shape = (
         all(type(entry[key]) is int for key in _CHECKPOINT_INTS)
         and isinstance(entry["head"], str)
@@ -1085,16 +1103,38 @@ def _load_checkpoint(
     if db is None or not os.path.exists(index_path):
         return None
     try:
-        with closing(db.connect(Path(index_path).resolve().as_uri() + "?mode=ro", uri=True, timeout=0)) as conn:
-            conn.execute("PRAGMA trusted_schema=OFF")
-            row = conn.execute("SELECT body FROM checkpoint WHERE id = 1").fetchone()
-            hint = conn.execute("SELECT line_start FROM hint WHERE run_id = ?", (run_id,)).fetchone()
-        entry = _decode_line("seal index checkpoint", row[0].encode("utf-8"))
+        entry, hint = _read_index(db, index_path, run_id)
         if not _checkpoint_current(entry, signer, manifest_path):
             return None
     except (OSError, ValueError, TypeError, db.Error):
         return None
+    return entry, hint
+
+
+def _read_index(db: ModuleType, index_path: str | Path, run_id: str) -> tuple[Any, int | None]:
+    """The stored checkpoint entry and the run's hinted offset, read-only and without waiting on a writer."""
+    with closing(db.connect(Path(index_path).resolve().as_uri() + "?mode=ro", uri=True, timeout=0)) as conn:
+        conn.execute("PRAGMA trusted_schema=OFF")
+        row = conn.execute("SELECT body FROM checkpoint WHERE id = 1").fetchone()
+        hint = conn.execute("SELECT line_start FROM hint WHERE run_id = ?", (run_id,)).fetchone()
+    entry = _decode_line("seal index checkpoint", row[0].encode("utf-8"))
     return entry, None if hint is None else hint[0]
+
+
+def _indexed_lookup(manifest_path: str | Path, run_id: str, index_path: str | Path) -> bool | None:
+    """Whether the index says run_id is sealed, or None when it cannot be trusted (caller scans everything)."""
+    db = _sqlite()
+    if db is None or not os.path.exists(index_path):
+        return None
+    try:
+        entry, hint = _read_index(db, index_path, run_id)
+        if not _checkpoint_fresh(entry, manifest_path):
+            return None
+        if hint is not None:
+            return True if _hint_names_run(manifest_path, hint, run_id) else None
+        return _scan_for_run(manifest_path, run_id, entry["end"])
+    except (OSError, ValueError, TypeError, KeyError, db.Error):
+        return None
 
 
 def _audit_scan_from(entry: Mapping[str, Any], audit_path: str | Path) -> _AuditScan | None:
@@ -1421,7 +1461,7 @@ def seal_ndjson_runs(
                     _unlink_durably(manifest_path)
             raise
         _append_with_rollback(manifest_path, appended, existed=True)
-        if seal_index_path is not None and audit is not None and (appended or not fast) and state.head is not None:
+        if seal_index_path is not None and audit is not None and (appended or (not fast and state.head is not None)):
             _update_index(seal_index_path, manifest_path, state, scan, audit, appended, signer, rebuild=not fast)
         if head_anchor is not None and appended:
             head_anchor.write(manifest_hash(appended[-1]))
