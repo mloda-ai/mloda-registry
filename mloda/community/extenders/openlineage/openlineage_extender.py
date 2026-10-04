@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import atexit
 import logging
+import os
 import threading
 import time
 import uuid
@@ -20,6 +20,7 @@ from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
 from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset
+from openlineage.client.transport.console import ConsoleTransport
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,14 @@ _shared_close_registry_lock = threading.Lock()
 _shared_close_registry: weakref.WeakValueDictionary[int, _CloseState] = weakref.WeakValueDictionary()
 
 
+def _close_released_client(client: OpenLineageClient, class_name: str) -> None:
+    """Finalizer body for a self-built client; never references the extender so it can be collected."""
+    try:
+        client.close(OpenLineageExtender._ATEXIT_CLOSE_TIMEOUT)
+    except Exception as exc:
+        logger.warning("%s failed to close its client on release: %s", class_name, type(exc).__name__)
+
+
 def _get_or_create_close_state(client: OpenLineageClient) -> _CloseState:
     key = id(client)
     with _shared_close_registry_lock:
@@ -76,7 +85,8 @@ class OpenLineageExtender(Extender):
     pickled as-is. Core calls close() with no args on graceful MULTIPROCESSING worker exit; raise close_timeout
     together with graceful_shutdown_timeout for a buffered transport (e.g. async_http, kafka) to fully drain,
     otherwise events past the budget are lost. The parent-death path is best effort. Dataset names for
-    loads are core's data_access_identity, recorded as given."""
+    loads are core's data_access_identity, recorded as given. A self-built client is closed by close(), when the
+    extender is collected, or at exit; after one emit failure in a run, the rest of that run's events are skipped."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
     close_timeout: float = CLOSE_TIMEOUT
@@ -99,6 +109,8 @@ class OpenLineageExtender(Extender):
         self.use_sdk_defaults = use_sdk_defaults
         self._client_lock = threading.Lock()
         self._closed = False
+        self._finalizer: weakref.finalize[..., Any] | None = None
+        self._failed_run_id: str | None = None
         self._inert_warning = WarnOncePerInstance()
         self._pickle_drop_warning = WarnOncePerInstance()
         # Determined by whether a client was injected, not by when the lazy build happens to run.
@@ -115,9 +127,26 @@ class OpenLineageExtender(Extender):
             return None
         with self._client_lock:
             if self._client is None:
-                self._client = OpenLineageClient()
-                atexit.register(self.close, self._ATEXIT_CLOSE_TIMEOUT)
+                client = OpenLineageClient()
+                self._warn_on_console_fallback(client)
+                self._client = client
+                self._finalizer = weakref.finalize(self, _close_released_client, client, type(self).__name__)
         return self._client
+
+    def _warn_on_console_fallback(self, client: OpenLineageClient) -> None:
+        if not isinstance(getattr(client, "transport", None), ConsoleTransport):
+            return
+        try:
+            configured = (getattr(getattr(client, "config", None), "transport", None) or {}).get("type")
+        except Exception:
+            configured = None
+        if configured or os.environ.get("OPENLINEAGE_URL"):
+            return
+        logger.warning(
+            "%s: no OpenLineage transport is configured, so the SDK's console fallback logs every full event at "
+            "INFO; configure a transport or inject a client.",
+            type(self).__name__,
+        )
 
     # Core calls close() with no args on graceful MULTIPROCESSING worker exit and ignores the result.
     def close(self, timeout: float | None = None) -> bool:  # type: ignore[override]
@@ -134,7 +163,8 @@ class OpenLineageExtender(Extender):
             state = self._close_state
             if not self._closed:
                 self._closed = True
-                atexit.unregister(self.close)
+                if self._finalizer is not None:
+                    self._finalizer.detach()
             state.closed = True
 
         remaining = timeout
@@ -165,7 +195,30 @@ class OpenLineageExtender(Extender):
         client = self._get_client()
         if client is None:
             return
-        client.emit(event)
+        context = HookContext.current()
+        run_id = context.run_id if context is not None else None
+        if run_id is not None and run_id == self._failed_run_id:
+            return
+        try:
+            client.emit(event)
+        except Exception as exc:
+            if run_id is not None:
+                with self._client_lock:
+                    first = self._failed_run_id != run_id
+                    self._failed_run_id = run_id
+                if first:
+                    logger.warning(
+                        "%s stops emitting for run %s after an emit failure: %s",
+                        type(self).__name__,
+                        run_id,
+                        type(exc).__name__,
+                    )
+            raise
+
+    def on_run_complete(self, run_id: str | None) -> None:
+        with self._client_lock:
+            if run_id is not None and self._failed_run_id == run_id:
+                self._failed_run_id = None
 
     def __getstate__(self) -> dict[str, Any]:
         client = self._client
@@ -187,12 +240,14 @@ class OpenLineageExtender(Extender):
             # client it needs from here on, so a later pickle of the copy treats that client as owned.
             state["_owns_client"] = True
         del state["_client_lock"]
+        state.pop("_finalizer", None)
         del state["_close_state"]
         return state
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
         self._client_lock = threading.Lock()
+        self._finalizer = None
         self._close_state = _get_or_create_close_state(self._client) if self._client is not None else _CloseState()
 
     def wraps(self) -> set[ExtenderHook]:
