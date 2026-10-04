@@ -1389,3 +1389,14 @@ def test_committed_base_wheel_excludes_the_published_children() -> None:
         f"the committed {_DATA_OPERATIONS} pyproject.toml lists child packages {leaked} in "
         "[tool.setuptools] packages (run scripts/generate_pyproject.py)"
     )
+
+
+def test_pypi_name_check_covers_every_configured_package(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The PyPI name check covers the published set plus the bundle-only packages, read from the config."""
+    monkeypatch.chdir(_REPO_ROOT)
+    names = _script_fn(
+        _REPO_ROOT / "scripts" / "check_pypi_names.py", "configured_names", "list every configured name"
+    )()
+    assert set(names) == set(_EXPECTED_PUBLISHED) | set(_BUNDLE_ONLY), (
+        f"configured_names() returned {sorted(names)!r}, expected the published and bundle-only packages"
+    )
