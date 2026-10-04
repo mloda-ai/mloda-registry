@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import logging
 import threading
 import time
@@ -19,7 +20,6 @@ from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
 from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset
-from openlineage.client.transport.console import ConsoleTransport
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,40 @@ _shared_close_registry_lock = threading.Lock()
 _shared_close_registry: weakref.WeakValueDictionary[int, _CloseState] = weakref.WeakValueDictionary()
 
 
+# Self-built extenders still alive, closed with the longer drain at interpreter exit.
+_live_extenders_lock = threading.Lock()
+_live_extenders: weakref.WeakValueDictionary[int, OpenLineageExtender] = weakref.WeakValueDictionary()
+
+
+def _close_live_extenders_at_exit() -> None:
+    with _live_extenders_lock:
+        extenders = list(_live_extenders.values())
+        _live_extenders.clear()
+    for extender in extenders:
+        try:
+            extender.close(extender._ATEXIT_CLOSE_TIMEOUT)
+        except Exception as exc:
+            logger.warning("%s failed to close its client at exit: %s", type(extender).__name__, type(exc).__name__)
+
+
+atexit.register(_close_live_extenders_at_exit)
+
+
+def _is_transport_failure(exc: BaseException) -> bool:
+    """True for an OSError (connection, timeout, HTTP) in exc or its __cause__ chain, unless it carries a 4xx
+    response other than 408 and 429."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, OSError):
+            status = getattr(getattr(current, "response", None), "status_code", None)
+            if not (isinstance(status, int) and 400 <= status < 500 and status not in (408, 429)):
+                return True
+        current = current.__cause__
+    return False
+
+
 def _close_released_client(client: OpenLineageClient, class_name: str, timeout: float) -> None:
     """Finalizer body for a self-built client; never references the extender so it can be collected."""
     try:
@@ -84,12 +118,14 @@ class OpenLineageExtender(Extender):
     pickled as-is. Core calls close() with no args on graceful MULTIPROCESSING worker exit; raise close_timeout
     together with graceful_shutdown_timeout for a buffered transport (e.g. async_http, kafka) to fully drain,
     otherwise events past the budget are lost. The parent-death path is best effort. Dataset names for
-    loads are core's data_access_identity, recorded as given. After one emit failure in a run, the rest of
-    that run's events are skipped. Stable subclass seams: producer, job_namespace, dataset_namespace, _dispatch,
-    _call_input_data_load, _call_calculate_feature, _calculate_run_facets, _calculate_output_facets,
-    _run_with_events; pinned by assert_openlineage_extender_seams in mloda.testing."""
+    loads are core's data_access_identity, recorded as given. After a transport failure (connection, timeout, HTTP
+    5xx/408/429) in a run, that run's new steps skip emission for a minute; steps already started still emit their
+    terminal event, and raise_on_error=True disables the skip. Other emit errors never trip it. Stable subclass
+    seams: producer, job_namespace, dataset_namespace, _dispatch, _call_input_data_load, _call_calculate_feature,
+    _calculate_run_facets, _calculate_output_facets, _run_with_events; pinned by assert_openlineage_extender_seams in mloda.testing."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
+    _BREAKER_RETRY_AFTER = 60.0
     close_timeout: float = CLOSE_TIMEOUT
     producer: str = _PRODUCER
 
@@ -111,7 +147,7 @@ class OpenLineageExtender(Extender):
         self._client_lock = threading.Lock()
         self._closed = False
         self._finalizer: weakref.finalize[..., Any] | None = None
-        self._failed_run_ids: set[str] = set()
+        self._tripped_runs: dict[str, float] = {}
         self._inert_warning = WarnOncePerInstance()
         self._pickle_drop_warning = WarnOncePerInstance()
         # Determined by whether a client was injected, not by when the lazy build happens to run.
@@ -129,27 +165,14 @@ class OpenLineageExtender(Extender):
         with self._client_lock:
             if self._client is None:
                 client = OpenLineageClient()
-                self._warn_on_console_fallback(client)
                 self._client = client
                 self._finalizer = weakref.finalize(
-                    self, _close_released_client, client, type(self).__name__, self._ATEXIT_CLOSE_TIMEOUT
+                    self, _close_released_client, client, type(self).__name__, self.close_timeout
                 )
+                self._finalizer.atexit = False  # type: ignore[misc]
+                with _live_extenders_lock:
+                    _live_extenders[id(self)] = self
         return self._client
-
-    def _warn_on_console_fallback(self, client: OpenLineageClient) -> None:
-        if not isinstance(getattr(client, "transport", None), ConsoleTransport):
-            return
-        try:
-            configured = (getattr(getattr(client, "config", None), "transport", None) or {}).get("type")
-        except Exception:
-            configured = None
-        if configured:
-            return
-        logger.warning(
-            "%s: no OpenLineage transport is configured, so the SDK's console fallback logs every full event at "
-            "INFO; configure a transport or inject a client.",
-            type(self).__name__,
-        )
 
     # Core calls close() with no args on graceful MULTIPROCESSING worker exit and ignores the result.
     def close(self, timeout: float | None = None) -> bool:  # type: ignore[override]
@@ -168,6 +191,8 @@ class OpenLineageExtender(Extender):
                 self._closed = True
                 if self._finalizer is not None:
                     self._finalizer.detach()
+                with _live_extenders_lock:
+                    _live_extenders.pop(id(self), None)
             state.closed = True
 
         remaining = timeout
@@ -194,35 +219,46 @@ class OpenLineageExtender(Extender):
         finally:
             state.lock.release()
 
-    def _emit(self, event: RunEvent) -> None:
+    def _emit(self, event: RunEvent) -> bool:
+        """True when the event was handed to the client."""
         client = self._get_client()
         if client is None:
-            return
+            return False
         context = HookContext.current()
         run_id = context.run_id if context is not None else None
-        if run_id is not None and run_id in self._failed_run_ids:
-            logger.debug("%s skips an emit for run %s after an earlier emit failure", type(self).__name__, run_id)
-            return
+        breaker_run = run_id if run_id is not None and not self.raise_on_error else None
+        if breaker_run is not None and event.eventType == RunState.START:
+            with self._client_lock:
+                tripped_at = self._tripped_runs.get(breaker_run)
+                if tripped_at is not None and time.monotonic() - tripped_at >= self._BREAKER_RETRY_AFTER:
+                    del self._tripped_runs[breaker_run]
+                    tripped_at = None
+            if tripped_at is not None:
+                logger.debug("%s skips a new step for run %s after a transport failure", type(self).__name__, run_id)
+                return False
         try:
             client.emit(event)
         except Exception as exc:
-            if run_id is not None:
+            if breaker_run is not None and _is_transport_failure(exc):
+                now = time.monotonic()
                 with self._client_lock:
-                    first = run_id not in self._failed_run_ids
-                    self._failed_run_ids.add(run_id)
-                if first:
-                    logger.warning(
-                        "%s stops emitting for run %s after an emit failure: %s",
-                        type(self).__name__,
-                        run_id,
-                        type(exc).__name__,
-                    )
+                    self._tripped_runs = {
+                        key: at for key, at in self._tripped_runs.items() if now - at < self._BREAKER_RETRY_AFTER
+                    }
+                    self._tripped_runs[breaker_run] = now
+                logger.warning(
+                    "%s stops emitting for run %s after an emit failure: %s",
+                    type(self).__name__,
+                    run_id,
+                    type(exc).__name__,
+                )
             raise
+        return True
 
     def on_run_complete(self, run_id: str | None) -> None:
         with self._client_lock:
             if run_id is not None:
-                self._failed_run_ids.discard(run_id)
+                self._tripped_runs.pop(run_id, None)
 
     def __getstate__(self) -> dict[str, Any]:
         client = self._client
@@ -243,6 +279,7 @@ class OpenLineageExtender(Extender):
             # The copy no longer holds an injected client; it will self-build (and own) whatever
             # client it needs from here on, so a later pickle of the copy treats that client as owned.
             state["_owns_client"] = True
+        state["_tripped_runs"] = {}
         del state["_client_lock"]
         state.pop("_finalizer", None)
         del state["_close_state"]
@@ -374,7 +411,7 @@ class OpenLineageExtender(Extender):
 
         # Unguarded on purpose: this call must propagate naturally so CompositeExtender's
         # raise_on_error fallback machinery sees the real failure and never double-invokes func.
-        self._emit_event(RunState.START, run, job, [], [])
+        started = self._emit_event(RunState.START, run, job, [], [])
 
         try:
             with _open_invocations.open(self, invocation):
@@ -383,8 +420,9 @@ class OpenLineageExtender(Extender):
             event_state = RunState.FAIL if isinstance(exc, Exception) else RunState.ABORT
             # Guarded: a transport error on the FAIL/ABORT path must not mask the wrapped function's exception.
             try:
-                inputs = build_inputs(invocation.inputs, exc) if build_inputs else list(invocation.inputs)
-                self._emit_event(event_state, run, job, inputs, [])
+                if started:
+                    inputs = build_inputs(invocation.inputs, exc) if build_inputs else list(invocation.inputs)
+                    self._emit_event(event_state, run, job, inputs, [])
             except Exception as emit_exc:
                 logger.warning(
                     "%s failed to emit %s event: %s",
@@ -395,6 +433,9 @@ class OpenLineageExtender(Extender):
             outcome = "failure" if event_state == RunState.FAIL else "abort"
             logger.warning("%s observed %s %s: %s", type(self).__name__, job.name, outcome, type(exc).__name__)
             raise
+
+        if not started:
+            return result
 
         # Guarded: a bug in this post-success block must never corrupt func's already-computed result.
         try:
@@ -408,8 +449,8 @@ class OpenLineageExtender(Extender):
 
     def _emit_event(
         self, state: RunState, run: Run, job: Job, inputs: list[InputDataset], outputs: list[OutputDataset]
-    ) -> None:
-        self._emit(
+    ) -> bool:
+        return self._emit(
             RunEvent(
                 eventType=state,
                 eventTime=_now_iso(),

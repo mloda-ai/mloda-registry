@@ -91,8 +91,10 @@ unaffected: it stays a real, hand-set minimum in `shared.toml`.
 The same rule covers `optional_dependencies`: a sibling entry there may also be listed
 bare, as `"{published_children}"` expands to. The generator refuses any dependency string
 left carrying an unexpanded placeholder after expansion. `{version}` is only accepted in
-that exact spelling, `"<sibling>[extras]>={version}"`, for a name that normalizes to a
-configured sibling package; any other use of `{version}` fails generation.
+the spellings `"<sibling>[extras]>={version}"` and `"<sibling>[extras]~={version}"`, for a name that
+normalizes to a configured sibling package; any other use of `{version}` fails generation. `~=` is for a
+dependent that builds on a sibling's private seams (enterprise lineage on community OpenLineage), so it only
+accepts patch releases of the minor it was built with.
 
 Naming a nested sibling in an `entry_point_bundle`'s own `dependencies` or a non-dev extra owns that
 sibling: the bundle excludes its code from its own wheel, since the sibling's own distribution ships

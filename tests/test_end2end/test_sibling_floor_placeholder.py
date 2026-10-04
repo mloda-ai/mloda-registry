@@ -148,14 +148,14 @@ def test_hand_pinned_sibling_dependency_is_rejected(dependency: str) -> None:
     [
         f"{_DEP}>=0.4.0,<={{version}}",
         f"{_DEP}>=0.4.4,<{{version}}",
-        f"{_DEP}~={{version}}",
         f"{_DEP}=={{version}}",
         f'{_DEP}>=0.4.4; python_version>="{{version}}"',
+        f"{_DEP}~=0.4.4",
     ],
-    ids=["extra-upper-bound", "extra-lower-bound", "tilde-operator", "exact-operator", "placeholder-in-marker-only"],
+    ids=["extra-upper-bound", "extra-lower-bound", "exact-operator", "placeholder-in-marker-only", "hand-pinned-tilde"],
 )
 def test_malformed_version_placeholder_specifier_is_rejected(dependency: str, request: pytest.FixtureRequest) -> None:
-    """{version} alone isn't enough: the specifier (marker stripped) must be exactly '<name>[extras]>={version}'."""
+    """{version} alone isn't enough: the specifier (marker stripped) must be exactly '<name>[extras]>={version}' or '~={version}'."""
     shared, _packages_config = gen.load_configs()
     packages = _synthetic_packages(dependency)
 
@@ -204,6 +204,25 @@ def test_version_placeholder_with_extras_is_accepted() -> None:
 
     expected = f"{_DEP}[all]>={shared['project']['version']}"
     assert deps == [expected], f"expected exactly [{expected!r}], got {deps!r}"
+
+
+@pytest.mark.parametrize("suffix", ["", "[all]"], ids=["plain", "with-extras"])
+@pytest.mark.parametrize("via_extra", [False, True], ids=["dependencies", "extra"])
+def test_compatible_release_operator_is_accepted_and_expanded(suffix: str, via_extra: bool) -> None:
+    """A sibling may be written '<name>[extras]~={version}' (patch releases of the built minor), in 'dependencies' or an extra."""
+    shared, _packages_config = gen.load_configs()
+    dependency = f"{_DEP}{suffix}~={{version}}"
+    expected = f"{_DEP}{suffix}~={shared['project']['version']}"
+
+    if via_extra:
+        packages = _synthetic_packages(f"{_DEP}>={{version}}")
+        packages[_LEAF]["optional_dependencies"] = {"all": [dependency]}
+        opts = _generated_optional_dependencies(_LEAF, packages, shared)
+        assert opts.get("all") == [expected], f"expected [{expected!r}], got {opts.get('all')!r}"
+    else:
+        packages = _synthetic_packages(dependency)
+        deps = _generated_dependencies(_LEAF, packages, shared)
+        assert deps == [expected], f"expected exactly [{expected!r}], got {deps!r}"
 
 
 def test_optional_dependency_bare_sibling_is_unchanged() -> None:

@@ -88,7 +88,7 @@ entry_point_groups = ["mloda.extenders"]
 description = "OpenLineage column lineage, masking, validator outcome and structure hash facets for mloda pipelines"
 dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version}"]
 path = "mloda/enterprise/extenders/lineage"
-optional_dependencies = { dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "mloda-community-openlineage>={version}"] }
+optional_dependencies = { dev = ["mloda-testing[openlineage]", "pytest>=9.0.3", "mloda-community-openlineage~={version}"] }
 entry_point_groups = ["mloda.extenders"]
 
 # --- Data Operations ---
@@ -284,7 +284,7 @@ dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version
 path = "mloda/enterprise"
 published = true
 entry_point_bundle = true
-optional_dependencies = { ed25519 = ["cryptography>=42"], otel = ["opentelemetry-api>=1.37,<2"], openlineage = ["mloda-community-openlineage>={version}"] }
+optional_dependencies = { ed25519 = ["cryptography>=42"], otel = ["opentelemetry-api>=1.37,<2"], openlineage = ["mloda-community-openlineage~={version}"] }
 py_typed = true
 
 # After the bundles: mloda-testing[binary-model] pins mloda-community (the kit checks binaries with the

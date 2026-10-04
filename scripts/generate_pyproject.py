@@ -41,6 +41,10 @@ DEP_NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 # A sibling requirement (marker already stripped), spelled exactly '<name>[extras]>={version}'.
 SIBLING_FLOOR_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?\s*>=\s*\{version\}\s*$")
 
+# Compatible-release variant, spelled '<name>[extras]~={version}': for a dependent built on a sibling's
+# private seams, so it only accepts patch releases of the minor it was built with.
+SIBLING_COMPATIBLE_RE = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(?:\[[^\]]*\])?\s*~=\s*\{version\}\s*$")
+
 # Exact-operator variant, spelled '<name>[extras]=={version}'. Required (not merely accepted) for a
 # sibling nested under an entry_point_bundle's own path, named in that bundle's own dependencies or a
 # non-dev extra: such a requirement makes the bundle own (exclude from its own wheel) that sibling's
@@ -91,10 +95,10 @@ def _validate_sibling_spelling(
 ) -> None:
     """Raise if ``with_core`` hand-pins a sibling floor, or misuses {version}.
 
-    A plain sibling dependency must be spelled '<sibling>[extras]>={version}' (bare allowed only in an
-    extra). A requirement in ``nested_siblings`` instead owns that sibling (excludes its code from the
-    bundle's own wheel), so it must be spelled exactly '<sibling>[extras]=={version}', with no
-    environment marker, regardless of ``allow_bare``.
+    A plain sibling dependency must be spelled '<sibling>[extras]>={version}' or
+    '<sibling>[extras]~={version}' (bare allowed only in an extra). A requirement in ``nested_siblings`` instead
+    owns that sibling (excludes its code from the bundle's own wheel), so it must be spelled exactly
+    '<sibling>[extras]=={version}', with no environment marker, regardless of ``allow_bare``.
     """
     requirement = with_core.split(";", 1)[0]
     has_marker = ";" in with_core
@@ -110,7 +114,9 @@ def _validate_sibling_spelling(
             )
         return
 
-    spelled_as_floor = is_sibling and SIBLING_FLOOR_RE.match(requirement) is not None
+    spelled_as_floor = is_sibling and (
+        SIBLING_FLOOR_RE.match(requirement) is not None or SIBLING_COMPATIBLE_RE.match(requirement) is not None
+    )
     is_bare = allow_bare and BARE_SIBLING_RE.match(requirement) is not None
 
     if is_sibling and not spelled_as_floor and not is_bare and VERSION_PLACEHOLDER not in with_core:
@@ -121,7 +127,7 @@ def _validate_sibling_spelling(
     if VERSION_PLACEHOLDER in with_core and not (spelled_as_floor and with_core.count(VERSION_PLACEHOLDER) == 1):
         message = (
             f"{pkg_name}: dependency {dep!r} uses {{version}} outside a sibling floor "
-            "spelled '<sibling>[extras]>={version}'"
+            "spelled '<sibling>[extras]>={version}' or '<sibling>[extras]~={version}'"
         )
         if with_core != dep:
             message += f" (expands to {with_core!r})"
@@ -174,8 +180,8 @@ def resolve_dependencies(
     nested_siblings: set[str] | None = None,
 ) -> list[str]:
     """Expand {core_dependency} and {version} placeholders in a package's plain ``dependencies``; raises if a
-    sibling dependency isn't spelled '<name>[extras]>={version}' (or, for a sibling in ``nested_siblings``,
-    the exact-operator '<name>[extras]=={version}')."""
+    sibling dependency isn't spelled '<name>[extras]>={version}' or '<name>[extras]~={version}' (or, for a sibling
+    in ``nested_siblings``, the exact-operator '<name>[extras]=={version}')."""
     return _resolve_dep_list(
         pkg_name, raw_deps, shared, all_packages, allow_bare_sibling=False, nested_siblings=nested_siblings
     )
@@ -189,7 +195,8 @@ def resolve_optional_dependencies(
     nested_siblings: set[str] | None = None,
 ) -> dict[str, list[str]]:
     """Expand {core_dependency} and {version} placeholders in a package's merged ``optional_dependencies``; a
-    sibling entry here may also be bare, unlike plain ``dependencies``' strict '<name>[extras]>={version}'.
+    sibling entry here may also be bare, unlike plain ``dependencies``' strict '<name>[extras]>={version}' or
+    '~={version}'.
     ``nested_siblings`` (bundle ownership, see ``_validate_sibling_spelling``) applies to every group except
     ``dev``: a dev-only dependency never ships, so it cannot own a sibling's code."""
     return {

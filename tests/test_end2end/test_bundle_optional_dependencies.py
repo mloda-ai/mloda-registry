@@ -37,8 +37,8 @@ _COMMUNITY_PYPROJECT = _REPO_ROOT / "mloda" / "community" / "pyproject.toml"
 _ENTERPRISE_PYPROJECT = _REPO_ROOT / "mloda" / "enterprise" / "pyproject.toml"
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
 
-# A first-party sibling floor: the {version} placeholder, equal to the leaf's dev entry.
-_LINEAGE_EMITTER_FLOOR = "mloda-community-openlineage>={version}"
+# The lineage sibling pin: compatible release on the {version} placeholder, equal to the leaf's dev entry.
+_LINEAGE_EMITTER_FLOOR = "mloda-community-openlineage~={version}"
 
 # One row per mloda-community extra-only dependency: (extra name, distribution name, leaf
 # package name, import root, exposed extender names). Extend this when the bundle gains another
@@ -208,12 +208,12 @@ def test_mloda_enterprise_openlineage_extra_carries_the_community_emitter_for_th
     )
 
 
-def test_mloda_enterprise_pyproject_lists_the_openlineage_extra_with_the_shared_floor() -> None:
+def test_mloda_enterprise_pyproject_lists_the_openlineage_extra_with_the_shared_compatible_release() -> None:
     """The generator's output and the committed pyproject.toml both carry the extra with ``{version}`` expanded
     (``tox -e check-generated`` is not in this gate)."""
     shared, packages_config = gen.load_configs()
     packages: dict[str, dict[str, Any]] = packages_config["packages"]
-    expected = [f"mloda-community-openlineage>={shared['project']['version']}"]
+    expected = [f"mloda-community-openlineage~={shared['project']['version']}"]
 
     generated = tomllib.loads(
         gen.generate_pyproject("mloda-enterprise", packages["mloda-enterprise"], shared, packages)

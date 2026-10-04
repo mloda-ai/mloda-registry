@@ -1940,7 +1940,7 @@ dev = [
 requires-dist = [
     { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
     { name = "mloda-community-extenders-shared", specifier = ">=0.7.0" },
-    { name = "mloda-community-openlineage", marker = "extra == 'dev'", specifier = ">=0.7.0" },
+    { name = "mloda-community-openlineage", marker = "extra == 'dev'", specifier = "~=0.7.0" },
     { name = "mloda-testing", extras = ["openlineage"], marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
