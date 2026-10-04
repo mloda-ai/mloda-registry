@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 import uuid
@@ -57,10 +56,10 @@ _shared_close_registry_lock = threading.Lock()
 _shared_close_registry: weakref.WeakValueDictionary[int, _CloseState] = weakref.WeakValueDictionary()
 
 
-def _close_released_client(client: OpenLineageClient, class_name: str) -> None:
+def _close_released_client(client: OpenLineageClient, class_name: str, timeout: float) -> None:
     """Finalizer body for a self-built client; never references the extender so it can be collected."""
     try:
-        client.close(OpenLineageExtender._ATEXIT_CLOSE_TIMEOUT)
+        client.close(timeout)
     except Exception as exc:
         logger.warning("%s failed to close its client on release: %s", class_name, type(exc).__name__)
 
@@ -112,7 +111,7 @@ class OpenLineageExtender(Extender):
         self._client_lock = threading.Lock()
         self._closed = False
         self._finalizer: weakref.finalize[..., Any] | None = None
-        self._failed_run_id: str | None = None
+        self._failed_run_ids: set[str] = set()
         self._inert_warning = WarnOncePerInstance()
         self._pickle_drop_warning = WarnOncePerInstance()
         # Determined by whether a client was injected, not by when the lazy build happens to run.
@@ -132,7 +131,9 @@ class OpenLineageExtender(Extender):
                 client = OpenLineageClient()
                 self._warn_on_console_fallback(client)
                 self._client = client
-                self._finalizer = weakref.finalize(self, _close_released_client, client, type(self).__name__)
+                self._finalizer = weakref.finalize(
+                    self, _close_released_client, client, type(self).__name__, self._ATEXIT_CLOSE_TIMEOUT
+                )
         return self._client
 
     def _warn_on_console_fallback(self, client: OpenLineageClient) -> None:
@@ -142,7 +143,7 @@ class OpenLineageExtender(Extender):
             configured = (getattr(getattr(client, "config", None), "transport", None) or {}).get("type")
         except Exception:
             configured = None
-        if configured or os.environ.get("OPENLINEAGE_URL"):
+        if configured:
             return
         logger.warning(
             "%s: no OpenLineage transport is configured, so the SDK's console fallback logs every full event at "
@@ -199,15 +200,16 @@ class OpenLineageExtender(Extender):
             return
         context = HookContext.current()
         run_id = context.run_id if context is not None else None
-        if run_id is not None and run_id == self._failed_run_id:
+        if run_id is not None and run_id in self._failed_run_ids:
+            logger.debug("%s skips an emit for run %s after an earlier emit failure", type(self).__name__, run_id)
             return
         try:
             client.emit(event)
         except Exception as exc:
             if run_id is not None:
                 with self._client_lock:
-                    first = self._failed_run_id != run_id
-                    self._failed_run_id = run_id
+                    first = run_id not in self._failed_run_ids
+                    self._failed_run_ids.add(run_id)
                 if first:
                     logger.warning(
                         "%s stops emitting for run %s after an emit failure: %s",
@@ -219,8 +221,8 @@ class OpenLineageExtender(Extender):
 
     def on_run_complete(self, run_id: str | None) -> None:
         with self._client_lock:
-            if run_id is not None and self._failed_run_id == run_id:
-                self._failed_run_id = None
+            if run_id is not None:
+                self._failed_run_ids.discard(run_id)
 
     def __getstate__(self) -> dict[str, Any]:
         client = self._client

@@ -131,8 +131,8 @@ class _SlottedDuckTypeClient:
         return True
 
 
-_EMIT_SECRET = "secret-emit-message-must-not-be-logged"
-_CLOSE_SECRET = "secret-close-message-must-not-be-logged"
+_EMIT_ERROR_MESSAGE = "emit-error-message-must-not-be-logged"
+_CLOSE_ERROR_MESSAGE = "close-error-message-must-not-be-logged"
 _RUN_A = "00000000-0000-4000-8000-00000000000a"
 _RUN_B = "00000000-0000-4000-8000-00000000000b"
 _RUN_X = "00000000-0000-4000-8000-0000000000ff"
@@ -151,7 +151,7 @@ class _FailingEmitTransport(Transport):
 
     def emit(self, event: Any) -> None:
         self.emit_attempts += 1
-        raise RuntimeError(_EMIT_SECRET)
+        raise RuntimeError(_EMIT_ERROR_MESSAGE)
 
     def close(self, timeout: float = -1.0) -> bool:
         return True
@@ -396,18 +396,6 @@ class TestOpenLineageExtenderPickling:
         assert copy._finalizer.peek()[0] is copy
         assert extender._finalizer is not None
         assert extender._finalizer.peek()[0] is extender
-
-    def test_pickling_with_a_live_finalizer_works_and_the_copy_starts_without_one(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _PicklableFakeClient)
-        extender = OpenLineageExtender(use_sdk_defaults=True)
-        extender._get_client()
-        assert extender._finalizer is not None and extender._finalizer.alive
-
-        copy = pickle.loads(pickle.dumps(extender))  # nosec
-
-        assert copy._finalizer is None
         assert extender._finalizer.alive
 
     def test_client_published_before_ownership_flag_is_still_dropped_on_pickle(self) -> None:
@@ -548,6 +536,7 @@ class TestOpenLineageExtenderClose:
         assert created == [extender]
         assert extender._finalizer is not None
         assert extender._finalizer.alive
+        assert extender._finalizer.atexit
         peeked = extender._finalizer.peek()
         assert peeked is not None
         assert peeked[0] is extender
@@ -612,7 +601,7 @@ class TestOpenLineageExtenderClose:
     ) -> None:
         class _RaisingCloseClient:
             def close(self, timeout: float = -1.0) -> bool:
-                raise RuntimeError(_CLOSE_SECRET)
+                raise RuntimeError(_CLOSE_ERROR_MESSAGE)
 
         monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _RaisingCloseClient)
         extender = OpenLineageExtender(use_sdk_defaults=True)
@@ -628,7 +617,7 @@ class TestOpenLineageExtenderClose:
             r for r in caplog.records if r.name == openlineage_extender_module.__name__ and r.levelno == logging.WARNING
         ]
         assert any("OpenLineageExtender" in r.getMessage() and "RuntimeError" in r.getMessage() for r in records)
-        assert all(_CLOSE_SECRET not in r.getMessage() for r in caplog.records)
+        assert all(_CLOSE_ERROR_MESSAGE not in r.getMessage() for r in caplog.records)
 
 
 class TestOpenLineageExtenderCloseIdempotencyAndReuse:
@@ -696,6 +685,27 @@ class TestOpenLineageExtenderCloseIdempotencyAndReuse:
         assert isinstance(timeout, float)
         assert timeout != -1.0
         assert 0 < timeout < float("inf")
+
+    def test_finalizer_closes_with_the_instance_atexit_close_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _FakeClient:
+            def __init__(self) -> None:
+                self.close_calls: list[float] = []
+
+            def close(self, timeout: float = -1.0) -> bool:
+                self.close_calls.append(timeout)
+                return True
+
+        class _ShortTimeoutExtender(OpenLineageExtender):
+            _ATEXIT_CLOSE_TIMEOUT = 3.0
+
+        monkeypatch.setattr(openlineage_extender_module, "OpenLineageClient", _FakeClient)
+        extender = _ShortTimeoutExtender(use_sdk_defaults=True)
+        built: Any = extender._get_client()
+        assert extender._finalizer is not None
+
+        extender._finalizer()
+
+        assert built.close_calls == [3.0]
 
     def test_close_logs_warning_naming_extender_when_flush_incomplete(self, caplog: pytest.LogCaptureFixture) -> None:
         extender = OpenLineageExtender(client=OpenLineageClient(transport=_IncompleteFlushTransport()))
@@ -1962,7 +1972,7 @@ class TestOpenLineageExtenderEmitBreaker:
         assert run_id in message
         assert "RuntimeError" in message
         module_records = [r for r in caplog.records if r.name == openlineage_extender_module.__name__]
-        assert all(_EMIT_SECRET not in r.getMessage() for r in module_records)
+        assert all(_EMIT_ERROR_MESSAGE not in r.getMessage() for r in module_records)
 
     def test_a_different_run_id_retries_and_trips_again(self, caplog: pytest.LogCaptureFixture) -> None:
         transport = _FailingEmitTransport()
@@ -1978,6 +1988,36 @@ class TestOpenLineageExtenderEmitBreaker:
 
         assert transport.emit_attempts == 2
         assert len(_breaker_records(caplog)) == 2
+
+    def test_interleaved_runs_each_trip_once_and_on_run_complete_frees_only_its_run(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        transport = _FailingEmitTransport()
+        extender = OpenLineageExtender(client=OpenLineageClient(transport=transport))
+        composite = CompositeExtender([extender])
+        sentinel = object()
+
+        with caplog.at_level(logging.DEBUG, logger=openlineage_extender_module.__name__):
+            for run_id in (_RUN_A, _RUN_B, _RUN_A, _RUN_B, _RUN_A, _RUN_B):
+                self._composite_call(composite, run_id, sentinel)
+
+            assert transport.emit_attempts == 2
+            assert len(_breaker_records(caplog)) == 2
+            skipped = [
+                r
+                for r in caplog.records
+                if r.name == openlineage_extender_module.__name__
+                and r.levelno == logging.DEBUG
+                and "OpenLineageExtender" in r.getMessage()
+                and _RUN_A in r.getMessage()
+            ]
+            assert skipped
+
+            extender.on_run_complete(_RUN_A)
+            self._composite_call(composite, _RUN_B, sentinel)
+            assert transport.emit_attempts == 2
+            self._composite_call(composite, _RUN_A, sentinel)
+            assert transport.emit_attempts == 3
 
     def test_run_id_none_never_trips_the_breaker(self, caplog: pytest.LogCaptureFixture) -> None:
         transport = _FailingEmitTransport()
@@ -2397,7 +2437,7 @@ class TestOpenLineageExtenderSubclassSeams:
         assert not [m for m in messages if "OpenLineageExtender" in m], messages
 
     def test_seam_table_names_exactly_the_documented_method_seams(self) -> None:
-        assert set(OPENLINEAGE_EXTENDER_SEAMS) >= {
+        assert set(OPENLINEAGE_EXTENDER_SEAMS) == {
             "_dispatch",
             "_call_input_data_load",
             "_call_calculate_feature",
@@ -2405,7 +2445,6 @@ class TestOpenLineageExtenderSubclassSeams:
             "_calculate_output_facets",
             "_run_with_events",
         }
-        assert len(OPENLINEAGE_EXTENDER_SEAMS) == 6
 
     def test_seam_checker_accepts_the_base_and_a_subclass_adding_new_private_methods(self) -> None:
         assert_openlineage_extender_seams(OpenLineageExtender, OpenLineageExtender)
