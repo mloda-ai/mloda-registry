@@ -686,12 +686,22 @@ _SAMPLE_ROWS: dict[pa.DataType, list[Any]] = {
 }
 
 
-def _kit(column_types: frozenset[str], input_type: pa.DataType | None = None) -> BinaryModelConformanceBase:
+def _kit(
+    column_types: frozenset[str],
+    input_type: pa.DataType | None = None,
+    *,
+    max_columns: int | None = None,
+    required: dict[str, Any] | None = None,
+) -> BinaryModelConformanceBase:
     """A conformance kit advertising `column_types`; with `input_type`, its input hooks use one column of that type."""
     advertised = column_types
 
     class _Kit(BinaryModelConformanceBase):
         column_types: ClassVar[frozenset[str]] = advertised
+        max_input_columns: ClassVar[int | None] = max_columns
+
+        def required_parameters(self) -> dict[str, Any]:
+            return dict(required) if required is not None else {}
 
         if input_type is not None:
 
@@ -792,3 +802,54 @@ def test_marker_success_check_passes_for_an_int64_only_binary_against_the_simula
     license_file = write_text(tmp_path / "license.txt", valid_license_token(["example_binary"]))
     env = conformance.platform_env({_LICENSE_FILE: str(license_file)})
     conformance.test_diagnostics_never_leak_marked_cell_value_on_success(env, tmp_path)
+
+
+def _recording_fake_run_binary(configs: list[dict[str, Any]]) -> Callable[..., Any]:
+    """A fake ``run_binary`` recording each ``--config`` document and answering with a data error (code 5)."""
+
+    def fake(cmd: object, args: Sequence[str], env: object, input_bytes: bytes = b"", **kwargs: object) -> Any:
+        configs.append(json.loads(Path(args[list(args).index("--config") + 1]).read_text(encoding="utf-8")))
+        stderr = json.dumps({"code": 5, "message": "bad data"}).encode("utf-8") + b"\n"
+        return subprocess.CompletedProcess(args=[], returncode=5, stdout=b"", stderr=stderr)
+
+    return fake
+
+
+_ONE_COLUMN_CHECKS = [
+    pytest.param("test_input_schema_missing_column_is_data_error", (), id="missing_column"),
+    pytest.param("test_input_schema_presence_error_precedes_type_error", (), id="presence_before_type"),
+    pytest.param("test_input_schema_duplicate_field_name_is_data_error", (), id="duplicate"),
+    pytest.param(_FAILURE_CHECK, ("missing_column_data_error",), id="diagnostics_failure_missing_column"),
+    pytest.param("test_config_parameters_empty_object_accepted_structurally", (), id="empty_parameters"),
+]
+
+
+@pytest.mark.parametrize("check_name, extra_args", _ONE_COLUMN_CHECKS)
+def test_one_column_binary_checks_configure_one_column_and_required_parameters(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, check_name: str, extra_args: tuple[str, ...]
+) -> None:
+    """With ``max_input_columns = 1`` the checks configure one input column and the required parameters."""
+    configs: list[dict[str, Any]] = []
+    monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", _recording_fake_run_binary(configs))
+    kit = _kit(COLUMN_TYPES, max_columns=1, required={"key": "k"})
+    getattr(kit, check_name)({"PATH": "/usr/bin"}, tmp_path, *extra_args)
+    assert len(configs) == 1
+    assert len(configs[0]["input_columns"]) == 1
+    assert configs[0]["parameters"] == {"key": "k"}
+
+
+@pytest.mark.parametrize(
+    "check_name",
+    [
+        "test_input_schema_missing_column_is_data_error",
+        "test_input_schema_presence_error_precedes_type_error",
+    ],
+)
+def test_default_binary_data_checks_still_configure_two_columns(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, check_name: str
+) -> None:
+    """Without a column limit the missing-column and presence-before-type checks keep two input columns."""
+    configs: list[dict[str, Any]] = []
+    monkeypatch.setattr("mloda.testing.binary_model.conformance.run_binary", _recording_fake_run_binary(configs))
+    getattr(_kit(COLUMN_TYPES), check_name)({"PATH": "/usr/bin"}, tmp_path)
+    assert len(configs[0]["input_columns"]) == 2

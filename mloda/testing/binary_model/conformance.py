@@ -296,6 +296,9 @@ class BinaryModelConformanceBase:
     # single-column shape.
     extra_input_column: ClassVar[str] = "extra_input_column"
 
+    # None means no limit; an operation taking one column sets 1 so the schema checks configure one.
+    max_input_columns: ClassVar[int | None] = None
+
     # License fixture texts (contract: License), computed lazily from ``self.plugin_id``/
     # ``self.wrong_plugin_id`` at the point of use (not at class-definition time), so a subclass
     # overriding ``plugin_id`` alone gets consistent fixtures automatically.
@@ -334,6 +337,13 @@ class BinaryModelConformanceBase:
 
     # -- Overridable helpers for building a generically-valid config/data case --
 
+    def required_parameters(self) -> dict[str, Any]:
+        """The minimal `parameters` ``self.operations[0]`` needs."""
+        return {}
+
+    def _kit_two_input_columns_allowed(self) -> bool:
+        return self.max_input_columns is None or self.max_input_columns >= 2
+
     def make_config(
         self,
         *,
@@ -344,10 +354,12 @@ class BinaryModelConformanceBase:
     ) -> dict[str, Any]:
         """A structurally valid ``--config`` document for ``self.operations[0]``, every field
         overridable so a test can mutate exactly the one field under test."""
+        if parameters is None:
+            parameters = self.required_parameters() if operation is None or operation == self.operations[0] else {}
         return {
             "input_columns": list(self.default_input_columns) if input_columns is None else input_columns,
             "operation": self.operations[0] if operation is None else operation,
-            "parameters": {} if parameters is None else parameters,
+            "parameters": parameters,
             "output_columns": dict(self.default_output_columns) if output_columns is None else output_columns,
         }
 
@@ -852,12 +864,12 @@ class BinaryModelConformanceBase:
     def test_config_parameters_empty_object_accepted_structurally(
         self, valid_license_env: dict[str, str], tmp_path: Path
     ) -> None:
-        """`parameters: {}` is structurally accepted for an operation whose parameters are all
-        optional: this alone does not cause exit 1 (contract: Configuration)."""
-        config = self.make_config(parameters={})
+        """`parameters` holding only the required keys (`{}` when all are optional) is structurally
+        accepted: this alone does not cause exit 1 (contract: Configuration)."""
+        config = self.make_config(parameters=self.required_parameters())
         result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert result.returncode != USAGE_ERROR, (
-            f"empty parameters object unexpectedly caused a usage error; stderr={result.stderr!r}"
+            f"minimal required parameters unexpectedly caused a usage error; stderr={result.stderr!r}"
         )
 
     # -------------------------------------------------------------------------------------------
@@ -1010,10 +1022,16 @@ class BinaryModelConformanceBase:
         """The input stream's schema must contain exactly `input_columns`; a missing name is a data
         error (contract: Data)."""
         column = self.default_input_columns[0]
-        config = self.make_config(input_columns=[column, self.extra_input_column])
+        column_type = self.default_input_schema().field(0).type
+        values = self.default_input_rows()[column]
+        if self._kit_two_input_columns_allowed():
+            config = self.make_config(input_columns=[column, self.extra_input_column])
+            present = column  # extra column missing
+        else:
+            config = self.make_config(input_columns=[column])
+            present = self.extra_input_column  # the configured column missing
         config_path = write_json(tmp_path / "config.json", config)
-        schema = pa.schema([pa.field(column, self.default_input_schema().field(0).type)])  # extra column missing
-        input_bytes = arrow_stream_bytes(schema, {column: self.default_input_rows()[column]})
+        input_bytes = arrow_stream_bytes(pa.schema([pa.field(present, column_type)]), {present: values})
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
@@ -1032,18 +1050,14 @@ class BinaryModelConformanceBase:
     def test_input_schema_duplicate_field_name_is_data_error(
         self, valid_license_env: dict[str, str], tmp_path: Path
     ) -> None:
-        """Two distinct Arrow fields sharing the same name is a "duplicate", a data error, even though
-        the set of distinct names equals `input_columns` (contract: Data)."""
+        """The one configured column carried twice (two Arrow fields sharing a name) is a "duplicate",
+        a data error (contract: Data)."""
         column = self.default_input_columns[0]
-        extra_column = self.extra_input_column
-        config = self.make_config(input_columns=[column, extra_column])
-        config_path = write_json(tmp_path / "config.json", config)
+        config_path = write_json(tmp_path / "config.json", self.make_config(input_columns=[column]))
         column_type = self.default_input_schema().field(0).type
-        schema = pa.schema(
-            [pa.field(column, column_type), pa.field(column, column_type), pa.field(extra_column, column_type)]
-        )
+        schema = pa.schema([pa.field(column, column_type), pa.field(column, column_type)])
         values = pa.array(self.default_input_rows()[column], type=column_type)
-        input_bytes = arrow_stream_bytes_from_arrays(schema, [values, values, values])
+        input_bytes = arrow_stream_bytes_from_arrays(schema, [values, values])
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
@@ -1101,10 +1115,16 @@ class BinaryModelConformanceBase:
         column sent with the wrong type) is a data error, not code 4: presence is checked first
         (contract: Data)."""
         column = self.default_input_columns[0]
-        config = self.make_config(input_columns=[column, self.extra_input_column])
-        schema = pa.schema([pa.field(column, pa.int32())])  # extra_input_column missing; column also wrong type
-        config_path = write_json(tmp_path / "config.json", config)
-        input_bytes = arrow_stream_bytes(schema, {column: [1, 2]})
+        config_path = write_json(tmp_path / "config.json", self.make_config(input_columns=[column]))
+        fields = [pa.field(column, pa.int32()), pa.field(self.extra_input_column, pa.int32())]
+        rows: dict[str, list[Any]] = {column: [1, 2], self.extra_input_column: [1, 2]}
+        if self._kit_two_input_columns_allowed():
+            # extra_input_column missing; column also wrong type
+            config_path = write_json(
+                tmp_path / "config.json", self.make_config(input_columns=[column, self.extra_input_column])
+            )
+            fields, rows = fields[:1], {column: [1, 2]}
+        input_bytes = arrow_stream_bytes(pa.schema(fields), rows)
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
         assert_error_response(result, DATA_ERROR)
 
@@ -1408,20 +1428,26 @@ class BinaryModelConformanceBase:
         marker = self._kit_marker_cell() or _UTF8_MARKER_CELL
         marker_type, marker_value, needle = marker
         column = self.default_input_columns[0]
-        if case == "missing_column_data_error":
-            input_columns = [column, "col_b_missing"]
+        missing_column = case == "missing_column_data_error"
+        if missing_column:
+            input_columns = [column, "col_b_missing"] if self._kit_two_input_columns_allowed() else [column]
             operation = self.operations[0]
             output_columns = self.default_output_columns
+            data_column = column if self._kit_two_input_columns_allowed() else self.extra_input_column
         else:
             input_columns = [column]
             operation = self.reserved_internal_error_operation
             output_columns = {}
+            data_column = column
         config = self.make_config(input_columns=input_columns, operation=operation, output_columns=output_columns)
         config_path = write_json(tmp_path / "config.json", config)
-        schema = pa.schema([pa.field(column, marker_type)])
-        input_bytes = arrow_stream_bytes(schema, {column: [marker_value]})
+        schema = pa.schema([pa.field(data_column, marker_type)])
+        input_bytes = arrow_stream_bytes(schema, {data_column: [marker_value]})
         result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
-        assert result.returncode != 0, f"expected this case to fail, got exit 0; stdout={result.stdout!r}"
+        if missing_column:
+            assert_error_response(result, DATA_ERROR)
+        else:
+            assert result.returncode != 0, f"expected this case to fail, got exit 0; stdout={result.stdout!r}"
         assert needle not in result.stderr, f"marker cell value leaked into stderr: {result.stderr!r}"
 
     def test_error_message_stays_under_size_cap_for_long_garbage_operation(
@@ -1837,21 +1863,11 @@ class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
 
     operations: ClassVar[list[str]] = ["hmac_sha256"]
     default_output_columns: ClassVar[dict[str, str]] = {"result": "col_a_token"}
+    max_input_columns: ClassVar[int | None] = 1
     hmac_key: ClassVar[str] = "42" * 32
 
-    def make_config(
-        self,
-        *,
-        input_columns: list[str] | None = None,
-        operation: str | None = None,
-        parameters: dict[str, Any] | None = None,
-        output_columns: dict[str, str] | None = None,
-    ) -> dict[str, Any]:
-        if parameters is None and (operation is None or operation == self.operations[0]):
-            parameters = {hmac_sha256_reference.KEY_PARAMETER: self.hmac_key}
-        return super().make_config(
-            input_columns=input_columns, operation=operation, parameters=parameters, output_columns=output_columns
-        )
+    def required_parameters(self) -> dict[str, Any]:
+        return {hmac_sha256_reference.KEY_PARAMETER: self.hmac_key}
 
     def default_output_column_type(self) -> pa.DataType:
         return pa.string()
@@ -2018,80 +2034,3 @@ class HmacSha256OperationConformanceMixin(BinaryModelConformanceBase):
         config = self.make_config(parameters={})
         result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env)
         assert_error_response(result, USAGE_ERROR)
-
-    # -------------------------------------------------------------------------------------------
-    # M3. Base checks restated for one input column and a required key
-    # -------------------------------------------------------------------------------------------
-
-    def test_config_parameters_empty_object_accepted_structurally(
-        self, valid_license_env: dict[str, str], tmp_path: Path
-    ) -> None:
-        """Deliberately inverts the base expectation: `parameters: {}` lacks the required key, so it
-        is a usage error (contract: Configuration)."""
-        # Mirrors the base test of the same name, which assumes all parameters are optional.
-        self.test_hmac_missing_key_is_usage_error(valid_license_env, tmp_path)
-
-    def test_input_schema_missing_column_is_data_error(self, valid_license_env: dict[str, str], tmp_path: Path) -> None:
-        """A stream missing the one configured column is a data error (contract: Data)."""
-        # Mirrors the base test of the same name, which configures two input columns.
-        config_path = write_json(tmp_path / "config.json", self.make_config())
-        schema = pa.schema([pa.field(self.extra_input_column, pa.string())])
-        input_bytes = arrow_stream_bytes(schema, {self.extra_input_column: ["alice", "bob"]})
-        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
-        assert_error_response(result, DATA_ERROR)
-
-    def test_input_schema_duplicate_field_name_is_data_error(
-        self, valid_license_env: dict[str, str], tmp_path: Path
-    ) -> None:
-        """The one configured column carried twice is a "duplicate", a data error (contract: Data)."""
-        # Mirrors the base test of the same name, which configures two input columns.
-        column = self.default_input_columns[0]
-        config_path = write_json(tmp_path / "config.json", self.make_config())
-        schema = pa.schema([pa.field(column, pa.string()), pa.field(column, pa.string())])
-        values = pa.array(["alice", "bob"], type=pa.string())
-        input_bytes = arrow_stream_bytes_from_arrays(schema, [values, values])
-        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
-        assert_error_response(result, DATA_ERROR)
-
-    def test_input_schema_presence_error_precedes_type_error(
-        self, valid_license_env: dict[str, str], tmp_path: Path
-    ) -> None:
-        """A missing configured column plus a wrongly typed other field is a data error, not code 4
-        (contract: Data)."""
-        # Mirrors the base test of the same name, which configures two input columns.
-        config_path = write_json(tmp_path / "config.json", self.make_config())
-        schema = pa.schema([pa.field(self.extra_input_column, pa.int32())])
-        input_bytes = arrow_stream_bytes(schema, {self.extra_input_column: [1, 2]})
-        result = self._kit_run_with_config(config_path, valid_license_env, input_bytes)
-        assert_error_response(result, DATA_ERROR)
-
-    @pytest.mark.parametrize(
-        "case",
-        [
-            pytest.param("missing_column_data_error", id="missing_column_data_error"),
-            pytest.param("reserved_internal_error_operation", id="reserved_internal_error_operation"),
-        ],
-    )
-    def test_diagnostics_never_leak_marked_cell_value_on_failure(
-        self, valid_license_env: dict[str, str], tmp_path: Path, case: str
-    ) -> None:
-        """The marker cell through two failing data-stage cases never leaks into stderr
-        (contract: Data handling, Conformance)."""
-        # Mirrors the base test of the same name, whose two-column config stops at the config stage here.
-        marker_type, marker_value, needle = self._kit_marker_cell() or _UTF8_MARKER_CELL
-        column = self.default_input_columns[0]
-        if case == "missing_column_data_error":
-            config = self.make_config(input_columns=[column])
-            schema = pa.schema([pa.field(self.extra_input_column, marker_type)])
-            input_bytes = arrow_stream_bytes(schema, {self.extra_input_column: [marker_value]})
-        else:
-            config = self.make_config(
-                input_columns=[column], operation=self.reserved_internal_error_operation, output_columns={}
-            )
-            input_bytes = arrow_stream_bytes(pa.schema([pa.field(column, marker_type)]), {column: [marker_value]})
-        result = self._kit_run_with_config(write_json(tmp_path / "config.json", config), valid_license_env, input_bytes)
-        if case == "missing_column_data_error":
-            assert_error_response(result, DATA_ERROR)
-        else:
-            assert result.returncode != 0, f"expected this case to fail, got exit 0; stdout={result.stdout!r}"
-        assert needle not in result.stderr, f"marker cell value leaked into stderr: {result.stderr!r}"
