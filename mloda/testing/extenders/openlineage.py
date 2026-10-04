@@ -826,8 +826,8 @@ def _p(name: str, kind: inspect._ParameterKind = _POSITIONAL, has_default: bool 
     return (name, kind, has_default)
 
 
-# Each parameter is (name, kind, has_default). A seam change must ship as a `minor:` commit: mloda-enterprise pins
-# mloda-community-openlineage~={version}, so a released enterprise wheel never meets it.
+# Each parameter is (name, kind, has_default). Ship a seam change as a `minor:` commit: mloda-enterprise pins
+# mloda-community-openlineage~={version}.
 OPENLINEAGE_EXTENDER_SEAMS: dict[str, tuple[_Param, ...]] = {
     "_dispatch": (_p("self"), _p("context"), _p("func"), _p("args"), _p("kwargs")),
     "_call_input_data_load": (
@@ -878,8 +878,7 @@ def _is_private(name: str) -> bool:
 
 
 def _assert_no_private_access(klass: type, base: type, private_names: set[str]) -> None:
-    """Fail if klass's body touches a private base member or module internal that is not a seam. Only the class
-    body is parsed: accesses outside it (e.g. a module helper taking the extender) are not seen."""
+    """Fail if klass's body touches a private base member or module internal that is not a seam (class body only)."""
     try:
         tree = ast.parse(textwrap.dedent(inspect.getsource(klass)))
     except (OSError, TypeError) as exc:

@@ -76,8 +76,7 @@ atexit.register(_close_live_extenders_at_exit)
 
 
 def _is_transport_failure(exc: BaseException) -> bool:
-    """True for an OSError (connection, timeout, HTTP) in exc or its __cause__ chain, unless it carries a 4xx
-    response other than 408 and 429."""
+    """True for an OSError in exc or its __cause__ chain, unless it carries a 4xx response other than 408/429."""
     seen: set[int] = set()
     current: BaseException | None = exc
     while current is not None and id(current) not in seen:
@@ -122,7 +121,8 @@ class OpenLineageExtender(Extender):
     5xx/408/429) in a run, that run's new steps skip emission for a minute; steps already started still emit their
     terminal event, and raise_on_error=True disables the skip. Other emit errors never trip it. Stable subclass
     seams: producer, job_namespace, dataset_namespace, _dispatch, _call_input_data_load, _call_calculate_feature,
-    _calculate_run_facets, _calculate_output_facets, _run_with_events; pinned by assert_openlineage_extender_seams in mloda.testing."""
+    _calculate_run_facets, _calculate_output_facets, _run_with_events; pinned by
+    assert_openlineage_extender_seams in mloda.testing."""
 
     _ATEXIT_CLOSE_TIMEOUT = 10.0
     _BREAKER_RETRY_AFTER = 60.0
@@ -220,7 +220,6 @@ class OpenLineageExtender(Extender):
             state.lock.release()
 
     def _emit(self, event: RunEvent) -> bool:
-        """True when the event was handed to the client."""
         client = self._get_client()
         if client is None:
             return False
