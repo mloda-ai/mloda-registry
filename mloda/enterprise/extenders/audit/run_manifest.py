@@ -55,7 +55,7 @@ import re
 import stat
 import tempfile
 from collections import Counter
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Container, Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager, suppress
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
@@ -568,9 +568,10 @@ def _parse_ndjson_line(path: str | Path, number: int | str, raw: bytes) -> tuple
     return line, obj
 
 
-def _read_ndjson(path: str | Path) -> Iterator[tuple[bytes, dict[str, Any]]]:
+def _read_ndjson(path: str | Path, start: int = 0, number: int = 1) -> Iterator[tuple[bytes, dict[str, Any]]]:
     with open(path, "rb") as file:
-        for number, raw in enumerate(_read_lines(file), start=1):
+        file.seek(start)
+        for number, raw in enumerate(_read_lines(file), start=number):
             yield _parse_ndjson_line(path, number, raw)
 
 
@@ -627,20 +628,49 @@ def _check_run_against_seal(
     _verify_digest(manifest, _digest_runs(audit_path, run_id.__eq__).get(run_id, _RunDigest()))
 
 
+class _AuditScan:
+    """How far the audit file was scanned: the end offset and line count, the last line's start and sha256, and the
+    first record (offset, line number) of each run seen."""
+
+    def __init__(self, dev: int, ino: int) -> None:
+        self.dev, self.ino = dev, ino
+        self.end = self.count = self.last_start = 0
+        self.last_sha256 = ""
+        self.first: dict[str, tuple[int, int]] = {}
+
+    @classmethod
+    def fresh(cls, path: str | Path) -> "_AuditScan":
+        stat_result = os.stat(path)
+        return cls(stat_result.st_dev, stat_result.st_ino)
+
+    def note(self, line: bytes, run_id: str | None, sealed: Container[str] = ()) -> None:
+        self.count += 1
+        if run_id is not None and not _is_blank(run_id) and run_id not in sealed:
+            self.first.setdefault(run_id, (self.end, self.count))
+        self.last_start = self.end
+        self.last_sha256 = _sha256(line + b"\n")
+        self.end += len(line) + 1
+
+
 def _digest_runs(
     audit_path: str | Path,
     keep: Callable[[str], bool],
     uncovered: _Uncovered | None = None,
     *,
     track_times: bool = False,
+    start: int = 0,
+    number: int = 1,
+    scan: _AuditScan | None = None,
 ) -> dict[str, _RunDigest]:
     if uncovered is None:
         uncovered = _Uncovered()
     digests: dict[str, _RunDigest] = {}
-    for line, record in _read_ndjson(audit_path):
+    for line, record in _read_ndjson(audit_path, *((start, number) if start else ())):
         run_id = record.get("run_id")
         if run_id is not None and not isinstance(run_id, str):
             raise ManifestVerificationError(f"audit record run_id {run_id!r} is neither a string nor null")
+        if scan is not None:
+            scan.note(line, run_id)
         if run_id is None or _is_blank(run_id):
             uncovered.unattributed += 1
             continue
@@ -958,7 +988,20 @@ def rotate_manifest_key(
 
 _CHECKPOINT_KIND = "seal_checkpoint"
 _CHECKPOINT_INTS = ("st_dev", "st_ino", "end", "lines", "head_start")
-_CHECKPOINT_KEYS = {*_CHECKPOINT_INTS, "kind", "head", "active", "retired", "log_id", "seen_v2", "signature"}
+_AUDIT_INTS = ("audit_dev", "audit_ino", "audit_end", "audit_lines", "audit_last_start")
+_CHECKPOINT_KEYS = {
+    *_CHECKPOINT_INTS,
+    *_AUDIT_INTS,
+    "audit_last_sha256",
+    "audit_pending",
+    "kind",
+    "head",
+    "active",
+    "retired",
+    "log_id",
+    "seen_v2",
+    "signature",
+}
 _sqlite_missing_logged = False
 
 
@@ -1054,6 +1097,38 @@ def _load_checkpoint(
     return entry, None if hint is None else hint[0]
 
 
+def _audit_scan_from(entry: Mapping[str, Any], audit_path: str | Path) -> _AuditScan | None:
+    """The audit scan a checkpoint recorded, or None when the audit file no longer matches it."""
+    try:
+        dev, ino, end, count, last = (entry[key] for key in _AUDIT_INTS)
+        sha, pending = entry["audit_last_sha256"], entry["audit_pending"]
+        if not all(type(value) is int for value in (dev, ino, end, count, last)) or not isinstance(sha, str):
+            return None
+        first = {run: (offset, number) for run, (offset, number) in pending.items()}
+        stat_result = os.stat(audit_path)
+        if (stat_result.st_dev, stat_result.st_ino) != (dev, ino) or stat_result.st_size < end:
+            return None
+        if end:
+            if not 0 <= last < end <= last + MAX_LINE_BYTES + 1:
+                return None
+            with open(audit_path, "rb") as file:
+                file.seek(last)
+                if _sha256(file.read(end - last)) != sha:
+                    return None
+    except (OSError, KeyError, TypeError, ValueError, AttributeError):
+        return None
+    scan = _AuditScan(dev, ino)
+    scan.end, scan.count, scan.last_start, scan.last_sha256, scan.first = end, count, last, sha, first
+    return scan
+
+
+def _scan_audit_tail(audit_path: str | Path, scan: _AuditScan, sealed: Container[str]) -> None:
+    """Advance `scan` over the terminated audit lines after it, noting where unsealed runs start."""
+    for line, record in _read_ndjson(audit_path, scan.end, scan.count + 1):
+        run_id = record.get("run_id")
+        scan.note(line, run_id if isinstance(run_id, str) else None, sealed)
+
+
 def _hint_names_run(manifest_path: str | Path, offset: object, run_id: str) -> bool:
     """True iff the manifest line at `offset` is a seal of `run_id`."""
     if type(offset) is not int:
@@ -1098,7 +1173,12 @@ def _store_checkpoint(
 
 
 def _checkpoint_entry(
-    manifest_path: str | Path, state: _LogState, head_start: int, signer: ManifestSigner
+    manifest_path: str | Path,
+    state: _LogState,
+    head_start: int,
+    signer: ManifestSigner,
+    audit: _AuditScan,
+    done: Container[str],
 ) -> dict[str, Any]:
     stat_result = os.stat(manifest_path)
     entry: dict[str, Any] = {
@@ -1113,6 +1193,13 @@ def _checkpoint_entry(
         "retired": sorted(state.retired),
         "log_id": state.log_id,
         "seen_v2": state.seen_v2,
+        "audit_dev": audit.dev,
+        "audit_ino": audit.ino,
+        "audit_end": audit.end,
+        "audit_lines": audit.count,
+        "audit_last_start": audit.last_start,
+        "audit_last_sha256": audit.last_sha256,
+        "audit_pending": {run: list(where) for run, where in audit.first.items() if run not in done},
     }
     entry["signature"] = _signature_block(entry, signer)
     return entry
@@ -1128,7 +1215,7 @@ def _verify_from_checkpoint(
     expected_head: str | None,
     log_id: str | None,
     anchors: Sequence[str],
-) -> tuple[_LogState, _Scan] | None:
+) -> tuple[_LogState, _Scan, dict[str, Any]] | None:
     """Verify only the manifest lines after a valid checkpoint; None means verify the whole log."""
     loaded = _load_checkpoint(index_path, manifest_path, run_id, signer)
     if loaded is None:
@@ -1164,7 +1251,7 @@ def _verify_from_checkpoint(
         if not _hint_names_run(manifest_path, hint, run_id):
             return None
         state.sealed.add(run_id)
-    return state, scan
+    return state, scan, checkpoint
 
 
 def _update_index(
@@ -1172,6 +1259,7 @@ def _update_index(
     manifest_path: str | Path,
     state: _LogState,
     scan: _Scan,
+    audit: _AuditScan,
     appended: Sequence[Mapping[str, Any]],
     signer: ManifestSigner,
     *,
@@ -1196,7 +1284,8 @@ def _update_index(
             log_id=genesis,
             lines=state.lines + len(appended),
         )
-        entry = _checkpoint_entry(manifest_path, after, head_start or 0, signer)
+        done = state.sealed | {entry["run_id"] for entry in appended if "kind" not in entry}
+        entry = _checkpoint_entry(manifest_path, after, head_start or 0, signer, audit, done)
         _store_checkpoint(index_path, entry, hints, rebuild=rebuild)
     except Exception as exc:
         logger.warning("seal index %s was not updated: %s", index_path, exc)
@@ -1260,7 +1349,7 @@ def seal_ndjson_runs(
     _check_log_id("seal_ndjson_runs", log_id)
     existed = os.path.exists(manifest_path)
     with _flock(manifest_path, exclusive=True):
-        fast = None
+        fast = checkpoint = None
         if seal_index_path is not None and run_id is not None:
             fast = _verify_from_checkpoint(
                 seal_index_path,
@@ -1272,7 +1361,9 @@ def seal_ndjson_runs(
                 log_id=log_id,
                 anchors=anchors,
             )
-        state, scan = fast or (None, _Scan())
+        state, scan = (fast[0], fast[1]) if fast else (None, _Scan())
+        if fast:
+            checkpoint = fast[2]
         if state is None:
             state = _verify_log(
                 scan.manifests(manifest_path),
@@ -1290,10 +1381,21 @@ def seal_ndjson_runs(
         # to raise, as before.
         with suppress(FileNotFoundError):
             _fsync(audit_path)
+        audit = _audit_scan_from(checkpoint, audit_path) if checkpoint else None
+        incremental = audit is not None and run_id is not None
+        first = (0, 1)
+        if audit is not None and incremental:
+            _scan_audit_tail(audit_path, audit, sealed)
+            first = audit.first.get(run_id, (audit.end, audit.count + 1)) if run_id else first
+        else:
+            audit = _AuditScan.fresh(audit_path) if seal_index_path is not None else None
         digests = _digest_runs(
             audit_path,
             lambda candidate: candidate == run_id if run_id is not None else candidate not in sealed,
             track_times=older_than is not None,
+            start=first[0],
+            number=first[1],
+            scan=None if incremental else audit,
         )
         if older_than is not None:
             digests = _stale_runs(digests, older_than)
@@ -1319,8 +1421,8 @@ def seal_ndjson_runs(
                     _unlink_durably(manifest_path)
             raise
         _append_with_rollback(manifest_path, appended, existed=True)
-        if seal_index_path is not None and (appended or fast is None) and state.head is not None:
-            _update_index(seal_index_path, manifest_path, state, scan, appended, signer, rebuild=fast is None)
+        if seal_index_path is not None and audit is not None and (appended or not fast) and state.head is not None:
+            _update_index(seal_index_path, manifest_path, state, scan, audit, appended, signer, rebuild=not fast)
         if head_anchor is not None and appended:
             head_anchor.write(manifest_hash(appended[-1]))
         return manifests

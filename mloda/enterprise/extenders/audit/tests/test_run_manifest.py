@@ -2543,6 +2543,217 @@ class TestSealIndex:
 
         assert names == {"audit.ndjson", "manifests.ndjson", _INDEX}
 
+    # Audit side: the index also remembers how far the audit file was scanned and where each unsealed run starts.
+
+    @staticmethod
+    def _count_audit_parses(monkeypatch: pytest.MonkeyPatch, audit_path: Path) -> list[str]:
+        """Every audit line decoded from now on (the decode of any other file is not counted)."""
+        seen: list[str] = []
+        real = run_manifest_module._decode_line
+
+        def counting(where: str, line: bytes) -> Any:
+            if where.startswith(str(audit_path)):
+                seen.append(where)
+            return real(where, line)
+
+        monkeypatch.setattr(run_manifest_module, "_decode_line", counting)
+        return seen
+
+    @staticmethod
+    def _stable(manifests: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+        return [{k: v for k, v in m.items() if k not in ("sealed_at", "signature")} for m in manifests]
+
+    def _audit_parses_of_one_seal(
+        self, monkeypatch: pytest.MonkeyPatch, directory: Path, prior: int, *, indexed: bool
+    ) -> int:
+        audit_path, manifest_path, index_path = _indexed_log(directory, prior, indexed=indexed)
+        _write_records(audit_path, [_record("run-next", 99)])
+        seen = self._count_audit_parses(monkeypatch, audit_path)
+        extra: dict[str, Any] = {"seal_index_path": index_path} if indexed else {}
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-next", **extra)
+        return len(seen)
+
+    def test_a_seal_parses_only_the_audit_lines_of_the_run_whatever_the_history(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        counts = [
+            self._audit_parses_of_one_seal(monkeypatch, tmp_path / f"p{prior}", prior, indexed=True) for prior in (2, 8)
+        ]
+
+        assert counts[0] == counts[1]
+
+    def test_without_seal_index_path_the_audit_lines_parsed_grow_with_the_history(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        counts = [
+            self._audit_parses_of_one_seal(monkeypatch, tmp_path / f"p{prior}", prior, indexed=False)
+            for prior in (2, 8)
+        ]
+
+        assert counts[0] < counts[1]
+
+    def test_a_run_interleaved_with_an_earlier_sealed_run_still_gets_all_its_records_sealed(
+        self, tmp_path: Path
+    ) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        _write_records(
+            audit_path,
+            [_record("run-a", 1), _record("run-b", 2), _record("run-a", 3), _record("run-b", 4)],
+        )
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-b", seal_index_path=index_path)
+        _write_records(audit_path, [_record("run-a", 5)])
+        _copy_dir(tmp_path / "live", tmp_path / "ref")
+
+        fast = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-a", seal_index_path=index_path)
+        full = seal_ndjson_runs(
+            tmp_path / "ref" / "audit.ndjson", tmp_path / "ref" / "manifests.ndjson", signer=_signer(), run_id="run-a"
+        )
+
+        assert fast[0]["record_count"] == 3
+        assert self._stable(fast) == self._stable(full)
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    @pytest.mark.parametrize("later", ["older-than-sweep", "targeted-seal"])
+    def test_a_crashed_run_stays_pending_and_can_still_be_sealed_with_all_its_records(
+        self, tmp_path: Path, later: str
+    ) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        _write_records(audit_path, [_record("run-crash", 10), _record("run-crash", 11)])
+        for number in range(2):
+            _write_records(audit_path, [_record(f"run-late-{number}", 20 + number)])
+            seal_ndjson_runs(
+                audit_path,
+                manifest_path,
+                signer=_signer(),
+                run_id=f"run-late-{number}",
+                seal_index_path=index_path,
+            )
+        assert "run-crash" not in [m["run_id"] for m in _read_lines(manifest_path)]
+        _copy_dir(tmp_path / "live", tmp_path / "ref")
+        kwargs: dict[str, Any] = (
+            {"older_than": timedelta(0)} if later == "older-than-sweep" else {"run_id": "run-crash"}
+        )
+
+        fast = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), seal_index_path=index_path, **kwargs)
+        full = seal_ndjson_runs(
+            tmp_path / "ref" / "audit.ndjson", tmp_path / "ref" / "manifests.ndjson", signer=_signer(), **kwargs
+        )
+
+        assert [m["run_id"] for m in fast] == ["run-crash"]
+        assert fast[0]["record_count"] == 2
+        assert self._stable(fast) == self._stable(full)
+
+    @pytest.mark.parametrize("stale", ["replaced-by-a-copy", "truncated-below-the-offset", "last-line-changed"])
+    def test_a_stale_audit_checkpoint_falls_back_to_a_full_audit_scan_with_the_same_result(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stale: str
+    ) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        if stale == "replaced-by-a-copy":
+            copy = audit_path.with_name("copy.tmp")
+            copy.write_bytes(audit_path.read_bytes())
+            os.replace(copy, audit_path)
+        elif stale == "truncated-below-the-offset":
+            os.truncate(audit_path, _last_line_start(audit_path))
+        else:
+            audit_path.write_bytes(audit_path.read_bytes().replace(b"run-3", b"run-9"))
+        _write_records(audit_path, [_record("run-next", 99)])
+        _copy_dir(tmp_path / "live", tmp_path / "ref")
+        reference = tmp_path / "ref" / "audit.ndjson"
+        full_seen = self._count_audit_parses(monkeypatch, reference)
+        full = seal_ndjson_runs(reference, tmp_path / "ref" / "manifests.ndjson", signer=_signer(), run_id="run-next")
+        seen = self._count_audit_parses(monkeypatch, audit_path)
+
+        fast = seal_ndjson_runs(
+            audit_path, manifest_path, signer=_signer(), run_id="run-next", seal_index_path=index_path
+        )
+
+        assert len(seen) >= len(full_seen) > 2
+        assert self._stable(fast) == self._stable(full)
+
+    def test_a_seal_after_a_quarantine_repair_rewrote_the_audit_file_is_correct(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        _append_line(audit_path, "not json")
+        _write_records(audit_path, [_record("run-next", 99)])
+        _quarantine(tmp_path / "live", audit_path, manifest_path)
+        _write_records(audit_path, [_record("run-next", 100)])
+        _copy_dir(tmp_path / "live", tmp_path / "ref")
+
+        fast = seal_ndjson_runs(
+            audit_path, manifest_path, signer=_signer(), run_id="run-next", seal_index_path=index_path
+        )
+        full = seal_ndjson_runs(
+            tmp_path / "ref" / "audit.ndjson",
+            tmp_path / "ref" / "manifests.ndjson",
+            signer=_signer(),
+            run_id="run-next",
+        )
+
+        assert fast[0]["record_count"] == 2
+        assert self._stable(fast) == self._stable(full)
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    def test_a_blanket_sweep_with_the_index_seals_everything_and_the_next_targeted_seal_is_fast(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        _write_records(audit_path, [_record("run-a", 30), _record("run-b", 31), _record("run-a", 32)])
+        _copy_dir(tmp_path / "live", tmp_path / "ref")
+
+        fast = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), seal_index_path=index_path)
+        full = seal_ndjson_runs(
+            tmp_path / "ref" / "audit.ndjson", tmp_path / "ref" / "manifests.ndjson", signer=_signer()
+        )
+        _write_records(audit_path, [_record("run-c", 40)])
+        seen = self._count_audit_parses(monkeypatch, audit_path)
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-c", seal_index_path=index_path)
+
+        def chainless(manifests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            return [{k: v for k, v in m.items() if k != "previous_manifest_hash"} for m in self._stable(manifests)]
+
+        assert chainless(fast) == chainless(full)
+        assert len(seen) <= 2
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    @pytest.mark.parametrize("indexed", [True, False], ids=["with-index", "without-index"])
+    def test_an_unterminated_audit_tail_is_refused_as_without_the_index(self, tmp_path: Path, indexed: bool) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live", indexed=indexed)
+        _write_records(audit_path, [_record("run-next", 99)])
+        with open(audit_path, "ab") as file:
+            file.write(b'{"run_id": "run-z"')
+        extra: dict[str, Any] = {"seal_index_path": index_path} if indexed else {}
+        before = _snapshot(tmp_path / "live")
+
+        with pytest.raises(ManifestVerificationError, match="newline"):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-next", **extra)
+
+        assert _snapshot(tmp_path / "live") == before
+
+    def test_the_whole_seal_costs_the_same_whatever_the_history(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        costs = []
+        for prior in (2, 8):
+            audit_path, manifest_path, index_path = _indexed_log(tmp_path / f"p{prior}", prior)
+            _write_records(audit_path, [_record("run-next", 99)])
+            verifications: list[bytes] = []
+            parses = self._count_audit_parses(monkeypatch, audit_path)
+            read: list[int] = []
+            real_open = open
+
+            def spy_open(
+                file: Any, mode: str = "r", *args: Any, _p: Path = manifest_path, _r: list[int] = read, **kw: Any
+            ) -> Any:
+                handle = real_open(file, mode, *args, **kw)
+                return _ReadSpy(handle, _r) if mode == "rb" and str(file) == str(_p) else handle
+
+            monkeypatch.setattr(run_manifest_module, "open", spy_open, raising=False)
+            hooked = _HookedSigner(_signer(), on_verify=verifications.append)
+            seal_ndjson_runs(audit_path, manifest_path, signer=hooked, run_id="run-next", seal_index_path=index_path)
+            monkeypatch.delattr(run_manifest_module, "open", raising=False)
+            costs.append((len(verifications), len(parses), sum(read)))
+
+        assert costs[0] == costs[1]
+
 
 class TestCheckRunAgainstSeal:
     """_check_run_against_seal is what AuditExtender.on_run_complete calls when seal_ndjson_runs raises
