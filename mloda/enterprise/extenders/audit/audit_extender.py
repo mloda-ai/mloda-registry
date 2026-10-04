@@ -16,17 +16,18 @@ from mloda.community.extenders.shared.open_invocations import OpenInvocationStac
 from mloda.enterprise.extenders.audit._records import _append_records as _append_records
 from mloda.enterprise.extenders.audit._records import _canonical_json as _canonical_json
 from mloda.enterprise.extenders.audit._records import _is_blank, _utc_now
-from mloda.enterprise.extenders.audit.run_manifest import (
+from mloda.enterprise.extenders.audit._signers import ManifestSigner, _signer_map
+from mloda.enterprise.extenders.audit._verify import (
     HeadAnchor,
-    ManifestSigner,
     ManifestVerificationError,
     RunAlreadySealedError,
     RunNotPendingError,
     _check_line_cap,
     _check_log_id,
-    _check_run_against_seal,
     _reject_aliased_paths,
-    _signer_map,
+)
+from mloda.enterprise.extenders.audit.run_manifest import (
+    _check_run_against_seal,
     seal_ndjson_runs,
 )
 from mloda.enterprise.extenders.audit.run_manifest import _is_run_sealed_unverified as _is_run_sealed_unverified

@@ -39,6 +39,7 @@ from mloda.enterprise.extenders.audit import (
     RunNotPendingError,
     SealedRunRefusedError,
     TeeAuditSink,
+    _verify,
     manifest_hash,
     rotate_ndjson_segment,
     seal_ndjson_runs,
@@ -47,9 +48,9 @@ from mloda.enterprise.extenders.audit import (
     verify_ndjson_log_coverage,
 )
 from mloda.enterprise.extenders.audit import audit_extender as audit_extender_module
-from mloda.enterprise.extenders.audit import run_manifest as run_manifest_module
 from mloda.enterprise.extenders.audit._records import _append_records, _canonical_json
-from mloda.enterprise.extenders.audit.run_manifest import _flock
+from mloda.enterprise.extenders.audit._verify import _flock
+from mloda.enterprise.extenders.audit.tests.manifest_helpers import _patch_bindings
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
@@ -2323,7 +2324,7 @@ class TestAuditExtenderSealing:
         verifications.clear()
 
         parses: list[str] = []
-        real_decode = run_manifest_module._decode_line
+        real_decode = _verify._decode_line
 
         def counting_decode(where: str, line: bytes) -> Any:
             if where.startswith(str(audit_path)):
@@ -2340,8 +2341,8 @@ class TestAuditExtenderSealing:
             return _ReadSpy(handle, read)
 
         with monkeypatch.context() as patch:
-            patch.setattr(run_manifest_module, "_decode_line", counting_decode)
-            patch.setattr(run_manifest_module, "open", spy_open, raising=False)
+            _patch_bindings(patch, "_decode_line", counting_decode)
+            _patch_bindings(patch, "open", spy_open)
             patch.setattr(audit_extender_module, "open", spy_open, raising=False)
             extender = build()
             with make_hook_context(run_id="run-next", tenant_id=_TENANT).activate():
@@ -2891,7 +2892,7 @@ class TestNdjsonAuditSink:
         sink = NdjsonAuditSink(path)
         sink.write({"a": 1})
         before = path.read_bytes()
-        monkeypatch.setattr(run_manifest_module, "MAX_LINE_BYTES", 100, raising=False)
+        _patch_bindings(monkeypatch, "MAX_LINE_BYTES", 100)
 
         with pytest.raises(ValueError):
             sink.write({"a": "x" * 100})

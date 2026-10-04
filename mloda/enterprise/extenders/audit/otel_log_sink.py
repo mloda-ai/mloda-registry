@@ -13,7 +13,7 @@ from typing import Any
 
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, force_flush, to_timeout_millis
 from mloda.enterprise.extenders.audit._records import _is_blank, _parse_event_time
-from mloda.enterprise.extenders.audit.run_manifest import _MIN_KEY_BYTES
+from mloda.enterprise.extenders.audit._signers import _MIN_KEY_BYTES
 
 logger = logging.getLogger(__name__)
 

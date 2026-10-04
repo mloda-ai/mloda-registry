@@ -47,9 +47,9 @@ from mloda.enterprise.extenders.audit import (
     NdjsonAuditSink,
     OtelLogAuditSink,
     TeeAuditSink,
+    _signers,
 )
 from mloda.enterprise.extenders.audit import otel_log_sink as otel_log_sink_module
-from mloda.enterprise.extenders.audit import run_manifest as run_manifest_module
 from mloda.enterprise.extenders.audit.tests.test_audit_extender import (
     _IDENTITY_REQUIRED_ERROR_TYPE,
     _MISSING_IDENTITY_CASES,
@@ -683,7 +683,7 @@ class TestOtelLogAuditSinkUserHashKey:
         assert isinstance(OtelLogAuditSink(user_hash_key=key), OtelLogAuditSink)
 
     def test_the_minimum_is_the_one_the_run_manifest_signer_uses(self) -> None:
-        minimum = run_manifest_module._MIN_KEY_BYTES
+        minimum = _signers._MIN_KEY_BYTES
 
         OtelLogAuditSink(user_hash_key=b"k" * minimum)
         with pytest.raises(ValueError, match="OtelLogAuditSink"):

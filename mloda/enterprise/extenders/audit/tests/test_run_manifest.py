@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import base64
 import builtins
 import copy
@@ -51,6 +52,8 @@ from mloda.enterprise.extenders.audit import (
     RunNotPendingError,
     SealedRunRefusedError,
     TeeAuditSink,
+    _segments,
+    _verify,
     manifest_hash,
     quarantine_damaged_lines,
     quarantine_from_rotation_entry,
@@ -64,8 +67,10 @@ from mloda.enterprise.extenders.audit import (
     verify_ndjson_segments,
     verify_quarantine_log,
 )
+from mloda.enterprise.extenders.audit import _quarantine as _quarantine_module
 from mloda.enterprise.extenders.audit._records import _parse_event_time
 from mloda.enterprise.extenders.audit.audit_extender import _append_records
+from mloda.enterprise.extenders.audit.tests.manifest_helpers import _patch_bindings, _unpatch_bindings
 from mloda.enterprise.extenders.audit.tests.test_audit_extender import (
     _POLICY_VERSION,
     BufferingNdjsonAuditSink,
@@ -593,7 +598,7 @@ _CAP = 2048
 
 
 def _cap(monkeypatch: pytest.MonkeyPatch, cap: int = _CAP) -> int:
-    monkeypatch.setattr(run_manifest_module, "MAX_LINE_BYTES", cap, raising=False)
+    _patch_bindings(monkeypatch, "MAX_LINE_BYTES", cap)
     return cap
 
 
@@ -886,13 +891,13 @@ def _lock_refused(path: Path) -> bool:
 def _locked_during_digest(monkeypatch: pytest.MonkeyPatch, manifest_path: Path) -> list[bool]:
     """Spy on `_digest_runs`: the returned list gets, per call, whether `manifest_path` was locked at that moment."""
     locked: list[bool] = []
-    real_digest_runs = run_manifest_module._digest_runs
+    real_digest_runs = _verify._digest_runs
 
     def digest_runs(*args: Any, **kwargs: Any) -> Any:
         locked.append(_lock_refused(manifest_path))
         return real_digest_runs(*args, **kwargs)
 
-    monkeypatch.setattr(run_manifest_module, "_digest_runs", digest_runs)
+    _patch_bindings(monkeypatch, "_digest_runs", digest_runs)
     return locked
 
 
@@ -1051,6 +1056,51 @@ class _HookedSigner:
         return self._inner.verify(payload, signature)
 
 
+_LAYERS = [
+    "_records",
+    "_signers",
+    "_verify",
+    "_seal_index",
+    "_segments",
+    "_quarantine",
+    "run_manifest",
+    "audit_extender",
+    "otel_log_sink",
+    "__init__",
+]
+_FACADE_HOMES = [
+    *((n, "_signers") for n in ("ManifestSigner", "HmacSha256Signer", "Ed25519Signer")),
+    *(
+        (n, "_verify")
+        for n in (
+            "ManifestVerificationError",
+            "RunNotPendingError",
+            "RunAlreadySealedError",
+            "KeyAlreadyCurrentError",
+            "HeadAnchor",
+            "NdjsonHeadAnchor",
+            "LogCoverage",
+            "MAX_LINE_BYTES",
+            "seal_run",
+            "manifest_hash",
+            "verify_manifest",
+        )
+    ),
+    *((n, "run_manifest") for n in ("rotate_manifest_key", "seal_ndjson_runs", "verify_ndjson_log")),
+    ("verify_ndjson_log_coverage", "run_manifest"),
+    *(
+        (n, "_quarantine")
+        for n in (
+            "QuarantinedLine",
+            "verify_quarantine_log",
+            "quarantine_damaged_lines",
+            "quarantine_from_rotation_entry",
+        )
+    ),
+    *((n, "_segments") for n in ("rotate_ndjson_segment", "verify_ndjson_segments")),
+]
+
+
 class TestRunManifestPublicApi:
     def test_run_manifest_names_are_in_the_package_all(self) -> None:
         assert {
@@ -1107,13 +1157,59 @@ class TestRunManifestPublicApi:
     def test_append_records_and_canonical_json_come_from_one_shared_private_records_module(self) -> None:
         import mloda.enterprise.extenders.audit._records as records_module
 
-        # getattr: run_manifest and audit_extender import these, they do not define them.
-        assert getattr(run_manifest_module, "_append_records") is records_module._append_records
-        assert getattr(run_manifest_module, "_canonical_json") is records_module._canonical_json
+        # getattr: _verify and audit_extender import these, they do not define them.
+        assert getattr(_verify, "_append_records") is records_module._append_records
+        assert getattr(_verify, "_canonical_json") is records_module._canonical_json
         assert getattr(audit_extender_module, "_append_records") is records_module._append_records
         assert getattr(audit_extender_module, "_canonical_json") is records_module._canonical_json
         assert records_module._is_blank("") is True
         assert records_module._is_blank("value") is False
+
+    @pytest.mark.parametrize("name, home", _FACADE_HOMES)
+    def test_facade_names_are_the_objects_their_defining_module_defines(self, name: str, home: str) -> None:
+        defining = importlib.import_module(f"mloda.enterprise.extenders.audit.{home}")
+        assert getattr(run_manifest_module, name) is getattr(defining, name)
+        if hasattr(audit_package, name):
+            assert getattr(audit_package, name) is getattr(run_manifest_module, name)
+
+    def test_audit_source_modules_import_only_downward_and_only_from_the_defining_module(self) -> None:
+        package = Path(audit_package.__file__ or "").parent
+        trees = {m: ast.parse((package / f"{m}.py").read_text()) for m in _LAYERS}
+        defined = {
+            m: {
+                n
+                for node in tree.body
+                for n in (
+                    [node.name]
+                    if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+                    else [t.id for t in getattr(node, "targets", []) if isinstance(t, ast.Name)]
+                    + (
+                        [node.target.id]
+                        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+                        else []
+                    )
+                )
+            }
+            for m, tree in trees.items()
+        }
+        problems = []
+        for module, tree in trees.items():
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ImportFrom) or not (
+                    node.level or "mloda.enterprise" in (node.module or "")
+                ):
+                    continue
+                last = (node.module or "").rsplit(".", 1)[-1]
+                for alias in node.names:
+                    source = last if last in _LAYERS else alias.name
+                    if source not in _LAYERS:
+                        continue
+                    if _LAYERS.index(source) > _LAYERS.index(module):
+                        problems.append(f"{module} imports upward from {source}")
+                    private = alias.name.startswith("_") and alias.name != source
+                    if private and alias.name not in defined[source] and alias.asname != alias.name:
+                        problems.append(f"{module} imports {alias.name} from {source}, which does not define it")
+        assert problems == []
 
 
 @_both_algorithms
@@ -2096,13 +2192,13 @@ class TestSealNdjsonRuns:
     ) -> None:
         manifest_path, write, _ = _pending_write(tmp_path, writer)
         fsynced: list[Path] = []
-        real_fsync = run_manifest_module._fsync
+        real_fsync = _verify._fsync
 
         def spy(path: str | Path) -> None:
             fsynced.append(Path(path))
             real_fsync(path)
 
-        monkeypatch.setattr(run_manifest_module, "_fsync", spy)
+        _patch_bindings(monkeypatch, "_fsync", spy)
 
         write()
 
@@ -2115,14 +2211,14 @@ class TestSealNdjsonRuns:
     ) -> None:
         manifest_path, write, _ = _pending_write(tmp_path, writer)
         before = _snapshot(tmp_path)
-        real_fsync = run_manifest_module._fsync
+        real_fsync = _verify._fsync
 
         def fsync_boom(path: str | Path) -> None:
             if Path(path) == manifest_path:
                 raise OSError(errno.EIO, "fsync failed")
             real_fsync(path)
 
-        monkeypatch.setattr(run_manifest_module, "_fsync", fsync_boom)
+        _patch_bindings(monkeypatch, "_fsync", fsync_boom)
 
         with pytest.raises(OSError, match="fsync failed"):
             write()
@@ -2151,7 +2247,7 @@ class TestSealNdjsonRuns:
             _append_records(*args, **kwargs)
 
         monkeypatch.setattr(os, "fsync", spy_fsync)
-        monkeypatch.setattr(run_manifest_module, "_append_records", spy_append)
+        _patch_bindings(monkeypatch, "_append_records", spy_append)
 
         seal_ndjson_runs(audit_path, manifest_path, signer=_signer())
 
@@ -2204,7 +2300,7 @@ class TestSealNdjsonRuns:
             appends.append(True)
             _append_records(*args, **kwargs)
 
-        monkeypatch.setattr(run_manifest_module, "_append_records", spy)
+        _patch_bindings(monkeypatch, "_append_records", spy)
 
         # The wrapper probes verify as well as sign: its verify does not call its sign.
         appended = write(lambda signer: _HookedSigner(signer, on_sign=probe_signing, on_verify=probe_signing))
@@ -2648,14 +2744,14 @@ class TestSealIndex:
     def _count_audit_parses(monkeypatch: pytest.MonkeyPatch, audit_path: Path) -> list[str]:
         """Every audit line decoded from now on (the decode of any other file is not counted)."""
         seen: list[str] = []
-        real = run_manifest_module._decode_line
+        real = _verify._decode_line
 
         def counting(where: str, line: bytes) -> Any:
             if where.startswith(str(audit_path)):
                 seen.append(where)
             return real(where, line)
 
-        monkeypatch.setattr(run_manifest_module, "_decode_line", counting)
+        _patch_bindings(monkeypatch, "_decode_line", counting)
         return seen
 
     @staticmethod
@@ -2845,10 +2941,10 @@ class TestSealIndex:
                 handle = real_open(file, mode, *args, **kw)
                 return _ReadSpy(handle, _r) if mode == "rb" and str(file) == str(_p) else handle
 
-            monkeypatch.setattr(run_manifest_module, "open", spy_open, raising=False)
+            _patch_bindings(monkeypatch, "open", spy_open)
             hooked = _HookedSigner(_signer(), on_verify=verifications.append)
             seal_ndjson_runs(audit_path, manifest_path, signer=hooked, run_id="run-next", seal_index_path=index_path)
-            monkeypatch.delattr(run_manifest_module, "open", raising=False)
+            _unpatch_bindings(monkeypatch, "open")
             costs.append((len(verifications), len(parses), sum(read)))
 
         assert costs[0] == costs[1]
@@ -2895,9 +2991,9 @@ class TestSealIndex:
                 handle = real_open(file, mode, *args, **kw)
                 return _ReadSpy(handle, _r) if mode == "rb" and str(file) == str(_p) else handle
 
-            monkeypatch.setattr(run_manifest_module, "open", spy_open, raising=False)
+            _patch_bindings(monkeypatch, "open", spy_open)
             found = self._lookups(manifest_path, index_path, ["run-0", "run-tail", "run-nowhere"])
-            monkeypatch.delattr(run_manifest_module, "open", raising=False)
+            _unpatch_bindings(monkeypatch, "open")
             assert found == {"run-0": True, "run-tail": True, "run-nowhere": False}
             costs.append(sum(read))
 
@@ -3083,7 +3179,7 @@ class TestSealIndex:
         before = _snapshot(tmp_path)
 
         with pytest.raises(ValueError):
-            run_manifest_module._rewrite_without(path, {3})
+            _quarantine_module._rewrite_without(path, {3})
 
         assert _snapshot(tmp_path) == before
 
@@ -3094,7 +3190,7 @@ class TestSealIndex:
         path = tmp_path / "audit.ndjson"
         path.write_bytes(b'{"a": 1}\n' + _oversized_line() + b'\n{"b": 2}\n')
 
-        run_manifest_module._rewrite_without(path, {2})
+        _quarantine_module._rewrite_without(path, {2})
 
         assert path.read_bytes() == b'{"a": 1}\n{"b": 2}\n'
 
@@ -3524,7 +3620,7 @@ class TestSegmentRotation:
         audit_path, manifest_path = _pending_log(tmp_path)
         stray = _canonical(_record("run-a", 9))
         before = _snapshot(tmp_path)
-        real_carry = run_manifest_module._carry_pending
+        real_carry = _segments._carry_pending
         appended: list[bool] = []
 
         def carry(*args: Any, **kwargs: Any) -> Any:
@@ -3533,7 +3629,7 @@ class TestSegmentRotation:
                 _append_line(audit_path, stray)
             return real_carry(*args, **kwargs)
 
-        monkeypatch.setattr(run_manifest_module, "_carry_pending", carry)
+        _patch_bindings(monkeypatch, "_carry_pending", carry)
 
         with pytest.raises((ManifestVerificationError, ValueError)):
             _rotate_segment(audit_path, manifest_path)
@@ -4595,14 +4691,14 @@ class TestVerifyNdjsonLog:
 
     def test_manifest_log_is_read_before_the_audit_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         audit_path, manifest_path = _sealed_log(tmp_path)
-        original = run_manifest_module._read_ndjson
+        original = _verify._read_ndjson
         reads: list[str] = []
 
         def spy(path: str | Path) -> Any:
             reads.append(Path(path).name)
             return original(path)
 
-        monkeypatch.setattr(run_manifest_module, "_read_ndjson", spy)
+        _patch_bindings(monkeypatch, "_read_ndjson", spy)
 
         verify_ndjson_log(audit_path, manifest_path, signer=_signer())
 
@@ -5514,7 +5610,7 @@ class TestHeadAnchor:
             handle = real_open(file, mode, *args, **kwargs)
             return _ReadSpy(handle, seen) if mode == "rb" else handle
 
-        monkeypatch.setattr(run_manifest_module, "open", spy_open, raising=False)
+        _patch_bindings(monkeypatch, "open", spy_open)
         return _ndjson_anchor(path).latest(), seen
 
     @staticmethod
@@ -6280,9 +6376,9 @@ class TestMalformedNdjsonLines:
             handle = real_open(file, mode, *args, **kwargs)
             return _ReadSpy(handle, seen) if mode == "rb" else handle
 
-        monkeypatch.setattr(run_manifest_module, "open", spy_open, raising=False)
+        _patch_bindings(monkeypatch, "open", spy_open)
         calls: dict[str, Callable[[], object]] = {
-            "read-ndjson": lambda: list(run_manifest_module._read_ndjson(path)),
+            "read-ndjson": lambda: list(_verify._read_ndjson(path)),
             "sealed-lookup": lambda: run_manifest_module._is_run_sealed_unverified(path, "run-z"),
             "anchor-latest": lambda: NdjsonHeadAnchor(path).latest(),
             "quarantine": lambda: _quarantine(tmp_path, path, manifest_path, dry_run=True),
@@ -7214,7 +7310,7 @@ class TestQuarantineDamagedLines:
         def disk_full(*args: Any, **kwargs: Any) -> None:
             raise OSError(errno.ENOSPC, "disk full")
 
-        monkeypatch.setattr(run_manifest_module, "_append_records", disk_full)
+        _patch_bindings(monkeypatch, "_append_records", disk_full)
 
         with pytest.raises(OSError, match="disk full"):
             _quarantine(tmp_path, audit_path, manifest_path)
@@ -7235,7 +7331,7 @@ class TestQuarantineDamagedLines:
                 file.write(b'{"quarantine_version": 1, "fi')
             raise OSError(errno.ENOSPC, "disk full")
 
-        monkeypatch.setattr(run_manifest_module, "_append_records", partial_append)
+        _patch_bindings(monkeypatch, "_append_records", partial_append)
 
         with pytest.raises(OSError, match="disk full"):
             _quarantine(tmp_path, audit_path, manifest_path)
@@ -7409,7 +7505,7 @@ class TestQuarantineDamagedLines:
             probes.append(("replace", _lock_refused(manifest_path)))
             real_replace(*args, **kwargs)
 
-        monkeypatch.setattr(run_manifest_module, "_append_records", spy_append)
+        _patch_bindings(monkeypatch, "_append_records", spy_append)
         monkeypatch.setattr(os, "replace", spy_replace)
 
         # Verifying and the trace both use the signer, so the wrapper probes both hooks.
@@ -7470,7 +7566,7 @@ class TestQuarantineDamagedLines:
             refused.append(_lock_refused(quarantine_path))
             _append_records(*args, **kwargs)
 
-        monkeypatch.setattr(run_manifest_module, "_append_records", spy_append)
+        _patch_bindings(monkeypatch, "_append_records", spy_append)
 
         removed = repair(tmp_path)
 
@@ -7491,7 +7587,7 @@ class TestQuarantineDamagedLines:
                 file.write(b'{"quarantine_version": 1, "fi')
             raise OSError(errno.ENOSPC, "disk full")
 
-        monkeypatch.setattr(run_manifest_module, "_append_records", partial_append)
+        _patch_bindings(monkeypatch, "_append_records", partial_append)
 
         with pytest.raises(OSError, match="disk full"):
             _quarantine(tmp_path, audit_path, manifest_path)
@@ -8708,7 +8804,7 @@ class TestQuarantineFromRotationEntry:
         def disk_full(*args: Any, **kwargs: Any) -> None:
             raise OSError(errno.ENOSPC, "disk full")
 
-        monkeypatch.setattr(run_manifest_module, "_append_records", disk_full)
+        _patch_bindings(monkeypatch, "_append_records", disk_full)
 
         with pytest.raises(OSError, match="disk full"):
             _quarantine_from_entry(tmp_path, manifest_path, expected_head=anchor)
@@ -8762,7 +8858,7 @@ class TestQuarantineFromRotationEntry:
             probes.append(("truncate", _lock_refused(manifest_path)))
             real_truncate(*args, **kwargs)
 
-        monkeypatch.setattr(run_manifest_module, "_append_records", spy_append)
+        _patch_bindings(monkeypatch, "_append_records", spy_append)
         monkeypatch.setattr(os, "truncate", spy_truncate)
 
         # Verifying and the trace both use the signer, so the wrapper probes both hooks.
