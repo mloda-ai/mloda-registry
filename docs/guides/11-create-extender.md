@@ -228,6 +228,7 @@ extender = AuditExtender(sink, fail_closed=True)
 - `log_id` needs a fresh manifest log: an existing log without a genesis fails every seal.
 - A write-only anchor (like the OTel example, `latest()` returns None) cannot stop an auto-seal from chaining onto a rolled-back log. Verify offline with `verify_ndjson_log(..., anchored_heads=<heads exported to the backend>)`.
 - After a quarantine repair that cut the log, write the repaired head to the anchor (`anchor.write(expected_head)`) so the latest anchored head is in the log again.
+- The quarantine functions take their own `head_anchor` for the trace head (keep it separate from the manifest log's anchor), and `verify_quarantine_log(..., anchored_heads=<every trace head anchored>)` detects a truncated trace. Check every anchored head, not only the latest, since a repair chained onto a cut trace re-anchors it.
 - Rotation needs the outgoing key's co-signature, so a lost current key means starting a new log.
 - `seal_failure_policy` is `"log"` (default), `"raise"` or a callable `(run_id, exc)`; failures are counted in `seal_failures`. Core contains exceptions from `on_run_complete`, so `"raise"` does not fail the finished run.
 - `seal_ndjson_runs(..., older_than=timedelta(...))` is a manual sweep for crashed runs, which stay unsealed until an operator sweeps. It seals only runs older than the threshold, marks them `sealed_late`, and skips runs without a parseable `event_time`.

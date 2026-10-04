@@ -34,6 +34,7 @@ import mloda.enterprise.extenders.audit.run_manifest as run_manifest_module
 from mloda.enterprise.extenders.audit import (
     AuditExtender,
     Ed25519Signer,
+    HeadAnchor,
     HmacSha256Signer,
     IdentityRequiredError,
     KeyAlreadyCurrentError,
@@ -654,8 +655,13 @@ def _trace_chain(*signers: ManifestSigner) -> list[dict[str, Any]]:
     return entries
 
 
-def _verify_quarantine(path: Path, signer: ManifestSigner, *previous_signers: ManifestSigner) -> str | None:
-    return verify_quarantine_log(path, signer=signer, previous_signers=previous_signers)
+def _verify_quarantine(
+    path: Path,
+    signer: ManifestSigner,
+    *previous_signers: ManifestSigner,
+    anchored_heads: Iterable[str] = (),
+) -> str | None:
+    return verify_quarantine_log(path, signer=signer, previous_signers=previous_signers, anchored_heads=anchored_heads)
 
 
 def _ndjson_anchor(path: Path) -> Any:
@@ -671,6 +677,8 @@ def _quarantine(
     previous_signers: Iterable[ManifestSigner] = (),
     expected_head: str | None = None,
     dry_run: bool = False,
+    anchored_heads: Iterable[str] = (),
+    head_anchor: HeadAnchor | None = None,
 ) -> list[QuarantinedLine]:
     return quarantine_damaged_lines(
         audit_path,
@@ -680,6 +688,8 @@ def _quarantine(
         previous_signers=previous_signers,
         expected_head=expected_head,
         dry_run=dry_run,
+        anchored_heads=anchored_heads,
+        head_anchor=head_anchor,
     )
 
 
@@ -691,6 +701,8 @@ def _quarantine_from_entry(
     signer: ManifestSigner | None = None,
     previous_signers: Iterable[ManifestSigner] = (),
     dry_run: bool = False,
+    anchored_heads: Iterable[str] = (),
+    head_anchor: HeadAnchor | None = None,
 ) -> list[QuarantinedLine]:
     return quarantine_from_rotation_entry(
         manifest_path,
@@ -699,24 +711,30 @@ def _quarantine_from_entry(
         previous_signers=previous_signers,
         expected_head=expected_head,
         dry_run=dry_run,
+        anchored_heads=anchored_heads,
+        head_anchor=head_anchor,
     )
 
 
 # The hook of each recovery function for the tests both share: builds a log with something to drop under a directory,
 # and returns the manifest log the repair cuts, the repair (given the directory for its quarantine log) and how many
 # lines it drops.
-_Repair = Callable[[Path], list[QuarantinedLine]]
+_Repair = Callable[..., list[QuarantinedLine]]
 _Recovery = Callable[[Path], tuple[Path, _Repair, int]]
 
 
 def _damaged_lines_recovery(directory: Path) -> tuple[Path, _Repair, int]:
     audit_path, manifest_path, _ = _damaged_log(directory)
-    return manifest_path, lambda trace_dir: _quarantine(trace_dir, audit_path, manifest_path), 3
+    return manifest_path, lambda trace_dir, **kwargs: _quarantine(trace_dir, audit_path, manifest_path, **kwargs), 3
 
 
 def _rotation_entry_recovery(directory: Path) -> tuple[Path, _Repair, int]:
     _, manifest_path, anchor = _log_with_rotation_entry(directory)
-    return manifest_path, lambda trace_dir: _quarantine_from_entry(trace_dir, manifest_path, expected_head=anchor), 2
+    return (
+        manifest_path,
+        lambda trace_dir, **kwargs: _quarantine_from_entry(trace_dir, manifest_path, expected_head=anchor, **kwargs),
+        2,
+    )
 
 
 _RECOVERIES: dict[str, _Recovery] = {
@@ -3621,7 +3639,7 @@ class TestAnchoredHeads:
 
 @_both_algorithms
 class TestHeadAnchor:
-    """The HeadAnchor protocol, NdjsonHeadAnchor and the head_anchor hook of sealing and rotation."""
+    """The HeadAnchor protocol, NdjsonHeadAnchor and the head_anchor hook of sealing, rotation and quarantine."""
 
     def test_write_appends_a_head_and_anchored_at_line_and_latest_returns_the_last(self, tmp_path: Path) -> None:
         anchor = _ndjson_anchor(tmp_path / "anchor.ndjson")
@@ -3808,6 +3826,98 @@ class TestHeadAnchor:
         with pytest.raises(ManifestVerificationError) as excinfo:
             verify_ndjson_log(audit_path, manifest_path, signer=_signer(), anchored_heads=[anchor.latest()])
         _assert_names(excinfo, str(latest))
+
+    @_both_recoveries
+    def test_a_repair_writes_the_hash_of_the_last_trace_line_after_the_repair_is_on_disk(
+        self, tmp_path: Path, recovery: _Recovery
+    ) -> None:
+        manifest_path, repair, _ = recovery(tmp_path)
+        before = _snapshot(tmp_path)
+        anchor = _RecordingAnchor(_trace(tmp_path))
+        repaired_when_written: list[bool] = []
+        write = anchor.write
+
+        def write_and_look(head: str) -> None:
+            on_disk = {name: data for name, data in _snapshot(tmp_path).items() if name != _trace(tmp_path).name}
+            repaired_when_written.append(on_disk != before)
+            write(head)
+
+        anchor.write = write_and_look  # type: ignore[method-assign]
+
+        repair(tmp_path, head_anchor=anchor)
+
+        assert anchor.heads == [_sha256(_canonical(_read_lines(_trace(tmp_path))[-1]))] == anchor.last_lines_seen
+        assert repaired_when_written == [True]
+        assert manifest_path.read_bytes() != before[manifest_path.name]
+
+    @_both_recoveries
+    def test_a_dry_run_writes_no_anchor(self, tmp_path: Path, recovery: _Recovery) -> None:
+        _, repair, _ = recovery(tmp_path)
+        anchor = _RecordingAnchor()
+
+        repair(tmp_path, dry_run=True, head_anchor=anchor)
+
+        assert anchor.heads == []
+
+    def test_nothing_to_repair_writes_no_anchor(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        anchor = _RecordingAnchor()
+
+        assert _quarantine(tmp_path, audit_path, manifest_path, head_anchor=anchor) == []
+
+        assert anchor.heads == []
+
+    @_both_recoveries
+    def test_a_refused_repair_writes_no_anchor(self, tmp_path: Path, recovery: _Recovery) -> None:
+        _, repair, _ = recovery(tmp_path)
+        _rewrite_lines(_trace(tmp_path), _trace_chain(_signer(_OTHER_KEY, "key-2")))
+        anchor = _RecordingAnchor()
+
+        _assert_raises_and_unchanged(tmp_path, lambda: repair(tmp_path, head_anchor=anchor))
+
+        assert anchor.heads == []
+
+    def test_a_repair_that_raises_after_the_trace_append_writes_no_anchor(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _sealed_log(tmp_path)
+        _insert_line(audit_path, 3, b"[]\n")
+        _insert_line(audit_path, 5, b"\n")
+        anchor = _RecordingAnchor()
+
+        with patch("os.replace", side_effect=OSError(errno.EIO, "replace failed")):
+            with pytest.raises(OSError, match="replace failed"):
+                _quarantine(tmp_path, audit_path, manifest_path, head_anchor=anchor)
+
+        assert _trace(tmp_path).exists()
+        assert anchor.heads == []
+
+    @_both_recoveries
+    def test_a_failing_anchor_write_leaves_the_trace_and_the_repair_in_place_and_propagates(
+        self, tmp_path: Path, recovery: _Recovery
+    ) -> None:
+        manifest_path, repair, dropped = recovery(tmp_path)
+        manifest_before = manifest_path.read_bytes()
+
+        with pytest.raises(RuntimeError, match="anchor down"):
+            repair(tmp_path, head_anchor=_RecordingAnchor(fail=True))
+
+        assert _verify_quarantine(_trace(tmp_path), _signer()) is not None
+        assert len(_read_lines(_trace(tmp_path))) == dropped
+        assert manifest_path.read_bytes() != manifest_before
+
+    @_both_recoveries
+    def test_an_ndjson_anchor_catches_a_later_trace_rollback(self, tmp_path: Path, recovery: _Recovery) -> None:
+        _, repair, _ = recovery(tmp_path)
+        anchor = _ndjson_anchor(tmp_path / "anchor.ndjson")
+
+        repair(tmp_path, head_anchor=anchor)
+
+        latest = anchor.latest()
+        assert latest is not None
+        assert _verify_quarantine(_trace(tmp_path), _signer(), anchored_heads=[latest]) == latest
+        _rewrite_lines(_trace(tmp_path), _read_lines(_trace(tmp_path))[:-1])
+        with pytest.raises(ManifestVerificationError) as excinfo:
+            _verify_quarantine(_trace(tmp_path), _signer(), anchored_heads=[latest])
+        _assert_names(excinfo, latest)
 
 
 @_both_algorithms
@@ -5572,6 +5682,92 @@ class TestQuarantineTraceChain:
 
         with pytest.raises(ManifestVerificationError):
             _verify_quarantine(_trace(tmp_path), _signer())
+
+    def test_every_line_hash_of_the_trace_passes_as_an_anchor(self, tmp_path: Path) -> None:
+        entries = _trace_chain(_signer(), _signer(), _signer())
+        _rewrite_lines(_trace(tmp_path), entries)
+        heads = [_sha256(_canonical(entry)) for entry in entries]
+
+        assert _verify_quarantine(_trace(tmp_path), _signer(), anchored_heads=heads) == heads[-1]
+        assert _verify_quarantine(_trace(tmp_path), _signer(), anchored_heads=iter(heads)) == heads[-1]
+
+    def test_an_anchor_on_a_legacy_v1_line_hash_passes(self, tmp_path: Path) -> None:
+        legacy = _trace_entry_ref(_signer(), None, v1=True)
+        _rewrite_lines(_trace(tmp_path), [legacy])
+
+        assert _verify_quarantine(_trace(tmp_path), _signer(), anchored_heads=[_sha256(_canonical(legacy))])
+
+    def test_one_unknown_anchor_among_valid_ones_fails_and_is_named(self, tmp_path: Path) -> None:
+        entries = _trace_chain(_signer(), _signer())
+        _rewrite_lines(_trace(tmp_path), entries)
+        unknown = "1" * 64
+
+        with pytest.raises(ManifestVerificationError) as excinfo:
+            _verify_quarantine(
+                _trace(tmp_path), _signer(), anchored_heads=[*(_sha256(_canonical(e)) for e in entries), unknown]
+            )
+
+        _assert_names(excinfo, unknown, "not a line of the quarantine trace")
+
+    def test_a_trace_with_its_newest_line_dropped_fails_only_with_the_old_head_anchored(self, tmp_path: Path) -> None:
+        entries = _trace_chain(_signer(), _signer(), _signer())
+        old_head = _sha256(_canonical(entries[-1]))
+        _rewrite_lines(_trace(tmp_path), entries[:-1])
+
+        # Control: without the anchor the cut trace verifies.
+        assert _verify_quarantine(_trace(tmp_path), _signer()) == _sha256(_canonical(entries[1]))
+        with pytest.raises(ManifestVerificationError) as excinfo:
+            _verify_quarantine(_trace(tmp_path), _signer(), anchored_heads=[old_head])
+        _assert_names(excinfo, old_head, "not a line of the quarantine trace")
+
+    @pytest.mark.parametrize("state", ["missing", "empty"])
+    def test_a_missing_or_empty_trace_fails_with_an_anchor(self, tmp_path: Path, state: str) -> None:
+        if state == "empty":
+            _trace(tmp_path).write_bytes(b"")
+
+        with pytest.raises(ManifestVerificationError) as excinfo:
+            _verify_quarantine(_trace(tmp_path), _signer(), anchored_heads=["2" * 64])
+
+        _assert_names(excinfo, "2" * 64, "not a line of the quarantine trace")
+
+    def test_a_trace_cut_and_regrown_by_a_repair_fails_with_the_old_head_anchored(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, _ = _damaged_log(tmp_path)
+        _quarantine(tmp_path, audit_path, manifest_path)
+        entries = _read_lines(_trace(tmp_path))
+        old_head = _sha256(_canonical(entries[-1]))
+        _rewrite_lines(_trace(tmp_path), entries[:-1])
+        _append_line(audit_path, b"[]")
+        _quarantine(tmp_path, audit_path, manifest_path)
+        assert len(_read_lines(_trace(tmp_path))) == len(entries)
+
+        with pytest.raises(ManifestVerificationError) as excinfo:
+            _verify_quarantine(_trace(tmp_path), _signer(), anchored_heads=[old_head])
+
+        _assert_names(excinfo, old_head)
+
+    @_both_recoveries
+    def test_a_cut_trace_with_the_old_head_anchored_refuses_the_repair(
+        self, tmp_path: Path, recovery: _Recovery
+    ) -> None:
+        _, repair, _ = recovery(tmp_path)
+        entries = _trace_chain(_signer(), _signer(), _signer())
+        _rewrite_lines(_trace(tmp_path), entries[:-1])
+        old_head = _sha256(_canonical(entries[-1]))
+
+        excinfo = _assert_raises_and_unchanged(tmp_path, lambda: repair(tmp_path, anchored_heads=[old_head]))
+
+        _assert_names(excinfo, old_head, "not a line of the quarantine trace")
+
+    @_both_recoveries
+    def test_the_current_head_anchored_lets_the_repair_proceed(self, tmp_path: Path, recovery: _Recovery) -> None:
+        _, repair, dropped = recovery(tmp_path)
+        entries = _trace_chain(_signer(), _signer())
+        _rewrite_lines(_trace(tmp_path), entries)
+
+        removed = repair(tmp_path, anchored_heads=[_sha256(_canonical(entries[-1]))])
+
+        assert len(removed) == dropped
+        assert len(_read_lines(_trace(tmp_path))) == 2 + dropped
 
 
 @_both_algorithms
