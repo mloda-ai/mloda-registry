@@ -232,11 +232,12 @@ extender = AuditExtender(sink, fail_closed=True)
 - Rotation needs the outgoing key's co-signature, so a lost current key means starting a new log.
 - `seal_failure_policy` is `"log"` (default), `"raise"` or a callable `(run_id, exc)`; failures are counted in `seal_failures`. Core contains exceptions from `on_run_complete`, so `"raise"` does not fail the finished run.
 - `seal_ndjson_runs(..., older_than=timedelta(...))` is a manual sweep for crashed runs, which stay unsealed until an operator sweeps. It seals only runs older than the threshold, marks them `sealed_late`, and skips runs without a parseable `event_time`.
-- Cost: without `seal_index_path` every auto-seal verifies the whole manifest log and parses the whole audit file. With it, a seal costs the run plus the records of runs not yet sealed (crashed runs stay in that set until an `older_than` sweep).
+- Cost: without `seal_index_path` every auto-seal verifies the whole manifest log and parses the whole audit file. With it, a seal costs the bytes from the run's first record to the end of the audit file plus the lines of runs not yet sealed (crashed runs, and runs refused at plan time, stay in that set until swept).
 - The seal index is a rebuildable cache on writable storage, not the WORM storage. A missing, stale or other-key index triggers a full scan; index errors are logged, never fatal.
 - Trade-off: a seal no longer re-verifies lines before the checkpoint, so run `verify_ndjson_log(..., anchored_heads=...)` on a schedule. An anchor lagging behind the checkpoint falls back to full verification.
+- Negative lookups trust the index's unsigned hint rows: whoever can write the index can make a sealed run look unsealed and cause a duplicate seal. Keep the index under the same write protection as the logs' writer and verify offline on a schedule.
 - `seal_index_path` requires the sealing config and must not alias the audit, manifest or anchor paths.
-- A line longer than `MAX_LINE_BYTES` (64 MiB) fails verification and is refused on write.
+- A line longer than 64 MiB fails verification and is refused on write; logs written by earlier releases with a seal line over 64 MiB no longer verify.
 - Re-running a sealed run and manual sweeps stay full scans.
 - To rotate the log: sweep, verify, archive the audit log, manifest log and anchor together, then start a new log with a fresh `log_id`.
 - Manifest logs written by earlier releases (version 1 lines) still verify; new lines appended to them are version 2.

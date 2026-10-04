@@ -39,9 +39,12 @@ Limits:
 - Without a seal index every auto-seal verifies the whole manifest log and parses the whole audit file. With
   `seal_index_path` a seal resumes from a signed checkpoint and no longer re-verifies lines before it, so run
   verify_ndjson_log(anchored_heads=...) on a schedule; an anchor lagging behind the checkpoint falls back to full
-  verification. Re-running a sealed run and manual sweeps stay full scans.
+  verification. Re-running a sealed run and manual sweeps stay full scans. The digest cost is the bytes from the
+  run's first record to EOF; runs left pending (crashed, or refused at plan time) stay so until swept. Negative
+  lookups trust the index's unsigned hint rows: whoever can write the index can make a sealed run look unsealed and
+  cause a duplicate seal, so keep it under the logs' write protection and verify offline on a schedule.
 - A line longer than MAX_LINE_BYTES (64 MiB) fails verification and is refused on write, which bounds a seal to
-  roughly a million records per run.
+  roughly a million records per run. Logs written by earlier releases with a seal line over the cap no longer verify.
 - Sealing and verifying need the log's current key to be `signer` (an archived log verifies with its current key).
   The check is load-bearing: it stops an unused keyring key from taking the log over.
 - verify_manifest on a single manifest cannot order keys.
@@ -529,11 +532,14 @@ def _decode_line(where: str, line: bytes) -> Any:
 
 
 class _OversizedLine(bytes):
-    """The first MAX_LINE_BYTES + 1 bytes of a line longer than the cap, with the line's full size and sha256."""
+    """A line longer than the cap: no content, only its full size, sha256 and whether a newline ended it."""
 
     size: int
     sha256: str
     terminated: bool
+
+    def __bool__(self) -> bool:
+        return True
 
 
 def _line_size(raw: bytes) -> int:
@@ -556,7 +562,7 @@ def _read_lines(file: IO[bytes]) -> Iterator[bytes]:
             last = file.readline(chunk)
             digest.update(last)
             size += len(last)
-        line = _OversizedLine(raw)
+        line = _OversizedLine()
         line.size, line.sha256, line.terminated = size, digest.hexdigest(), last.endswith(b"\n")
         yield line
 
@@ -610,8 +616,8 @@ def _scan_for_run(manifest_path: str | Path, run_id: str, start: int = 0) -> boo
 
 
 def _is_run_sealed_unverified(manifest_path: str | Path, run_id: str, index_path: str | Path | None = None) -> bool:
-    """Unverified read without the lock: a seal holds the exclusive lock while it digests the whole audit
-    log, so a calculation must not wait on it. True iff a line naming run_id decodes to a JSON object with
+    """Unverified read without the lock: a seal holds the exclusive lock while it digests the audit log, so a
+    calculation must not wait on it. True iff a line naming run_id decodes to a JSON object with
     that run_id; a line that does not decode (torn, or mid-append) is skipped, not treated as sealed; a
     decodable one, even unterminated, counts. With `index_path` (read-only, no signature check) a hint hit is
     confirmed at its offset and only the bytes after the checkpoint are scanned; anything unusable scans it all."""
@@ -656,7 +662,7 @@ class _AuditScan:
         self.first: dict[str, tuple[int, int]] = {}
 
     @classmethod
-    def fresh(cls, path: str | Path) -> "_AuditScan":
+    def fresh(cls, path: str | Path) -> _AuditScan:
         stat_result = os.stat(path)
         return cls(stat_result.st_dev, stat_result.st_ino)
 
@@ -667,6 +673,13 @@ class _AuditScan:
         self.last_start = self.end
         self.last_sha256 = _sha256(line + b"\n")
         self.end += len(line) + 1
+
+
+def _record_run_id(record: Mapping[str, Any]) -> str | None:
+    run_id = record.get("run_id")
+    if run_id is not None and not isinstance(run_id, str):
+        raise ManifestVerificationError(f"audit record run_id {run_id!r} is neither a string nor null")
+    return run_id
 
 
 def _digest_runs(
@@ -683,9 +696,7 @@ def _digest_runs(
         uncovered = _Uncovered()
     digests: dict[str, _RunDigest] = {}
     for line, record in _read_ndjson(audit_path, *((start, number) if start else ())):
-        run_id = record.get("run_id")
-        if run_id is not None and not isinstance(run_id, str):
-            raise ManifestVerificationError(f"audit record run_id {run_id!r} is neither a string nor null")
+        run_id = _record_run_id(record)
         if scan is not None:
             scan.note(line, run_id)
         if run_id is None or _is_blank(run_id):
@@ -850,11 +861,12 @@ def _read_lines_reversed(file: IO[bytes]) -> Iterator[bytes | None]:
     """Yield the lines of `file` last to first, reading bounded chunks and keeping at most MAX_LINE_BYTES bytes of
     a line. The unterminated tail (if any) comes first without a newline; a line over the cap is yielded as None."""
 
-    def emit(seg: bytes, size: int, terminated: bool) -> bytes | None:
-        return None if size > MAX_LINE_BYTES else seg + (b"\n" if terminated else b"")
+    def emit(segs: list[bytes], size: int, terminated: bool) -> bytes | None:
+        return None if size > MAX_LINE_BYTES else b"".join(reversed(segs)) + (b"\n" if terminated else b"")
 
     pos = file.seek(0, os.SEEK_END)
-    seg, size, tail = b"", 0, True
+    segs: list[bytes] = []
+    size, tail = 0, True
     while pos > 0:
         step = min(_TAIL_CHUNK, pos)
         pos -= step
@@ -862,13 +874,16 @@ def _read_lines_reversed(file: IO[bytes]) -> Iterator[bytes | None]:
         parts = file.read(step).split(b"\n")
         for i in range(len(parts) - 1, -1, -1):
             size += len(parts[i])
-            seg = parts[i] + seg if size <= MAX_LINE_BYTES else b""
+            if size <= MAX_LINE_BYTES:
+                segs.append(parts[i])
+            else:
+                segs.clear()
             if i:
                 if size or not tail:
-                    yield emit(seg, size, not tail)
-                seg, size, tail = b"", 0, False
+                    yield emit(segs, size, not tail)
+                segs, size, tail = [], 0, False
     if size or not tail:
-        yield emit(seg, size, not tail)
+        yield emit(segs, size, not tail)
 
 
 class NdjsonHeadAnchor:
@@ -882,7 +897,7 @@ class NdjsonHeadAnchor:
         _append_and_fsync(self._path, [{"head": head, "anchored_at": _utc_now()}])
 
     def latest(self) -> str | None:
-        """The last terminated line's head; None for a missing file or one without a terminated line. An unterminated
+        """The last terminated line's head; None for a missing file or one without a terminated line. An unterminated, torn
         or oversized last line (crash residue) is ignored; a terminated bad line raises ManifestVerificationError."""
         try:
             with open(self._path, "rb") as file:
@@ -1019,6 +1034,7 @@ _CHECKPOINT_KEYS = {
     "seen_v2",
     "signature",
 }
+_SQLITE_HEADER = b"SQLite format 3\x00"
 _sqlite_missing_logged = False
 
 
@@ -1112,7 +1128,7 @@ def _load_checkpoint(
         entry, hint = _read_index(db, index_path, run_id)
         if not _checkpoint_current(entry, signer, manifest_path):
             return None
-    except (OSError, ValueError, TypeError, db.Error):
+    except Exception:  # an untrusted index must never fail the seal: any error means a full verify
         return None
     return entry, hint
 
@@ -1121,8 +1137,12 @@ def _read_index(db: ModuleType, index_path: str | Path, run_id: str) -> tuple[An
     """The stored checkpoint entry and the run's hinted offset, read-only and without waiting on a writer."""
     with closing(db.connect(Path(index_path).resolve().as_uri() + "?mode=ro", uri=True, timeout=0)) as conn:
         conn.execute("PRAGMA trusted_schema=OFF")
-        row = conn.execute("SELECT body FROM checkpoint WHERE id = 1").fetchone()
+        row = conn.execute(
+            "SELECT body FROM checkpoint WHERE id = 1 AND length(CAST(body AS BLOB)) <= ?", (MAX_LINE_BYTES,)
+        ).fetchone()
         hint = conn.execute("SELECT line_start FROM hint WHERE run_id = ?", (run_id,)).fetchone()
+    if row is None or not isinstance(row[0], str):
+        raise ValueError("seal index checkpoint is missing, oversized or not text")
     entry = _decode_line("seal index checkpoint", row[0].encode("utf-8"))
     return entry, None if hint is None else hint[0]
 
@@ -1139,7 +1159,7 @@ def _indexed_lookup(manifest_path: str | Path, run_id: str, index_path: str | Pa
         if hint is not None:
             return True if _hint_names_run(manifest_path, hint, run_id) else None
         return _scan_for_run(manifest_path, run_id, entry["end"])
-    except (OSError, ValueError, TypeError, KeyError, db.Error):
+    except Exception:  # an untrusted index must never fail the calculation: any error means a full scan
         return None
 
 
@@ -1171,8 +1191,7 @@ def _audit_scan_from(entry: Mapping[str, Any], audit_path: str | Path) -> _Audit
 def _scan_audit_tail(audit_path: str | Path, scan: _AuditScan, sealed: Container[str]) -> None:
     """Advance `scan` over the terminated audit lines after it, noting where unsealed runs start."""
     for line, record in _read_ndjson(audit_path, scan.end, scan.count + 1):
-        run_id = record.get("run_id")
-        scan.note(line, run_id if isinstance(run_id, str) else None, sealed)
+        scan.note(line, _record_run_id(record), sealed)
 
 
 def _hint_names_run(manifest_path: str | Path, offset: object, run_id: str) -> bool:
@@ -1189,16 +1208,25 @@ def _hint_names_run(manifest_path: str | Path, offset: object, run_id: str) -> b
     return isinstance(line, dict) and "kind" not in line and line.get("run_id") == run_id
 
 
+def _is_sqlite_or_empty(path: str | Path) -> bool:
+    with open(path, "rb") as file:
+        head = file.read(len(_SQLITE_HEADER))
+    return not head or head == _SQLITE_HEADER
+
+
 def _store_checkpoint(
     index_path: str | Path, entry: dict[str, Any], hints: Mapping[str, int], *, rebuild: bool
 ) -> None:
-    """Commit `entry` and `hints` (all hints replaced if `rebuild`); a corrupt index file is deleted and recreated."""
+    """Commit `entry` and `hints` (all hints replaced if `rebuild`); a corrupt SQLite file is deleted and recreated,
+    any other file is left alone and raises."""
     db = _sqlite()
     if db is None:
         return
     body = _canonical_json(entry).decode("utf-8")
     for attempt in (0, 1):
         try:
+            if not os.path.exists(index_path):
+                os.close(os.open(index_path, os.O_WRONLY | os.O_CREAT, 0o600))
             with closing(db.connect(os.fspath(index_path), timeout=5)) as conn:
                 conn.execute("PRAGMA trusted_schema=OFF")
                 conn.execute("PRAGMA journal_mode=DELETE")
@@ -1215,6 +1243,8 @@ def _store_checkpoint(
         except db.DatabaseError:
             if attempt:
                 raise
+            if not _is_sqlite_or_empty(index_path):
+                raise ValueError(f"{index_path} is not a SQLite file; leaving it alone") from None
             os.unlink(index_path)
 
 
@@ -1314,7 +1344,7 @@ def _update_index(
     """Commit a fresh checkpoint and the new seals' hints after an append; a failure is logged, never raised."""
     try:
         offset = os.path.getsize(manifest_path) - sum(len(_canonical_json(entry)) + 1 for entry in appended)
-        hints, head_start = dict(scan.seals) if rebuild else {}, scan.last
+        hints, head_start = dict(scan.seals), scan.last
         for entry in appended:
             head_start = offset
             if "kind" not in entry:
@@ -1408,8 +1438,14 @@ def seal_ndjson_runs(
                 anchors=anchors,
             )
         state, scan = (fast[0], fast[1]) if fast else (None, _Scan())
+        audit = None
         if fast:
             checkpoint = fast[2]
+            audit = _audit_scan_from(checkpoint, audit_path)
+            if audit is None:
+                # The audit cursor cannot resume, so rebuild everything instead of carrying sealed runs as pending.
+                fast = checkpoint = state = None
+                scan = _Scan()
         if state is None:
             state = _verify_log(
                 scan.manifests(manifest_path),
@@ -1427,7 +1463,6 @@ def seal_ndjson_runs(
         # to raise, as before.
         with suppress(FileNotFoundError):
             _fsync(audit_path)
-        audit = _audit_scan_from(checkpoint, audit_path) if checkpoint else None
         incremental = audit is not None and run_id is not None
         first = (0, 1)
         if audit is not None and incremental:
@@ -1602,6 +1637,8 @@ def _damage_entry(file: str, path: str | Path, number: int, offset: int, raw: by
 
 def _refuse_json_tail(path: str | Path, number: int, tail: bytes) -> None:
     where = f"{path} line {number}"
+    if isinstance(tail, _OversizedLine):
+        return
     try:
         _decode_line(where, tail)
     except ManifestVerificationError:
@@ -1821,7 +1858,12 @@ def _rewrite_without(path: str | Path, drop: set[int]) -> None:
     fd, temp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
     try:
         with os.fdopen(fd, "wb") as out, open(target, "rb") as source:
-            out.writelines(raw for number, raw in enumerate(_read_lines(source), start=1) if number not in drop)
+            for number, raw in enumerate(_read_lines(source), start=1):
+                if number in drop:
+                    continue
+                if isinstance(raw, _OversizedLine):
+                    raise ValueError(f"{path} line {number} is longer than {MAX_LINE_BYTES} bytes and cannot be kept")
+                out.write(raw)
             out.flush()
             os.fsync(out.fileno())
         os.chmod(temp, stat.S_IMODE(os.stat(target).st_mode))

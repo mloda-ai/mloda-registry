@@ -2269,17 +2269,14 @@ class TestAuditExtenderSealing:
                 return handle
             return _ReadSpy(handle, read)
 
-        monkeypatch.setattr(run_manifest_module, "_decode_line", counting_decode)
-        monkeypatch.setattr(run_manifest_module, "open", spy_open, raising=False)
-        monkeypatch.setattr(audit_extender_module, "open", spy_open, raising=False)
-        try:
+        with monkeypatch.context() as patch:
+            patch.setattr(run_manifest_module, "_decode_line", counting_decode)
+            patch.setattr(run_manifest_module, "open", spy_open, raising=False)
+            patch.setattr(audit_extender_module, "open", spy_open, raising=False)
             extender = build()
             with make_hook_context(run_id="run-next", tenant_id=_TENANT).activate():
                 extender(_CountingCall())
             extender.on_run_complete("run-next")
-        finally:
-            monkeypatch.delattr(run_manifest_module, "open", raising=False)
-            monkeypatch.delattr(audit_extender_module, "open", raising=False)
         return len(verifications), len(parses), sum(read)
 
     def test_the_whole_auto_seal_costs_the_same_whatever_the_history_with_the_index(

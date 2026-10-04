@@ -2254,7 +2254,7 @@ def _swap_last_line_in_place(audit_path: Path, manifest_path: Path, index_path: 
 
 _INDEX_FALLBACKS: dict[str, Callable[[Path, Path, Path], object]] = {
     "missing-index": lambda a, m, i: i.unlink(),
-    "garbage-index": lambda a, m, i: i.write_bytes(b"not a database" * 100),
+    "garbage-index": lambda a, m, i: i.write_bytes(b"SQLite format 3\x00" + b"\xff" * 4000),
     "manifest-replaced-by-a-copy": _replace_manifest_by_copy,
     "manifest-truncated-below-the-checkpoint": _truncate_below_checkpoint,
     "head-differs-from-the-line-at-the-offset": _swap_last_line_in_place,
@@ -2420,6 +2420,11 @@ class TestSealIndex:
         assert count < full
         assert [m["run_id"] for m in _read_lines(manifest_path)][-2:] == ["run-crash", "run-next"]
         verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+        assert run_manifest_module._is_run_sealed_unverified(manifest_path, "run-crash", index_path) is True
+        with pytest.raises(RunAlreadySealedError):
+            seal_ndjson_runs(
+                audit_path, manifest_path, signer=_signer(), run_id="run-crash", seal_index_path=index_path
+            )
 
     def test_an_index_write_error_after_the_append_is_logged_and_does_not_fail_the_seal(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -2828,6 +2833,134 @@ class TestSealIndex:
 
         assert finished_while_held
         assert found == [expected]
+
+    # Review fixes.
+
+    @staticmethod
+    def _checkpoint_body(index_path: Path) -> dict[str, Any]:
+        import sqlite3
+
+        connection = sqlite3.connect(index_path.resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            row = connection.execute("SELECT body FROM checkpoint WHERE id = 1").fetchone()
+        finally:
+            connection.close()
+        body: dict[str, Any] = json.loads(row[0])
+        return body
+
+    def test_a_seal_written_without_the_index_between_indexed_seals_stays_found_and_refused(
+        self, tmp_path: Path
+    ) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live", 2)
+        self._seal_after_checkpoint(audit_path, manifest_path, "run-tail")
+        _write_records(audit_path, [_record("run-c", 70)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-c", seal_index_path=index_path)
+
+        found = self._lookups(manifest_path, index_path, ["run-0", "run-tail", "run-c", "run-nowhere"])
+
+        assert found == {"run-0": True, "run-tail": True, "run-c": True, "run-nowhere": False}
+        with pytest.raises(RunAlreadySealedError):
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-tail", seal_index_path=index_path)
+
+    def test_an_audit_file_replaced_by_a_copy_keeps_sealed_runs_out_of_the_pending_set(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        copy = audit_path.with_name("copy.tmp")
+        copy.write_bytes(audit_path.read_bytes())
+        os.replace(copy, audit_path)
+        sealed = {f"run-{number}" for number in range(4)}
+
+        for name in ("run-next", "run-after"):
+            _write_records(audit_path, [_record(name, 99)])
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id=name, seal_index_path=index_path)
+            sealed.add(name)
+
+            assert not sealed & set(self._checkpoint_body(index_path)["audit_pending"])
+
+    @pytest.mark.parametrize("kind", ["blob", "null"])
+    def test_a_checkpoint_body_that_is_not_text_falls_back_in_the_lookup_and_the_seal(
+        self, tmp_path: Path, kind: str
+    ) -> None:
+        import sqlite3
+
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        body = self._checkpoint_body(index_path)
+        connection = sqlite3.connect(index_path)
+        try:
+            connection.execute("DROP TABLE checkpoint")
+            connection.execute("CREATE TABLE checkpoint (id INTEGER PRIMARY KEY, body)")
+            value = json.dumps(body).encode("utf-8") if kind == "blob" else None
+            connection.execute("INSERT INTO checkpoint (id, body) VALUES (1, ?)", (value,))
+            connection.commit()
+        finally:
+            connection.close()
+        run_ids = ["run-0", "run-3", "run-nowhere"]
+
+        assert self._lookups(manifest_path, index_path, run_ids) == {"run-0": True, "run-3": True, "run-nowhere": False}
+        _write_records(audit_path, [_record("run-next", 99)])
+        seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), run_id="run-next", seal_index_path=index_path)
+
+        assert _read_lines(manifest_path)[-1]["run_id"] == "run-next"
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer())
+
+    def test_a_non_string_run_id_before_the_run_fails_the_indexed_seal_as_the_plain_one(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live")
+        _write_records(audit_path, [_record(5, 98), _record("run-next", 99)])  # type: ignore[arg-type]
+        _copy_dir(tmp_path / "live", tmp_path / "ref")
+        _assert_raises_and_unchanged(
+            tmp_path / "ref",
+            lambda: seal_ndjson_runs(
+                tmp_path / "ref" / "audit.ndjson", tmp_path / "ref" / "manifests.ndjson", signer=_signer()
+            ),
+        )
+
+        _assert_raises_and_unchanged(
+            tmp_path / "live",
+            lambda: seal_ndjson_runs(
+                audit_path, manifest_path, signer=_signer(), run_id="run-next", seal_index_path=index_path
+            ),
+        )
+
+    def test_a_file_at_the_index_path_that_is_not_sqlite_survives_a_seal_untouched(self, tmp_path: Path) -> None:
+        audit_path, manifest_path, index_path = _indexed_log(tmp_path / "live", indexed=False)
+        index_path.write_bytes(b"precious notes, not a database\n" * 50)
+        before = index_path.read_bytes()
+        _write_records(audit_path, [_record("run-next", 99)])
+
+        manifests = seal_ndjson_runs(
+            audit_path, manifest_path, signer=_signer(), run_id="run-next", seal_index_path=index_path
+        )
+
+        assert [m["run_id"] for m in manifests] == ["run-next"]
+        assert index_path.read_bytes() == before
+
+    def test_the_index_file_is_created_with_owner_only_permissions(self, tmp_path: Path) -> None:
+        _, _, index_path = _indexed_log(tmp_path / "live", 1)
+
+        assert stat.S_IMODE(index_path.stat().st_mode) == 0o600
+
+    def test_rewrite_without_refuses_to_keep_an_oversized_line_and_leaves_the_file_alone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _cap(monkeypatch)
+        path = tmp_path / "audit.ndjson"
+        path.write_bytes(b'{"a": 1}\n' + _oversized_line() + b'\n{"b": 2}\n')
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ValueError):
+            run_manifest_module._rewrite_without(path, {3})
+
+        assert _snapshot(tmp_path) == before
+
+    def test_rewrite_without_still_drops_an_oversized_line_that_is_listed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _cap(monkeypatch)
+        path = tmp_path / "audit.ndjson"
+        path.write_bytes(b'{"a": 1}\n' + _oversized_line() + b'\n{"b": 2}\n')
+
+        run_manifest_module._rewrite_without(path, {2})
+
+        assert path.read_bytes() == b'{"a": 1}\n{"b": 2}\n'
 
 
 class TestCheckRunAgainstSeal:
