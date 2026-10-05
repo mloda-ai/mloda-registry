@@ -153,6 +153,7 @@ def seal_run(
     previous_manifest_hash: str | None = None,
     sealed_late: bool = True,
 ) -> dict[str, Any]:
+    """Seal `records` as run `run_id`; a record without a run_id is matched by its plan_id."""
     records = list(records)
     if not isinstance(run_id, str) or not run_id.strip():
         raise ValueError("seal_run run_id must be a non-blank string")

@@ -28,7 +28,6 @@ from mloda.steward import (
     CompositeExtender,
     Extender,
     ExtenderHook,
-    GateBypassError,
     HookContext,
     LifecycleOutcome,
     RunContext,
@@ -113,7 +112,6 @@ _IDENTITY_REQUIRED_ERROR_TYPE = "mloda.enterprise.extenders.audit.audit_extender
 
 # Recognisable values for a present identity, so a refusal message that leaks one is caught.
 _TENANT = "tenant-marker-7f3a"
-_SUCCEEDED = LifecycleOutcome(status="succeeded")
 _PROJECT = "project-marker-7f3a"
 _PRINCIPAL = "principal-marker-7f3a"
 
@@ -161,6 +159,7 @@ _POLICY_VERSION = "policy-2026-09-rev-3"
 # Sealing (AuditExtender.on_run_complete) fixtures: deterministic keys, never used for anything but these tests.
 _SEALING_KEY = b"k" * 32
 _SEALING_KEY_B = b"o" * 32
+_SUCCEEDED = LifecycleOutcome(status="succeeded")
 
 
 def _hmac_signer(key_id: str = "seal-key-1", key: bytes = _SEALING_KEY) -> HmacSha256Signer:
@@ -1258,6 +1257,40 @@ class TestAuditExtenderFailClosed:
         assert call.calls == 1
         assert sink.records == []
 
+    def test_on_run_start_without_the_tenant_refuses_and_writes_one_deny_record(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink, fail_closed=True)
+        run = RunContext(run_id="run-1", plan_id="plan-1", project_id="p", principal="svc")
+
+        with pytest.raises(IdentityRequiredError):
+            extender.on_run_start(run, Mock(plan_id="plan-1"), ())
+
+        assert len(sink.records) == 1
+        record = sink.records[0]
+        assert record["hook"] == "RUN_START"
+        assert record["decision"] == "deny"
+        assert record["status"] == "error"
+        assert record["deny_reason"] == "missing_tenant_id"
+        assert record["run_id"] == "run-1"
+        assert record["plan_id"] == "plan-1"
+
+    def test_on_run_start_with_the_identity_present_allows_and_writes_nothing(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink, fail_closed=True)
+        run = RunContext(run_id="run-1", plan_id="plan-1", tenant_id="t", project_id="p", principal="svc")
+
+        extender.on_run_start(run, Mock(plan_id="plan-1"), ())
+
+        assert sink.records == []
+
+    def test_on_run_start_without_fail_closed_is_a_no_op(self) -> None:
+        sink = InMemoryAuditSink()
+        extender = AuditExtender(sink=sink, fail_closed=False)
+
+        extender.on_run_start(RunContext(run_id="run-1", plan_id="plan-1"), Mock(plan_id="plan-1"), ())
+
+        assert sink.records == []
+
     @pytest.mark.parametrize(
         "hook", [ExtenderHook.FEATURE_GROUP_MATCHED, ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE], ids=lambda h: h.name
     )
@@ -1695,7 +1728,12 @@ class TestAuditExtenderSealing:
             second.on_run_complete(RunContext(run_id="run-1"), _SUCCEEDED)
 
         assert second.seal_failures == 0
-        assert any(r.levelno == logging.INFO and "already sealed" in r.getMessage() for r in caplog.records)
+        assert any(
+            r.levelno == logging.INFO
+            and "already sealed" in r.getMessage()
+            and "was not sealed again" in r.getMessage()
+            for r in caplog.records
+        )
 
     def test_an_auto_seal_after_a_rotation_succeeds_while_the_anchor_still_holds_the_old_head(
         self, tmp_path: Path
@@ -3468,7 +3506,7 @@ class TestAuditExtenderRunAll:
             ParallelizationMode.MULTIPROCESSING,
         ],
     )
-    def test_run_all_fail_closed_core_refuses_a_run_whose_identity_changed_since_prepare(
+    def test_run_all_fail_closed_refuses_at_run_start_a_run_whose_identity_lost_the_tenant_since_prepare(
         self,
         mode: ParallelizationMode,
         make_gate_extender: Callable[[Any], AuditExtender],
@@ -3490,15 +3528,45 @@ class TestAuditExtenderRunAll:
         with verified_context(tenant_id="t"):
             session = prepare_value_int(gate, counting, parallelization_modes={mode})
 
-        # An explicit run-time verified context replaces the plan-time identity; core refuses it at run start.
+        # An explicit run-time verified context replaces the plan-time identity; the gate refuses it at run start.
         with verified_context(project_id="p"):
-            with pytest.raises(GateBypassError):
+            with pytest.raises(IdentityRequiredError):
                 session.run(parallelization_modes={mode}, flight_server=flight_server)
 
         lines = audit_path.read_text(encoding="utf-8").splitlines() if audit_path.exists() else []
         records = [json.loads(line) for line in lines]
-        assert not any(r["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name for r in records)
-        assert all(r["decision"] == "allow" for r in records)
+        assert len(records) == 1
+        record = records[0]
+        assert record["hook"] == "RUN_START"
+        assert record["decision"] == "deny"
+        assert record["status"] == "error"
+        assert record["run_id"] is not None
         assert counting.calls == 0
         # Marker file covers MULTIPROCESSING: a worker's own `calls` copy would be invisible here.
         assert not marker_path.exists()
+
+    @_BOTH_POSTURES
+    @pytest.mark.parametrize("mode", [ParallelizationMode.SYNC, ParallelizationMode.MULTIPROCESSING])
+    def test_run_all_fail_closed_allows_a_run_that_switches_to_another_tenant_since_prepare(
+        self, mode: ParallelizationMode, fail_closed: bool, tmp_path: Path, request: pytest.FixtureRequest
+    ) -> None:
+        audit_path = tmp_path / "audit.ndjson"
+        # Only MULTIPROCESSING needs the flight_server fixture.
+        flight_server = (
+            request.getfixturevalue("flight_server") if mode == ParallelizationMode.MULTIPROCESSING else None
+        )
+        extender = AuditExtender(sink=NdjsonAuditSink(audit_path), fail_closed=fail_closed)
+
+        with verified_context(tenant_id="tenant-a", project_id="project-7", principal="svc"):
+            session = prepare_value_int(extender, parallelization_modes={mode})
+        with verified_context(tenant_id="tenant-b", project_id="project-7", principal="svc"):
+            results = session.run(parallelization_modes={mode}, flight_server=flight_server)
+
+        values = next(t.to_pydict()["value_int"] for t in results if "value_int" in t.column_names)
+        assert values == expected_value_int()
+        records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+        calculate = [r for r in records if r["hook"] == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE.name]
+        assert calculate
+        for record in calculate:
+            assert record["tenant_id"] == "tenant-b"
+            assert record["decision"] == "allow"

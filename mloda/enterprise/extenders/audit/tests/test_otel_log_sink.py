@@ -77,6 +77,7 @@ _STR_ATTRIBUTES = {
     "policy_version": "mloda.audit.policy_version",
     "hook": "mloda.audit.hook",
     "run_id": "mloda.run.id",
+    "plan_id": "mloda.plan.id",
     "tenant_id": "mloda.tenant.id",
     "project_id": "mloda.project.id",
     "feature_group_class": "mloda.feature_group.name",
@@ -423,6 +424,7 @@ class TestOtelLogAuditSinkMapping:
             project_id="project-1",
             principal="svc-1",
             run_id="run-123",
+            plan_id="plan-456",
             feature_group_class="my.module.MyFeatureGroup",
             feature_names=("value_int", "value_str"),
         )
@@ -434,6 +436,7 @@ class TestOtelLogAuditSinkMapping:
             "mloda.audit.policy_version": _POLICY_VERSION,
             "mloda.audit.hook": "FEATURE_GROUP_CALCULATE_FEATURE",
             "mloda.run.id": "run-123",
+            "mloda.plan.id": "plan-456",
             "mloda.tenant.id": "tenant-1",
             "mloda.project.id": "project-1",
             "mloda.feature_group.name": "my.module.MyFeatureGroup",

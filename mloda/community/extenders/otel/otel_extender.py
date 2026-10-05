@@ -348,9 +348,12 @@ def _set_load_attributes(span: Span, context: HookContext) -> None:
 
 def _set_context_attributes(span: Span, context: HookContext) -> None:
     span.set_attribute("mloda.operation.name", _OPERATION_NAMES.get(context.hook, "unknown"))
-    span.set_attribute("mloda.feature_group.name", context.feature_group_class)
-    span.set_attribute("mloda.feature_group.version", context.feature_group_version)
-    span.set_attribute("mloda.compute_framework.name", context.compute_framework_name)
+    if context.feature_group_class is not None:
+        span.set_attribute("mloda.feature_group.name", context.feature_group_class)
+    if context.feature_group_version is not None:
+        span.set_attribute("mloda.feature_group.version", context.feature_group_version)
+    if context.compute_framework_name is not None:
+        span.set_attribute("mloda.compute_framework.name", context.compute_framework_name)
 
     if context.rows_in is not None:
         span.set_attribute("mloda.rows.in", context.rows_in)

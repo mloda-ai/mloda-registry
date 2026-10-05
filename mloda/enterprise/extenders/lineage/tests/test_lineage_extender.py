@@ -1792,14 +1792,28 @@ class TestLineageFacetsRunFacet:
     ) -> None:
         client, transport = ol_capture
 
-        with make_hook_context(feature_group_version=None, compute_framework_name=None).activate():
-            LineageFacetsExtender(client=client)(lambda: None)
+        extender = LineageFacetsExtender(client=client)
+        with make_hook_context(
+            feature_group_class=None, feature_group_version=None, compute_framework_name=None
+        ).activate():
+            extender(lambda: None)
+        validator_context = make_hook_context(
+            hook=ExtenderHook.VALIDATE_INPUT_FEATURE,
+            feature_group_class=None,
+            feature_group_version=None,
+            compute_framework_name=None,
+            feature_names=("x",),
+        )
+        with validator_context.activate():
+            extender(_PassingValidators.validate_input_features, None, FeatureSet())
 
         assert transport.events
-        for event in transport.events:
+        for event in _calculate_run_events(transport.events):
             facet = _run_facet(event)
             assert (facet.featureGroupVersion, facet.computeFramework) == ("unknown", "unknown")
+        for event in transport.events:
             assert "None" not in Serde.to_json(event)
+            assert "None" not in event.job.name
 
     def test_schema_url_is_a_stable_https_url_of_the_module(self) -> None:
         url = MlodaRunFacet._get_schema()

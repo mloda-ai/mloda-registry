@@ -12,7 +12,16 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
-from mloda.steward import Extender, ExtenderHook, HookContext, LifecycleOutcome, RunContext, WarnOncePerInstance
+from mloda.steward import (
+    Extender,
+    ExtenderHook,
+    HookContext,
+    LifecycleOutcome,
+    PlanContext,
+    PlanStep,
+    RunContext,
+    WarnOncePerInstance,
+)
 
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.enterprise.extenders.audit._core import (
@@ -157,9 +166,8 @@ class AuditExtender(Extender):
     that just finished, whatever its outcome. An auto-sealing instance, or a pickled copy of one, refuses a
     calculation with SealedRunRefusedError before writing anything when its run_id is already named in manifest_path
     or a retained archive of it (an unverified read, once per run per instance or copy, at its first calculation; a
-    seal landing after that first calculation is not seen, so do not run one prepared auto-sealing session
-    concurrently). Each run() of a prepared session gets a fresh run_id, so a rerun is audited and sealed as its own
-    run; the refusal only guards a run_id already sealed. The read is unverified, so a writer to
+    seal landing after that first calculation is not seen). Each run() of a prepared session gets a fresh run_id,
+    so a rerun is audited and sealed as its own run; the refusal is a defensive guard for a run_id already sealed. The read is unverified, so a writer to
     manifest_path can make runs be refused (availability only, it never hides a seal). With raise_on_error=False
     (fail_closed=False), core instead logs the refusal and runs the call unaudited, as for a sink failure. A manifest
     read failure is logged at WARNING and the run is audited without the check. An AuditExtender without sealing
@@ -168,8 +176,8 @@ class AuditExtender(Extender):
     before setup, so on_run_complete never fires for it and it is never auto-sealed at all (not sealed-with-strays).
     A record with no run_id is attributed to its plan_id, so a seal_ndjson_runs sweep seals it under that plan_id
     (target it, not a blanket sweep, while another run may be live; find it via
-    verify_ndjson_log_coverage(...).unsealed_lines). Auto-sealing uses the optional log_id and head_anchor (each new head is
-    emitted to it, and its latest head must still be in the log). A seal failure (any sealing or anchor error, or a
+    verify_ndjson_log_coverage(...).unsealed_lines). Auto-sealing uses the optional log_id and head_anchor (each new
+    head is emitted to it, and its latest head must still be in the log). A seal failure (any sealing or anchor error, or a
     mismatch with an existing seal) increments the public seal_failures counter and follows seal_failure_policy:
     "log" (default), "raise", or a callable(run_id, exc). Core contains an exception raised from on_run_complete,
     so "raise" does not fail the finished run. segment_max_bytes / segment_max_age (need log_id) rotate the segment
@@ -321,17 +329,53 @@ class AuditExtender(Extender):
         if callable(flush):
             flush()
 
+    def on_run_start(self, run: RunContext, plan: PlanContext, steps: tuple[PlanStep, ...]) -> None:
+        """With fail_closed, refuses a run whose RunContext lacks a required identity: one deny record, then
+        IdentityRequiredError. Overriding this also lets core run a session whose identity changed since prepare.
+        A no-op otherwise."""
+        if not self.fail_closed:
+            return
+        missing = self._missing_identity(run)
+        if not missing:
+            return
+        per_call: dict[str, Any] = {
+            "feature_group_class": None,
+            "feature_group_version": None,
+            "plugin_version": None,
+            "feature_names": [],
+            "input_features": None,
+            "compute_framework_name": None,
+            "rows_out": None,
+            "duration_seconds": None,
+        }
+        try:
+            raise IdentityRequiredError(f"AuditExtender refused the call: missing required identity {missing}")
+        except IdentityRequiredError as refusal:
+            # Unguarded on purpose, as in __call__: a sink failure must propagate, chained to the refusal.
+            self.sink.write(
+                self._record(
+                    run,
+                    "RUN_START",
+                    run.run_id,
+                    plan.plan_id or run.plan_id,
+                    per_call,
+                    [],
+                    "error",
+                    _error_type(refusal),
+                )
+            )
+            raise
+
     def on_run_complete(self, run: RunContext, outcome: LifecycleOutcome) -> None:
-        """Auto-seal `run.run_id` (any outcome) when audit_path/manifest_path/signer are configured; a no-op otherwise, with
-        run_id=None, or when the run wrote nothing (logged as a WARNING with the audit_path, since a missing
+        """Auto-seal `run.run_id` (any outcome) when audit_path/manifest_path/signer are configured; a no-op
+        otherwise, with run_id=None, or when the run wrote nothing (logged as a WARNING with the audit_path, since a missing
         audit file or a run_id with no records is worth a steward's attention). Flushes the sink first, so a
         buffered record reaches the audit file before it is sealed. A pickled or copied instance has no
         signer (see __getstate__): it warns once per copy instead of raising or sealing anything.
-        RunAlreadySealedError is logged at INFO when audit_path's records of the run still match its seal (e.g. a
-        refused re-run), else it is a seal failure with the reason (a record outside the seal, or a failed check);
+        RunAlreadySealedError is logged at INFO when audit_path's records of the run still match its seal, else it is a seal failure with the reason (a record outside the seal, or a failed check);
         RunNotPendingError is logged at WARNING (recoverable: the run just wrote nothing
         yet). Neither is raised. The run's cached answer is dropped, so a later call under it re-reads the
-        manifest log (and is refused there). A mismatch with an existing seal and every other exception (including
+        manifest log. A mismatch with an existing seal and every other exception (including
         anchor failures) is a seal failure: counted in seal_failures, then handled by seal_failure_policy. With
         "raise" it propagates; core logs it at ERROR and never fails the run because of it, regardless of
         raise_on_error/fail_closed. After a seal it made, it rotates the segment when segment_max_bytes /
@@ -527,7 +571,7 @@ class AuditExtender(Extender):
             self._note_load(context)
             return func(*args, **kwargs)
 
-        # MATCHED runs at plan time under a freshly minted run_id, so it is never checked and never caches.
+        # MATCHED runs at plan time with run_id None (plan_id set), so it is never checked and never caches.
         if context.hook is ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE and self._found_sealed(context.run_id):
             raise SealedRunRefusedError(
                 f"AuditExtender refused the call: run_id {context.run_id!r} is already sealed in the "
@@ -604,26 +648,13 @@ class AuditExtender(Extender):
         self._run_sealed[run_id] = found
         return found
 
-    def _missing_identity(self, context: HookContext) -> list[str]:
+    def _missing_identity(self, context: HookContext | RunContext) -> list[str]:
         return [name for name in self.required_identity if _is_blank(getattr(context, name))]
 
     def _build_record(
         self, context: HookContext, loads: list[tuple[str, str | None]], *, status: str | None, error_type: str | None
     ) -> dict[str, Any]:
-        missing = self._missing_identity(context)
-        return {
-            "record_version": 1,
-            "policy_version": self.policy_version,
-            "event_time": _utc_now(),
-            "run_id": context.run_id,
-            "plan_id": context.plan_id,
-            "tenant_id": context.tenant_id,
-            "project_id": context.project_id,
-            "principal": context.principal,
-            "decision": "deny" if missing else "allow",
-            "compliant": not missing,
-            "deny_reason": ("missing_" + "_and_".join(missing)) if missing else None,
-            "hook": context.hook.name,
+        per_call: dict[str, Any] = {
             "feature_group_class": context.feature_group_class,
             "feature_group_version": context.feature_group_version,
             "plugin_version": context.plugin_version,
@@ -632,6 +663,37 @@ class AuditExtender(Extender):
             "compute_framework_name": context.compute_framework_name,
             "rows_out": context.rows_out,
             "duration_seconds": context.duration_seconds,
+        }
+        return self._record(
+            context, context.hook.name, context.run_id, context.plan_id, per_call, loads, status, error_type
+        )
+
+    def _record(
+        self,
+        identity: HookContext | RunContext,
+        hook: str,
+        run_id: str | None,
+        plan_id: str | None,
+        per_call: dict[str, Any],
+        loads: list[tuple[str, str | None]],
+        status: str | None,
+        error_type: str | None,
+    ) -> dict[str, Any]:
+        missing = self._missing_identity(identity)
+        return {
+            "record_version": 1,
+            "policy_version": self.policy_version,
+            "event_time": _utc_now(),
+            "run_id": run_id,
+            "plan_id": plan_id,
+            "tenant_id": identity.tenant_id,
+            "project_id": identity.project_id,
+            "principal": identity.principal,
+            "decision": "deny" if missing else "allow",
+            "compliant": not missing,
+            "deny_reason": ("missing_" + "_and_".join(missing)) if missing else None,
+            "hook": hook,
+            **per_call,
             "status": status,
             "error_type": error_type,
             "data_access_identity": [identity for identity, _ in loads],

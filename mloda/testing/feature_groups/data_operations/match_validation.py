@@ -553,20 +553,22 @@ class MatchValidationTestBase(ScalarArityTestBase):
 
     # -- Source comes from the name -------------------------------------------
 
-    def _name_source_options(self, in_features: Any) -> tuple[str, Options, Options]:
-        """Name, base options, and the same options plus an in_features option."""
+    def _name_source_options(self, in_features: Any = None) -> tuple[str, Options, Options]:
+        """Name, base options, and the same options plus an in_features option.
+
+        Without ``in_features`` the option is the name's own direct sources, as the core resolves them.
+        """
         name = self.build_feature_name(sorted(self.parity_operations())[0])
         base = self.pattern_match_options()
+        if in_features is None:
+            in_features = list(self.feature_group_class().resolve_feature_name(name).sources)
         declared = Options(group=dict(base.group), context={**base.context, "in_features": in_features})
         return name, base, declared
 
     def test_agreeing_in_features_option_resolves_like_name_source(self) -> None:
         """An in_features option equal to the name's direct sources neither blocks the match nor changes it."""
-        name = self.build_feature_name(sorted(self.parity_operations())[0])
-        base = self.pattern_match_options()
+        name, base, agreeing = self._name_source_options()
         group = self.feature_group_class()
-        sources = name.split("__")[0].split("&")  # name order, as the core requires
-        _, _, agreeing = self._name_source_options(sources)
         assert group.match_feature_group_criteria(name, agreeing, None) is True
         assert group().input_features(agreeing, FeatureName(name)) == group().input_features(base, FeatureName(name))
 

@@ -616,6 +616,20 @@ class TestOtelExtenderSpanAttributes:
 
         assert "mloda.plugin.version" not in single_span_attributes(exporter)
 
+    def test_feature_group_and_framework_attributes_absent_when_unresolved(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        context = make_hook_context(feature_group_class=None, feature_group_version=None, compute_framework_name=None)
+        otel = OtelExtender(tracer_provider=provider)
+
+        with context.activate():
+            otel(lambda: None)
+
+        attributes = single_span_attributes(exporter)
+        for name in ("mloda.feature_group.name", "mloda.feature_group.version", "mloda.compute_framework.name"):
+            assert name not in attributes
+
     def test_run_id_attribute_absent_when_none(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
         """Covers the explicit run_id=None case: core (mloda 0.11.3+) always mints a real run_id now, but
         a hand-built HookContext (as used throughout this file) can still pass None explicitly, and the

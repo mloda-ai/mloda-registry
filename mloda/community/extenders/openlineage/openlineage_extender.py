@@ -398,9 +398,7 @@ class OpenLineageExtender(Extender):
             func,
             args,
             kwargs,
-            job=Job(
-                namespace=self.job_namespace, name=context.feature_group_class or Extender.feature_group_name(func)
-            ),
+            job=Job(namespace=self.job_namespace, name=owner_name(context, func)),
             run_facets=self._calculate_run_facets(context, func, args),
             declared_inputs=[
                 InputDataset(namespace=self.dataset_namespace, name=name)
@@ -479,6 +477,10 @@ class OpenLineageExtender(Extender):
                 outputs=outputs,
             )
         )
+
+
+def owner_name(context: HookContext, func: Any) -> str:
+    return context.feature_group_class or Extender.feature_group_name(func)
 
 
 def _now_iso() -> str:

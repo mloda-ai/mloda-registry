@@ -2631,9 +2631,15 @@ class TestRunManifestRunAll:
         assert records[0]["run_id"] is None
         assert records[0]["plan_id"] is not None
         assert not manifest_path.exists()
+        before = verify_ndjson_log_coverage(audit_path, manifest_path, signer=signer)
+        assert before.unattributed_lines == 0
+        assert before.unsealed_lines == {records[0]["plan_id"]: 1}
 
         manifests = seal_ndjson_runs(audit_path, manifest_path, signer=signer)
         verify_ndjson_log(audit_path, manifest_path, signer=signer)
+        after = verify_ndjson_log_coverage(audit_path, manifest_path, signer=signer)
+        assert after.unsealed_lines == {}
+        assert after.sealed_runs == 1
 
         assert len(manifests) == 1
         assert manifests[0]["run_id"] == records[0]["plan_id"]

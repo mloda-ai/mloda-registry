@@ -26,6 +26,7 @@ _STR_ATTRIBUTES = {
     "policy_version": "mloda.audit.policy_version",
     "hook": "mloda.audit.hook",
     "run_id": "mloda.run.id",
+    "plan_id": "mloda.plan.id",
     "tenant_id": "mloda.tenant.id",
     "project_id": "mloda.project.id",
     "feature_group_class": "mloda.feature_group.name",
