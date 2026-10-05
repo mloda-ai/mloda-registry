@@ -157,8 +157,9 @@ class AuditExtender(Extender):
     Records also list the distinct data loads the call attempted, as three index-aligned identity, format and
     identity-is-fallback lists ([] for none; a load without an identity is omitted). The identity is core's
     data_access_identity and the third list is core's data_access_identity_is_fallback (True when core fell
-    back to a placeholder, not a dataset id), recorded as given, and a sealed log cannot be redacted afterwards. Records carry policy_version (the
-    given value, else a fingerprint of the constructor-supplied gate, which does not track code changes).
+    back to a placeholder, not a dataset id), recorded as given, and a sealed log cannot be redacted afterwards.
+    Records carry policy_version (the given value, else a fingerprint of the constructor-supplied gate, which does
+    not track code changes).
     Keys may be added within record_version 1; an absent key means not recorded. With audit_path,
     manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
     that just finished, whatever its outcome. Each run() of a prepared session gets a fresh run_id, so a rerun
@@ -173,8 +174,8 @@ class AuditExtender(Extender):
     mismatch with an existing seal) increments the public seal_failures counter and follows seal_failure_policy:
     "log" (default), "raise", or a callable(run_id, exc). Under "raise" the instance sets core's
     raise_on_run_complete, so an exception from on_run_complete (a seal failure or any other) fails a run that
-    otherwise succeeded; a failed run keeps its own error and core only logs this one. segment_max_bytes / segment_max_age (need log_id) rotate the segment
-    after an auto-seal once the sealed bytes a rotation would archive reach that size (carried pending runs do not
+    otherwise succeeded; a failed run keeps its own error and core only logs this one. segment_max_bytes /
+    segment_max_age (need log_id) rotate the segment after an auto-seal once the sealed bytes a rotation would archive reach that size (carried pending runs do not
     count) or the segment that age; a rotation failure counts in seal_failures and follows seal_failure_policy.
     seal_index_path opts into a rebuildable seal index cache; it needs the sealing config and must not alias
     audit_path, manifest_path or the anchor path."""
@@ -370,8 +371,8 @@ class AuditExtender(Extender):
         yet). Neither is raised. A mismatch with an existing seal and every other exception (including
         anchor failures) is a seal failure: counted in seal_failures, then handled by seal_failure_policy. Under
         "raise" the instance sets core's raise_on_run_complete, so an exception from here (a seal failure or any
-        other) fails a run that otherwise succeeded; a failed run keeps its own error and core only logs this one. After a seal it made, it rotates the segment when segment_max_bytes /
-        segment_max_age is passed; a rotation failure is a seal failure too (counted and handled by
+        other) fails a run that otherwise succeeded; a failed run keeps its own error and core only logs this one.
+        After a seal it made, it rotates the segment when segment_max_bytes / segment_max_age is passed; a rotation failure is a seal failure too (counted and handled by
         seal_failure_policy; the run stays sealed). With auto-rotation it also finishes an interrupted rotation (logged
         at WARNING) and retries the seal once."""
         run_id = run.run_id
