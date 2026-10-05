@@ -2163,60 +2163,6 @@ class TestAuditExtenderSealing:
         assert not self._archive(audit_path).exists()
         assert not self._archive(manifest_path).exists()
 
-    def test_a_rotation_failure_under_the_log_policy_logs_at_error_without_the_message_and_keeps_the_seal(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        extender, _, manifest_path, _ = self._rotating_extender(tmp_path, segment_max_bytes=1)
-
-        with patch.object(
-            audit_extender_module, "rotate_ndjson_segment", side_effect=RuntimeError("secret-record-data")
-        ):
-            with caplog.at_level(logging.ERROR):
-                extender.on_run_complete("run-1")  # must not raise
-
-        errors = [r for r in caplog.records if r.levelno == logging.ERROR and r.name == audit_extender_module.__name__]
-        assert any(
-            "rotat" in r.getMessage() and "RuntimeError" in r.getMessage() and "run-1" in r.getMessage() for r in errors
-        )
-        assert not any("secret-record-data" in r.getMessage() for r in errors)
-        assert extender.seal_failures == 1
-        assert json.loads(manifest_path.read_text(encoding="utf-8").splitlines()[-1])["run_id"] == "run-1"
-
-    def test_a_manifest_verification_error_from_the_rotation_is_logged_with_its_type(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        extender, _, _, _ = self._rotating_extender(tmp_path, segment_max_bytes=1)
-
-        with patch.object(
-            audit_extender_module, "rotate_ndjson_segment", side_effect=ManifestVerificationError("rolled back")
-        ):
-            with caplog.at_level(logging.ERROR):
-                extender.on_run_complete("run-1")
-
-        errors = [r for r in caplog.records if r.levelno == logging.ERROR and r.name == audit_extender_module.__name__]
-        assert any("rotat" in r.getMessage() and "ManifestVerificationError" in r.getMessage() for r in errors)
-        assert extender.seal_failures == 1
-
-    def test_a_rotation_failure_under_the_raise_policy_reraises_and_counts(self, tmp_path: Path) -> None:
-        extender, _, _, _ = self._rotating_extender(tmp_path, segment_max_bytes=1, seal_failure_policy="raise")
-
-        with patch.object(audit_extender_module, "rotate_ndjson_segment", side_effect=RuntimeError("boom")):
-            with pytest.raises(RuntimeError, match="boom"):
-                extender.on_run_complete("run-1")
-
-        assert extender.seal_failures == 1
-
-    def test_a_rotation_failure_calls_a_callable_policy_once(self, tmp_path: Path) -> None:
-        callback = Mock()
-        extender, _, _, _ = self._rotating_extender(tmp_path, segment_max_bytes=1, seal_failure_policy=callback)
-        boom = RuntimeError("boom")
-
-        with patch.object(audit_extender_module, "rotate_ndjson_segment", side_effect=boom):
-            extender.on_run_complete("run-1")
-
-        callback.assert_called_once_with("run-1", boom)
-        assert extender.seal_failures == 1
-
     @pytest.mark.parametrize("policy", ["log", "raise"])
     def test_not_a_failure_run_not_pending(self, tmp_path: Path, policy: Any) -> None:
         extender = self._failing_seal_extender(tmp_path, seal_failure_policy=policy)
@@ -2318,36 +2264,61 @@ class TestAuditExtenderSealing:
 
         assert extender.seal_failures == 2
 
-    def test_log_policy_logs_at_error_naming_the_exception_type_and_not_the_message(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        extender = self._failing_seal_extender(tmp_path)
+    @staticmethod
+    def _failing_stage_extender(tmp_path: Path, stage: str, **kwargs: Any) -> tuple[AuditExtender, str]:
+        """The extender whose run-1 auto-seal or post-seal rotation is patched to fail, and the name to patch."""
+        if stage == "seal":
+            return TestAuditExtenderSealing._failing_seal_extender(tmp_path, **kwargs), "seal_ndjson_runs"
+        extender = TestAuditExtenderSealing._rotating_extender(tmp_path, segment_max_bytes=1, **kwargs)[0]
+        return extender, "rotate_ndjson_segment"
 
-        with patch.object(audit_extender_module, "seal_ndjson_runs", side_effect=RuntimeError("secret-record-data")):
+    @pytest.mark.parametrize(
+        ("stage", "error"),
+        [
+            ("seal", RuntimeError("secret-record-data")),
+            ("rotate", RuntimeError("secret-record-data")),
+            ("rotate", ManifestVerificationError("rolled back")),
+        ],
+        ids=["seal", "rotate", "rotate_manifest_verification"],
+    )
+    def test_log_policy_logs_at_error_naming_the_exception_type_and_not_the_message(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, stage: str, error: Exception
+    ) -> None:
+        extender, target = self._failing_stage_extender(tmp_path, stage)
+
+        with patch.object(audit_extender_module, target, side_effect=error):
             with caplog.at_level(logging.ERROR):
                 extender.on_run_complete("run-1")  # must not raise
 
         errors = [r for r in caplog.records if r.levelno == logging.ERROR and r.name == audit_extender_module.__name__]
-        assert any("RuntimeError" in r.getMessage() and "run-1" in r.getMessage() for r in errors)
-        assert not any("secret-record-data" in r.getMessage() for r in errors)
+        assert any(type(error).__name__ in r.getMessage() and "run-1" in r.getMessage() for r in errors)
+        if isinstance(error, RuntimeError):
+            assert not any("secret-record-data" in r.getMessage() for r in errors)
+        if stage == "rotate":
+            _, manifest_path = _sealing_config(tmp_path)
+            assert any("rotat" in r.getMessage() for r in errors)
+            assert extender.seal_failures == 1
+            assert json.loads(manifest_path.read_text(encoding="utf-8").splitlines()[-1])["run_id"] == "run-1"
 
+    @pytest.mark.parametrize("stage", ["seal", "rotate"])
     def test_callable_policy_is_called_once_with_run_id_and_the_exception_and_nothing_is_raised(
-        self, tmp_path: Path
+        self, tmp_path: Path, stage: str
     ) -> None:
         callback = Mock()
-        extender = self._failing_seal_extender(tmp_path, seal_failure_policy=callback)
+        extender, target = self._failing_stage_extender(tmp_path, stage, seal_failure_policy=callback)
         boom = RuntimeError("boom")
 
-        with patch.object(audit_extender_module, "seal_ndjson_runs", side_effect=boom):
+        with patch.object(audit_extender_module, target, side_effect=boom):
             extender.on_run_complete("run-1")
 
         callback.assert_called_once_with("run-1", boom)
         assert extender.seal_failures == 1
 
-    def test_raise_policy_reraises_the_exception_and_still_counts(self, tmp_path: Path) -> None:
-        extender = self._failing_seal_extender(tmp_path, seal_failure_policy="raise")
+    @pytest.mark.parametrize("stage", ["seal", "rotate"])
+    def test_raise_policy_reraises_the_exception_and_still_counts(self, tmp_path: Path, stage: str) -> None:
+        extender, target = self._failing_stage_extender(tmp_path, stage, seal_failure_policy="raise")
 
-        with patch.object(audit_extender_module, "seal_ndjson_runs", side_effect=RuntimeError("boom")):
+        with patch.object(audit_extender_module, target, side_effect=RuntimeError("boom")):
             with pytest.raises(RuntimeError, match="boom"):
                 extender.on_run_complete("run-1")
 
