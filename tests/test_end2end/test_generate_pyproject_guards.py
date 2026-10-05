@@ -1,7 +1,7 @@
 """Robustness guards for scripts/generate_pyproject.py.
 
 The generator is the single source of truth for every package's
-``pyproject.toml`` and for the root mloda-core pin. Three silent-failure modes
+``pyproject.toml`` and for the root mloda-core pin. Four silent-failure modes
 must be turned into loud failures:
 
 Guard 1 -- a missing ``[defaults].core_dependency`` must raise, not silently
@@ -12,6 +12,8 @@ entry cannot be synced, instead of returning 0 and leaving a stale pin.
 
 Guard 3 -- a meta-package (``workspace_deps``) flagged ``py_typed`` must raise,
 instead of emitting ``packages = []`` and a wheel without its PEP 561 marker.
+
+Guard 4 -- a configured package path with no Python package of its own must raise, not yield ``packages = []``.
 
 The generator lives at ``scripts/generate_pyproject.py`` (a script, not an
 installed package), so it is loaded here by file path.
@@ -131,6 +133,11 @@ def test_write_mode_exits_nonzero_when_root_entry_missing(tmp_path: Path, monkey
     (tmp_path / "config").mkdir()
     shutil.copy(_REPO_ROOT / "config" / "shared.toml", tmp_path / "config" / "shared.toml")
     shutil.copy(_REPO_ROOT / "config" / "packages.toml", tmp_path / "config" / "packages.toml")
+    # Every configured package path needs a Python package so the path guard does not fire first.
+    real_packages = tomllib.loads((_REPO_ROOT / "config" / "packages.toml").read_text())["packages"]
+    for real_cfg in real_packages.values():
+        (tmp_path / real_cfg["path"]).mkdir(parents=True, exist_ok=True)
+        (tmp_path / real_cfg["path"] / "__init__.py").write_text("")
 
     # Root pyproject deliberately lacks any ``mloda`` core dependency entry,
     # so update_root_core_dependency cannot find one to sync.
@@ -233,3 +240,83 @@ def test_discover_packages_excludes_real_egg_info_dirs(tmp_path: Path) -> None:
     assert not any("egg-info" in pkg for pkg in discovered), (
         f"a synthetic '.egg-info' package leaked into discovery: {discovered}"
     )
+
+
+def _leaf_config(path: str) -> dict[str, Any]:
+    """Synthetic non-bundle package config at ``path``."""
+    return {"description": "Leaf", "path": path, "dependencies": []}
+
+
+def test_validate_package_paths_raises_when_path_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A configured non-bundle package whose path does not exist must raise, naming package and path."""
+    monkeypatch.chdir(tmp_path)
+    packages = {"mloda-ghost": _leaf_config("mloda/ghost")}
+
+    with pytest.raises(ValueError, match="mloda-ghost") as excinfo:
+        gen.validate_package_paths(packages)
+
+    assert "mloda/ghost" in str(excinfo.value)
+
+
+def test_validate_package_paths_raises_when_init_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An existing directory without ``__init__.py`` has no Python package and must raise."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "mloda" / "empty").mkdir(parents=True)
+    packages = {"mloda-empty": _leaf_config("mloda/empty")}
+
+    with pytest.raises(ValueError, match="mloda-empty") as excinfo:
+        gen.validate_package_paths(packages)
+
+    assert "mloda/empty" in str(excinfo.value)
+
+
+def test_validate_package_paths_passes_for_package_with_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The guard fires on code-less paths only, not on every package."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "mloda" / "real").mkdir(parents=True)
+    (tmp_path / "mloda" / "real" / "__init__.py").write_text("")
+    packages = {"mloda-real": _leaf_config("mloda/real")}
+
+    gen.validate_package_paths(packages)
+
+
+def test_validate_package_paths_skips_bundle_and_meta_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An entry_point_bundle and a workspace_deps meta-package may have no own code."""
+    monkeypatch.chdir(tmp_path)
+    packages = {
+        "mloda-bundle": {**_leaf_config("mloda/bundle"), "entry_point_bundle": True},
+        "mloda-meta": _meta_package_config(),
+    }
+
+    gen.validate_package_paths(packages)
+
+
+def test_validate_package_paths_raises_when_only_nested_package_has_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Code under a nested configured package's path is excluded, so the parent discovers nothing of its own."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "mloda" / "parent" / "child").mkdir(parents=True)
+    (tmp_path / "mloda" / "parent" / "child" / "__init__.py").write_text("")
+    packages = {
+        "mloda-parent": _leaf_config("mloda/parent"),
+        "mloda-child": _leaf_config("mloda/parent/child"),
+    }
+
+    with pytest.raises(ValueError, match="mloda-parent"):
+        gen.validate_package_paths(packages)
+
+
+def test_main_raises_when_configured_package_has_no_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """main() must surface a code-less configured package before generating anything."""
+    (tmp_path / "config").mkdir()
+    shutil.copy(_REPO_ROOT / "config" / "shared.toml", tmp_path / "config" / "shared.toml")
+    (tmp_path / "config" / "packages.toml").write_text(
+        '[packages.mloda-ghost]\ndescription = "Ghost"\npath = "mloda/ghost"\ndependencies = []\n'
+    )
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "sandbox-root"\ndependencies = []\n')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["generate_pyproject.py"])
+
+    with pytest.raises(ValueError, match="mloda-ghost"):
+        gen.main()

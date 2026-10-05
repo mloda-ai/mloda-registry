@@ -804,6 +804,19 @@ def update_root_core_dependency(shared: dict[str, Any], check: bool = False) -> 
     return True, "updated"
 
 
+def validate_package_paths(packages: dict[str, dict[str, Any]]) -> None:
+    """Raise if a code-bearing configured package has no Python package at its path."""
+    for name, cfg in packages.items():
+        if "workspace_deps" in cfg or cfg.get("entry_point_bundle"):
+            continue
+        nested = sorted(packages[n]["path"] for n in nested_package_names(cfg["path"], packages))
+        if not discover_packages(cfg["path"], nested):
+            raise ValueError(
+                f"{name}: no Python package found at {cfg['path']} (needs a directory with __init__.py); "
+                "add the code before generating"
+            )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate pyproject.toml files")
     parser.add_argument("--check", action="store_true", help="Check if files are up-to-date")
@@ -811,6 +824,7 @@ def main() -> int:
 
     shared, packages_config = load_configs()
     packages = packages_config.get("packages", {})
+    validate_package_paths(packages)
 
     errors = []
     updated = []
