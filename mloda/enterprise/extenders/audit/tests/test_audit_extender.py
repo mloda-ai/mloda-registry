@@ -52,7 +52,7 @@ from mloda.enterprise.extenders.audit import audit_extender as audit_extender_mo
 from mloda.enterprise.extenders.audit._core import _flock
 from mloda.enterprise.extenders.audit._records import _append_records, _canonical_json
 from mloda.enterprise.extenders.audit.tests import manifest_helpers
-from mloda.enterprise.extenders.audit.tests.manifest_helpers import _patch_bindings
+from mloda.enterprise.extenders.audit.tests.manifest_helpers import _Crash, _crash_on_replace, _patch_bindings
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
@@ -2138,6 +2138,73 @@ class TestAuditExtenderSealing:
         assert not self._archive(audit_path).exists()
         assert not self._archive(manifest_path).exists()
 
+    def test_carried_pending_lines_alone_over_segment_max_bytes_never_rotate(self, tmp_path: Path) -> None:
+        extender, audit_path, manifest_path, _ = self._rotating_extender(tmp_path, segment_max_bytes=1000)
+        _append_records(audit_path, [_minimal_audit_record("run-x") for _ in range(20)])
+        assert audit_path.stat().st_size > 1000
+
+        extender.on_run_complete("run-1")
+        _append_records(audit_path, [_minimal_audit_record("run-2")])
+        extender.on_run_complete("run-2")
+
+        assert extender.seal_failures == 0
+        assert not self._archive(audit_path).exists()
+        assert not self._archive(manifest_path).exists()
+
+    @staticmethod
+    def _interrupted_rotation(tmp_path: Path, **kwargs: Any) -> tuple[AuditExtender, Path, Path]:
+        """run-1 sealed under "log-a", a pending run-2 record, a manual rotation crashed at its first os.replace;
+        returns a fresh extender over that state."""
+        _, audit_path, manifest_path, _ = TestAuditExtenderSealing._rotating_extender(tmp_path)
+        _append_records(audit_path, [_minimal_audit_record("run-2")])
+        sealer = _second_extender_over_same_sealing_config(audit_path, manifest_path, _hmac_signer(), log_id="log-a")
+        sealer.on_run_complete("run-1")
+        with patch("os.replace", _crash_on_replace(1)):
+            with pytest.raises(_Crash):
+                rotate_ndjson_segment(audit_path, manifest_path, signer=_hmac_signer(), log_id="log-a")
+        extender = _second_extender_over_same_sealing_config(
+            audit_path, manifest_path, _hmac_signer(), log_id="log-a", **kwargs
+        )
+        return extender, audit_path, manifest_path
+
+    @pytest.mark.parametrize("auto", [True, False], ids=["auto", "no_auto"])
+    def test_an_interrupted_rotation_is_finished_and_the_seal_retried_only_under_auto_rotation(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, auto: bool
+    ) -> None:
+        extender, audit_path, manifest_path = self._interrupted_rotation(
+            tmp_path, **({"segment_max_bytes": 10**9} if auto else {})
+        )
+
+        with caplog.at_level(logging.WARNING):
+            extender.on_run_complete("run-2")
+
+        last = json.loads(manifest_path.read_text(encoding="utf-8").splitlines()[-1])
+        warnings = [
+            r for r in caplog.records if r.levelno == logging.WARNING and "interrupted rotation" in r.getMessage()
+        ]
+        if auto:
+            assert extender.seal_failures == 0
+            assert self._archive(audit_path).exists()
+            assert last["run_id"] == "run-2"
+            assert len(warnings) == 1
+            assert "run-2" in warnings[0].getMessage()
+        else:
+            assert extender.seal_failures == 1
+            assert last.get("run_id") != "run-2"
+
+    def test_a_failure_finishing_an_interrupted_rotation_is_one_seal_failure_under_the_policy(
+        self, tmp_path: Path
+    ) -> None:
+        policy = Mock()
+        extender, _, _ = self._interrupted_rotation(tmp_path, segment_max_bytes=10**9, seal_failure_policy=policy)
+        error = RuntimeError("finish boom")
+
+        with patch.object(audit_extender_module, "_rotate", side_effect=error):
+            extender.on_run_complete("run-2")
+
+        assert extender.seal_failures == 1
+        policy.assert_called_once_with("run-2", error)
+
     @pytest.mark.parametrize("policy", ["log", "raise"])
     def test_not_a_failure_run_not_pending(self, tmp_path: Path, policy: Any) -> None:
         extender = self._failing_seal_extender(tmp_path, seal_failure_policy=policy)
@@ -2245,7 +2312,7 @@ class TestAuditExtenderSealing:
         if stage == "seal":
             return TestAuditExtenderSealing._failing_seal_extender(tmp_path, **kwargs), "seal_ndjson_runs"
         extender = TestAuditExtenderSealing._rotating_extender(tmp_path, segment_max_bytes=1, **kwargs)[0]
-        return extender, "rotate_ndjson_segment"
+        return extender, "_rotate"
 
     @pytest.mark.parametrize(
         ("stage", "error"),

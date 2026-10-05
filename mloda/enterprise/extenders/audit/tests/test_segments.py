@@ -36,6 +36,8 @@ from mloda.enterprise.extenders.audit.tests.manifest_helpers import (
     _assert_raises_and_unchanged,
     _both_algorithms,
     _canonical,
+    _Crash,
+    _crash_on_replace,
     _genesis_entry,
     _genesis_log,
     _lock_refused,
@@ -83,24 +85,6 @@ def _rotated_with_stray(directory: Path) -> tuple[Path, Path]:
     _rotate_segment(audit_path, manifest_path)
     _write_records(audit_path, [_record("run-a", 9)])
     return audit_path, manifest_path
-
-
-class _Crash(BaseException):
-    """Stands for the process dying: no `except Exception` cleanup runs."""
-
-
-def _crash_on_replace(call_number: int) -> Callable[[Any, Any], None]:
-    """An os.replace that raises _Crash on its `call_number`th call and otherwise replaces."""
-    real_replace = os.replace
-    calls: list[Any] = []
-
-    def replace(source: Any, target: Any) -> None:
-        calls.append(source)
-        if len(calls) == call_number:
-            raise _Crash()
-        real_replace(source, target)
-
-    return replace
 
 
 def _crashed_rotation(directory: Path, call_number: int) -> tuple[Path, Path, dict[str, bytes]]:
@@ -530,7 +514,7 @@ class TestSegmentRotation:
         for live in (audit_path, manifest_path):
             assert live.stat().st_nlink > 1
             assert _same_inode(live, _archive(live))
-        with pytest.raises(ValueError, match="rotate_ndjson_segment"):
+        with pytest.raises(_segments._InterruptedRotationError, match="rotate_ndjson_segment"):
             calls[blocked]()
 
         assert _snapshot(tmp_path) == before
@@ -587,6 +571,76 @@ class TestSegmentRotation:
         assert _archives(tmp_path) == ["audit.ndjson.000001", "manifests.ndjson.000001"]
         assert [line["run_id"] for line in _read_lines(audit_path)] == ["run-p", "run-p", "run-n"]
         assert manifest_path.stat().st_nlink == 1
+        verify_ndjson_log(audit_path, manifest_path, signer=_signer(), log_id="log-a")
+
+    @pytest.mark.parametrize(
+        ("threshold", "due"),
+        [
+            ("bytes-over-file-under-archivable", False),
+            ("bytes-due", True),
+            ("age-due", True),
+            ("age-not-due", False),
+        ],
+    )
+    def test_rotate_with_thresholds_rotates_only_when_due(self, tmp_path: Path, threshold: str, due: bool) -> None:
+        audit_path, manifest_path = _pending_log(tmp_path)
+        if threshold == "age-due":
+            audit_path.unlink()
+            manifest_path.unlink()
+            _write_records(audit_path, [_record("run-a", 1), _record("run-b", 2), _record("run-c", 3)])
+            old = _genesis_entry(_signer(), log_id="log-a", created_at="2020-01-01T00:00:00.000000Z")
+            manifest_path.write_bytes(_canonical(old) + b"\n")
+            seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), log_id="log-a")
+        lines = audit_path.read_bytes().splitlines(keepends=True)
+        archivable = audit_path.stat().st_size - len(b"".join(line for line in lines if b'"run-p"' in line))
+        assert archivable < audit_path.stat().st_size or threshold == "age-due"
+        cases: dict[str, dict[str, Any]] = {
+            "bytes-over-file-under-archivable": {"min_archived_bytes": archivable + 1},
+            "bytes-due": {"min_archived_bytes": archivable},
+            "age-due": {"min_age": timedelta(hours=1)},
+            "age-not-due": {"min_age": timedelta(days=365 * 1000)},
+        }
+        kwargs = cases[threshold]
+        before = _snapshot(tmp_path)
+
+        genesis = _segments._rotate(audit_path, manifest_path, signer=_signer(), log_id="log-a", **kwargs)
+
+        if due:
+            assert genesis is not None
+            assert _read_lines(manifest_path) == [genesis]
+            assert _archives(tmp_path) == ["audit.ndjson.000001", "manifests.ndjson.000001"]
+        else:
+            assert genesis is None
+            assert _snapshot(tmp_path) == before
+
+    def test_rotate_called_twice_with_due_thresholds_rotates_once(self, tmp_path: Path) -> None:
+        audit_path, manifest_path = _pending_log(tmp_path)
+
+        first = _segments._rotate(audit_path, manifest_path, signer=_signer(), log_id="log-a", min_archived_bytes=1)
+        second = _segments._rotate(audit_path, manifest_path, signer=_signer(), log_id="log-a", min_archived_bytes=1)
+
+        assert first is not None
+        assert second is None
+        assert _archives(tmp_path) == ["audit.ndjson.000001", "manifests.ndjson.000001"]
+
+    @pytest.mark.parametrize("call_number", [1, 2])
+    def test_rotate_finishes_an_interrupted_rotation_even_when_the_thresholds_are_not_due(
+        self, tmp_path: Path, call_number: int
+    ) -> None:
+        audit_path, manifest_path, _ = _crashed_rotation(tmp_path, call_number)
+
+        genesis = _segments._rotate(
+            audit_path,
+            manifest_path,
+            signer=_signer(),
+            log_id="log-a",
+            min_archived_bytes=10**9,
+            min_age=timedelta(days=10**4),
+        )
+
+        assert genesis is not None
+        assert _archives(tmp_path) == ["audit.ndjson.000001", "manifests.ndjson.000001"]
+        assert _read_lines(manifest_path) == [genesis]
         verify_ndjson_log(audit_path, manifest_path, signer=_signer(), log_id="log-a")
 
     def test_a_sink_write_that_opened_the_old_audit_file_before_the_swap_lands_in_the_new_one(

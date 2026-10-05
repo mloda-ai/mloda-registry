@@ -8,7 +8,7 @@ import json
 import logging
 import os
 from collections.abc import Callable, Iterable, Mapping
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
@@ -26,8 +26,8 @@ from mloda.enterprise.extenders.audit._core import (
 )
 from mloda.enterprise.extenders.audit._records import _append_records as _append_records
 from mloda.enterprise.extenders.audit._records import _canonical_json as _canonical_json
-from mloda.enterprise.extenders.audit._records import _is_blank, _parse_event_time, _utc_now
-from mloda.enterprise.extenders.audit._segments import rotate_ndjson_segment
+from mloda.enterprise.extenders.audit._records import _is_blank, _utc_now
+from mloda.enterprise.extenders.audit._segments import _genesis_older_than, _InterruptedRotationError, _rotate
 from mloda.enterprise.extenders.audit._signers import ManifestSigner, _signer_map
 from mloda.enterprise.extenders.audit.run_manifest import (
     _check_run_against_seal,
@@ -174,8 +174,9 @@ class AuditExtender(Extender):
     mismatch with an existing seal) increments the public seal_failures counter and follows seal_failure_policy:
     "log" (default), "raise", or a callable(run_id, exc). Core contains an exception raised from on_run_complete,
     so "raise" does not fail the finished run. segment_max_bytes / segment_max_age (need log_id) rotate the segment
-    after an auto-seal once the audit file reaches that size or the segment that age; a rotation failure counts in
-    seal_failures and follows seal_failure_policy. seal_index_path opts into a rebuildable seal index cache; it needs
+    after an auto-seal once the sealed bytes a rotation would archive reach that size (carried pending runs do not
+    count) or the segment that age; a rotation failure counts in seal_failures and follows seal_failure_policy.
+    seal_index_path opts into a rebuildable seal index cache; it needs
     the sealing config and must not alias audit_path, manifest_path or the anchor path."""
 
     def __init__(
@@ -336,7 +337,8 @@ class AuditExtender(Extender):
         "raise" it propagates; core logs it at ERROR and never fails the run because of it, regardless of
         raise_on_error/fail_closed. After a seal it made, it rotates the segment when segment_max_bytes /
         segment_max_age is passed; a rotation failure is a seal failure too (counted and handled by
-        seal_failure_policy; the run stays sealed)."""
+        seal_failure_policy; the run stays sealed). With auto-rotation it also finishes an interrupted rotation (logged
+        at WARNING) and retries the seal once."""
         if run_id is None:
             return
         self._run_sealed.pop(run_id, None)  # the run is over: a later call re-reads the manifest log
@@ -361,23 +363,18 @@ class AuditExtender(Extender):
             )
             return
         try:
-            anchors: list[str] = []
-            if self._head_anchor is not None:
-                latest = self._head_anchor.latest()
-                if latest is not None:
-                    anchors.append(latest)
-            seal_ndjson_runs(
-                self._audit_path,
-                self._manifest_path,
-                signer=self._signer,
-                previous_signers=self._previous_signers,
-                run_id=run_id,
-                sealed_late=False,
-                log_id=self._log_id,
-                head_anchor=self._head_anchor,
-                anchored_heads=anchors,
-                seal_index_path=self._seal_index_path,
-            )
+            try:
+                self._seal(run_id)
+            except _InterruptedRotationError:
+                if self._segment_max_bytes is None and self._segment_max_age is None:
+                    raise
+                logger.warning(
+                    "AuditExtender: finishing an interrupted rotation of manifest_path %s before sealing run_id %r",
+                    self._manifest_path,
+                    run_id,
+                )
+                self._rotate_now(min_bytes=self._segment_max_bytes, min_age=self._segment_max_age)
+                self._seal(run_id)
         except RunAlreadySealedError:
             try:
                 _check_run_against_seal(
@@ -410,34 +407,51 @@ class AuditExtender(Extender):
         else:
             self._rotate_if_due(run_id)
 
+    def _anchored_heads(self) -> list[str]:
+        latest = self._head_anchor.latest() if self._head_anchor is not None else None
+        return [latest] if latest is not None else []
+
+    def _seal(self, run_id: str) -> None:
+        assert self._audit_path is not None and self._manifest_path is not None and self._signer is not None
+        seal_ndjson_runs(
+            self._audit_path,
+            self._manifest_path,
+            signer=self._signer,
+            previous_signers=self._previous_signers,
+            run_id=run_id,
+            sealed_late=False,
+            log_id=self._log_id,
+            head_anchor=self._head_anchor,
+            anchored_heads=self._anchored_heads(),
+            seal_index_path=self._seal_index_path,
+        )
+
+    def _rotate_now(self, *, min_bytes: int | None, min_age: timedelta | None) -> None:
+        assert self._audit_path is not None and self._manifest_path is not None
+        assert self._signer is not None and self._log_id is not None
+        _rotate(
+            self._audit_path,
+            self._manifest_path,
+            signer=self._signer,
+            previous_signers=self._previous_signers,
+            log_id=self._log_id,
+            anchored_heads=self._anchored_heads(),
+            head_anchor=self._head_anchor,
+            min_archived_bytes=min_bytes,
+            min_age=min_age,
+        )
+
     def _rotate_if_due(self, run_id: str) -> None:
         if self._segment_max_bytes is None and self._segment_max_age is None:
             return
         assert self._audit_path is not None and self._manifest_path is not None
-        assert self._signer is not None and self._log_id is not None
         try:
             due = self._segment_max_bytes is not None and os.path.getsize(self._audit_path) >= self._segment_max_bytes
             if not due and self._segment_max_age is not None:
                 with open(self._manifest_path, encoding="utf-8") as handle:
-                    genesis = json.loads(handle.readline())
-                age = datetime.now(timezone.utc) - _parse_event_time(genesis["created_at"])
-                due = age >= self._segment_max_age
-            if not due:
-                return
-            anchors: list[str] = []
-            if self._head_anchor is not None:
-                latest = self._head_anchor.latest()
-                if latest is not None:
-                    anchors.append(latest)
-            rotate_ndjson_segment(
-                self._audit_path,
-                self._manifest_path,
-                signer=self._signer,
-                previous_signers=self._previous_signers,
-                log_id=self._log_id,
-                anchored_heads=anchors,
-                head_anchor=self._head_anchor,
-            )
+                    due = _genesis_older_than(json.loads(handle.readline()), self._segment_max_age)
+            if due:
+                self._rotate_now(min_bytes=self._segment_max_bytes, min_age=self._segment_max_age)
         except Exception as exc:
             self._seal_failed(run_id, exc, action="rotating the segment after sealing")
 

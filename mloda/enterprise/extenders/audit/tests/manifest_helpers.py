@@ -607,6 +607,24 @@ _RECOVERIES: dict[str, _Recovery] = {
 _both_recoveries = pytest.mark.parametrize("recovery", list(_RECOVERIES.values()), ids=list(_RECOVERIES))
 
 
+class _Crash(BaseException):
+    """Stands for the process dying: no `except Exception` cleanup runs."""
+
+
+def _crash_on_replace(call_number: int) -> Callable[[Any, Any], None]:
+    """An os.replace that raises _Crash on its `call_number`th call and otherwise replaces."""
+    real_replace = os.replace
+    calls: list[Any] = []
+
+    def replace(source: Any, target: Any) -> None:
+        calls.append(source)
+        if len(calls) == call_number:
+            raise _Crash()
+        real_replace(source, target)
+
+    return replace
+
+
 def _snapshot(directory: Path) -> dict[str, bytes]:
     return {path.name: path.read_bytes() for path in sorted(directory.iterdir())}
 
