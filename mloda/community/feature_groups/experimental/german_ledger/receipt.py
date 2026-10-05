@@ -19,12 +19,17 @@ PACKAGE = "mloda-community-german-ledger"
 _SUFFIX = "~receipt"
 
 
+# The leaf is unpublished, so a normal install ships this code inside the bundle wheel.
+_DISTRIBUTIONS = (PACKAGE, "mloda-community")
+
+
 def _package() -> dict[str, Any]:
-    try:
-        version: str | None = metadata.version(PACKAGE)
-    except metadata.PackageNotFoundError:
-        version = None
-    return {"name": PACKAGE, "version": version}
+    for distribution in _DISTRIBUTIONS:
+        try:
+            return {"name": PACKAGE, "version": metadata.version(distribution), "distribution": distribution}
+        except metadata.PackageNotFoundError:
+            continue
+    return {"name": PACKAGE, "version": None, "distribution": None}
 
 
 def _names(groups: Any) -> list[str]:
@@ -65,7 +70,7 @@ def evidence_receipts(result: Any, diagnosis: Any = None) -> list[dict[str, Any]
     The total's own receipt says which policy admitted its rows, which profile, chart and
     catalogue defined it, and who ran it. This adds the framework's side, taken from
     `RunResult` rather than invented: the step that produced the frame, the compute steps of
-    the plan, the citations read field by field, and this package's version.
+    the plan, the citations read field by field, and this package's version with the distribution it was read from.
 
     With a `mloda.diagnose` of the same request it also says why each producer answered
     (`resolution`). A diagnosis whose chosen groups differ from the plan's is refused: it would
