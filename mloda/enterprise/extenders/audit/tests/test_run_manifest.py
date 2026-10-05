@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import pickle  # nosec
+import re
 import stat
 import sys
 from collections.abc import Callable
@@ -218,6 +219,15 @@ _FACADE_HOMES = [
     *((n, "_segments") for n in ("rotate_ndjson_segment", "verify_ndjson_segments")),
 ]
 
+_RECORDED_EXCEPTIONS = (
+    "ManifestVerificationError",
+    "RunNotPendingError",
+    "RunAlreadySealedError",
+    "KeyAlreadyCurrentError",
+)
+_FACADE_MODULE = "mloda.enterprise.extenders.audit.run_manifest"
+_NON_CONSTANT_HOMES = [(n, h) for n, h in _FACADE_HOMES if n != "MAX_LINE_BYTES"]
+
 
 def _defined_names(tree: ast.Module) -> set[str]:
     """Names a module defines at top level (def, class, assignment)."""
@@ -316,9 +326,26 @@ class TestRunManifestPublicApi:
         if hasattr(audit_package, name):
             assert getattr(audit_package, name) is getattr(run_manifest_module, name)
 
-    @pytest.mark.parametrize("name, home", [(n, h) for n, h in _FACADE_HOMES if n != "MAX_LINE_BYTES"])
-    def test_facade_names_report_the_facade_as_their_module(self, name: str, home: str) -> None:
-        assert getattr(run_manifest_module, name).__module__ == "mloda.enterprise.extenders.audit.run_manifest"
+    @pytest.mark.parametrize("name, home", _NON_CONSTANT_HOMES)
+    def test_facade_names_report_their_expected_module(self, name: str, home: str) -> None:
+        expected = _FACADE_MODULE if name in _RECORDED_EXCEPTIONS else f"mloda.enterprise.extenders.audit.{home}"
+        assert getattr(run_manifest_module, name).__module__ == expected
+
+    @pytest.mark.parametrize("name, home", [(n, h) for n, h in _NON_CONSTANT_HOMES if n not in _RECORDED_EXCEPTIONS])
+    def test_facade_names_resolve_their_source_in_the_defining_module(self, name: str, home: str) -> None:
+        obj = getattr(run_manifest_module, name)
+        package = Path(audit_package.__file__ or "").parent
+        assert inspect.getsourcefile(obj) == str(package / f"{home}.py")
+        assert re.search(rf"^(class|def) {name}\b", inspect.getsource(obj), re.MULTILINE)
+
+    @pytest.mark.parametrize("name", _RECORDED_EXCEPTIONS)
+    def test_recorded_exceptions_keep_their_error_type_and_pickle(self, name: str) -> None:
+        cls = getattr(run_manifest_module, name)
+        assert cls.__qualname__ == name
+        assert audit_extender_module._error_type(cls("x")) == f"{_FACADE_MODULE}.{name}"
+        restored = pickle.loads(pickle.dumps(cls("x")))  # nosec
+        assert type(restored) is cls
+        assert str(restored) == "x"
 
     def test_audit_source_modules_import_only_downward_and_only_from_the_defining_module(self) -> None:
         package = Path(audit_package.__file__ or "").parent

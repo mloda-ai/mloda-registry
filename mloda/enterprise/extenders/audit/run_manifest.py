@@ -130,29 +130,15 @@ from mloda.enterprise.extenders.audit._verify import manifest_hash as manifest_h
 from mloda.enterprise.extenders.audit._verify import seal_run as seal_run
 from mloda.enterprise.extenders.audit._verify import verify_manifest as verify_manifest
 
-# Keep reporting the facade as the defining module (tracebacks, pickles, _error_type), as before the split.
+# _error_type records the module of these exceptions in audit records, and tracebacks print it.
 for _public in (
-    QuarantinedLine,
-    quarantine_damaged_lines,
-    quarantine_from_rotation_entry,
-    verify_quarantine_log,
-    rotate_ndjson_segment,
-    verify_ndjson_segments,
-    Ed25519Signer,
-    HmacSha256Signer,
-    ManifestSigner,
-    HeadAnchor,
     KeyAlreadyCurrentError,
-    LogCoverage,
     ManifestVerificationError,
-    NdjsonHeadAnchor,
     RunAlreadySealedError,
     RunNotPendingError,
-    manifest_hash,
-    seal_run,
-    verify_manifest,
 ):
     setattr(_public, "__module__", __name__)
+del _public
 
 logger = logging.getLogger(__name__)
 
