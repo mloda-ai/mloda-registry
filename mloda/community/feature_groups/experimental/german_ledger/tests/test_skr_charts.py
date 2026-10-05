@@ -26,9 +26,9 @@ import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature
 
-from mloda.community.feature_groups.german_ledger.datev import SOLL_POSITIVE, VORZEICHEN, DatevExtfReader
-from mloda.community.feature_groups.german_ledger.reader import ADMISSIBILITY_COLUMN
-from mloda.community.feature_groups.german_ledger.skr import (
+from mloda.community.feature_groups.experimental.german_ledger.datev import SOLL_POSITIVE, VORZEICHEN, DatevExtfReader
+from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN
+from mloda.community.feature_groups.experimental.german_ledger.skr import (
     SKR03_2025,
     SKR04_2025,
     AccountLengthUnsupported,
@@ -345,6 +345,6 @@ def test_an_unknown_profile_convention_is_refused_when_the_profile_is_made() -> 
     ],
 )
 def test_the_automatic_accounts_are_those_with_a_taxable_default(chart_key: str, account: int, gross: bool) -> None:
-    from mloda.community.feature_groups.german_ledger.skr import AUTOMATIC_REVENUE
+    from mloda.community.feature_groups.experimental.german_ledger.skr import AUTOMATIC_REVENUE
 
     assert (account in AUTOMATIC_REVENUE[chart_key]) is gross

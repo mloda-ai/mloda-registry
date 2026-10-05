@@ -286,7 +286,7 @@ entry_point_groups = ["mloda.feature_groups"]
 [packages.mloda-community-german-ledger]
 description = "Cited, admissible totals from GDPdU dossiers and DATEV EXTF batches, for mloda"
 dependencies = ["{core_dependency}", "pyarrow", "defusedxml>=0.7"]
-path = "mloda/community/feature_groups/german_ledger"
+path = "mloda/community/feature_groups/experimental/german_ledger"
 has_readme = true
 optional_dependencies = { dev = ["types-defusedxml"] }
 

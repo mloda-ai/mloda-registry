@@ -19,8 +19,8 @@ import pytest
 from mloda.provider import FeatureSet
 from mloda.user import Feature, Options
 
-from mloda.community.feature_groups.german_ledger.datev import DatevExtfReader, DatevRefusal
-from mloda.community.feature_groups.german_ledger.reader import GdpduReader
+from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader, DatevRefusal
+from mloda.community.feature_groups.experimental.german_ledger.reader import GdpduReader
 
 HERE = Path(__file__).parent
 LEDERMANN = HERE / "fixtures" / "datev_ledermann"
@@ -473,7 +473,7 @@ def _run(folder: Path, features: list[str | Feature]) -> Any:
 
     # `from ... import`, never `import mloda.community...`: that rebinds the name `mloda` to the
     # namespace package and hides the mloda.user.mloda API imported just above.
-    from mloda.community.feature_groups.german_ledger import skr, sources  # noqa: F401
+    from mloda.community.feature_groups.experimental.german_ledger import skr, sources  # noqa: F401
 
     from ._host import PLUGINS
 
@@ -497,7 +497,10 @@ def _cause(exc: BaseException, kind: type[BaseException]) -> BaseException | Non
 def test_a_datev_folder_resolves_to_the_datev_journal() -> None:
     from mloda.user import DataAccessCollection, Options
 
-    from mloda.community.feature_groups.german_ledger.policy import DatevJournalFeatureGroup, JournalFeatureGroup
+    from mloda.community.feature_groups.experimental.german_ledger.policy import (
+        DatevJournalFeatureGroup,
+        JournalFeatureGroup,
+    )
 
     dac = DataAccessCollection(folders={str(LEDERMANN)})
     assert DatevJournalFeatureGroup.match_feature_group_criteria("gdpdu_journal", Options(), dac)
@@ -507,7 +510,7 @@ def test_a_datev_folder_resolves_to_the_datev_journal() -> None:
 
 def test_the_late_entry_cutoff_refuses_a_datev_batch_it_cannot_evaluate() -> None:
     """DATEV has no Erfassungsdatum. The GDPdU cutoff must fail closed, not pass (§3.1 item 8)."""
-    from mloda.community.feature_groups.german_ledger.policy import LateEntryRefused
+    from mloda.community.feature_groups.experimental.german_ledger.policy import LateEntryRefused
 
     with pytest.raises(Exception) as info:
         _run(LEDERMANN, ["revenue__sources"])

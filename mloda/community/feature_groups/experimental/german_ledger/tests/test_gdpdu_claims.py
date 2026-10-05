@@ -17,13 +17,17 @@ from mloda.provider import FeatureSet
 from mloda.user import DataAccessCollection, Options, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.german_ledger.policy import (
+from mloda.community.feature_groups.experimental.german_ledger.policy import (
     AdmissibilityRefused,
     JournalFeatureGroup,
 )
-from mloda.community.feature_groups.german_ledger.reader import GdpduReader, _resolve_within, parse_descriptor
-from mloda.community.feature_groups.german_ledger.skr import SKR04_2025, SkrAccountFeatureGroup
-from mloda.community.feature_groups.german_ledger.sources import SourcesFeatureGroup  # noqa: F401
+from mloda.community.feature_groups.experimental.german_ledger.reader import (
+    GdpduReader,
+    _resolve_within,
+    parse_descriptor,
+)
+from mloda.community.feature_groups.experimental.german_ledger.skr import SKR04_2025, SkrAccountFeatureGroup
+from mloda.community.feature_groups.experimental.german_ledger.sources import SourcesFeatureGroup  # noqa: F401
 
 from ._host import PLUGINS, plugins_with
 from ._host import TestClosing2025 as Closing2025  # the one live admissibility policy in this process
@@ -224,7 +228,7 @@ def test_per_row_missing_keying_date_fails_closed() -> None:
 
 def test_unimplemented_date_format_is_refused_at_descriptor_parse() -> None:
     """Refusal belongs at parse time; at value time an unknown format escapes on empty fields."""
-    from mloda.community.feature_groups.german_ledger.reader import _civil_date, parse_descriptor
+    from mloda.community.feature_groups.experimental.german_ledger.reader import _civil_date, parse_descriptor
 
     assert _civil_date("20251231", "YYYYMMDD") == date(2025, 12, 31)
     with tempfile.TemporaryDirectory() as tmp:
@@ -322,7 +326,7 @@ def test_implied_accuracy_shifts_the_decimal_point() -> None:
 
 def test_declared_crlf_record_delimiter_survives_lf_data() -> None:
     """Exporters declare CRLF and write LF. A literal split makes the file one record."""
-    from mloda.community.feature_groups.german_ledger.reader import _records
+    from mloda.community.feature_groups.experimental.german_ledger.reader import _records
 
     spec = parse_descriptor(str(FIX / "dossier_a" / "index.xml"))
     assert spec.record_delimiter == "\r\n", "the fixture really does declare CRLF"
@@ -415,7 +419,7 @@ def test_empty_element_is_not_an_absent_element() -> None:
     """
     import defusedxml.ElementTree as ET
 
-    from mloda.community.feature_groups.german_ledger.reader import _text
+    from mloda.community.feature_groups.experimental.german_ledger.reader import _text
 
     node = ET.fromstring("<Table><DigitGroupingSymbol/></Table>")
     assert _text(node, "DigitGroupingSymbol", ".") == "", "empty element must not take the default"
@@ -548,7 +552,7 @@ def test_a_dossier_running_past_the_closed_period_yields_no_number() -> None:
         gl = d / "GL.txt"
         gl.write_text(gl.read_text() + "9;4000;7.000,00;03.02.2026;;Buchung nach Periodenende\n")
 
-        from mloda.community.feature_groups.german_ledger.sources import InadmissibleTotal
+        from mloda.community.feature_groups.experimental.german_ledger.sources import InadmissibleTotal
 
         try:
             mloda.run_all(
@@ -606,7 +610,7 @@ def test_reserved_and_duplicate_column_names_are_refused() -> None:
 
 def test_a_field_of_only_separators_is_not_a_number() -> None:
     """'.' with '.' declared as the grouping symbol strips to '', and Decimal('') raises opaquely."""
-    from mloda.community.feature_groups.german_ledger.reader import _decimal
+    from mloda.community.feature_groups.experimental.german_ledger.reader import _decimal
 
     spec = parse_descriptor(str(FIX / "dossier_a" / "index.xml"))
     assert _decimal("", spec, "Betrag") is None, "an empty field is an absent amount"
@@ -620,7 +624,7 @@ def test_a_field_of_only_separators_is_not_a_number() -> None:
 
 def test_descriptor_is_parsed_from_the_bytes_that_are_fingerprinted() -> None:
     """Reading index.xml twice would let a citation name a descriptor the table never used."""
-    from mloda.community.feature_groups.german_ledger.reader import parse_descriptor_bytes
+    from mloda.community.feature_groups.experimental.german_ledger.reader import parse_descriptor_bytes
 
     raw = (FIX / "dossier_a" / "index.xml").read_bytes()
     assert (
@@ -638,7 +642,7 @@ def test_a_field_with_digits_and_junk_names_its_column() -> None:
     """Digits alone do not make a number, and Decimal's own error names neither the column
     nor the value -- it would reach the caller as a stack trace, not a statement about the
     dossier. Same shape of message as the digit-free case."""
-    from mloda.community.feature_groups.german_ledger.reader import _decimal
+    from mloda.community.feature_groups.experimental.german_ledger.reader import _decimal
 
     spec = parse_descriptor(str(FIX / "dossier_a" / "index.xml"))
     assert str(_decimal("12.500,00", spec, "Betrag")) == "12500.00", "the good case still parses"
@@ -695,7 +699,7 @@ def test_a_profile_naming_undeclared_columns_refuses_by_name() -> None:
     from mloda.provider import FeatureSet
     from mloda.user import Feature
 
-    from mloda.community.feature_groups.german_ledger.skr import LedgerProfile
+    from mloda.community.feature_groups.experimental.german_ledger.skr import LedgerProfile
 
     # Overriding PROFILE on the base class and restoring it, rather than defining a
     # subclass: a subclass registers globally via subclass discovery and would shadow the
@@ -706,7 +710,7 @@ def test_a_profile_naming_undeclared_columns_refuses_by_name() -> None:
     fs = FeatureSet()
     fs.add(Feature("revenue"))
 
-    from mloda.community.feature_groups.german_ledger.skr import NoProfileForDossier
+    from mloda.community.feature_groups.experimental.german_ledger.skr import NoProfileForDossier
 
     original = SkrAccountFeatureGroup.PROFILES
     try:
@@ -760,7 +764,7 @@ def test_removing_the_admissibility_policy_yields_no_number() -> None:
 def test_admissibility_evidence_names_the_policy_that_attested() -> None:
     """Evidence, not a boolean: a citation attests admitted origin, so the verdict says
     which policy admitted it and under which cutoff."""
-    from mloda.community.feature_groups.german_ledger.reader import ADMISSIBILITY_COLUMN
+    from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN
 
     table = Closing2025.clear(GdpduReader.load_data(str(FIX / "dossier_a"), FeatureSet()))
 
@@ -780,7 +784,7 @@ def test_admissibility_evidence_names_the_policy_that_attested() -> None:
 
 def test_the_evidence_column_name_is_reserved_against_a_descriptor() -> None:
     """A descriptor declaring __admissibility would have its column overwritten by the stamp."""
-    from mloda.community.feature_groups.german_ledger.reader import ADMISSIBILITY_COLUMN
+    from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN
 
     injected = (
         f"<VariableColumn>\n          <Name>{ADMISSIBILITY_COLUMN}</Name>\n"
@@ -810,9 +814,9 @@ def test_a_blank_negative_or_malformed_stamp_is_not_an_admission() -> None:
     """
     import pyarrow as pa
 
-    from mloda.community.feature_groups.german_ledger.policy import AdmissibilityPolicyGroup
-    from mloda.community.feature_groups.german_ledger.reader import ADMISSIBILITY_COLUMN
-    from mloda.community.feature_groups.german_ledger.sources import InadmissibleTotal
+    from mloda.community.feature_groups.experimental.german_ledger.policy import AdmissibilityPolicyGroup
+    from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN
+    from mloda.community.feature_groups.experimental.german_ledger.sources import InadmissibleTotal
 
     # A stand-in policy in the host's place. It was an INPUT_DATA_LOAD extender, and on
     # mloda 0.14.0 (#1549) core discards what an extender returns: the fake stamp never
@@ -863,7 +867,7 @@ def test_a_blank_negative_or_malformed_stamp_is_not_an_admission() -> None:
 def test_two_policies_collide_where_the_cause_is_visible() -> None:
     """append_column permits duplicates, so a second stamp would surface as a KeyError
     deep in the transform. Refuse at the second stamp instead."""
-    from mloda.community.feature_groups.german_ledger.reader import ADMISSIBILITY_COLUMN
+    from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN
 
     once = Closing2025.clear(GdpduReader.load_data(str(FIX / "dossier_a"), FeatureSet()))
     assert ADMISSIBILITY_COLUMN in once.column_names
@@ -886,8 +890,11 @@ def test_an_attested_dossier_with_no_matching_rows_still_returns_null() -> None:
     from mloda.provider import FeatureSet
     from mloda.user import Feature
 
-    from mloda.community.feature_groups.german_ledger.reader import ADMISSIBILITY_COLUMN, admissibility_verdict
-    from mloda.community.feature_groups.german_ledger.sources import SourcesFeatureGroup
+    from mloda.community.feature_groups.experimental.german_ledger.reader import (
+        ADMISSIBILITY_COLUMN,
+        admissibility_verdict,
+    )
+    from mloda.community.feature_groups.experimental.german_ledger.sources import SourcesFeatureGroup
 
     empty = pa.table(
         {
@@ -915,7 +922,7 @@ def test_removing_the_policy_leaves_the_independent_source_with_no_number() -> N
     from mloda.provider import FeatureSet
     from mloda.user import Feature
 
-    from mloda.community.feature_groups.german_ledger.sources import InadmissibleTotal
+    from mloda.community.feature_groups.experimental.german_ledger.sources import InadmissibleTotal
 
     unstamped = pa.table(
         {
@@ -935,7 +942,7 @@ def test_removing_the_policy_leaves_the_independent_source_with_no_number() -> N
 
 def test_a_verdict_must_name_a_syntactically_valid_policy() -> None:
     """The producer fails at the point of stamping if it cannot name itself."""
-    from mloda.community.feature_groups.german_ledger.reader import admissibility_verdict, is_admitted
+    from mloda.community.feature_groups.experimental.german_ledger.reader import admissibility_verdict, is_admitted
 
     assert is_admitted(admissibility_verdict("late-entry-cutoff", lock="2026-01-15"))
     assert is_admitted("admitted:x")
@@ -969,7 +976,10 @@ def _one_concept_table(values: list[Any], origins: list[Any], scale: int = 2, st
     SourcesFeatureGroup is offered to the registry as a primitive any producer may feed, so
     its contract has to hold for tables the GDPdU chain would never build.
     """
-    from mloda.community.feature_groups.german_ledger.reader import ADMISSIBILITY_COLUMN, admissibility_verdict
+    from mloda.community.feature_groups.experimental.german_ledger.reader import (
+        ADMISSIBILITY_COLUMN,
+        admissibility_verdict,
+    )
 
     stamp = stamp or admissibility_verdict("test-policy")
     return pa.table(
@@ -1003,7 +1013,7 @@ def test_a_priced_line_with_no_citation_is_refused() -> None:
     """
     from decimal import Decimal
 
-    from mloda.community.feature_groups.german_ledger.sources import UncitedValue
+    from mloda.community.feature_groups.experimental.german_ledger.sources import UncitedValue
 
     try:
         _total([Decimal("10.00"), Decimal("20.00")], ["GL.txt@abc:1", None])
@@ -1017,7 +1027,7 @@ def test_a_blank_citation_is_not_a_citation() -> None:
     """ "" is not a source. Non-null was the whole test, so an empty string cited a total."""
     from decimal import Decimal
 
-    from mloda.community.feature_groups.german_ledger.sources import UncitedValue
+    from mloda.community.feature_groups.experimental.german_ledger.sources import UncitedValue
 
     for blank in ("", " ", "\n"):
         try:
@@ -1064,7 +1074,7 @@ def test_a_line_outside_the_closed_period_is_stamped_as_outside_it() -> None:
     """
     import datetime
 
-    from mloda.community.feature_groups.german_ledger.reader import ADMISSIBILITY_COLUMN, is_admitted
+    from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN, is_admitted
 
     table = pa.table(
         {
@@ -1139,8 +1149,11 @@ def test_a_sibling_subcolumn_cannot_become_the_total() -> None:
     from mloda.provider import FeatureSet
     from mloda.user import Feature
 
-    from mloda.community.feature_groups.german_ledger.reader import ADMISSIBILITY_COLUMN, admissibility_verdict
-    from mloda.community.feature_groups.german_ledger.sources import AmbiguousSourceColumns
+    from mloda.community.feature_groups.experimental.german_ledger.reader import (
+        ADMISSIBILITY_COLUMN,
+        admissibility_verdict,
+    )
+    from mloda.community.feature_groups.experimental.german_ledger.sources import AmbiguousSourceColumns
 
     table = pa.table(
         {
@@ -1170,7 +1183,10 @@ def test_a_binary_float_amount_is_refused_by_name() -> None:
     from mloda.provider import FeatureSet
     from mloda.user import Feature
 
-    from mloda.community.feature_groups.german_ledger.reader import ADMISSIBILITY_COLUMN, admissibility_verdict
+    from mloda.community.feature_groups.experimental.german_ledger.reader import (
+        ADMISSIBILITY_COLUMN,
+        admissibility_verdict,
+    )
 
     table = pa.table(
         {
@@ -1223,7 +1239,7 @@ def test_two_profiles_fitting_one_dossier_are_refused_not_ranked() -> None:
     from mloda.provider import FeatureSet
     from mloda.user import Feature
 
-    from mloda.community.feature_groups.german_ledger.skr import AmbiguousProfile, LedgerProfile
+    from mloda.community.feature_groups.experimental.german_ledger.skr import AmbiguousProfile, LedgerProfile
 
     table = GdpduReader.load_data(str(FIX / "dossier_a"), FeatureSet())
     fs = FeatureSet()
@@ -1311,7 +1327,7 @@ def test_get_column_names_does_not_claim_the_admissibility_column() -> None:
     Listing it here would claim a column this class does not produce -- the same silent
     overstatement the rest of this package exists to prevent, one layer down.
     """
-    from mloda.community.feature_groups.german_ledger.reader import ADMISSIBILITY_COLUMN
+    from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN
 
     columns = GdpduReader.get_column_names(str(FIX / "dossier_a"))
     assert ADMISSIBILITY_COLUMN not in columns

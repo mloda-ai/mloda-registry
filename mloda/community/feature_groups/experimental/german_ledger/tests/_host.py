@@ -10,13 +10,13 @@ from datetime import date
 
 from mloda.user import PluginCollector
 
-from mloda.community.feature_groups.german_ledger.policy import (
+from mloda.community.feature_groups.experimental.german_ledger.policy import (
     AdmissibilityPolicyGroup,
     DatevJournalFeatureGroup,
     JournalFeatureGroup,
 )
-from mloda.community.feature_groups.german_ledger.skr import SkrAccountFeatureGroup
-from mloda.community.feature_groups.german_ledger.sources import SourcesFeatureGroup
+from mloda.community.feature_groups.experimental.german_ledger.skr import SkrAccountFeatureGroup
+from mloda.community.feature_groups.experimental.german_ledger.sources import SourcesFeatureGroup
 
 
 class TestClosing2025(AdmissibilityPolicyGroup):

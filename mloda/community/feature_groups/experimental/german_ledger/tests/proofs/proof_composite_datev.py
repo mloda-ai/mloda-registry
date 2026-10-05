@@ -22,15 +22,18 @@ from mloda.provider import FeatureSet
 from mloda.user import DataAccessCollection, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.german_ledger.datev import DatevExtfReader
-from mloda.community.feature_groups.german_ledger.policy import (
+from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader
+from mloda.community.feature_groups.experimental.german_ledger.policy import (
     AdmissibilityPolicyGroup,
     Festschreibung,
     PeriodBound,
 )
-from mloda.community.feature_groups.german_ledger.reader import ADMISSIBILITY_COLUMN, is_admitted
-from mloda.community.feature_groups.german_ledger.skr import GrossRevenueRefused, SkrAccountFeatureGroup
-from mloda.community.feature_groups.german_ledger.sources import InadmissibleTotal, SourcesFeatureGroup  # noqa: F401
+from mloda.community.feature_groups.experimental.german_ledger.reader import ADMISSIBILITY_COLUMN, is_admitted
+from mloda.community.feature_groups.experimental.german_ledger.skr import GrossRevenueRefused, SkrAccountFeatureGroup
+from mloda.community.feature_groups.experimental.german_ledger.sources import (  # noqa: F401
+    InadmissibleTotal,
+    SourcesFeatureGroup,
+)
 
 LEDERMANN = Path(__file__).parent.parent / "fixtures" / "datev_ledermann"
 

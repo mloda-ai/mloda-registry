@@ -26,5 +26,5 @@ Homepage = "https://mloda.ai"
 Repository = "https://github.com/mloda-ai/mloda-registry"
 
 [tool.setuptools]
-package-dir = {"" = "../../../.."}
-packages = ["mloda.community.feature_groups.german_ledger"]
+package-dir = {"" = "../../../../.."}
+packages = ["mloda.community.feature_groups.experimental.german_ledger"]

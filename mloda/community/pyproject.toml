@@ -29,7 +29,7 @@ Repository = "https://github.com/mloda-ai/mloda-registry"
 
 [tool.setuptools]
 package-dir = {"" = "../.."}
-packages = ["mloda.community", "mloda.community.feature_groups.german_ledger"]
+packages = ["mloda.community", "mloda.community.feature_groups.experimental.german_ledger"]
 
 [tool.setuptools.package-data]
 "mloda.community" = ["py.typed"]

@@ -1328,7 +1328,7 @@ provides-extras = ["dev", "sqlite", "python-dict", "duckdb", "polars", "pandas",
 [[package]]
 name = "mloda-community-german-ledger"
 version = "0.10.0"
-source = { editable = "mloda/community/feature_groups/german_ledger" }
+source = { editable = "mloda/community/feature_groups/experimental/german_ledger" }
 dependencies = [
     { name = "defusedxml" },
     { name = "mloda" },

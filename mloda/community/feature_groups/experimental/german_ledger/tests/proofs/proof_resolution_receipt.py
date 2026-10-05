@@ -17,10 +17,10 @@ from pathlib import Path
 from mloda.user import DataAccessCollection
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.german_ledger.policy import AdmissibilityPolicyGroup
-from mloda.community.feature_groups.german_ledger.receipt import run_with_receipts
-from mloda.community.feature_groups.german_ledger.skr import SkrAccountFeatureGroup
-from mloda.community.feature_groups.german_ledger.sources import SourcesFeatureGroup  # noqa: F401
+from mloda.community.feature_groups.experimental.german_ledger.policy import AdmissibilityPolicyGroup
+from mloda.community.feature_groups.experimental.german_ledger.receipt import run_with_receipts
+from mloda.community.feature_groups.experimental.german_ledger.skr import SkrAccountFeatureGroup
+from mloda.community.feature_groups.experimental.german_ledger.sources import SourcesFeatureGroup  # noqa: F401
 
 DOSSIER_A = Path(__file__).parent.parent / "fixtures" / "dossier_a"
 

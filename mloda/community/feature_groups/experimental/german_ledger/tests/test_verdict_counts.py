@@ -15,7 +15,7 @@ import pytest
 from mloda.user import DataAccessCollection, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.german_ledger.policy import (
+from mloda.community.feature_groups.experimental.german_ledger.policy import (
     AdmissibilityRefused,
     Festschreibung,
     LateEntryCutoff,
@@ -23,9 +23,9 @@ from mloda.community.feature_groups.german_ledger.policy import (
     PeriodBound,
     apply_rules,
 )
-from mloda.community.feature_groups.german_ledger.reader import GdpduReader
-from mloda.community.feature_groups.german_ledger.receipt import refusal_receipt
-from mloda.community.feature_groups.german_ledger.sources import RECEIPT_VERSION, InadmissibleTotal
+from mloda.community.feature_groups.experimental.german_ledger.reader import GdpduReader
+from mloda.community.feature_groups.experimental.german_ledger.receipt import refusal_receipt
+from mloda.community.feature_groups.experimental.german_ledger.sources import RECEIPT_VERSION, InadmissibleTotal
 
 from ._host import PLUGINS
 
@@ -119,7 +119,7 @@ def test_a_total_over_unstamped_rows_counts_them() -> None:
     from mloda.provider import FeatureSet
     from mloda.user import Feature
 
-    from mloda.community.feature_groups.german_ledger.sources import SourcesFeatureGroup
+    from mloda.community.feature_groups.experimental.german_ledger.sources import SourcesFeatureGroup
 
     rows = pa.table(
         {

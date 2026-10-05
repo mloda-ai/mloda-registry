@@ -11,8 +11,8 @@ by import, not through ``PluginLoader.all()``: that call also loads the stock
 
 from __future__ import annotations
 
-from mloda.community.feature_groups.german_ledger.datev import DatevExtfReader, DatevRefusal
-from mloda.community.feature_groups.german_ledger.policy import (
+from mloda.community.feature_groups.experimental.german_ledger.datev import DatevExtfReader, DatevRefusal
+from mloda.community.feature_groups.experimental.german_ledger.policy import (
     AdmissibilityPolicyGroup,
     AdmissibilityRefused,
     AdmissibilityRule,
@@ -24,14 +24,14 @@ from mloda.community.feature_groups.german_ledger.policy import (
     LateEntryRefused,
     PeriodBound,
 )
-from mloda.community.feature_groups.german_ledger.reader import Citation, GdpduReader, parse_citation
-from mloda.community.feature_groups.german_ledger.receipt import (
+from mloda.community.feature_groups.experimental.german_ledger.reader import Citation, GdpduReader, parse_citation
+from mloda.community.feature_groups.experimental.german_ledger.receipt import (
     ReceiptContext,
     evidence_receipts,
     refusal_receipt,
     run_with_receipts,
 )
-from mloda.community.feature_groups.german_ledger.skr import (
+from mloda.community.feature_groups.experimental.german_ledger.skr import (
     SKR03_2025,
     SKR04_2025,
     AccountLengthUnsupported,
@@ -42,7 +42,7 @@ from mloda.community.feature_groups.german_ledger.skr import (
     NoProfileForDossier,
     SkrAccountFeatureGroup,
 )
-from mloda.community.feature_groups.german_ledger.sources import (
+from mloda.community.feature_groups.experimental.german_ledger.sources import (
     RECEIPT_VERSION,
     AmbiguousSourceColumns,
     InadmissibleTotal,

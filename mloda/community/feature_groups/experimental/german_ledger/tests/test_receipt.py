@@ -23,11 +23,11 @@ from mloda.steward import verified_context
 from mloda.user import DataAccessCollection, Feature, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.german_ledger import skr
-from mloda.community.feature_groups.german_ledger.reader import GdpduReader, parse_citation
-from mloda.community.feature_groups.german_ledger.receipt import evidence_receipts, run_with_receipts
-from mloda.community.feature_groups.german_ledger.skr import SkrAccountFeatureGroup
-from mloda.community.feature_groups.german_ledger.sources import RECEIPT_VERSION
+from mloda.community.feature_groups.experimental.german_ledger import skr
+from mloda.community.feature_groups.experimental.german_ledger.reader import GdpduReader, parse_citation
+from mloda.community.feature_groups.experimental.german_ledger.receipt import evidence_receipts, run_with_receipts
+from mloda.community.feature_groups.experimental.german_ledger.skr import SkrAccountFeatureGroup
+from mloda.community.feature_groups.experimental.german_ledger.sources import RECEIPT_VERSION
 
 from ._host import PLUGINS
 

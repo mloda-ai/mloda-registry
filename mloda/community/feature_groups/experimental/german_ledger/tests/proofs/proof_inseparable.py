@@ -23,9 +23,16 @@ from mloda.provider import FeatureResolutionError
 from mloda.user import DataAccessCollection, Feature, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
-from mloda.community.feature_groups.german_ledger.policy import JOURNAL, AdmissibilityPolicyGroup, unprefixed
-from mloda.community.feature_groups.german_ledger.skr import SkrAccountFeatureGroup
-from mloda.community.feature_groups.german_ledger.sources import InadmissibleTotal, SourcesFeatureGroup  # noqa: F401
+from mloda.community.feature_groups.experimental.german_ledger.policy import (
+    JOURNAL,
+    AdmissibilityPolicyGroup,
+    unprefixed,
+)
+from mloda.community.feature_groups.experimental.german_ledger.skr import SkrAccountFeatureGroup
+from mloda.community.feature_groups.experimental.german_ledger.sources import (  # noqa: F401
+    InadmissibleTotal,
+    SourcesFeatureGroup,
+)
 
 logging.disable(logging.CRITICAL)  # mloda logs every failed step; this script reports it
 FIX = Path(__file__).parent.parent / "fixtures"
@@ -66,7 +73,7 @@ def expect_no_number(label: str, plugin_collector: Any, wanted: type[BaseExcepti
 expect_no_number("WITHOUT POLICY", None, FeatureResolutionError)
 
 # 2. The host's policy: a cited total.
-from mloda.community.feature_groups.german_ledger.tests import _host  # noqa: E402,F401  (the host policy)
+from mloda.community.feature_groups.experimental.german_ledger.tests import _host  # noqa: E402,F401  (the host policy)
 
 got = ask()
 if str(got["revenue__sources~value"]) != "45385.06" or len(got["revenue__sources~origins"]) != 5:
