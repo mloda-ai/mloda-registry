@@ -2064,19 +2064,17 @@ class TestOtelExtenderRootSpanHooks:
         assert load.parent is not None
         assert load.parent.span_id == _ids(root)[1]
 
-    def test_inert_extender_stores_no_root_and_emits_nothing(self) -> None:
-        otel = OtelExtender()
+    @pytest.mark.parametrize(
+        "make_otel",
+        [OtelExtender, lambda: OtelExtender(tracer_provider=trace.NoOpTracerProvider())],
+        ids=["inert", "no_op_provider"],
+    )
+    def test_extender_without_a_recording_provider_stores_no_root(self, make_otel: Callable[[], OtelExtender]) -> None:
+        otel = make_otel()
         run_id = str(uuid.uuid4())
 
         _start_run(otel, run_id)
         _complete_run(otel, run_id)
-
-        assert not any(isinstance(value, dict) and value for value in otel.__getstate__().values())
-
-    def test_no_op_provider_stores_no_root(self) -> None:
-        otel = OtelExtender(tracer_provider=trace.NoOpTracerProvider())
-
-        _start_run(otel, str(uuid.uuid4()))
 
         assert not any(isinstance(value, dict) and value for value in otel.__getstate__().values())
 
@@ -2091,33 +2089,31 @@ class TestOtelExtenderPlanSpanHooks:
 
         assert exporter.get_finished_spans() == ()
 
+    @pytest.mark.parametrize(
+        ("outcome", "is_error"),
+        [
+            pytest.param(LifecycleOutcome(status="succeeded"), False, id="succeeded"),
+            pytest.param(LifecycleOutcome(status="failed", error_type="KeyError"), True, id="failed"),
+        ],
+    )
     def test_plan_scope_plan_span_has_attributes_and_status(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], outcome: LifecycleOutcome, is_error: bool
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider, trace_scope="plan")
 
         otel.on_plan_start(_plan("plan-1"))
         assert exporter.get_finished_spans() == ()
-        otel.on_plan_complete(_plan("plan-1"), LifecycleOutcome(status="succeeded"))
+        otel.on_plan_complete(_plan("plan-1"), outcome)
 
         span = single_span(exporter)
         assert span.name == "mloda.plan"
         assert (span.attributes or {})["mloda.plan.id"] == "plan-1"
-        assert span.status.status_code != StatusCode.ERROR
-
-    def test_failed_plan_marks_the_plan_span_error(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
-    ) -> None:
-        provider, exporter = otel_capture
-        otel = OtelExtender(tracer_provider=provider, trace_scope="plan")
-
-        otel.on_plan_start(_plan("plan-1"))
-        otel.on_plan_complete(_plan("plan-1"), LifecycleOutcome(status="failed", error_type="KeyError"))
-
-        span = single_span(exporter)
-        assert span.status.status_code == StatusCode.ERROR
-        assert (span.attributes or {})["error.type"] == "KeyError"
+        if is_error:
+            assert span.status.status_code == StatusCode.ERROR
+            assert (span.attributes or {})["error.type"] == "KeyError"
+        else:
+            assert span.status.status_code != StatusCode.ERROR
 
     def test_plan_span_is_a_child_of_the_caller_active_span(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]

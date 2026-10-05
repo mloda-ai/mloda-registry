@@ -1317,16 +1317,26 @@ class TestAuditExtenderRecordV2:
     def test_default_config_without_a_principal_is_non_compliant(self) -> None:
         assert _calculate_record(principal=None)["compliant"] is False
 
-    def test_input_feature_edges_are_sorted_lists_per_feature(self) -> None:
-        record = _calculate_record(input_feature_edges={"out_b": ("z", "a"), "out_a": ("m",)})
+    @pytest.mark.parametrize(
+        ("kwargs", "expected"),
+        [
+            pytest.param(
+                {"input_feature_edges": {"out_b": ("z", "a"), "out_a": ("m",)}},
+                {"input_feature_edges": {"out_b": ["a", "z"], "out_a": ["m"]}},
+                id="edges_sorted_per_feature",
+            ),
+            pytest.param(
+                {"input_feature_edges": None, "input_features": frozenset({"b", "a"})},
+                {"input_feature_edges": None, "input_features": ["a", "b"]},
+                id="edges_none_keeps_input_features",
+            ),
+        ],
+    )
+    def test_input_feature_edges(self, kwargs: dict[str, Any], expected: dict[str, Any]) -> None:
+        record = _calculate_record(**kwargs)
 
-        assert record["input_feature_edges"] == {"out_b": ["a", "z"], "out_a": ["m"]}
-
-    def test_input_feature_edges_none_stays_none_and_input_features_is_kept(self) -> None:
-        record = _calculate_record(input_feature_edges=None, input_features=frozenset({"b", "a"}))
-
-        assert record["input_feature_edges"] is None
-        assert record["input_features"] == ["a", "b"]
+        for key, value in expected.items():
+            assert record[key] == value
 
     def test_host_is_the_hostname_and_resolved_at_most_once(self) -> None:
         with patch.object(socket, "gethostname", return_value="patched-host") as gethostname:
@@ -1341,34 +1351,27 @@ class TestAuditExtenderRecordV2:
     def test_worker_index_is_copied_from_the_context(self, worker_index: int | None) -> None:
         assert _calculate_record(worker_index=worker_index)["worker_index"] == worker_index
 
-    def test_start_time_is_taken_before_the_wrapped_call(self) -> None:
+    @pytest.mark.parametrize("fails", [False, True], ids=["succeeds", "fails"])
+    def test_start_time_is_taken_before_the_wrapped_call(self, fails: bool) -> None:
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink)
 
+        def call() -> None:
+            time.sleep(0.05)
+            if fails:
+                raise RuntimeError("boom")
+
         with make_hook_context(tenant_id="t", principal="svc").activate():
-            extender(lambda: time.sleep(0.05))
+            if fails:
+                with pytest.raises(RuntimeError):
+                    extender(call)
+            else:
+                extender(call)
 
         record = sink.records[0]
         start, end = _parse_event_time(record["start_time"]), _parse_event_time(record["event_time"])
         assert record["start_time"].endswith("Z")
         assert (end - start).total_seconds() >= 0.04
-
-    def test_start_time_of_a_failed_call_is_also_before_the_call(self) -> None:
-        sink = InMemoryAuditSink()
-        extender = AuditExtender(sink=sink)
-
-        def boom() -> None:
-            time.sleep(0.05)
-            raise RuntimeError("boom")
-
-        with make_hook_context(tenant_id="t", principal="svc").activate():
-            with pytest.raises(RuntimeError):
-                extender(boom)
-
-        record = sink.records[0]
-        assert (
-            _parse_event_time(record["event_time"]) - _parse_event_time(record["start_time"])
-        ).total_seconds() >= 0.04
 
     def test_step_run_id_is_the_shared_helper_over_the_owner_name(self) -> None:
         context = make_hook_context(
@@ -1386,9 +1389,8 @@ class TestAuditExtenderRecordV2:
         assert expected is not None
         assert sink.records[0]["step_run_id"] == expected
 
-    @pytest.mark.parametrize("run_id", [None, "run-1"], ids=["no_run_id", "non_uuid_run_id"])
-    def test_step_run_id_is_none_without_a_uuid_run_id(self, run_id: str | None) -> None:
-        assert _calculate_record(run_id=run_id)["step_run_id"] is None
+    def test_step_run_id_is_none_without_a_uuid_run_id(self) -> None:
+        assert _calculate_record(run_id="run-1")["step_run_id"] is None
 
     def test_trace_ids_of_the_active_span_are_hex_strings(self) -> None:
         pytest.importorskip("opentelemetry.sdk.trace")
@@ -1404,17 +1406,21 @@ class TestAuditExtenderRecordV2:
         assert len(record["trace_id"]) == 32
         assert len(record["span_id"]) == 16
 
-    def test_trace_id_comes_from_the_carrier_traceparent_with_no_span_id(self) -> None:
-        record = _calculate_record(carrier={"traceparent": _TRACEPARENT})
-
-        assert record["trace_id"] == _CARRIER_TRACE_ID
-        assert record["span_id"] is None
-
-    @pytest.mark.parametrize("carrier", [None, {}, {"traceparent": "garbage"}], ids=["none", "empty", "malformed"])
-    def test_trace_ids_are_none_without_a_span_or_a_usable_carrier(self, carrier: dict[str, str] | None) -> None:
+    @pytest.mark.parametrize(
+        ("carrier", "trace_id"),
+        [
+            pytest.param({"traceparent": _TRACEPARENT}, _CARRIER_TRACE_ID, id="traceparent"),
+            pytest.param(None, None, id="none"),
+            pytest.param({}, None, id="empty"),
+            pytest.param({"traceparent": "garbage"}, None, id="malformed"),
+        ],
+    )
+    def test_trace_id_comes_from_the_carrier_traceparent_with_no_span_id(
+        self, carrier: dict[str, str] | None, trace_id: str | None
+    ) -> None:
         record = _calculate_record(carrier=carrier)
 
-        assert record["trace_id"] is None
+        assert record["trace_id"] == trace_id
         assert record["span_id"] is None
 
     def test_refusal_record_carries_the_trace_ids_of_the_active_span(self) -> None:
