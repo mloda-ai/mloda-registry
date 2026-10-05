@@ -227,6 +227,11 @@ class OpenLineageExtender(Extender):
         try:
             result = state.result
             if result is None:
+                if remaining == 0 and not self._owns_client:
+                    # A zero-budget close would drop the shared client's pending events for good, so leave
+                    # the flush to a later closer with budget; with none, the injected client stays unflushed.
+                    logger.warning("%s close skipped: no close budget left", type(self).__name__)
+                    return False
                 result = client.close(remaining)
                 if not result:
                     logger.warning("%s failed to flush all events within timeout", type(self).__name__)

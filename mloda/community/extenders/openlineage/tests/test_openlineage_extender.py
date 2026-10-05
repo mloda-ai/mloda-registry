@@ -1246,6 +1246,27 @@ class TestOpenLineageExtenderSharedInjectedClientCloseState:
         assert result is True
         assert client.close_calls == [CLOSE_TIMEOUT]
 
+    def test_zero_budget_closer_leaves_the_shared_flush_to_a_later_sibling(self) -> None:
+        client = _SlottedDuckTypeClient()
+        shared = cast(OpenLineageClient, client)
+        extender_a = OpenLineageExtender(client=shared)
+        extender_b = OpenLineageExtender(client=shared)
+
+        assert extender_a.close(0.0) is False
+        assert client.close_calls == []
+        assert extender_b.close(-1) is True
+        assert client.close_calls == [-1]
+
+    def test_zero_budget_closer_after_real_flush_gets_cached_result(self) -> None:
+        client = _SlottedDuckTypeClient()
+        shared = cast(OpenLineageClient, client)
+        extender_a = OpenLineageExtender(client=shared)
+        extender_b = OpenLineageExtender(client=shared)
+
+        assert extender_b.close(5.0) is True
+        assert extender_a.close(0.0) is True
+        assert client.close_calls == [5.0]
+
     def test_shared_incomplete_flush_result_is_returned_to_every_closer(self) -> None:
         transport = _IncompleteFlushTransport()
         shared = OpenLineageClient(transport=transport)
