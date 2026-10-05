@@ -132,7 +132,7 @@ skips = [
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = { mloda = false, uv = false, mloda-example-binary = false }
+exclude-newer-package = { mloda = false, uv = false, mloda-example-binary = false, mloda-anonymizer-binary = false }
 
 # AUTO-GENERATED workspace members from config/packages.toml
 # Do not edit manually - run: python scripts/generate_pyproject.py
@@ -166,6 +166,7 @@ members = [
     "mloda/enterprise",
     "mloda/enterprise/extenders/audit",
     "mloda/enterprise/extenders/lineage",
+    "mloda/enterprise/feature_groups/anonymizer",
     "mloda/enterprise/feature_groups/binary_example",
     "mloda/registry",
     "mloda/testing",

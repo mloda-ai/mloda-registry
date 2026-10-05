@@ -81,7 +81,7 @@ Options such as `partition_by` and `order_by`, plus the shared contracts, are in
 | `mloda-community-<plugin>` | One plugin from the table above | Apache 2.0 | `pip install "mloda-community-rank[pandas]"` |
 | `mloda-registry` | Plugin discovery and search | Apache 2.0 | `pip install mloda-registry` |
 | `mloda-testing` | Test utilities for plugin development | Apache 2.0 | `pip install mloda-testing` |
-| `mloda-enterprise` | All enterprise plugins (bundle) | [Source-available](mloda/enterprise/LICENSE) ([Get license](https://mloda.ai/enterprise)) | `pip install mloda-enterprise` (add `[ed25519]` for the Ed25519 manifest signer, `[otel]` for the OTel audit log sink, `[openlineage]` for the lineage facets extender) |
+| `mloda-enterprise` | All enterprise plugins (bundle) | [Source-available](mloda/enterprise/LICENSE) ([Get license](https://mloda.ai/enterprise)) | `pip install mloda-enterprise` (add `[ed25519]` for the Ed25519 manifest signer, `[otel]` for the OTel audit log sink, `[openlineage]` for the lineage facets extender, `[anonymizer]` for the anonymizer wheel and pyarrow) |
 
 > **Note:** Only `mloda/enterprise/` and its PyPI package require a license. Everything else in this repository is Apache 2.0 (see [LICENSE](LICENSE)).
 

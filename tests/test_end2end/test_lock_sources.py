@@ -13,6 +13,8 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
+from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
+from mloda.enterprise.feature_groups.anonymizer.anonymizer_feature_group import AnonymizerFeatureGroup
 from mloda.enterprise.feature_groups.binary_example.binary_example_feature_group import BinaryExampleFeatureGroup
 from tests.script_loader import load_script
 
@@ -102,9 +104,10 @@ def test_real_lock_sources_are_workspace_or_production_pypi() -> None:
     )
 
 
-def test_binary_wheel_is_locked_from_production_pypi() -> None:
+@pytest.mark.parametrize("feature_group", [BinaryExampleFeatureGroup, AnonymizerFeatureGroup])
+def test_binary_wheel_is_locked_from_production_pypi(feature_group: type[BinaryModelMixin]) -> None:
     """The wheel behind the binary-backed extra is in the lock and its source is production PyPI."""
-    wheel = _normalised(BinaryExampleFeatureGroup.BINARY_WHEEL_DISTRIBUTION)
+    wheel = _normalised(feature_group.BINARY_WHEEL_DISTRIBUTION)
     packages = _real_lock().get("package", [])
     locked = [package for package in packages if _normalised(str(package["name"])) == wheel]
     assert locked, f"uv.lock must contain {wheel!r}, the wheel behind the binary-backed extra; {len(packages)} locked"

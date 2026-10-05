@@ -82,6 +82,7 @@ _EXPECTED_PUBLISHED = [
 _BUNDLE_ONLY = [
     "mloda-community-binary-model",
     "mloda-enterprise-binary-example",
+    "mloda-enterprise-anonymizer",
     "mloda-enterprise-audit",
     "mloda-enterprise-lineage",
 ]

@@ -290,6 +290,7 @@ def test_new_binary_packages_are_registered_with_dev_extra() -> None:
     expected_paths = {
         "mloda-community-binary-model": "mloda/community/feature_groups/binary_model",
         "mloda-enterprise-binary-example": "mloda/enterprise/feature_groups/binary_example",
+        "mloda-enterprise-anonymizer": "mloda/enterprise/feature_groups/anonymizer",
     }
     for pkg_name, expected_path in expected_paths.items():
         assert pkg_name in packages, f"{pkg_name} missing from config/packages.toml"

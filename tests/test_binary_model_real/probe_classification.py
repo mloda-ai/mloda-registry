@@ -53,7 +53,12 @@ def probe_environment(license_key: str | None = None) -> dict[str, str]:
     return minimal_environment(inherit_license=False, license_key=license_key)
 
 
-def probe_accepts_test_key(cmd: list[str]) -> bool:
+def probe_accepts_test_key(
+    cmd: list[str],
+    plugin_id: str = _PLUGIN_ID,
+    operation: str = "hash",
+    parameters: dict[str, object] | None = None,
+) -> bool:
     """True if ``cmd`` accepts the shared test-signed license vectors from ``license_vectors``;
     False for a release build, which trusts only production keys and so rejects a test-signed
     token as an unknown ``kid``. Delegates exit-code/message interpretation to
@@ -61,9 +66,14 @@ def probe_accepts_test_key(cmd: list[str]) -> bool:
     with tempfile.TemporaryDirectory() as tmp_dir:
         config_path = write_json(
             Path(tmp_dir) / "config.json",
-            {"input_columns": ["col_a"], "operation": "hash", "parameters": {}, "output_columns": {"result": "out"}},
+            {
+                "input_columns": ["col_a"],
+                "operation": operation,
+                "parameters": parameters or {},
+                "output_columns": {"result": "out"},
+            },
         )
         input_bytes = arrow_stream_bytes(pa.schema([pa.field("col_a", pa.string())]), {"col_a": ["alpha"]})
-        env = probe_environment(valid_license_token([_PLUGIN_ID]))
+        env = probe_environment(valid_license_token([plugin_id]))
         result = run_binary(cmd, ["run", "--config", str(config_path)], env, input_bytes)
     return classify_test_key_probe(result)

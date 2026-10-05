@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.10, <3.15"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -17,9 +17,10 @@ exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for 
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
-uv = false
-mloda-example-binary = false
 mloda = false
+mloda-anonymizer-binary = false
+mloda-example-binary = false
+uv = false
 
 [manifest]
 members = [
@@ -49,6 +50,7 @@ members = [
     "mloda-community-time-bucketization",
     "mloda-community-window-aggregation",
     "mloda-enterprise",
+    "mloda-enterprise-anonymizer",
     "mloda-enterprise-audit",
     "mloda-enterprise-binary-example",
     "mloda-enterprise-lineage",
@@ -732,6 +734,18 @@ version = "0.14.0"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9a/c3/cf2567d0c4f78ad7d3ea6c30efe67e5eb1e14e63e12d8009c6baa136f3ef/mloda-0.14.0-py3-none-any.whl", hash = "sha256:783313ed9cda0c25619085f4ce9e34eb3eec78425895963a6328ddf5d1045eb7", size = 599228, upload-time = "2026-09-24T11:20:23.5Z" },
+]
+
+[[package]]
+name = "mloda-anonymizer-binary"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ce/16/0432fe2da6e4f57499a85d5b6a9f383b73f44e09c0c019314d5d7c8d8cba/mloda_anonymizer_binary-0.1.0-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:be967781c1bc8f27adcbb343347ddd845cf1249b10566ad0788de72b8bf7aaf6", size = 654860, upload-time = "2026-10-05T11:33:25.691Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/47/c660e35d0ad71acbf7cee460680cfc26c056a849a4f3b9cb19e01a53952d/mloda_anonymizer_binary-0.1.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:c8123ae9df51f141ad874b11e45212dd369ac4dda740eef37d92a466791b760b", size = 568748, upload-time = "2026-10-05T11:33:27.239Z" },
+    { url = "https://files.pythonhosted.org/packages/78/64/2754e8cca79e36e24c655acf88769204c3290274b0ba5a15eff1131352da/mloda_anonymizer_binary-0.1.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:6d7d6207ecd5198d467401e066c0a765fa56fddef1e924189eae5d43062497af", size = 609567, upload-time = "2026-10-05T11:33:28.85Z" },
+    { url = "https://files.pythonhosted.org/packages/82/d2/ffe014e167b3da0e08443f65a280255b183a2ef16e4e7aa504ee94edb73c/mloda_anonymizer_binary-0.1.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:93a1211d66d3842599b469296747dba11364761c495b7a5899d97e86a3da45ca", size = 689169, upload-time = "2026-10-05T11:33:30.268Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/26/ddfca102511c934b13b943b9d7801ff4caac96bad300da9660f41b34049e/mloda_anonymizer_binary-0.1.0-py3-none-win_amd64.whl", hash = "sha256:e48bb02412009ec85c608084434a581c4c11626ee2ee798ab20941a9af439d57", size = 585592, upload-time = "2026-10-05T11:33:31.766Z" },
 ]
 
 [[package]]
@@ -1841,6 +1855,10 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+anonymizer = [
+    { name = "mloda-anonymizer-binary" },
+    { name = "pyarrow" },
+]
 ed25519 = [
     { name = "cryptography" },
 ]
@@ -1855,12 +1873,44 @@ otel = [
 requires-dist = [
     { name = "cryptography", marker = "extra == 'ed25519'", specifier = ">=42" },
     { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda-anonymizer-binary", marker = "extra == 'anonymizer'", specifier = ">=0.1.0,<0.2.0" },
     { name = "mloda-community", editable = "mloda/community" },
     { name = "mloda-community-extenders-shared", editable = "mloda/community/extenders/shared" },
     { name = "mloda-community-openlineage", marker = "extra == 'openlineage'", editable = "mloda/community/extenders/openlineage" },
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.37,<2" },
+    { name = "pyarrow", marker = "extra == 'anonymizer'", specifier = ">=25" },
 ]
-provides-extras = ["ed25519", "otel", "openlineage"]
+provides-extras = ["ed25519", "otel", "openlineage", "anonymizer"]
+
+[[package]]
+name = "mloda-enterprise-anonymizer"
+version = "0.8.0"
+source = { editable = "mloda/enterprise/feature_groups/anonymizer" }
+dependencies = [
+    { name = "mloda-community" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "mloda-testing", extra = ["binary-model"] },
+    { name = "pytest" },
+]
+pyarrow = [
+    { name = "pyarrow" },
+]
+wheel = [
+    { name = "mloda-anonymizer-binary" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mloda-anonymizer-binary", marker = "extra == 'wheel'", specifier = ">=0.1.0,<0.2.0" },
+    { name = "mloda-community", specifier = ">=0.8.0" },
+    { name = "mloda-testing", extras = ["binary-model"], marker = "extra == 'dev'" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=25" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
+]
+provides-extras = ["dev", "pyarrow", "wheel"]
 
 [[package]]
 name = "mloda-enterprise-audit"

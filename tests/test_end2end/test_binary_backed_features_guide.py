@@ -59,6 +59,12 @@ def test_packaging_rules_section_states_how_to_install_the_wheel() -> None:
     )
 
 
+def test_guide_shows_how_to_install_the_anonymizer_bundle_extra() -> None:
+    """The paid-FeatureGroup section names the bundle extra that brings the wheel and pyarrow."""
+    content = _GUIDE_PATH.read_text(encoding="utf-8")
+    assert 'pip install "mloda-enterprise[anonymizer]"' in content
+
+
 def test_against_the_real_wheel_section_shows_the_standalone_suite_command() -> None:
     """The "### Against the real wheel" section shows the command that runs the real-wheel suite on its own."""
     content = _GUIDE_PATH.read_text(encoding="utf-8")

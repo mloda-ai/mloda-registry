@@ -174,7 +174,28 @@ The full expired/in-grace/valid license state machine is covered against the rea
 - The wheel is never a hard dependency of the plugin package; without it the call rejects, discovery still works.
 - A binary that implements the contract is verified with `mloda.testing.binary_model.conformance.BinaryModelConformanceBase`, the same kit the simulated binary passes. The mixin may send zero-row record batches between non-empty ones, and a binary must accept them without changing the result; the kit checks this. An operation limited to one input column must set `max_input_columns = 1` (otherwise the kit's schema checks stop at the config stage), and one with required parameters overrides `required_parameters()`. A binary without `utf8` overrides `default_input_schema()` and `default_input_rows()` with advertised types, and a kit check fails fast when they use an unadvertised type. An `hmac_sha256` binary also mixes in `HmacSha256OperationConformanceMixin`; its expected values come from `mloda.testing.binary_model.hmac_sha256_reference`.
 - The wheel's distribution (`BINARY_WHEEL_DISTRIBUTION`) is declared under `optional_dependencies` with a version range, never under `dependencies` or `dev`; install it with `pip install mloda-example-binary`.
-- The `wheel` extra lives on `mloda-enterprise-binary-example`, which ships inside the `mloda-enterprise` bundle. The bundle does not re-export the extra, so install the wheel directly.
+- The `wheel` extra lives on each binary leaf (`mloda-enterprise-binary-example`, `mloda-enterprise-anonymizer`), which ship inside the `mloda-enterprise` bundle. The bundle re-exports only the anonymizer's wheel (`mloda-enterprise[anonymizer]`); the example's wheel is installed directly.
+
+## From the example to a paid FeatureGroup
+
+`AnonymizerFeatureGroup` (`mloda-enterprise-anonymizer`) is the first paid binary FeatureGroup. It pseudonymizes one utf8 column with keyed HMAC-SHA256 through the `anonymizer_binary` wheel, restricted to `PyArrowTable`. Nulls stay null; each token is a full lowercase 64-hex digest.
+
+| Option | Meaning |
+|--------|---------|
+| `pseudonymization_algorithm` | Strict; only `hmac_sha256` |
+| `pii_key_env` | Name of the environment variable that holds the key (64 hex characters) |
+| `in_features` | The single source column |
+
+The key never goes into Options, which are hashed and echoed by mloda. `pii_key_env` is therefore neither strict nor guarded, and the error for an unset, empty or non-string value never names the variable, since a user may have put the key itself there. A malformed key is rejected by the binary as `BinaryUsageError` without being echoed. The license comes from `MLODA_LICENSE_FILE` or `MLODA_LICENSE_KEY` as for any binary FeatureGroup.
+
+```python
+feature = Feature(
+    "pseudonymized_email",
+    Options(context={"pseudonymization_algorithm": "hmac_sha256", "pii_key_env": "PII_KEY", "in_features": "email"}),
+)
+```
+
+The string form `email__hmac_sha256_pseudonymized` works with `pii_key_env` in the context. `pip install "mloda-enterprise[anonymizer]"` brings the wheel and pyarrow.
 
 ## Combines With
 

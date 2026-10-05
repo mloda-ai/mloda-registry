@@ -51,6 +51,14 @@ path = "mloda/enterprise/feature_groups/binary_example"
 optional_dependencies = { pyarrow = ["pyarrow>=25"], wheel = ["mloda-example-binary>=0.1.0,<0.2.0"], dev = ["mloda-testing[binary-model]", "pytest>=9.0.3"] }
 entry_point_groups = ["mloda.feature_groups"]
 
+[packages.mloda-enterprise-anonymizer]
+description = "Enterprise FeatureGroup that pseudonymizes a column via the licensed anonymizer binary"
+dependencies = ["mloda-community>={version}"]
+path = "mloda/enterprise/feature_groups/anonymizer"
+# The wheel is an optional extra, never a hard dependency; the bundle re-exports it as mloda-enterprise[anonymizer].
+optional_dependencies = { pyarrow = ["pyarrow>=25"], wheel = ["mloda-anonymizer-binary>=0.1.0,<0.2.0"], dev = ["mloda-testing[binary-model]", "pytest>=9.0.3"] }
+entry_point_groups = ["mloda.feature_groups"]
+
 [packages.mloda-community-example-a]
 description = "Example A FeatureGroup extending community example base"
 # Sibling floor policy: docs/packaging.md#sibling-dependency-floors
@@ -278,13 +286,13 @@ py_typed = true
 
 [packages.mloda-enterprise]
 description = "All enterprise plugins for mloda (License required: https://mloda.ai/enterprise)"
-# mloda-community floor: the binary example subclasses the community binary-model mixin, and a manifest
+# mloda-community floor: the binary FeatureGroups (example, anonymizer) subclass the community binary-model mixin, and a manifest
 # import that fails on a missing mloda.community module aborts plugin discovery.
 dependencies = ["{core_dependency}", "mloda-community-extenders-shared>={version}", "mloda-community>={version}"]
 path = "mloda/enterprise"
 published = true
 entry_point_bundle = true
-optional_dependencies = { ed25519 = ["cryptography>=42"], otel = ["opentelemetry-api>=1.37,<2"], openlineage = ["mloda-community-openlineage~={version}"] }
+optional_dependencies = { ed25519 = ["cryptography>=42"], otel = ["opentelemetry-api>=1.37,<2"], openlineage = ["mloda-community-openlineage~={version}"], anonymizer = ["mloda-anonymizer-binary>=0.1.0,<0.2.0", "pyarrow>=25"] }
 py_typed = true
 
 # After the bundles: mloda-testing[binary-model] pins mloda-community (the kit checks binaries with the

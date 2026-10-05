@@ -26,6 +26,7 @@ import pytest
 from mloda.community.feature_groups.binary_model.binary import clear_capability_cache
 from mloda.community.feature_groups.binary_model.errors import BinaryUnavailableError, LicenseMissingError
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
+from mloda.testing.binary_model.simulated_binary import PLUGIN_ID as SIMULATED_BINARY_PLUGIN_ID
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _PACKAGES_CONFIG = _REPO_ROOT / "config" / "packages.toml"
@@ -91,6 +92,7 @@ class TestEnterprisePackageDiscovery:
         invariant suite can never silently skip the new plugin."""
         names = {name for name, _cfg in _enterprise_plugin_packages()}
         assert "mloda-enterprise-binary-example" in names
+        assert "mloda-enterprise-anonymizer" in names
 
 
 class TestEveryEnterpriseManifestImportsWithoutTheWheel:
@@ -150,6 +152,7 @@ class TestLicensedPluginsRejectWithoutLicense:
                     f"Stub{cls.__name__}",
                     (cls,),
                     {
+                        "BINARY_PLUGIN_ID": SIMULATED_BINARY_PLUGIN_ID,
                         "BINARY_COMMAND_OVERRIDE": STUB_CMD,
                         "LICENSE_FILE_OVERRIDE": None,
                         "LICENSE_KEY_OVERRIDE": None,
@@ -220,6 +223,17 @@ def _run_pyarrow_unavailable_probe(dotted_paths: list[str]) -> dict[str, Any]:
     return result
 
 
+def _pyarrow_backed_dotted_paths() -> list[str]:
+    """Dotted paths of every enterprise plugin package declaring a ``pyarrow`` optional extra."""
+    dotted_paths = [
+        cfg["path"].replace("/", ".")
+        for _name, cfg in _enterprise_plugin_packages()
+        if "pyarrow" in cfg.get("optional_dependencies", {})
+    ]
+    assert len(dotted_paths) >= 2, "expected at least two pyarrow-backed enterprise packages"
+    return dotted_paths
+
+
 class TestEveryEnterpriseManifestImportsWithoutPyarrow:
     def test_every_manifest_imports_with_pyarrow_unavailable(self) -> None:
         packages = _enterprise_plugin_packages()
@@ -232,21 +246,26 @@ class TestEveryEnterpriseManifestImportsWithoutPyarrow:
             assert entry["manifest_import_ok"], f"{dotted}: {entry['error']}"
 
     def test_pyarrow_backed_feature_groups_is_empty_without_pyarrow(self) -> None:
-        """``binary_example`` declares pyarrow as an optional dependency (contract:
-        Configuration): its ``FEATURE_GROUPS`` must degrade to an empty list rather than fail the
-        manifest import outright when pyarrow is unavailable."""
-        dotted = "mloda.enterprise.feature_groups.binary_example"
-        summary = _run_pyarrow_unavailable_probe([dotted])
-        assert summary[dotted]["feature_groups_len"] == 0
+        """Every package declaring pyarrow as an optional dependency (contract: Configuration): its
+        ``FEATURE_GROUPS`` must degrade to an empty list rather than fail the manifest import
+        outright when pyarrow is unavailable."""
+        dotted_paths = _pyarrow_backed_dotted_paths()
+        summary = _run_pyarrow_unavailable_probe(dotted_paths)
+        for dotted in dotted_paths:
+            assert summary[dotted]["feature_groups_len"] == 0, dotted
 
     def test_pyarrow_backed_feature_groups_is_non_empty_in_the_normal_environment(self) -> None:
-        manifest = importlib.import_module("mloda.enterprise.feature_groups.binary_example.manifest")
-        assert len(manifest.FEATURE_GROUPS) > 0
+        for dotted in _pyarrow_backed_dotted_paths():
+            manifest = importlib.import_module(f"{dotted}.manifest")
+            assert len(manifest.FEATURE_GROUPS) > 0, dotted
 
     def test_package_root_does_not_re_export_the_feature_group_class(self) -> None:
         """The package root must not import the pyarrow-backed class eagerly (contract:
         Configuration): otherwise merely importing the package -- which
         ``importlib.import_module(dotted + ".manifest")`` does implicitly -- would import pyarrow
         even when the manifest itself degrades gracefully."""
-        root = importlib.import_module("mloda.enterprise.feature_groups.binary_example")
-        assert not hasattr(root, "BinaryExampleFeatureGroup")
+        for dotted in _pyarrow_backed_dotted_paths():
+            root = importlib.import_module(dotted)
+            manifest = importlib.import_module(f"{dotted}.manifest")
+            for cls in manifest.FEATURE_GROUPS:
+                assert not hasattr(root, cls.__name__), dotted

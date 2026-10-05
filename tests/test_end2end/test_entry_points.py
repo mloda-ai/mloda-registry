@@ -102,6 +102,10 @@ def test_bundle_aggregates_child_entry_points() -> None:
         'mloda-enterprise-binary-example = "mloda.enterprise.feature_groups.binary_example.manifest:FEATURE_GROUPS"'
         in enterprise
     ), enterprise
+    assert (
+        'mloda-enterprise-anonymizer = "mloda.enterprise.feature_groups.anonymizer.manifest:FEATURE_GROUPS"'
+        in enterprise
+    ), enterprise
     assert '[project.entry-points."mloda.extenders"]' in enterprise, enterprise
     assert 'mloda-enterprise-audit = "mloda.enterprise.extenders.audit.manifest:EXTENDERS"' in enterprise, enterprise
     assert 'mloda-enterprise-lineage = "mloda.enterprise.extenders.lineage.manifest:EXTENDERS"' in enterprise, (

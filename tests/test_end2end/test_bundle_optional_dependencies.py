@@ -117,9 +117,11 @@ def test_mloda_community_declares_extra_matching_pin_source(
     )
 
 
-def _bundle_extra_leaf_dev_pairs(packages: dict[str, dict[str, Any]]) -> list[tuple[str, str, str, str, str]]:
-    """``(bundle, extra, extra spec, leaf, dev spec)`` for each bundle extra entry a nested leaf also lists in its
-    ``dev`` extra."""
+def _bundle_extra_leaf_dev_pairs(
+    packages: dict[str, dict[str, Any]], leaf_extra: str = "dev"
+) -> list[tuple[str, str, str, str, str]]:
+    """``(bundle, extra, extra spec, leaf, leaf extra spec)`` for each bundle extra entry a nested leaf also lists in
+    its ``leaf_extra`` extra (``dev`` by default)."""
     pairs: list[tuple[str, str, str, str, str]] = []
     for bundle_name, bundle_cfg in packages.items():
         if bundle_cfg.get("entry_point_bundle") is not True:
@@ -133,31 +135,33 @@ def _bundle_extra_leaf_dev_pairs(packages: dict[str, dict[str, Any]]) -> list[tu
                 for leaf_name, leaf_cfg in packages.items():
                     if not leaf_cfg["path"].startswith(prefix):
                         continue
-                    for dev_spec in leaf_cfg.get("optional_dependencies", {}).get("dev", []):
+                    for dev_spec in leaf_cfg.get("optional_dependencies", {}).get(leaf_extra, []):
                         if _dep_name(dev_spec) == _dep_name(extra_spec):
                             pairs.append((bundle_name, extra_name, extra_spec, leaf_name, dev_spec))
     return pairs
 
 
-def test_bundle_extra_floor_matches_leaf_dev_entry() -> None:
+@pytest.mark.parametrize("leaf_extra", ("dev", "wheel"))
+def test_bundle_extra_floor_matches_leaf_dev_entry(leaf_extra: str) -> None:
     """A bundle extra's floor for an external dependency must equal the same dependency's entry in the
-    ``dev`` extra of every nested leaf that lists it, so the two places cannot drift apart."""
+    ``dev`` (or ``wheel``) extra of every nested leaf that lists it, so the two places cannot drift apart."""
     packages = _packages()
     checked = 0
 
-    for bundle_name, extra_name, extra_spec, leaf_name, dev_spec in _bundle_extra_leaf_dev_pairs(packages):
+    for bundle_name, extra_name, extra_spec, leaf_name, dev_spec in _bundle_extra_leaf_dev_pairs(packages, leaf_extra):
         if not _external_dependency_names([extra_spec], packages):
             continue
         checked += 1
         assert extra_spec == dev_spec, (
             f"the {_dep_name(extra_spec)} floor must match: packages.{bundle_name}.optional_dependencies."
             f"{extra_name} ({extra_spec!r}) must equal packages.{leaf_name}."
-            f"optional_dependencies.dev ({dev_spec!r})"
+            f"optional_dependencies.{leaf_extra} ({dev_spec!r})"
         )
 
     assert checked, (
-        "expected at least one bundle extra dependency that a nested leaf also lists in its dev extra "
-        "(e.g. mloda-enterprise[ed25519] / mloda-enterprise-audit)"
+        f"expected at least one bundle extra dependency that a nested leaf also lists in its {leaf_extra} extra "
+        "(e.g. mloda-enterprise[ed25519] / mloda-enterprise-audit, "
+        "mloda-enterprise[anonymizer] / mloda-enterprise-anonymizer[wheel])"
     )
 
 
