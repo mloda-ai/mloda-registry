@@ -3,7 +3,8 @@
 features.md``), and no runtime module under ``mloda/community/`` or ``mloda/enterprise/`` may import
 ``mloda.testing`` at any depth. Enterprise code may use ``mloda.community.extenders.shared`` only
 through public names (no private imports, subclassing, or private attributes). Mirrors the resolution
-and TOML-loading style of ``tests/test_end2end/test_dev_dependencies.py`` and ``tests/test_end2end/test_manifest_resilience.py``.
+and TOML-loading style of ``tests/test_end2end/test_dev_dependencies.py`` and
+``tests/test_end2end/test_manifest_resilience.py``.
 """
 
 from __future__ import annotations
