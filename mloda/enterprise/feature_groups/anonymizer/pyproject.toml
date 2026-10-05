@@ -28,4 +28,4 @@ mloda-enterprise-anonymizer = "mloda.enterprise.feature_groups.anonymizer.manife
 
 [tool.setuptools]
 package-dir = {"" = "../../../.."}
-packages = []
+packages = ["mloda.enterprise.feature_groups.anonymizer"]
