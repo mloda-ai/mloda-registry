@@ -362,6 +362,7 @@ class AuditExtender(Extender):
                 run_id,
             )
             return
+        finish_error: Exception | None = None
         try:
             try:
                 self._seal(run_id)
@@ -373,8 +374,12 @@ class AuditExtender(Extender):
                     self._manifest_path,
                     run_id,
                 )
-                self._rotate_now(min_bytes=self._segment_max_bytes, min_age=self._segment_max_age)
-                self._seal(run_id)
+                try:
+                    self._rotate_now(min_bytes=self._segment_max_bytes, min_age=self._segment_max_age)
+                except Exception as exc:
+                    finish_error = exc
+                else:
+                    self._seal(run_id)
         except RunAlreadySealedError:
             try:
                 _check_run_against_seal(
@@ -405,7 +410,10 @@ class AuditExtender(Extender):
         except Exception as exc:
             self._seal_failed(run_id, exc)
         else:
-            self._rotate_if_due(run_id)
+            if finish_error is None:
+                self._rotate_if_due(run_id)
+        if finish_error is not None:
+            self._seal_failed(run_id, finish_error, action="finishing an interrupted rotation before sealing")
 
     def _anchored_heads(self) -> list[str]:
         latest = self._head_anchor.latest() if self._head_anchor is not None else None

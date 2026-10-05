@@ -79,17 +79,6 @@ def _pending_log(directory: Path) -> tuple[Path, Path]:
     return audit_path, manifest_path
 
 
-def _aged_genesis_log(directory: Path) -> tuple[Path, Path]:
-    """Runs a, b, c sealed on top of a genesis created long ago."""
-    audit_path = directory / "audit.ndjson"
-    manifest_path = directory / "manifests.ndjson"
-    _write_records(audit_path, [_record("run-a", 1), _record("run-b", 2), _record("run-c", 3)])
-    genesis = _genesis_entry(_signer(), log_id="log-a", created_at="2020-01-01T00:00:00.000000Z")
-    manifest_path.write_bytes(_canonical(genesis) + b"\n")
-    seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), log_id="log-a")
-    return audit_path, manifest_path
-
-
 def _rotated_with_stray(directory: Path) -> tuple[Path, Path]:
     """`_pending_log` rotated, then a stray record of run-a, which the archived segment sealed."""
     audit_path, manifest_path = _pending_log(directory)
@@ -598,24 +587,31 @@ class TestSegmentRotation:
         thresholds = {"bytes-over-file-under-archivable": archivable + 1, "bytes-due": archivable}
         before = _snapshot(tmp_path)
 
-        genesis = _segments._rotate(
-            audit_path, manifest_path, signer=_signer(), log_id="log-a", min_archived_bytes=thresholds[threshold]
-        )
+        with patch.object(_segments, "_stage_temp", wraps=_segments._stage_temp) as stage_temp:
+            genesis = _segments._rotate(
+                audit_path, manifest_path, signer=_signer(), log_id="log-a", min_archived_bytes=thresholds[threshold]
+            )
 
+        if not due:
+            stage_temp.assert_not_called()
         self._assert_rotated_only_if_due(tmp_path, genesis, due, before, manifest_path)
 
     @pytest.mark.parametrize(
-        ("min_age", "due"),
-        [(timedelta(hours=1), True), (timedelta(days=365 * 1000), False)],
-        ids=["age-due", "age-not-due"],
+        ("kwargs", "due"),
+        [
+            ({"min_age": timedelta(hours=1)}, True),
+            ({"min_age": timedelta(days=365 * 1000)}, False),
+            ({"min_archived_bytes": 10**9, "min_age": timedelta(hours=1)}, True),
+        ],
+        ids=["age-due", "age-not-due", "bytes-not-due-age-due"],
     )
     def test_rotate_with_an_age_threshold_rotates_only_when_due(
-        self, tmp_path: Path, min_age: timedelta, due: bool
+        self, tmp_path: Path, kwargs: dict[str, Any], due: bool
     ) -> None:
-        audit_path, manifest_path = _aged_genesis_log(tmp_path) if due else _pending_log(tmp_path)
+        audit_path, manifest_path = _genesis_log(tmp_path, created_at="2020-01-01T00:00:00.000000Z")
         before = _snapshot(tmp_path)
 
-        genesis = _segments._rotate(audit_path, manifest_path, signer=_signer(), log_id="log-a", min_age=min_age)
+        genesis = _segments._rotate(audit_path, manifest_path, signer=_signer(), log_id="log-a", **kwargs)
 
         self._assert_rotated_only_if_due(tmp_path, genesis, due, before, manifest_path)
 

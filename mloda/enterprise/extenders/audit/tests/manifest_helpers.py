@@ -288,11 +288,13 @@ def _genesis_entry(signer: ManifestSigner, log_id: Any = "log-a", **changes: Any
     return entry
 
 
-def _genesis_log(directory: Path, log_id: str = "log-a") -> tuple[Path, Path]:
-    """Runs a, b, c sealed under `log_id`, so the log starts with a genesis line."""
+def _genesis_log(directory: Path, log_id: str = "log-a", created_at: str | None = None) -> tuple[Path, Path]:
+    """Runs a, b, c sealed under `log_id`, so the log starts with a genesis line (back-dated to `created_at`)."""
     audit_path = directory / "audit.ndjson"
     manifest_path = directory / "manifests.ndjson"
     _write_records(audit_path, [_record("run-a", 1), _record("run-b", 2), _record("run-c", 3)])
+    if created_at is not None:
+        manifest_path.write_bytes(_canonical(_genesis_entry(_signer(), log_id=log_id, created_at=created_at)) + b"\n")
     manifests = seal_ndjson_runs(audit_path, manifest_path, signer=_signer(), log_id=log_id)
     assert [manifest["run_id"] for manifest in manifests] == ["run-a", "run-b", "run-c"]
     return audit_path, manifest_path

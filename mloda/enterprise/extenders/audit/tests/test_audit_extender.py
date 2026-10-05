@@ -2152,14 +2152,14 @@ class TestAuditExtenderSealing:
         assert not self._archive(manifest_path).exists()
 
     @staticmethod
-    def _interrupted_rotation(tmp_path: Path, **kwargs: Any) -> tuple[AuditExtender, Path, Path]:
-        """run-1 sealed under "log-a", a pending run-2 record, a manual rotation crashed at its first os.replace;
+    def _interrupted_rotation(tmp_path: Path, call_number: int = 1, **kwargs: Any) -> tuple[AuditExtender, Path, Path]:
+        """run-1 sealed under "log-a", a pending run-2 record, a manual rotation crashed at its `call_number`th os.replace;
         returns a fresh extender over that state."""
         _, audit_path, manifest_path, _ = TestAuditExtenderSealing._rotating_extender(tmp_path)
         _append_records(audit_path, [_minimal_audit_record("run-2")])
         sealer = _second_extender_over_same_sealing_config(audit_path, manifest_path, _hmac_signer(), log_id="log-a")
         sealer.on_run_complete("run-1")
-        with patch("os.replace", _crash_on_replace(1)):
+        with patch("os.replace", _crash_on_replace(call_number)):
             with pytest.raises(_Crash):
                 rotate_ndjson_segment(audit_path, manifest_path, signer=_hmac_signer(), log_id="log-a")
         extender = _second_extender_over_same_sealing_config(
@@ -2167,12 +2167,14 @@ class TestAuditExtenderSealing:
         )
         return extender, audit_path, manifest_path
 
-    @pytest.mark.parametrize("auto", [True, False], ids=["auto", "no_auto"])
+    @pytest.mark.parametrize(
+        ("auto", "call_number"), [(True, 1), (True, 2), (False, 1)], ids=["auto-1", "auto-2", "no_auto"]
+    )
     def test_an_interrupted_rotation_is_finished_and_the_seal_retried_only_under_auto_rotation(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, auto: bool
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, auto: bool, call_number: int
     ) -> None:
         extender, audit_path, manifest_path = self._interrupted_rotation(
-            tmp_path, **({"segment_max_bytes": 10**9} if auto else {})
+            tmp_path, call_number, **({"segment_max_bytes": 10**9} if auto else {})
         )
 
         with caplog.at_level(logging.WARNING):
@@ -2188,22 +2190,39 @@ class TestAuditExtenderSealing:
             assert last["run_id"] == "run-2"
             assert len(warnings) == 1
             assert "run-2" in warnings[0].getMessage()
+            verify_ndjson_segments(audit_path, manifest_path, signer=_hmac_signer(), log_id="log-a")
         else:
             assert extender.seal_failures == 1
             assert last.get("run_id") != "run-2"
 
+    @pytest.mark.parametrize("policy", ["callable", "log", "raise"])
     def test_a_failure_finishing_an_interrupted_rotation_is_one_seal_failure_under_the_policy(
-        self, tmp_path: Path
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, policy: str
     ) -> None:
-        policy = Mock()
-        extender, _, _ = self._interrupted_rotation(tmp_path, segment_max_bytes=10**9, seal_failure_policy=policy)
+        mock = Mock()
+        extra: dict[str, Any] = {"seal_failure_policy": mock} if policy == "callable" else {}
+        if policy == "raise":
+            extra = {"seal_failure_policy": "raise"}
+        extender, _, _ = self._interrupted_rotation(tmp_path, segment_max_bytes=10**9, **extra)
         error = RuntimeError("finish boom")
 
         with patch.object(audit_extender_module, "_rotate", side_effect=error):
-            extender.on_run_complete("run-2")
+            with caplog.at_level(logging.ERROR):
+                if policy == "raise":
+                    with pytest.raises(RuntimeError, match="finish boom"):
+                        extender.on_run_complete("run-2")
+                else:
+                    extender.on_run_complete("run-2")
 
         assert extender.seal_failures == 1
-        policy.assert_called_once_with("run-2", error)
+        if policy == "raise":
+            return
+        if policy == "callable":
+            mock.assert_called_once_with("run-2", error)
+        else:
+            errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+            assert any("interrupted rotation" in m and "RuntimeError" in m for m in errors)
+            assert not any("finish boom" in m for m in errors)
 
     @pytest.mark.parametrize("policy", ["log", "raise"])
     def test_not_a_failure_run_not_pending(self, tmp_path: Path, policy: Any) -> None:

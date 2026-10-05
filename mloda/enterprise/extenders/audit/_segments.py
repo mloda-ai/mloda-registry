@@ -11,7 +11,7 @@ from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Any, Protocol
 
 from mloda.enterprise.extenders.audit._core import (
     _GENESIS_KIND,
@@ -247,9 +247,22 @@ def _stage_genesis(manifest_path: str | Path, genesis: Mapping[str, Any]) -> str
     return temp
 
 
+class _ByteSink(Protocol):
+    def write(self, data: bytes, /) -> int: ...
+
+
+class _ByteCounter:
+    def __init__(self) -> None:
+        self.count = 0
+
+    def write(self, data: bytes, /) -> int:
+        self.count += len(data)
+        return len(data)
+
+
 def _carry_pending(
     audit_path: str | Path,
-    out: IO[bytes],
+    out: _ByteSink,
     start: int,
     skip: Container[str],
     refuse: Container[str],
@@ -421,6 +434,13 @@ def _rotate(
         if os.path.lexists(manifest_archive) or os.path.lexists(audit_archive):
             raise ValueError(f"archive {manifest_archive} or {audit_archive} already exists")
         skip = sealed_here | _archived_sealed_ids(manifest_path)
+        if thresholds and not age_due and min_archived_bytes is not None:
+            counter = _ByteCounter()
+            counted = 0
+            with suppress(FileNotFoundError):
+                counted = _carry_pending(audit_path, counter, 0, skip, ())
+            if counted - counter.count < min_archived_bytes:
+                return None
         temps: list[str] = []
         with ExitStack() as held:
             try:
@@ -432,13 +452,6 @@ def _rotate(
                     end = 0
                     with suppress(FileNotFoundError):
                         end = _carry_pending(audit_path, out, 0, skip, (), sealed=sealed_here, digests=digests)
-                    if thresholds and not age_due and min_archived_bytes is not None:
-                        if end - out.tell() < min_archived_bytes:
-                            for temp in temps:
-                                with suppress(OSError):
-                                    os.unlink(temp)
-                            temps.clear()
-                            return None
                     state = _outgoing_state(manifest_path, manifests, digests, **check)
                     genesis = _genesis_entry(signer, log_id, state.head)
                     fd = _open_locked(audit_path, os.O_RDWR | os.O_CREAT, exclusive=True)
