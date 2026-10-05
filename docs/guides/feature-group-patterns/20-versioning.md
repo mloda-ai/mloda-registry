@@ -15,7 +15,7 @@ Each FeatureGroup has a `version()` method that returns a composite identifier c
 2. **Module name** - Where the feature group is defined
 3. **Implementation hash** - SHA-256 hash of the code the feature group can run
 
-The hash covers the class, its first-party base classes, and the helper functions, classes and module-level constants they reference, also across modules of the same package. It ignores docstrings, comments, formatting, and functions the feature group never references. Third-party code is never hashed; by default (`ThirdPartyVersionMode.INCLUDE`) the name and version of each third-party package the code references count instead.
+The hash covers the class, its first-party base classes, and the helper functions, classes and module-level constants they reference, also across modules of the same package. It ignores docstrings, comments, formatting, and unreferenced functions. Third-party code is not hashed; by default (`ThirdPartyVersionMode.INCLUDE`) the name and version of each referenced third-party package count instead.
 
 This means the version changes automatically when:
 - mloda is upgraded
@@ -23,7 +23,7 @@ This means the version changes automatically when:
 - A referenced third-party package is upgraded (unless excluded)
 - The feature group is moved to a different module
 
-Code reached only at runtime (registries, reflection, `importlib`) and data or config files are not covered. Reference such a class in the class body (e.g. `VERSION_INCLUDES = (Scaler,)`) to make it count. See the mloda page linked below for the full list of blind spots.
+Code reached only at runtime (registries, reflection, `importlib`) and data or config files are not covered. Reference such a class in the class body (e.g. `VERSION_INCLUDES = (Scaler,)`) to make it count.
 
 ## Usage
 

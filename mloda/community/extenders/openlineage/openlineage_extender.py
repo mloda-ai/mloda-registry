@@ -129,10 +129,10 @@ class OpenLineageExtender(Extender):
     """Emits one OpenLineage START/COMPLETE|FAIL|ABORT RunEvent per calculate invocation, correlating nested
     INPUT_DATA_LOAD calls and the calculate context's input features as inputs. Sink resolution: injected client wins,
     else use_sdk_defaults, else inert. Emits happen synchronously on the calculation thread, so a blocking transport
-    delays every wrapped calculation. close() flushes the client, capped at close_timeout (default 1s) and the worker's
-    remaining close budget, and is terminal. A self-built client is rebuilt per worker; an injected client that can't survive pickling is dropped
-    by a trial-pickle probe and falls back to the resolution rule above, while a picklable injected client is
-    pickled as-is. Core calls close() with no args on graceful MULTIPROCESSING worker exit; raise close_timeout
+    delays every wrapped calculation. close() flushes the client, capped at close_timeout (default 1s) and the
+    worker's remaining close budget, and is terminal. A self-built client is rebuilt per worker; an injected client
+    that can't survive pickling is dropped by a trial-pickle probe and falls back to the resolution rule above,
+    while a picklable injected client is pickled as-is. Core calls close() with no args on graceful MULTIPROCESSING worker exit; raise close_timeout
     together with graceful_shutdown_timeout for a buffered transport (e.g. async_http, kafka) to fully drain,
     otherwise events past the budget are lost. The parent-death path is best effort. Dataset names for
     loads are core's data_access_identity, recorded as given; any fallback load of a name (core's
@@ -201,9 +201,8 @@ class OpenLineageExtender(Extender):
     def close(self, timeout: float | None = None) -> bool:  # type: ignore[override]
         """Flush the underlying client, capped at close_timeout when timeout is None (core's own no-arg
         call); pass timeout=-1 to wait with no limit and drain fully (inside a worker close even -1 is capped by
-        the remaining close budget). A no-op if none has been built yet,
-        waiting out any build in flight. Otherwise every closer, including a sibling sharing an injected
-        client, waits for one flush."""
+        the remaining close budget). A no-op if none has been built yet, waiting out any build in flight.
+        Otherwise every closer, including a sibling sharing an injected client, waits for one flush."""
         if timeout is None:
             timeout = self.close_timeout
         timeout = capped_close_timeout(timeout)

@@ -47,6 +47,7 @@ from mloda.community.extenders.openlineage import openlineage_extender as openli
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender, _open_invocations
 from mloda.community.extenders.shared.step_run_id import step_run_id
 from mloda.testing.data_creator.pyarrow import PyArrowDataOpsTestDataCreator
+from mloda.testing.extenders.flush import active_close_context
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.openlineage import (
     OPENLINEAGE_EXTENDER_SEAMS,
@@ -1194,31 +1195,9 @@ class TestOpenLineageExtenderCloseTimeoutDefault:
 
         assert received == [3.5]
 
-    def test_no_arg_close_in_expired_close_context_passes_zero(
-        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from mloda.testing.extenders.flush import active_close_context
-
-        client, _ = ol_capture
-        extender = OpenLineageExtender(client=client)
-        received: list[float] = []
-
-        def fake_close(timeout: float = -1.0) -> bool:
-            received.append(timeout)
-            return True
-
-        monkeypatch.setattr(client, "close", fake_close)
-
-        with active_close_context(-1):
-            extender.close()
-
-        assert received == [0.0]
-
     def test_explicit_no_cap_close_in_active_close_context_becomes_remaining_budget(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from mloda.testing.extenders.flush import active_close_context
-
         client, _ = ol_capture
         extender = OpenLineageExtender(client=client)
         received: list[float] = []

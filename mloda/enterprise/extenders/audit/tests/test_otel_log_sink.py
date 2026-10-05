@@ -59,7 +59,7 @@ from mloda.enterprise.extenders.audit.tests.test_audit_extender import (
     _TENANT,
     InMemoryAuditSink,
 )
-from mloda.testing.extenders.flush import blocking_flush_provider, call_with_join_timeout
+from mloda.testing.extenders.flush import active_close_context, blocking_flush_provider, call_with_join_timeout
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import expected_value_int, run_value_int
 from mloda.testing.import_isolation import block_root, evict_package
@@ -1023,8 +1023,6 @@ class TestOtelLogAuditSinkFlush:
         provider.force_flush.assert_called_once_with(timeout_millis=int(CLOSE_TIMEOUT * 1000))
 
     def test_flush_caps_timeout_to_the_active_close_context(self) -> None:
-        from mloda.testing.extenders.flush import active_close_context
-
         provider = Mock(force_flush=Mock(return_value=True))
         sink = OtelLogAuditSink()
         sink.close_timeout = 5.0

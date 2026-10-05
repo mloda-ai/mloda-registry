@@ -11,7 +11,7 @@ from unittest.mock import Mock
 import pytest
 
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, force_flush
-from mloda.testing.extenders.flush import blocking_flush_provider, call_with_join_timeout
+from mloda.testing.extenders.flush import active_close_context, blocking_flush_provider, call_with_join_timeout
 
 
 class TestCloseTimeout:
@@ -127,14 +127,12 @@ class TestCappedCloseTimeout:
 
     def test_large_remaining_returns_close_timeout(self) -> None:
         from mloda.community.extenders.shared.teardown import capped_close_timeout
-        from mloda.testing.extenders.flush import active_close_context
 
         with active_close_context(60):
             assert capped_close_timeout(1.0) == 1.0
 
     def test_expired_context_returns_zero(self) -> None:
         from mloda.community.extenders.shared.teardown import capped_close_timeout
-        from mloda.testing.extenders.flush import active_close_context
 
         with active_close_context(-1):
             assert capped_close_timeout(1.0) == 0.0
@@ -142,7 +140,6 @@ class TestCappedCloseTimeout:
     @pytest.mark.parametrize("value", [-1.0, float("inf")], ids=["negative", "inf"])
     def test_no_cap_value_becomes_remaining_budget(self, value: float) -> None:
         from mloda.community.extenders.shared.teardown import capped_close_timeout
-        from mloda.testing.extenders.flush import active_close_context
 
         with active_close_context(0.5):
             result = capped_close_timeout(value)

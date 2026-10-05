@@ -14,12 +14,12 @@ from unittest.mock import Mock, patch
 
 import pyarrow as pa
 import pytest
-from mloda.steward import Extender, ExtenderHook, HookContext
+from mloda.steward import CloseContext, Extender, ExtenderHook, HookContext
 from mloda.user import ParallelizationMode, mloda
 
 from mloda.testing.extenders import runners
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
-from mloda.testing.extenders.flush import blocking_flush_provider, call_with_join_timeout
+from mloda.testing.extenders.flush import active_close_context, blocking_flush_provider, call_with_join_timeout
 from mloda.testing.extenders.hook_context import make_hook_context
 from mloda.testing.extenders.runners import (
     CountingExtender,
@@ -786,3 +786,22 @@ class TestBlockingFlushProvider:
         with blocking_flush_provider() as provider:
             assert isinstance(provider, Mock)
             assert isinstance(provider.force_flush, Mock)
+
+
+class TestActiveCloseContext:
+    """active_close_context(budget) installs a CloseContext for the block and clears it afterwards."""
+
+    def test_block_sees_the_yielded_context_with_a_positive_remaining_budget(self) -> None:
+        with active_close_context(60) as ctx:
+            assert CloseContext.current() is ctx
+            assert ctx.remaining() > 0
+
+    def test_no_context_is_current_after_the_block(self) -> None:
+        with active_close_context(60):
+            pass
+
+        assert CloseContext.current() is None
+
+    def test_negative_budget_has_zero_remaining(self) -> None:
+        with active_close_context(-1) as ctx:
+            assert ctx.remaining() == 0.0

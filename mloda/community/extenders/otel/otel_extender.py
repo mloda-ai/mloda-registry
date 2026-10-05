@@ -119,8 +119,9 @@ class OtelExtender(Extender):
     An injected tracer_provider that can't survive pickling (e.g. the real SDK TracerProvider, which
     holds locks) is dropped by a trial-pickle probe when a copy is made (worker processes under
     ParallelizationMode.MULTIPROCESSING), falling back to the resolution rule above; a picklable
-    custom provider is kept as-is. close() flushes the resolved provider, capped at close_timeout and the worker's
-    remaining close budget (default 1s), and never calls shutdown() (core, not the extender, owns provider lifetime).
+    custom provider is kept as-is. close() flushes the resolved provider, capped at close_timeout (default 1s)
+    and the worker's remaining close budget, and never calls shutdown() (core, not the extender, owns provider
+    lifetime).
     on_run_start opens a `mloda.run` root span that parents the step spans of that run (parent: run carrier, else
     the caller's active span). trace_scope="plan" also opens a `mloda.plan` span in on_plan_start and parents
     run roots under it, linking the caller or carrier span; "run" (default) emits no plan span. Calculate spans
@@ -239,9 +240,9 @@ class OtelExtender(Extender):
 
     # Core calls close() with no args on graceful MULTIPROCESSING worker exit and ignores the result.
     def close(self) -> None:
-        """Flush the resolved tracer_provider within close_timeout and the remaining close budget, best effort; never raises and never
-        calls shutdown() (core, not the extender, owns provider lifetime). Inert (no injected provider,
-        use_sdk_defaults False) touches no provider."""
+        """Flush the resolved tracer_provider within close_timeout and the remaining close budget, best effort;
+        never raises and never calls shutdown() (core, not the extender, owns provider lifetime). Inert (no
+        injected provider, use_sdk_defaults False) touches no provider."""
         provider = self._configured_tracer_provider()
         if provider is None:
             return
