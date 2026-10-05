@@ -1246,15 +1246,31 @@ class TestOpenLineageExtenderSharedInjectedClientCloseState:
         assert result is True
         assert client.close_calls == [CLOSE_TIMEOUT]
 
-    def test_zero_budget_closer_leaves_the_shared_flush_to_a_later_sibling(self) -> None:
+    def test_zero_budget_closer_leaves_the_shared_flush_to_a_later_sibling(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         client = _SlottedDuckTypeClient()
         shared = cast(OpenLineageClient, client)
         extender_a = OpenLineageExtender(client=shared)
         extender_b = OpenLineageExtender(client=shared)
 
-        assert extender_a.close(0.0) is False
+        with caplog.at_level(logging.WARNING):
+            assert extender_a.close(0.0) is False
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "close skipped" in warnings[0]
+        assert "OpenLineageExtender" in warnings[0]
         assert client.close_calls == []
         assert extender_b.close(-1) is True
+        assert client.close_calls == [-1]
+
+    def test_zero_budget_close_then_negative_budget_close_on_same_instance_flushes(self) -> None:
+        client = _SlottedDuckTypeClient()
+        extender = OpenLineageExtender(client=cast(OpenLineageClient, client))
+
+        assert extender.close(0.0) is False
+        assert client.close_calls == []
+        assert extender.close(-1) is True
         assert client.close_calls == [-1]
 
     def test_zero_budget_closer_after_real_flush_gets_cached_result(self) -> None:
