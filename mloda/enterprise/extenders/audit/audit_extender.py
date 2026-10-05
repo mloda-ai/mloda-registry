@@ -6,7 +6,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from collections.abc import Callable, Iterable, Mapping
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
@@ -24,7 +26,8 @@ from mloda.enterprise.extenders.audit._core import (
 )
 from mloda.enterprise.extenders.audit._records import _append_records as _append_records
 from mloda.enterprise.extenders.audit._records import _canonical_json as _canonical_json
-from mloda.enterprise.extenders.audit._records import _is_blank, _utc_now
+from mloda.enterprise.extenders.audit._records import _is_blank, _parse_event_time, _utc_now
+from mloda.enterprise.extenders.audit._segments import rotate_ndjson_segment
 from mloda.enterprise.extenders.audit._signers import ManifestSigner, _signer_map
 from mloda.enterprise.extenders.audit.run_manifest import (
     _check_run_against_seal,
@@ -170,7 +173,10 @@ class AuditExtender(Extender):
     emitted to it, and its latest head must still be in the log). A seal failure (any sealing or anchor error, or a
     mismatch with an existing seal) increments the public seal_failures counter and follows seal_failure_policy:
     "log" (default), "raise", or a callable(run_id, exc). Core contains an exception raised from on_run_complete,
-    so "raise" does not fail the finished run. seal_index_path opts into a rebuildable seal index cache; it needs the
+    so "raise" does not fail the finished run. segment_max_bytes / segment_max_age (need log_id) rotate the
+    segment with rotate_ndjson_segment after an auto-seal once the audit file reaches that size or the live
+    segment's genesis that age; that run's completion pays for verifying the whole outgoing segment, and a
+    rotation failure counts in seal_failures and follows seal_failure_policy. seal_index_path opts into a rebuildable seal index cache; it needs the
     sealing config and must not alias audit_path, manifest_path or the anchor path."""
 
     def __init__(
@@ -188,6 +194,8 @@ class AuditExtender(Extender):
         head_anchor: HeadAnchor | None = None,
         seal_failure_policy: Literal["log", "raise"] | Callable[[str, BaseException], None] = "log",
         seal_index_path: str | Path | None = None,
+        segment_max_bytes: int | None = None,
+        segment_max_age: timedelta | None = None,
     ) -> None:
         unknown = [name for name in required_identity if name not in _ALLOWED_IDENTITY_NAMES]
         if unknown:
@@ -234,9 +242,12 @@ class AuditExtender(Extender):
                 or head_anchor is not None
                 or seal_failure_policy != "log"
                 or seal_index_path is not None
+                or segment_max_bytes is not None
+                or segment_max_age is not None
             ):
                 raise ValueError(
-                    "AuditExtender log_id, head_anchor, seal_failure_policy and seal_index_path need the sealing config "
+                    "AuditExtender log_id, head_anchor, seal_failure_policy, seal_index_path, segment_max_bytes and segment_max_age "
+                    "need the sealing config "
                     "(audit_path, manifest_path and signer), else there is nothing to seal"
                 )
         elif audit_path is None or manifest_path is None:
@@ -252,6 +263,19 @@ class AuditExtender(Extender):
             _reject_aliased_paths(audit_path=audit_path, manifest_path=manifest_path)
             _signer_map(signer, previous_signers)
             _check_log_id("AuditExtender", log_id)
+            if segment_max_bytes is not None or segment_max_age is not None:
+                if log_id is None:
+                    raise ValueError("AuditExtender segment_max_bytes and segment_max_age need a log_id to rotate")
+                if segment_max_bytes is not None and (
+                    isinstance(segment_max_bytes, bool)
+                    or not isinstance(segment_max_bytes, int)
+                    or segment_max_bytes <= 0
+                ):
+                    raise ValueError(f"AuditExtender segment_max_bytes must be an int > 0, got {segment_max_bytes!r}")
+                if segment_max_age is not None and (
+                    not isinstance(segment_max_age, timedelta) or segment_max_age <= timedelta(0)
+                ):
+                    raise ValueError(f"AuditExtender segment_max_age must be a timedelta > 0, got {segment_max_age!r}")
             if seal_index_path is not None:
                 anchor_path = getattr(head_anchor, "_path", None)
                 _reject_aliased_paths(
@@ -275,6 +299,8 @@ class AuditExtender(Extender):
         self._head_anchor = head_anchor
         self._seal_failure_policy = seal_failure_policy
         self._seal_index_path = seal_index_path
+        self._segment_max_bytes = segment_max_bytes
+        self._segment_max_age = segment_max_age
         self.seal_failures = 0
         self._pickle_drop_warning = WarnOncePerInstance()
         self._run_sealed: dict[str, bool] = {}
@@ -380,8 +406,43 @@ class AuditExtender(Extender):
             )
         except Exception as exc:
             self._seal_failed(run_id, exc)
+        else:
+            self._rotate_if_due(run_id)
 
-    def _seal_failed(self, run_id: str, exc: BaseException, mismatch_message: str | None = None) -> None:
+    def _rotate_if_due(self, run_id: str) -> None:
+        if self._segment_max_bytes is None and self._segment_max_age is None:
+            return
+        assert self._audit_path is not None and self._manifest_path is not None
+        assert self._signer is not None and self._log_id is not None
+        try:
+            due = self._segment_max_bytes is not None and os.path.getsize(self._audit_path) >= self._segment_max_bytes
+            if not due and self._segment_max_age is not None:
+                with open(self._manifest_path, encoding="utf-8") as handle:
+                    genesis = json.loads(handle.readline())
+                age = datetime.now(timezone.utc) - _parse_event_time(genesis["created_at"])
+                due = age >= self._segment_max_age
+            if not due:
+                return
+            anchors: list[str] = []
+            if self._head_anchor is not None:
+                latest = self._head_anchor.latest()
+                if latest is not None:
+                    anchors.append(latest)
+            rotate_ndjson_segment(
+                self._audit_path,
+                self._manifest_path,
+                signer=self._signer,
+                previous_signers=self._previous_signers,
+                log_id=self._log_id,
+                anchored_heads=anchors,
+                head_anchor=self._head_anchor,
+            )
+        except Exception as exc:
+            self._seal_failed(run_id, exc, action="rotating the segment after sealing")
+
+    def _seal_failed(
+        self, run_id: str, exc: BaseException, mismatch_message: str | None = None, *, action: str = "sealing"
+    ) -> None:
         self.seal_failures += 1
         policy = self._seal_failure_policy
         if policy == "raise":
@@ -393,7 +454,8 @@ class AuditExtender(Extender):
             logger.error(mismatch_message, run_id, self._manifest_path, self._audit_path, exc)
         elif isinstance(exc, ManifestVerificationError):
             logger.error(
-                "AuditExtender: sealing run_id %r failed in manifest_path %s for audit_path %s (%s): %s",
+                "AuditExtender: %s run_id %r failed in manifest_path %s for audit_path %s (%s): %s",
+                action,
                 run_id,
                 self._manifest_path,
                 self._audit_path,
@@ -402,7 +464,8 @@ class AuditExtender(Extender):
             )
         else:
             logger.error(
-                "AuditExtender: sealing run_id %r failed in manifest_path %s for audit_path %s (%s)",
+                "AuditExtender: %s run_id %r failed in manifest_path %s for audit_path %s (%s)",
+                action,
                 run_id,
                 self._manifest_path,
                 self._audit_path,

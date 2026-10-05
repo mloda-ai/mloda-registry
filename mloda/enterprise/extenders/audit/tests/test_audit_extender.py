@@ -16,7 +16,7 @@ import sys
 import threading
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import AbstractContextManager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -46,10 +46,12 @@ from mloda.enterprise.extenders.audit import (
     seal_run,
     verify_ndjson_log,
     verify_ndjson_log_coverage,
+    verify_ndjson_segments,
 )
 from mloda.enterprise.extenders.audit import audit_extender as audit_extender_module
 from mloda.enterprise.extenders.audit._core import _flock
 from mloda.enterprise.extenders.audit._records import _append_records, _canonical_json
+from mloda.enterprise.extenders.audit.tests import manifest_helpers
 from mloda.enterprise.extenders.audit.tests.manifest_helpers import _patch_bindings
 from mloda.testing.extenders.contract import ExtenderContractTestMixin
 from mloda.testing.extenders.hook_context import make_hook_context
@@ -848,8 +850,16 @@ class TestAuditExtenderConstruction:
             {"log_id": "log-a"},
             {"seal_failure_policy": "raise"},
             {"seal_failure_policy": lambda run_id, exc: None},
+            {"segment_max_bytes": 1},
+            {"segment_max_age": timedelta(hours=1)},
         ],
-        ids=["log_id", "seal_failure_policy_raise", "seal_failure_policy_callable"],
+        ids=[
+            "log_id",
+            "seal_failure_policy_raise",
+            "seal_failure_policy_callable",
+            "segment_max_bytes",
+            "segment_max_age",
+        ],
     )
     def test_seal_options_without_the_sealing_config_raise_value_error(self, kwargs: dict[str, Any]) -> None:
         with pytest.raises(ValueError):
@@ -894,6 +904,52 @@ class TestAuditExtenderConstruction:
                 manifest_path=manifest_path,
                 signer=_hmac_signer(),
                 log_id=log_id,
+            )
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"segment_max_bytes": 0},
+            {"segment_max_bytes": -1},
+            {"segment_max_bytes": True},
+            {"segment_max_bytes": "10"},
+            {"segment_max_bytes": 1.5},
+            {"segment_max_age": timedelta(0)},
+            {"segment_max_age": timedelta(seconds=-1)},
+            {"segment_max_age": 3600},
+        ],
+        ids=["zero", "negative", "bool", "str", "float", "zero_age", "negative_age", "int_age"],
+    )
+    def test_invalid_segment_rotation_threshold_raises_value_error(
+        self, tmp_path: Path, kwargs: dict[str, Any]
+    ) -> None:
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        with pytest.raises(ValueError):
+            AuditExtender(
+                sink=InMemoryAuditSink(),
+                audit_path=audit_path,
+                manifest_path=manifest_path,
+                signer=_hmac_signer(),
+                log_id="log-a",
+                **kwargs,
+            )
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{"segment_max_bytes": 1}, {"segment_max_age": timedelta(hours=1)}],
+        ids=["segment_max_bytes", "segment_max_age"],
+    )
+    def test_segment_rotation_threshold_without_log_id_raises_value_error(
+        self, tmp_path: Path, kwargs: dict[str, Any]
+    ) -> None:
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        with pytest.raises(ValueError):
+            AuditExtender(
+                sink=InMemoryAuditSink(),
+                audit_path=audit_path,
+                manifest_path=manifest_path,
+                signer=_hmac_signer(),
+                **kwargs,
             )
 
     @pytest.mark.parametrize(
@@ -1983,6 +2039,183 @@ class TestAuditExtenderSealing:
 
         assert anchor.latest() != first_head
         assert extender.seal_failures == 0
+
+    # --- segment rotation after an auto-seal ---
+
+    @staticmethod
+    def _rotating_extender(tmp_path: Path, **kwargs: Any) -> tuple[AuditExtender, Path, Path, NdjsonHeadAnchor]:
+        audit_path, manifest_path = _sealing_config(tmp_path)
+        anchor = NdjsonHeadAnchor(tmp_path / "anchor.ndjson")
+        _append_records(audit_path, [_minimal_audit_record("run-1")])
+        extender = AuditExtender(
+            sink=NdjsonAuditSink(audit_path),
+            audit_path=audit_path,
+            manifest_path=manifest_path,
+            signer=_hmac_signer(),
+            log_id="log-a",
+            head_anchor=anchor,
+            **kwargs,
+        )
+        return extender, audit_path, manifest_path, anchor
+
+    @staticmethod
+    def _archive(path: Path) -> Path:
+        return path.with_name(path.name + ".000001")
+
+    def test_no_rotation_when_neither_threshold_is_passed(self, tmp_path: Path) -> None:
+        extender, audit_path, manifest_path, _ = self._rotating_extender(
+            tmp_path, segment_max_bytes=10**9, segment_max_age=timedelta(days=365)
+        )
+
+        extender.on_run_complete("run-1")
+
+        assert extender.seal_failures == 0
+        assert json.loads(manifest_path.read_text(encoding="utf-8").splitlines()[-1])["run_id"] == "run-1"
+        assert not self._archive(audit_path).exists()
+        assert not self._archive(manifest_path).exists()
+
+    def test_segment_max_bytes_passed_rotates_after_the_seal_and_anchors_the_new_genesis(self, tmp_path: Path) -> None:
+        extender, audit_path, manifest_path, anchor = self._rotating_extender(tmp_path, segment_max_bytes=1)
+
+        extender.on_run_complete("run-1")
+
+        assert self._archive(audit_path).exists()
+        assert self._archive(manifest_path).exists()
+        live = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()]
+        assert [line.get("kind") for line in live] == ["genesis"]
+        assert anchor.latest() == manifest_hash(live[0])
+        heads = [json.loads(line)["head"] for line in (tmp_path / "anchor.ndjson").read_text().splitlines()]
+        verify_ndjson_segments(audit_path, manifest_path, signer=_hmac_signer(), log_id="log-a", anchored_heads=heads)
+        assert extender.seal_failures == 0
+
+    def test_segment_max_age_passed_rotates_after_the_seal(self, tmp_path: Path) -> None:
+        extender, audit_path, manifest_path, _ = self._rotating_extender(tmp_path, segment_max_age=timedelta(hours=1))
+        genesis = manifest_helpers._genesis_entry(
+            _hmac_signer(), log_id="log-a", created_at="2020-01-01T00:00:00.000000Z"
+        )
+        manifest_path.write_bytes(_canonical_json(genesis) + b"\n")
+
+        extender.on_run_complete("run-1")
+
+        assert extender.seal_failures == 0
+        assert self._archive(audit_path).exists()
+        assert self._archive(manifest_path).exists()
+
+    def test_segment_max_age_not_passed_on_a_fresh_log_does_not_rotate(self, tmp_path: Path) -> None:
+        extender, audit_path, manifest_path, _ = self._rotating_extender(tmp_path, segment_max_age=timedelta(hours=1))
+
+        extender.on_run_complete("run-1")
+
+        assert extender.seal_failures == 0
+        assert not self._archive(audit_path).exists()
+        assert not self._archive(manifest_path).exists()
+
+    @pytest.mark.parametrize("indexed", [False, True], ids=["no_index", "index"])
+    def test_after_an_auto_rotation_the_next_run_seals_in_the_new_segment_and_the_old_one_stays_refused(
+        self, tmp_path: Path, indexed: bool
+    ) -> None:
+        extra: dict[str, Any] = {"seal_index_path": tmp_path / "index.sqlite"} if indexed else {}
+        extender, audit_path, manifest_path, _ = self._rotating_extender(tmp_path, segment_max_bytes=1, **extra)
+        extender.on_run_complete("run-1")
+        assert self._archive(manifest_path).exists()
+        with make_hook_context(run_id="run-2", tenant_id=_TENANT).activate():
+            extender(_CountingCall())
+
+        extender.on_run_complete("run-2")
+
+        assert extender.seal_failures == 0
+        archived = self._archive(manifest_path).with_name(manifest_path.name + ".000002")
+        assert json.loads(archived.read_text(encoding="utf-8").splitlines()[-1])["run_id"] == "run-2"
+        live = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines()]
+        assert [line.get("kind") for line in live] == ["genesis"]
+        heads = [json.loads(line)["head"] for line in (tmp_path / "anchor.ndjson").read_text().splitlines()]
+        verify_ndjson_segments(audit_path, manifest_path, signer=_hmac_signer(), log_id="log-a", anchored_heads=heads)
+        second = _second_extender_over_same_sealing_config(audit_path, manifest_path, _hmac_signer(), **extra)
+        call = _CountingCall()
+        with make_hook_context(run_id="run-1", tenant_id=_TENANT).activate():
+            with pytest.raises(SealedRunRefusedError):
+                second(call)
+        assert call.calls == 0
+
+    def test_no_rotation_when_the_run_was_already_sealed(self, tmp_path: Path) -> None:
+        extender, audit_path, manifest_path, _ = self._rotating_extender(tmp_path)
+        extender.on_run_complete("run-1")
+        rotating = _second_extender_over_same_sealing_config(
+            audit_path, manifest_path, _hmac_signer(), log_id="log-a", segment_max_bytes=1
+        )
+
+        with make_hook_context(run_id="run-1", tenant_id=_TENANT).activate():
+            with pytest.raises(SealedRunRefusedError):
+                rotating(_CountingCall())
+        rotating.on_run_complete("run-1")
+
+        assert rotating.seal_failures == 0
+        assert not self._archive(audit_path).exists()
+        assert not self._archive(manifest_path).exists()
+
+    def test_no_rotation_when_the_run_is_not_pending(self, tmp_path: Path) -> None:
+        extender, audit_path, manifest_path, _ = self._rotating_extender(tmp_path, segment_max_bytes=1)
+
+        with patch.object(audit_extender_module, "seal_ndjson_runs", side_effect=RunNotPendingError("none")):
+            extender.on_run_complete("run-1")
+
+        assert extender.seal_failures == 0
+        assert not self._archive(audit_path).exists()
+        assert not self._archive(manifest_path).exists()
+
+    def test_a_rotation_failure_under_the_log_policy_logs_at_error_without_the_message_and_keeps_the_seal(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        extender, _, manifest_path, _ = self._rotating_extender(tmp_path, segment_max_bytes=1)
+
+        with patch.object(
+            audit_extender_module, "rotate_ndjson_segment", side_effect=RuntimeError("secret-record-data")
+        ):
+            with caplog.at_level(logging.ERROR):
+                extender.on_run_complete("run-1")  # must not raise
+
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR and r.name == audit_extender_module.__name__]
+        assert any(
+            "rotat" in r.getMessage() and "RuntimeError" in r.getMessage() and "run-1" in r.getMessage() for r in errors
+        )
+        assert not any("secret-record-data" in r.getMessage() for r in errors)
+        assert extender.seal_failures == 1
+        assert json.loads(manifest_path.read_text(encoding="utf-8").splitlines()[-1])["run_id"] == "run-1"
+
+    def test_a_manifest_verification_error_from_the_rotation_is_logged_with_its_type(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        extender, _, _, _ = self._rotating_extender(tmp_path, segment_max_bytes=1)
+
+        with patch.object(
+            audit_extender_module, "rotate_ndjson_segment", side_effect=ManifestVerificationError("rolled back")
+        ):
+            with caplog.at_level(logging.ERROR):
+                extender.on_run_complete("run-1")
+
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR and r.name == audit_extender_module.__name__]
+        assert any("rotat" in r.getMessage() and "ManifestVerificationError" in r.getMessage() for r in errors)
+        assert extender.seal_failures == 1
+
+    def test_a_rotation_failure_under_the_raise_policy_reraises_and_counts(self, tmp_path: Path) -> None:
+        extender, _, _, _ = self._rotating_extender(tmp_path, segment_max_bytes=1, seal_failure_policy="raise")
+
+        with patch.object(audit_extender_module, "rotate_ndjson_segment", side_effect=RuntimeError("boom")):
+            with pytest.raises(RuntimeError, match="boom"):
+                extender.on_run_complete("run-1")
+
+        assert extender.seal_failures == 1
+
+    def test_a_rotation_failure_calls_a_callable_policy_once(self, tmp_path: Path) -> None:
+        callback = Mock()
+        extender, _, _, _ = self._rotating_extender(tmp_path, segment_max_bytes=1, seal_failure_policy=callback)
+        boom = RuntimeError("boom")
+
+        with patch.object(audit_extender_module, "rotate_ndjson_segment", side_effect=boom):
+            extender.on_run_complete("run-1")
+
+        callback.assert_called_once_with("run-1", boom)
+        assert extender.seal_failures == 1
 
     @pytest.mark.parametrize("policy", ["log", "raise"])
     def test_not_a_failure_run_not_pending(self, tmp_path: Path, policy: Any) -> None:
