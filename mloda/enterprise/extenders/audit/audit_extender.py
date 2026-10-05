@@ -166,8 +166,8 @@ class AuditExtender(Extender):
     config cannot check and is never refused.
     A fail_closed=True deny record written at plan time is a different, recoverable case: it is refused
     before setup, so on_run_complete never fires for it and it is never auto-sealed at all (not sealed-with-strays).
-    Records carry plan_id, and a record with no run_id is attributed to its plan_id by sealing and verification, so
-    a seal_ndjson_runs sweep seals it under that plan_id (target that plan_id, not a blanket sweep, while another run may be live; find it via
+    A record with no run_id is attributed to its plan_id, so a seal_ndjson_runs sweep seals it under that plan_id
+    (target it, not a blanket sweep, while another run may be live; find it via
     verify_ndjson_log_coverage(...).unsealed_lines). Auto-sealing uses the optional log_id and head_anchor (each new head is
     emitted to it, and its latest head must still be in the log). A seal failure (any sealing or anchor error, or a
     mismatch with an existing seal) increments the public seal_failures counter and follows seal_failure_policy:
@@ -322,7 +322,7 @@ class AuditExtender(Extender):
             flush()
 
     def on_run_complete(self, run: RunContext, outcome: LifecycleOutcome) -> None:
-        """Auto-seal `run.run_id` (for any outcome status) when audit_path/manifest_path/signer are configured; a no-op otherwise, with
+        """Auto-seal `run.run_id` (any outcome) when audit_path/manifest_path/signer are configured; a no-op otherwise, with
         run_id=None, or when the run wrote nothing (logged as a WARNING with the audit_path, since a missing
         audit file or a run_id with no records is worth a steward's attention). Flushes the sink first, so a
         buffered record reaches the audit file before it is sealed. A pickled or copied instance has no
