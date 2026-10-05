@@ -202,7 +202,9 @@ class OpenLineageExtender(Extender):
         """Flush the underlying client, capped at close_timeout when timeout is None (core's own no-arg
         call); pass timeout=-1 to wait with no limit and drain fully (inside a worker close even -1 is capped by
         the remaining close budget). A no-op if none has been built yet, waiting out any build in flight.
-        Otherwise every closer, including a sibling sharing an injected client, waits for one flush."""
+        Otherwise every closer, including a sibling sharing an injected client, waits for one flush. One with no
+        budget left before that flush ran does not close an injected client: it returns False and leaves the flush
+        to a later closer."""
         if timeout is None:
             timeout = self.close_timeout
         with self._client_lock:
