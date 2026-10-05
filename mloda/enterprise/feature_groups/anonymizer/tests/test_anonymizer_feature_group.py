@@ -338,7 +338,7 @@ class TestIntegration:
         rows: dict[str, list[Any]] = {"email": ["alpha", None, "gamma"]}
         results = mloda.run_all(
             [_config_feature("pseudonymized_email")],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             api_data={"AnonymizerData": rows},
             plugin_collector=PluginCollector.enabled_feature_groups({ApiInputDataFeature, StubAnonymizer}),
         )
@@ -349,7 +349,7 @@ class TestIntegration:
         rows: dict[str, list[Any]] = {"email": ["alpha", "beta"]}
         results = mloda.run_all(
             [_string_feature()],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             api_data={"AnonymizerData": rows},
             plugin_collector=PluginCollector.enabled_feature_groups({ApiInputDataFeature, StubAnonymizer}),
         )
