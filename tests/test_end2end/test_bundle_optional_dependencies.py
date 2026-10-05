@@ -141,10 +141,10 @@ def _bundle_extra_leaf_dev_pairs(
     return pairs
 
 
-@pytest.mark.parametrize("leaf_extra", ("dev", "wheel"))
-def test_bundle_extra_floor_matches_leaf_dev_entry(leaf_extra: str) -> None:
+@pytest.mark.parametrize("leaf_extra", ("dev", "wheel", "pyarrow"))
+def test_bundle_extra_floor_matches_leaf_extra_entry(leaf_extra: str) -> None:
     """A bundle extra's floor for an external dependency must equal the same dependency's entry in the
-    ``dev`` (or ``wheel``) extra of every nested leaf that lists it, so the two places cannot drift apart."""
+    ``dev``, ``wheel`` or ``pyarrow`` extra of every nested leaf that lists it, so the two places cannot drift apart."""
     packages = _packages()
     checked = 0
 

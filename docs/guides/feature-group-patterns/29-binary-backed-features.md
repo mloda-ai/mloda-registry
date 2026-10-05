@@ -186,7 +186,7 @@ The full expired/in-grace/valid license state machine is covered against the rea
 | `pii_key_env` | Name of the environment variable that holds the key (64 hex characters) |
 | `in_features` | The single source column |
 
-The key stays in an environment variable and never goes into Options, which mloda hashes and echoes. So `pii_key_env` is neither strict nor guarded, and errors never name the variable or echo the key. The license comes from `MLODA_LICENSE_FILE` or `MLODA_LICENSE_KEY`, as for any binary FeatureGroup.
+The key stays in an environment variable and never goes into Options, which mloda hashes and echoes. So `pii_key_env` is neither strict nor guarded, and errors never name the variable or echo the key; surrounding whitespace is stripped and a malformed key is rejected before the binary runs. The license comes from `MLODA_LICENSE_FILE` or `MLODA_LICENSE_KEY`, as for any binary FeatureGroup.
 
 ```python
 feature = Feature(

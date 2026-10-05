@@ -6,6 +6,7 @@ The key is read from the environment variable named by ``pii_key_env``, never fr
 from __future__ import annotations
 
 import os
+import re
 from typing import ClassVar
 
 import pyarrow as pa
@@ -21,6 +22,8 @@ from mloda_plugins.compute_framework.base_implementations.pyarrow.table import P
 
 from mloda.community.feature_groups.binary_model.errors import BinaryUsageError
 from mloda.community.feature_groups.binary_model.mixin import BinaryModelMixin
+
+_KEY_PATTERN = re.compile(r"[0-9a-fA-F]{64}")
 
 
 class AnonymizerFeatureGroup(BinaryModelMixin, FeatureChainParserMixin, FeatureGroup):
@@ -66,9 +69,9 @@ class AnonymizerFeatureGroup(BinaryModelMixin, FeatureChainParserMixin, FeatureG
     @classmethod
     def _read_key(cls, env_name: object) -> str:
         """The key from the named variable; errors never echo the name or the value."""
-        key = os.environ.get(env_name) if isinstance(env_name, str) and env_name else None
-        if not key:
+        key = os.environ.get(env_name, "").strip() if isinstance(env_name, str) and env_name else ""
+        if not _KEY_PATTERN.fullmatch(key):
             raise BinaryUsageError(
-                f"{cls.KEY_ENV} must name a set, non-empty environment variable holding the 64-hex-character key"
+                f"{cls.KEY_ENV} must name a set environment variable holding the 64-hex-character key"
             )
         return key

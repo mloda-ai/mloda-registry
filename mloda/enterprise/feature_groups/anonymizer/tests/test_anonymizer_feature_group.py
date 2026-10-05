@@ -15,6 +15,7 @@ from mloda.provider import ApiInputDataFeature, FeatureSet, PropertySpec
 from mloda.user import Feature, Options, PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
+from mloda.community.feature_groups.binary_model import mixin
 from mloda.community.feature_groups.binary_model.binary import clear_capability_cache
 from mloda.community.feature_groups.binary_model.errors import (
     BinaryUnavailableError,
@@ -218,6 +219,25 @@ class TestCalculateFeature:
         expected = compute_expected_hmac_sha256_column(rows, KNOWN_ANSWER_KEY)
         assert result.column("email__hmac_sha256_pseudonymized").to_pylist() == expected
 
+    def test_key_with_surrounding_whitespace_is_stripped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(KEY_ENV, KNOWN_ANSWER_KEY + "\n")
+        table = pa.table({"email": [KNOWN_ANSWER_VALUE]})
+        result = StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
+        assert result.column("pseudonymized_email").to_pylist() == [KNOWN_ANSWER_DIGEST]
+
+    def test_two_features_in_one_feature_set_each_use_their_own_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        key_a, key_b = KNOWN_ANSWER_KEY, "22" * 32
+        monkeypatch.setenv("ANONYMIZER_TEST_KEY_A", key_a)
+        monkeypatch.setenv("ANONYMIZER_TEST_KEY_B", key_b)
+        rows_a: list[str | None] = ["alpha", None]
+        rows_b: list[str | None] = ["beta", "gamma"]
+        table = pa.table({"col_a": rows_a, "col_b": rows_b})
+        feature_a = _config_feature("pseudo_a", source="col_a", key_env_value="ANONYMIZER_TEST_KEY_A")
+        feature_b = _config_feature("pseudo_b", source="col_b", key_env_value="ANONYMIZER_TEST_KEY_B")
+        result = StubAnonymizer.calculate_feature(table, _feature_set(feature_a, feature_b))
+        assert result.column("pseudo_a").to_pylist() == compute_expected_hmac_sha256_column(rows_a, key_a)
+        assert result.column("pseudo_b").to_pylist() == compute_expected_hmac_sha256_column(rows_b, key_b)
+
     def test_key_never_appears_in_a_log_record(self, key_env: str, caplog: pytest.LogCaptureFixture) -> None:
         table = pa.table({"email": [KNOWN_ANSWER_VALUE]})
         with caplog.at_level(logging.DEBUG):
@@ -260,13 +280,24 @@ class TestCalculateFeatureKeyRejections:
             StubAnonymizer.calculate_feature(table, _feature_set(feature))
         assert planted_key not in str(excinfo.value)
 
-    def test_malformed_key_raises_without_echoing_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        malformed_key = "11" * 31 + "1"
-        monkeypatch.setenv(KEY_ENV, malformed_key)
+    @pytest.mark.parametrize("malformed_key", ["11" * 31 + "1", "11" * 31 + "zz", "11" * 33])
+    def test_malformed_key_raises_before_the_binary_runs_without_echoing_it(
+        self, monkeypatch: pytest.MonkeyPatch, malformed_key: str
+    ) -> None:
+        runs: list[int] = []
+
+        def recording_run_binary(*args: Any, **kwargs: Any) -> bytes:
+            runs.append(1)
+            raise AssertionError("the binary must not run for a malformed key")
+
+        monkeypatch.setattr(mixin, "run_binary", recording_run_binary)
+        monkeypatch.setenv(KEY_ENV, malformed_key + "\n")
         table = pa.table({"email": ["alpha"]})
         with pytest.raises(BinaryUsageError) as excinfo:
             StubAnonymizer.calculate_feature(table, _feature_set(_config_feature("pseudonymized_email")))
+        assert not runs
         assert malformed_key not in str(excinfo.value)
+        assert KEY_ENV not in str(excinfo.value)
 
 
 class TestCalculateFeatureRejections:
