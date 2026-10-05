@@ -1950,25 +1950,40 @@ class TestOtelExtenderRunScopeFullRuns:
         assert root.context is not None
         assert root.context.trace_id != uuid.UUID(attributes["mloda.run.id"]).int
 
+    @pytest.mark.parametrize("mode", [ParallelizationMode.SYNC, ParallelizationMode.MULTIPROCESSING])
     def test_run_all_with_a_link_puts_the_join_span_under_the_run_root(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+        self, tmp_path: Path, mode: ParallelizationMode, request: pytest.FixtureRequest
     ) -> None:
-        provider, exporter = otel_capture
+        marker_path = tmp_path / "spans.jsonl"
+        provider = RebuildingSpanCaptureProvider(marker_path=marker_path, records=True)
+        flight_server = (
+            request.getfixturevalue("flight_server") if mode == ParallelizationMode.MULTIPROCESSING else None
+        )
 
-        result = run_joined_features(OtelExtender(tracer_provider=provider))
+        result = run_joined_features(
+            OtelExtender(tracer_provider=provider), parallelization_modes={mode}, flight_server=flight_server
+        )
 
         assert sorted(result) == [110, 220]
-        spans = exporter.get_finished_spans()
-        root = assert_well_formed_trace(spans)
-        assert root.name == "mloda.run"
-        joins = _named(exporter, "join inner")
-        assert len(joins) == 1, [span.name for span in spans]
-        assert joins[0].parent is not None
-        assert joins[0].parent.span_id == _ids(root)[1]
-        attributes = joins[0].attributes or {}
+        records = read_span_records(marker_path)
+        roots = [record for record in records if record["name"] == "mloda.run"]
+        joins = [record for record in records if record["name"] == "join inner"]
+        assert len(roots) == 1, records
+        assert len(joins) == 1, records
+        root, join = roots[0], joins[0]
+
+        assert {record["trace_id"] for record in records} == {root["trace_id"]}, records
+        assert [record for record in records if record["parent_span_id"] is None] == [root], records
+        span_ids = {record["span_id"] for record in records}
+        assert all(record["parent_span_id"] in span_ids for record in records if record is not root), records
+
+        assert join["parent_span_id"] == root["span_id"], records
+        attributes = join["attributes"]
         assert attributes["mloda.join.type"] == "inner"
-        assert attributes["mloda.join.keys"] == ("left_id=right_id",)
-        assert attributes["mloda.run.id"] == (root.attributes or {})["mloda.run.id"]
+        assert attributes["mloda.join.keys"] == ["left_id=right_id"]
+        assert attributes["mloda.run.id"] == root["attributes"]["mloda.run.id"]
+        if mode == ParallelizationMode.MULTIPROCESSING:
+            assert "mloda.subprocess.worker_index" in attributes, join
 
     def test_prepared_plan_run_twice_gives_one_trace_and_one_root_per_run(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]

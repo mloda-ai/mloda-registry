@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pyarrow as pa
 from mloda.provider import BaseInputData, ComputeFramework, DataCreator, FeatureGroup, FeatureSet
@@ -111,65 +111,79 @@ def run_two_features(*extenders: Extender) -> list[Any]:
     raise AssertionError(f"No result table with {column_name} found")
 
 
-def _source_feature_group(name: str, columns: dict[str, list[Any]], index_column: str) -> type[FeatureGroup]:
-    """Build a fresh PyArrow source feature group per call so parallel tests never share state."""
+class _JoinSource:
+    """Plain mixin (not a FeatureGroup) serving `_columns` as a PyArrow source indexed on `_index_column`."""
 
-    class _Source(FeatureGroup):
-        @classmethod
-        def index_columns(cls) -> list[Index] | None:
-            return [Index((index_column,))]
+    _columns: ClassVar[dict[str, list[Any]]]
+    _index_column: ClassVar[str]
 
-        @classmethod
-        def input_data(cls) -> BaseInputData | None:
-            return DataCreator(set(columns))
+    @classmethod
+    def index_columns(cls) -> list[Index] | None:
+        return [Index((cls._index_column,))]
 
-        @classmethod
-        def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
-            return {PyArrowTable}
+    @classmethod
+    def input_data(cls) -> BaseInputData | None:
+        return DataCreator(set(cls._columns))
 
-        @classmethod
-        def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-            return pa.table(columns)
+    @classmethod
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
+        return {PyArrowTable}
 
-    return type(name, (_Source,), {})
-
-
-def _joined_sum_feature_group() -> type[FeatureGroup]:
-    """Build a fresh `JoinedSum` subclass per call so parallel tests never share state."""
-
-    class JoinedSum(FeatureGroup):
-        """Adds `left_value` and `right_value`, null-safe; forces the join of both sources."""
-
-        def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
-            return {Feature("left_value"), Feature("right_value")}
-
-        @classmethod
-        def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
-            return {PyArrowTable}
-
-        @classmethod
-        def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-            pairs = zip(data["left_value"].to_pylist(), data["right_value"].to_pylist())
-            return {cls.get_class_name(): [None if a is None or b is None else a + b for a, b in pairs]}
-
-    return JoinedSum
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        return pa.table(cls._columns)
 
 
-def run_joined_features(*extenders: Extender) -> list[Any]:
+# Module-level (not function-local) so MULTIPROCESSING can pickle the link by path.
+class JoinLeft(_JoinSource, FeatureGroup):
+    """Left PyArrow source of the join."""
+
+    _columns = {"left_id": [1, 2, 3], "left_value": [10, 20, 30]}
+    _index_column = "left_id"
+
+
+class JoinRight(_JoinSource, FeatureGroup):
+    """Right PyArrow source of the join."""
+
+    _columns = {"right_id": [1, 2, 4], "right_value": [100, 200, 400]}
+    _index_column = "right_id"
+
+
+class JoinedSum(FeatureGroup):
+    """Adds `left_value` and `right_value`, null-safe; forces the join of both sources."""
+
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
+        return {Feature("left_value"), Feature("right_value")}
+
+    @classmethod
+    def compute_framework_rule(cls) -> set[type[ComputeFramework]]:
+        return {PyArrowTable}
+
+    @classmethod
+    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        pairs = zip(data["left_value"].to_pylist(), data["right_value"].to_pylist())
+        return {cls.get_class_name(): [None if a is None or b is None else a + b for a, b in pairs]}
+
+
+def run_joined_features(
+    *extenders: Extender,
+    parallelization_modes: set[ParallelizationMode] | None = None,
+    flight_server: Any | None = None,
+) -> list[Any]:
     """Run an inner join of two PyArrow sources (left_id=right_id) into a consumer that sums
-    `left_value` and `right_value`; return the summed column."""
-    left = _source_feature_group("JoinLeft", {"left_id": [1, 2, 3], "left_value": [10, 20, 30]}, "left_id")
-    right = _source_feature_group("JoinRight", {"right_id": [1, 2, 4], "right_value": [100, 200, 400]}, "right_id")
-    consumer = _joined_sum_feature_group()
-    link = Link.inner(JoinSpec(left, Index(("left_id",))), JoinSpec(right, Index(("right_id",))))
-    plugin_collector = PluginCollector.enabled_feature_groups({left, right, consumer})
-    column_name = consumer.get_class_name()
+    `left_value` and `right_value`; return the summed column. Optional parallelization_modes and
+    flight_server forward straight to mloda.run_all."""
+    link = Link.inner(JoinSpec(JoinLeft, Index(("left_id",))), JoinSpec(JoinRight, Index(("right_id",))))
+    plugin_collector = PluginCollector.enabled_feature_groups({JoinLeft, JoinRight, JoinedSum})
+    column_name = JoinedSum.get_class_name()
     results = mloda.run_all(
         [column_name],
         compute_frameworks=[PyArrowTable],
         plugin_collector=plugin_collector,
         links={link},
         function_extender=set(extenders),
+        parallelization_modes=parallelization_modes or {ParallelizationMode.SYNC},
+        flight_server=flight_server,
     )
     for table in results:
         if isinstance(table, pa.Table) and column_name in table.column_names:
