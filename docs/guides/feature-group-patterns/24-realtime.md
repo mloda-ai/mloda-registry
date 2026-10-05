@@ -53,7 +53,7 @@ result_2 = session.run(api_data={"MyKey": {"col": [3, 4]}})
 - `artifacts`: a previous run's `get_artifacts()`; matching feature groups switch to load mode
 - `carrier`: W3C trace-context carrier forwarded to every hook context; may differ per call
 - `child_bootstrap`: picklable no-argument callable run once in each `MULTIPROCESSING` worker before its first command
-- `graceful_shutdown_timeout`: seconds (default 2.0) a `MULTIPROCESSING` worker gets for its extenders' `close()`, see [Pickle Compatibility](../11-create-extender.md#pickle-compatibility)
+- `graceful_shutdown_timeout`: seconds (default 2.0), shared by a `MULTIPROCESSING` worker's extenders, for their `close()` before the worker is terminated, see [Pickle Compatibility](../11-create-extender.md#pickle-compatibility)
 
 ## Full Documentation
 
