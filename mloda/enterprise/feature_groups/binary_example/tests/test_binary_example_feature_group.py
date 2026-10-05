@@ -351,7 +351,7 @@ class TestIntegration:
         feature = _hash_feature("hashed", ["col_a", "col_b"])
         results = mloda.run_all(
             [feature],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             api_data={"BinaryExampleData": rows},
             plugin_collector=PluginCollector.enabled_feature_groups({ApiInputDataFeature, StubExample}),
         )
@@ -369,7 +369,7 @@ class TestIntegration:
         feature_b = _hash_feature("hash_b", ["col_b"])
         results = mloda.run_all(
             [feature_a, feature_b],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             api_data={"BinaryExampleData": rows},
             plugin_collector=PluginCollector.enabled_feature_groups({ApiInputDataFeature, StubExample}),
             column_ordering="request_order",
@@ -393,7 +393,7 @@ class TestIntegration:
         with pytest.raises(Exception, match="example_binary"):
             mloda.run_all(
                 [feature],
-                compute_frameworks={PyArrowTable},
+                compute_frameworks=[PyArrowTable],
                 api_data={"BinaryExampleData": {"col_a": ["alpha"]}},
                 plugin_collector=PluginCollector.enabled_feature_groups(
                     {ApiInputDataFeature, BinaryExampleFeatureGroup}
@@ -412,7 +412,7 @@ class TestIntegration:
         )
         results = mloda.run_all(
             [feature],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             api_data={"BinaryExampleData": rows},
             plugin_collector=PluginCollector.enabled_feature_groups({ApiInputDataFeature, StubExample}),
         )

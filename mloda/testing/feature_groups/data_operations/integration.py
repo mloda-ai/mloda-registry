@@ -153,7 +153,7 @@ class DataOpsIntegrationTestBase(ABC):
         feature = self._make_feature(name, options_context)
         results = mloda.run_all(
             [feature],
-            compute_frameworks={self.compute_framework_class()},
+            compute_frameworks=[self.compute_framework_class()],
             plugin_collector=self._plugin_collector(),
         )
         assert len(results) >= 1
@@ -217,7 +217,7 @@ class DataOpsIntegrationTestBase(ABC):
         with pytest.raises(ValueError):
             mloda.run_all(
                 [feature],
-                compute_frameworks={self.compute_framework_class()},
+                compute_frameworks=[self.compute_framework_class()],
                 plugin_collector=plugin_collector,
             )
 

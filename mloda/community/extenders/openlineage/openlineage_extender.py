@@ -13,7 +13,16 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from mloda.steward import Extender, ExtenderHook, HookContext, OutputSchema, WarnOncePerInstance, pickle_failure_reason
+from mloda.steward import (
+    Extender,
+    ExtenderHook,
+    HookContext,
+    LifecycleOutcome,
+    OutputSchema,
+    RunContext,
+    WarnOncePerInstance,
+    pickle_failure_reason,
+)
 
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
@@ -262,10 +271,10 @@ class OpenLineageExtender(Extender):
             raise
         return True
 
-    def on_run_complete(self, run_id: str | None) -> None:
+    def on_run_complete(self, run: RunContext, outcome: LifecycleOutcome) -> None:
         with self._client_lock:
-            if run_id is not None:
-                self._tripped_runs.pop(run_id, None)
+            if run.run_id is not None:
+                self._tripped_runs.pop(run.run_id, None)
 
     def __getstate__(self) -> dict[str, Any]:
         client = self._client
@@ -389,7 +398,9 @@ class OpenLineageExtender(Extender):
             func,
             args,
             kwargs,
-            job=Job(namespace=self.job_namespace, name=context.feature_group_class),
+            job=Job(
+                namespace=self.job_namespace, name=context.feature_group_class or Extender.feature_group_name(func)
+            ),
             run_facets=self._calculate_run_facets(context, func, args),
             declared_inputs=[
                 InputDataset(namespace=self.dataset_namespace, name=name)

@@ -58,7 +58,7 @@ def _run_resample(name: str, context: dict[str, Any]) -> pa.Table:
 
     results = mloda.run_all(
         [feature],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         plugin_collector=plugin_collector,
     )
 
@@ -104,7 +104,7 @@ class TestChainedNameDropsContext:
         with pytest.raises(ValueError, match=r"required option 'time_column'"):
             mloda.run_all(
                 [feature],
-                compute_frameworks={PyArrowTable},
+                compute_frameworks=[PyArrowTable],
                 plugin_collector=plugin_collector,
             )
 

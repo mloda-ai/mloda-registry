@@ -137,7 +137,7 @@ class TestFrameAggregateMultiFeature:
 
         results = mloda.run_all(
             features,
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -179,7 +179,7 @@ class TestFrameAggregateMultiFeature:
 
         results = mloda.run_all(
             features,
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 

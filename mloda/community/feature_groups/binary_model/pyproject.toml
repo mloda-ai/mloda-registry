@@ -11,7 +11,7 @@ version = "0.8.0"
 description = "Mixin running an external binary as a model over Arrow IPC, the base for binary-backed FeatureGroups"
 license = "Apache-2.0"
 authors = [{ name = "Tom Kaltofen", email = "info@mloda.ai" }]
-dependencies = ["mloda>=0.14.0,<0.15.0"]
+dependencies = ["mloda>=0.15.0,<0.16.0"]
 requires-python = ">=3.10,<3.15"
 
 [project.optional-dependencies]

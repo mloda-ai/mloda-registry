@@ -108,7 +108,7 @@ class TestIntegrationMultipleFeatures:
 
         results = mloda.run_all(
             [f_bin3, f_bin5],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -137,7 +137,7 @@ class TestIntegrationMultipleFeatures:
 
         results = mloda.run_all(
             [f_qbin3],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -163,7 +163,7 @@ class TestIntegrationMultipleFeatures:
 
         results = mloda.run_all(
             [f_bin3, f_qbin3],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 

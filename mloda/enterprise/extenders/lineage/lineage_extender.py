@@ -115,9 +115,9 @@ class LineageFacetsExtender(OpenLineageExtender):
         facets = super()._calculate_run_facets(context, func, args)
         masked = _masked_features(context, func, args)
         facets["mloda"] = MlodaRunFacet(
-            featureGroupVersion=context.feature_group_version,
+            featureGroupVersion=context.feature_group_version or "unknown",
             pluginVersion=context.plugin_version,
-            computeFramework=context.compute_framework_name,
+            computeFramework=context.compute_framework_name or "unknown",
             maskedFeatures=masked,
             structureHash=_structure_hash(context, masked, _source_columns(context, func, args)),
             producer=self.producer,

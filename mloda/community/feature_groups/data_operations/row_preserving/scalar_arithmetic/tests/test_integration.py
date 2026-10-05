@@ -120,7 +120,7 @@ class TestIntegrationMultipleFeatures:
 
         results = mloda.run_all(
             [f_add, f_mul],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -165,7 +165,7 @@ class TestIntegrationOptionBasedConfig:
 
         results = mloda.run_all(
             [feature],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -199,7 +199,7 @@ class TestIntegrationOptionBasedConfig:
 
         results = mloda.run_all(
             [feature],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -232,7 +232,7 @@ class TestIntegrationOptionBasedConfig:
 
         results = mloda.run_all(
             [feature],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -269,7 +269,7 @@ class TestIntegrationOptionBasedConfig:
 
         results = mloda.run_all(
             [f_pattern, f_option],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -313,7 +313,7 @@ class TestMistypedConstantReported:
         with pytest.raises(ValueError, match=r"failed validation for 'constant'"):
             mloda.run_all(
                 [feature],
-                compute_frameworks={PyArrowTable},
+                compute_frameworks=[PyArrowTable],
                 plugin_collector=plugin_collector,
             )
 
@@ -333,6 +333,6 @@ class TestMistypedPatternConstantReported:
         with pytest.raises(ValueError, match=r"'five'.*failed validation for 'constant'"):
             mloda.run_all(
                 [feature],
-                compute_frameworks={PyArrowTable},
+                compute_frameworks=[PyArrowTable],
                 plugin_collector=plugin_collector,
             )

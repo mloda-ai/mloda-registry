@@ -33,7 +33,7 @@ class TestIntegrationBasic:
 
         results = mloda.run_all(
             [feature],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -63,7 +63,7 @@ class TestIntegrationBasic:
 
         results = mloda.run_all(
             [feature],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -91,7 +91,7 @@ class TestIntegrationBasic:
 
         results = mloda.run_all(
             [feature],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -127,7 +127,7 @@ class TestIntegrationPluginDiscovery:
         with pytest.raises(ValueError):
             mloda.run_all(
                 [feature],
-                compute_frameworks={PyArrowTable},
+                compute_frameworks=[PyArrowTable],
                 plugin_collector=plugin_collector,
             )
 

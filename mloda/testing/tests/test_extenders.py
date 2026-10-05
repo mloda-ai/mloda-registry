@@ -329,6 +329,7 @@ class TestFailingFeatureGroup:
             def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
                 context = HookContext.current()
                 assert context is not None
+                assert context.feature_group_version is not None
                 self.versions.append(context.feature_group_version)
                 return func(*args, **kwargs)
 

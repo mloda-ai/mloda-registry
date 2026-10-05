@@ -167,7 +167,7 @@ class TestFfillRequiredOrderBy:
         with pytest.raises(ValueError, match=r"required option 'order_by'"):
             mloda.run_all(
                 [feature],
-                compute_frameworks={PyArrowTable},
+                compute_frameworks=[PyArrowTable],
                 plugin_collector=plugin_collector,
             )
 
@@ -189,7 +189,7 @@ class TestIntegrationMultipleFeatures:
 
         results = mloda.run_all(
             [f_value, f_amount],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 

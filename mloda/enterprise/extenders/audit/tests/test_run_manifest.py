@@ -23,7 +23,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from mloda.steward import Extender, verified_context
+from mloda.steward import verified_context
 from mloda.user import ParallelizationMode
 
 import mloda.enterprise.extenders.audit as audit_package
@@ -2493,7 +2493,7 @@ class TestRunManifestRunAll:
     @pytest.mark.parametrize(("mode", "fail_closed"), _RUN_ALL_MODE_AND_FAIL_CLOSED)
     @pytest.mark.parametrize("rerun_with", ["same_instance", "fresh_instance"])
     @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
-    def test_run_all_second_run_of_a_prepared_session_is_refused_and_leaves_the_seal_untouched(
+    def test_run_all_second_run_of_a_prepared_session_is_a_new_run_sealed_on_its_own(
         self,
         mode: ParallelizationMode,
         fail_closed: bool,
@@ -2502,9 +2502,9 @@ class TestRunManifestRunAll:
         request: pytest.FixtureRequest,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """A prepared session's run() reuses its run_id, so a second run() must be refused, not resealed,
-        whether the refusal comes from the same extender instance or a fresh one built over the same
-        sealing config (audit_path/manifest_path/signer), as after a process restart."""
+        """Every run() of a prepared session mints a fresh run_id, so a second run() is a separate run that is
+        audited and sealed on its own, whether it reuses the session's extender instance or a second session
+        is prepared with a fresh one built over the same sealing config (as after a process restart)."""
         audit_path = tmp_path / "audit.ndjson"
         manifest_path = tmp_path / "manifests.ndjson"
         # Only MULTIPROCESSING needs the flight_server fixture.
@@ -2512,53 +2512,35 @@ class TestRunManifestRunAll:
             request.getfixturevalue("flight_server") if mode == ParallelizationMode.MULTIPROCESSING else None
         )
         signer = _signer()
-        extender = AuditExtender(
-            sink=NdjsonAuditSink(audit_path),
-            audit_path=audit_path,
-            manifest_path=manifest_path,
-            signer=signer,
-            fail_closed=fail_closed,
-        )
+
+        def build() -> AuditExtender:
+            return AuditExtender(
+                sink=NdjsonAuditSink(audit_path),
+                audit_path=audit_path,
+                manifest_path=manifest_path,
+                signer=signer,
+                fail_closed=fail_closed,
+            )
 
         with verified_context(tenant_id="tenant-42", project_id="project-7", principal="svc"):
-            session = prepare_value_int(extender, parallelization_modes={mode})
+            session = prepare_value_int(build(), parallelization_modes={mode})
             session.run(parallelization_modes={mode}, flight_server=flight_server)
 
             assert len(_read_lines(manifest_path)) == 1
-            audit_before = audit_path.read_bytes()
-            manifest_before = manifest_path.read_bytes()
-
-            rerun_extenders: set[Extender] | None = (
-                None
-                if rerun_with == "same_instance"
-                else {
-                    AuditExtender(
-                        sink=NdjsonAuditSink(audit_path),
-                        audit_path=audit_path,
-                        manifest_path=manifest_path,
-                        signer=signer,
-                        fail_closed=fail_closed,
-                    )
-                }
+            first_run_id = _read_lines(manifest_path)[0]["run_id"]
+            second_session = (
+                session if rerun_with == "same_instance" else prepare_value_int(build(), parallelization_modes={mode})
             )
 
             with caplog.at_level(logging.INFO):
-                with pytest.raises(SealedRunRefusedError):
-                    session.run(
-                        parallelization_modes={mode},
-                        flight_server=flight_server,
-                        function_extender=rerun_extenders,
-                    )
+                second_session.run(parallelization_modes={mode}, flight_server=flight_server)
 
-        assert audit_path.read_bytes() == audit_before
-        assert manifest_path.read_bytes() == manifest_before
+        manifests = _read_lines(manifest_path)
+        assert len(manifests) == 2
+        assert manifests[1]["run_id"] != first_run_id
+        assert {record["run_id"] for record in _read_lines(audit_path)} == {m["run_id"] for m in manifests}
         verify_ndjson_log(audit_path, manifest_path, signer=signer)
-        # A refused re-run wrote nothing new: on_run_complete must not log an ERROR for it.
         assert not any(r.levelno >= logging.ERROR and r.name == audit_extender_module.__name__ for r in caplog.records)
-        # It logs an audit_extender INFO instead: core's own ERROR log of the raised SealedRunRefusedError
-        # (a different logger) must not stand in for it.
-        infos = [r for r in caplog.records if r.levelno == logging.INFO and r.name == audit_extender_module.__name__]
-        assert any("was not sealed again" in r.getMessage() for r in infos)
 
     @_both_algorithms
     def test_run_all_multiprocessing_auto_seal_waits_for_workers_to_be_joined(
@@ -2626,8 +2608,8 @@ class TestRunManifestRunAll:
     def test_run_all_fail_closed_plan_time_refusal_is_not_auto_sealed_but_a_manual_sweep_still_seals_it(
         self, tmp_path: Path
     ) -> None:
-        """Documents the limitation: on_run_complete never fires for a plan-time refusal (core's hook contract),
-        so the deny record it wrote stays unsealed until a manual seal_ndjson_runs sweep, which still works."""
+        """on_run_complete never fires for a plan-time refusal (core's hook contract), so its deny record stays
+        unsealed until a manual sweep; the record has no run_id, so the sweep seals it under its plan_id."""
         audit_path = tmp_path / "audit.ndjson"
         manifest_path = tmp_path / "manifests.ndjson"
         signer = _signer()
@@ -2646,10 +2628,13 @@ class TestRunManifestRunAll:
         assert len(records) == 1
         assert records[0]["decision"] == "deny"
         assert records[0]["hook"] == "FEATURE_GROUP_MATCHED"
+        assert records[0]["run_id"] is None
+        assert records[0]["plan_id"] is not None
         assert not manifest_path.exists()
 
         manifests = seal_ndjson_runs(audit_path, manifest_path, signer=signer)
         verify_ndjson_log(audit_path, manifest_path, signer=signer)
 
         assert len(manifests) == 1
+        assert manifests[0]["run_id"] == records[0]["plan_id"]
         assert manifests[0]["compliant"] is False

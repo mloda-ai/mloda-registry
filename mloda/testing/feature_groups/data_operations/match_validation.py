@@ -553,14 +553,26 @@ class MatchValidationTestBase(ScalarArityTestBase):
 
     # -- Source comes from the name -------------------------------------------
 
-    def test_extra_in_features_option_ignored_for_name_source(self) -> None:
-        """The name carries the source, so an extra in_features option neither blocks the match nor changes it."""
+    def _name_source_options(self, in_features: Any) -> tuple[str, Options, Options]:
+        """Name, base options, and the same options plus an in_features option."""
         name = self.build_feature_name(sorted(self.parity_operations())[0])
         base = self.pattern_match_options()
-        extra = Options(
-            group=dict(base.group),
-            context={**base.context, "in_features": ["value_int", "value_float"]},
-        )
+        declared = Options(group=dict(base.group), context={**base.context, "in_features": in_features})
+        return name, base, declared
+
+    def test_agreeing_in_features_option_resolves_like_name_source(self) -> None:
+        """An in_features option equal to the name's direct sources neither blocks the match nor changes it."""
+        name = self.build_feature_name(sorted(self.parity_operations())[0])
+        base = self.pattern_match_options()
         group = self.feature_group_class()
-        assert group.match_feature_group_criteria(name, extra, None) is True
-        assert group().input_features(extra, FeatureName(name)) == group().input_features(base, FeatureName(name))
+        sources = name.split("__")[0].split("&")  # name order, as the core requires
+        _, _, agreeing = self._name_source_options(sources)
+        assert group.match_feature_group_criteria(name, agreeing, None) is True
+        assert group().input_features(agreeing, FeatureName(name)) == group().input_features(base, FeatureName(name))
+
+    def test_disagreeing_in_features_option_rejected_for_name_source(self) -> None:
+        """An in_features option that differs from the name's direct sources is rejected as a mismatch."""
+        name, _, conflicting = self._name_source_options(["value_int", "value_float"])
+        group = self.feature_group_class()
+        with pytest.raises(ValueError, match=r"in_features is .*but the feature name's direct sources are"):
+            group.match_feature_group_criteria(name, conflicting, None)

@@ -92,7 +92,7 @@ def _ema_values(name: str, context: dict[str, Any]) -> list[Any]:
 
     results = mloda.run_all(
         [feature],
-        compute_frameworks={PandasDataFrame},
+        compute_frameworks=[PandasDataFrame],
         plugin_collector=plugin_collector,
     )
 
@@ -187,7 +187,7 @@ class TestEmaRejectionRouting:
         with pytest.raises(Exception, match="span"):
             mloda.run_all(
                 [feature],
-                compute_frameworks={PandasDataFrame},
+                compute_frameworks=[PandasDataFrame],
                 plugin_collector=plugin_collector,
             )
 
@@ -198,7 +198,7 @@ class TestEmaRejectionRouting:
         convention there is NO pyarrow (or duckdb / sqlite) EMA backend class at
         all -- a recursive Python emulation is forbidden by the CFW-backend rule.
         So even with a PyArrow data creator and the working pandas backend both
-        enabled, a request pinned to ``compute_frameworks={PyArrowTable}`` cannot
+        enabled, a request pinned to ``compute_frameworks=[PyArrowTable]`` cannot
         resolve to any EMA backend and mloda core raises its generic
         no-feature-group resolution error. It does NOT silently emulate EMA.
         """
@@ -211,6 +211,6 @@ class TestEmaRejectionRouting:
         with pytest.raises(ValueError, match=r"(?i)no feature group"):
             mloda.run_all(
                 [feature],
-                compute_frameworks={PyArrowTable},
+                compute_frameworks=[PyArrowTable],
                 plugin_collector=plugin_collector,
             )

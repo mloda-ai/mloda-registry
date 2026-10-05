@@ -12,7 +12,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
-from mloda.steward import Extender, ExtenderHook, HookContext, WarnOncePerInstance
+from mloda.steward import Extender, ExtenderHook, HookContext, LifecycleOutcome, RunContext, WarnOncePerInstance
 
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
 from mloda.enterprise.extenders.audit._core import (
@@ -154,22 +154,21 @@ class AuditExtender(Extender):
     given value, else a fingerprint of the constructor-supplied gate, which does not track code changes).
     Keys may be added within record_version 1; an absent key means not recorded. With audit_path,
     manifest_path and signer all given (previous_signers optional), on_run_complete auto-seals the run
-    that just finished. An auto-sealing instance, or a pickled copy of one, refuses a calculation with
-    SealedRunRefusedError before writing anything when its run_id is already named in manifest_path or a
-    retained archive of it (an unverified read, once per run per instance or copy, at its first calculation; a seal landing
-    after that first calculation is not seen, so do not run one prepared auto-sealing session concurrently: a run
-    sealed while another run() of it is still calculating leaves that run's later records outside the seal), so
-    re-running a prepared session (including a retry after a failed run, since a failed run is sealed too), even
-    through a fresh instance, fails fast: prepare a new session instead. The read is unverified, so a writer to
+    that just finished, whatever its outcome. An auto-sealing instance, or a pickled copy of one, refuses a
+    calculation with SealedRunRefusedError before writing anything when its run_id is already named in manifest_path
+    or a retained archive of it (an unverified read, once per run per instance or copy, at its first calculation; a
+    seal landing after that first calculation is not seen, so do not run one prepared auto-sealing session
+    concurrently). Each run() of a prepared session gets a fresh run_id, so a rerun is audited and sealed as its own
+    run; the refusal only guards a run_id already sealed. The read is unverified, so a writer to
     manifest_path can make runs be refused (availability only, it never hides a seal). With raise_on_error=False
-    (fail_closed=False), core instead logs the refusal and runs the call unaudited, as for a sink failure, so that
-    re-run leaves no record for verification to find. A manifest read failure is logged at WARNING and the run is
-    audited without the check. An AuditExtender without sealing config cannot check and is never refused.
+    (fail_closed=False), core instead logs the refusal and runs the call unaudited, as for a sink failure. A manifest
+    read failure is logged at WARNING and the run is audited without the check. An AuditExtender without sealing
+    config cannot check and is never refused.
     A fail_closed=True deny record written at plan time is a different, recoverable case: it is refused
-    before setup, so on_run_complete never fires for it and it is never auto-sealed at all (not sealed-with-strays);
-    seal it later with seal_ndjson_runs targeted at that specific run_id (found via
-    verify_ndjson_log_coverage(...).unsealed_lines), not a blanket sweep, since a blanket sweep could seal a
-    different run that is still live. Auto-sealing uses the optional log_id and head_anchor (each new head is
+    before setup, so on_run_complete never fires for it and it is never auto-sealed at all (not sealed-with-strays).
+    Records carry plan_id, and a record with no run_id is attributed to its plan_id by sealing and verification, so
+    a seal_ndjson_runs sweep seals it under that plan_id (target that plan_id, not a blanket sweep, while another run may be live; find it via
+    verify_ndjson_log_coverage(...).unsealed_lines). Auto-sealing uses the optional log_id and head_anchor (each new head is
     emitted to it, and its latest head must still be in the log). A seal failure (any sealing or anchor error, or a
     mismatch with an existing seal) increments the public seal_failures counter and follows seal_failure_policy:
     "log" (default), "raise", or a callable(run_id, exc). Core contains an exception raised from on_run_complete,
@@ -322,8 +321,8 @@ class AuditExtender(Extender):
         if callable(flush):
             flush()
 
-    def on_run_complete(self, run_id: str | None) -> None:
-        """Auto-seal `run_id` when audit_path/manifest_path/signer are configured; a no-op otherwise, with
+    def on_run_complete(self, run: RunContext, outcome: LifecycleOutcome) -> None:
+        """Auto-seal `run.run_id` (for any outcome status) when audit_path/manifest_path/signer are configured; a no-op otherwise, with
         run_id=None, or when the run wrote nothing (logged as a WARNING with the audit_path, since a missing
         audit file or a run_id with no records is worth a steward's attention). Flushes the sink first, so a
         buffered record reaches the audit file before it is sealed. A pickled or copied instance has no
@@ -339,6 +338,7 @@ class AuditExtender(Extender):
         segment_max_age is passed; a rotation failure is a seal failure too (counted and handled by
         seal_failure_policy; the run stays sealed). With auto-rotation it also finishes an interrupted rotation (logged
         at WARNING) and retries the seal once."""
+        run_id = run.run_id
         if run_id is None:
             return
         self._run_sealed.pop(run_id, None)  # the run is over: a later call re-reads the manifest log
@@ -365,7 +365,7 @@ class AuditExtender(Extender):
         finish_error: Exception | None = None
         try:
             try:
-                self._seal(run_id)
+                self._seal_run(run_id)
             except _InterruptedRotationError:
                 if self._segment_max_bytes is None and self._segment_max_age is None:
                     raise
@@ -379,7 +379,7 @@ class AuditExtender(Extender):
                 except Exception as exc:
                     finish_error = exc
                 else:
-                    self._seal(run_id)
+                    self._seal_run(run_id)
         except RunAlreadySealedError:
             try:
                 _check_run_against_seal(
@@ -419,7 +419,7 @@ class AuditExtender(Extender):
         latest = self._head_anchor.latest() if self._head_anchor is not None else None
         return [latest] if latest is not None else []
 
-    def _seal(self, run_id: str) -> None:
+    def _seal_run(self, run_id: str) -> None:
         assert self._audit_path is not None and self._manifest_path is not None and self._signer is not None
         seal_ndjson_runs(
             self._audit_path,
@@ -616,6 +616,7 @@ class AuditExtender(Extender):
             "policy_version": self.policy_version,
             "event_time": _utc_now(),
             "run_id": context.run_id,
+            "plan_id": context.plan_id,
             "tenant_id": context.tenant_id,
             "project_id": context.project_id,
             "principal": context.principal,

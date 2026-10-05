@@ -78,7 +78,7 @@ def _session_values(name: str, context: dict[str, Any]) -> list[Any]:
 
     results = mloda.run_all(
         [feature],
-        compute_frameworks={PandasDataFrame},
+        compute_frameworks=[PandasDataFrame],
         plugin_collector=plugin_collector,
     )
 

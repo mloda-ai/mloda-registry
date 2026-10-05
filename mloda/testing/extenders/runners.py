@@ -33,7 +33,7 @@ def run_value_int(
     plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator})
     results = mloda.run_all(
         ["value_int"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         plugin_collector=plugin_collector,
         function_extender=set(extenders),
         parallelization_modes=parallelization_modes or {ParallelizationMode.SYNC},
@@ -53,7 +53,7 @@ def prepare_value_int(*extenders: Extender, parallelization_modes: set[Paralleli
     plugin_collector = PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator})
     return mloda.prepare(
         ["value_int"],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         plugin_collector=plugin_collector,
         function_extender=set(extenders),
         parallelization_modes=parallelization_modes or {ParallelizationMode.SYNC},
@@ -90,7 +90,7 @@ def run_two_features(*extenders: Extender) -> list[Any]:
     column_name = feature_group.get_class_name()
     results = mloda.run_all(
         [column_name],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         plugin_collector=plugin_collector,
         function_extender=set(extenders),
     )
@@ -116,7 +116,7 @@ def run_csv_feature(
     plugin_collector = PluginCollector.enabled_feature_groups({ReadFileFeature})
     results = mloda.run_all(
         [Feature("alpha", options={CsvReader.__name__: str(path)})],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         plugin_collector=plugin_collector,
         function_extender=set(extenders),
         parallelization_modes=parallelization_modes or {ParallelizationMode.SYNC},
@@ -192,7 +192,7 @@ def run_failing_feature(feature_group: type[FailingFeatureGroup], *extenders: Ex
     plugin_collector = PluginCollector.enabled_feature_groups({feature_group})
     return mloda.run_all(
         [feature_group.feature_name],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         plugin_collector=plugin_collector,
         function_extender=set(extenders),
     )

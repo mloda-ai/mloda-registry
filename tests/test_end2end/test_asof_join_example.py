@@ -205,7 +205,7 @@ def _run_asof_backward(
 
     results = mloda.run_all(
         [Feature("asof_event_id"), Feature("asof_event_price")],
-        compute_frameworks={framework},
+        compute_frameworks=[framework],
         links={link},
         plugin_collector=plugin_collector,
     )

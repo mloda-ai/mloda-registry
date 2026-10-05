@@ -730,10 +730,10 @@ wheels = [
 
 [[package]]
 name = "mloda"
-version = "0.14.0"
+version = "0.15.0"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9a/c3/cf2567d0c4f78ad7d3ea6c30efe67e5eb1e14e63e12d8009c6baa136f3ef/mloda-0.14.0-py3-none-any.whl", hash = "sha256:783313ed9cda0c25619085f4ce9e34eb3eec78425895963a6328ddf5d1045eb7", size = 599228, upload-time = "2026-09-24T11:20:23.5Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/b7/170774c2423d2adfbb5cb4bf01b36d8a605a81cebfc1f022de9a30ca25c3/mloda-0.15.0-py3-none-any.whl", hash = "sha256:9f2a76d9310fffb4cd3e84ec314b146b676196d6a49487ea06515f162628cc82", size = 653649, upload-time = "2026-10-05T12:11:00.53Z" },
 ]
 
 [[package]]
@@ -791,7 +791,7 @@ otel = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
     { name = "mloda-community-aggregation", editable = "mloda/community/feature_groups/data_operations/aggregation" },
     { name = "mloda-community-binning", editable = "mloda/community/feature_groups/data_operations/row_preserving/binning" },
     { name = "mloda-community-data-operations", editable = "mloda/community/feature_groups/data_operations" },
@@ -889,7 +889,7 @@ pyarrow = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
     { name = "mloda-testing", extras = ["binary-model"], marker = "extra == 'dev'" },
     { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=25" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
@@ -981,7 +981,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
     { name = "mloda-community-aggregation", marker = "extra == 'all'" },
     { name = "mloda-community-binning", marker = "extra == 'all'" },
     { name = "mloda-community-datetime", marker = "extra == 'all'" },
@@ -1111,7 +1111,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
     { name = "mloda-community-example-a", marker = "extra == 'all'" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
@@ -1156,7 +1156,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
     { name = "mloda-testing", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -1319,7 +1319,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
     { name = "mloda-community-extenders-shared", specifier = ">=0.8.0" },
     { name = "mloda-testing", extras = ["openlineage"], marker = "extra == 'dev'" },
     { name = "openlineage-python", specifier = ">=1.20,<2" },
@@ -1347,7 +1347,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
     { name = "mloda-community-extenders-shared", specifier = ">=0.8.0" },
     { name = "mloda-testing", extras = ["otel"], marker = "extra == 'dev'" },
     { name = "opentelemetry-api", specifier = ">=1.30,<2" },
@@ -1872,7 +1872,7 @@ otel = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", marker = "extra == 'ed25519'", specifier = ">=42" },
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
     { name = "mloda-anonymizer-binary", marker = "extra == 'anonymizer'", specifier = ">=0.1.0,<0.2.0" },
     { name = "mloda-community", editable = "mloda/community" },
     { name = "mloda-community-extenders-shared", editable = "mloda/community/extenders/shared" },
@@ -1932,7 +1932,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", marker = "extra == 'dev'", specifier = ">=42" },
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
     { name = "mloda-community-extenders-shared", specifier = ">=0.8.0" },
     { name = "mloda-testing", extras = ["otel"], marker = "extra == 'dev'" },
     { name = "opentelemetry-api", marker = "extra == 'dev'", specifier = ">=1.37,<2" },
@@ -1988,7 +1988,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
     { name = "mloda-community-extenders-shared", specifier = ">=0.8.0" },
     { name = "mloda-community-openlineage", marker = "extra == 'dev'", specifier = "~=0.8.0" },
     { name = "mloda-testing", extras = ["openlineage"], marker = "extra == 'dev'" },
@@ -2024,7 +2024,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
     { name = "mloda-testing", marker = "extra == 'dev'", editable = "mloda/testing" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
 ]
@@ -2062,7 +2062,7 @@ dev = [
 requires-dist = [
     { name = "bandit", marker = "extra == 'dev'" },
     { name = "duckdb", marker = "extra == 'dev'" },
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'dev'" },
     { name = "polars", marker = "extra == 'dev'" },
@@ -2108,7 +2108,7 @@ otel = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", marker = "extra == 'binary-model'", specifier = ">=44" },
-    { name = "mloda", specifier = ">=0.14.0,<0.15.0" },
+    { name = "mloda", specifier = ">=0.15.0,<0.16.0" },
     { name = "mloda-community", marker = "extra == 'binary-model'", editable = "mloda/community" },
     { name = "openlineage-python", marker = "extra == 'openlineage'", specifier = ">=1.20,<2" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30,<2" },

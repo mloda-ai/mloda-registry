@@ -210,7 +210,7 @@ class _DirectTransportProbeOpenLineageExtender(Extender):
 
     def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         context = HookContext.current()
-        job_name = context.feature_group_class if context is not None else "unknown"
+        job_name = (context.feature_group_class if context is not None else None) or "unknown"
         job = Job(namespace="probe", name=job_name)
         run = Run(runId=str(uuid.uuid4()))
 
@@ -280,7 +280,7 @@ class _NestedRunProbeOpenLineageExtender(Extender):
         return result
 
     def _emit_nested_run(self, context: HookContext) -> None:
-        job = Job(namespace="mloda", name=f"{context.feature_group_class}{_NESTED_JOB_SUFFIX}")
+        job = Job(namespace="mloda", name=f"{context.feature_group_class or 'unknown'}{_NESTED_JOB_SUFFIX}")
         parent = parent_run.ParentRunFacet(
             run=parent_run.Run(runId=str(uuid.uuid4())),
             job=parent_run.Job(namespace="mloda", name="probe.nested_parent"),

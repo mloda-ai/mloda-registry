@@ -146,7 +146,7 @@ class TestIntegrationAdditionalAggTypes:
 
         results = mloda.run_all(
             [feature],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -172,7 +172,7 @@ class TestIntegrationAdditionalAggTypes:
 
         results = mloda.run_all(
             [feature],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -198,7 +198,7 @@ class TestIntegrationAdditionalAggTypes:
 
         results = mloda.run_all(
             [feature],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -222,7 +222,7 @@ class TestIntegrationAdditionalAggTypes:
 
         results = mloda.run_all(
             [feature],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -258,7 +258,7 @@ class TestIntegrationReferenceOnlyAggTypes:
 
         results = mloda.run_all(
             [feature],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -297,7 +297,7 @@ class TestIntegrationMultipleFeatures:
         )
         sum_results = mloda.run_all(
             [f_sum],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -316,7 +316,7 @@ class TestIntegrationMultipleFeatures:
         )
         avg_results = mloda.run_all(
             [f_avg],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -342,7 +342,7 @@ class TestIntegrationMultipleFeatures:
         )
         min_results = mloda.run_all(
             [f_min],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -361,7 +361,7 @@ class TestIntegrationMultipleFeatures:
         )
         max_results = mloda.run_all(
             [f_max],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 

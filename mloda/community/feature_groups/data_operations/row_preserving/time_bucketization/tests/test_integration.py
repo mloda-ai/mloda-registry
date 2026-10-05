@@ -143,7 +143,7 @@ class TestIntegrationMultipleFeatures:
 
         results = mloda.run_all(
             [f_day, f_month],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -187,7 +187,7 @@ class TestIntegrationOptionBasedConfig:
 
         results = mloda.run_all(
             [feature],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 
@@ -221,7 +221,7 @@ class TestIntegrationOptionBasedConfig:
 
         results = mloda.run_all(
             [f_pattern, f_option],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=plugin_collector,
         )
 

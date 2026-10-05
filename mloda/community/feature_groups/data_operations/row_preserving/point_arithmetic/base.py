@@ -120,7 +120,7 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
                     f"significant for subtract and divide."
                 )
 
-        reason = cls._in_feature_count_reason(feature_name, len(source_names))
+        reason = cls.in_feature_count_reason(feature_name, len(source_names))
         if reason is not None:
             raise ValueError(reason)
 

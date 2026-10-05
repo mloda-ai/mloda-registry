@@ -90,17 +90,16 @@ class TestPatternMatching:
         # The regex itself accepts the digit 0.
         assert PandasSessionization.match_feature_group_criteria("ts__sessionize_0_minute", _match_options()) is True
 
-    @pytest.mark.parametrize(
-        "in_features",
-        [
-            pytest.param("ts", id="matching_source"),
-            pytest.param("other", id="mismatched_source"),
-        ],
-    )
-    def test_name_based_match_still_works_with_in_features_option(self, in_features: str) -> None:
-        """A valid name-based feature still matches; ``in_features`` is ignored on the name path."""
-        options = Options(context={"in_features": in_features, "order_by": "ts", "partition_by": ["user"]})
+    def test_name_based_match_still_works_with_agreeing_in_features_option(self) -> None:
+        """A valid name-based feature still matches when ``in_features`` agrees with the name's source."""
+        options = Options(context={"in_features": "ts", "order_by": "ts", "partition_by": ["user"]})
         assert PandasSessionization.match_feature_group_criteria(SESSIONIZE_FEATURE_NAME, options) is True
+
+    def test_name_based_match_rejects_mismatched_in_features_option(self) -> None:
+        """An ``in_features`` option that disagrees with the name's source is rejected."""
+        options = Options(context={"in_features": "other", "order_by": "ts", "partition_by": ["user"]})
+        with pytest.raises(ValueError, match=r"in_features is .*but the feature name's direct sources are \['ts'\]"):
+            PandasSessionization.match_feature_group_criteria(SESSIONIZE_FEATURE_NAME, options)
 
 
 class TestThresholdParser:

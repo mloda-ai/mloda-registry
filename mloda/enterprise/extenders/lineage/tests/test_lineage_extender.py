@@ -342,7 +342,7 @@ def _run(
 ) -> None:
     mloda.run_all(
         list(features),
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         plugin_collector=PluginCollector.enabled_feature_groups({_Root, *feature_groups}),
         function_extender={extender},
     )
@@ -1786,6 +1786,20 @@ class TestLineageFacetsRunFacet:
             LineageFacetsExtender(client=client)(lambda: None)
 
         assert all(_run_facet(event).pluginVersion is None for event in transport.events)
+
+    def test_unresolved_version_and_framework_are_unknown_never_the_string_none(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+
+        with make_hook_context(feature_group_version=None, compute_framework_name=None).activate():
+            LineageFacetsExtender(client=client)(lambda: None)
+
+        assert transport.events
+        for event in transport.events:
+            facet = _run_facet(event)
+            assert (facet.featureGroupVersion, facet.computeFramework) == ("unknown", "unknown")
+            assert "None" not in Serde.to_json(event)
 
     def test_schema_url_is_a_stable_https_url_of_the_module(self) -> None:
         url = MlodaRunFacet._get_schema()

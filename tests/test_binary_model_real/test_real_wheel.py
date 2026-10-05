@@ -210,7 +210,7 @@ def test_real_binary_end_to_end_with_valid_test_license(real_case: _RealCase) ->
     feature, _ = _single_feature(case)
     results = mloda.run_all(
         [feature],
-        compute_frameworks={PyArrowTable},
+        compute_frameworks=[PyArrowTable],
         api_data={"BinaryRealWheelData": rows},
         plugin_collector=PluginCollector.enabled_feature_groups({ApiInputDataFeature, case.test_license_class}),
     )

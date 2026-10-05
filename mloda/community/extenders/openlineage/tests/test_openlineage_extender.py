@@ -30,7 +30,7 @@ import pytest
 import requests
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
 from mloda.provider import BaseInputData
-from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext
+from mloda.steward import CompositeExtender, Extender, ExtenderHook, HookContext, LifecycleOutcome, RunContext
 from mloda.user import PluginCollector, mloda
 from mloda_plugins.compute_framework.base_implementations.pyarrow.table import PyArrowTable
 
@@ -2106,6 +2106,22 @@ class TestOpenLineageExtenderRunAll:
         expected_job_name = f"{PyArrowDataOpsTestDataCreator.__module__}.{PyArrowDataOpsTestDataCreator.__qualname__}"
         assert any(e.job.name == expected_job_name for e in transport.events)
 
+    def test_job_name_falls_back_to_the_owning_feature_group_when_the_context_has_no_class(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
+    ) -> None:
+        client, transport = ol_capture
+
+        class OwnerFeatureGroup:
+            @classmethod
+            def calculate_feature(cls) -> None:
+                return None
+
+        with make_hook_context(feature_group_class=None).activate():
+            OpenLineageExtender(client=client)(OwnerFeatureGroup.calculate_feature)
+
+        assert transport.events
+        assert {e.job.name for e in transport.events} == {"OwnerFeatureGroup"}
+
     def test_run_all_complete_event_carries_real_schema_facet(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport]
     ) -> None:
@@ -2150,7 +2166,7 @@ def _breaker_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord
 
 class TestOpenLineageExtenderEmitBreaker:
     """After a transport failure in a run the extender skips new steps' emission for that run (one WARNING per
-    trip), a different run retries, a run_id of None never trips it, on_run_complete(run_id) resets it, and other
+    trip), a different run retries, a run_id of None never trips it, on_run_complete resets it, and other
     errors or raise_on_error=True never trip it."""
 
     @staticmethod
@@ -2220,7 +2236,7 @@ class TestOpenLineageExtenderEmitBreaker:
             ]
             assert skipped
 
-            extender.on_run_complete(_RUN_A)
+            extender.on_run_complete(RunContext(run_id=_RUN_A), LifecycleOutcome(status="succeeded"))
             self._composite_call(composite, _RUN_B, sentinel)
             assert transport.emit_attempts == 2
             self._composite_call(composite, _RUN_A, sentinel)
@@ -2250,7 +2266,7 @@ class TestOpenLineageExtenderEmitBreaker:
             self._composite_call(composite, _RUN_X, sentinel)
             assert transport.emit_attempts == 1
 
-            extender.on_run_complete(_RUN_X)
+            extender.on_run_complete(RunContext(run_id=_RUN_X), LifecycleOutcome(status="succeeded"))
             self._composite_call(composite, _RUN_X, sentinel)
 
         assert transport.emit_attempts == 2
@@ -2263,7 +2279,7 @@ class TestOpenLineageExtenderEmitBreaker:
         sentinel = object()
 
         self._composite_call(composite, _RUN_X, sentinel)
-        extender.on_run_complete(_RUN_OTHER)
+        extender.on_run_complete(RunContext(run_id=_RUN_OTHER), LifecycleOutcome(status="succeeded"))
         self._composite_call(composite, _RUN_X, sentinel)
 
         assert transport.emit_attempts == 1
@@ -2427,14 +2443,14 @@ class TestOpenLineageExtenderEmitBreaker:
         assert set(extender._tripped_runs) == {_RUN_A}
 
     def test_prepared_session_run_twice_attempts_emission_once_per_run(self) -> None:
-        """One prepared session mints its run_id once, so run 2 must be freed by on_run_complete. The chained
+        """Each run of a prepared session mints a fresh run_id, so the breaker never carries over. The chained
         feature group gives each run two calculate steps, so a stale or missing breaker shows as extra attempts."""
         transport = _FailingEmitTransport(_connection_error)
         extender = OpenLineageExtender(client=OpenLineageClient(transport=transport))
         feature_group = _value_int_plus_one_feature_group()
         session = mloda.prepare(
             [feature_group.get_class_name()],
-            compute_frameworks={PyArrowTable},
+            compute_frameworks=[PyArrowTable],
             plugin_collector=PluginCollector.enabled_feature_groups({PyArrowDataOpsTestDataCreator, feature_group}),
             function_extender={extender},
         )
