@@ -51,6 +51,19 @@ result_2 = session.run(api_data={"MyKey": {"col": [3, 4]}})
 - `parallelization_modes` — Override parallelization per run
 - `flight_server` — Arrow Flight server for distributed execution
 
+Extenders are not a `session.run()` parameter (passing `function_extender` there raises `TypeError`). Pass them to `mloda.prepare(...)` instead; they apply to every `session.run()` of that session:
+
+```python
+session = mloda.prepare(
+    [Feature("my_feature")],
+    compute_frameworks=["PandasDataFrame"],
+    function_extender={my_extender},
+)
+result = session.run(api_data={"MyKey": {"col": [1, 2]}})
+```
+
+For different extenders, prepare a separate session.
+
 ## Full Documentation
 
 See [Realtime API](https://mloda-ai.github.io/mloda/in_depth/realtime/) for additional details.
