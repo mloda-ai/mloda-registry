@@ -92,9 +92,9 @@ requirements are already on PyPI, so a rejected, partial upload leaves nothing a
 uploaded uninstallable; a rerun just uploads the rest. `mloda-enterprise` cannot resolve at a
 newer version than `mloda-community`: it needs `mloda-community-extenders-shared` at its own
 version or later and, through its own `[openlineage]` extra, `mloda-community-openlineage` at a
-patch release of its own minor, and `mloda-community` pins each of the packages it owns exactly. Install both bundles at the
-same version and upgrade them together: upgrading one alone, or a single owned package,
-leaves a conflict that pip reports without stopping the install.
+patch release of its own minor, and `mloda-community` pins each of the packages it owns exactly.
+Install both bundles at the same version and upgrade them together: upgrading one alone, or a
+single owned package, leaves a conflict that pip reports without stopping the install.
 
 Yanking a broken package also needs its bundles yanked at the same version: the bundle pins an
 owned package exactly (`==`), and PyPI still resolves an exact pin to a yanked file, unlike a
