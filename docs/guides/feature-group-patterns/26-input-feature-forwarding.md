@@ -58,14 +58,14 @@ Set these on the `Feature(...)` you return from `input_features()`:
 `GraphRagConnector` runs a query against a knowledge graph. It consumes the `knowledge_graph` root feature published by a different group. The connector accepts a `backend` selector (which the upstream also understands, so it *should* forward) and a `top_k` (purely consumer-local, which the upstream rejects, so it must **not** forward).
 
 ```python
-from typing import Any, Optional
+from typing import Any
 
 from mloda.provider import FeatureGroup, FeatureSet
 from mloda.user import Feature, FeatureName, Options
 
 
 class GraphRagConnector(FeatureGroup):
-    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[set[Feature]]:
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         # `backend` forwards by default (the upstream understands it).
         # `top_k` is consumer-local; carve it off so the upstream is not asked to match it.
         # `tenant` lives in context, so it does not flow implicitly: pull it explicitly.

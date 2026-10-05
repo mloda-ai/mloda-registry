@@ -55,7 +55,7 @@ extra), which the suites assume is absent.
 All code must pass the automated checks enforced by tox. The toolchain includes:
 
 - **ruff format** for code formatting (line length: 120 characters)
-- **ruff check** for linting (modern type-hint enforcement via `UP006`/`UP007`)
+- **ruff check** for linting (modern type-hint enforcement via `UP006`/`UP007`/`UP045`)
 - **mypy --strict --ignore-missing-imports** for static type checking
 - **bandit** for security scanning
 

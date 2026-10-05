@@ -12,7 +12,7 @@ Backward join keyed by ``symbol``: each event picks the latest quote with
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 
@@ -67,7 +67,7 @@ class _AsofEventSource(FeatureGroup):
         }
 
     @classmethod
-    def index_columns(cls) -> Optional[list[Index]]:
+    def index_columns(cls) -> list[Index] | None:
         return [Index(("symbol",))]
 
     @classmethod
@@ -102,7 +102,7 @@ class _AsofQuoteSource(FeatureGroup):
         }
 
     @classmethod
-    def index_columns(cls) -> Optional[list[Index]]:
+    def index_columns(cls) -> list[Index] | None:
         return [Index(("symbol",))]
 
     @classmethod
@@ -128,7 +128,7 @@ class _AsofEventPrice(FeatureGroup):
     def feature_names_supported(cls) -> set[str]:
         return {"asof_event_id", "asof_event_price"}
 
-    def input_features(self, options: Options, feature_name: FeatureName) -> Optional[set[Feature]]:
+    def input_features(self, options: Options, feature_name: FeatureName) -> set[Feature] | None:
         # id + event_ts resolve to the event source; quote_ts + price to the quote source.
         # symbol (the by-key) is retained automatically as the index column.
         return {
