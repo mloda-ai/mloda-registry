@@ -1,0 +1,19 @@
+"""Custom OpenLineage facets. Imported lazily by the extender (see openlineage_extender.py)."""
+
+from __future__ import annotations
+
+import attr
+
+from openlineage.client.facet_v2 import DatasetFacet
+
+_SCHEMA_URL = "https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/openlineage/_facets.py"
+
+
+@attr.define
+class MlodaDataAccessFacet(DatasetFacet):
+    identityIsFallback: bool = attr.field()
+
+    @staticmethod
+    def _get_schema() -> str:
+        # The module in this repo, not a hosted JSON schema.
+        return _SCHEMA_URL

@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-import attr
 from mloda.steward import (
     Extender,
     ExtenderHook,
@@ -29,24 +28,11 @@ from mloda.community.extenders.shared.open_invocations import OpenInvocationStac
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT
 from openlineage.client.client import OpenLineageClient
 from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, RunEvent, RunState
-from openlineage.client.facet_v2 import DatasetFacet, datasource_dataset, parent_run, schema_dataset
+from openlineage.client.facet_v2 import datasource_dataset, parent_run, schema_dataset
 
 logger = logging.getLogger(__name__)
 
 _PRODUCER = "https://github.com/mloda-ai/mloda-registry/tree/main/mloda/community/extenders/openlineage"
-_SCHEMA_URL = (
-    "https://github.com/mloda-ai/mloda-registry/blob/main/mloda/community/extenders/openlineage/openlineage_extender.py"
-)
-
-
-@attr.define
-class MlodaDataAccessFacet(DatasetFacet):
-    identityIsFallback: bool = attr.field()
-
-    @staticmethod
-    def _get_schema() -> str:
-        # The module in this repo, not a hosted JSON schema.
-        return _SCHEMA_URL
 
 
 @dataclass
@@ -371,6 +357,9 @@ class OpenLineageExtender(Extender):
                     "dataSource": datasource_dataset.DatasourceDatasetFacet(name=identity, producer=self.producer)
                 }
                 if context.data_access_identity_is_fallback is True:
+                    # Lazy: attr is openlineage-python's dependency, not ours; a top-level import would blame us.
+                    from mloda.community.extenders.openlineage._facets import MlodaDataAccessFacet
+
                     facets["mlodaDataAccess"] = MlodaDataAccessFacet(identityIsFallback=True, producer=self.producer)
                 invocation.inputs.append(InputDataset(namespace=self.dataset_namespace, name=identity, facets=facets))
         if invocation is None:
