@@ -13,8 +13,8 @@ workflow_dispatch → semantic-release → PyPI publish
 ```
 
 1. **Version bump**: semantic-release analyzes commits and updates `config/shared.toml`.
-2. **Regenerate**: `scripts/generate_pyproject.py` updates all `pyproject.toml` files,
-   then `uv lock` re-locks `uv.lock` against the bumped versions.
+2. **Regenerate**: `scripts/generate_pyproject.py` updates every package `pyproject.toml`
+   (and the root file's generated parts), then `uv lock` re-locks `uv.lock` against the bumped versions.
 3. **Commit**: version changes, including `uv.lock`, committed to `main`.
 4. **GitHub release**: tag created (e.g. `0.4.0`); its commit SHA is captured as a job
    output.

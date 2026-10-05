@@ -16,7 +16,8 @@ instead of emitting ``packages = []`` and a wheel without its PEP 561 marker.
 Guard 4 -- a configured package path with no Python package of its own must raise, not yield ``packages = []``.
 
 Guard 5 -- the root core-dependency marker comment must be enforced: a missing
-or stale marker fails --check, and write mode restores it.
+or stale marker fails --check, and write mode restores it. The marker must sit
+directly above the entry, a commented-out pin is never matched, and multiple entries fail.
 
 The generator lives at ``scripts/generate_pyproject.py`` (a script, not an
 installed package), so it is loaded here by file path.
@@ -212,6 +213,38 @@ def test_write_mode_inserts_root_core_marker_idempotently(tmp_path: Path, monkey
     assert gen.update_root_core_dependency(_SYNTHETIC_SHARED, check=False) == (True, "up-to-date")
     assert root.read_bytes() == after_first
     assert gen.update_root_core_dependency(_SYNTHETIC_SHARED, check=True) == (True, "up-to-date")
+
+
+def test_write_mode_ignores_commented_out_core_pin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A commented-out pin above the entry must stay a comment, not become a live dependency."""
+    commented = '    # "mloda>=0.13.0",'
+    root = tmp_path / "pyproject.toml"
+    root.write_text(_root_content(commented))
+    monkeypatch.setattr(gen, "ROOT_PYPROJECT", root)
+
+    ok, _msg = gen.update_root_core_dependency(_SYNTHETIC_SHARED, check=False)
+
+    text = root.read_text()
+    assert ok is True
+    deps = loads_toml(text)["project"]["dependencies"]
+    assert [d for d in deps if d.startswith("mloda")] == [_SYNTHETIC_SHARED["defaults"]["core_dependency"]], text
+    assert commented in text.splitlines()
+
+
+@pytest.mark.parametrize("check", [True, False], ids=["check", "write"])
+def test_root_core_dependency_fails_when_multiple_entries_match(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, check: bool
+) -> None:
+    """More than one live mloda entry must fail without writing."""
+    root = tmp_path / "pyproject.toml"
+    content = _root_content(None) + '[project.optional-dependencies]\nextra = [\n    "mloda>=0.14.0",\n]\n'
+    root.write_text(content)
+    monkeypatch.setattr(gen, "ROOT_PYPROJECT", root)
+
+    ok, _msg = gen.update_root_core_dependency(_SYNTHETIC_SHARED, check=check)
+
+    assert ok is False
+    assert root.read_text() == content
 
 
 def _meta_package_config(py_typed: bool | None = None) -> dict[str, Any]:

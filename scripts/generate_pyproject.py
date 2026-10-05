@@ -797,7 +797,8 @@ def update_root_core_dependency(shared: dict[str, Any], check: bool = False) -> 
     # ``"mloda/community"``. Preserve indentation/quoting so the file is byte-stable.
     # An existing marker above the entry is replaced.
     pattern = re.compile(
-        r'(?P<marker>[ \t]*# Generated from config/shared\.toml[^\n]*\n)?(?P<indent>[ \t]*)"mloda(?=[<>=!~])[^"]*"'
+        r'^(?P<marker>[ \t]*# Generated from config/shared\.toml[^\n]*\n)?(?P<indent>[ \t]*)"mloda(?=[<>=!~])[^"]*"',
+        re.MULTILINE,
     )
 
     def _replace(match: re.Match[str]) -> str:
@@ -808,6 +809,9 @@ def update_root_core_dependency(shared: dict[str, Any], check: bool = False) -> 
 
     if count == 0:
         return False, f"{ROOT_PYPROJECT}: mloda-core dependency entry not found"
+
+    if count > 1:
+        return False, f"{ROOT_PYPROJECT}: expected one mloda-core dependency entry, found {count}"
 
     if new_content == content:
         return True, "up-to-date"
