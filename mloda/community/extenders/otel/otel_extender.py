@@ -20,6 +20,7 @@ from mloda.steward import (
     RunContext,
     WarnOncePerInstance,
     pickle_failure_reason,
+    scrub_credentials,
 )
 from opentelemetry import trace
 from opentelemetry.context import Context
@@ -59,9 +60,27 @@ _SpanInts = tuple[int, int, int]  # (trace_id, span_id, trace_flags)
 # from a run_id (no real parent span was ever created; only the deterministic trace_id matters here).
 _RUN_ID_PARENT_SPAN_ID = 0x0000000000000001
 
+
 # Bounded repr for content previews: only recurses into the first N elements of a container,
 # so it never materializes a full repr/str of a huge result before truncation (see _content_preview).
-_BOUNDED_REPR = reprlib.Repr()
+# Strings and instance reprs are scrubbed before reprlib cuts their middle, which could split a credential.
+class _ScrubbingRepr(reprlib.Repr):
+    def repr_str(self, x: str, level: int) -> str:
+        return super().repr_str(scrub_credentials(x), level)
+
+    def repr_instance(self, x: object, level: int) -> str:
+        try:
+            s = scrub_credentials(repr(x))
+        except Exception:
+            return "<%s instance at %#x>" % (x.__class__.__name__, id(x))
+        if len(s) > self.maxother:
+            i = max(0, (self.maxother - 3) // 2)
+            j = max(0, self.maxother - 3 - i)
+            s = s[:i] + "..." + s[len(s) - j :]
+        return s
+
+
+_BOUNDED_REPR = _ScrubbingRepr()
 _BOUNDED_REPR.maxlevel = 3
 _BOUNDED_REPR.maxlist = 10
 _BOUNDED_REPR.maxdict = 10
@@ -361,7 +380,7 @@ class OtelExtender(Extender):
     def _content_preview(self, result: Any) -> str:
         assert self.mask is not None
         value = self.mask(result)
-        return _BOUNDED_REPR.repr(value)[:_CONTENT_PREVIEW_MAX_LEN]
+        return scrub_credentials(_BOUNDED_REPR.repr(value))[:_CONTENT_PREVIEW_MAX_LEN]
 
 
 def _ints(span_context: SpanContext) -> _SpanInts:

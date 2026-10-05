@@ -780,6 +780,11 @@ class TestOtelExtenderFailureHandling:
         assert not any(m.startswith("OtelExtender ") for m in warnings), warnings
 
 
+class _CredentialRepr:
+    def __repr__(self) -> str:
+        return "ConnectionHandle(host=h, password=hunter2)"  # nosec
+
+
 class TestOtelExtenderContentCapture:
     """Metadata-only by default; capture_content=True or MLODA_OTEL_TRACE_CONTENT opts in, mask redacts."""
 
@@ -1000,6 +1005,39 @@ class TestOtelExtenderContentCapture:
         for value in attrs.values():
             assert secret not in str(value), attrs
         assert masked in str(attrs[_CONTENT_ATTRIBUTE])
+
+    @pytest.mark.parametrize(
+        ("value", "fragments"),
+        [
+            pytest.param(["postgresql://u:hunter2@h/db"], ["hunter2"], id="short-dsn-in-list"),  # nosec
+            pytest.param(["postgresql://user:password@host/db"], ["sword", "password"], id="dsn-tail-kept"),  # nosec
+            pytest.param(
+                ["https://bucket.s3.amazonaws.com/k.csv?X-Amz-Signature=deadbeefcafe&X-Amz-Credential=AKIAXYZ123"],
+                ["deadbeefcafe", "AKIAXYZ123", "XYZ123"],
+                id="presigned-url",
+            ),  # nosec
+            pytest.param(_CredentialRepr(), ["hunter2"], id="instance-repr"),
+            pytest.param({"password": "hunter2"}, ["hunter2"], id="key-based-secret"),  # nosec
+        ],
+    )
+    def test_content_attribute_never_contains_credentials_with_identity_mask(
+        self,
+        otel_capture: tuple[TracerProvider, InMemorySpanExporter],
+        value: Any,
+        fragments: list[str],
+    ) -> None:
+        provider, exporter = otel_capture
+        context = make_hook_context()
+        otel = OtelExtender(capture_content=True, mask=lambda v: v, tracer_provider=provider)
+
+        with context.activate():
+            otel(instrument(context, lambda: value))
+
+        attrs = single_span_attributes(exporter)
+        assert _CONTENT_ATTRIBUTE in attrs
+        preview = str(attrs[_CONTENT_ATTRIBUTE])
+        for fragment in fragments:
+            assert fragment not in preview, preview
 
 
 class TestOtelExtenderPreCallInstrumentationFailure:
