@@ -63,7 +63,7 @@ _RUN_ID_PARENT_SPAN_ID = 0x0000000000000001
 
 # Bounded repr for content previews: only recurses into the first N elements of a container,
 # so it never materializes a full repr/str of a huge result before truncation (see _content_preview).
-# Strings and instance reprs are scrubbed before reprlib cuts their middle, which could split a credential.
+# Scrub before reprlib truncates, since cutting the middle could split a credential.
 class _ScrubbingRepr(reprlib.Repr):
     def repr_str(self, x: str, level: int) -> str:
         return super().repr_str(scrub_credentials(x), level)
