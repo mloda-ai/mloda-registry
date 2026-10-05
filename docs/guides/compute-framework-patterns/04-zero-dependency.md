@@ -36,7 +36,8 @@ class MyZeroDependencyFramework(ComputeFramework):
     def expected_data_framework(cls) -> Any:
         return dict  # Native Python dict, columnar
 
-    def _extract_column_names(self, data: Any) -> set[str]:
+    @classmethod
+    def extract_column_names(cls, data: Any) -> set[str]:
         if isinstance(data, dict):
             return set(data.keys())
         # Row-wise list[dict] is still an accepted pre-transform shape.

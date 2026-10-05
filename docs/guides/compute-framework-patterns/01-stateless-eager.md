@@ -6,7 +6,7 @@ Stateless eager frameworks execute operations immediately in-memory.
 **When**: Standard dataframe libraries; no external connection needed.
 **Why**: Simple mental model; data stays in memory.
 **Where**: Pandas, PyArrow, Polars DataFrame.
-**How**: Implement `is_available()`, `expected_data_framework()`, `merge_engine()`, `transform()`.
+**How**: Implement `is_available()`, `expected_data_framework()`, `merge_engine()`, `extract_column_names()`, `transform()`.
 
 ## Key Characteristic
 
@@ -51,6 +51,11 @@ class MyEagerFramework(ComputeFramework):
         from my_plugin.my_filter_engine import MyFilterEngine
 
         return MyFilterEngine
+
+    @classmethod
+    def extract_column_names(cls, data: Any) -> set[str]:
+        # Public and instance-free; core and feature groups call it, the base raises NotImplementedError.
+        return set(data.columns)
 
     def transform(self, data: Any, feature_names: set[str]) -> Any:
         if isinstance(data, dict):

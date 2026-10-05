@@ -129,12 +129,13 @@ class MyFeaturePandas(MyFeatureBase):
 
     @classmethod
     def _get_available_columns(cls, data):
-        return set(data.columns)
+        return PandasDataFrame.extract_column_names(data)
 
     @classmethod
     def _check_source_features_exist(cls, data, feature_names):
-        if set(feature_names) - set(data.columns):
-            raise ValueError(f"Missing source features, available: {list(data.columns)}")
+        available = PandasDataFrame.extract_column_names(data)
+        if set(feature_names) - available:
+            raise ValueError(f"Missing source features, available: {sorted(available)}")
 
     @classmethod
     def _add_result_to_data(cls, data, feature_name, result):
