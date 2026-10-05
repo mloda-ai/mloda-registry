@@ -95,7 +95,7 @@ def _parse_frame_feature_cached(feature_name: str) -> dict[str, Any] | None:
     if not source_col:
         return None
 
-    m = _ROLLING_PATTERN.match(feature_name)
+    m = _ROLLING_PATTERN.fullmatch(feature_name)
     if m:
         return {
             "source_col": source_col,
@@ -105,7 +105,7 @@ def _parse_frame_feature_cached(feature_name: str) -> dict[str, Any] | None:
             "frame_unit": None,
         }
 
-    m = _TIME_WINDOW_PATTERN.match(feature_name)
+    m = _TIME_WINDOW_PATTERN.fullmatch(feature_name)
     if m:
         return {
             "source_col": source_col,
@@ -115,7 +115,7 @@ def _parse_frame_feature_cached(feature_name: str) -> dict[str, Any] | None:
             "frame_unit": m.group(3),
         }
 
-    m = _CUMULATIVE_PATTERN.match(feature_name)
+    m = _CUMULATIVE_PATTERN.fullmatch(feature_name)
     if m:
         return {
             "source_col": source_col,
@@ -125,7 +125,7 @@ def _parse_frame_feature_cached(feature_name: str) -> dict[str, Any] | None:
             "frame_unit": None,
         }
 
-    m = _EXPANDING_PATTERN.match(feature_name)
+    m = _EXPANDING_PATTERN.fullmatch(feature_name)
     if m:
         return {
             "source_col": source_col,

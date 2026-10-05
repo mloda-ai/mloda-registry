@@ -53,8 +53,18 @@ class TestPatternParsing:
         assert result["frame_type"] == "expanding"
         assert result["frame_size"] is None
 
-    def test_no_match(self) -> None:
-        result = FrameAggregateFeatureGroup._parse_frame_feature("plain_feature")
+    @pytest.mark.parametrize(
+        "feature_name",
+        [
+            pytest.param("plain_feature", id="plain_feature"),
+            pytest.param("sales__sum_rolling_3\n", id="rolling_trailing_newline"),
+            pytest.param("price__avg_7_day_window\n", id="time_window_trailing_newline"),
+            pytest.param("sales__cumsum\n", id="cumulative_trailing_newline"),
+            pytest.param("score__expanding_avg\n", id="expanding_trailing_newline"),
+        ],
+    )
+    def test_no_match(self, feature_name: str) -> None:
+        result = FrameAggregateFeatureGroup._parse_frame_feature(feature_name)
         assert result is None
 
     @pytest.mark.parametrize(
@@ -117,6 +127,7 @@ class TestPatternMatching:
             pytest.param("sales__unknown_rolling_3", False, id="invalid_agg_type"),
             pytest.param("sales__avg_7_banana_window", False, id="invalid_time_unit"),
             pytest.param("plain_feature", False, id="plain_feature_without_config"),
+            pytest.param("sales__sum_rolling_3\n", False, id="trailing_newline"),
         ],
     )
     def test_match_by_name(self, feature_name: str, expected: bool) -> None:
