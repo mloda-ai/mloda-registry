@@ -633,14 +633,15 @@ class TestOtelLogAuditSinkMapping:
         assert "user.hash" not in attributes
         assert all(value.strip() for value in attributes.values() if isinstance(value, str))
 
-    def test_a_match_time_refusal_with_an_empty_feature_group_class_omits_the_name(
+    def test_a_match_time_refusal_with_an_unresolved_none_feature_group_class_omits_the_name(
         self, log_exporter: InMemoryLogRecordExporter
     ) -> None:
         record = _audit_record(
             fail_closed=True,
             hook=ExtenderHook.FEATURE_GROUP_MATCHED,
-            feature_group_class="",
-            compute_framework_name="",
+            feature_group_class=None,
+            feature_group_version=None,
+            compute_framework_name=None,
         )
 
         log = _write_one(log_exporter, record)

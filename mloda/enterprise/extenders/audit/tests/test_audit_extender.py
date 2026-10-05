@@ -1449,7 +1449,10 @@ class TestAuditExtenderFailClosed:
         extender = AuditExtender(sink=sink, fail_closed=True)
         call = _CountingCall()
         context = make_hook_context(
-            hook=ExtenderHook.FEATURE_GROUP_MATCHED, feature_group_class="", compute_framework_name=""
+            hook=ExtenderHook.FEATURE_GROUP_MATCHED,
+            feature_group_class=None,
+            feature_group_version=None,
+            compute_framework_name=None,
         )
 
         with context.activate():
@@ -1459,6 +1462,9 @@ class TestAuditExtenderFailClosed:
         assert call.calls == 0
         assert len(sink.records) == 1
         record = sink.records[0]
+        assert record["feature_group_class"] is None
+        assert record["feature_group_version"] is None
+        assert record["compute_framework_name"] is None
         assert record["hook"] == ExtenderHook.FEATURE_GROUP_MATCHED.name
         assert record["decision"] == "deny"
         assert record["deny_reason"] == "missing_tenant_id"
@@ -1471,8 +1477,9 @@ class TestAuditExtenderFailClosed:
         call = _CountingCall()
         context = make_hook_context(
             hook=ExtenderHook.FEATURE_GROUP_MATCHED,
-            feature_group_class="",
-            compute_framework_name="",
+            feature_group_class=None,
+            feature_group_version=None,
+            compute_framework_name=None,
             tenant_id="tenant-1",
         )
 
@@ -3495,6 +3502,9 @@ class TestAuditExtenderRunAll:
         record = sink.records[0]
         assert record["hook"] == ExtenderHook.FEATURE_GROUP_MATCHED.name
         assert record["decision"] == "deny"
+        assert record["feature_group_class"] is None
+        assert record["feature_group_version"] is None
+        assert record["compute_framework_name"] is None
         assert counting.calls == 0
 
     @_FAIL_CLOSED_RAISE_ON_ERROR_POSTURES

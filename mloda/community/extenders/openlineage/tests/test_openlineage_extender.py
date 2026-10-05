@@ -2464,7 +2464,9 @@ class TestOpenLineageExtenderRunAll:
             def calculate_feature(cls) -> None:
                 return None
 
-        with make_hook_context(feature_group_class=None).activate():
+        with make_hook_context(
+            feature_group_class=None, feature_group_version=None, compute_framework_name=None
+        ).activate():
             OpenLineageExtender(client=client)(OwnerFeatureGroup.calculate_feature)
 
         assert transport.events
