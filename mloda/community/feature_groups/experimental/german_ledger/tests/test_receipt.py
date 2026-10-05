@@ -223,7 +223,7 @@ def test_the_receipt_lists_its_citations_structured() -> None:
     assert all(set(c) == {"file", "fingerprint", "record", "leg"} for c in citations)
 
 
-# --- F1: why this producer, and what else could have answered -------------------------------------
+# --- why this producer, and what else could have answered -------------------------------------
 
 
 def test_the_receipt_says_why_each_producer_answered() -> None:
