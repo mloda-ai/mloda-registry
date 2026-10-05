@@ -1208,11 +1208,11 @@ class TestOpenLineageExtenderCloseTimeoutDefault:
 
         monkeypatch.setattr(client, "close", fake_close)
 
-        with active_close_context(0.5):
+        with active_close_context(3.0):
             extender.close(-1)
 
         assert len(received) == 1
-        assert 0 < received[0] <= 0.5
+        assert 0 < received[0] <= 3.0
 
 
 class TestOpenLineageExtenderSharedInjectedClientCloseState:

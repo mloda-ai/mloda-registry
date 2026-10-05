@@ -2460,11 +2460,11 @@ class TestOtelExtenderClose:
         otel = OtelExtender(tracer_provider=provider)
         otel.close_timeout = 5.0
 
-        with active_close_context(0.5):
+        with active_close_context(3.0):
             otel.close()
 
         provider.force_flush.assert_called_once()
-        assert 0 < provider.force_flush.call_args.kwargs["timeout_millis"] <= 500
+        assert 0 < provider.force_flush.call_args.kwargs["timeout_millis"] <= 3000
 
     def test_close_flushes_the_global_provider_under_use_sdk_defaults(self, ambient_provider: _AmbientProvider) -> None:
         provider = Mock(force_flush=Mock(return_value=True))

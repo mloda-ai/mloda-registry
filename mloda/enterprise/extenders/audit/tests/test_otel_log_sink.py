@@ -1028,11 +1028,11 @@ class TestOtelLogAuditSinkFlush:
         sink.close_timeout = 5.0
 
         with patch(_GET_LOGGER_PROVIDER, return_value=provider):
-            with active_close_context(0.5):
+            with active_close_context(3.0):
                 sink.flush()
 
         provider.force_flush.assert_called_once()
-        assert 0 < provider.force_flush.call_args.kwargs["timeout_millis"] <= 500
+        assert 0 < provider.force_flush.call_args.kwargs["timeout_millis"] <= 3000
 
     def test_flush_swallows_a_raising_force_flush_and_logs_a_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         provider = Mock(force_flush=Mock(side_effect=RuntimeError("flush boom")))

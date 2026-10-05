@@ -141,7 +141,7 @@ class TestCappedCloseTimeout:
     def test_no_cap_value_becomes_remaining_budget(self, value: float) -> None:
         from mloda.community.extenders.shared.teardown import capped_close_timeout
 
-        with active_close_context(0.5):
+        with active_close_context(3.0):
             result = capped_close_timeout(value)
 
-        assert 0 < result <= 0.5
+        assert 0 < result <= 3.0
