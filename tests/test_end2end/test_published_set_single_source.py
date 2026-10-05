@@ -85,6 +85,7 @@ _BUNDLE_ONLY = [
     "mloda-enterprise-anonymizer",
     "mloda-enterprise-audit",
     "mloda-enterprise-lineage",
+    "mloda-community-german-ledger",
 ]
 
 _DATA_OPERATIONS = "mloda-community-data-operations"
