@@ -146,8 +146,8 @@ def _manifest_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
     return [r.getMessage() for r in caplog.records if r.name == _MANIFEST and r.levelno == logging.WARNING]
 
 
-@pytest.mark.parametrize("community", ["1.5.0", "1.3.7"])
-def test_manifest_is_empty_and_warns_once_when_the_community_minor_differs(
+@pytest.mark.parametrize("community", ["1.5.0", "1.3.7", "2.4.2"])
+def test_manifest_is_empty_and_warns_once_when_the_community_major_minor_differs(
     community: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     _cold_import_with_versions(monkeypatch, community=community)

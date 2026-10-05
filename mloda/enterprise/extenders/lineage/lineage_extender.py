@@ -15,14 +15,16 @@ from mloda.steward import Extender, ExtenderHook, HookContext
 from openlineage.client.event_v2 import InputDataset, Job
 from openlineage.client.facet_v2 import RunFacet, column_lineage_dataset, data_quality_assertions_dataset
 
-# Imported first for its side effect: raises ImportError on a community minor mismatch.
-import mloda.enterprise.extenders.lineage.seam_guard  # noqa: F401
 from mloda.community.extenders.openlineage.openlineage_extender import OpenLineageExtender
 from mloda.community.extenders.shared.bound_method import bound_method, class_attribute
 from mloda.community.extenders.shared.open_invocations import OpenInvocationStack
+from mloda.enterprise.extenders.lineage.community_version import require_matching_community
 
 if TYPE_CHECKING:
     from mloda.user import Feature
+
+# The class builds on private community seams, so a minor mismatch must fail the import.
+require_matching_community()
 
 logger = logging.getLogger(__name__)
 
