@@ -32,6 +32,7 @@ from mloda.enterprise.extenders.audit import (
     verify_ndjson_log,
     verify_ndjson_log_coverage,
 )
+from mloda.enterprise.extenders.audit import _quarantine as _quarantine_module
 from mloda.enterprise.extenders.audit.audit_extender import _append_records
 from mloda.enterprise.extenders.audit.tests.manifest_helpers import (
     _BAD_SIGNATURE,
@@ -1300,6 +1301,30 @@ class TestQuarantineDamagedLines:
         assert manifest_path.read_bytes() == manifest_before[: manifest_before.rindex(b"\n") + 1]
         assert verify_ndjson_log(audit_path, manifest_path, signer=_signer()) == head
         assert len(_read_lines(_trace(tmp_path))) == 1
+
+    def test_rewrite_without_refuses_to_keep_an_oversized_line_and_leaves_the_file_alone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _cap(monkeypatch)
+        path = tmp_path / "audit.ndjson"
+        path.write_bytes(b'{"a": 1}\n' + _oversized_line() + b'\n{"b": 2}\n')
+        before = _snapshot(tmp_path)
+
+        with pytest.raises(ValueError):
+            _quarantine_module._rewrite_without(path, {3})
+
+        assert _snapshot(tmp_path) == before
+
+    def test_rewrite_without_still_drops_an_oversized_line_that_is_listed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _cap(monkeypatch)
+        path = tmp_path / "audit.ndjson"
+        path.write_bytes(b'{"a": 1}\n' + _oversized_line() + b'\n{"b": 2}\n')
+
+        _quarantine_module._rewrite_without(path, {2})
+
+        assert path.read_bytes() == b'{"a": 1}\n{"b": 2}\n'
 
 
 @_both_algorithms

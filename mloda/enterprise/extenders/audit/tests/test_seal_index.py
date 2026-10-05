@@ -23,18 +23,15 @@ from mloda.enterprise.extenders.audit import (
     seal_ndjson_runs,
     verify_ndjson_log,
 )
-from mloda.enterprise.extenders.audit import _quarantine as _quarantine_module
 from mloda.enterprise.extenders.audit.tests.manifest_helpers import (
     _OTHER_KEY,
     _aliased,
     _append_line,
     _assert_raises_and_unchanged,
     _both_algorithms,
-    _cap,
     _HookedSigner,
     _log_heads,
     _ndjson_anchor,
-    _oversized_line,
     _patch_bindings,
     _quarantine,
     _read_lines,
@@ -588,6 +585,7 @@ class TestSealIndex:
             costs.append((len(verifications), len(parses), sum(read)))
 
         assert costs[0] == costs[1]
+        assert min(costs[0]) > 0
 
     # Sealed-run lookup through the index (workers have no signer: no signature checks).
 
@@ -638,6 +636,7 @@ class TestSealIndex:
             costs.append(sum(read))
 
         assert costs[0] == costs[1]
+        assert costs[0] > 0
 
     @pytest.mark.parametrize("case", list(_INDEX_FALLBACKS))
     def test_a_missing_garbage_or_stale_index_falls_back_to_the_full_scan_answer(
@@ -809,30 +808,6 @@ class TestSealIndex:
         _, _, index_path = _indexed_log(tmp_path / "live", 1)
 
         assert stat.S_IMODE(index_path.stat().st_mode) == 0o600
-
-    def test_rewrite_without_refuses_to_keep_an_oversized_line_and_leaves_the_file_alone(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        _cap(monkeypatch)
-        path = tmp_path / "audit.ndjson"
-        path.write_bytes(b'{"a": 1}\n' + _oversized_line() + b'\n{"b": 2}\n')
-        before = _snapshot(tmp_path)
-
-        with pytest.raises(ValueError):
-            _quarantine_module._rewrite_without(path, {3})
-
-        assert _snapshot(tmp_path) == before
-
-    def test_rewrite_without_still_drops_an_oversized_line_that_is_listed(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        _cap(monkeypatch)
-        path = tmp_path / "audit.ndjson"
-        path.write_bytes(b'{"a": 1}\n' + _oversized_line() + b'\n{"b": 2}\n')
-
-        _quarantine_module._rewrite_without(path, {2})
-
-        assert path.read_bytes() == b'{"a": 1}\n{"b": 2}\n'
 
     def test_the_next_indexed_seal_after_a_segment_rotation_succeeds_and_rebuilds_the_index(
         self, tmp_path: Path

@@ -28,6 +28,7 @@ from mloda.user import ParallelizationMode
 
 import mloda.enterprise.extenders.audit as audit_package
 import mloda.enterprise.extenders.audit.audit_extender as audit_extender_module
+import mloda.enterprise.extenders.audit.otel_log_sink as otel_log_sink_module
 import mloda.enterprise.extenders.audit.run_manifest as run_manifest_module
 from mloda.enterprise.extenders.audit import (
     AuditExtender,
@@ -57,6 +58,7 @@ from mloda.enterprise.extenders.audit.audit_extender import _append_records
 from mloda.enterprise.extenders.audit.tests.manifest_helpers import (
     _KEY,
     _OTHER_KEY,
+    _SOURCE_MODULES,
     _THIRD_KEY,
     _aliased,
     _append_line,
@@ -298,11 +300,15 @@ class TestRunManifestPublicApi:
     def test_append_records_and_canonical_json_come_from_one_shared_private_records_module(self) -> None:
         import mloda.enterprise.extenders.audit._records as records_module
 
-        # getattr: _verify and audit_extender import these, they do not define them.
+        # getattr: _verify and audit_extender import these, they do not define them; no module may redefine them.
         assert getattr(_verify, "_append_records") is records_module._append_records
         assert getattr(_verify, "_canonical_json") is records_module._canonical_json
         assert getattr(audit_extender_module, "_append_records") is records_module._append_records
         assert getattr(audit_extender_module, "_canonical_json") is records_module._canonical_json
+        for module in (*_SOURCE_MODULES, audit_extender_module, otel_log_sink_module):
+            for name in ("_append_records", "_canonical_json"):
+                if name in vars(module):
+                    assert vars(module)[name] is getattr(records_module, name)
         assert records_module._is_blank("") is True
         assert records_module._is_blank("value") is False
 
