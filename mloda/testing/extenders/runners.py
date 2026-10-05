@@ -111,10 +111,10 @@ def run_two_features(*extenders: Extender) -> list[Any]:
     raise AssertionError(f"No result table with {column_name} found")
 
 
-def _source_feature_group(columns: dict[str, list[Any]], index_column: str) -> type[FeatureGroup]:
+def _source_feature_group(name: str, columns: dict[str, list[Any]], index_column: str) -> type[FeatureGroup]:
     """Build a fresh PyArrow source feature group per call so parallel tests never share state."""
 
-    class JoinSource(FeatureGroup):
+    class _Source(FeatureGroup):
         @classmethod
         def index_columns(cls) -> list[Index] | None:
             return [Index((index_column,))]
@@ -131,7 +131,7 @@ def _source_feature_group(columns: dict[str, list[Any]], index_column: str) -> t
         def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
             return pa.table(columns)
 
-    return JoinSource
+    return type(name, (_Source,), {})
 
 
 def _joined_sum_feature_group() -> type[FeatureGroup]:
@@ -158,8 +158,8 @@ def _joined_sum_feature_group() -> type[FeatureGroup]:
 def run_joined_features(*extenders: Extender) -> list[Any]:
     """Run an inner join of two PyArrow sources (left_id=right_id) into a consumer that sums
     `left_value` and `right_value`; return the summed column."""
-    left = _source_feature_group({"left_id": [1, 2, 3], "left_value": [10, 20, 30]}, "left_id")
-    right = _source_feature_group({"right_id": [1, 2, 4], "right_value": [100, 200, 400]}, "right_id")
+    left = _source_feature_group("JoinLeft", {"left_id": [1, 2, 3], "left_value": [10, 20, 30]}, "left_id")
+    right = _source_feature_group("JoinRight", {"right_id": [1, 2, 4], "right_value": [100, 200, 400]}, "right_id")
     consumer = _joined_sum_feature_group()
     link = Link.inner(JoinSpec(left, Index(("left_id",))), JoinSpec(right, Index(("right_id",))))
     plugin_collector = PluginCollector.enabled_feature_groups({left, right, consumer})

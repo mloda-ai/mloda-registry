@@ -103,6 +103,10 @@ def _call_once(otel: OtelExtender) -> Any:
         return otel(lambda: 42)
 
 
+class _FloatSubclass(float):
+    """Stand-in for float subclasses such as numpy.float64."""
+
+
 def _join_context(**kwargs: Any) -> HookContext:
     """Mirrors core's JOIN context shape: no feature group, no feature names."""
     return make_hook_context(
@@ -1196,14 +1200,14 @@ class TestOtelExtenderStepFailureHandling:
 
 
 class TestOtelExtenderCalculateSpanIgnoresAmbientSpan:
-    """Characterization: calculate/validate hooks keep today's rule, ignoring an ambient active span
+    """Characterization: step spans (calculate, join) keep today's rule, ignoring an ambient active span
     whenever a carrier or run_id is present."""
 
     @pytest.mark.parametrize(
         ("hook", "name"),
         [(ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, "calculate DummyFeatureGroup"), (ExtenderHook.JOIN, "join")],
     )
-    def test_calculate_span_with_run_id_ignores_ambient_active_span(
+    def test_step_span_with_run_id_ignores_ambient_active_span(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], hook: ExtenderHook, name: str
     ) -> None:
         from mloda.community.extenders.otel.otel_multiprocessing import trace_id_from_run_id
@@ -1231,7 +1235,7 @@ class TestOtelExtenderCalculateSpanIgnoresAmbientSpan:
         ("hook", "name"),
         [(ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, "calculate DummyFeatureGroup"), (ExtenderHook.JOIN, "join")],
     )
-    def test_calculate_span_with_carrier_ignores_ambient_active_span(
+    def test_step_span_with_carrier_ignores_ambient_active_span(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], hook: ExtenderHook, name: str
     ) -> None:
         from mloda.testing.extenders.otel import inject_parent_carrier
@@ -1450,10 +1454,11 @@ class TestOtelExtenderJoinSpanAttributes:
             (datetime.timedelta(minutes=2), "mloda.join.asof.tolerance_seconds", 120.0),
             (5, "mloda.join.asof.tolerance", 5),
             (2.5, "mloda.join.asof.tolerance", 2.5),
+            (_FloatSubclass(1.5), "mloda.join.asof.tolerance", 1.5),
             (None, None, None),
             (True, None, None),
         ],
-        ids=["timedelta", "int", "float", "absent", "bool"],
+        ids=["timedelta", "int", "float", "float_subclass", "absent", "bool"],
     )
     def test_asof_join_tolerance_attribute(
         self,
@@ -2232,7 +2237,11 @@ class TestOtelExtenderRootSpanHooks:
         run_id = str(uuid.uuid4())
 
         _start_run(otel, run_id)
-        _step(otel, run_id, hook=hook)
+        if hook == ExtenderHook.JOIN:
+            with _join_context(run_id=run_id, carrier=None).activate():
+                otel(lambda: None)
+        else:
+            _step(otel, run_id, hook=hook)
         _complete_run(otel, run_id)
 
         spans = exporter.get_finished_spans()

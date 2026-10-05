@@ -398,7 +398,7 @@ def _span_name(context: HookContext | None) -> str:
     name = _SPAN_NAMES.get(context.hook, "mloda.unknown")
     if context.hook == ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE and context.feature_group_class is not None:
         return f"{name} {context.feature_group_class.rsplit('.', 1)[-1]}"
-    if context.hook == ExtenderHook.JOIN and context.join_type:
+    if context.hook == ExtenderHook.JOIN and context.join_type is not None:
         return f"{name} {context.join_type}"
     return name
 
@@ -492,8 +492,10 @@ def _set_join_attributes(span: Span, context: HookContext) -> None:
     span.set_attribute("mloda.join.asof.direction", asof.direction)
     span.set_attribute("mloda.join.asof.allow_exact_matches", asof.allow_exact_matches)
     tolerance = asof.tolerance
-    if type(tolerance) in (int, float):
-        span.set_attribute("mloda.join.asof.tolerance", tolerance)
+    if isinstance(tolerance, (int, float)) and not isinstance(tolerance, bool):
+        span.set_attribute(
+            "mloda.join.asof.tolerance", float(tolerance) if isinstance(tolerance, float) else int(tolerance)
+        )
     elif isinstance(tolerance, timedelta):
         span.set_attribute("mloda.join.asof.tolerance_seconds", tolerance.total_seconds())
 

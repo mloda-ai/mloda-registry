@@ -305,11 +305,6 @@ class TestRunJoinedFeatures:
     """Fixture: left (1, 2, 3) x (10, 20, 30), right (1, 2, 4) x (100, 200, 400); the consumer returns
     left_value + right_value, so the inner join keeps ids 1 and 2 and yields {110, 220} (row order unspecified)."""
 
-    def test_returns_the_joined_column(self) -> None:
-        result = runners.run_joined_features()
-
-        assert sorted(result) == [110, 220]
-
     def test_join_hook_fires_once_with_inner_type_and_distinct_keys(self) -> None:
         recorder = _JoinRecorder()
 
@@ -327,6 +322,31 @@ class TestRunJoinedFeatures:
         assert sorted(first) == sorted(second) == [110, 220]
         assert len(first_recorder.joins) == 1
         assert len(second_recorder.joins) == 1
+        assert not hasattr(runners, "JoinSource")
+        assert not hasattr(runners, "JoinedSum")
+
+    def test_source_feature_groups_have_distinct_class_names(self) -> None:
+        class _CalculateRecorder(Extender):
+            def __init__(self) -> None:
+                self.raise_on_error = True
+                self.class_names: list[str] = []
+
+            def wraps(self) -> set[ExtenderHook]:
+                return {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE}
+
+            def __call__(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+                context = HookContext.current()
+                assert context is not None
+                assert context.feature_group_class is not None
+                self.class_names.append(context.feature_group_class.rsplit(".", 1)[-1])
+                return func(*args, **kwargs)
+
+        recorder = _CalculateRecorder()
+
+        runners.run_joined_features(recorder)
+
+        assert len(recorder.class_names) == 3
+        assert len(set(recorder.class_names)) == 3
 
 
 class TestFailingFeatureGroup:
