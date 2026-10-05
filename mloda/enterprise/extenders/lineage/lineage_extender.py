@@ -93,7 +93,7 @@ class LineageFacetsExtender(OpenLineageExtender):
 
     def _call_input_data_load(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
         result = super()._call_input_data_load(context, func, *args, **kwargs)
-        self._record_pending_describe(context, func, args)
+        self._record_pending_describe(context, args)
         return result
 
     def _call_calculate_feature(self, context: HookContext, func: Any, *args: Any, **kwargs: Any) -> Any:
@@ -102,14 +102,14 @@ class LineageFacetsExtender(OpenLineageExtender):
         with _open_described_columns.open(self, state):
             return super()._call_calculate_feature(context, func, *args, **kwargs)
 
-    def _record_pending_describe(self, context: HookContext, func: Any, args: tuple[Any, ...]) -> None:
+    def _record_pending_describe(self, context: HookContext, args: tuple[Any, ...]) -> None:
         state = _open_described_columns.find(self)
         if state is None:
             return
         identity = context.data_access_identity
         if identity is None:
             return
-        state.record(identity, _pending_describe(func, args))
+        state.record(identity, _pending_describe(context, args))
 
     def _calculate_run_facets(self, context: HookContext, func: Any, args: tuple[Any, ...]) -> dict[str, Any]:
         facets = super()._calculate_run_facets(context, func, args)
@@ -266,9 +266,9 @@ def _source_columns(context: HookContext, func: Any, args: tuple[Any, ...]) -> l
     return [[name, column] for name, column in columns if column is not None]
 
 
-def _pending_describe(func: Any, args: tuple[Any, ...]) -> _PendingDescribe:
-    """None when the load has no reader owning it or no positional data_access; else a deferred describe call."""
-    describe = class_attribute(func, "describe_columns")
+def _pending_describe(context: HookContext, args: tuple[Any, ...]) -> _PendingDescribe:
+    """None when the load has no reader_class on the context or no positional data_access; else a deferred describe call."""
+    describe = getattr(context.reader_class, "describe_columns", None) if context.reader_class is not None else None
     if describe is None or not args:
         return None
     data_access = args[0]

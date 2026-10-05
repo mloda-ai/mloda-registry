@@ -189,6 +189,11 @@ def failing_feature_group(feature_name: str) -> type[FailingFeatureGroup]:
 
 def run_failing_feature(feature_group: type[FailingFeatureGroup], *extenders: Extender) -> Any:
     """Run feature_group.feature_name through the pipeline; calculate_feature always raises."""
+    return run_feature(feature_group, *extenders)
+
+
+def run_feature(feature_group: type[FailingFeatureGroup], *extenders: Extender) -> Any:
+    """Run feature_group.feature_name through the pipeline with the given extenders."""
     plugin_collector = PluginCollector.enabled_feature_groups({feature_group})
     return mloda.run_all(
         [feature_group.feature_name],

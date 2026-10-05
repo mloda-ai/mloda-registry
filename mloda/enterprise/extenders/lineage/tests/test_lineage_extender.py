@@ -458,7 +458,10 @@ def _calculate_loading_step(
 
     def load() -> str:
         for identity, one_reader, raw in zip(loaded, readers, raws, strict=True):
-            with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity).activate():
+            load_context = make_hook_context(
+                hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=identity, reader_class=one_reader
+            )
+            with load_context.activate():
                 if one_reader is not None:
                     assert extender(one_reader.load_data, raw, features) == "loaded"
                 else:
@@ -1374,6 +1377,33 @@ class TestLineageFacetsRootSourceColumns:
         assert "src" in message
         assert _LOADED not in message
 
+    def test_a_load_wrapped_without_self_is_still_described_from_the_reader_class(
+        self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The reader comes from the context, so a wrapper that does not copy __self__ does not hide it."""
+        client, transport = ol_capture
+        extender = LineageFacetsExtender(client=client, dataset_namespace="lineage-ds")
+        reader = _describing_reader({"other": None})
+        features = FeatureSet([Feature("out")])
+
+        def load() -> str:
+            load_context = make_hook_context(
+                hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=_LOADED, reader_class=reader
+            )
+            with load_context.activate():
+                assert extender(lambda raw, fs: reader.load_data(raw, fs), _LOADED, features) == "loaded"
+            return "data"
+
+        context = make_hook_context(feature_names=("out",), output_schema=(("out", "int64"),))
+        with caplog.at_level(logging.WARNING):
+            with context.activate():
+                extender(_SourceByDict.calculate_feature, load, features)
+
+        event = transport.events[-1]
+        assert not _has_column_lineage(event, "out")
+        assert len(_module_warnings(caplog)) == 1
+        assert reader.describe_calls == 1
+
     def test_multi_output_only_the_verified_column_keeps_its_edge(
         self, ol_capture: tuple[OpenLineageClient, RecordingTransport], caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -1534,7 +1564,10 @@ class TestLineageFacetsRootSourceColumns:
         features = FeatureSet([Feature("out")])
 
         def failing() -> str:
-            with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=_LOADED).activate():
+            load_context = make_hook_context(
+                hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=_LOADED, reader_class=reader
+            )
+            with load_context.activate():
                 assert extender(reader.load_data, _LOADED, features) == "loaded"
             raise RuntimeError("boom after load")
 
@@ -1559,14 +1592,20 @@ class TestLineageFacetsRootSourceColumns:
         outer_features = FeatureSet([Feature("out")])
 
         def inner_body() -> str:
-            with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="other.csv").activate():
+            inner_context = make_hook_context(
+                hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity="other.csv", reader_class=inner_reader
+            )
+            with inner_context.activate():
                 assert extender(inner_reader.load_data, "other.csv", FeatureSet()) == "loaded"
             return "inner"
 
         def outer_load() -> str:
             with make_hook_context(feature_group_class=inner_class).activate():
                 extender(inner_body)
-            with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=_LOADED).activate():
+            outer_context = make_hook_context(
+                hook=ExtenderHook.INPUT_DATA_LOAD, data_access_identity=_LOADED, reader_class=outer_reader
+            )
+            with outer_context.activate():
                 assert extender(outer_reader.load_data, _LOADED, outer_features) == "loaded"
             return "outer"
 

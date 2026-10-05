@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import reprlib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import Any
 
 from mloda.steward import Extender, ExtenderHook, HookContext, WarnOncePerInstance, pickle_failure_reason
@@ -23,7 +23,6 @@ from opentelemetry.trace import (
 )
 
 from mloda.community.extenders.otel.otel_multiprocessing import extract_carrier, trace_id_from_run_id
-from mloda.community.extenders.shared.bound_method import bound_method, class_attribute
 from mloda.community.extenders.shared.teardown import CLOSE_TIMEOUT, force_flush, to_timeout_millis
 
 logger = logging.getLogger(__name__)
@@ -80,8 +79,7 @@ _OPERATION_NAMES: dict[ExtenderHook, str] = {
     ExtenderHook.INPUT_DATA_LOAD: "load",
 }
 
-# Hooks whose owning class may declare span attributes via declared_attributes(), and whose
-# rows.out is recorded after the call: calculate and load, never validate.
+# Hooks that record the context's declared attributes and rows.out after the call: calculate and load only.
 _DECLARABLE_HOOKS = {ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, ExtenderHook.INPUT_DATA_LOAD}
 
 # Declared attribute values kept; other types are dropped silently.
@@ -203,7 +201,7 @@ class OtelExtender(Extender):
                     span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
                     raise
                 if context.hook in _DECLARABLE_HOOKS:
-                    self._set_declared_attributes(span, func, args)
+                    self._set_declared_attributes(span, context)
 
             try:
                 result = func(*args, **kwargs)
@@ -228,29 +226,11 @@ class OtelExtender(Extender):
 
             return result
 
-    def _set_declared_attributes(self, span: Span, func: Any, args: tuple[Any, ...]) -> None:
-        """mloda.declared.<key> attributes from a declared_attributes classmethod on func's owning class.
-        Contained like _set_context_attributes: Exception logs a WARNING and skips, interrupt marks ERROR and re-raises."""
-        if not span.is_recording():
+    def _set_declared_attributes(self, span: Span, context: HookContext) -> None:
+        """mloda.declared.<key> attributes from the hook context's declared_attributes (validated by core)."""
+        if not span.is_recording() or not context.declared_attributes:
             return
-        declare = class_attribute(func, "declared_attributes")
-        if declare is None:
-            return
-        try:
-            attributes = declare(Extender.feature_set(args))
-            if not isinstance(attributes, Mapping):
-                raise TypeError(f"declared_attributes returned {type(attributes).__name__}, expected a Mapping")
-            items = list(attributes.items())
-        except Exception as exc:
-            owner_name = _owning_class_name(func)
-            logger.warning(
-                "%s declared_attributes on %s failed: %s", type(self).__name__, owner_name, type(exc).__name__
-            )
-            return
-        except BaseException as exc:
-            span.set_status(Status(StatusCode.ERROR))
-            span.set_attribute("error.type", f"{type(exc).__module__}.{type(exc).__qualname__}")
-            raise
+        items = context.declared_attributes.items()
         count = 0
         for key, value in items:
             if count >= _MAX_DECLARED_KEYS:
@@ -329,13 +309,6 @@ def _expected_trace_id(context: HookContext) -> int | None:
     if context.run_id is not None:
         return trace_id_from_run_id(context.run_id)
     return None
-
-
-def _owning_class_name(func: Any) -> str:
-    """Name of the class owning func, for a warning message; falls back to func's own name."""
-    owner = getattr(bound_method(func), "__self__", None)
-    owning_class = owner if isinstance(owner, type) else type(owner)
-    return getattr(owning_class, "__name__", repr(func))
 
 
 def _set_load_attributes(span: Span, context: HookContext) -> None:

@@ -15,14 +15,14 @@ import pickle  # nosec
 import threading
 import time
 import uuid
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
 from mloda.core.abstract_plugins.hook_context import instrument  # no public equivalent yet
-from mloda.provider import BaseInputData, FeatureGroup, FeatureSet
+from mloda.provider import BaseInputData, FeatureSet
 from mloda.steward import CompositeExtender, Extender, ExtenderHook
 from mloda.user import ParallelizationMode
 from opentelemetry import trace
@@ -43,7 +43,14 @@ from mloda.testing.extenders.otel import (
     single_span,
     single_span_attributes,
 )
-from mloda.testing.extenders.runners import CountingExtender, expected_value_int, run_csv_feature, run_value_int
+from mloda.testing.extenders.runners import (
+    CountingExtender,
+    FailingFeatureGroup,
+    expected_value_int,
+    run_csv_feature,
+    run_feature,
+    run_value_int,
+)
 
 # The one attribute key that MUST carry content preview.
 _CONTENT_ATTRIBUTE = "mloda.content.preview"
@@ -1311,114 +1318,82 @@ class TestOtelExtenderLoadSpanAttributes:
         assert single_span_attributes(exporter)["mloda.rows.out"] == 3
 
 
-class _DeclaringFeatureGroup(FeatureGroup):
-    """Declares span attributes via a declared_attributes classmethod; records the FeatureSet it receives."""
-
-    received_feature_sets: ClassVar[list[FeatureSet | None]] = []
+class _Target:
+    """Stand-in for a feature group or reader; declared attributes now come from the context, not the class."""
 
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         return "calculated"
 
     @classmethod
-    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
-        cls.received_feature_sets.append(features)
-        return {"dataset": "orders"}
-
-
-class _DeclaringFeatureGroupRaisingCall(FeatureGroup):
-    """calculate_feature always raises; declared_attributes must still fire, before the call."""
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        raise RuntimeError("inner boom")
-
-    @classmethod
-    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
-        return {"dataset": "orders"}
-
-
-class _RaisingDeclaration(FeatureGroup):
-    """declared_attributes itself raises; must be contained, not break the call or the span."""
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return "ok"
-
-    @classmethod
-    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
-        raise ValueError("declaration boom")
-
-
-class _NonMappingDeclaration(FeatureGroup):
-    """declared_attributes returns a non-mapping; must be contained the same way as a raise."""
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return "ok"
-
-    @classmethod
-    def declared_attributes(cls, features: FeatureSet | None) -> Any:
-        return ["not", "a", "mapping"]
-
-
-class _DeclaringReader:
-    """Stand-in for a reader class: the owning class of an INPUT_DATA_LOAD call per class_attribute()."""
-
-    @classmethod
     def load_data(cls, data_access: Any, features: FeatureSet) -> Any:
         return "loaded-data"
 
     @classmethod
-    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
-        return {"table": "orders_raw"}
+    def failing_calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+        raise RuntimeError("inner boom")
 
 
-_DECLARED_ATTRIBUTES_CHAINS = ["direct", "otel-inner", "otel-outer"]
+_DECLARED_ATTRIBUTES_CHAINS = ["direct", "otel-inner", "otel-outer", "no-self-wrapper"]
 
 
 def _chained_call(otel: OtelExtender, chain: str) -> tuple[Extender, CountingExtender | None]:
     """direct: otel called alone. Otherwise CompositeExtender([otel, counting]), with otel inner or
-    outer; the two unwrap a different number of wrapper levels before reaching the owning class."""
-    if chain == "direct":
+    outer. no-self-wrapper: otel called alone (see _target, which hides __self__)."""
+    if chain in ("direct", "no-self-wrapper"):
         return otel, None
     counting = CountingExtender()
     counting.priority = 50 if chain == "otel-inner" else 200
     return CompositeExtender([otel, counting]), counting
 
 
+def _target(chain: str, func: Any) -> Any:
+    """For no-self-wrapper, a plain function that calls func but does not copy __self__."""
+    if chain != "no-self-wrapper":
+        return func
+
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+def _declared_span_attrs(exporter: InMemorySpanExporter) -> dict[str, Any]:
+    return {k: v for k, v in single_span_attributes(exporter).items() if k.startswith("mloda.declared.")}
+
+
 class TestOtelExtenderDeclaredAttributes:
-    """mloda.declared.<key> attributes from a declared_attributes classmethod on the owning class."""
+    """mloda.declared.<key> attributes from HookContext.declared_attributes."""
 
     @pytest.mark.parametrize("chain", _DECLARED_ATTRIBUTES_CHAINS)
-    def test_declared_attributes_set_on_calculate_span_and_classmethod_receives_feature_set(
+    def test_declared_attributes_set_on_calculate_span(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], chain: str
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider)
         call, counting = _chained_call(otel, chain)
-        features = FeatureSet()
-        _DeclaringFeatureGroup.received_feature_sets = []
+        context = make_hook_context(
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, declared_attributes={"dataset": "orders"}
+        )
 
-        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
-            call(_DeclaringFeatureGroup.calculate_feature, None, features)
+        with context.activate():
+            call(_target(chain, _Target.calculate_feature), None, FeatureSet())
 
         assert single_span_attributes(exporter)["mloda.declared.dataset"] == "orders"
-        assert _DeclaringFeatureGroup.received_feature_sets == [features]
         if counting is not None:
             assert counting.calls == 1
 
     @pytest.mark.parametrize("chain", _DECLARED_ATTRIBUTES_CHAINS)
-    def test_declared_attributes_set_on_load_span_from_reader_classmethod(
+    def test_declared_attributes_set_on_load_span(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], chain: str
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider)
         call, counting = _chained_call(otel, chain)
-        features = FeatureSet()
+        context = make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD, declared_attributes={"table": "orders_raw"})
 
-        with make_hook_context(hook=ExtenderHook.INPUT_DATA_LOAD).activate():
-            call(_DeclaringReader.load_data, "s3://bucket/key.parquet", features)
+        with context.activate():
+            call(_target(chain, _Target.load_data), "s3://bucket/key.parquet", FeatureSet())
 
         assert single_span_attributes(exporter)["mloda.declared.table"] == "orders_raw"
         if counting is not None:
@@ -1429,10 +1404,10 @@ class TestOtelExtenderDeclaredAttributes:
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider)
-        features = FeatureSet()
+        context = make_hook_context(hook=ExtenderHook.VALIDATE_INPUT_FEATURE, declared_attributes={"dataset": "orders"})
 
-        with make_hook_context(hook=ExtenderHook.VALIDATE_INPUT_FEATURE).activate():
-            otel(_DeclaringFeatureGroup.calculate_feature, None, features)
+        with context.activate():
+            otel(_Target.calculate_feature, None, FeatureSet())
 
         attrs = single_span_attributes(exporter)
         assert not any(key.startswith("mloda.declared.") for key in attrs), attrs
@@ -1442,120 +1417,35 @@ class TestOtelExtenderDeclaredAttributes:
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider)
-        features = FeatureSet()
+        context = make_hook_context(
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, declared_attributes={"dataset": "orders"}
+        )
 
-        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
+        with context.activate():
             with pytest.raises(RuntimeError, match="inner boom"):
-                otel(_DeclaringFeatureGroupRaisingCall.calculate_feature, None, features)
+                otel(_Target.failing_calculate_feature, None, FeatureSet())
 
         assert single_span_attributes(exporter)["mloda.declared.dataset"] == "orders"
 
-    def test_raising_declaration_is_contained_result_returned_span_not_error(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
+    @pytest.mark.parametrize("declared", [None, {}])
+    def test_absent_or_empty_declared_attributes_set_nothing(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], declared: dict[str, Any] | None
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider)
-        features = FeatureSet()
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, declared_attributes=declared)
 
-        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
-            with caplog.at_level(logging.WARNING):
-                result = otel(_RaisingDeclaration.calculate_feature, None, features)
+        with context.activate():
+            otel(_Target.calculate_feature, None, FeatureSet())
 
-        assert result == "ok"
-        span = single_span(exporter)
-        assert span.status.status_code != StatusCode.ERROR
-        attrs = span.attributes or {}
-        assert not any(key.startswith("mloda.declared.") for key in attrs), attrs
+        assert _declared_span_attrs(exporter) == {}
 
-        extender_name = OtelExtender.__name__
-        owner_name = _RaisingDeclaration.__name__
-        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any(
-            extender_name in message and owner_name in message and "ValueError" in message for message in warnings
-        ), warnings
-        assert not any("declaration boom" in message for message in warnings), warnings
-
-    def test_non_mapping_declaration_is_contained_result_returned_span_not_error(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
+    def test_non_scalar_declared_values_are_dropped(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
     ) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider)
-        features = FeatureSet()
-
-        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
-            with caplog.at_level(logging.WARNING):
-                result = otel(_NonMappingDeclaration.calculate_feature, None, features)
-
-        assert result == "ok"
-        span = single_span(exporter)
-        assert span.status.status_code != StatusCode.ERROR
-        attrs = span.attributes or {}
-        assert not any(key.startswith("mloda.declared.") for key in attrs), attrs
-
-        extender_name = OtelExtender.__name__
-        owner_name = _NonMappingDeclaration.__name__
-        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any(extender_name in message and owner_name in message for message in warnings), warnings
-
-
-class _RaisingIterationMapping(Mapping[str, Any]):
-    """A Mapping whose iteration itself raises; declared_attributes may return one of these, so
-    materializing the entries (not just calling declared_attributes) must be contained too."""
-
-    def __getitem__(self, key: str) -> Any:
-        raise KeyError(key)
-
-    def __iter__(self) -> Any:
-        raise RuntimeError("iteration boom")
-
-    def __len__(self) -> int:
-        return 1
-
-
-class _RaisingIterationDeclaration(FeatureGroup):
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return "ok"
-
-    @classmethod
-    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
-        return _RaisingIterationMapping()
-
-
-class _InterruptingDeclaration(FeatureGroup):
-    """declared_attributes raises a non-Exception BaseException (an interrupt), which must mark the
-    span ERROR and propagate, like a failure in _set_context_attributes."""
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return "ok"
-
-    @classmethod
-    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
-        raise KeyboardInterrupt()
-
-
-class _CountingDeclaration(FeatureGroup):
-    calls: ClassVar[int] = 0
-
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return "ok"
-
-    @classmethod
-    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
-        cls.calls += 1
-        return {"dataset": "orders"}
-
-
-class _MixedTypeDeclaration(FeatureGroup):
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return "ok"
-
-    @classmethod
-    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
-        return {
+        declared: dict[str, Any] = {
             "scalar": "kept",
             "flag": True,
             "num": 3.5,
@@ -1563,98 +1453,10 @@ class _MixedTypeDeclaration(FeatureGroup):
             "mapping": {"a": 1},
             "none": None,
         }
+        context = make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, declared_attributes=declared)
 
-
-class _LongStringDeclaration(FeatureGroup):
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return "ok"
-
-    @classmethod
-    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
-        return {"long": "x" * 500}
-
-
-class _ManyKeysDeclaration(FeatureGroup):
-    @classmethod
-    def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
-        return "ok"
-
-    @classmethod
-    def declared_attributes(cls, features: FeatureSet | None) -> Mapping[str, Any]:
-        return {f"k{i}": i for i in range(40)}
-
-
-class TestOtelExtenderDeclaredAttributesContainment:
-    """Declared-attribute build failures and value shaping (mloda.declared.*): a raising iteration
-    or interrupt must be handled the same way as a raising or non-mapping declared_attributes call,
-    and only bounded, scalar values ever reach the span."""
-
-    def test_raising_mapping_iteration_is_contained_result_returned_span_not_error(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], caplog: pytest.LogCaptureFixture
-    ) -> None:
-        provider, exporter = otel_capture
-        otel = OtelExtender(tracer_provider=provider)
-        features = FeatureSet()
-
-        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
-            with caplog.at_level(logging.WARNING):
-                result = otel(_RaisingIterationDeclaration.calculate_feature, None, features)
-
-        assert result == "ok"
-        span = single_span(exporter)
-        assert span.status.status_code != StatusCode.ERROR
-        attrs = span.attributes or {}
-        assert not any(key.startswith("mloda.declared.") for key in attrs), attrs
-
-        extender_name = OtelExtender.__name__
-        owner_name = _RaisingIterationDeclaration.__name__
-        warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any(extender_name in message and owner_name in message for message in warnings), warnings
-        assert not any("iteration boom" in message for message in warnings), warnings
-
-    def test_interrupt_from_declaration_marks_span_error_and_propagates(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
-    ) -> None:
-        provider, exporter = otel_capture
-        otel = OtelExtender(tracer_provider=provider)
-        features = FeatureSet()
-
-        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
-            with pytest.raises(KeyboardInterrupt):
-                otel(_InterruptingDeclaration.calculate_feature, None, features)
-
-        span = single_span(exporter)
-        assert span.status.status_code == StatusCode.ERROR
-        assert span.attributes is not None
-        assert "error.type" in span.attributes
-
-    def test_declaration_not_called_when_span_is_not_recording(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
-    ) -> None:
-        provider, exporter = otel_capture
-        otel = OtelExtender(tracer_provider=provider)
-        features = FeatureSet()
-        _CountingDeclaration.calls = 0
-        # An unsampled remote parent: the default ParentBased sampler drops the span (not recording).
-        carrier = {"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00"}
-
-        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, carrier=carrier).activate():
-            result = otel(_CountingDeclaration.calculate_feature, None, features)
-
-        assert result == "ok"
-        assert exporter.get_finished_spans() == ()
-        assert _CountingDeclaration.calls == 0
-
-    def test_non_scalar_declared_values_are_dropped(
-        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
-    ) -> None:
-        provider, exporter = otel_capture
-        otel = OtelExtender(tracer_provider=provider)
-        features = FeatureSet()
-
-        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
-            otel(_MixedTypeDeclaration.calculate_feature, None, features)
+        with context.activate():
+            otel(_Target.calculate_feature, None, FeatureSet())
 
         attrs = single_span_attributes(exporter)
         assert attrs["mloda.declared.scalar"] == "kept"
@@ -1667,10 +1469,12 @@ class TestOtelExtenderDeclaredAttributesContainment:
     def test_long_declared_string_is_truncated(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider)
-        features = FeatureSet()
+        context = make_hook_context(
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE, declared_attributes={"long": "x" * 500}
+        )
 
-        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
-            otel(_LongStringDeclaration.calculate_feature, None, features)
+        with context.activate():
+            otel(_Target.calculate_feature, None, FeatureSet())
 
         value = single_span_attributes(exporter)["mloda.declared.long"]
         assert len(value) == otel_extender_module._CONTENT_PREVIEW_MAX_LEN
@@ -1678,19 +1482,99 @@ class TestOtelExtenderDeclaredAttributesContainment:
     def test_declared_keys_are_capped_at_32(self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]) -> None:
         provider, exporter = otel_capture
         otel = OtelExtender(tracer_provider=provider)
-        features = FeatureSet()
+        context = make_hook_context(
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+            declared_attributes={f"k{i}": i for i in range(40)},
+        )
 
-        with make_hook_context(hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE).activate():
-            otel(_ManyKeysDeclaration.calculate_feature, None, features)
+        with context.activate():
+            otel(_Target.calculate_feature, None, FeatureSet())
 
-        attrs = single_span_attributes(exporter)
-        declared_keys = {key for key in attrs if key.startswith("mloda.declared.")}
+        declared_keys = set(_declared_span_attrs(exporter))
         assert len(declared_keys) == 32, declared_keys
         assert declared_keys == {f"mloda.declared.k{i}" for i in range(32)}
+
+    def test_declared_attributes_not_applied_when_span_is_not_recording(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        otel = OtelExtender(tracer_provider=provider)
+        # An unsampled remote parent: the default ParentBased sampler drops the span (not recording).
+        carrier = {"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00"}
+        context = make_hook_context(
+            hook=ExtenderHook.FEATURE_GROUP_CALCULATE_FEATURE,
+            carrier=carrier,
+            declared_attributes={"dataset": "orders"},
+        )
+
+        with context.activate():
+            result = otel(_Target.calculate_feature, None, FeatureSet())
+
+        assert result == "calculated"
+        assert exporter.get_finished_spans() == ()
+
+
+def _declaring_feature_group(declaration: Callable[[Any, FeatureSet | None], Any]) -> type[FailingFeatureGroup]:
+    """Build a fresh succeeding feature group whose declared_attributes classmethod is declaration."""
+
+    class _Declaring(FailingFeatureGroup):
+        feature_name = f"declared_{uuid.uuid4().hex}"
+        calls = 0
+
+        @classmethod
+        def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
+            return {cls.feature_name: [1, 2, 3]}
+
+        @classmethod
+        def declared_attributes(cls, features: FeatureSet | None) -> Any:
+            return declaration(cls, features)
+
+    return _Declaring
+
+
+def _declare_orders(cls: Any, features: FeatureSet | None) -> Mapping[str, Any]:
+    return {"dataset": "orders"}
+
+
+def _declare_raises(cls: Any, features: FeatureSet | None) -> Mapping[str, Any]:
+    raise ValueError("declaration boom")
+
+
+def _declare_non_mapping(cls: Any, features: FeatureSet | None) -> Any:
+    return ["not", "a", "mapping"]
 
 
 class TestOtelExtenderRunAll:
     """End-to-end wiring through mloda.user.mloda.run_all: real spans, unmodified results."""
+
+    def test_run_all_sets_declared_attributes_on_the_calculate_span(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
+    ) -> None:
+        provider, exporter = otel_capture
+        group = _declaring_feature_group(_declare_orders)
+
+        results = run_feature(group, OtelExtender(tracer_provider=provider))
+
+        assert results[0].to_pydict()[group.feature_name] == [1, 2, 3]
+        calculate = [span for span in exporter.get_finished_spans() if span.name == "mloda.calculate"]
+        assert len(calculate) == 1
+        assert (calculate[0].attributes or {}).get("mloda.declared.dataset") == "orders"
+
+    @pytest.mark.parametrize("declaration", [_declare_raises, _declare_non_mapping])
+    def test_run_all_with_a_bad_declaration_succeeds_without_declared_attributes(
+        self, otel_capture: tuple[TracerProvider, InMemorySpanExporter], declaration: Any
+    ) -> None:
+        provider, exporter = otel_capture
+        group = _declaring_feature_group(declaration)
+
+        results = run_feature(group, OtelExtender(tracer_provider=provider))
+
+        assert results[0].to_pydict()[group.feature_name] == [1, 2, 3]
+        calculate = [span for span in exporter.get_finished_spans() if span.name == "mloda.calculate"]
+        assert len(calculate) == 1
+        assert calculate[0].status.status_code != StatusCode.ERROR
+        attrs = calculate[0].attributes or {}
+        assert not any(key.startswith("mloda.declared.") for key in attrs), attrs
 
     def test_run_all_produces_expected_spans_and_leaves_result_unchanged(
         self, otel_capture: tuple[TracerProvider, InMemorySpanExporter]
