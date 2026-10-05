@@ -20,6 +20,14 @@ PluginLoader.all()
 result = mloda.run_all([Feature("example_feature")])
 ```
 
+## Compute Frameworks
+
+Pass `compute_frameworks` as an ordered list; a set is rejected. mloda picks the cheapest plan, and among equal plans the first listed framework is preferred:
+
+```python
+result = mloda.run_all([Feature("example_feature")], compute_frameworks=["PolarsLazyDataFrame", "PandasDataFrame"])
+```
+
 ## Column Ordering
 
 Control result column arrangement with the `column_ordering` parameter:
