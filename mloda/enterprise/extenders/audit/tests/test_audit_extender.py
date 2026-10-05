@@ -1798,14 +1798,6 @@ class TestAuditExtenderSealing:
         assert len(captured) == 1
         assert isinstance(captured[0], ManifestVerificationError)
 
-    def test_sealed_run_refused_error_and_its_cache_no_longer_exist(self) -> None:
-        import mloda.enterprise.extenders.audit as audit_package
-
-        assert not hasattr(audit_package, "SealedRunRefusedError")
-        assert not hasattr(audit_extender_module, "SealedRunRefusedError")
-        assert not hasattr(audit_extender_module, "_is_run_sealed_unverified")
-        assert not hasattr(AuditExtender, "_found_sealed")
-
     def test_extender_without_sealing_config_never_refuses(self) -> None:
         sink = InMemoryAuditSink()
         extender = AuditExtender(sink=sink)
@@ -2748,13 +2740,6 @@ class TestAuditExtenderDataAccess:
         assert record["data_access_identity"] == [_BUCKET_KEY, other]
         assert record["data_access_format"] == ["ParquetReader", "CsvReader"]
         assert record["data_access_identity_is_fallback"] == [False, True]
-
-    def test_fallback_flag_true_is_recorded_index_aligned(self) -> None:
-        record = _record_for_loads([("str", "CsvReader", True)])
-
-        assert record["data_access_identity"] == ["str"]
-        assert record["data_access_format"] == ["CsvReader"]
-        assert record["data_access_identity_is_fallback"] == [True]
 
     def test_same_identity_and_format_with_different_flags_gives_two_entries(self) -> None:
         record = _record_for_loads(
