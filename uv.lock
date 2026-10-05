@@ -738,14 +738,14 @@ wheels = [
 
 [[package]]
 name = "mloda-anonymizer-binary"
-version = "0.1.0"
+version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ce/16/0432fe2da6e4f57499a85d5b6a9f383b73f44e09c0c019314d5d7c8d8cba/mloda_anonymizer_binary-0.1.0-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:be967781c1bc8f27adcbb343347ddd845cf1249b10566ad0788de72b8bf7aaf6", size = 654860, upload-time = "2026-10-05T11:33:25.691Z" },
-    { url = "https://files.pythonhosted.org/packages/8b/47/c660e35d0ad71acbf7cee460680cfc26c056a849a4f3b9cb19e01a53952d/mloda_anonymizer_binary-0.1.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:c8123ae9df51f141ad874b11e45212dd369ac4dda740eef37d92a466791b760b", size = 568748, upload-time = "2026-10-05T11:33:27.239Z" },
-    { url = "https://files.pythonhosted.org/packages/78/64/2754e8cca79e36e24c655acf88769204c3290274b0ba5a15eff1131352da/mloda_anonymizer_binary-0.1.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:6d7d6207ecd5198d467401e066c0a765fa56fddef1e924189eae5d43062497af", size = 609567, upload-time = "2026-10-05T11:33:28.85Z" },
-    { url = "https://files.pythonhosted.org/packages/82/d2/ffe014e167b3da0e08443f65a280255b183a2ef16e4e7aa504ee94edb73c/mloda_anonymizer_binary-0.1.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:93a1211d66d3842599b469296747dba11364761c495b7a5899d97e86a3da45ca", size = 689169, upload-time = "2026-10-05T11:33:30.268Z" },
-    { url = "https://files.pythonhosted.org/packages/3c/26/ddfca102511c934b13b943b9d7801ff4caac96bad300da9660f41b34049e/mloda_anonymizer_binary-0.1.0-py3-none-win_amd64.whl", hash = "sha256:e48bb02412009ec85c608084434a581c4c11626ee2ee798ab20941a9af439d57", size = 585592, upload-time = "2026-10-05T11:33:31.766Z" },
+    { url = "https://files.pythonhosted.org/packages/b8/95/50246d5f9e3696f05ba3647eb3f0ec7330d950fcf9762760cffb3f273f1e/mloda_anonymizer_binary-0.1.1-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:d1e0063cce4efcf7e3d0dbbc49ef0c5b8b5f1b677497daab9d20b6371836d1d1", size = 654934, upload-time = "2026-10-05T14:16:07.867Z" },
+    { url = "https://files.pythonhosted.org/packages/16/7b/7422b48a879d66cbdae18cc06ab3869e42287fce3b3063c1981d48083092/mloda_anonymizer_binary-0.1.1-py3-none-macosx_11_0_arm64.whl", hash = "sha256:357a112b283dba41a26ca69ff96f569090e08aa8115ecf6b5dff9e0222060abc", size = 568877, upload-time = "2026-10-05T14:16:09.71Z" },
+    { url = "https://files.pythonhosted.org/packages/34/1d/921d07f475be240dad59563fe1851a940eae33a7962086580d5a54cd365d/mloda_anonymizer_binary-0.1.1-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:76fe064a59c9a6307d8508aab07497dbd727810a4c7aa7f3ab55afd0f4c22c68", size = 610023, upload-time = "2026-10-05T14:16:11.51Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/5e/ed9f460caeadfd2c3d247998b912baa2b9a3d2ef879444b9e0859371fdbd/mloda_anonymizer_binary-0.1.1-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9ffd37259dda3aac4ab685e683a3f85fbc1171849cf630891b41b0bbc91b95d2", size = 689307, upload-time = "2026-10-05T14:16:13.493Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/da/b8473db02743fbd417cb733913264f2189ac3dd1ec83fa6da8e27fa918b4/mloda_anonymizer_binary-0.1.1-py3-none-win_amd64.whl", hash = "sha256:3f1a3ff6939bb5255e785eaac517440a209ef42ed00637cb42a6975e512d64b2", size = 585668, upload-time = "2026-10-05T14:16:15.089Z" },
 ]
 
 [[package]]
@@ -1998,14 +1998,14 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mloda-example-binary"
-version = "0.1.0"
+version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/49/c3/07dd8ec204d92678f9293698d58df2c54cf4ce9922855da8b2fb68781369/mloda_example_binary-0.1.0-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:3276d3c287e58e6a5002755e874224071d8602107a468517876fdaacf5e8076e", size = 654898, upload-time = "2026-09-20T12:59:14.695Z" },
-    { url = "https://files.pythonhosted.org/packages/f4/52/0af8657fefa1e26093c0a24a09d80278cf9c8b7d0bff08f5655a55e2a80d/mloda_example_binary-0.1.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:91eb8240294c69ad6345fb2411abf4dec0b6892d308c980105459652fbe3a81f", size = 563729, upload-time = "2026-09-20T12:59:16.599Z" },
-    { url = "https://files.pythonhosted.org/packages/9e/36/6fc5e359c58a52b3afab950cdfe7a6e9a5ba8c9416cfdc04643e751236c6/mloda_example_binary-0.1.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:37dc5ca60d6ba313bdaa27aabfea50e45ee67b17dfec3efdb346b79f2e7be63e", size = 607140, upload-time = "2026-09-20T12:59:18.031Z" },
-    { url = "https://files.pythonhosted.org/packages/48/ad/76940c274c36455a711e4164df71ccd2a744b340ad4cfadace9c931a4229/mloda_example_binary-0.1.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:aa24045f08090712cbb9af01a2793a875104976e8f64a6c75a6eb99927d44d50", size = 685855, upload-time = "2026-09-20T12:59:19.632Z" },
-    { url = "https://files.pythonhosted.org/packages/a5/b5/c80b4fec9cafc7c05be79773b747c38581d3b3bf8b970aa0b8fb4f21f525/mloda_example_binary-0.1.0-py3-none-win_amd64.whl", hash = "sha256:59c5aa1c7735863fcc86887611e30e29a9bf145abecb52d3f66198d1ec0080dc", size = 575897, upload-time = "2026-09-20T12:59:21.16Z" },
+    { url = "https://files.pythonhosted.org/packages/95/31/62b23d2f2cf8e2d8e4df2d2d35857b185ebe80399302039e5a9a55b4c5e6/mloda_example_binary-0.1.2-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:12d9eac1eedb49d7d62fafeb4517629a015b8cfcbebc8bf5856eec50f2962a3f", size = 648822, upload-time = "2026-10-05T14:11:24.695Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/a4/3efe3d5ef91f1715b8ef022e0c88a0f637e14a59e439eeaf51ae75255261/mloda_example_binary-0.1.2-py3-none-macosx_11_0_arm64.whl", hash = "sha256:6c4053b0eb7e1f97b6f5f956d73974dce5f68a3663b72f9a53aabd83beeac0d7", size = 561179, upload-time = "2026-10-05T14:11:26.382Z" },
+    { url = "https://files.pythonhosted.org/packages/27/e2/5d95f4738954d52aaa7dec1ecea5bc12f5cb540e01e5442bff705210b70a/mloda_example_binary-0.1.2-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:9b7b1963c6ca23ca1b504478eb87723195253bcce764e0e8c70888d2eefeb3e3", size = 602467, upload-time = "2026-10-05T14:11:28.099Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/9c/06f930e0d9e2189449ee1e4341a22952abdcb90a3baeae6fb63a0715214a/mloda_example_binary-0.1.2-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:77402a3460743e2b6aab0595ecc9094e54a57038511f179deecb8f39cf04cae2", size = 679049, upload-time = "2026-10-05T14:11:29.452Z" },
+    { url = "https://files.pythonhosted.org/packages/85/0c/fe8442114b289bd657718eec38899b6f2d7f991e8b113a9f4606902f85d0/mloda_example_binary-0.1.2-py3-none-win_amd64.whl", hash = "sha256:c8a9f6959bbf4d75396c7c1f41ee8a44b9d83ae4885aeb7b0aa5b42ef4457ae2", size = 577955, upload-time = "2026-10-05T14:11:31.162Z" },
 ]
 
 [[package]]
