@@ -126,6 +126,14 @@ class TestPatternParsing:
 
 
 class TestConfigBasedFeatures:
+    @pytest.mark.parametrize("in_features", [["amount", "value_int"], ("amount", "value_int")], ids=["list", "tuple"])
+    def test_extract_source_features_keeps_declared_order(self, in_features: Any) -> None:
+        feature = Feature(
+            "my_result",
+            options=Options(context={"arithmetic_op": "subtract", "in_features": in_features}),
+        )
+        assert PointArithmeticFeatureGroup._extract_source_features(feature) == ["amount", "value_int"]
+
     def test_config_based_match(self) -> None:
         options = Options(
             context={
@@ -231,36 +239,6 @@ class TestArithmeticOpExtraction:
         assert result == op
 
 
-class TestUnorderedInFeaturesRejected:
-    """Unordered ``in_features`` (set/frozenset) must be rejected.
-
-    Operand order (col_a, col_b) is undefined for an unordered collection,
-    which is wrong for non-commutative ops (subtract/divide). The raw
-    ``in_features`` option must therefore be an ordered list/tuple; a set or
-    frozenset must raise ValueError in ``_extract_source_features``.
-    """
-
-    @pytest.mark.parametrize(
-        "in_features",
-        [
-            {"value_int", "amount"},
-            frozenset({"value_int", "amount"}),
-        ],
-    )
-    def test_extract_source_features_rejects_unordered_in_features(self, in_features: Any) -> None:
-        feature = Feature(
-            "my_result",
-            options=Options(
-                context={
-                    "arithmetic_op": "subtract",
-                    "in_features": in_features,
-                }
-            ),
-        )
-        with pytest.raises(ValueError, match="ordered"):
-            PointArithmeticFeatureGroup._extract_source_features(feature)
-
-
 class TestMalformedInFeaturesShapeRejectedAtMatch:
     """Unordered ``in_features`` must fail to match, not match-then-fail-late.
 
@@ -271,18 +249,23 @@ class TestMalformedInFeaturesShapeRejectedAtMatch:
     validator was added it matched as True. A valid ordered list must still
     match (control).
 
-    A mapping (dict) is intentionally not asserted here: an unhashable value
-    raises ``TypeError`` inside the core property-mapping parser before the
-    ``match_guard`` runs, independently of this feature group. The mapping
-    case is pinned at the extract layer instead (see
-    ``TestNonOrderedInFeaturesRejectedOnExtract``).
+    Set, frozenset, mapping (dict) and generator all return False at match.
     """
 
-    def test_match_rejects_unordered_frozenset_in_features(self) -> None:
+    @pytest.mark.parametrize(
+        "make_in_features",
+        [
+            pytest.param(lambda: {"value_int", "amount"}, id="set"),
+            pytest.param(lambda: frozenset({"value_int", "amount"}), id="frozenset"),
+            pytest.param(lambda: {"value_int": 1, "amount": 2}, id="dict"),
+            pytest.param(lambda: (n for n in ("value_int", "amount")), id="generator"),
+        ],
+    )
+    def test_match_rejects_non_ordered_in_features(self, make_in_features: Any) -> None:
         options = Options(
             context={
                 "arithmetic_op": "subtract",
-                "in_features": frozenset({"value_int", "amount"}),
+                "in_features": make_in_features(),
             }
         )
         result = PointArithmeticFeatureGroup.match_feature_group_criteria("my_diff", options, None)
@@ -299,13 +282,8 @@ class TestMalformedInFeaturesShapeRejectedAtMatch:
         assert result is True
 
 
-class TestNonOrderedInFeaturesRejectedOnExtract:
-    """The ``_extract_source_features`` fallback must match its own error message.
-
-    Its message promises an "ordered list or tuple"; arbitrary iterables and
-    mappings (dict, generator) must therefore raise ValueError rather than
-    being silently iterated, defending the contract at compute time.
-    """
+class TestUnsupportedInFeaturesRejectedByCoreExtract:
+    """Core's ``_extract_source_features`` rejects mapping and generator with TypeError."""
 
     def test_extract_source_features_rejects_mapping(self) -> None:
         feature = Feature(
@@ -317,7 +295,7 @@ class TestNonOrderedInFeaturesRejectedOnExtract:
                 }
             ),
         )
-        with pytest.raises(ValueError, match="ordered list or tuple"):
+        with pytest.raises(TypeError, match="Unsupported source feature"):
             PointArithmeticFeatureGroup._extract_source_features(feature)
 
     def test_extract_source_features_rejects_generator(self) -> None:
@@ -334,7 +312,7 @@ class TestNonOrderedInFeaturesRejectedOnExtract:
                 }
             ),
         )
-        with pytest.raises(ValueError, match="ordered list or tuple"):
+        with pytest.raises(TypeError, match="Unsupported source feature"):
             PointArithmeticFeatureGroup._extract_source_features(feature)
 
 

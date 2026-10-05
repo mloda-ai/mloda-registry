@@ -22,8 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mloda.provider import DefaultOptionKeys, FeatureChainParser, FeatureSet, property_spec
-from mloda.user import Feature
+from mloda.provider import DefaultOptionKeys, FeatureSet, property_spec
 
 from mloda.community.feature_groups.data_operations.base import (
     OP_TOKEN_EXPECTED,
@@ -59,8 +58,7 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
     # The source side must carry the '&' separator: point arithmetic needs two
     # operands, so a one-operand name like 'x__add_point' cannot be computed.
     # Without the '&' here such a name matched at resolution time and only blew
-    # up later in _extract_source_features, so the user got a compute-time
-    # ValueError instead of a "no feature group found" error naming the real
+    # up at compute time with a ValueError instead of a "no feature group found" error naming the real
     # problem. The config path (arithmetic_op plus a two-element in_features)
     # does not go through this pattern and is unaffected.
     PREFIX_PATTERN = r".*&.*__([\w]+)_point$"
@@ -86,46 +84,6 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
         ),
     }
 
-    # Kept: reads the raw in_features option to keep operand order and reject unordered containers.
-    @classmethod
-    def _extract_source_features(cls, feature: Feature) -> list[str]:
-        """Extract and validate the two source features for the arithmetic op.
-
-        Returns a two-element list ``[col_a, col_b]`` preserving the order
-        of the source columns as given in the feature name or options.
-        Raises ValueError if the count is not exactly two.
-        """
-        feature_name = feature.name
-        prefix_patterns = cls._get_prefix_patterns()
-
-        operation_config, source_feature = FeatureChainParser.parse_feature_name(feature_name, prefix_patterns)
-
-        if operation_config and source_feature:
-            source_names: list[str] = source_feature.split(cls.IN_FEATURE_SEPARATOR)
-        else:
-            # Read the raw in_features value to preserve order. Unordered
-            # collections (set/frozenset) are rejected because operand order
-            # is significant for non-commutative ops (subtract, divide).
-            raw = feature.options.get(DefaultOptionKeys.in_features)
-            if raw is None:
-                source_names = []
-            elif isinstance(raw, (list, tuple)):
-                source_names = [str(item.name) if hasattr(item, "name") else str(item) for item in raw]
-            elif isinstance(raw, str):
-                source_names = [raw]
-            else:
-                raise ValueError(
-                    f"Feature '{feature_name}': in_features for point arithmetic must be an "
-                    f"ordered list or tuple (got {type(raw).__name__}); operand order is "
-                    f"significant for subtract and divide."
-                )
-
-        reason = cls.in_feature_count_reason(feature_name, len(source_names))
-        if reason is not None:
-            raise ValueError(reason)
-
-        return source_names
-
     @classmethod
     def calculate_feature(cls, data: Any, features: FeatureSet) -> Any:
         """Compute an element-wise arithmetic operation per pair of source columns.
@@ -139,6 +97,7 @@ class PointArithmeticFeatureGroup(ArithmeticFeatureGroupBase):
             feature_name = feature.name
 
             source_features = cls._extract_source_features(feature)
+            cls.validate_in_feature_count(feature_name, len(source_features))
             col_a, col_b = source_features[0], source_features[1]
 
             assert_source_columns_present(data, [col_a, col_b])
