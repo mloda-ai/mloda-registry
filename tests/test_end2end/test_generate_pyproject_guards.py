@@ -29,7 +29,7 @@ from typing import Any
 import pytest
 
 from tests.script_loader import load_script
-from tests.toml_loader import loads_toml
+from tests.toml_loader import load_toml, loads_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GEN_PATH = _REPO_ROOT / "scripts" / "generate_pyproject.py"
@@ -134,7 +134,7 @@ def test_write_mode_exits_nonzero_when_root_entry_missing(tmp_path: Path, monkey
     shutil.copy(_REPO_ROOT / "config" / "shared.toml", tmp_path / "config" / "shared.toml")
     shutil.copy(_REPO_ROOT / "config" / "packages.toml", tmp_path / "config" / "packages.toml")
     # Every configured package path needs a Python package so the path guard does not fire first.
-    real_packages = tomllib.loads((_REPO_ROOT / "config" / "packages.toml").read_text())["packages"]
+    real_packages = load_toml(_REPO_ROOT / "config" / "packages.toml")["packages"]
     for real_cfg in real_packages.values():
         (tmp_path / real_cfg["path"]).mkdir(parents=True, exist_ok=True)
         (tmp_path / real_cfg["path"] / "__init__.py").write_text("")
