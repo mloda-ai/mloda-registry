@@ -701,6 +701,13 @@ class TestAuditExtenderSealingContract(TestAuditExtenderContract):
         return extender, marker_path
 
 
+class TestAuditExtenderRaisePolicySealingContract(TestAuditExtenderSealingContract):
+    """The same contract suite with seal_failure_policy="raise" on a healthy sealing extender."""
+
+    def _sealing_kwargs(self, audit_path: Path) -> dict[str, Any]:
+        return {**super()._sealing_kwargs(audit_path), "seal_failure_policy": "raise"}
+
+
 class TestAuditExtenderSealingIndexedContract(TestAuditExtenderSealingContract):
     """The same contract suite with seal_index_path set."""
 
@@ -906,7 +913,10 @@ class TestAuditExtenderConstruction:
             seal_failure_policy=policy,
         )
         assert extender.seal_failures == 0
-        assert AuditExtender(sink=InMemoryAuditSink()).seal_failures == 0  # no sealing config
+        assert extender.raise_on_run_complete is (policy == "raise")
+        unsealed = AuditExtender(sink=InMemoryAuditSink())  # no sealing config
+        assert unsealed.seal_failures == 0
+        assert unsealed.raise_on_run_complete is False
 
     @pytest.mark.parametrize("log_id", ["", "   ", 5], ids=["empty", "blank", "int"])
     def test_blank_or_non_str_log_id_raises_value_error(self, tmp_path: Path, log_id: Any) -> None:
@@ -2485,7 +2495,7 @@ class TestAuditExtenderSealing:
         assert [type(exc) for _, exc in calls] == [ManifestVerificationError]
         assert not manifest_path.exists() or manifest_path.read_text(encoding="utf-8") == ""
 
-    @pytest.mark.parametrize("policy", ["callable", "raise"])
+    @pytest.mark.parametrize("policy", ["log", "callable", "raise"])
     @pytest.mark.parametrize("how", ["truncate", "delete_both"])
     def test_a_rolled_back_or_deleted_manifest_log_is_caught_via_the_anchor_through_run_all(
         self, tmp_path: Path, how: str, policy: str
@@ -2518,12 +2528,20 @@ class TestAuditExtenderSealing:
 
         failures: list[tuple[str, BaseException]] = []
         with verified_context(tenant_id="tenant-1"):
-            second = fresh(
-                seal_failure_policy="raise" if policy == "raise" else lambda run_id, exc: failures.append((run_id, exc))
-            )
-            values = run_value_int(second)
+            if policy == "callable":
+                second = fresh(seal_failure_policy=lambda run_id, exc: failures.append((run_id, exc)))
+            else:
+                second = fresh(seal_failure_policy=policy)
+            if policy == "raise":
+                # raise_on_run_complete makes core re-raise the failed auto-seal on an otherwise successful run
+                with pytest.raises(ManifestVerificationError):
+                    run_value_int(second)
+                values = None
+            else:
+                values = run_value_int(second)
 
-        assert values == expected_value_int()  # core contains on_run_complete exceptions, even under "raise"
+        if policy != "raise":
+            assert values == expected_value_int()  # "log" and "callable" keep the run result
         assert second.seal_failures == 1
         if policy == "callable":
             assert len(failures) == 1

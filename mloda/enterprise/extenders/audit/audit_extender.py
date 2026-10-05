@@ -179,8 +179,9 @@ class AuditExtender(Extender):
     verify_ndjson_log_coverage(...).unsealed_lines). Auto-sealing uses the optional log_id and head_anchor (each new
     head is emitted to it, and its latest head must still be in the log). A seal failure (any sealing or anchor error, or a
     mismatch with an existing seal) increments the public seal_failures counter and follows seal_failure_policy:
-    "log" (default), "raise", or a callable(run_id, exc). Core contains an exception raised from on_run_complete,
-    so "raise" does not fail the finished run. segment_max_bytes / segment_max_age (need log_id) rotate the segment
+    "log" (default), "raise", or a callable(run_id, exc). Under "raise" the instance sets core's
+    raise_on_run_complete, so an exception from on_run_complete (a seal failure or any other) fails a run that
+    otherwise succeeded; a failed run keeps its own error and core only logs this one. segment_max_bytes / segment_max_age (need log_id) rotate the segment
     after an auto-seal once the sealed bytes a rotation would archive reach that size (carried pending runs do not
     count) or the segment that age; a rotation failure counts in seal_failures and follows seal_failure_policy.
     seal_index_path opts into a rebuildable seal index cache; it needs the sealing config and must not alias
@@ -305,6 +306,7 @@ class AuditExtender(Extender):
         self._log_id = log_id
         self._head_anchor = head_anchor
         self._seal_failure_policy = seal_failure_policy
+        self.raise_on_run_complete = seal_failure_policy == "raise"
         self._seal_index_path = seal_index_path
         self._segment_max_bytes = segment_max_bytes
         self._segment_max_age = segment_max_age
@@ -376,9 +378,9 @@ class AuditExtender(Extender):
         RunNotPendingError is logged at WARNING (recoverable: the run just wrote nothing
         yet). Neither is raised. The run's cached answer is dropped, so a later call under it re-reads the
         manifest log. A mismatch with an existing seal and every other exception (including
-        anchor failures) is a seal failure: counted in seal_failures, then handled by seal_failure_policy. With
-        "raise" it propagates; core logs it at ERROR and never fails the run because of it, regardless of
-        raise_on_error/fail_closed. After a seal it made, it rotates the segment when segment_max_bytes /
+        anchor failures) is a seal failure: counted in seal_failures, then handled by seal_failure_policy. Under
+        "raise" the instance sets core's raise_on_run_complete, so an exception from here (a seal failure or any
+        other) fails a run that otherwise succeeded; a failed run keeps its own error and core only logs this one. After a seal it made, it rotates the segment when segment_max_bytes /
         segment_max_age is passed; a rotation failure is a seal failure too (counted and handled by
         seal_failure_policy; the run stays sealed). With auto-rotation it also finishes an interrupted rotation (logged
         at WARNING) and retries the seal once."""
