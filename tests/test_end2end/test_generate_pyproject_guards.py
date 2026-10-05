@@ -1,7 +1,7 @@
 """Robustness guards for scripts/generate_pyproject.py.
 
 The generator is the single source of truth for every package's
-``pyproject.toml`` and for the root mloda-core pin. Four silent-failure modes
+``pyproject.toml`` and for the root mloda-core pin. Five silent-failure modes
 must be turned into loud failures:
 
 Guard 1 -- a missing ``[defaults].core_dependency`` must raise, not silently
@@ -14,6 +14,9 @@ Guard 3 -- a meta-package (``workspace_deps``) flagged ``py_typed`` must raise,
 instead of emitting ``packages = []`` and a wheel without its PEP 561 marker.
 
 Guard 4 -- a configured package path with no Python package of its own must raise, not yield ``packages = []``.
+
+Guard 5 -- the root core-dependency marker comment must be enforced: a missing
+or stale marker fails --check, and write mode restores it.
 
 The generator lives at ``scripts/generate_pyproject.py`` (a script, not an
 installed package), so it is loaded here by file path.
@@ -161,6 +164,54 @@ def test_write_mode_exits_nonzero_when_root_entry_missing(tmp_path: Path, monkey
     assert _ROOT_PYPROJECT.read_text() == real_root_before, (
         "the sandboxed generator run modified the real repository root pyproject.toml"
     )
+
+
+_SYNTHETIC_SHARED = {"defaults": {"core_dependency": "mloda>=0.15.0,<0.16.0"}}
+_CORE_ENTRY_LINE = '    "mloda>=0.15.0,<0.16.0",\n'
+
+
+def _root_content(marker_line: str | None) -> str:
+    """Synthetic root pyproject text with an optional line above the core entry."""
+    above = "" if marker_line is None else marker_line + "\n"
+    return f'[project]\nname = "sandbox-root"\ndependencies = [\n    "requests>=2.0",\n{above}{_CORE_ENTRY_LINE}]\n'
+
+
+@pytest.mark.parametrize(
+    "marker_line",
+    [None, "    # Generated from config/shared.toml (old wording)"],
+    ids=["missing_marker", "stale_marker"],
+)
+def test_check_mode_fails_when_root_core_marker_missing_or_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, marker_line: str | None
+) -> None:
+    """Check mode must report out of date for a missing or stale marker and not write."""
+    root = tmp_path / "pyproject.toml"
+    content = _root_content(marker_line)
+    root.write_text(content)
+    monkeypatch.setattr(gen, "ROOT_PYPROJECT", root)
+
+    ok, msg = gen.update_root_core_dependency(_SYNTHETIC_SHARED, check=True)
+
+    assert ok is False
+    assert "out of date" in msg
+    assert root.read_text() == content
+
+
+def test_write_mode_inserts_root_core_marker_idempotently(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Write mode inserts the marker above the entry, then is a byte-identical no-op."""
+    root = tmp_path / "pyproject.toml"
+    root.write_text(_root_content(None))
+    monkeypatch.setattr(gen, "ROOT_PYPROJECT", root)
+
+    assert gen.update_root_core_dependency(_SYNTHETIC_SHARED, check=False) == (True, "updated")
+    lines = root.read_text().splitlines()
+    entry_index = lines.index(_CORE_ENTRY_LINE.rstrip("\n"))
+    assert lines[entry_index - 1] == "    " + gen.CORE_DEPENDENCY_MARKER
+
+    after_first = root.read_bytes()
+    assert gen.update_root_core_dependency(_SYNTHETIC_SHARED, check=False) == (True, "up-to-date")
+    assert root.read_bytes() == after_first
+    assert gen.update_root_core_dependency(_SYNTHETIC_SHARED, check=True) == (True, "up-to-date")
 
 
 def _meta_package_config(py_typed: bool | None = None) -> dict[str, Any]:

@@ -107,7 +107,7 @@ tox                                               # the gate: pytest, ruff, mypy
 
 Use `uv run tox` instead of `tox` after changing dependencies. Per-package envs (`tox -e registry`, `tox -e testing`, ...) and `tox -e lint-docs` are listed in `tox.ini`.
 
-Every `pyproject.toml` is generated: edit `config/shared.toml` or `config/packages.toml`, then run `python scripts/generate_pyproject.py`. Maintainer docs: [packaging](docs/packaging.md), [releasing](docs/releasing.md).
+Every package `pyproject.toml` is generated (the root one only partly, see packaging): edit `config/shared.toml` or `config/packages.toml`, then run `python scripts/generate_pyproject.py`. Maintainer docs: [packaging](docs/packaging.md), [releasing](docs/releasing.md).
 
 ## Contributing
 

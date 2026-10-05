@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.script_loader import load_script
 from tests.toml_loader import load_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -83,6 +84,12 @@ def test_root_pyproject_uses_core_dependency() -> None:
     core_entries = [d for d in deps if _dep_name(d) == "mloda"]
     assert core_entries == [core], (
         f"Root pyproject.toml must declare the mloda-core dependency exactly as {core!r}; got {core_entries!r}."
+    )
+    lines = _ROOT_PYPROJECT.read_text().splitlines()
+    entry_index = next(i for i, line in enumerate(lines) if f'"{core}"' in line)
+    marker = load_script("generate_pyproject", _REPO_ROOT / "scripts" / "generate_pyproject.py").CORE_DEPENDENCY_MARKER
+    assert lines[entry_index - 1].strip() == marker, (
+        "Root pyproject.toml must carry the generator marker comment directly above the core entry."
     )
 
 

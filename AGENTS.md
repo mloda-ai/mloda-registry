@@ -73,7 +73,7 @@ When a compute framework backend cannot natively support an input or operation, 
 - **Formatting**: ruff format with line length 120.
 - **Tests**: parallel-safe (pytest-xdist). Per-package envs are available for isolated runs: `tox -e testing`, `tox -e community-example`, `tox -e registry`, `tox -e enterprise-example`, `tox -e binary-model`.
 - **Supply chain**: `[tool.uv] exclude-newer = "7 days"` in `pyproject.toml` defers new dependency releases by 7 days. The `exclude-newer-package` exemptions for `mloda`, `uv`, `mloda-example-binary`, and `mloda-anonymizer-binary` permit releases within that window because `mloda`, `mloda-example-binary`, and `mloda-anonymizer-binary` (wheels from the sibling `mloda-binary-wrapper` repo, optional extras, see `docs/guides/feature-group-patterns/29-binary-backed-features.md`) are first-party and `uv` is the resolver itself. Those exempt packages rest on the hashes pinned in `uv.lock` and the gate's `--frozen` install. Do not edit this without a reason.
-- **Auto-generated `pyproject.toml`**: edit `config/shared.toml` (version, authors, urls) or `config/packages.toml` (per-package), then run `python scripts/generate_pyproject.py`. Never edit `pyproject.toml` files directly. See `docs/packaging.md`.
+- **Auto-generated `pyproject.toml`**: per-package `pyproject.toml` files are fully generated: edit `config/shared.toml` (version, authors, urls) or `config/packages.toml` (per-package), then run `python scripts/generate_pyproject.py`. Never edit them directly. The root `pyproject.toml` is hand-maintained except its `[tool.uv.workspace]` members and `mloda` core dependency, which carry a generated-comment marker. See `docs/packaging.md`.
 - **Commits**: use [Conventional Commits](https://www.conventionalcommits.org/) (`fix:`, `feat:`, `chore:`, `docs:`, `test:`, `refactor:`, `minor:`, `perf:`, `impr:`, `ci:`, `style:`, `build:`). semantic-release computes the next version. This project deviates from the standard: only `minor:` commits bump the minor version; `feat:` is treated as a patch bump along with everything else (see `.releaserc.yaml`).
 
 ## Issue Creation
@@ -121,7 +121,7 @@ These are the tox gate's flags minus `--frozen`; `--all-extras` also installs th
 
 ## Package Management
 
-All `pyproject.toml` files are **auto-generated** from config files.
+Per-package `pyproject.toml` files are **auto-generated** from config files. The root `pyproject.toml` is hand-maintained (tool config, dev extras, its unpublished `version`) except the generator-owned workspace members and `mloda` core dependency.
 
 **Documentation (read on-demand):**
 - `docs/packaging.md` - Read when modifying config files, adding a package, or troubleshooting generation
@@ -131,7 +131,7 @@ All `pyproject.toml` files are **auto-generated** from config files.
 - Edit `config/shared.toml` for version/authors/urls
 - Edit `config/packages.toml` for per-package config
 - Run `python scripts/generate_pyproject.py` to regenerate
-- **Never edit pyproject.toml files directly**
+- **Never edit per-package pyproject.toml files directly**
 
 ## Plugin Development Guides
 

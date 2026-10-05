@@ -1,6 +1,8 @@
 # Packaging
 
-All `pyproject.toml` files are auto-generated from `config/`. Never edit them directly.
+Per-package `pyproject.toml` files are auto-generated from `config/`. Never edit them directly.
+The root `pyproject.toml` is hand-maintained, except the workspace members and the `mloda`
+core dependency, which the generator owns and marks with a comment.
 For how those packages reach PyPI, see [Releasing](releasing.md).
 
 ```bash
