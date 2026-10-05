@@ -95,9 +95,10 @@ the spellings `"<sibling>[extras]>={version}"` and `"<sibling>[extras]~={version
 normalizes to a configured sibling package; any other use of `{version}` fails generation. `~=` is for a
 dependent built on a sibling's private seams (enterprise lineage on community OpenLineage); it accepts only
 patch releases of the minor it was built with. The `~=` pin binds only through the extra, so install
-enterprise lineage as `mloda-enterprise[openlineage]`. It only holds if a seam change ships as a `minor:`
-commit; any other type (`fix:`, `feat:`, `refactor:`, even with a `!` breaking marker) is a patch
-release, which `~=` admits.
+enterprise lineage as `mloda-enterprise[openlineage]`; installed any other way, a community OpenLineage of
+another major.minor leaves the lineage extender unregistered (WARNING) and makes importing it raise ImportError.
+It only holds if a seam change ships as a `minor:` commit; any other type (`fix:`, `feat:`, `refactor:`, even
+with a `!` breaking marker) is a patch release, which `~=` admits.
 
 Public names need no bound: `mloda-enterprise` keeps `"mloda-community-extenders-shared>={version}"`
 because its runtime code uses only public names from it and subclasses none of its classes

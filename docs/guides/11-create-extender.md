@@ -280,7 +280,7 @@ extender = AuditExtender(
 
 ## Lineage facets
 
-`LineageFacetsExtender` (`mloda-enterprise-lineage`) is used instead of `OpenLineageExtender`, not next to it. It needs the extra `mloda-enterprise[openlineage]`; without it the extender is not registered. Beyond the community events it adds:
+`LineageFacetsExtender` (`mloda-enterprise-lineage`) is used instead of `OpenLineageExtender`, not next to it. It needs the extra `mloda-enterprise[openlineage]`; without it, or with a community OpenLineage of another major.minor, the extender is not registered. Beyond the community events it adds:
 
 - `columnLineage` on each output dataset: DIRECT edges from the step's declared input features, or, for a root step that declares its source column, from the one dataset it loaded.
 - `masking` on those edges, only when declared (see below).

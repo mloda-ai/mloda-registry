@@ -6,6 +6,8 @@ import logging
 
 from mloda.steward import Extender
 
+from .community_version import mismatch_message
+
 logger = logging.getLogger(__name__)
 
 # attr is listed because lineage_extender.py imports it and only openlineage-python installs it.
@@ -13,16 +15,24 @@ _MISSING_ROOTS = ("openlineage", "attr", "mloda.community.extenders.openlineage"
 
 EXTENDERS: list[type[Extender]]
 
+_mismatch = mismatch_message()
+
 # Guarded here, not by a mloda.optional_dependencies marker: PluginLoader re-raises a missing module whose root
 # equals the entry point's own root (mloda), so an unguarded import would break every enterprise install
 # without the openlineage extra.
-try:
-    from .lineage_extender import LineageFacetsExtender
-except ModuleNotFoundError as exc:
-    missing = exc.name or ""
-    if not any(missing == root or missing.startswith(f"{root}.") for root in _MISSING_ROOTS):
-        raise
-    logger.debug("mloda-enterprise-lineage is inactive: %s is not installed (mloda-enterprise[openlineage])", missing)
+if _mismatch is not None:
+    logger.warning("%s", _mismatch)
     EXTENDERS = []
 else:
-    EXTENDERS = [LineageFacetsExtender]
+    try:
+        from .lineage_extender import LineageFacetsExtender
+    except ModuleNotFoundError as exc:
+        missing = exc.name or ""
+        if not any(missing == root or missing.startswith(f"{root}.") for root in _MISSING_ROOTS):
+            raise
+        logger.debug(
+            "mloda-enterprise-lineage is inactive: %s is not installed (mloda-enterprise[openlineage])", missing
+        )
+        EXTENDERS = []
+    else:
+        EXTENDERS = [LineageFacetsExtender]

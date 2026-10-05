@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
+import logging
 import sys
 
 import pytest
@@ -109,3 +110,108 @@ def test_plugin_loader_skips_the_entry_point_quietly_when_the_community_emitter_
     keys = PluginLoader().load_entry_points(group="mloda.extenders")
 
     assert keys == []
+
+
+_COMMUNITY_DIST = "mloda-community-openlineage"
+_ENTERPRISE_DIST = "mloda-enterprise"
+_ENTERPRISE_VERSION = "1.4.2"
+_EXTRA = "mloda-enterprise[openlineage]"
+
+
+def _fake_versions(monkeypatch: pytest.MonkeyPatch, versions: dict[str, str | None]) -> None:
+    """Patch ``importlib.metadata.version``: a ``None`` value raises PackageNotFoundError, unlisted names
+    delegate to the real function."""
+    real_version = importlib.metadata.version
+
+    def fake_version(distribution_name: str) -> str:
+        if distribution_name in versions:
+            version = versions[distribution_name]
+            if version is None:
+                raise importlib.metadata.PackageNotFoundError(distribution_name)
+            return version
+        return real_version(distribution_name)
+
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
+
+
+def _cold_import_with_versions(
+    monkeypatch: pytest.MonkeyPatch, community: str | None, enterprise: str | None = _ENTERPRISE_VERSION
+) -> None:
+    evict_package(monkeypatch, _PACKAGE)
+    evict_package(monkeypatch, _COMMUNITY)
+    _fake_versions(monkeypatch, {_COMMUNITY_DIST: community, _ENTERPRISE_DIST: enterprise})
+
+
+def _manifest_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.name == _MANIFEST and r.levelno == logging.WARNING]
+
+
+def test_manifest_lists_the_extender_when_the_community_patch_version_differs(monkeypatch: pytest.MonkeyPatch) -> None:
+    _cold_import_with_versions(monkeypatch, community="1.4.9")
+
+    manifest = importlib.import_module(_MANIFEST)
+    extender = getattr(importlib.import_module(_EXTENDER_MODULE), _EXTENDER_NAME)
+
+    assert manifest.EXTENDERS == [extender]
+
+
+@pytest.mark.parametrize("community", ["1.5.0", "1.3.7"])
+def test_manifest_is_empty_and_warns_once_when_the_community_minor_differs(
+    community: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _cold_import_with_versions(monkeypatch, community=community)
+
+    with caplog.at_level(logging.WARNING, logger=_MANIFEST):
+        manifest = importlib.import_module(_MANIFEST)
+
+    assert manifest.EXTENDERS == []
+    warnings = _manifest_warnings(caplog)
+    assert len(warnings) == 1
+    assert community in warnings[0]
+    assert _ENTERPRISE_VERSION in warnings[0]
+    assert _EXTRA in warnings[0]
+    assert _EXTENDER_MODULE not in sys.modules
+
+
+@pytest.mark.parametrize("missing_dist", [_COMMUNITY_DIST, _ENTERPRISE_DIST])
+def test_manifest_lists_the_extender_when_a_distribution_has_no_metadata(
+    missing_dist: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Editable or source checkouts without installed metadata skip the check."""
+    _cold_import_with_versions(monkeypatch, community="1.5.0")
+    _fake_versions(
+        monkeypatch,
+        {_COMMUNITY_DIST: "1.5.0", _ENTERPRISE_DIST: _ENTERPRISE_VERSION, missing_dist: None},
+    )
+
+    manifest = importlib.import_module(_MANIFEST)
+    extender = getattr(importlib.import_module(_EXTENDER_MODULE), _EXTENDER_NAME)
+
+    assert manifest.EXTENDERS == [extender]
+
+
+def test_plugin_loader_registers_nothing_when_the_community_minor_differs(monkeypatch: pytest.MonkeyPatch) -> None:
+    _cold_import_with_versions(monkeypatch, community="1.5.0")
+
+    def only_the_lineage_entry_point(*, group: str) -> list[importlib.metadata.EntryPoint]:
+        return [_ENTRY_POINT] if group == "mloda.extenders" else []
+
+    monkeypatch.setattr(importlib.metadata, "entry_points", only_the_lineage_entry_point)
+
+    keys = PluginLoader().load_entry_points(group="mloda.extenders")
+
+    assert keys == []
+
+
+def test_importing_the_extender_directly_raises_when_the_community_minor_differs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _cold_import_with_versions(monkeypatch, community="1.5.0")
+
+    with pytest.raises(ImportError) as excinfo:
+        importlib.import_module(_EXTENDER_MODULE)
+
+    message = str(excinfo.value)
+    assert "1.5.0" in message
+    assert _ENTERPRISE_VERSION in message
+    assert _EXTRA in message

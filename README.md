@@ -89,7 +89,7 @@ Options such as `partition_by` and `order_by`, plus the shared contracts, are in
 
 `cryptography`, behind `[ed25519]`, behaves differently: the audit extender still loads without it, and only constructing `Ed25519Signer` raises `ImportError`. `opentelemetry-api`, behind `mloda-enterprise[otel]`, behaves the same way: only constructing `OtelLogAuditSink` raises `ImportError`.
 
-`mloda-community-openlineage`, behind `mloda-enterprise[openlineage]`, is what the lineage facets extender (`mloda-enterprise-lineage`) builds on; without the extra its entry point registers nothing.
+`mloda-community-openlineage`, behind `mloda-enterprise[openlineage]`, is what the lineage facets extender (`mloda-enterprise-lineage`) builds on; without the extra, or with a community OpenLineage of another major.minor, its entry point registers nothing.
 
 ## Guides
 
