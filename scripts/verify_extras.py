@@ -144,7 +144,7 @@ def verification_jobs(
 
 
 def _venv_python(venv: Path) -> Path:
-    """The venv's interpreter path, from the shared build-floor helper."""
+    """The venv's interpreter path."""
     path: Path = _load_sibling("verify_build_floor").venv_python(venv)
     return path
 
@@ -219,8 +219,7 @@ def _install_and_probe_external(
     binary_distributions: list[str],
     tmpdir: str,
 ) -> tuple[list[str], list[str]]:
-    """Install one third-party extra into a fresh venv, import the owner surface, then run the probe.
-    Returns (messages, errors)."""
+    """Install one third-party extra into a fresh venv, import the owner surface, then run the probe."""
     venv = Path(tmpdir) / "venv"
     failure = _create_venv_and_install(specifier, venv, tmpdir)
     if failure is not None:

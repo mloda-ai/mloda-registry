@@ -247,37 +247,31 @@ def _leaf_config(path: str) -> dict[str, Any]:
     return {"description": "Leaf", "path": path, "dependencies": []}
 
 
-def test_validate_package_paths_raises_when_path_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A configured non-bundle package whose path does not exist must raise, naming package and path."""
+@pytest.mark.parametrize(
+    ("create", "init", "expect_raise"),
+    [
+        pytest.param(False, False, True, id="path-missing"),
+        pytest.param(True, False, True, id="init-missing"),
+        pytest.param(True, True, False, id="package-with-code"),
+    ],
+)
+def test_validate_package_paths_requires_code_at_the_configured_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, create: bool, init: bool, expect_raise: bool
+) -> None:
+    """A missing path or a directory without ``__init__.py`` raises naming package and path; real code passes."""
     monkeypatch.chdir(tmp_path)
-    packages = {"mloda-ghost": _leaf_config("mloda/ghost")}
+    if create:
+        (tmp_path / "mloda" / "pkg").mkdir(parents=True)
+    if init:
+        (tmp_path / "mloda" / "pkg" / "__init__.py").write_text("")
+    packages = {"mloda-pkg": _leaf_config("mloda/pkg")}
 
-    with pytest.raises(ValueError, match="mloda-ghost") as excinfo:
+    if not expect_raise:
         gen.validate_package_paths(packages)
-
-    assert "mloda/ghost" in str(excinfo.value)
-
-
-def test_validate_package_paths_raises_when_init_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """An existing directory without ``__init__.py`` has no Python package and must raise."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "mloda" / "empty").mkdir(parents=True)
-    packages = {"mloda-empty": _leaf_config("mloda/empty")}
-
-    with pytest.raises(ValueError, match="mloda-empty") as excinfo:
+        return
+    with pytest.raises(ValueError, match="mloda-pkg") as excinfo:
         gen.validate_package_paths(packages)
-
-    assert "mloda/empty" in str(excinfo.value)
-
-
-def test_validate_package_paths_passes_for_package_with_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The guard fires on code-less paths only, not on every package."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "mloda" / "real").mkdir(parents=True)
-    (tmp_path / "mloda" / "real" / "__init__.py").write_text("")
-    packages = {"mloda-real": _leaf_config("mloda/real")}
-
-    gen.validate_package_paths(packages)
+    assert "mloda/pkg" in str(excinfo.value)
 
 
 def test_validate_package_paths_skips_bundle_and_meta_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

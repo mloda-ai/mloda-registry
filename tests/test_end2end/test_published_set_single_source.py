@@ -14,7 +14,7 @@ a nested package stays out of its parent's wheel, published or not, with the
 from __future__ import annotations
 
 import re
-import subprocess
+import subprocess  # nosec
 import sys
 from collections.abc import Callable
 from copy import deepcopy
@@ -25,6 +25,7 @@ from typing import Any
 import pytest
 
 from tests.script_loader import load_script, version_tuple
+from tests.test_end2end.test_verify_independent_installs import _FakeCompletedProcess
 from tests.toml_loader import load_toml, loads_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -1074,27 +1075,20 @@ def _run_probe(distributions: list[str], binary_distributions: list[str]) -> sub
     return subprocess.run([sys.executable, "-c", source], capture_output=True, text=True)  # nosec
 
 
-class _FakeProcess:
-    """Stand-in for subprocess.CompletedProcess; the script reads returncode and stderr."""
-
-    def __init__(self, returncode: int = 0, stderr: str = "") -> None:
-        self.returncode = returncode
-        self.stderr = stderr
-
-
 def _fake_external_run(
-    monkeypatch: pytest.MonkeyPatch, failing: Callable[[list[str]], bool] | None = None, stderr: str = ""
+    monkeypatch: pytest.MonkeyPatch, failing: Callable[[list[list[str]]], bool] | None = None, stderr: str = ""
 ) -> list[list[str]]:
-    """Replace subprocess.run with a recorder; a command matching ``failing`` exits 1 with ``stderr``."""
+    """Replace the script's subprocess.run with a recorder; ``failing(calls)`` is checked after each call is recorded."""
     calls: list[list[str]] = []
+    module = load_script(_EXTRAS_SCRIPT.stem, _EXTRAS_SCRIPT)
 
-    def _fake_run(command: list[str], *args: Any, **kwargs: Any) -> _FakeProcess:
+    def _fake_run(command: list[str], *args: Any, **kwargs: Any) -> _FakeCompletedProcess:
         calls.append(command)
-        if failing is not None and failing(command):
-            return _FakeProcess(1, stderr)
-        return _FakeProcess(0)
+        if failing is not None and failing(calls):
+            return _FakeCompletedProcess(1, stderr=stderr)
+        return _FakeCompletedProcess(0)
 
-    monkeypatch.setattr(subprocess, "run", _fake_run)
+    monkeypatch.setattr(module.subprocess, "run", _fake_run)
     return calls
 
 
@@ -1196,7 +1190,9 @@ def test_external_job_runs_venv_install_owner_import_then_probe(
 
 def test_external_job_stops_when_the_install_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A failed install is reported against the specifier and nothing runs after it."""
-    calls = _fake_external_run(monkeypatch, failing=lambda c: c[:3] == ["uv", "pip", "install"], stderr="boom")
+    calls = _fake_external_run(
+        monkeypatch, failing=lambda calls: calls[-1][:3] == ["uv", "pip", "install"], stderr="boom"
+    )
 
     messages, errors = _run_external_job(tmp_path, [])
 
@@ -1206,7 +1202,7 @@ def test_external_job_stops_when_the_install_fails(monkeypatch: pytest.MonkeyPat
 
 def test_external_job_reports_a_failing_probe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A probe that exits non-zero becomes an error carrying the specifier and the probe's message."""
-    _fake_external_run(monkeypatch, failing=lambda c: c[1:2] == ["-c"] and "metadata" in c[2], stderr="missing-dist")
+    _fake_external_run(monkeypatch, failing=lambda calls: len(calls) == 4, stderr="missing-dist")
 
     messages, errors = _run_external_job(tmp_path, ["mloda-anonymizer-binary"])
 
@@ -1216,11 +1212,12 @@ def test_external_job_reports_a_failing_probe(monkeypatch: pytest.MonkeyPatch, t
 
 
 def test_external_probe_fails_naming_a_missing_binary_wheel() -> None:
-    """The dev env has no anonymizer wheel, so the probe must exit non-zero and name it."""
-    result = _run_probe(["mloda-anonymizer-binary", "pyarrow"], ["mloda-anonymizer-binary"])
+    """A binary wheel that is not installed makes the probe exit non-zero and name it."""
+    missing = "nonexistent-dist-binary"
+    result = _run_probe(["pyarrow"], [missing])
 
-    assert result.returncode != 0, "probe exited 0 although mloda-anonymizer-binary is not installed"
-    assert "mloda-anonymizer-binary" in result.stderr, f"probe stderr must name the distribution: {result.stderr!r}"
+    assert result.returncode != 0, f"probe exited 0 although {missing} is not installed"
+    assert missing in result.stderr, f"probe stderr must name the distribution: {result.stderr!r}"
 
 
 def test_external_probe_passes_for_installed_distributions_without_a_binary() -> None:
