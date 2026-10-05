@@ -1442,8 +1442,8 @@ def _bundle_dependency_names(bundle: str, packages: dict[str, dict[str, Any]]) -
     return named
 
 
-@pytest.mark.parametrize("bundle", _ENTRY_POINT_BUNDLES)
-def test_bundle_wheel_still_ships_every_nested_package(bundle: str) -> None:
+@pytest.mark.parametrize(("bundle", "has_unowned_nested"), [("mloda-community", False), ("mloda-enterprise", True)])
+def test_bundle_wheel_still_ships_every_nested_package(bundle: str, has_unowned_nested: bool) -> None:
     """Bundles ship all nested code, published or not, except a nested package the bundle owns through its
     own dependencies or a non-dev extra."""
     packages = _packages()
@@ -1454,8 +1454,13 @@ def test_bundle_wheel_still_ships_every_nested_package(bundle: str) -> None:
         for name, cfg in packages.items()
         if cfg["path"].startswith(prefix) and name not in owned
     }
+    assert bool(nested) == has_unowned_nested, (
+        f"fixture assumption: {bundle} should {'' if has_unowned_nested else 'not '}have configured packages "
+        f"nested under {prefix} that it does not own, got {sorted(nested)}"
+    )
+
     listed = _wheel_packages(bundle, packages)
-    if not nested:
+    if not has_unowned_nested:
         # The bundle owns every nested package: its wheel ships only its own root, typed.
         root = packages[bundle]["path"].replace("/", ".")
         data = _generated(bundle, packages)["tool"]["setuptools"]["package-data"]
