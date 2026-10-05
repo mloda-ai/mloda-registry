@@ -779,7 +779,7 @@ def update_root_core_dependency(shared: dict[str, Any], check: bool = False) -> 
 
     Rewrites the single ``[project].dependencies`` entry whose package name is
     exactly ``mloda`` (never ``mloda-...``) to the shared ``core_dependency``
-    value, so the pin lives in one place, with a generated-marker comment above it. Idempotent and byte-stable.
+    value, so the pin lives in one place. Idempotent and byte-stable.
     Returns (success, message) tuple.
     """
     if not ROOT_PYPROJECT.exists():
@@ -795,7 +795,7 @@ def update_root_core_dependency(shared: dict[str, Any], check: bool = False) -> 
     # followed by a version specifier (``>=``, ``==`` ...). Requiring a version
     # operator excludes ``mloda-...`` names and workspace paths like
     # ``"mloda/community"``. Preserve indentation/quoting so the file is byte-stable.
-    # An existing marker line directly above the entry is consumed and re-emitted.
+    # An existing marker above the entry is replaced.
     pattern = re.compile(
         r'(?P<marker>[ \t]*# Generated from config/shared\.toml[^\n]*\n)?(?P<indent>[ \t]*)"mloda(?=[<>=!~])[^"]*"'
     )

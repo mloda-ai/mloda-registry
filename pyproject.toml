@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mloda-registry-workspace"
-# Stale on purpose: dev-only workspace, never published or bumped; the registry version is in config/shared.toml.
+# Stale on purpose: dev-only workspace, never published; the registry version is in config/shared.toml.
 version = "0.2.0"
 description = "Development workspace for mloda registry packages"
 readme = { file = "README.md", content-type = "text/markdown" }
