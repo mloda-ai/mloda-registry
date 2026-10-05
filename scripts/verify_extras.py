@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Install each internal extra and prove it gates exactly its members' imports, and each third-party extra.
+"""Install each internal extra and prove it gates exactly its members' imports, and each third-party extra
+imports and registers its plugins.
 
 Internal extras are the non-dev extras of published packages whose members are configured package
 keys. ``{published_children}`` expands as the generator does; the shared default extras from
@@ -82,8 +83,7 @@ def external_bundle_extras(packages: dict[str, dict[str, Any]]) -> list[tuple[st
     for pkg_name, pkg_config in packages.items():
         if pkg_config.get("published") is not True or not pkg_config.get("entry_point_bundle"):
             continue
-        owned = set(gen.bundle_owned_names(pkg_config, packages))
-        shipped = [n for n in gen.nested_package_names(pkg_config["path"], packages) if n not in owned]
+        shipped = gen.bundle_shipped_names(pkg_config, packages)
         wheel_names = {
             dep_name(dep.split(";", 1)[0])
             for leaf in shipped
@@ -93,10 +93,10 @@ def external_bundle_extras(packages: dict[str, dict[str, Any]]) -> list[tuple[st
             if extra == DEV_EXTRA:
                 continue
             external = [
-                match.group(0)
+                match.group(1)
                 for dep in deps
                 if (match := gen.DEP_NAME_RE.match(dep.split(";", 1)[0]))
-                and normalize(match.group(0)) not in configured
+                and normalize(match.group(1)) not in configured
             ]
             if external:
                 binaries = [n for n in external if normalize(n) in wheel_names]
@@ -105,18 +105,53 @@ def external_bundle_extras(packages: dict[str, dict[str, Any]]) -> list[tuple[st
 
 
 def external_extra_probe(distributions: list[str], binary_distributions: list[str]) -> str:
-    """Python program run in the install's venv: every distribution is installed, every binary wheel's
-    feature group points at an existing binary. Failures exit non-zero naming the distribution on stderr."""
-    return (
-        "import importlib, importlib.metadata as m, re, sys\n"
-        f"for d in {distributions!r}: m.version(d)\n"
-        "n = lambda s: re.sub(r'[-_.]+', '-', s).lower()\n"
-        "cs = [c for e in m.entry_points(group='mloda.feature_groups') for c in e.load()]\n"
-        f"for d in {binary_distributions!r}:\n"
-        "    c = next((c for c in cs if n(getattr(c, 'BINARY_WHEEL_DISTRIBUTION', '')) == n(d)), None)\n"
-        "    c or sys.exit(f'no feature group for binary wheel {d}')\n"
-        "    importlib.import_module(c.BINARY_PLUGIN_ID).binary_path().exists() or sys.exit(f'binary missing for {d}')\n"
-    )
+    """Python program run in the install's venv: every distribution is installed and its modules import, every
+    plugin entry point loads, every binary wheel's feature group points at an existing binary. Failures exit
+    non-zero with one message naming the distribution or entry point."""
+    return f"""\
+import importlib
+import importlib.metadata as md
+import re
+import sys
+
+
+def norm(name):
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+modules_by_dist = {{}}
+for module, dists in md.packages_distributions().items():
+    for dist in dists:
+        modules_by_dist.setdefault(norm(dist), []).append(module)
+
+for d in {distributions!r}:
+    md.version(d)
+    if norm(d) not in modules_by_dist:
+        sys.exit(f"distribution {{d}} provides no top-level module")
+    for module in modules_by_dist[norm(d)]:
+        try:
+            importlib.import_module(module)
+        except Exception as exc:
+            sys.exit(f"distribution {{d}}: import {{module}} failed: {{exc!r}}")
+
+classes = []
+for group in ("mloda.feature_groups", "mloda.extenders", "mloda.compute_frameworks"):
+    for entry_point in md.entry_points(group=group):
+        try:
+            loaded = entry_point.load()
+        except Exception as exc:
+            sys.exit(f"entry point {{group}}:{{entry_point.name}} failed to load: {{exc!r}}")
+        if group == "mloda.feature_groups":
+            classes.extend(loaded)
+
+for d in {binary_distributions!r}:
+    matches = [c for c in classes if norm(getattr(c, "BINARY_WHEEL_DISTRIBUTION", "")) == norm(d)]
+    if not matches:
+        sys.exit(f"no feature group for binary wheel {{d}}")
+    plugin = importlib.import_module(matches[0].BINARY_PLUGIN_ID)
+    if not plugin.binary_path().exists():
+        sys.exit(f"binary missing for {{d}}")
+"""
 
 
 def verification_jobs(
@@ -143,10 +178,7 @@ def verification_jobs(
     return jobs
 
 
-def _venv_python(venv: Path) -> Path:
-    """The venv's interpreter path."""
-    path: Path = _load_sibling("verify_build_floor").venv_python(venv)
-    return path
+_venv_python: Callable[[Path], Path] = _load_sibling("verify_build_floor").venv_python
 
 
 def _create_venv_and_install(specifier: str, venv: Path, tmpdir: str) -> str | None:
@@ -244,7 +276,9 @@ def _install_and_probe_external(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify each internal extra gates exactly its members' imports")
+    parser = argparse.ArgumentParser(
+        description="Verify internal extras gate their members' imports and third-party extras install and load"
+    )
     parser.add_argument("version", nargs="?", default="", help="Released version to install every package at")
     args = parser.parse_args()
 
@@ -263,6 +297,9 @@ def main() -> int:
     # An empty set would silently verify nothing.
     if not entries:
         print("❌ config/packages.toml declares no internal extras")
+        return 1
+    if not external_entries:
+        print("❌ config/packages.toml declares no third-party bundle extras")
         return 1
 
     # The single derivation point for import surfaces lives in verify_published_imports.

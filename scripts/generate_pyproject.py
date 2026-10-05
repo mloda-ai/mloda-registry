@@ -264,6 +264,14 @@ def bundle_owned_names(pkg_config: dict[str, Any], all_packages: dict[str, dict[
     return [name for name in nested_package_names(pkg_config["path"], all_packages) if name in owned]
 
 
+def bundle_shipped_names(pkg_config: dict[str, Any], all_packages: dict[str, dict[str, Any]]) -> list[str]:
+    """Nested configured packages an entry_point_bundle ships but does not own, in config order."""
+    owned = set(bundle_owned_names(pkg_config, all_packages))
+    if not pkg_config.get("entry_point_bundle"):
+        return []
+    return [name for name in nested_package_names(pkg_config["path"], all_packages) if name not in owned]
+
+
 def skips_default_optional_dependencies(pkg_name: str) -> bool:
     """Whether pkg_name assembles its own optional-dependencies table and skips the shared
     [defaults].optional_dependencies merge."""

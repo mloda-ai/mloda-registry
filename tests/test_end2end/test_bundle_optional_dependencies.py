@@ -117,17 +117,14 @@ def _bundle_extra_leaf_dev_pairs(
     for bundle_name, bundle_cfg in packages.items():
         if bundle_cfg.get("entry_point_bundle") is not True:
             continue
-        prefix = bundle_cfg["path"] + "/"
-        owned = set(gen.bundle_owned_names(bundle_cfg, packages))
+        shipped = gen.bundle_shipped_names(bundle_cfg, packages)
 
         for extra_name, extra_deps in bundle_cfg.get("optional_dependencies", {}).items():
             if extra_name in ("all", "dev"):
                 continue
             for extra_spec in extra_deps:
-                for leaf_name, leaf_cfg in packages.items():
-                    if not leaf_cfg["path"].startswith(prefix) or leaf_name in owned:
-                        continue
-                    for dev_spec in leaf_cfg.get("optional_dependencies", {}).get(leaf_extra, []):
+                for leaf_name in shipped:
+                    for dev_spec in packages[leaf_name].get("optional_dependencies", {}).get(leaf_extra, []):
                         if _dep_name(dev_spec) == _dep_name(extra_spec):
                             pairs.append((bundle_name, extra_name, extra_spec, leaf_name, dev_spec))
     return pairs

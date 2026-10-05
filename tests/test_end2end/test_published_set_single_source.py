@@ -13,6 +13,7 @@ a nested package stays out of its parent's wheel, published or not, with the
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess  # nosec
 import sys
@@ -602,6 +603,24 @@ def test_bundle_owned_names_matches_the_published_nested_packages_exactly() -> N
     )
 
 
+def test_bundle_shipped_names_are_the_nested_packages_the_bundle_does_not_own() -> None:
+    """Nested packages minus owned ones, in config order; a non-bundle yields []."""
+    packages: dict[str, dict[str, Any]] = {
+        "sb": {
+            **_synthetic_pkg("sb", dependencies=["sb-owned=={version}"]),
+            "entry_point_bundle": True,
+        },
+        "sb-shipped-a": _synthetic_pkg("sb/a", published=None),
+        "sb-owned": _synthetic_pkg("sb/owned"),
+        "sb-shipped-b": _synthetic_pkg("sb/b", published=None),
+        "other": _synthetic_pkg("other"),
+    }
+    shipped = gen.bundle_shipped_names(packages["sb"], packages)
+
+    assert shipped == ["sb-shipped-a", "sb-shipped-b"], f"bundle_shipped_names() returned {shipped!r}"
+    assert gen.bundle_shipped_names(packages["other"], packages) == []
+
+
 def test_published_packages_rejects_a_non_boolean_flag() -> None:
     """A truthiness test publishes on 'published = "false"', so a non-boolean flag must be rejected."""
     packages: dict[str, dict[str, Any]] = {
@@ -1069,10 +1088,48 @@ def _external_extra_probe(distributions: list[str], binary_distributions: list[s
     return source
 
 
-def _run_probe(distributions: list[str], binary_distributions: list[str]) -> subprocess.CompletedProcess[str]:
-    """Run the probe program with the dev interpreter."""
+def _run_probe(
+    distributions: list[str], binary_distributions: list[str], env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Run the probe program with the dev interpreter (optionally with an explicit environment)."""
     source = _external_extra_probe(distributions, binary_distributions)
-    return subprocess.run([sys.executable, "-c", source], capture_output=True, text=True)  # nosec
+    return subprocess.run([sys.executable, "-c", source], capture_output=True, text=True, env=env)  # nosec
+
+
+def _fake_dist(
+    root: Path,
+    *,
+    binary_exists: bool = True,
+    broken_module: bool = False,
+    broken_entry_point: bool = False,
+) -> dict[str, str]:
+    """Install a fake ``fakebin`` distribution under ``root``; returns an env putting it on PYTHONPATH.
+
+    It registers a ``mloda.feature_groups`` entry point to ``fake_fg`` (one class naming the ``fake_plugin``
+    binary module). ``broken_module`` makes its top-level module ``fakebin_mod`` raise on import;
+    ``broken_entry_point`` makes the entry point target a missing attribute."""
+    info = root / "fakebin-0.1.dist-info"
+    info.mkdir()
+    (info / "METADATA").write_text("Metadata-Version: 2.1\nName: fakebin\nVersion: 0.1\n")
+    top_level = ["fake_fg", "fake_plugin", "fakebin_mod"]
+    (info / "top_level.txt").write_text("\n".join(top_level) + "\n")
+    target = "FEATURE_GROUPS_MISSING" if broken_entry_point else "FEATURE_GROUPS"
+    (info / "entry_points.txt").write_text(f"[mloda.feature_groups]\nfakebin = fake_fg:{target}\n")
+    (root / "fake_fg.py").write_text(
+        "class FakeFG:\n"
+        '    BINARY_WHEEL_DISTRIBUTION = "fakebin"\n'
+        '    BINARY_PLUGIN_ID = "fake_plugin"\n\n\n'
+        "FEATURE_GROUPS = [FakeFG]\n"
+    )
+    (root / "fakebin_mod.py").write_text("raise ImportError('fakebin_mod is broken')\n" if broken_module else "")
+    binary_name = "__init__.py" if binary_exists else "absent.bin"
+    plugin = root / "fake_plugin"
+    plugin.mkdir()
+    (plugin / "__init__.py").write_text(
+        "from pathlib import Path\n\n\n"
+        f"def binary_path() -> Path:\n    return Path(__file__).parent / {binary_name!r}\n"
+    )
+    return {**os.environ, "PYTHONPATH": str(root)}
 
 
 def _fake_external_run(
@@ -1130,7 +1187,7 @@ def test_external_bundle_extras_synthetic_config_applies_every_rule() -> None:
             "optional_dependencies": {
                 "dev": ["pytest>=9"],
                 "internal": ["sb-owned=={version}"],
-                "mixed": ["Foo_Bar>=1", "sb-owned=={version}", "bar-binary>=0.1", "ownedbin>=1"],
+                "mixed": ["  Foo_Bar>=1", "sb-owned=={version}", "bar-binary>=0.1", "ownedbin>=1"],
                 "plain": ["baz>=2"],
             },
         },
@@ -1225,6 +1282,47 @@ def test_external_probe_passes_for_installed_distributions_without_a_binary() ->
     result = _run_probe(["pyarrow"], [])
 
     assert result.returncode == 0, f"probe exited {result.returncode} for installed pyarrow: {result.stderr!r}"
+
+
+def test_external_probe_passes_for_a_fake_distribution_whose_binary_exists(tmp_path: Path) -> None:
+    """Already passes today: the binary check is unchanged in meaning."""
+    result = _run_probe(["fakebin"], ["fakebin"], _fake_dist(tmp_path))
+
+    assert result.returncode == 0, f"probe exited {result.returncode}: {result.stderr!r}"
+
+
+def test_external_probe_fails_naming_a_fake_distribution_with_a_missing_binary(tmp_path: Path) -> None:
+    """Already passes today (binary_path().exists() is False -> exit naming the distribution)."""
+    result = _run_probe(["fakebin"], ["fakebin"], _fake_dist(tmp_path, binary_exists=False))
+
+    assert result.returncode != 0 and "fakebin" in result.stderr, result.stderr
+
+
+def test_external_probe_fails_naming_a_distribution_whose_module_does_not_import(tmp_path: Path) -> None:
+    """The probe imports every top-level module of each distribution, not just its metadata."""
+    result = _run_probe(["fakebin"], [], _fake_dist(tmp_path, broken_module=True))
+
+    assert result.returncode != 0, "probe exited 0 although a top-level module of fakebin fails to import"
+    assert "fakebin" in result.stderr, f"probe stderr must name the distribution: {result.stderr!r}"
+    assert "Traceback" not in result.stderr, f"failure must be a clean message, not a traceback: {result.stderr!r}"
+
+
+def test_external_probe_fails_naming_an_entry_point_that_does_not_load(tmp_path: Path) -> None:
+    """Every entry point of the mloda groups is loaded; a failing load names the entry point."""
+    result = _run_probe(["fakebin"], [], _fake_dist(tmp_path, broken_entry_point=True))
+
+    assert result.returncode != 0, "probe exited 0 although the fakebin entry point fails to load"
+    assert "fakebin" in result.stderr, f"probe stderr must name the entry point: {result.stderr!r}"
+    assert "Traceback" not in result.stderr, f"failure must be a clean message, not a traceback: {result.stderr!r}"
+
+
+def test_external_probe_fails_for_a_distribution_mapping_to_no_module(tmp_path: Path) -> None:
+    """A distribution that is installed but owns no top-level module is reported by name."""
+    env = _fake_dist(tmp_path)
+    (tmp_path / "fakebin-0.1.dist-info" / "top_level.txt").write_text("")
+    result = _run_probe(["fakebin"], [], env)
+
+    assert result.returncode != 0 and "fakebin" in result.stderr, result.stderr
 
 
 @pytest.mark.parametrize("env_name", _TOX_PUBLISHED_ENVS)
