@@ -25,6 +25,14 @@ Feature("pm10_value", options={UbaAirReader: "https://api.example.org/airdata/v4
 
 As long as sibling readers have distinct class names, they cannot collide: each feature's option key routes to exactly one reader. Two readers sharing a `__name__` across modules are unsupported. A key that names no known reader simply matches nothing.
 
+### Several Accepting Readers
+
+Distinct names only protect pinned features. Without a pin, every reader in the family probes the `DataAccessCollection`, and when more than one accepts, the feature fails to resolve (`No feature groups found`) with the root group's match-hook reason `ValueError: Several readers accept the data access for feature(s) ...`; no reader wins by order. A feature pinning several readers that all accept fails the same way (`pins several readers that accept it`). Resolve an overlap, with your own readers or with a stock one owning the same suffix, by one of:
+
+- **Subclass the reader you extend.** A subclass that accepts an equal data access replaces its parent instead of conflicting (a custom `.csv` reader subclasses `CsvReader`).
+- **Narrow `match_subclass_data_access`** (suffix, scheme, host) so the accepts are disjoint.
+- **Pin per feature** by the reader's option key, as above.
+
 ### The reserved "BaseInputData" key
 
 While matching, the `(ReaderClass, data_access)` pair is written under the reserved `"BaseInputData"` options key, then moved onto `Feature.input_data_match` and removed from options (it may carry credentials). `BaseInputData.init_reader` takes that pair at load time. The class-name option key is the normal way to select a reader; tests may call `feature_scope_data_access` directly, which writes the key into the given `Options`. Setting it twice with different values raises `ValueError`. Two candidates that both match raise `Multiple feature groups found`, naming each candidate and its source.

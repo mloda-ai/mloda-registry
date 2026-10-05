@@ -188,7 +188,7 @@ mloda.run_all(
 
 Rules:
 
-- **A FeatureGroup only probes its own reader subtree.** `input_data()` returning `RdfLibSparqlReader()` limits the probe to that class and its final subclasses, so a leaf never competes with its siblings. Keep the family base's `READER_CLASS` at `None`: a base returning the family reader probes every leaf and takes whichever accepts first.
+- **A FeatureGroup only probes its own reader subtree.** `input_data()` returning `RdfLibSparqlReader()` limits the probe to that class and its final subclasses, so a leaf never competes with its siblings. Keep the family base's `READER_CLASS` at `None`: a base returning the family reader probes every leaf, and two accepting leaves fail resolution ([Several Accepting Readers](27-input-data-readers.md#several-accepting-readers)).
 - **Derive the reader family from `BaseInputData`, not `ReadDB` or `ReadFile`.** The stock `ReadDBFeature` probes every `ReadDB` subclass, so a `ReadDB`-based family also matches it and fails with `Multiple feature groups found` unless the user disables `ReadDBFeature` or scopes with `feature_group=`. Same rule as [Your Own Root FeatureGroup](27-input-data-readers.md#your-own-root-featuregroup).
 - **The feature name is free.** Nothing parses it, so decline names the reader cannot serve ([Decline Names You Cannot Confirm](27-input-data-readers.md#decline-names-you-cannot-confirm)).
 - **Pick one route per family.** The reader above serves the credential route only. The class-name option key of [Input-data readers](27-input-data-readers.md) hands the reader the option value instead of the collection; this reader declines it, and resolution falls through to whichever sibling owns a slot in the credentials.
