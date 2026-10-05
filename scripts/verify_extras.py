@@ -119,16 +119,16 @@ def norm(name):
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-modules_by_dist = {{}}
-for module, dists in md.packages_distributions().items():
-    for dist in dists:
-        modules_by_dist.setdefault(norm(dist), []).append(module)
-
 for d in {distributions!r}:
-    md.version(d)
-    if norm(d) not in modules_by_dist:
+    dist = md.distribution(d)
+    top_level = dist.read_text("top_level.txt")
+    if top_level:
+        modules = set(top_level.split())
+    else:
+        modules = {{f.parts[0] if len(f.parts) > 1 else f.stem for f in dist.files or [] if f.suffix == ".py"}}
+    if not modules:
         sys.exit(f"distribution {{d}} provides no top-level module")
-    for module in modules_by_dist[norm(d)]:
+    for module in sorted(modules):
         try:
             importlib.import_module(module)
         except Exception as exc:
