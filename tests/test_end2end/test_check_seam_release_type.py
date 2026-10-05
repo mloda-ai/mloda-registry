@@ -21,6 +21,13 @@ _CHANGED = (
 )
 _NO_TABLES = "X = 1\n"
 
+_DISPATCH_OLD = '"_dispatch": (_p("self"), _p("context"), _p("func"), _p("args"), _p("kwargs")),'
+_DISPATCH_REFORMATTED = (
+    '"_dispatch": (\n        _p("self"),\n        _p("context"),\n        _p("func"),\n        _p("args"),\n'
+    '        _p("kwargs"),\n    ),'
+)
+_DISPATCH_EXTENDED = '"_dispatch": (_p("self"), _p("context"), _p("func"), _p("args"), _p("kwargs"), _p("extra")),'
+
 
 def _script() -> ModuleType:
     if not _SCRIPT_PATH.is_file():
@@ -82,15 +89,11 @@ class TestSeamTables:
 
     def test_reformat_is_unchanged(self) -> None:
         source = _real_source()
-        old = '"_dispatch": (_p("self"), _p("context"), _p("func"), _p("args"), _p("kwargs")),'
-        new = '"_dispatch": (\n        _p("self"),\n        _p("context"),\n        _p("func"),\n        _p("args"),\n        _p("kwargs"),\n    ),'
-        assert _seam_tables(_edit(source, old, new)) == _seam_tables(source)
+        assert _seam_tables(_edit(source, _DISPATCH_OLD, _DISPATCH_REFORMATTED)) == _seam_tables(source)
 
     def test_signature_edit_is_changed(self) -> None:
         source = _real_source()
-        old = '"_dispatch": (_p("self"), _p("context"), _p("func"), _p("args"), _p("kwargs")),'
-        new = '"_dispatch": (_p("self"), _p("context"), _p("func"), _p("args"), _p("kwargs"), _p("extra")),'
-        assert _seam_tables(_edit(source, old, new)) != _seam_tables(source)
+        assert _seam_tables(_edit(source, _DISPATCH_OLD, _DISPATCH_EXTENDED)) != _seam_tables(source)
 
     def test_attribute_seam_edit_is_changed(self) -> None:
         source = _real_source()

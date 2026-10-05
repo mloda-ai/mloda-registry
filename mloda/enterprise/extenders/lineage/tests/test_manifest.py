@@ -146,15 +146,6 @@ def _manifest_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
     return [r.getMessage() for r in caplog.records if r.name == _MANIFEST and r.levelno == logging.WARNING]
 
 
-def test_manifest_lists_the_extender_when_the_community_patch_version_differs(monkeypatch: pytest.MonkeyPatch) -> None:
-    _cold_import_with_versions(monkeypatch, community="1.4.9")
-
-    manifest = importlib.import_module(_MANIFEST)
-    extender = getattr(importlib.import_module(_EXTENDER_MODULE), _EXTENDER_NAME)
-
-    assert manifest.EXTENDERS == [extender]
-
-
 @pytest.mark.parametrize("community", ["1.5.0", "1.3.7"])
 def test_manifest_is_empty_and_warns_once_when_the_community_minor_differs(
     community: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -173,16 +164,19 @@ def test_manifest_is_empty_and_warns_once_when_the_community_minor_differs(
     assert _EXTENDER_MODULE not in sys.modules
 
 
-@pytest.mark.parametrize("missing_dist", [_COMMUNITY_DIST, _ENTERPRISE_DIST])
-def test_manifest_lists_the_extender_when_a_distribution_has_no_metadata(
-    missing_dist: str, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("community", "enterprise"),
+    [
+        pytest.param("1.4.9", _ENTERPRISE_VERSION, id="community-patch-differs"),
+        pytest.param(None, _ENTERPRISE_VERSION, id="community-metadata-missing"),
+        pytest.param("1.5.0", None, id="enterprise-metadata-missing"),
+    ],
+)
+def test_manifest_lists_the_extender_when_the_versions_match_on_minor_or_cannot_be_compared(
+    community: str | None, enterprise: str | None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Editable or source checkouts without installed metadata skip the check."""
-    _cold_import_with_versions(monkeypatch, community="1.5.0")
-    _fake_versions(
-        monkeypatch,
-        {_COMMUNITY_DIST: "1.5.0", _ENTERPRISE_DIST: _ENTERPRISE_VERSION, missing_dist: None},
-    )
+    """A patch difference is tolerated; editable or source checkouts without installed metadata skip the check."""
+    _cold_import_with_versions(monkeypatch, community=community, enterprise=enterprise)
 
     manifest = importlib.import_module(_MANIFEST)
     extender = getattr(importlib.import_module(_EXTENDER_MODULE), _EXTENDER_NAME)
